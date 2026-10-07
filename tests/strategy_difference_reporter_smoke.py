@@ -200,6 +200,26 @@ def test_nav_only_difference_is_observed_at_session():
 
 
 
+
+def test_missing_core_holdings_reports_insufficient_evidence():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        c = root / "c"
+        k = root / "k"
+        c.mkdir(); k.mkdir()
+        pd.DataFrame(_equity()).to_csv(c / "equity_curve.csv", index=False)
+        pd.DataFrame(_equity()).to_csv(k / "equity_curve.csv", index=False)
+        (c / "metrics.json").write_text(json.dumps(_metrics()), encoding="utf-8")
+        (k / "metrics.json").write_text(json.dumps(_metrics()), encoding="utf-8")
+        report, events, _ = compare_replay_outputs(
+            load_replay_bundle(c, label="c"),
+            load_replay_bundle(k, label="k"),
+        )
+        _check(report["status"] == "insufficient_evidence")
+        _check(report["attribution"]["classification"] == "INSUFFICIENT_EVIDENCE")
+        _check(report["first_divergence_session"] == NOT_AVAILABLE)
+        _check(events.empty)
+
 def test_fee_is_not_recomputed_from_trade_rows_when_evaluator_total_is_missing():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
