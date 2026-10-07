@@ -706,3 +706,38 @@ Drive revision metadata exposes exact July revisions for at least AAPL/ABBV, but
 Next: bounded A1-style input admission/recovery within the existing R0 lane; exact crisis binding + G2-env rejection + hash-bound real-input gate + synthetic-cannot-pass regression. No recollection/synthesis. If any required historical bar bytes cannot be recovered and SHA-verified, keep R0 blocked.
 
 Recommended model: Extra High. Pro budget priority: MEDIUM.
+
+
+## G5 Leadership Re-Acceleration PREP — 2026-10-08
+
+Status:
+`DONE_PREPARE_ONLY / PARTIAL_OVERLAP / INCREMENTAL_REVIEW_VALUE / NO_MUTATION`
+
+Accepted interpretation:
+- no new standalone Leadership framework
+- reuse retained Leadership v2 + current RS/lifecycle/sector machinery
+- incremental value is a PIT-safe A2→A3 re-review trigger for prior leaders/winners
+- no canonical `REACCELERATING` Registry state now; use research diagnostic/annotation
+- no BUY/SELL/A5/order authority
+- no G5 integration/economic run while R0/R1 causal lane is unresolved
+
+Prepared patch:
+- `R1000_REACCELERATION_DIAGNOSTIC_PREP.patch`
+- SHA256 `cb351333b90e71b13901fbf6b12c55deea524e771ce7866c20792722e2e2bf3a`
+
+Local evidence:
+- normal 77/77 PASS
+- Python -O 77/77 PASS
+- native CI/economic validation NOT_RUN
+
+Real-company trace:
+- MSFT retained evidence reused
+- current conclusion `INSUFFICIENT_EVIDENCE / REACCELERATION_NOT_ADMITTED`
+- exact immutable dual-cutoff + same-lineage exit→reacceleration evidence still required
+
+Future sequence after R0/R1:
+`current-master narrow port → A1 source-bound dual-snapshot trace → A3 re-review payload → A6 independent validation → H2 Control vs price/RS trigger → freeze → optional A3-confirmed challenger`
+
+Current R0 live head observed:
+`c74e9bf80b7f25868e21fce939e5615d93ce399c`
+PR #586 Draft/open/unmerged. R0 remains the active integration/economic gate; R1 and G5 economics wait.
