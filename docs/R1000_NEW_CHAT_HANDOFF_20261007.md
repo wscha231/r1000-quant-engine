@@ -822,3 +822,36 @@ Future sequence after R0/R1:
 Current R0 live head observed:
 `c74e9bf80b7f25868e21fce939e5615d93ce399c`
 PR #586 Draft/open/unmerged. R0 remains the active integration/economic gate; R1 and G5 economics wait.
+
+
+## G4 SEC ACTUAL trace PREP — 2026-10-08
+
+Status:
+`PARTIAL_REAL_TRACE / NO_MUTATION`
+
+G4 narrowed the remaining gap to **retained Source3 artifact resolution + existing numerical Companyfacts normalizer → typed ACTUAL bridge binding**. No new SEC collector is needed.
+
+MSFT retained trace:
+- CIK `0000789019`
+- accession `0001193125-26-323660`
+- raw Source3 SHA256 `f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f`
+- source-current receipt SHA256 `9e459e4b05d658f9b703b63370be40f6085e9bea913638e08c9d7235415cf9d9`
+- READ_CALC receipt SHA256 `38be4cd79ba9d9ce463bd74b6525d2d8f04c67d0a7e781381892f3aa26eb2091`
+- READ_CALC result SHA256 `32d172f188d707cae60274d2316d441ae52b7f6271f466030319288e81a0edab`
+- retained evidence proves 6 observations / 3 comparisons for Revenue, NetIncome, DilutedEPS, but exact numerical values/concepts/units/period ends are not currently resolvable
+
+PIT:
+- prior 2026-10-02 cutoff correctly rejected Source3 as FUTURE_EVIDENCE
+- retained available/collected clock `2026-10-05T09:17:49.266311Z`
+- SEC accepted_at remains distinct from source_observed/available/collected
+- expiry UNKNOWN
+
+Real ACTUAL row / plan_reassessment were correctly NOT_RUN rather than synthesized.
+
+Next G4 step, allowed in parallel with R0:
+`retained Source3 recovery → exact value/concept/unit/period recovery → one real MSFT ACTUAL row → read-only plan_reassessment → proposal-only A3 handoff`
+
+If retained bytes cannot be resolved, stop:
+`BLOCKED_SOURCE_ADMISSION — RETAINED_SOURCE_ARTIFACT_NOT_RESOLVABLE`
+
+No ER/A5/BUY/SELL/Registry write/economic mutation.
