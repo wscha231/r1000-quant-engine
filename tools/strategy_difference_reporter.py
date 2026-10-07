@@ -369,7 +369,7 @@ def compare_replay_outputs(
             "first_divergence_asset": NOT_AVAILABLE,
             "first_divergence_reason": NOT_AVAILABLE,
             "attribution": {
-                "classification": "insufficient_evidence",
+                "classification": "INSUFFICIENT_EVIDENCE",
                 "observed_difference": False,
                 "attributable_candidate": False,
                 "insufficient_evidence": True,
