@@ -6409,3 +6409,9 @@ Expected contract:
   return code 2 and all admission/preservation assertions; capture exact argv,
   stdout/stderr, completion phase and child faulthandler output before changing
   a reader, backend or policy. Separate fixture setup calls from the single CLI.
+
+## 2026-10-07 — Product analytics must start with a non-transmitting privacy contract
+
+- A static public Pages surface does not by itself provide an approved private analytics collector. Keep collector_endpoint null and transmission disabled until hosting/provider, privacy-policy, consent and retention requirements are separately approved.
+- Pre-auth product-value measurement can be deterministic without persistent identity: use consented ephemeral sessions, strict event/property allowlists, usable-data qualification, dedupe and fixed timezone/session rules. Do not convert missing signup/user identity into zero D1/D7/D30 retention.
+- Keep raw behavioral events out of the public repository, reject free text and account/broker fields, and leave autocapture/session replay/ad tracking off. Browser instrumentation is a later B-side task, separate from investment logic and publication authority.
