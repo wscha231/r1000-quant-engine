@@ -415,42 +415,30 @@ Still NOT_RUN:
 
 ---
 
-# 13. G3 — PREPARED_LOCAL_REPORTED
+# 13. G3 — NATIVE_VALIDATED / DRAFT_UNMERGED
 
-Goal:
-Strategy Difference / Attribution reporter.
+PR:
+**#584 — Strategy Difference Reporter native binding**
 
-Reported local patch:
-`R1000_G3_Strategy_Difference_Reporter_PREP_20261007.patch`
+Head:
+`451b67cfb132921088b73a883f03116417b85fa6`
 
-Reported SHA256:
-`80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`
+Accepted:
+- read-only existing replay comparison
+- normal 16 PASS
+- Python -O 16 PASS
+- PR Validation 37589666282 SUCCESS
+- Portfolio Guard 37589666299 SUCCESS
+- evaluator fee only; missing fee => NOT_AVAILABLE
+- turnover requires explicit evaluator turnover
+- missing holdings => INSUFFICIENT_EVIDENCE
+- G1/G2 provenance identity is identity-only
+- early-exit/winner-capture remain NOT_AVAILABLE without outcome evidence
 
-Proposed files:
-- `tools/strategy_difference_reporter.py`
-- `tests/strategy_difference_reporter_smoke.py`
-
-Reported local test:
-- 12 PASS
-- py_compile PASS
-
-No GitHub branch/PR yet.
-
-Must reuse existing replay outputs:
-- trades.csv
-- holdings_daily.csv
-- cash_ledger.csv
-- equity_curve.csv
-- metrics.json
-
-Must not invent:
-- new evaluator
-- NAV engine
-- backtester
-- missing turnover
-- causal attribution without evidence
-
-Before native integration, obtain/preserve actual G3 patch bytes.
+Still NOT_RUN:
+- R0 replay/materialization
+- R1 economic experiment
+- merge/review/Codex
 
 ---
 
@@ -491,15 +479,15 @@ Macro does not directly choose stock weights.
 
 Current L0/TEMP_A0 decision:
 
-`G1 DONE → G2 binding NATIVE_VALIDATED → G3 binding → R0 materialization/full-Control parity → R1 → G5/G4/G6 increments → ER/A5 → forward/shadow`
+`G1 DONE → G2 binding NATIVE_VALIDATED → G3 NATIVE_VALIDATED → R0 materialization/full-Control parity → R1 → G5/G4/G6 increments → ER/A5 → forward/shadow`
 
 Important:
-- #581/#582/#583 remain Draft/unmerged evidence lanes.
-- G2 remains default OFF / LEGACY for the R0 Control arm.
-- G3 is observational/read-only and must not modify economic outputs.
-- Obtain the exact existing G3 patch bytes before native integration; do not reconstruct from summaries.
-- R0 = pure all-LEGACY direct Control vs modular all-LEGACY Control, with explicit isolated materialization identity.
-- R1 = one hold/replace hypothesis changed with common data/execution/evaluator.
+- #581/#582/#583/#584 remain Draft/unmerged evidence lanes.
+- R0 first proves pure all-LEGACY direct Control vs modular all-LEGACY Control.
+- Expected R0 alpha/economic delta = 0.
+- G2 remains OFF/LEGACY in R0 parity.
+- G3 consumes R0 replay refs; it does not generate or alter economic outcomes.
+- Only after R0 parity may R1 enable one G2 hold/replace hypothesis with common data/execution/evaluator.
 
 ---
 
@@ -688,30 +676,35 @@ Do not:
 
 # 22. Current immediate next task
 
-**G3 exact-byte intake + native binding preparation**.
+**R0 materialization + all-LEGACY full-Control parity**.
 
 Recommended model:
 **GPT-5.6 Sol Extra High**
 
 Pro budget priority:
-**LOW**
+**MEDIUM**
 
 Reason:
-bounded observational integration; no economic logic change.
+cross-module integration now touches actual replay materialization/economic identity, but the expected result is deterministic parity and no alpha tuning.
 
 Required:
-- return/preserve the already-prepared G3 patch bytes from the existing G3 worker
-- verify reported patch SHA256
-- bind G3 to the stable G1/G2 replay identities without creating a new evaluator/NAV engine
-- preserve NOT_AVAILABLE for missing turnover/winner/outcome/module provenance
-- no R0/R1 execution yet
-- no treatment materialization yet
-- no merge/Ready/Codex/paper/broker/public/live mutation
+- freeze exact master/G1/G2/G3 heads at task start
+- use identical candidate/regime/price/calendar/evaluation inputs for both arms
+- direct native legacy Control vs modular all-LEGACY Control
+- explicit isolated run roots
+- existing broker replay only
+- identical next_close / integer shares / $100k / 25bps / lag7
+- compare target books, trades, holdings, cash, equity/NAV, account state, metrics and artifact identities
+- use G3 reporter as read-only comparison consumer
+- expected first divergence = none and economic delta = zero
+- fail if both arms are merely blocked/empty
+- do not enable G2 treatment in the R0 parity arm
+- no R1/tuning/fullrun/merge/live mutation
 
-If G3 native binding validates:
-1. TEMP_A0 records it
-2. issue R0 materialization/full-Control parity task
-3. then R1 hold/replace experiment
+If R0 passes:
+1. record pure legacy parity
+2. separately authorize explicit G2 treatment materialization for R1
+3. run one bounded hold/replace hypothesis with common execution/evaluator
 
 ---
 
