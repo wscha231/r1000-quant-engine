@@ -6431,4 +6431,5 @@ Expected contract:
 - CORS is browser policy, not authentication. Keep the endpoint privacy-minimal, body/rate bounded and origin allowlisted, but treat abuse control and provider request logging as separate deployment gates.
 - Firestore TTL is asynchronous. Setting expiration before the contractual maximum creates margin but does not prove hard deletion by the deadline; verify/disclose TTL behavior or add a separately approved purge mechanism.
 - Cloud Run request logs are platform-generated even when application access logging is off; production traffic stays blocked until a Cloud Logging exclusion is configured and verified.
+- When a validated external ID becomes a Firestore document key, apply Firestore's own document-ID constraints as a second storage-boundary check; schema-valid `.`/`..`/`__...__` IDs must fail before persistence.
 

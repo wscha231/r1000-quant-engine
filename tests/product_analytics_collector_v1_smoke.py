@@ -251,6 +251,13 @@ def test_consent_schema_and_future_time_fail_closed() -> None:
     )
 
 
+def test_firestore_document_id_constraints_fail_closed() -> None:
+    app, _ = make_app()
+    require(call(app, payload=event("."))[0] == 400, "dot id")
+    require(call(app, payload=event(".."))[0] == 400, "double-dot id")
+    require(call(app, payload=event("__reserved__"))[0] == 400, "reserved id")
+
+
 def test_payload_content_type_and_persistence_fail_closed() -> None:
     app, store = make_app(max_body_bytes=64)
     require(
@@ -340,6 +347,7 @@ def main() -> int:
         test_valid_event_is_accepted_without_transport_metadata,
         test_exact_duplicate_is_idempotent_and_conflict_is_409,
         test_consent_schema_and_future_time_fail_closed,
+        test_firestore_document_id_constraints_fail_closed,
         test_payload_content_type_and_persistence_fail_closed,
         test_rate_limit_is_bounded_per_instance,
         test_no_raw_request_metadata_is_referenced_by_application,

@@ -32,8 +32,8 @@ Success:
 - idempotent `202 Accepted` for an exact duplicate `event_id`.
 
 Fail closed:
-- `400` malformed JSON, schema violation, unsupported content type, or future
-  client timestamp;
+- `400` malformed JSON, schema violation, Firestore-incompatible document ID,
+  unsupported content type, or future client timestamp;
 - `403` inactive consent or disallowed/missing Origin;
 - `409` conflicting reuse of an existing `event_id`;
 - `413` request body over the configured limit;
@@ -63,7 +63,8 @@ against the actual collector service before enabling browser transmission.
 ## Firestore idempotency and IAM
 
 The adapter first performs an atomic document `create` using exact `event_id`
-as the document key. Only when the document already exists does it read that
+as the document key. Firestore-reserved document IDs (`.`, `..`, or
+`__...__`) are rejected before persistence. Only when the document already exists does it read that
 single document to distinguish an exact duplicate from a conflicting duplicate.
 It does not query, list, update or delete analytics documents.
 

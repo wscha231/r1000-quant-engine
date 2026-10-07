@@ -404,10 +404,21 @@ class CollectorApplication:
             for key, value in normalized.items()
             if not key.startswith("_")
         }
+        event_id = public_event["event_id"]
+        if (
+            event_id in {".", ".."}
+            or (event_id.startswith("__") and event_id.endswith("__"))
+        ):
+            return _respond(
+                start_response,
+                "400 Bad Request",
+                {"status": "rejected", "reason": "storage_key"},
+                origin=origin,
+            )
         expires_at = now + timedelta(days=self.config.raw_ttl_days)
         try:
             outcome = self._get_store().create_or_compare(
-                public_event["event_id"],
+                event_id,
                 public_event,
                 server_received_at_utc=now,
                 expires_at=expires_at,
