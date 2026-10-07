@@ -415,29 +415,30 @@ Still NOT_RUN:
 
 ---
 
-# 13. G3 — NATIVE_VALIDATED / DRAFT_UNMERGED
+# 13. G3 — BINDING_NATIVE_VALIDATED / DRAFT_UNMERGED
 
-PR:
-**#584 — Strategy Difference Reporter native binding**
+Draft PR:
+**#584** head `451b67cfb132921088b73a883f03116417b85fa6`
 
-Head:
-`451b67cfb132921088b73a883f03116417b85fa6`
-
-Accepted:
-- read-only existing replay comparison
-- normal 16 PASS
-- Python -O 16 PASS
+Accepted evidence:
+- original patch bytes recovered and verified
+- source/smoke provenance verified
+- read-only strategy difference reporter
+- replay refs separated from identity/provenance
+- fee from evaluator metrics only
+- turnover only when explicit
+- missing optional fields => NOT_AVAILABLE
+- missing core holdings => INSUFFICIENT_EVIDENCE
+- native normal 16 PASS
+- native Python -O 16 PASS
 - PR Validation 37589666282 SUCCESS
 - Portfolio Guard 37589666299 SUCCESS
-- evaluator fee only; missing fee => NOT_AVAILABLE
-- turnover requires explicit evaluator turnover
-- missing holdings => INSUFFICIENT_EVIDENCE
-- G1/G2 provenance identity is identity-only
-- early-exit/winner-capture remain NOT_AVAILABLE without outcome evidence
 
 Still NOT_RUN:
-- R0 replay/materialization
-- R1 economic experiment
+- R0
+- R1
+- G2 treatment materialization
+- economic comparison
 - merge/review/Codex
 
 ---
@@ -479,15 +480,17 @@ Macro does not directly choose stock weights.
 
 Current L0/TEMP_A0 decision:
 
-`G1 DONE → G2 binding NATIVE_VALIDATED → G3 NATIVE_VALIDATED → R0 materialization/full-Control parity → R1 → G5/G4/G6 increments → ER/A5 → forward/shadow`
+`G1 DONE → G2 binding NATIVE_VALIDATED → G3 binding NATIVE_VALIDATED → R0 all-LEGACY materialization/full-Control parity → R1 one G2 hold/replace candidate → G5/G4/G6 increments → ER/A5 → forward/shadow`
 
-Important:
-- #581/#582/#583/#584 remain Draft/unmerged evidence lanes.
-- R0 first proves pure all-LEGACY direct Control vs modular all-LEGACY Control.
-- Expected R0 alpha/economic delta = 0.
-- G2 remains OFF/LEGACY in R0 parity.
-- G3 consumes R0 replay refs; it does not generate or alter economic outcomes.
-- Only after R0 parity may R1 enable one G2 hold/replace hypothesis with common data/execution/evaluator.
+Critical R0 rule:
+- R0 uses **no G2 treatment**.
+- direct native Control and modular G1 all-LEGACY must receive identical frozen inputs and identical EvaluationSpec.
+- their isolated replay artifacts are compared directly and then consumed by G3.
+- expected economic delta is zero.
+
+Only after R0 passes:
+- R1 may materialize G2 treatment target books into the candidate replay path.
+- R1 changes one hold/replace hypothesis only.
 
 ---
 
@@ -676,7 +679,7 @@ Do not:
 
 # 22. Current immediate next task
 
-**R0 materialization + all-LEGACY full-Control parity**.
+**R0 isolated materialization + all-LEGACY full-Control parity**.
 
 Recommended model:
 **GPT-5.6 Sol Extra High**
@@ -685,26 +688,25 @@ Pro budget priority:
 **MEDIUM**
 
 Reason:
-cross-module integration now touches actual replay materialization/economic identity, but the expected result is deterministic parity and no alpha tuning.
+crosses target-book materialization, existing broker replay/accounting, and G3 read-only comparison, but the expected result is deterministic parity and the contracts are already bounded.
 
 Required:
-- freeze exact master/G1/G2/G3 heads at task start
-- use identical candidate/regime/price/calendar/evaluation inputs for both arms
-- direct native legacy Control vs modular all-LEGACY Control
-- explicit isolated run roots
-- existing broker replay only
-- identical next_close / integer shares / $100k / 25bps / lag7
-- compare target books, trades, holdings, cash, equity/NAV, account state, metrics and artifact identities
-- use G3 reporter as read-only comparison consumer
-- expected first divergence = none and economic delta = zero
-- fail if both arms are merely blocked/empty
-- do not enable G2 treatment in the R0 parity arm
-- no R1/tuning/fullrun/merge/live mutation
+- compose exact validated G1/G2/G3 integration capabilities without merging their Draft PRs
+- create a deterministic isolated run/materialization contract
+- Control arm = native current Control
+- Modular arm = G1 all-LEGACY, parameters=()
+- no G2 treatment in either R0 arm
+- same frozen data/universe/calendar/price cache/execution/cost/accounting/evaluator/window/initial capital
+- produce two distinct immutable replay refs
+- exact parity on target books/orders/fills/holdings/cash/fees/equity/account state/reason fields where applicable
+- feed both replay refs to G3
+- G3 should report no economically meaningful divergence
+- fail closed on identity/input mismatch
+- no parameter tuning/fullrun/live mutation
 
 If R0 passes:
-1. record pure legacy parity
-2. separately authorize explicit G2 treatment materialization for R1
-3. run one bounded hold/replace hypothesis with common execution/evaluator
+1. record R0 parity receipt
+2. then issue R1 G2 treatment materialization/economic experiment
 
 ---
 
