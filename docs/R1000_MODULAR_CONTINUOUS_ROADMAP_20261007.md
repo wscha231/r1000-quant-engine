@@ -829,3 +829,33 @@ Optional later:
 `G6-TRACE-HY-PIT` READ_ONLY retained-source recovery.
 
 No H2 feature/economic experiment until H1 integrity and R0/R1 prerequisites are cleared.
+
+
+## G6-H1 Macro/Regime fail-closed PREP — 2026-10-08
+
+Status:
+`H1_FAIL_OPEN_CONFIRMED_PATCH_PREPARED`
+
+Current master:
+`37046b734eccba9176d091c0fcc2745f5050a8e3`
+
+The master change from `6a2fa...` is B5 Product Analytics PR #587 and does not directly overlap the G6-H1 target files.
+
+Confirmed fail-open candidates:
+- VIX missing → numeric 20.0 can be treated as valid risk input
+- missing/short SPY evidence → benign `spy_above_200ma=True` can be produced
+- regime pre-flight exception in paper executor can warn and continue toward conditional paper execution
+
+Operational reachability:
+scheduled after-close is dry-run by default, while manual `execute=true` + `allow_legacy_execute=true` can reach Alpaca Paper execution. Current actual activation/orders remain NOT_VERIFIED.
+
+Local PREP:
+- minimal executor-focused fail-closed patch candidate
+- normal 13/13 PASS
+- Python -O 13/13 PASS
+- native CI/A6 NOT_RUN
+
+Next:
+`current-master narrow H1 mutation lane → native full-main guard tests → current-head CI → independent A6`
+
+Do not change thresholds, portfolio policy, R0/R1, or H2 macro features.
