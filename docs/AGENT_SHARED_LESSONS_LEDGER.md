@@ -6420,3 +6420,4 @@ Expected contract:
 - Bound offline analytics input bytes, event count, JSON depth and node count before expensive aggregation; normalize recursion/oversize failures to finite contract errors, and keep these regressions in Tier-1 validation.
 - Resource budgets apply to the whole export, not independently to each JSONL row; revalidate the assembled row set so individually valid rows cannot bypass the cumulative node cap.
 - UTC syntax validity is not enough for calendar aggregation. Normalize timezone conversion overflow at the KPI-day boundary to a finite ContractError instead of crashing the batch.
+- Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.

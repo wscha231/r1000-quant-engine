@@ -350,6 +350,26 @@ def test_kst_timestamp_overflow_fails_closed() -> None:
         ),
         "occurred_at_utc_kst_range",
     )
+    require_error(
+        lambda: aggregate(
+            [
+                event(
+                    "safe-anchor",
+                    "site_viewed",
+                    "9999-12-31T14:40:00Z",
+                    session="same-max-date",
+                ),
+                event(
+                    "overflow-second",
+                    "site_viewed",
+                    "9999-12-31T15:10:00Z",
+                    session="same-max-date",
+                ),
+            ],
+            contract,
+        ),
+        "occurred_at_utc_kst_range",
+    )
 
 
 def test_internal_and_bot_events_are_excluded() -> None:

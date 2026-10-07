@@ -310,6 +310,10 @@ def validate_event(
 
     occurred = parse_utc(event["occurred_at_utc"], "occurred_at_utc")
     received = parse_utc(event["received_at_utc"], "received_at_utc")
+    try:
+        occurred.astimezone(KST)
+    except (OverflowError, ValueError) as exc:
+        raise ContractError("occurred_at_utc_kst_range") from exc
     if received < occurred:
         raise ContractError("received_before_occurred")
 
