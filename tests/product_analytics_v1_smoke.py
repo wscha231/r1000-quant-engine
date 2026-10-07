@@ -12,10 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import tools.aggregate_product_analytics as analytics  # noqa: E402
 from tools.aggregate_product_analytics import (  # noqa: E402
     ContractError,
     aggregate,
     load_contract,
+    read_events,
+    strict_json_loads,
 )
 
 CONTRACT = (
@@ -234,6 +237,61 @@ def test_unknown_free_text_and_inactive_consent_fail_closed() -> None:
     )
 
 
+def test_mixed_state_session_cannot_qualify() -> None:
+    contract = load_contract(CONTRACT)
+    rows = [
+        event("mixed-search", "research_search_succeeded", "2026-10-07T10:00:00Z", surface="research_results"),
+        event("mixed-source", "research_source_opened", "2026-10-07T10:01:00Z", surface="research_source"),
+        event("mixed-degraded", "site_viewed", "2026-10-07T10:02:00Z", data_state="RESEARCH_DEGRADED"),
+    ]
+    result = aggregate(rows, contract)
+    day = result["daily"][0]
+    require(day["usable_sessions"] == 0, "mixed session usable")
+    require(day["degraded_sessions"] == 1, "mixed session degraded")
+    require(day["qualified_value_sessions"] == 0, "mixed session must not qualify")
+    require(day["anonymous_qualified_value_session_rate"] is None, "mixed session rate")
+
+
+def test_custom_contract_cannot_weaken_privacy_boundary() -> None:
+    payload = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "contract.json"
+        weakened_identity = deepcopy(payload)
+        weakened_identity["identity"]["user_id_allowed"] = True
+        path.write_text(json.dumps(weakened_identity), encoding="utf-8")
+        require_error(lambda: load_contract(path), "user_id_must_remain_disabled")
+        weakened_fields = deepcopy(payload)
+        weakened_fields["optional_fields"].append("user_id")
+        weakened_fields["forbidden_fields"].remove("user_id")
+        path.write_text(json.dumps(weakened_fields), encoding="utf-8")
+        require_error(lambda: load_contract(path), "optional_field_contract_mismatch")
+
+
+def test_input_resource_limits_fail_closed() -> None:
+    require_error(
+        lambda: strict_json_loads("[" * (analytics.MAX_JSON_DEPTH + 1) + "0" + "]" * (analytics.MAX_JSON_DEPTH + 1)),
+        "json_depth_limit",
+    )
+    with TemporaryDirectory() as tmp:
+        path = Path(tmp) / "events.json"
+        path.write_text(json.dumps([
+            event("limit-a", "site_viewed", "2026-10-07T10:00:00Z"),
+            event("limit-b", "site_viewed", "2026-10-07T10:01:00Z"),
+        ]), encoding="utf-8")
+        old_event_limit = analytics.MAX_EVENTS
+        analytics.MAX_EVENTS = 1
+        try:
+            require_error(lambda: read_events(path), "event_count_limit")
+        finally:
+            analytics.MAX_EVENTS = old_event_limit
+        old_byte_limit = analytics.MAX_EVENT_INPUT_BYTES
+        analytics.MAX_EVENT_INPUT_BYTES = 8
+        try:
+            require_error(lambda: read_events(path), "events_byte_limit")
+        finally:
+            analytics.MAX_EVENT_INPUT_BYTES = old_byte_limit
+
+
 def test_internal_and_bot_events_are_excluded() -> None:
     contract = load_contract(CONTRACT)
     result = aggregate(
@@ -318,31 +376,18 @@ def test_optimized_python_keeps_contract_checks() -> None:
             json.dumps([bad]),
             encoding="utf-8",
         )
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-O",
-                str(
-                    ROOT
-                    / "tools"
-                    / "aggregate_product_analytics.py"
-                ),
-                "--events",
-                str(event_path),
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-        require(
-            proc.returncode != 0,
-            "-O must not disable validation",
-        )
-        require(
-            "analytics_consent_not_active"
-            in (proc.stderr + proc.stdout),
-            "-O validation reason",
-        )
+        command = [sys.executable, "-O", str(ROOT / "tools" / "aggregate_product_analytics.py"), "--events", str(event_path)]
+        proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        require(proc.returncode != 0, "-O must not disable validation")
+        require("analytics_consent_not_active" in (proc.stderr + proc.stdout), "-O validation reason")
+        contract_path = Path(tmp) / "contract.json"
+        weakened = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        weakened["identity"]["user_id_allowed"] = True
+        contract_path.write_text(json.dumps(weakened), encoding="utf-8")
+        event_path.write_text(json.dumps([event("good", "site_viewed", "2026-10-07T10:00:00Z")]), encoding="utf-8")
+        contract_proc = subprocess.run(command + ["--contract", str(contract_path)], cwd=ROOT, capture_output=True, text=True)
+        require(contract_proc.returncode != 0, "-O must keep contract privacy validation")
+        require("user_id_must_remain_disabled" in (contract_proc.stderr + contract_proc.stdout), "-O contract privacy reason")
 
 
 def main() -> int:
@@ -351,6 +396,9 @@ def main() -> int:
         test_qualified_session_requires_usable_search_and_depth_action,
         test_exact_duplicate_dedupes_but_conflict_fails,
         test_unknown_free_text_and_inactive_consent_fail_closed,
+        test_mixed_state_session_cannot_qualify,
+        test_custom_contract_cannot_weaken_privacy_boundary,
+        test_input_resource_limits_fail_closed,
         test_internal_and_bot_events_are_excluded,
         test_session_timeout_and_kst_day_boundary_are_deterministic,
         test_optimized_python_keeps_contract_checks,

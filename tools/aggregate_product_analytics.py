@@ -22,10 +22,74 @@ DEFAULT_CONTRACT = ROOT / "data_static" / "product_analytics_event_contract_v1.j
 KST = ZoneInfo("Asia/Seoul")
 ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
 ENTITY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+MAX_EVENT_INPUT_BYTES = 16 * 1024 * 1024
+MAX_CONTRACT_BYTES = 256 * 1024
+MAX_EVENTS = 100_000
+MAX_JSON_DEPTH = 32
+MAX_JSON_NODES = 2_000_000
+
+FROZEN_CONTRACT_KEYS = {
+    "schema_version", "status", "event_schema_version", "event_version",
+    "collector_endpoint", "transmission_enabled", "consent", "identity",
+    "retention", "allowed_event_names", "required_fields", "optional_fields",
+    "forbidden_fields", "allowed_pages", "allowed_surfaces",
+    "allowed_entity_types", "allowed_markets", "allowed_data_states",
+    "qualified_value_session", "primary_kpi", "privacy",
+}
+FROZEN_REQUIRED_FIELDS = {
+    "schema_version", "event_name", "event_version", "event_id",
+    "occurred_at_utc", "received_at_utc", "session_id", "consent_status",
+    "consent_version", "page", "surface", "data_state",
+    "public_artifact_version", "is_internal", "is_bot",
+}
+FROZEN_OPTIONAL_FIELDS = {"entity_type", "entity_id", "market"}
+FROZEN_FORBIDDEN_FIELDS = {
+    "anonymous_id", "user_id", "email", "phone", "name", "ip", "ip_address",
+    "user_agent", "referrer", "referrer_url", "search_query", "free_text",
+    "broker_id", "account_id", "account_value", "position_quantity", "pnl",
+    "clipboard", "keystrokes", "mouse_path", "session_replay",
+}
 
 
 class ContractError(ValueError):
     pass
+
+
+def _read_bounded_utf8(path: Path, byte_limit: int, label: str) -> str:
+    with path.open("rb") as handle:
+        raw = handle.read(byte_limit + 1)
+    if len(raw) > byte_limit:
+        raise ContractError(f"{label}_byte_limit")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ContractError(f"{label}_invalid_utf8") from exc
+
+
+def _validate_json_shape(value: Any) -> None:
+    pending: list[tuple[Any, int]] = [(value, 1)]
+    nodes = 0
+    while pending:
+        item, depth = pending.pop()
+        nodes += 1
+        if nodes > MAX_JSON_NODES:
+            raise ContractError("json_node_limit")
+        if depth > MAX_JSON_DEPTH:
+            raise ContractError("json_depth_limit")
+        if isinstance(item, dict):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+
+
+def _string_set(value: Any, reason: str) -> set[str]:
+    if (
+        not isinstance(value, list)
+        or not all(isinstance(item, str) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ContractError(reason)
+    return set(value)
 
 
 def strict_json_loads(raw: str) -> Any:
@@ -38,7 +102,7 @@ def strict_json_loads(raw: str) -> Any:
         return out
 
     try:
-        return json.loads(
+        value = json.loads(
             raw,
             object_pairs_hook=pairs,
             parse_constant=lambda value: (_ for _ in ()).throw(
@@ -47,6 +111,10 @@ def strict_json_loads(raw: str) -> Any:
         )
     except json.JSONDecodeError as exc:
         raise ContractError(f"invalid_json:{exc.msg}") from exc
+    except RecursionError as exc:
+        raise ContractError("json_depth_limit") from exc
+    _validate_json_shape(value)
+    return value
 
 
 def parse_utc(value: Any, field: str) -> datetime:
@@ -62,26 +130,69 @@ def parse_utc(value: Any, field: str) -> datetime:
 
 
 def load_contract(path: Path) -> dict[str, Any]:
-    payload = strict_json_loads(path.read_text(encoding="utf-8"))
+    payload = strict_json_loads(
+        _read_bounded_utf8(path, MAX_CONTRACT_BYTES, "contract")
+    )
     if not isinstance(payload, dict):
         raise ContractError("contract_not_object")
+    if set(payload) != FROZEN_CONTRACT_KEYS:
+        raise ContractError("contract_fields_mismatch")
     if payload.get("schema_version") != "b5-product-analytics-contract-v1":
         raise ContractError("unexpected_contract_schema")
+    if payload.get("status") != "PREPARED_NOT_TRANSMITTING":
+        raise ContractError("unexpected_contract_status")
+    if payload.get("event_schema_version") != "b5-product-analytics-event-v1":
+        raise ContractError("event_schema_contract_mismatch")
+    if (
+        payload.get("event_version") != 1
+        or isinstance(payload.get("event_version"), bool)
+    ):
+        raise ContractError("event_version_contract_mismatch")
     if (
         payload.get("transmission_enabled") is not False
         or payload.get("collector_endpoint") is not None
     ):
         raise ContractError("v1_transmission_must_remain_disabled")
-    if (
-        payload.get("identity", {}).get("persistent_anonymous_id_allowed")
-        is not False
-    ):
-        raise ContractError("persistent_anonymous_id_must_remain_disabled")
+    consent = payload.get("consent")
+    if consent != {"required": True, "required_status": "ACTIVE", "consent_version": "b6-analytics-consent-v1"}:
+        raise ContractError("consent_contract_mismatch")
+    identity = payload.get("identity")
+    if identity != {"persistent_anonymous_id_allowed": False, "preauth_session_id_only": True, "session_timeout_seconds": 1800, "user_id_allowed": False}:
+        if isinstance(identity, dict) and identity.get("user_id_allowed") is not False:
+            raise ContractError("user_id_must_remain_disabled")
+        raise ContractError("identity_contract_mismatch")
+    if payload.get("retention") != {"raw_event_days_max": 90, "identifier_free_aggregate_months_max": 13}:
+        raise ContractError("retention_contract_mismatch")
+    if _string_set(payload.get("required_fields"), "required_field_contract_mismatch") != FROZEN_REQUIRED_FIELDS:
+        raise ContractError("required_field_contract_mismatch")
+    if _string_set(payload.get("optional_fields"), "optional_field_contract_mismatch") != FROZEN_OPTIONAL_FIELDS:
+        raise ContractError("optional_field_contract_mismatch")
+    forbidden = _string_set(payload.get("forbidden_fields"), "forbidden_field_contract_mismatch")
+    if not FROZEN_FORBIDDEN_FIELDS.issubset(forbidden):
+        raise ContractError("forbidden_field_contract_mismatch")
+    if _string_set(payload.get("allowed_event_names"), "event_name_contract_mismatch") != {"site_viewed", "research_search_succeeded", "research_source_opened", "trade_ledger_opened"}:
+        raise ContractError("event_name_contract_mismatch")
+    if _string_set(payload.get("allowed_pages"), "page_contract_mismatch") != {"home"}:
+        raise ContractError("page_contract_mismatch")
+    if _string_set(payload.get("allowed_surfaces"), "surface_contract_mismatch") != {"site", "research_results", "research_source", "trade_ledger"}:
+        raise ContractError("surface_contract_mismatch")
+    if _string_set(payload.get("allowed_entity_types"), "entity_type_contract_mismatch") != {"ticker", "source", "portfolio"}:
+        raise ContractError("entity_type_contract_mismatch")
+    if _string_set(payload.get("allowed_markets"), "market_contract_mismatch") != {"US", "KR", "MULTI"}:
+        raise ContractError("market_contract_mismatch")
+    if _string_set(payload.get("allowed_data_states"), "data_state_contract_mismatch") != {"USABLE", "STALE_PORTFOLIO", "RESEARCH_DEGRADED", "DATA_INCOMPLETE", "BLOCKED"}:
+        raise ContractError("data_state_contract_mismatch")
+    if payload.get("qualified_value_session") != {"required_data_state": "USABLE", "requires_all": ["research_search_succeeded"], "requires_any": ["research_source_opened", "trade_ledger_opened"]}:
+        raise ContractError("qualified_value_contract_mismatch")
+    if payload.get("primary_kpi") != {"name": "activated_user_d7_qualified_retention", "status": "NOT_AVAILABLE", "reason": "NO_PERSISTENT_USER_ID_OR_SIGNUP_IN_V1"}:
+        raise ContractError("primary_kpi_contract_mismatch")
+    if payload.get("privacy") != {"autocapture": False, "session_replay": False, "ad_tracking": False, "cross_site_tracking": False, "raw_ip_storage": False, "public_github_raw_events": False}:
+        raise ContractError("privacy_contract_mismatch")
     return payload
 
 
 def read_events(path: Path) -> list[dict[str, Any]]:
-    raw = path.read_text(encoding="utf-8")
+    raw = _read_bounded_utf8(path, MAX_EVENT_INPUT_BYTES, "events")
     stripped = raw.lstrip()
     if not stripped:
         return []
@@ -99,6 +210,10 @@ def read_events(path: Path) -> list[dict[str, Any]]:
             if not isinstance(item, dict):
                 raise ContractError(f"event_line_not_object:{number}")
             rows.append(item)
+            if len(rows) > MAX_EVENTS:
+                raise ContractError("event_count_limit")
+    if len(rows) > MAX_EVENTS:
+        raise ContractError("event_count_limit")
     if not all(isinstance(row, dict) for row in rows):
         raise ContractError("event_not_object")
     return rows
@@ -275,12 +390,9 @@ def qualified_value(
     contract: dict[str, Any],
 ) -> bool:
     rule = contract["qualified_value_session"]
-    usable = [
-        row
-        for row in rows
-        if row["data_state"] == rule["required_data_state"]
-    ]
-    names = {row["event_name"] for row in usable}
+    if any(row["data_state"] != rule["required_data_state"] for row in rows):
+        return False
+    names = {row["event_name"] for row in rows}
     return all(name in names for name in rule["requires_all"]) and any(
         name in names for name in rule["requires_any"]
     )

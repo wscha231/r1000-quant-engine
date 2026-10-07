@@ -44,11 +44,18 @@ The canonical timeout is 30 minutes of inactivity. The offline aggregator does
 not trust a client session ID across an inactivity gap: it deterministically
 splits the supplied ID when the gap exceeds 1,800 seconds.
 
-Only events with `data_state=USABLE` may form a qualified value session. Stale,
-degraded, incomplete and blocked sessions remain observable but do not count as
-qualified activation proxies.
+Only a session segment whose every event has `data_state=USABLE` may form a
+qualified value session. A mixed segment containing any stale, degraded,
+incomplete or blocked event is classified as degraded and cannot count as a
+qualified activation proxy.
 
 KPI dates use `Asia/Seoul` calendar days. Raw timestamps remain UTC.
+
+Offline inputs fail closed before aggregation: event exports are bounded to
+16 MiB and 100,000 events; decoded JSON is bounded to depth 32 and 2,000,000
+value/container nodes. The optional `--contract` path may not weaken the
+frozen v1 identity, consent, field allowlist/denylist, tracking or transmission
+boundary.
 
 ## D1 / D7 / D30
 
