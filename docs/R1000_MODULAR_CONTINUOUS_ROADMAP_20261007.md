@@ -356,8 +356,8 @@ PREPARED / not fully integrated:
 - Macro Transmission V2 package/results
 
 ACTIVE:
-- G1 legacy-Control modular adapter: ORIGINAL BYTES VERIFIED; local structural parity prepared; nonstub broker fixture parity BLOCKED_ENVIRONMENT because isolated runtime lacks native dependencies; actual broker replay executions 0
-- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; validate SUCCESS and Portfolio Guard SUCCESS; keep Draft/no merge until G1 native contract and lane reconciliation
+- G1 legacy-Control modular adapter: exact original four-file bundle VERIFIED; isolated Draft PR #582 head `92ffe3f2305a73b8e1d03e1f8565c33aaf11c128`; final two Git blobs equal local supplied originals; generic portfolio_guard/evaluate PASS; G1 smoke is not yet registered in Tier-1 runner, so native G1 smoke/nonstub broker parity/R0 remain NOT_RUN
+- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; validate SUCCESS and Portfolio Guard SUCCESS; keep separate/no merge pending G1 native validation and integration contract
 - G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
@@ -499,3 +499,38 @@ Next preferred path:
 
 G2 is not part of all-legacy R0. A post-Control G2 treatment is an overlay until true module replacement is demonstrated.
 G3 requires actual patch bytes plus comparable replay manifests before native wiring.
+
+
+## 11.4 G1 exact-original Draft checkpoint — 2026-10-07
+
+User supplied the four original G1 artifacts directly.
+
+Verified identities:
+- adapter SHA256 `fc422c209592ebc369e4ed4b2571a9956eb21f3fd76403a1a9489a30fabfda86`
+- smoke SHA256 `e3fc046c3be48cf04cfed12e367eb11c5fc364a2b393186cc458b9af12c80bd9`
+- original patch SHA256 `0f14c40c1ca64635a8b2f5fe85044b74e3b21061afef4b068842b1d740d45960`
+- original ZIP SHA256 `172acb859f7d35719ff1d9d451d05f002e0fbd0548e1eea841fe19d517d6b063`
+- ZIP members == standalone originals
+- patch apply and source byte comparison: PASS
+
+G1 Draft PR #582:
+- base `6a2fa606896a2f263fffa07b9273d60f2d011626`
+- head `92ffe3f2305a73b8e1d03e1f8565c33aaf11c128`
+- net changed files: `tools/legacy_control_adapter.py`, `tests/legacy_control_adapter_smoke.py`
+- adapter Git blob `759de0342c759c98ac5996b4433dcba3a1eca675`
+- smoke Git blob `1eaf7cb7804129dde11ae4101444616ce54c88d2`
+- those blob IDs equal local `git hash-object` of the supplied originals
+- current-head generic `portfolio_guard` and `evaluate`: SUCCESS
+- Draft `review_complete`: expected blocked
+
+Important:
+`tests/legacy_control_adapter_smoke.py` is not currently listed in master `tools/run_pr_validation.py` DEFAULT_TESTS. Generic green CI must not be reported as G1 smoke PASS.
+
+Still NOT_RUN:
+- G1 smoke in repository dependency-complete CI
+- nonstub broker fixture parity
+- full-history R0
+- economic comparison
+- merge/review approval
+
+Any native-validation wiring should be the narrowest possible integration step and must not silently combine G2/G3 or broaden economic authority.
