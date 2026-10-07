@@ -8,6 +8,7 @@
 > Actual Broker Book → Approved Target/Portfolio → CURRENT_STATUS/[PROJECT_HANDOFF] → merged code/config → verified artifacts/receipts → approved thesis → chat summary.
 >
 > Central progress ledger: **GitHub Issue #448**.
+> New-chat durable handoff: **`docs/R1000_NEW_CHAT_HANDOFF_20261007.md`**. New chats/agents should read this handoff first, then reconcile live #448/master/PR state.
 > Every task should read this document + the latest relevant #448 checkpoint before starting, and should return a compact completion/update record to #448 when possible.
 
 ## 1. Program objective
