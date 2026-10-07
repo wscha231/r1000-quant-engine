@@ -358,7 +358,7 @@ PREPARED / not fully integrated:
 
 ACTIVE:
 - G1 legacy-Control modular adapter: DONE_VALIDATED / Draft PR #582 head `a37d50026850eb76e7454fa7ae02ad7a66d43319`; native smoke normal/-O 14/14 PASS, SKIP0; real broker fixture direct↔adapter parity PASS; R0 full-Control parity still NOT_RUN
-- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; validate SUCCESS and Portfolio Guard SUCCESS; keep separate/no merge pending G1 native validation and integration contract
+- G2 hold/exit binding: PREPARED_LOCAL_VERIFIED; exact G1 #582 + G2 #581 contracts reused; local normal/-O 10/10 PASS; native combined-tree CI NOT_RUN; next = isolated integration validation
 - G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
@@ -565,3 +565,35 @@ Next integration order:
 `G2 binding capability (default OFF/LEGACY) → G3 binding → R0 all-LEGACY full-Control parity → R1 hold/replace experiment`.
 
 G1 #582 remains Draft/unmerged until review/attestation gates are available.
+
+
+## 11.6 G2→G1 binding preparation — 2026-10-07
+
+Task: `R1000-G2-BINDING-TO-G1-20261007`
+
+Status:
+`PREPARED_LOCAL_VERIFIED / NATIVE_INTEGRATION_NOT_RUN`
+
+Bundle identities:
+- ZIP SHA256 `816b99efd0dd92b4168c68f32395ecbca4aad6caedfa7ff13f75ebc558784db2`
+- patch SHA256 `e083b37acd2fc68d7e0db8cb862cfaba1f8a9b52a3cf860e60e50399b00afc41`
+- binding SHA256 `cb63a1d165460902f25e234fb3e0b325c75f98e01a19f664880a52950cc1c9a9`
+- smoke SHA256 `3b69e2a5c2aaddf634233242cd9ac3785f446c4cfe68cbe7fd23a455dde47537`
+
+Local evidence:
+- normal 10/10 PASS
+- Python -O 10/10 PASS
+
+Design:
+- LEGACY = exact G1 bypass, G2 loader zero-call
+- G2 = post-Control/pre-broker overlay
+- only minimum_score_gap candidate axis admitted
+- exact G2 config/audit identity required
+- missing PIT/lifecycle inputs fail closed
+- treatment-book materialization remains a separate next-stage concern
+
+Next:
+`exact G1+G2 combined integration tree + binding patch → native smoke/CI → only then R0 materialization wiring`.
+
+Recommended model: Extra High.
+Pro budget priority: LOW.
