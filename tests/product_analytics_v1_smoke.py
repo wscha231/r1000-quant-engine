@@ -282,6 +282,12 @@ def test_input_resource_limits_fail_closed() -> None:
         lambda: strict_json_loads("[" * (analytics.MAX_JSON_DEPTH + 1) + "0" + "]" * (analytics.MAX_JSON_DEPTH + 1)),
         "json_depth_limit",
     )
+    require_error(
+        lambda: strict_json_loads(
+            "{\"n\":" + "9" * (analytics.MAX_JSON_INTEGER_DIGITS + 1) + "}"
+        ),
+        "json_integer_digit_limit",
+    )
     with TemporaryDirectory() as tmp:
         path = Path(tmp) / "events.json"
         path.write_text(json.dumps([
@@ -370,6 +376,44 @@ def test_kst_timestamp_overflow_fails_closed() -> None:
         ),
         "occurred_at_utc_kst_range",
     )
+
+
+def test_identifier_free_aggregate_digest_excludes_raw_ids() -> None:
+    contract = load_contract(CONTRACT)
+    first = aggregate(
+        [
+            event(
+                "raw-event-a",
+                "site_viewed",
+                "2026-10-07T10:00:00Z",
+                session="raw-session-a",
+            )
+        ],
+        contract,
+    )
+    second = aggregate(
+        [
+            event(
+                "raw-event-z",
+                "site_viewed",
+                "2026-10-07T10:00:00Z",
+                session="raw-session-z",
+            )
+        ],
+        contract,
+    )
+    require(
+        "source_event_digest_sha256" not in first,
+        "raw source digest must not be published",
+    )
+    require(
+        first["aggregate_digest_sha256"]
+        == second["aggregate_digest_sha256"],
+        "aggregate digest must not bind raw ids",
+    )
+    encoded = json.dumps(first, sort_keys=True)
+    require("raw-event-a" not in encoded, "event id leaked")
+    require("raw-session-a" not in encoded, "session id leaked")
 
 
 def test_internal_and_bot_events_are_excluded() -> None:
@@ -469,6 +513,35 @@ def test_optimized_python_keeps_contract_checks() -> None:
         require(contract_proc.returncode != 0, "-O must keep contract privacy validation")
         require("user_id_must_remain_disabled" in (contract_proc.stderr + contract_proc.stdout), "-O contract privacy reason")
 
+        huge_int_path = Path(tmp) / "huge-int.json"
+        huge_int_path.write_text(
+            "{\"event_version\":"
+            + "9" * (analytics.MAX_JSON_INTEGER_DIGITS + 1)
+            + "}",
+            encoding="utf-8",
+        )
+        huge_int_proc = subprocess.run(
+            [
+                sys.executable,
+                "-O",
+                str(ROOT / "tools" / "aggregate_product_analytics.py"),
+                "--events",
+                str(huge_int_path),
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        require(
+            huge_int_proc.returncode != 0,
+            "-O must keep integer digit validation",
+        )
+        require(
+            "json_integer_digit_limit"
+            in (huge_int_proc.stderr + huge_int_proc.stdout),
+            "-O integer digit reason",
+        )
+
 
 def main() -> int:
     tests = [
@@ -480,6 +553,7 @@ def main() -> int:
         test_custom_contract_cannot_weaken_privacy_boundary,
         test_input_resource_limits_fail_closed,
         test_kst_timestamp_overflow_fails_closed,
+        test_identifier_free_aggregate_digest_excludes_raw_ids,
         test_internal_and_bot_events_are_excluded,
         test_session_timeout_and_kst_day_boundary_are_deterministic,
         test_optimized_python_keeps_contract_checks,

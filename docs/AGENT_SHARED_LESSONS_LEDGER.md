@@ -6421,3 +6421,5 @@ Expected contract:
 - Resource budgets apply to the whole export, not independently to each JSONL row; revalidate the assembled row set so individually valid rows cannot bypass the cumulative node cap.
 - UTC syntax validity is not enough for calendar aggregation. Normalize timezone conversion overflow at the KPI-day boundary to a finite ContractError instead of crashing the batch.
 - Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.
+- Bound JSON integer token length explicitly at decode time so interpreter-specific oversized-integer ValueError cannot bypass ContractError handling.
+- Identifier-free analytics output must not publish a stable digest over raw event/session identifiers. Hash the redacted aggregate payload, not identifier-bearing source rows.

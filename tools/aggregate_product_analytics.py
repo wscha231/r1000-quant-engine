@@ -27,6 +27,7 @@ MAX_CONTRACT_BYTES = 256 * 1024
 MAX_EVENTS = 100_000
 MAX_JSON_DEPTH = 32
 MAX_JSON_NODES = 2_000_000
+MAX_JSON_INTEGER_DIGITS = 128
 
 FROZEN_CONTRACT_KEYS = {
     "schema_version", "status", "event_schema_version", "event_version",
@@ -101,10 +102,17 @@ def strict_json_loads(raw: str) -> Any:
             out[key] = value
         return out
 
+    def bounded_int(value: str) -> int:
+        digits = value[1:] if value.startswith("-") else value
+        if len(digits) > MAX_JSON_INTEGER_DIGITS:
+            raise ContractError("json_integer_digit_limit")
+        return int(value)
+
     try:
         value = json.loads(
             raw,
             object_pairs_hook=pairs,
+            parse_int=bounded_int,
             parse_constant=lambda value: (_ for _ in ()).throw(
                 ContractError(f"invalid_json_constant:{value}")
             ),
@@ -475,19 +483,7 @@ def aggregate(
             }
         )
 
-    source_digest = hashlib.sha256(
-        b"\n".join(
-            canonical_bytes(
-                {
-                    key: value
-                    for key, value in row.items()
-                    if not key.startswith("_")
-                }
-            )
-            for row in deduped
-        )
-    ).hexdigest()
-    return {
+    result = {
         "schema_version": "b5-product-analytics-daily-v1",
         "contract_schema_version": contract["schema_version"],
         "status": "NO_EVENTS" if not deduped else "AGGREGATED_OFFLINE",
@@ -499,7 +495,6 @@ def aggregate(
         "excluded_bot_event_count": excluded_bot,
         "eligible_event_count": len(eligible_events),
         "session_count": len(segments),
-        "source_event_digest_sha256": source_digest,
         "primary_kpi": contract["primary_kpi"],
         "retention": {
             "d1_qualified_retention": {
@@ -517,6 +512,10 @@ def aggregate(
         },
         "daily": daily,
     }
+    result["aggregate_digest_sha256"] = hashlib.sha256(
+        canonical_bytes(result)
+    ).hexdigest()
+    return result
 
 
 def main() -> int:

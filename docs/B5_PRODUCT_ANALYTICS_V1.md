@@ -52,9 +52,10 @@ qualified activation proxy.
 KPI dates use `Asia/Seoul` calendar days. Raw timestamps remain UTC.
 
 Offline inputs fail closed before aggregation: event exports are bounded to
-16 MiB and 100,000 events; decoded JSON is bounded to depth 32 and 2,000,000
-value/container nodes across the complete export, including JSONL inputs.
-Timestamp conversion into the KPI timezone also fails closed on range overflow.
+16 MiB and 100,000 events; decoded JSON is bounded to depth 32, 2,000,000
+value/container nodes across the complete export, including JSONL inputs, and
+128 digits per JSON integer token. Timestamp conversion into the KPI timezone
+also fails closed on range overflow.
 The optional `--contract` path may not weaken the
 frozen v1 identity, consent, field allowlist/denylist, tracking or transmission
 boundary.
@@ -65,6 +66,10 @@ User retention is deliberately `NOT_AVAILABLE` in v1 because the privacy gate
 forbids persistent anonymous/user identifiers and signup is not implemented.
 Do not convert missing user identity into zero retention. The current measurable
 proxy is `anonymous_qualified_value_session_rate` among usable sessions.
+
+Identifier-free aggregate output does not retain a digest of raw identifier-bearing
+event rows. `aggregate_digest_sha256` is computed only from the aggregate payload
+and therefore does not bind `event_id` or `session_id`.
 
 ## Deployment boundary
 
