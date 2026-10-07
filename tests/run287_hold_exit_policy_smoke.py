@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -13,10 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from tools.run287_hold_exit_policy import (  # noqa: E402
+    MODULE_ID,
+    MODULE_VERSION,
+    POLICY_ID,
     LeadershipPersistencePolicy,
     SELL_TAXONOMY,
     build_leadership_persistence_book,
+    challenger_eligible,
     classify_execution_sell,
+    incumbent_protection,
+    load_scored_candidate_cache,
+    minimum_score_gap_candidate,
+    policy_audit_identity,
+    policy_module_config,
+    serialize_policy_config,
 )
 from tools.security_lifecycle import REQUIRED_COLUMNS  # noqa: E402
 
@@ -44,6 +56,36 @@ def candidate_row(day: str, ticker: str, score: float, rs: float, sector: str) -
     }
 
 
+
+def _run_binding_smoke(*, optimized: bool) -> int:
+    command = [sys.executable]
+    if optimized:
+        command.append("-O")
+    command.append(str(ROOT / "tests" / "g1_g2_hold_exit_binding_smoke.py"))
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    output = completed.stdout or ""
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "G1/G2 binding smoke "
+            + ("optimized" if optimized else "normal")
+            + " failed:\n"
+            + "\n".join(output.splitlines()[-40:])
+        )
+    ran = re.search(r"Ran (\\d+) tests?", output)
+    if ran is None or int(ran.group(1)) < 10:
+        raise RuntimeError("G1/G2 binding smoke test count missing or below 10")
+    skipped = re.search(r"skipped=(\\d+)", output)
+    if skipped is not None and int(skipped.group(1)) != 0:
+        raise RuntimeError("G1/G2 binding smoke used SKIP")
+    return int(ran.group(1))
+
 def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -70,13 +112,18 @@ def main() -> int:
             )
             for index in range(7):
                 rows.append(candidate_row(day, f"X{index}", 0.20 + index * 0.01, -0.20 + index * 0.02, "Other"))
+        scored = pd.DataFrame(rows)
+        control_before = control.copy(deep=True)
+        scored_before = scored.copy(deep=True)
         treatment, decisions, exits, audit = build_leadership_persistence_book(
             control,
-            pd.DataFrame(rows),
+            scored,
             portfolio="main",
             lifecycle_path=lifecycle,
             policy=LeadershipPersistencePolicy(),
         )
+        pd.testing.assert_frame_equal(control, control_before)
+        pd.testing.assert_frame_equal(scored, scored_before)
         assert audit["status"] == "APPLIED", audit
         assert audit["applied_retention_count"] == 1
         feb = treatment[pd.to_datetime(treatment["rebalance_date"]).eq(pd.Timestamp("2024-02-29"))]
@@ -87,15 +134,106 @@ def main() -> int:
         assert set(exits.get("sell_taxonomy", pd.Series(dtype=str))).issubset(set(SELL_TAXONOMY))
         assert decisions.iloc[0]["reason"] == "fixed_margin_not_met"
 
+        # Legacy/default behavior is identical when the bounded candidate
+        # helper is used with no hypothesis override.
+        legacy = build_leadership_persistence_book(
+            control, scored, portfolio="main", lifecycle_path=lifecycle,
+        )
+        candidate_default = build_leadership_persistence_book(
+            control, scored, portfolio="main", lifecycle_path=lifecycle,
+            policy=minimum_score_gap_candidate(),
+        )
+        for left, right in zip(legacy[:3], candidate_default[:3]):
+            pd.testing.assert_frame_equal(left, right)
+        assert legacy[3] == candidate_default[3]
+
+        # Module/config identity is deterministic and only the bounded
+        # hypothesis changes its identity.
+        default_policy = LeadershipPersistencePolicy()
+        config_a = serialize_policy_config(default_policy)
+        config_b = serialize_policy_config(LeadershipPersistencePolicy())
+        assert config_a == config_b
+        module_config = policy_module_config(default_policy)
+        assert module_config["module_id"] == MODULE_ID
+        assert module_config["module_version"] == MODULE_VERSION
+        assert module_config["policy_id"] == POLICY_ID
+        identity_a = policy_audit_identity(default_policy)
+        identity_b = policy_audit_identity(LeadershipPersistencePolicy())
+        assert identity_a == identity_b
+        changed_gap = minimum_score_gap_candidate(minimum_score_gap=0.23)
+        assert policy_audit_identity(changed_gap) != identity_a
+        assert serialize_policy_config(minimum_score_gap_candidate()) == config_a
+
+        # Future labels may exist physically in the source CSV but are not
+        # admitted to the policy input frame.
+        scored_path = root / "scored_with_future_labels.csv"
+        scored_with_future = scored.copy()
+        scored_with_future["forward_return_63d"] = 0.50
+        scored_with_future["label_target"] = 1
+        scored_with_future.to_csv(scored_path, index=False)
+        loaded = load_scored_candidate_cache(scored_path)
+        assert "forward_return_63d" not in loaded.columns
+        assert "label_target" not in loaded.columns
+        assert set(loaded.attrs["future_columns_physically_excluded"]) == {
+            "forward_return_63d", "label_target",
+        }
+
+        # PIT-blocked evidence cannot protect an incumbent or admit a challenger.
+        pit_record = candidate_row("2024-02-29", "PIT", 1.50, 0.40, "Tech")
+        pit_record["pit_evidence_blocked"] = True
+        eligible, reason = challenger_eligible(
+            pit_record, lifecycle_terminal=False, policy=default_policy,
+        )
+        assert not eligible and reason == "pit_future_evidence_block"
+        protected, reason, taxonomy = incumbent_protection(
+            pit_record,
+            portfolio="main",
+            score_median=0.50,
+            score_sigma=0.20,
+            rs_percentile=1.0,
+            lifecycle_terminal=False,
+            policy=default_policy,
+        )
+        assert not protected and reason == "pit_future_evidence_block"
+        assert taxonomy == "RISK_EXIT"
+
+        # Missing replacement cost is never silently converted to zero.
+        try:
+            policy_module_config(LeadershipPersistencePolicy(round_trip_cost_penalty=None))
+        except ValueError as exc:
+            assert "round_trip_cost_penalty" in str(exc)
+        else:
+            raise AssertionError("missing replacement cost was silently accepted")
+
+        # A single rebalance event cannot simultaneously retain and exit the
+        # same incumbent, and output keys remain unique.
+        assert not treatment.duplicated(["rebalance_date", "ticker"]).any()
+        if not exits.empty:
+            assert not exits.duplicated(["rebalance_date", "portfolio", "ticker"]).any()
+            same_event_exit = (
+                exits["rebalance_date"].eq("2024-02-29")
+                & exits["ticker"].eq("AAA")
+            )
+            assert not same_event_exit.any()
+        retained_aaa = decisions[
+            decisions["rebalance_date"].eq("2024-02-29")
+            & decisions["incumbent_ticker"].eq("AAA")
+        ]
+        assert len(retained_aaa) == 1
+        assert retained_aaa.iloc[0]["action"] == "RETAIN_INCUMBENT"
+        assert int(feb["ticker"].eq("AAA").sum()) == 1
+
         assert classify_execution_sell(
             ticker="AAA", target_weight=0.0, target_gross_reduced=False,
             replacement_tickers={"CCC"},
         )[0] == "REPLACEMENT_EXIT"
         assert classify_execution_sell(
             ticker="AAA", target_weight=0.2, target_gross_reduced=True,
+            replacement_tickers={"CCC"},
         )[0] == "RISK_EXIT"
         assert classify_execution_sell(
-            ticker="AAA", target_weight=0.0, target_gross_reduced=False,
+            ticker="AAA", target_weight=0.0, target_gross_reduced=True,
+            replacement_tickers={"CCC"},
             lifecycle_terminal=True,
         )[0] == "LIFECYCLE_EXIT"
         assert classify_execution_sell(
@@ -105,7 +243,12 @@ def main() -> int:
         assert classify_execution_sell(
             ticker="AAA", target_weight=0.3, target_gross_reduced=False,
         )[0] == "EXECUTION_RECONCILIATION"
-    print("run287_hold_exit_policy_smoke: PASS")
+    binding_normal = _run_binding_smoke(optimized=False)
+    binding_optimized = _run_binding_smoke(optimized=True)
+    print(
+        "run287_hold_exit_policy_smoke: PASS"
+        f" binding_normal={binding_normal} binding_optimized={binding_optimized}"
+    )
     return 0
 
 
