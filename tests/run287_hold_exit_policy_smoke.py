@@ -176,18 +176,19 @@ def main() -> int:
         # A single rebalance event cannot simultaneously retain and exit the
         # same incumbent, and output keys remain unique.
         assert not treatment.duplicated(["rebalance_date", "ticker"]).any()
-        assert not exits.duplicated(["rebalance_date", "portfolio", "ticker"]).any()
+        if not exits.empty:
+            assert not exits.duplicated(["rebalance_date", "portfolio", "ticker"]).any()
+            same_event_exit = (
+                exits["rebalance_date"].eq("2024-02-29")
+                & exits["ticker"].eq("AAA")
+            )
+            assert not same_event_exit.any()
         retained_aaa = decisions[
             decisions["rebalance_date"].eq("2024-02-29")
             & decisions["incumbent_ticker"].eq("AAA")
         ]
         assert len(retained_aaa) == 1
         assert retained_aaa.iloc[0]["action"] == "RETAIN_INCUMBENT"
-        aaa_exit = exits[
-            exits.get("rebalance_date", pd.Series(dtype=str)).eq("2024-02-29")
-            & exits.get("ticker", pd.Series(dtype=str)).eq("AAA")
-        ]
-        assert aaa_exit.empty
         assert int(feb["ticker"].eq("AAA").sum()) == 1
 
         assert classify_execution_sell(
