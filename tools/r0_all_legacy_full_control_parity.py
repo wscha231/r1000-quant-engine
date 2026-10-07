@@ -25,6 +25,10 @@ from typing import Any, Callable
 
 import pandas as pd
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from tools.legacy_control_adapter import (
     EvaluationSpec,
     LEGACY_ACCOUNTING_EVALUATOR_REF,
@@ -490,7 +494,7 @@ def _run_broker_cli(
         raise R0ContractError(f"broker output already exists:{output_dir}")
     cmd = [
         sys.executable,
-        "tools/run_broker_ledger_replay.py",
+        str(REPO_ROOT / "tools" / "run_broker_ledger_replay.py"),
         "--target-book",
         str(target_book),
         "--price-cache",
