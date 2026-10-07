@@ -138,7 +138,7 @@ def test_strategy_difference_reporter_contract_normal_and_optimized() -> None:
             check=False,
         )
         assert proc.returncode == 0, proc.stdout + proc.stderr
-        assert "strategy_difference_reporter: PASS (15 tests)" in proc.stdout
+        assert "strategy_difference_reporter: PASS (16 tests)" in proc.stdout
 
 
 def main() -> int:
