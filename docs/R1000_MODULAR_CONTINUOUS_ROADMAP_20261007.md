@@ -359,7 +359,7 @@ PREPARED / not fully integrated:
 ACTIVE:
 - G1 legacy-Control modular adapter: DONE_VALIDATED / Draft PR #582 head `a37d50026850eb76e7454fa7ae02ad7a66d43319`; native smoke normal/-O 14/14 PASS, SKIP0; real broker fixture direct↔adapter parity PASS; R0 full-Control parity still NOT_RUN
 - G2 hold/exit binding: NATIVE_VALIDATED / Draft PR #583 head `f7bd98b43209b4cebb0e0c78f17963b6aba3795d`; binding normal/-O 10/10 PASS SKIP0; G1/G2 native regressions PASS; required current-head CI green; treatment materialization/R0 NOT_RUN
-- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; normal/-O 16 PASS; PR Validation 37589666282 SUCCESS; Portfolio Guard 37589666299 SUCCESS; R0 replay inputs still NOT_RUN
+- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; native normal/-O 16 PASS; read-only replay consumer; R0/R1 NOT_RUN
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
 LATER:
@@ -623,7 +623,7 @@ Still NOT_RUN:
 - treatment target-book materialization
 - R0 full-Control parity
 - R1/economic comparison
-- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; normal/-O 16 PASS; PR Validation 37589666282 SUCCESS; Portfolio Guard 37589666299 SUCCESS; R0 replay inputs still NOT_RUN
+- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; native normal/-O 16 PASS; read-only replay consumer; R0/R1 NOT_RUN
 - merge/review/Codex
 
 Program sequence remains:
@@ -657,3 +657,39 @@ Next:
 `R0 materialization + all-LEGACY full-Control parity`.
 
 R0 expected alpha delta is exactly zero. G2 must remain OFF/LEGACY in the parity arm. G3 only consumes resulting replay refs.
+
+
+## 11.8 G3 native binding validation completion — 2026-10-07
+
+Task:
+`R1000-G3-NATIVE-BINDING-20261007`
+
+Status:
+`G3_BINDING_NATIVE_VALIDATED / DRAFT_UNMERGED`
+
+Draft PR #584:
+- head `451b67cfb132921088b73a883f03116417b85fa6`
+- exactly 3 changed files
+- PR Validation 37589666282 SUCCESS
+- Portfolio Guard 37589666299 SUCCESS
+- G3 smoke normal 16 PASS
+- G3 smoke Python -O 16 PASS
+- read-only replay comparison only
+- no evaluator/NAV/backtester/cost engine
+- optional missing economics remain NOT_AVAILABLE
+- core holdings missing => INSUFFICIENT_EVIDENCE
+
+Original recovery evidence independently checked:
+- Recovery ZIP SHA256 `9f3eac746fe61c31869774e086bf3cfd9bb0cc49374bb325bb359d0fdc433241`
+- original patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`
+- original source SHA256 `24a573e02ba58a34e1852f3a5c13c7bc0b621c7dde0e004f0fea5e8fb5bfaa78`
+- original smoke SHA256 `0dbc9b7d4eb0504fd11ec7ea0642b11017dd6540856d4340af1a1386644c9fa1`
+
+### R0 scope correction
+R0 must remain **all-LEGACY direct Control vs modular all-LEGACY Control**.
+G2 treatment is NOT applied in R0.
+
+Next:
+`isolated replay-materialization contract → R0 all-LEGACY full-Control parity → G3 no-divergence readout → R1 one G2 hold/replace candidate`.
+
+G2 treatment target-book materialization is first used economically in R1 after R0 passes.
