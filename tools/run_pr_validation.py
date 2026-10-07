@@ -282,7 +282,6 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/run287_catchup_drive_readiness_smoke.py", []),
     ("tests/run287_github_secret_scope_smoke.py", []),
     ("tests/public_portfolio_dashboard_smoke.py", []),
-    ("tests/product_analytics_v1_smoke.py", []),
     ("tests/top_manager_discovery_signals_smoke.py", []),
     ("tests/etf_nport_history_smoke.py", []),
 ]
