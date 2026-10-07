@@ -349,8 +349,7 @@ def aggregate(
         )
 
     source_digest = hashlib.sha256(
-        b"
-".join(
+        b"\\n".join(
             canonical_bytes(
                 {
                     key: value
@@ -412,8 +411,7 @@ def main() -> int:
             indent=2,
             sort_keys=True,
         )
-        + "
-"
+        + "\\n"
     )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
