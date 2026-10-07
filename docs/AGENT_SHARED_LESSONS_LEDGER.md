@@ -1,5 +1,22 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-08 — R0 real-input parity requires byte recovery, not revision metadata (#586)
+
+- Drive revision listings can retain a historical byte-size identity while revision
+  media download is no longer authorized. Treat matching size/revision metadata as
+  FETCH_BLOCKED until the bytes are retrieved and SHA-256 matches the frozen manifest.
+- A current mutable cache, a forward-paper cache, truncation, or arbitrary nonempty
+  fixtures cannot substitute for a frozen replay cache. Bind R0 to the exact July
+  manifest plus every expected file SHA before target or broker replay.
+- The native long-crisis research input is bound by current-master inventory to
+  content SHA-256 5b460618... and Drive exact-location identity, but retains
+  RESEARCH_ONLY / runtime-age-not-enforced / no-immutable-source caveats.
+- All-LEGACY StrategySpec is insufficient if a native hold/exit phase environment can
+  still activate treatment. R0 must reject G2 selector/parameter environment before
+  materialization and require an external hash-bound admission receipt.
+- These guards grant no Approved Target, paper, broker, public, production, or live
+  authority and do not unblock R1 by themselves.
+
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
 - Authenticated review of `9de5aede` found four defects despite Linux232/232

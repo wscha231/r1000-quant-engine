@@ -57,6 +57,18 @@ MASTER_AT_START = "6a2fa606896a2f263fffa07b9273d60f2d011626"
 G1_HEAD = "a37d50026850eb76e7454fa7ae02ad7a66d43319"
 G2_HEAD = "f7bd98b43209b4cebb0e0c78f17963b6aba3795d"
 G3_HEAD = "451b67cfb132921088b73a883f03116417b85fa6"
+R0_ADMISSION_SCHEMA = "r0-real-input-admission-v1"
+R0_ADMISSION_STATUS = "ADMITTED_R0_RESEARCH_PARITY_INPUT"
+CANONICAL_CANDIDATE_GIT_BLOB_SHA1 = "1685d630606f8838b6f39273c40264130d8a415c"
+CANONICAL_CRISIS_DRIVE_ID = "1qR7VGVsyR837Yk55q5UAKDlzRRxKYAi6"
+CANONICAL_CRISIS_SHA256 = "5b460618944303c65b97caa20323f498a266fe97005b6733ec75efd8acb3c519"
+CANONICAL_THRESHOLD_GIT_BLOB_SHA1 = "5efd9bdc3228ee0de4a6850031a50cd50c796b5e"
+CANONICAL_PRICE_MANIFEST_DRIVE_ID = "1gTREHtoAgAUIugntQVANqig8425JzYRX"
+CANONICAL_PRICE_MANIFEST_SHA256 = "f84fe86580bf6560db38926bbb716aaa929f5a4764ad40407b42d596a16bd731"
+CANONICAL_PRICE_TICKER_COUNT = 80
+NATIVE_CRISIS_FEATURE_REF = "data_pit/macro/long_crisis_daily_features.parquet"
+G2_ENABLE_ENV = "PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED"
+G2_PARAMETER_ENV = "PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"
 RTOL = 1e-9
 ATOL = 1e-10
 NON_ECONOMIC_COLUMNS = {
@@ -87,6 +99,195 @@ REDACT_JSON_KEYS = {
 
 class R0ContractError(RuntimeError):
     pass
+
+
+def _git_blob_sha1(path: Path) -> str:
+    raw = path.read_bytes()
+    header = f"blob {len(raw)}\0".encode("ascii")
+    return hashlib.sha1(header + raw).hexdigest()
+
+
+def _phase_env_is_enabled(raw: str | None) -> bool:
+    if raw is None:
+        return False
+    value = raw.strip().lower()
+    if value in {"", "0", "false", "no", "off", "disabled"}:
+        return False
+    if value in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    raise R0ContractError(f"ambiguous G2 selector environment:{raw!r}")
+
+
+def assert_g2_zero_treatment_environment() -> None:
+    if _phase_env_is_enabled(os.environ.get(G2_ENABLE_ENV)):
+        raise R0ContractError(f"G2 environment selected in R0:{G2_ENABLE_ENV}")
+    parameter = os.environ.get(G2_PARAMETER_ENV)
+    if parameter is not None and parameter.strip():
+        raise R0ContractError(f"G2 parameter environment is forbidden in R0:{G2_PARAMETER_ENV}")
+    for key, value in os.environ.items():
+        upper = key.upper()
+        if key in {G2_ENABLE_ENV, G2_PARAMETER_ENV}:
+            continue
+        if (
+            "LEADERSHIP_PERSISTENCE" in upper
+            or "HOLD_EXIT" in upper
+            or upper.startswith("R1000_G2_")
+            or upper.startswith("G2_HOLD_EXIT_")
+        ) and str(value).strip():
+            raise R0ContractError(f"unrecognized G2 hold/exit environment is forbidden in R0:{key}")
+
+
+def load_canonical_price_manifest(path: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise R0ContractError(f"missing historical price manifest:{path}")
+    if _sha256_file(path) != CANONICAL_PRICE_MANIFEST_SHA256:
+        raise R0ContractError("historical price manifest SHA256 mismatch")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    expected = {
+        "status": "completed",
+        "review_only": True,
+        "requested_start": "2016-01-01",
+        "requested_end": "2026-07-27",
+        "start": "2016-01-04",
+        "end": "2026-07-24",
+        "ticker_count": CANONICAL_PRICE_TICKER_COUNT,
+        "actual_cached_ticker_count": CANONICAL_PRICE_TICKER_COUNT,
+        "manifest_end_source": "actual_cached_bars",
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise R0ContractError(f"historical price manifest contract mismatch:{key}")
+    raw_files = payload.get("cache_files")
+    if not isinstance(raw_files, dict) or len(raw_files) != CANONICAL_PRICE_TICKER_COUNT:
+        raise R0ContractError("historical price manifest must contain exactly 80 cache files")
+    by_filename: dict[str, dict[str, Any]] = {}
+    for ticker, record in sorted(raw_files.items()):
+        if not isinstance(record, dict):
+            raise R0ContractError(f"invalid historical price record:{ticker}")
+        filename = str(record.get("file") or "")
+        sha256 = str(record.get("sha256") or "")
+        size = record.get("bytes")
+        if (
+            not filename.endswith(".parquet")
+            or len(sha256) != 64
+            or not isinstance(size, int)
+            or size <= 0
+            or filename in by_filename
+        ):
+            raise R0ContractError(f"invalid historical price identity:{ticker}")
+        by_filename[filename] = {
+            "ticker": str(ticker),
+            "filename": filename,
+            "bytes": int(size),
+            "sha256": sha256,
+        }
+    return payload, by_filename
+
+
+def verify_exact_recovered_price_cache(
+    price_cache: Path,
+    expected_files: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if not price_cache.is_dir():
+        raise R0ContractError(f"missing recovered historical price cache:{price_cache}")
+    actual: dict[str, dict[str, Any]] = {}
+    for filename, expected in sorted(expected_files.items()):
+        path = price_cache / filename
+        if not path.is_file():
+            raise R0ContractError(f"historical price file missing:{filename}")
+        size = path.stat().st_size
+        sha256 = _sha256_file(path)
+        if size != expected["bytes"]:
+            raise R0ContractError(f"historical price byte-size mismatch:{filename}")
+        if sha256 != expected["sha256"]:
+            raise R0ContractError(f"historical price SHA256 mismatch:{filename}")
+        actual[filename] = {
+            "ticker": expected["ticker"],
+            "filename": filename,
+            "bytes": size,
+            "sha256": sha256,
+        }
+    return actual
+
+
+def build_runtime_admission_binding(
+    *,
+    candidate_book: Path,
+    crisis_features: Path,
+    crisis_thresholds: Path,
+    price_manifest: Path,
+    price_cache: Path,
+    evaluation: EvaluationSpec,
+) -> dict[str, Any]:
+    if _git_blob_sha1(candidate_book) != CANONICAL_CANDIDATE_GIT_BLOB_SHA1:
+        raise R0ContractError("candidate is not the current-master frozen Control candidate")
+    if _sha256_file(crisis_features) != CANONICAL_CRISIS_SHA256:
+        raise R0ContractError("crisis feature SHA256 does not match current-master native identity")
+    if _git_blob_sha1(crisis_thresholds) != CANONICAL_THRESHOLD_GIT_BLOB_SHA1:
+        raise R0ContractError("crisis threshold is not the current-master frozen threshold")
+    _, expected_prices = load_canonical_price_manifest(price_manifest)
+    actual_prices = verify_exact_recovered_price_cache(price_cache, expected_prices)
+    return {
+        "candidate": {
+            "git_blob_sha1": CANONICAL_CANDIDATE_GIT_BLOB_SHA1,
+            "sha256": _sha256_file(candidate_book),
+        },
+        "crisis": {
+            "drive_file_id": CANONICAL_CRISIS_DRIVE_ID,
+            "sha256": CANONICAL_CRISIS_SHA256,
+            "pit_classification": "FUTURE_LABELS_STRIPPED_BUT_RUNTIME_AGE_NOT_ENFORCED",
+            "mapping_status": "BLOCKED_NO_IMMUTABLE_SOURCE",
+            "write_authority": "RESEARCH_ONLY",
+        },
+        "threshold": {
+            "git_blob_sha1": CANONICAL_THRESHOLD_GIT_BLOB_SHA1,
+            "sha256": _sha256_file(crisis_thresholds),
+        },
+        "price_manifest": {
+            "drive_file_id": CANONICAL_PRICE_MANIFEST_DRIVE_ID,
+            "sha256": CANONICAL_PRICE_MANIFEST_SHA256,
+            "ticker_count": CANONICAL_PRICE_TICKER_COUNT,
+            "review_only": True,
+            "start": "2016-01-04",
+            "end": "2026-07-24",
+        },
+        "expected_price_files": expected_prices,
+        "actual_recovered_price_files": actual_prices,
+        "evaluation": asdict(evaluation),
+        "availability_pit_classification": {
+            "candidate": "CURRENT_MASTER_FROZEN_RESEARCH_CONTROL_INPUT",
+            "crisis": "RESEARCH_ONLY_RUNTIME_AGE_NOT_ENFORCED",
+            "threshold": "CURRENT_MASTER_FROZEN_RESEARCH_CONTROL_INPUT",
+            "prices": "HISTORICAL_MANIFEST_EXACT_BYTES_REQUIRED",
+        },
+    }
+
+
+def validate_external_input_admission(path: Path, binding: dict[str, Any]) -> dict[str, Any]:
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise R0ContractError(f"external real-input admission receipt required:{path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise R0ContractError("input admission receipt must be a JSON object")
+    if payload.get("schema_version") != R0_ADMISSION_SCHEMA:
+        raise R0ContractError("unsupported R0 input admission schema")
+    if payload.get("status") != R0_ADMISSION_STATUS:
+        raise R0ContractError("R0 input admission status is not admitted")
+    if payload.get("task_key") != TASK_KEY or payload.get("master_sha") != MASTER_AT_START:
+        raise R0ContractError("R0 input admission task/master binding mismatch")
+    if payload.get("research_only") is not True or payload.get("economic_authority") is not False:
+        raise R0ContractError("R0 input admission authority boundary mismatch")
+    for flag in ("synthetic", "current_cache_substitute", "forward_paper_substitute", "provider_recollected"):
+        if payload.get(flag) is not False:
+            raise R0ContractError(f"R0 input admission forbidden flag:{flag}")
+    if payload.get("binding") != binding:
+        raise R0ContractError("R0 input admission runtime binding mismatch")
+    return {
+        "path": str(path),
+        "sha256": _sha256_file(path),
+        "schema_version": R0_ADMISSION_SCHEMA,
+        "status": R0_ADMISSION_STATUS,
+    }
 
 
 def _json_dump(path: Path, payload: Any) -> None:
@@ -636,6 +837,8 @@ def _blocked_inputs(
     price_cache: Path,
     crisis_features: Path,
     crisis_thresholds: Path,
+    price_manifest: Path | None = None,
+    input_admission: Path | None = None,
 ) -> list[str]:
     missing: list[str] = []
     required_files = {
@@ -652,6 +855,14 @@ def _blocked_inputs(
         missing.append(f"price_cache:{price_cache}")
     elif not any(p.is_file() and p.stat().st_size > 0 for p in price_cache.rglob("*")):
         missing.append(f"price_cache_empty:{price_cache}")
+    if price_manifest is None:
+        missing.append("price_manifest:NOT_PROVIDED")
+    elif not price_manifest.is_file() or price_manifest.stat().st_size <= 0:
+        missing.append(f"price_manifest:{price_manifest}")
+    if input_admission is None:
+        missing.append("input_admission:NOT_PROVIDED")
+    elif not input_admission.is_file() or input_admission.stat().st_size <= 0:
+        missing.append(f"input_admission:{input_admission}")
     return missing
 
 
@@ -713,12 +924,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     receipt = _receipt_base(args)
     if args.g2_treatment:
         raise R0ContractError("G2 selected in R0: fail closed")
+    assert_g2_zero_treatment_environment()
 
     latest_run = Path(args.latest_run).resolve()
     candidate_book = Path(args.candidate_book).resolve()
     price_cache = Path(args.price_cache).resolve()
     crisis_features = Path(args.long_crisis_features).resolve()
     crisis_thresholds = Path(args.long_crisis_thresholds).resolve()
+    price_manifest_text = str(args.price_manifest or "").strip()
+    input_admission_text = str(args.input_admission or "").strip()
+    price_manifest = Path(price_manifest_text).resolve() if price_manifest_text else None
+    input_admission = Path(input_admission_text).resolve() if input_admission_text else None
     output_root = Path(args.output_root).resolve()
     direct_target_dir = output_root / "direct_control" / "target"
     modular_target_dir = output_root / "modular_legacy" / "target"
@@ -734,6 +950,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             price_cache,
             crisis_features,
             crisis_thresholds,
+            *([price_manifest] if price_manifest is not None else []),
+            *([input_admission] if input_admission is not None else []),
         ],
     )
     validate_isolated_paths(
@@ -745,6 +963,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             price_cache,
             crisis_features,
             crisis_thresholds,
+            *([price_manifest] if price_manifest is not None else []),
+            *([input_admission] if input_admission is not None else []),
         ],
     )
     if output_root.exists():
@@ -756,6 +976,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         price_cache=price_cache,
         crisis_features=crisis_features,
         crisis_thresholds=crisis_thresholds,
+        price_manifest=price_manifest,
+        input_admission=input_admission,
     )
     if missing:
         receipt.update(
@@ -776,12 +998,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         _json_dump(output_root / "r0_receipt.json", receipt)
         return receipt
 
+    if price_manifest is None or input_admission is None:
+        raise R0ContractError("real-input admission dependencies unexpectedly absent")
     input_paths = {
         "latest_run": latest_run,
         "candidate_book": candidate_book,
         "price_cache": price_cache,
         "crisis_features": crisis_features,
         "crisis_thresholds": crisis_thresholds,
+        "price_manifest": price_manifest,
+        "input_admission": input_admission,
     }
     input_hashes_before = {key: hash_path(path) for key, path in input_paths.items()}
     reference_identities = {
@@ -799,6 +1025,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         calendar_ref=args.calendar_ref,
         price_cache_ref=str(price_cache),
     )
+    admission_binding = build_runtime_admission_binding(
+        candidate_book=candidate_book,
+        crisis_features=crisis_features,
+        crisis_thresholds=crisis_thresholds,
+        price_manifest=price_manifest,
+        price_cache=price_cache,
+        evaluation=evaluation,
+    )
+    admission_identity = validate_external_input_admission(input_admission, admission_binding)
     direct_args = _native_args(
         latest_run=latest_run,
         candidate_book=candidate_book,
@@ -826,6 +1061,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     receipt["evaluation_identity"] = asdict(evaluation)
     receipt["input_hashes"] = input_hashes_before
+    receipt["input_admission"] = admission_identity
+    receipt["admission_binding"] = admission_binding
     receipt["reference_identities"] = reference_identities
     receipt["policy_env_sha256"] = _policy_env_identity()
 
@@ -974,8 +1211,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument(
         "--long-crisis-features",
-        default="cloud_results/full_rebuild/latest_global_alpha_universe/"
-        "crisis_signals/daily_features.parquet",
+        default=NATIVE_CRISIS_FEATURE_REF,
     )
     parser.add_argument(
         "--long-crisis-thresholds",
@@ -987,6 +1223,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="R1000_FULL_REBUILD_FROZEN_UNIVERSE",
     )
     parser.add_argument("--calendar-ref", default="NYSE_FULL_REBUILD_CALENDAR")
+    parser.add_argument(
+        "--price-manifest",
+        default="",
+        help="Exact July historical replay-price manifest; current/forward substitutes are rejected.",
+    )
+    parser.add_argument(
+        "--input-admission",
+        default="",
+        help="External hash-bound r0-real-input-admission-v1 receipt required for economic R0.",
+    )
     parser.add_argument(
         "--output-root",
         default="outputs/research/r0_all_legacy_full_control_parity",

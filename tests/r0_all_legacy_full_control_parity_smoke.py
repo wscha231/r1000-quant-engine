@@ -20,12 +20,17 @@ from tools.r0_all_legacy_full_control_parity import (
     NOT_AVAILABLE,
     _blocked_inputs,
     _native_args,
+    assert_g2_zero_treatment_environment,
+    build_runtime_admission_binding,
     build_evaluation_spec,
     build_legacy_specs,
     compare_replay_artifacts,
     compare_target_books,
     hash_path,
+    load_canonical_price_manifest,
+    parse_args,
     run_g3_comparison,
+    validate_external_input_admission,
     target_gate_then,
     validate_isolated_paths,
     validate_native_identity,
@@ -177,6 +182,30 @@ def test_g2_selected_fails_closed() -> None:
         lambda: validate_r0_strategy(replace(main, hold_exit_module="G2")),
         "hold_exit_module",
     )
+
+
+def test_g2_environment_selection_fails_closed() -> None:
+    keys = [
+        "PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED",
+        "PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER",
+        "R1000_G2_HOLD_EXIT_POLICY",
+    ]
+    prior = {key: os.environ.get(key) for key in keys}
+    try:
+        os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED"] = "1"
+        expect_error(assert_g2_zero_treatment_environment, "G2 environment selected")
+        os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_ENABLED"] = "0"
+        os.environ["PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER"] = "1.10"
+        expect_error(assert_g2_zero_treatment_environment, "G2 parameter environment")
+        os.environ.pop("PHASE_LEADERSHIP_PERSISTENCE_HOLD_SIGMA_MULTIPLIER", None)
+        os.environ["R1000_G2_HOLD_EXIT_POLICY"] = "candidate"
+        expect_error(assert_g2_zero_treatment_environment, "unrecognized G2 hold/exit environment")
+    finally:
+        for key, value in prior.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def test_different_evaluation_spec_fails_closed() -> None:
@@ -331,6 +360,99 @@ def test_missing_real_price_cache_blocks() -> None:
             crisis_thresholds=thresholds,
         )
         check(any(item.startswith("price_cache:") for item in missing))
+
+
+def test_fake_nonempty_inputs_cannot_build_runtime_admission() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        candidate = root / "candidate.csv"
+        crisis = root / "long_crisis_daily_features.parquet"
+        thresholds = root / "best_thresholds.json"
+        manifest = root / "manifest.json"
+        prices = root / "prices"
+        prices.mkdir()
+        candidate.write_text("rebalance_date,ticker\n2026-01-30,AAA\n", encoding="utf-8")
+        crisis.write_bytes(b"not-canonical-crisis")
+        thresholds.write_text("{}", encoding="utf-8")
+        manifest.write_text("{}", encoding="utf-8")
+        evaluation = build_evaluation_spec(
+            universe_data_ref="u",
+            calendar_ref="NYSE",
+            price_cache_ref=str(prices),
+        )
+        expect_error(
+            lambda: build_runtime_admission_binding(
+                candidate_book=candidate,
+                crisis_features=crisis,
+                crisis_thresholds=thresholds,
+                price_manifest=manifest,
+                price_cache=prices,
+                evaluation=evaluation,
+            ),
+            "candidate is not the current-master frozen Control candidate",
+        )
+
+
+def test_noncanonical_current_or_forward_manifest_is_rejected() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "manifest.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "status": "completed",
+                    "review_only": True,
+                    "requested_start": "2016-01-01",
+                    "requested_end": "2026-10-05",
+                    "start": "2016-01-04",
+                    "end": "2026-10-02",
+                    "ticker_count": 80,
+                    "actual_cached_ticker_count": 80,
+                    "manifest_end_source": "actual_cached_bars",
+                    "cache_files": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        expect_error(
+            lambda: load_canonical_price_manifest(path),
+            "historical price manifest SHA256 mismatch",
+        )
+
+
+def test_external_admission_receipt_rejects_substitutes() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        receipt = root / "admission.json"
+        binding = {"bound": "exact"}
+        receipt.write_text(
+            json.dumps(
+                {
+                    "schema_version": "r0-real-input-admission-v1",
+                    "status": "ADMITTED_R0_RESEARCH_PARITY_INPUT",
+                    "task_key": "R1000-R0-ALL-LEGACY-FULL-CONTROL-PARITY-20261007",
+                    "master_sha": "6a2fa606896a2f263fffa07b9273d60f2d011626",
+                    "research_only": True,
+                    "economic_authority": False,
+                    "synthetic": False,
+                    "current_cache_substitute": True,
+                    "forward_paper_substitute": False,
+                    "provider_recollected": False,
+                    "binding": binding,
+                }
+            ),
+            encoding="utf-8",
+        )
+        expect_error(
+            lambda: validate_external_input_admission(receipt, binding),
+            "forbidden flag:current_cache_substitute",
+        )
+
+
+def test_default_crisis_ref_matches_native_control_contract() -> None:
+    args = parse_args([])
+    check(args.long_crisis_features == "data_pit/macro/long_crisis_daily_features.parquet")
+    check(args.price_manifest == "")
+    check(args.input_admission == "")
 
 
 def test_native_args_enforce_shadow_only_and_target_gate() -> None:

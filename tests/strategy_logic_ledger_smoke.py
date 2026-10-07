@@ -173,7 +173,7 @@ def test_r0_all_legacy_parity_contract_normal_and_optimized() -> None:
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert (
             "r0_all_legacy_full_control_parity_smoke: "
-            "PASS (17 structural tests)"
+            "PASS (22 structural tests)"
         ) in proc.stdout
 
 
