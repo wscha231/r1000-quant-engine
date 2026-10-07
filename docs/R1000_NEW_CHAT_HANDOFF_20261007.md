@@ -383,44 +383,35 @@ G1 additional economic logic work is not needed now.
 
 ---
 
-# 12. G2 — BINDING_PREPARED / DRAFT_UNMERGED
+# 12. G2 — BINDING_NATIVE_VALIDATED / DRAFT_UNMERGED
 
-PR:
-**#581 — Hold/Exit/Replacement module prep**
+Core PR:
+**#581** head `b1eabe64bbb9e0665680830e13be80b6195830c7`
 
-Head:
-`b1eabe64bbb9e0665680830e13be80b6195830c7`
+Native integration validation PR:
+**#583** head `f7bd98b43209b4cebb0e0c78f17963b6aba3795d`
 
-G2 core prep remains Draft/unmerged and its code checks are green.
+Accepted evidence:
+- exact G1 + G2 + binding combined tree
+- binding smoke normal 10/10 PASS, SKIP0
+- binding smoke Python -O 10/10 PASS, SKIP0
+- G1 native regression PASS
+- G2 regression PASS
+- PR Validation 37582268796 SUCCESS
+- Portfolio Guard 37582268781 SUCCESS
+- LEGACY path does not load G2
+- G2 path is post-Control/pre-broker
+- G2 direct broker/full-run is fail-closed until explicit treatment materialization
 
-A local G1↔G2 binding package has now been prepared and independently inspected.
-
-Binding bundle:
-- ZIP SHA256 `816b99efd0dd92b4168c68f32395ecbca4aad6caedfa7ff13f75ebc558784db2`
-- patch SHA256 `e083b37acd2fc68d7e0db8cb862cfaba1f8a9b52a3cf860e60e50399b00afc41`
-- binding source SHA256 `cb63a1d165460902f25e234fb3e0b325c75f98e01a19f664880a52950cc1c9a9`
-- smoke SHA256 `3b69e2a5c2aaddf634233242cd9ac3785f446c4cfe68cbe7fd23a455dde47537`
-- local normal 10/10 PASS
-- local Python -O 10/10 PASS
-
-Binding behavior:
-- LEGACY path keeps exact G1 behavior and never loads G2
-- G2 path builds unchanged Control first, then existing G2 treatment
-- G2 is still a post-Control overlay, not proven full replacement
-- only minimum_score_gap is a candidate axis
-- exact module/version/policy/config/hash required
-- explicit PIT scored cache and lifecycle identities required
-- G2 direct full-run/broker execution is blocked until treatment target materialization is explicit
+Current causal boundary:
+`G1 Control target → optional G2 treatment → STOP`
 
 Still NOT_RUN:
-- exact combined-tree native CI
-- treatment-book materialization into isolated broker replay
-- R0
-- R1
-- economic comparison
-
-Next:
-**native combined-tree integration validation**. Do not jump directly to R0 materialization.
+- treatment target-book materialization
+- R0 full-Control parity
+- R1/economic comparison
+- parameter tuning
+- merge/review/Codex
 
 ---
 
@@ -500,14 +491,15 @@ Macro does not directly choose stock weights.
 
 Current L0/TEMP_A0 decision:
 
-`G1 DONE → G2 binding PREPARED → G2 native integration validation → G3 binding → R0 → R1 → G5/G4/G6 increments → ER/A5 → forward/shadow`
+`G1 DONE → G2 binding NATIVE_VALIDATED → G3 binding → R0 materialization/full-Control parity → R1 → G5/G4/G6 increments → ER/A5 → forward/shadow`
 
 Important:
-- G2 remains default OFF / LEGACY for R0.
-- Native combined-tree validation must pass before treatment-book materialization wiring is authorized.
-- G3 binding should explain differences, not generate economic outcomes.
-- R0 = pure all-LEGACY direct Control vs modular all-LEGACY Control.
-- R1 = one hold/replace hypothesis changed, same data/execution/evaluator.
+- #581/#582/#583 remain Draft/unmerged evidence lanes.
+- G2 remains default OFF / LEGACY for the R0 Control arm.
+- G3 is observational/read-only and must not modify economic outputs.
+- Obtain the exact existing G3 patch bytes before native integration; do not reconstruct from summaries.
+- R0 = pure all-LEGACY direct Control vs modular all-LEGACY Control, with explicit isolated materialization identity.
+- R1 = one hold/replace hypothesis changed with common data/execution/evaluator.
 
 ---
 
@@ -696,7 +688,7 @@ Do not:
 
 # 22. Current immediate next task
 
-**G2 native integration validation**.
+**G3 exact-byte intake + native binding preparation**.
 
 Recommended model:
 **GPT-5.6 Sol Extra High**
@@ -705,25 +697,21 @@ Pro budget priority:
 **LOW**
 
 Reason:
-bounded exact-tree integration and regression validation; no new alpha logic or economic run.
+bounded observational integration; no economic logic change.
 
 Required:
-- exact G1 #582 head
-- exact G2 #581 head
-- exact prepared G2 binding patch
-- one isolated integration-validation tree
-- binding smoke normal/-O in dependency-complete environment
-- existing G1/G2 native regressions and required CI
-- LEGACY remains default
-- no treatment-book materialization yet
-- no R0/R1 yet
+- return/preserve the already-prepared G3 patch bytes from the existing G3 worker
+- verify reported patch SHA256
+- bind G3 to the stable G1/G2 replay identities without creating a new evaluator/NAV engine
+- preserve NOT_AVAILABLE for missing turnover/winner/outcome/module provenance
+- no R0/R1 execution yet
+- no treatment materialization yet
 - no merge/Ready/Codex/paper/broker/public/live mutation
 
-If clean:
-1. TEMP_A0 records native binding validation
-2. G3 binding task
-3. then R0 all-LEGACY parity
-4. only after R0, R1 hold/replace experiment
+If G3 native binding validates:
+1. TEMP_A0 records it
+2. issue R0 materialization/full-Control parity task
+3. then R1 hold/replace experiment
 
 ---
 
