@@ -103,6 +103,7 @@ class Tests(unittest.TestCase):
         result=self.run_build()
         # A hostile label stays escaped, while URLs are constructed from numeric ids.
         result['sources'][0]['label']='<img src=x onerror=alert(1)>'
+        result['sources'].append({'label':'failed source','status':'UPSTREAM_FAILED','run_id':None})
         script=r'''
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const packet=JSON.parse(process.argv[1]);let now=Date.parse('2026-09-12T00:00:00Z'),fail=false;
@@ -119,6 +120,7 @@ vm.runInNewContext(fs.readFileSync('docs/public/project-results.js','utf8'),sand
 setImmediate(async()=>{
  assert(element('research-results-body').innerHTML.includes('>0<'));
  assert(element('project-source-cards').innerHTML.includes('&lt;img'));
+ assert(element('research-data-state').textContent.includes('일부 자료 확인 필요'));
  for(const mutate of [q=>delete q.schema_version,q=>delete q.quotes,q=>q.quotes=[],q=>q.quotes.push(q.quotes[0]),q=>q.quotes[0].close=0,q=>q.quotes[0].currency='KRW',q=>q.as_of_close='2026-09-10',q=>q.checked_at_utc='2026-09-20T00:00:00Z',q=>q.portfolio_as_of_close='2026-07-11']){
    quotePacket=structuredClone(validQuotes);mutate(quotePacket);await timers[0]();
    assert(!element('research-results-body').innerHTML.includes('>0<'));
