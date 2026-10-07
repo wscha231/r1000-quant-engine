@@ -610,6 +610,7 @@ def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
     stylesheet = (ROOT / "docs" / "public" / "styles.css").read_text(encoding="utf-8")
+    privacy = (ROOT / "docs" / "public" / "privacy.html").read_text(encoding="utf-8")
     assert "./styles.css" in html
     assert "./app.js" in html
     assert 'id="allocation-donuts"' in html
@@ -631,6 +632,8 @@ def test_static_site_references_only_public_assets() -> None:
     assert "공개 연구 스냅샷 보유 비중" in html
     assert "프로젝트 최신 결과" not in html
     assert "Run287 Portfolio Monitor" not in html
+    assert "R1000 Research · Investment Intelligence" in privacy
+    assert "Run287 Portfolio Monitor" not in privacy
     assert "역사적 성과의 대체값이나 승격 근거가 아닙니다" in html
     assert ".data-status-grid" in stylesheet and ".research-boundary" in stylesheet
     assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet and ".record-forward" in stylesheet
