@@ -359,7 +359,7 @@ PREPARED / not fully integrated:
 ACTIVE:
 - G1 legacy-Control modular adapter: DONE_VALIDATED / Draft PR #582 head `a37d50026850eb76e7454fa7ae02ad7a66d43319`; native smoke normal/-O 14/14 PASS, SKIP0; real broker fixture direct↔adapter parity PASS; R0 full-Control parity still NOT_RUN
 - G2 hold/exit binding: NATIVE_VALIDATED / Draft PR #583 head `f7bd98b43209b4cebb0e0c78f17963b6aba3795d`; binding normal/-O 10/10 PASS SKIP0; G1/G2 native regressions PASS; required current-head CI green; treatment materialization/R0 NOT_RUN
-- G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
+- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; normal/-O 16 PASS; PR Validation 37589666282 SUCCESS; Portfolio Guard 37589666299 SUCCESS; R0 replay inputs still NOT_RUN
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
 LATER:
@@ -623,10 +623,37 @@ Still NOT_RUN:
 - treatment target-book materialization
 - R0 full-Control parity
 - R1/economic comparison
-- G3 binding
+- G3 strategy-difference reporter: NATIVE_VALIDATED / Draft PR #584 head `451b67cfb132921088b73a883f03116417b85fa6`; normal/-O 16 PASS; PR Validation 37589666282 SUCCESS; Portfolio Guard 37589666299 SUCCESS; R0 replay inputs still NOT_RUN
 - merge/review/Codex
 
 Program sequence remains:
 `G3 binding → R0 materialization/full-Control parity → R1`.
 
 G3 is observational only and must not change the economic path. Retrieve the existing G3 local patch bytes rather than rewriting them.
+
+
+## 11.8 G3 native validation completion — 2026-10-07
+
+Task:
+`R1000-G3-NATIVE-BINDING-20261007`
+
+Status:
+`G3_NATIVE_VALIDATED / DRAFT_UNMERGED`
+
+Draft PR #584:
+- head `451b67cfb132921088b73a883f03116417b85fa6`
+- PR Validation 37589666282 SUCCESS
+- Portfolio Guard 37589666299 SUCCESS
+- native reporter normal 16 PASS
+- native reporter Python -O 16 PASS
+- read-only comparison consumer only
+- no NAV/evaluator/backtester/economic source creation
+- missing fee/turnover/winner evidence remains NOT_AVAILABLE
+- provenance-only G1/G2 identity preserved without economic interpretation
+
+Expected review_complete remains blocked while Draft / without maintainer-current-head independent review evidence. This does not negate the native validation result and does not authorize merge.
+
+Next:
+`R0 materialization + all-LEGACY full-Control parity`.
+
+R0 expected alpha delta is exactly zero. G2 must remain OFF/LEGACY in the parity arm. G3 only consumes resulting replay refs.
