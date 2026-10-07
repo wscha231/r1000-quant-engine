@@ -883,3 +883,30 @@ Only remaining recovery path:
 search the original 2026-10-05~06 C2 host/worktree/scratch/archive around `H:/r1000-quant-engine/outputs/a0_v5_dispatch_20261005/` for the exact four byte identities. If those bytes are confirmed lost, close as `SOURCE_LOST_NOT_ADMITTED`; do not recreate this lineage from a new SEC download.
 
 G4 remains independent of R0/R1/G5/G6.
+
+
+## G6 Macro Source/PIT/Impulse audit — 2026-10-08
+
+Status:
+`G6_PARTIAL_PREP_COMPLETE / H1_FAIL_OPEN_RISKS_IDENTIFIED / REAL_MACRO_PIT_TRACE_BLOCKED / NO_ECONOMIC_AUTHORITY`
+
+No new Macro engine is needed. Existing macro/liquidity/credit/breadth features already cover much of the intended space.
+
+Primary H1 candidates:
+- VIX missing → numeric 20.0 fallback in `r1000_regime_data.py`
+- SPY/MA missing → benign `spy_above_200ma=True` possibility
+- regime pre-flight exception in `r1000_paper_executor.py` may continue execution
+- sleeve neutral/balanced defaults require separate economic-consumer review
+
+Current reachability:
+`USED_IN_EXECUTION_CODE / LIVE_ACTIVATION_NOT_VERIFIED`
+
+HY spread real trace is only partial because exact retained observation/vintage/source SHA/collection receipt is not admitted.
+
+Next:
+`G6-H1 source→executor reachability verification → minimal fail-closed patch only if proven`
+
+Optional later:
+`G6-TRACE-HY-PIT` READ_ONLY retained-source recovery.
+
+No H2 feature/economic experiment until H1 integrity and R0/R1 prerequisites are cleared.
