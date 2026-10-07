@@ -358,7 +358,7 @@ PREPARED / not fully integrated:
 
 ACTIVE:
 - G1 legacy-Control modular adapter: DONE_VALIDATED / Draft PR #582 head `a37d50026850eb76e7454fa7ae02ad7a66d43319`; native smoke normal/-O 14/14 PASS, SKIP0; real broker fixture direct↔adapter parity PASS; R0 full-Control parity still NOT_RUN
-- G2 hold/exit binding: PREPARED_LOCAL_VERIFIED; exact G1 #582 + G2 #581 contracts reused; local normal/-O 10/10 PASS; native combined-tree CI NOT_RUN; next = isolated integration validation
+- G2 hold/exit binding: NATIVE_VALIDATED / Draft PR #583 head `f7bd98b43209b4cebb0e0c78f17963b6aba3795d`; binding normal/-O 10/10 PASS SKIP0; G1/G2 native regressions PASS; required current-head CI green; treatment materialization/R0 NOT_RUN
 - G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
@@ -597,3 +597,36 @@ Next:
 
 Recommended model: Extra High.
 Pro budget priority: LOW.
+
+
+## 11.7 G2 native binding validation completion — 2026-10-07
+
+Task:
+`R1000-G2-G1-NATIVE-INTEGRATION-VALIDATION-20261007`
+
+Status:
+`G2_BINDING_NATIVE_VALIDATED / DRAFT_UNMERGED`
+
+Draft PR #583:
+- head `f7bd98b43209b4cebb0e0c78f17963b6aba3795d`
+- 8 changed files
+- PR Validation 37582268796 SUCCESS
+- Portfolio Guard 37582268781 SUCCESS
+- binding smoke normal 10 PASS / SKIP0
+- binding smoke optimized 10 PASS / SKIP0
+- G1 native regression PASS
+- G2 regression PASS
+- LEGACY path G2 zero-load verified
+- G2 broker path blocked until explicit treatment materialization
+
+Still NOT_RUN:
+- treatment target-book materialization
+- R0 full-Control parity
+- R1/economic comparison
+- G3 binding
+- merge/review/Codex
+
+Program sequence remains:
+`G3 binding → R0 materialization/full-Control parity → R1`.
+
+G3 is observational only and must not change the economic path. Retrieve the existing G3 local patch bytes rather than rewriting them.
