@@ -78,10 +78,10 @@ def _run_binding_smoke(*, optimized: bool) -> int:
             + " failed:\n"
             + "\n".join(output.splitlines()[-40:])
         )
-    ran = re.search(r"Ran (\\d+) tests?", output)
+    ran = re.search(r"Ran (\d+) tests?", output)
     if ran is None or int(ran.group(1)) < 10:
         raise RuntimeError("G1/G2 binding smoke test count missing or below 10")
-    skipped = re.search(r"skipped=(\\d+)", output)
+    skipped = re.search(r"skipped=(\d+)", output)
     if skipped is not None and int(skipped.group(1)) != 0:
         raise RuntimeError("G1/G2 binding smoke used SKIP")
     return int(ran.group(1))
