@@ -6409,3 +6409,17 @@ Expected contract:
   return code 2 and all admission/preservation assertions; capture exact argv,
   stdout/stderr, completion phase and child faulthandler output before changing
   a reader, backend or policy. Separate fixture setup calls from the single CLI.
+
+## 2026-10-07 — Product analytics must start with a non-transmitting privacy contract
+
+- A static public Pages surface does not by itself provide an approved private analytics collector. Keep collector_endpoint null and transmission disabled until hosting/provider, privacy-policy, consent and retention requirements are separately approved.
+- Pre-auth product-value measurement can be deterministic without persistent identity: use consented ephemeral sessions, strict event/property allowlists, usable-data qualification, dedupe and fixed timezone/session rules. Do not convert missing signup/user identity into zero D1/D7/D30 retention.
+- Keep raw behavioral events out of the public repository, reject free text and account/broker fields, and leave autocapture/session replay/ad tracking off. Browser instrumentation is a later B-side task, separate from investment logic and publication authority.
+- Qualification and denominator state must use the same whole-session rule: one degraded/stale/incomplete/blocked event makes the segment non-usable and non-qualified. Never filter bad-state rows away only for the numerator.
+- A selectable contract file is input, not authority. Pin every frozen privacy-critical v1 invariant in code so a same-schema custom contract cannot enable user IDs or forbidden fields.
+- Bound offline analytics input bytes, event count, JSON depth and node count before expensive aggregation; normalize recursion/oversize failures to finite contract errors, and keep these regressions in Tier-1 validation.
+- Resource budgets apply to the whole export, not independently to each JSONL row; revalidate the assembled row set so individually valid rows cannot bypass the cumulative node cap.
+- UTC syntax validity is not enough for calendar aggregation. Normalize timezone conversion overflow at the KPI-day boundary to a finite ContractError instead of crashing the batch.
+- Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.
+- Bound JSON integer token length explicitly at decode time so interpreter-specific oversized-integer ValueError cannot bypass ContractError handling.
+- Identifier-free analytics output must not publish a stable digest over raw event/session identifiers. Hash the redacted aggregate payload, not identifier-bearing source rows.
