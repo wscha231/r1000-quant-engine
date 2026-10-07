@@ -6418,3 +6418,5 @@ Expected contract:
 - Qualification and denominator state must use the same whole-session rule: one degraded/stale/incomplete/blocked event makes the segment non-usable and non-qualified. Never filter bad-state rows away only for the numerator.
 - A selectable contract file is input, not authority. Pin every frozen privacy-critical v1 invariant in code so a same-schema custom contract cannot enable user IDs or forbidden fields.
 - Bound offline analytics input bytes, event count, JSON depth and node count before expensive aggregation; normalize recursion/oversize failures to finite contract errors, and keep these regressions in Tier-1 validation.
+- Resource budgets apply to the whole export, not independently to each JSONL row; revalidate the assembled row set so individually valid rows cannot bypass the cumulative node cap.
+- UTC syntax validity is not enough for calendar aggregation. Normalize timezone conversion overflow at the KPI-day boundary to a finite ContractError instead of crashing the batch.

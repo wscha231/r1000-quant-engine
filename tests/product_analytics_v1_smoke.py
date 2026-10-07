@@ -312,6 +312,45 @@ def test_input_resource_limits_fail_closed() -> None:
         finally:
             analytics.MAX_EVENT_INPUT_BYTES = old_byte_limit
 
+        jsonl_path = Path(tmp) / "events.jsonl"
+        jsonl_path.write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in [
+                    event("nodes-a", "site_viewed", "2026-10-07T10:00:00Z"),
+                    event("nodes-b", "site_viewed", "2026-10-07T10:01:00Z"),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        old_node_limit = analytics.MAX_JSON_NODES
+        analytics.MAX_JSON_NODES = 20
+        try:
+            require_error(
+                lambda: read_events(jsonl_path),
+                "json_node_limit",
+            )
+        finally:
+            analytics.MAX_JSON_NODES = old_node_limit
+
+
+def test_kst_timestamp_overflow_fails_closed() -> None:
+    contract = load_contract(CONTRACT)
+    require_error(
+        lambda: aggregate(
+            [
+                event(
+                    "overflow",
+                    "site_viewed",
+                    "9999-12-31T23:59:59Z",
+                )
+            ],
+            contract,
+        ),
+        "occurred_at_utc_kst_range",
+    )
+
 
 def test_internal_and_bot_events_are_excluded() -> None:
     contract = load_contract(CONTRACT)
@@ -420,6 +459,7 @@ def main() -> int:
         test_mixed_state_session_cannot_qualify,
         test_custom_contract_cannot_weaken_privacy_boundary,
         test_input_resource_limits_fail_closed,
+        test_kst_timestamp_overflow_fails_closed,
         test_internal_and_bot_events_are_excluded,
         test_session_timeout_and_kst_day_boundary_are_deterministic,
         test_optimized_python_keeps_contract_checks,

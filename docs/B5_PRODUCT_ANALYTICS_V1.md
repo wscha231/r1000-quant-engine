@@ -53,7 +53,9 @@ KPI dates use `Asia/Seoul` calendar days. Raw timestamps remain UTC.
 
 Offline inputs fail closed before aggregation: event exports are bounded to
 16 MiB and 100,000 events; decoded JSON is bounded to depth 32 and 2,000,000
-value/container nodes. The optional `--contract` path may not weaken the
+value/container nodes across the complete export, including JSONL inputs.
+Timestamp conversion into the KPI timezone also fails closed on range overflow.
+The optional `--contract` path may not weaken the
 frozen v1 identity, consent, field allowlist/denylist, tracking or transmission
 boundary.
 

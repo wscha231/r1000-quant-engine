@@ -218,6 +218,7 @@ def read_events(path: Path) -> list[dict[str, Any]]:
                 raise ContractError("event_count_limit")
     if len(rows) > MAX_EVENTS:
         raise ContractError("event_count_limit")
+    _validate_json_shape(rows)
     if not all(isinstance(row, dict) for row in rows):
         raise ContractError("event_not_object")
     return rows
@@ -386,7 +387,10 @@ def segment_sessions(
 
 
 def session_day(rows: list[dict[str, Any]]) -> str:
-    return rows[0]["_occurred"].astimezone(KST).date().isoformat()
+    try:
+        return rows[0]["_occurred"].astimezone(KST).date().isoformat()
+    except (OverflowError, ValueError) as exc:
+        raise ContractError("occurred_at_utc_kst_range") from exc
 
 
 def qualified_value(
