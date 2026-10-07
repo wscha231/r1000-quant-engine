@@ -499,6 +499,8 @@ def _run_broker_cli(
         portfolio_kind,
         "--output-dir",
         str(output_dir),
+        "--starting-capital",
+        "100000",
         "--fill-mode",
         "next_close",
         "--cost-bps",
