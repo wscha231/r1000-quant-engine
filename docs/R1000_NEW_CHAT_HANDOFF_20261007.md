@@ -774,3 +774,16 @@ When material state changes, update:
 3. this handoff when the change affects future chat continuity
 
 Do not update this file for trivial CI polling noise unless it changes the next action.
+
+
+## R0 real-input gate update — 2026-10-08
+
+R0 remains `BLOCKED_REAL_R0_INPUT`; PR #586 head `dcd006acef45bb783a5f21cf729a7738dda79464` is structural evidence only. No R0 economic receipt exists and R1 must not start.
+
+TEMP_A0 found the current-inventory long-crisis file on Drive (ID `1Y7CFRCXtuKtBEPSczPYJqaJZoFWpfk56`, SHA256 `5b460618944303c65b97caa20323f498a266fe97005b6733ec75efd8acb3c519`) and a historical July price-cache manifest (Drive ID `1gTREHtoAgAUIugntQVANqig8425JzYRX`, SHA256 `f84fe86580bf6560db38926bbb716aaa929f5a4764ad40407b42d596a16bd731`, 80 tickers, actual through 2026-07-24). The current full-history Drive cache is a later mutable generation and must not substitute for the July snapshot.
+
+Drive revision metadata exposes exact July revisions for at least AAPL/ABBV, but old revision media fetch returned HTTP 403 and at least one sampled ticker (ADI) did not expose the July revision. Therefore revision metadata is not yet recovered/admitted input.
+
+Next: bounded A1-style input admission/recovery within the existing R0 lane; exact crisis binding + G2-env rejection + hash-bound real-input gate + synthetic-cannot-pass regression. No recollection/synthesis. If any required historical bar bytes cannot be recovered and SHA-verified, keep R0 blocked.
+
+Recommended model: Extra High. Pro budget priority: MEDIUM.
