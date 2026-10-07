@@ -129,10 +129,7 @@ def parse_utc(value: Any, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def load_contract(path: Path) -> dict[str, Any]:
-    payload = strict_json_loads(
-        _read_bounded_utf8(path, MAX_CONTRACT_BYTES, "contract")
-    )
+def _validate_contract_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ContractError("contract_not_object")
     if set(payload) != FROZEN_CONTRACT_KEYS:
@@ -189,6 +186,13 @@ def load_contract(path: Path) -> dict[str, Any]:
     if payload.get("privacy") != {"autocapture": False, "session_replay": False, "ad_tracking": False, "cross_site_tracking": False, "raw_ip_storage": False, "public_github_raw_events": False}:
         raise ContractError("privacy_contract_mismatch")
     return payload
+
+
+def load_contract(path: Path) -> dict[str, Any]:
+    payload = strict_json_loads(
+        _read_bounded_utf8(path, MAX_CONTRACT_BYTES, "contract")
+    )
+    return _validate_contract_payload(payload)
 
 
 def read_events(path: Path) -> list[dict[str, Any]]:
@@ -402,6 +406,9 @@ def aggregate(
     events: list[dict[str, Any]],
     contract: dict[str, Any],
 ) -> dict[str, Any]:
+    contract = _validate_contract_payload(contract)
+    if len(events) > MAX_EVENTS:
+        raise ContractError("event_count_limit")
     validated = [validate_event(row, contract) for row in events]
     deduped, duplicate_count = dedupe_events(validated)
     excluded_internal = sum(

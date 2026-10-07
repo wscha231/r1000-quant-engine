@@ -266,6 +266,16 @@ def test_custom_contract_cannot_weaken_privacy_boundary() -> None:
         path.write_text(json.dumps(weakened_fields), encoding="utf-8")
         require_error(lambda: load_contract(path), "optional_field_contract_mismatch")
 
+        direct_contract = deepcopy(payload)
+        direct_contract["identity"]["user_id_allowed"] = True
+        require_error(
+            lambda: aggregate(
+                [event("direct-privacy", "site_viewed", "2026-10-07T10:00:00Z")],
+                direct_contract,
+            ),
+            "user_id_must_remain_disabled",
+        )
+
 
 def test_input_resource_limits_fail_closed() -> None:
     require_error(
@@ -282,6 +292,17 @@ def test_input_resource_limits_fail_closed() -> None:
         analytics.MAX_EVENTS = 1
         try:
             require_error(lambda: read_events(path), "event_count_limit")
+            contract = load_contract(CONTRACT)
+            require_error(
+                lambda: aggregate(
+                    [
+                        event("direct-a", "site_viewed", "2026-10-07T10:00:00Z"),
+                        event("direct-b", "site_viewed", "2026-10-07T10:01:00Z"),
+                    ],
+                    contract,
+                ),
+                "event_count_limit",
+            )
         finally:
             analytics.MAX_EVENTS = old_event_limit
         old_byte_limit = analytics.MAX_EVENT_INPUT_BYTES
