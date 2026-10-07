@@ -3063,10 +3063,29 @@ if __name__ == "__main__":
     child_env = {**os.environ}
     prior_pythonpath = child_env.get("PYTHONPATH", "")
     child_env["PYTHONPATH"] = str(ROOT) + (os.pathsep + prior_pythonpath if prior_pythonpath else "")
-    subprocess.run(
+    native_validation = subprocess.run(
         [sys.executable, str(ROOT / "tests" / "legacy_control_adapter_native_validation_smoke.py")],
         cwd=ROOT,
         env=child_env,
-        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
     )
-    print("alphaops_vnext_policy_replay_smoke: PASS")
+    native_output = native_validation.stdout or ""
+    if native_validation.returncode != 0:
+        raise RuntimeError(
+            "legacy_control_adapter_native_validation_smoke failed:\n"
+            + "\n".join(native_output.splitlines()[-40:])
+        )
+    native_summary = next(
+        (
+            line
+            for line in native_output.splitlines()
+            if line.startswith("G1_NATIVE_VALIDATION_SUMMARY=")
+        ),
+        "",
+    )
+    if not native_summary:
+        raise RuntimeError("G1 native validation summary missing")
+    print("alphaops_vnext_policy_replay_smoke: PASS " + native_summary)
