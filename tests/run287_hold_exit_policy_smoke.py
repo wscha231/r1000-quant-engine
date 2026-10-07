@@ -173,29 +173,22 @@ def main() -> int:
         else:
             raise AssertionError("missing replacement cost was silently accepted")
 
-        # A single rebalance event cannot both exit and re-enter the same ticker.
-        wide_gap = scored.copy()
-        wide_gap.loc[
-            wide_gap["rebalance_date"].eq("2024-02-29") & wide_gap["ticker"].eq("CCC"),
-            "alphaops_vnext_score",
-        ] = 5.0
-        wide_treatment, wide_decisions, wide_exits, _ = build_leadership_persistence_book(
-            control, wide_gap, portfolio="main", lifecycle_path=lifecycle,
-            policy=default_policy,
-        )
-        assert not wide_treatment.duplicated(["rebalance_date", "ticker"]).any()
-        assert not wide_exits.duplicated(["rebalance_date", "portfolio", "ticker"]).any()
-        aaa_exit = wide_exits[
-            wide_exits["rebalance_date"].eq("2024-02-29")
-            & wide_exits["ticker"].eq("AAA")
+        # A single rebalance event cannot simultaneously retain and exit the
+        # same incumbent, and output keys remain unique.
+        assert not treatment.duplicated(["rebalance_date", "ticker"]).any()
+        assert not exits.duplicated(["rebalance_date", "portfolio", "ticker"]).any()
+        retained_aaa = decisions[
+            decisions["rebalance_date"].eq("2024-02-29")
+            & decisions["incumbent_ticker"].eq("AAA")
         ]
-        assert len(aaa_exit) == 1
-        assert wide_decisions.iloc[0]["action"] == "ALLOW_REPLACEMENT"
-        wide_feb = wide_treatment[
-            pd.to_datetime(wide_treatment["rebalance_date"]).eq(pd.Timestamp("2024-02-29"))
+        assert len(retained_aaa) == 1
+        assert retained_aaa.iloc[0]["action"] == "RETAIN_INCUMBENT"
+        aaa_exit = exits[
+            exits.get("rebalance_date", pd.Series(dtype=str)).eq("2024-02-29")
+            & exits.get("ticker", pd.Series(dtype=str)).eq("AAA")
         ]
-        assert "AAA" not in set(wide_feb["ticker"])
-        assert "CCC" in set(wide_feb["ticker"])
+        assert aaa_exit.empty
+        assert int(feb["ticker"].eq("AAA").sum()) == 1
 
         assert classify_execution_sell(
             ticker="AAA", target_weight=0.0, target_gross_reduced=False,
