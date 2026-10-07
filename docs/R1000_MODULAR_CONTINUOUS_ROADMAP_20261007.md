@@ -356,9 +356,10 @@ PREPARED / not fully integrated:
 - Macro Transmission V2 package/results
 
 ACTIVE NEXT:
-- G2 hold/exit skeleton preparation in general Chat
-- G3 strategy-difference skeleton preparation in general Chat
-- G1 contract follows after G2/G3 compatibility findings, without allowing G2/G3 to invent a global schema
+- G1 legacy-Control modular adapter: local/code-diff + parity-test preparation only; no remote mutation while Main lane is occupied
+- G2 hold/exit skeleton: may proceed in parallel as local/code-diff preparation, but must reuse existing policy and must not invent a global StrategySpec/DecisionContext schema
+- G3 strategy-difference skeleton: may proceed in parallel as local/code-diff preparation, but must reuse existing ledger/evaluator outputs and must not invent a new evaluator/schema
+- G1 becomes the authoritative shared routing/interface contract before any G2/G3 native integration or remote PR
 
 LATER:
 - G5 Leadership port
@@ -404,3 +405,28 @@ Do not call the modular system complete until:
 8. production/paper/public/broker authority remains separate.
 
 The optimization target is not PR count or review count. It is better winner discovery, better entry, longer correct winner holding, fewer bad replacements, lower unnecessary cost, controlled permanent-loss risk and a sustainable repeatable research/operation loop.
+
+
+## 11.1 A0 live checkpoint — 2026-10-07
+
+Latest TEMP_A0 live reconciliation (source: user-returned A0 checkpoint):
+
+- current master: `6a2fa606896a2f263fffa07b9273d60f2d011626`
+- #556/#560/#574/#575/#577/#578/#579: merged
+- existing hold/exit policy and broker replay/evaluator are present
+- existing strategy ledger does not yet contain first-divergence/module-delta attribution
+- Leadership v2 Drive ZIP exists (74,464 bytes) and must be ported from its older base rather than applied blindly
+- the exact single canonical artifact named `Macro Transmission V2` was not located in that live A0 search; macro assets must therefore be narrowed by actual file/source identity before G6 integration
+- #573 remains an open Draft on an A0/control-plane causal path
+- #572 remains an open Draft on an estimate/source-data causal path
+
+Operational consequence:
+
+1. Do not open another remote Main or Source/Data mutation lane yet.
+2. G1/G2/G3 may all advance as **local/code-diff/test preparation** because that does not consume a remote mutation lane.
+3. G2/G3 must stay interface-conservative: reuse current callers/types and do not create a global StrategySpec/DecisionContext/evaluator framework.
+4. G1's all-legacy parity adapter becomes the authoritative shared module-routing contract before native integration.
+5. Leadership v2 READ_ONLY port analysis may run in parallel.
+6. G6 Macro is not a blocker for G1/R0; first narrow exact reusable Macro source/artifact identity.
+
+The G1 development packet produced by A0 is the current authoritative G1 task definition. It is structural parity only: no strategy change, no G2/G3 feature insertion, no workflow/fullrun/paper/broker/Drive mutation.
