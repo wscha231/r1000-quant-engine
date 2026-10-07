@@ -356,7 +356,7 @@ PREPARED / not fully integrated:
 - Macro Transmission V2 package/results
 
 ACTIVE:
-- G1 legacy-Control modular adapter: exact original four-file bundle VERIFIED; isolated Draft PR #582 head `92ffe3f2305a73b8e1d03e1f8565c33aaf11c128`; final two Git blobs equal local supplied originals; generic portfolio_guard/evaluate PASS; G1 smoke is not yet registered in Tier-1 runner, so native G1 smoke/nonstub broker parity/R0 remain NOT_RUN
+- G1 legacy-Control modular adapter: DONE_VALIDATED / Draft PR #582 head `a37d50026850eb76e7454fa7ae02ad7a66d43319`; native smoke normal/-O 14/14 PASS, SKIP0; real broker fixture direct↔adapter parity PASS; R0 full-Control parity still NOT_RUN
 - G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; validate SUCCESS and Portfolio Guard SUCCESS; keep separate/no merge pending G1 native validation and integration contract
 - G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
@@ -534,3 +534,33 @@ Still NOT_RUN:
 - merge/review approval
 
 Any native-validation wiring should be the narrowest possible integration step and must not silently combine G2/G3 or broaden economic authority.
+
+
+## 11.5 G1 native validation completion — 2026-10-07
+
+G1 is now `DONE_VALIDATED / DRAFT_UNMERGED`.
+
+PR #582 exact head:
+`a37d50026850eb76e7454fa7ae02ad7a66d43319`
+
+Verified live checks:
+- PR Validation 37573898111: SUCCESS
+- Portfolio Guard 37573898112: SUCCESS
+- evaluate: SUCCESS
+- review_head_observed: SUCCESS
+- review_complete: expected BLOCKED while Draft and without maintainer/current-head Codex attestation
+
+Accepted native fixture evidence:
+- G1 native smoke normal 14/14 PASS, SKIP0
+- G1 native smoke Python -O 14/14 PASS, SKIP0
+- real broker replay direct vs adapter parity PASS
+- Main15/Concentrated5, next_close, integer shares, $100k capital, 25bps, lag7 preserved
+- positive fixture generates actual BUY/SELL/fees/cash/NAV/positions
+- missing-price negative path matches fail-closed behavior
+
+This is broker-fixture parity, not full-history R0.
+
+Next integration order:
+`G2 binding capability (default OFF/LEGACY) → G3 binding → R0 all-LEGACY full-Control parity → R1 hold/replace experiment`.
+
+G1 #582 remains Draft/unmerged until review/attestation gates are available.
