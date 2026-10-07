@@ -301,7 +301,17 @@ def run_original_smoke(*, optimized: bool) -> dict[str, int]:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
-        env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+        env={
+            **os.environ,
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONPATH": str(ROOT)
+            + (
+                os.pathsep + os.environ["PYTHONPATH"]
+                if os.environ.get("PYTHONPATH")
+                else ""
+            ),
+        },
     )
     output = completed.stdout or ""
     if completed.returncode != 0:
