@@ -855,3 +855,31 @@ If retained bytes cannot be resolved, stop:
 `BLOCKED_SOURCE_ADMISSION — RETAINED_SOURCE_ARTIFACT_NOT_RESOLVABLE`
 
 No ER/A5/BUY/SELL/Registry write/economic mutation.
+
+
+## G4-A1 retained Source3 recovery — 2026-10-08
+
+Status:
+`BLOCKED_SOURCE_ADMISSION`
+
+G4-A1 stopped correctly at the retained-source gate. The target MSFT Source3 bytes were not recovered, and the nearest Drive Companyfacts file was rejected as a substitute because its SHA/accession/generation did not match the target lineage.
+
+Target:
+- CIK `0000789019`
+- accession `0001193125-26-323660`
+- Source3 SHA256 `f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f`
+- source-current receipt `9e459e4b05d658f9b703b63370be40f6085e9bea913638e08c9d7235415cf9d9`
+- READ_CALC receipt `38be4cd79ba9d9ce463bd74b6525d2d8f04c67d0a7e781381892f3aa26eb2091`
+- READ_CALC result `32d172f188d707cae60274d2316d441ae52b7f6271f466030319288e81a0edab`
+
+Rejected Drive candidate:
+- `companyfacts_0000789019.json`
+- SHA256 `e1c4ccf3b6d60fa5db29d48afb700acd25a41ce4402d59f256280aff758f7ff5`
+- target accession absent; snapshot predates target filing
+
+No ACTUAL row or plan_reassessment was synthesized.
+
+Only remaining recovery path:
+search the original 2026-10-05~06 C2 host/worktree/scratch/archive around `H:/r1000-quant-engine/outputs/a0_v5_dispatch_20261005/` for the exact four byte identities. If those bytes are confirmed lost, close as `SOURCE_LOST_NOT_ADMITTED`; do not recreate this lineage from a new SEC download.
+
+G4 remains independent of R0/R1/G5/G6.
