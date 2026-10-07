@@ -356,9 +356,9 @@ PREPARED / not fully integrated:
 - Macro Transmission V2 package/results
 
 ACTIVE:
-- G1 legacy-Control modular adapter: A0 packet issued; local/code-diff + parity-test preparation in progress
-- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; Guard PASS; final PR Validation pending; keep Draft/no merge until G1 contract and lane reconciliation
-- G3 strategy-difference reporter: PREPARED_LOCAL; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS
+- G1 legacy-Control modular adapter: ORIGINAL BYTES VERIFIED; local structural parity prepared; nonstub broker fixture parity BLOCKED_ENVIRONMENT because isolated runtime lacks native dependencies; actual broker replay executions 0
+- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; validate SUCCESS and Portfolio Guard SUCCESS; keep Draft/no merge until G1 native contract and lane reconciliation
+- G3 strategy-difference reporter: PREPARED_LOCAL_REPORTED; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS; actual patch bytes still need durable intake
 - G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
 LATER:
@@ -459,3 +459,43 @@ The G1 development packet produced by A0 is the current authoritative G1 task de
 
 Native integration order:
 `G1 interface/parity → G2 binding → G3 binding → R0 → R1`.
+
+
+## 11.3 G1 nonstub environment checkpoint — 2026-10-07
+
+Task: `R1000-G1-NONSTUB-BROKER-PARITY-PREP-20261007`
+
+Status:
+`BLOCKED_ENVIRONMENT / ORIGINAL_BYTES_VERIFIED / NATIVE_PARITY_NOT_RUN`
+
+Verified by the worker:
+- original patch SHA256: `0f14c40c1ca64635a8b2f5fe85044b74e3b21061afef4b068842b1d740d45960`
+- original ZIP SHA256: `172acb859f7d35719ff1d9d451d05f002e0fbd0548e1eea841fe19d517d6b063`
+- ZIP patch and standalone patch are identical
+- patch reconstruction matches original adapter/test source bytes
+- product source changes in this follow-up: 0
+
+Nonstub broker fixture parity:
+- actual broker replay executions: 0
+- fill/fee/cash/holdings/NAV comparisons: 0
+- result: `BROKER_FIXTURE_PARITY = BLOCKED_ENVIRONMENT`
+
+Observed isolated-runtime blockers:
+- `pyarrow` missing
+- `pandas_market_calendars` missing
+- incomplete native source dependency tree, first observed as `ModuleNotFoundError: r1000_candidate_lanes`
+- package-install attempt failed because the runtime could not resolve external package hosts
+
+Do not reinterpret this as package incompatibility, missing repository implementation, or parity failure.
+
+Next preferred path:
+1. stop repeating dependency-install attempts in the same isolated chat runtime;
+2. preserve exact G1 original bytes;
+3. reconcile actual writer/lease once rather than inferring occupancy from open Draft PRs;
+4. when remote preparation is allowed, apply only G1's two new files to an exact-current-master isolated Draft branch;
+5. use the repository's existing dependency-complete CI/native environment for nonstub broker fixture parity;
+6. require nonempty direct-vs-adapter economic outputs and exact comparable equality;
+7. keep broker-fixture parity separate from full-history R0.
+
+G2 is not part of all-legacy R0. A post-Control G2 treatment is an overlay until true module replacement is demonstrated.
+G3 requires actual patch bytes plus comparable replay manifests before native wiring.
