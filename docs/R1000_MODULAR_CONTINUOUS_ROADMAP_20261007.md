@@ -355,11 +355,11 @@ PREPARED / not fully integrated:
 - Leadership v2 package
 - Macro Transmission V2 package/results
 
-ACTIVE NEXT:
-- G1 legacy-Control modular adapter: local/code-diff + parity-test preparation only; no remote mutation while Main lane is occupied
-- G2 hold/exit skeleton: may proceed in parallel as local/code-diff preparation, but must reuse existing policy and must not invent a global StrategySpec/DecisionContext schema
-- G3 strategy-difference skeleton: may proceed in parallel as local/code-diff preparation, but must reuse existing ledger/evaluator outputs and must not invent a new evaluator/schema
-- G1 becomes the authoritative shared routing/interface contract before any G2/G3 native integration or remote PR
+ACTIVE:
+- G1 legacy-Control modular adapter: A0 packet issued; local/code-diff + parity-test preparation in progress
+- G2 hold/exit skeleton: PREPARED; Draft PR #581 head `b1eabe64bbb9e0665680830e13be80b6195830c7`; Guard PASS; final PR Validation pending; keep Draft/no merge until G1 contract and lane reconciliation
+- G3 strategy-difference reporter: PREPARED_LOCAL; reported patch SHA256 `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`; no branch/PR; reported 12 local tests PASS
+- G1 remains the authoritative shared routing/interface contract before G2/G3 native integration
 
 LATER:
 - G5 Leadership port
@@ -430,3 +430,32 @@ Operational consequence:
 6. G6 Macro is not a blocker for G1/R0; first narrow exact reusable Macro source/artifact identity.
 
 The G1 development packet produced by A0 is the current authoritative G1 task definition. It is structural parity only: no strategy change, no G2/G3 feature insertion, no workflow/fullrun/paper/broker/Drive mutation.
+
+
+## 11.2 G2/G3 preparation checkpoint — 2026-10-07
+
+### G2
+- task: `R1000-G2-HOLD-EXIT-MODULE-PREP-20261007`
+- status: `G2_CODE_PREPARED / DRAFT_PR_OPEN / FINAL_CI_PENDING`
+- Draft PR: #581
+- head: `b1eabe64bbb9e0665680830e13be80b6195830c7`
+- changed files: existing hold/exit policy + its smoke only
+- existing caller unchanged
+- bounded additions: module identity/config serialization/audit identity + one `minimum_score_gap` candidate helper
+- Portfolio System Guard: PASS
+- PR Validation: pending at checkpoint
+- integration rule: keep Draft/no merge/no shared wiring until G1 contract and mutation-lane reconciliation
+
+### G3
+- task: `R1000-G3-STRATEGY-DIFFERENCE-REPORTER-PREP-20261007`
+- status: `PREPARED_LOCAL / NO_REPOSITORY_MUTATION`
+- reported patch: `R1000_G3_Strategy_Difference_Reporter_PREP_20261007.patch`
+- reported SHA256: `80b8e2a8e9b9775dbbe36fa1933e363cf48876f0328e0f054c9e5a5193df6f54`
+- proposed files: `tools/strategy_difference_reporter.py`, `tests/strategy_difference_reporter_smoke.py`
+- existing strategy ledger remains unchanged
+- reported local result: 12 tests PASS + py_compile PASS
+- repository persistence/CI: NOT_RUN
+- integration rule: wait for G1 IDs/refs and then bind replay refs/strategy identities; do not create a new evaluator/schema
+
+Native integration order:
+`G1 interface/parity → G2 binding → G3 binding → R0 → R1`.
