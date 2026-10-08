@@ -60,7 +60,8 @@ lifecycle and adjustment-source admission remain A1 responsibilities. Matching
 the caller's list is not authentication of a calendar source; every receipt
 separately keeps `calendar_source_verified=false`.
 
-All original timestamps require an explicit timezone. Manifest/source/row
+All original timestamps require an explicit timezone with valid offset fields;
+the unknown local offset `-00:00` is refused. Manifest/source/row
 availability, collection and expiry are checked before slicing; future or
 unknown clocks fail. Research/discovery can retain declared `PIT_PROXY`.
 Training/backtest reads require declared verified PIT, real-source
@@ -113,7 +114,7 @@ writer may be using them. Run both scripts in normal Python and `python -O`.
 The Parquet case explicitly checks dependency refusal when pyarrow is absent;
 with repository CI dependencies it performs a real typed Parquet round-trip.
 
-Local Python 3.12.10: 37 Reader tests and 51 existing Lake tests, 88 unique
+Local Python 3.12.10: 40 Reader tests and 51 existing Lake tests, 91 unique
 methods total, passed normally and with `-O`. Repeated executions are not
 additional unique tests. Local pandas/pyarrow are unavailable, and the isolated
 dependency installation found no accessible distributions. The Parquet test
@@ -125,6 +126,11 @@ One author verification command incorrectly used the runner's additive
 failures in the minimal local environment, and was interrupted. This is not a
 full-suite PASS. The bounded runner command is
 `python tools/run_pr_validation.py --only long_history_lake_smoke`.
+
+Independent A6 identified invalid timezone offsets normalized by the legacy
+parser and oversized JSON integers leaking a raw numeric overflow. Both now
+produce finite contract refusals, with source/row-clock and OHLCV regressions
+in normal and optimized Python. Valid explicit offsets retain their meaning.
 
 Lessons: a latest catalog cannot reproduce an earlier generation; restrict the
 legacy reader's transport view without changing its validators. A verified

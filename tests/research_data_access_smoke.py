@@ -126,6 +126,13 @@ class ReaderTest(unittest.TestCase):
         self.replace_spy(rows)
         self.blocked('INVALID_PRICE_VALUE')
 
+    def test_oversized_json_integers_use_finite_refusal_code(self):
+        for field in ('open', 'high', 'low', 'close', 'volume'):
+            with self.subTest(field=field):
+                rows = prices(); rows[0][field] = 10 ** 1000
+                self.replace_spy(rows)
+                self.blocked('INVALID_PRICE_VALUE')
+
     def test_missing_prices_do_not_become_zero(self):
         rows = prices(); rows[0]['close'] = None
         self.replace_spy(rows)
@@ -162,6 +169,24 @@ class ReaderTest(unittest.TestCase):
     def test_naive_availability_cannot_use_mtime(self):
         self.spec['source']['available_from'] = '2026-10-07'
         self.blocked('INVALID_AVAILABILITY')
+
+    def test_invalid_or_unknown_timezone_offsets_fail_closed(self):
+        for offset in ('+00:60', '-00:60', '+24:00', '-24:00', '+01:99', '-00:00'):
+            with self.subTest(offset=offset, clock='source'):
+                self.spec['source']['available_from'] = '2026-10-07T21:00:00' + offset
+                self.blocked('INVALID_AVAILABILITY')
+            self.spec['source']['available_from'] = '2026-10-07T21:00:00Z'
+            with self.subTest(offset=offset, clock='row'):
+                rows = prices(); rows[0]['available_from'] = SESSIONS[0] + 'T21:00:00' + offset
+                self.replace_spy(rows)
+                self.blocked('INVALID_AVAILABILITY')
+            self.replace_spy(prices())
+
+    def test_valid_explicit_timezone_offsets_preserve_availability(self):
+        self.spec['source']['available_from'] = '2026-10-07T17:00:00-04:00'
+        rows = prices(); rows[0]['available_from'] = SESSIONS[0] + 'T17:00:00-04:00'
+        self.replace_spy(rows)
+        self.assertEqual(len(self.read().rows), 6)
 
     def test_expired_generation_is_blocked(self):
         self.spec['source']['expires_at'] = '2026-10-08T00:00:00Z'

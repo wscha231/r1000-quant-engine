@@ -53,9 +53,12 @@ def text(value, code='MISSING_METADATA'):
 
 def clock(value):
     # The existing freshness parser accepts naive dates. This API requires the
-    # original aware timestamp before using that shared parser.
+    # original aware timestamp and valid offset before using that shared parser,
+    # which otherwise normalizes invalid offset minutes. RFC3339 -00:00 denotes
+    # an unknown local offset and cannot establish availability.
     check(isinstance(value, str) and re.fullmatch(
-        r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})', value),
+        r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?'
+        r'(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)', value) and not value.endswith('-00:00'),
         'INVALID_AVAILABILITY')
     try:
         result = parse_dt(value)
@@ -300,8 +303,11 @@ class ResearchDataReader:
                 for key, kind in PRICE_COLUMNS.items():
                     if kind.endswith('number'):
                         value = row[key]
-                        check(type(value) in (int, float) and math.isfinite(value) and
-                              (value > 0 if kind == 'positive_number' else value >= 0), 'INVALID_PRICE_VALUE')
+                        try:
+                            check(type(value) in (int, float) and math.isfinite(value) and
+                                  (value > 0 if kind == 'positive_number' else value >= 0), 'INVALID_PRICE_VALUE')
+                        except OverflowError:
+                            raise ContractError('INVALID_PRICE_VALUE') from None
                 check(row['low'] <= min(row['open'], row['close']) <=
                       max(row['open'], row['close']) <= row['high'], 'OHLC_INCONSISTENT')
                 row_key = (iid, session)
