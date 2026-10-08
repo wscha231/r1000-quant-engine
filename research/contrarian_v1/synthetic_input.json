@@ -1,0 +1,129 @@
+{
+  "schema": "contrarian-input-v1",
+  "market": "US",
+  "session": "2026-09-04",
+  "previous_session": "2026-09-03",
+  "decision_at": "2026-09-04T20:15:00Z",
+  "baseline_equity": 0.85,
+  "current_equity": 0.85,
+  "risk_cap": 1.0,
+  "eligible_equity_cap": 1.0,
+  "new_buys_allowed": true,
+  "kill_switch": false,
+  "upstream_manifest_sha256": "e8d961cce48e585748ba0a32355dfbc694a247e281bafc333ecdf4e150157f77",
+  "evidence": {
+    "systemic_crisis": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:systemic_crisis",
+      "sha256": "7ead58444a3f849c1ed64929b401287bc5937332237a3a2023f373659f806c0d",
+      "market": "US"
+    },
+    "credit_deteriorating": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:credit_deteriorating",
+      "sha256": "65821b88f0289159e60d45a466750241abf088b90554f3ea09cc645dd8d3345b",
+      "market": "US"
+    },
+    "liquidity_deteriorating": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:liquidity_deteriorating",
+      "sha256": "d733178bf829b7be9e1d2a108d2daa04d1112c5e51a862372876e0c4f4a74b70",
+      "market": "US"
+    },
+    "fundamentals_intact": {
+      "value": true,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:fundamentals_intact",
+      "sha256": "3d46558bc95fa890a28ece302259d51b509de9d4b60a844151cfcc4be3792b95",
+      "market": "US"
+    },
+    "valuation_attractive": {
+      "value": true,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:valuation_attractive",
+      "sha256": "332cf4f1d811f548d2764a176118cb50625d30b33198049650e5a5b2c2034466",
+      "market": "US"
+    },
+    "valuation_stretched": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:valuation_stretched",
+      "sha256": "9044bf3530b8aba4d889dfd16b9b0174f634bbfa47086bd74c5bd8b21f13b908",
+      "market": "US"
+    },
+    "earnings_deteriorating": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:earnings_deteriorating",
+      "sha256": "6002cab8117b9c3c6a854b0cf1b1d7850188cabb3180c9d08b38ecc7406b1b71",
+      "market": "US"
+    },
+    "breadth_improving": {
+      "value": true,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:breadth_improving",
+      "sha256": "d388ca40e18bc5e26af8276a2e4bc68711bddcefb9cdfedfceebe1c1113582b7",
+      "market": "US"
+    },
+    "breadth_deteriorating": {
+      "value": false,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:breadth_deteriorating",
+      "sha256": "5ca0c4372370fab9ae0f70b6cdf414065e70e9bc5afe315c4d5164daa7661f35",
+      "market": "US"
+    },
+    "volatility_easing": {
+      "value": true,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:volatility_easing",
+      "sha256": "1f4b14a6fd24cb782a7ba5e8000789137796a30e88bd062ba579f7bcec49f92b",
+      "market": "US"
+    },
+    "price_stabilizing": {
+      "value": true,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:price_stabilizing",
+      "sha256": "ecaef0eb751f77ef19d924114964c72d299a4cb292a309d598a44765780a339d",
+      "market": "US"
+    },
+    "positioning_greed_pct": {
+      "value": 50.0,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:positioning_greed_pct",
+      "sha256": "ccd587c67db2e37d6f03074c197f73f000d1d07f279a4c2c49bbf14f9efb3d48",
+      "market": "US"
+    },
+    "options_greed_pct": {
+      "value": 50.0,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:options_greed_pct",
+      "sha256": "1dbe710793dc9b8771500549302541647513362b1a191aa1545848a5adbc7c58",
+      "market": "US"
+    },
+    "internals_greed_pct": {
+      "value": 50.0,
+      "observed_at": "2026-09-04T20:00:00Z",
+      "available_at": "2026-09-04T20:05:00Z",
+      "source": "SYNTHETIC:internals_greed_pct",
+      "sha256": "30d6175ceb779d31194706aafd9b828e0d0dc213a5c6a7823f4c5ac2d109df05",
+      "market": "US"
+    }
+  },
+  "baseline_excludes_contrarian": true
+}
