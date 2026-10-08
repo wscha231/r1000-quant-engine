@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import os
 import json
 from pathlib import Path
 import socket
@@ -35,7 +36,7 @@ class NativeRegimeTests(unittest.TestCase):
         self.stack.enter_context(patch.object(regime, "_CACHE_PATH", self.cache))
 
     def bars(self, count=200, values=None):
-        index = pd.bdate_range(end="2026-10-07", periods=count, tz="UTC")
+        index = pd.bdate_range(end=regime._last_completed_us_session(datetime.now(timezone.utc)), periods=count, tz="UTC")
         return pd.DataFrame({"close": values if values is not None else np.arange(count, dtype=float) + 300.0}, index=index)
 
     def fetch(self, frame):
@@ -117,9 +118,12 @@ class NativeRegimeTests(unittest.TestCase):
             result = regime.fetch_spy_with_ma200()
         self.assertEqual(result[:3], (0.0, 0.0, "unavailable"))
 
-    def mock_yfinance(self, values):
+    def mock_yfinance(self, values, end=None):
         yf = ModuleType("yfinance")
-        yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame({"Close": values}))))
+        end = end or regime._last_completed_us_session(datetime.now(timezone.utc))
+        index = pd.bdate_range(end=end, periods=len(values), tz="America/New_York")
+        yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame(
+            {"Close": values}, index=index))))
         self.stack.enter_context(patch.dict(sys.modules, {"yfinance": yf}))
         return yf
 
@@ -157,7 +161,11 @@ class NativeRegimeTests(unittest.TestCase):
             self.assertEqual(regime.fetch_vix()[:2], (31.5, "fred"))
 
     def snapshot(self, **changes):
+        now = datetime.now(timezone.utc)
+        session = regime._last_completed_us_session(now).isoformat()
         values = dict(timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                      spy_session_date=session, vix_observation_date=session,
+                      collected_at_utc=now.isoformat(),
                       spy_close=500.0, spy_ma200=400.0, spy_above_200ma=True,
                       vix_level=20.0, vix_source="yfinance", spy_source="alpaca")
         values.update(changes)
@@ -211,6 +219,57 @@ class NativeRegimeTests(unittest.TestCase):
         self.assertIs(snap.spy_above_200ma, False)
         self.assertEqual(snap.regime_label, "unavailable")
         self.assertIn("error", regime.layer3_actions_for_snapshot(snap)[0])
+
+    def test_stale_spy_session_blocks_native_snapshot(self):
+        old = regime._last_completed_us_session(datetime.now(timezone.utc)) - timedelta(days=21)
+        frame = pd.DataFrame({"close": [500.0] * 200},
+                             index=pd.bdate_range(end=old, periods=200, tz="UTC"))
+        self.mock_yfinance([20.0])
+        with patch.object(provider, "fetch_daily_bars", return_value=frame):
+            snap = regime.current_regime(use_cache=False)
+        self.assertEqual(snap.spy_session_date, old.isoformat())
+        self.assertEqual(snap.regime_label, "unavailable")
+        self.assertIn("error", regime.layer3_actions_for_snapshot(snap)[0])
+        self.assertIsNone(regime._load_cached_snapshot())
+
+    def test_stale_vix_observation_blocks_native_snapshot(self):
+        old = regime._last_completed_us_session(datetime.now(timezone.utc)) - timedelta(days=21)
+        self.mock_yfinance([20.0], end=old)
+        with patch.object(provider, "fetch_daily_bars", return_value=self.bars(260)):
+            snap = regime.current_regime(use_cache=False)
+        self.assertEqual(snap.vix_observation_date, old.isoformat())
+        self.assertEqual(snap.regime_label, "unavailable")
+        self.assertIn("error", regime.layer3_actions_for_snapshot(snap)[0])
+        self.assertIsNone(regime._load_cached_snapshot())
+
+    def test_future_file_mtime_cannot_revalidate_stale_observation(self):
+        old = regime._last_completed_us_session(datetime.now(timezone.utc)) - timedelta(days=21)
+        self.write_cache(self.payload(spy_session_date=old.isoformat()))
+        future = time.time() + 86400
+        os.utime(self.cache, (future, future))
+        self.assertIsNone(regime._load_cached_snapshot())
+
+    def test_collection_clock_freshness_and_cache_binding(self):
+        now = datetime.now(timezone.utc)
+        for collected in (now - timedelta(hours=2), now + timedelta(minutes=5),
+                          now - timedelta(minutes=7)):
+            with self.subTest(collected=collected):
+                self.write_cache(self.payload(collected_at_utc=collected.isoformat()))
+                self.assertIsNone(regime._load_cached_snapshot())
+
+    def test_yfinance_or_fred_without_observation_date_is_not_admitted(self):
+        yf = ModuleType("yfinance")
+        yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame({"Close": [20.0]}))))
+        with patch.dict(sys.modules, {"yfinance": yf}):
+            self.assertEqual(regime.fetch_vix(include_observation=True)[1], "fallback")
+        self.mock_yfinance([])
+        with patch.dict("os.environ", {"FRED_API_KEY": "fixture_not_a_secret"}):
+            response = Mock()
+            response.read.return_value = b'{"observations":[{"value":"20.0"}]}'
+            response.__enter__ = Mock(return_value=response)
+            response.__exit__ = Mock(return_value=False)
+            with patch.object(urllib.request, "urlopen", return_value=response):
+                self.assertEqual(regime.fetch_vix(include_observation=True)[1], "fallback")
 
     def test_native_healthy_provider_to_snapshot_actions_and_cache(self):
         frame = self.bars(260)

@@ -157,6 +157,11 @@ def _regime_preflight_usable(snap, actions) -> bool:
             return False
         if snap.spy_above_200ma != (close > ma200):
             return False
+        # A valid numeric snapshot alone cannot authorize execution. Verify
+        # original SPY/VIX dates and collection time, not the cache file mtime.
+        from r1000_regime_data import _snapshot_usable
+        if not _snapshot_usable(snap):
+            return False
         if not isinstance(actions, list):
             return False
         return all(isinstance(a, dict) and "error" not in a and a.get("type") in

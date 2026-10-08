@@ -10,7 +10,7 @@ import os
 import json
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 from pathlib import Path
 import socket
@@ -74,7 +74,11 @@ class ExecutorMainTests(unittest.TestCase):
         self.executor = source_module("g6_candidate_executor", EXECUTOR_PATH)
 
     def snap(self, **changes):
+        now = datetime.now(timezone.utc)
+        session = self.regime._last_completed_us_session(now).isoformat()
         values = dict(timestamp="fixture", vix_level=20.0, vix_source="yfinance",
+                      spy_session_date=session, vix_observation_date=session,
+                      collected_at_utc=now.isoformat(),
                       spy_close=510.0, spy_ma200=490.0, spy_above_200ma=True,
                       spy_source="alpaca", warnings=[])
         values.update(changes)
@@ -231,10 +235,24 @@ class ExecutorMainTests(unittest.TestCase):
         provider = ModuleType("aggressive.data_alpaca")
         provider.fetch_spy_benchmark = Mock(return_value=frame)
         yf = ModuleType("yfinance")
-        yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame({"Close": [20.0]}))))
+        current_session = self.regime._last_completed_us_session(datetime.now(timezone.utc))
+        vix_index = pd.DatetimeIndex([pd.Timestamp(current_session, tz="America/New_York")])
+        yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame(
+            {"Close": [20.0]}, index=vix_index))))
         self.stack.enter_context(patch.dict(sys.modules, {"aggressive.data_alpaca": provider, "yfinance": yf}))
         self.stack.enter_context(patch.object(self.regime, "_CACHE_PATH", cache_path))
         return provider.fetch_spy_benchmark
+
+    def test_stale_spy_or_vix_date_refuses_execute_even_with_override(self):
+        old = (self.regime._last_completed_us_session(datetime.now(timezone.utc))
+               - timedelta(days=21)).isoformat()
+        for key in ("spy_session_date", "vix_observation_date"):
+            with self.subTest(key=key):
+                self.refused(self.run_main(self.snap(**{key: old}), override=True))
+
+    def test_stale_collection_time_refuses_execute(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        self.refused(self.run_main(self.snap(collected_at_utc=old), override=True))
 
     def test_native_producer_bad_history_cannot_authorize_orders(self):
         dates = pd.bdate_range(end="2026-10-07", periods=200, tz="UTC")
