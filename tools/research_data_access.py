@@ -8,6 +8,7 @@ transport (the legacy RcloneTransport constructor can create directories).
 from __future__ import annotations
 
 from dataclasses import dataclass
+import gzip
 from datetime import date, datetime
 import io
 import json
@@ -15,7 +16,7 @@ import math
 from pathlib import Path
 import re
 
-from tools.long_history_lake import Lake, PREFIX, MAX_OBJECT, unpacked
+from tools.long_history_lake import Lake, PREFIX, MAX_OBJECT
 from tools.macro_history_sources import digest, encoded, exclusive
 from tools.macro_research_checkpoint import safe_path
 from tools.run_data_freshness_contract import DATA_SOURCES, parse_dt, sha256_file
@@ -23,6 +24,9 @@ from tools.run_data_freshness_contract import DATA_SOURCES, parse_dt, sha256_fil
 REGISTRY = Path(__file__).resolve().parents[1] / 'data_static/research_dataset_registry_v1.json'
 PREFIX_V1 = 'shared-research-v1'
 SCHEMA = 'research-data-generation-v1'
+# Per-read ceilings across every file in the pinned generation.
+MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
+MAX_GENERATION_ROWS = 1_000_000
 PRICE_COLUMNS = {
     'instrument_id': 'string', 'ticker': 'string', 'session_date': 'date',
     'available_from': 'timestamp', 'open': 'positive_number',
@@ -183,7 +187,7 @@ class ResearchDataReader:
         check(dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
         generation = sha(data_generation_id)
         decision = clock(decision_time)
-        check(purpose in {'discovery', 'research', 'training', 'backtest'}, 'INVALID_PURPOSE')
+        check(type(purpose) is str and purpose in {'discovery', 'research', 'training', 'backtest'}, 'INVALID_PURPOSE')
         text(consumer_id, 'INVALID_CONSUMER')
         check(isinstance(instrument_ids, (list, tuple)) and len(instrument_ids) > 0 and
               all(isinstance(x, str) and x for x in instrument_ids) and
@@ -223,10 +227,12 @@ class ResearchDataReader:
         check(source.get('classification') in {'REAL_SOURCE', 'CONTRACT_FIXTURE'}, 'SOURCE_CLASSIFICATION')
         check(source.get('admission_state') == 'RESEARCH_BYTES_ONLY', 'ADMISSION_SCOPE')
         purposes = source.get('eligible_purposes')
-        check(isinstance(purposes, list) and bool(purposes) and
-              len(purposes) == len(set(purposes)) and
-              all(x in {'discovery', 'research', 'training', 'backtest'} for x in purposes) and
-              purpose in purposes, 'PURPOSE_NOT_LICENSED')
+        check(type(purposes) is list and bool(purposes) and
+              all(type(x) is str and x in {'discovery', 'research', 'training', 'backtest'}
+                  for x in purposes), 'PURPOSE_NOT_LICENSED')
+        # Member types are now known-safe for hashing.
+        check(len(purposes) == len(set(purposes)), 'DUPLICATE_PURPOSE')
+        check(purpose in purposes, 'PURPOSE_NOT_LICENSED')
         check(source.get('pit_status') in {'VERIFIED', 'PIT_PROXY'}, 'PIT_UNKNOWN')
         if purpose in {'training', 'backtest'}:
             check(source['pit_status'] == 'VERIFIED' and source['classification'] == 'REAL_SOURCE',
@@ -252,6 +258,9 @@ class ResearchDataReader:
         check(all(type(x.get('bytes')) is int and 0 < x['bytes'] <= MAX_OBJECT for x in files)
               and sum(x['bytes'] for x in files) <= 128 * 1024 * 1024, 'FILE_SIZE')
         check(len({sha(x.get('sha256')) for x in files}) == len(files), 'DUPLICATE_FILE')
+        check(all(type(x.get('rows')) is int and x['rows'] > 0 for x in files), 'ROW_COUNT')
+        check(sum(x['rows'] for x in files) <= MAX_GENERATION_ROWS, 'BLOCKED_GENERATION_ROWS')
+        decompressed_total, row_total = 0, 0
         lake = None
         rows, verified, identity_map, symbol_map, seen = [], [], {}, {}, set()
         for item in files:
@@ -290,8 +299,13 @@ class ResearchDataReader:
             else:
                 raise ContractError('UNTRUSTED_STORAGE')
             check(len(raw) == item['bytes'] and digest(raw) == file_sha, 'FILE_BYTES')
-            parsed = self._rows(raw, item.get('format'))
-            check(type(item.get('rows')) is int and item['rows'] > 0 and len(parsed) == item['rows'], 'ROW_COUNT')
+            parsed, expanded_bytes = self._rows(
+                raw, item.get('format'),
+                remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - decompressed_total,
+                remaining_rows=MAX_GENERATION_ROWS - row_total)
+            decompressed_total += expanded_bytes
+            row_total += len(parsed)
+            check(len(parsed) == item['rows'], 'ROW_COUNT')
             dates = []
             for row in parsed:
                 check(isinstance(row, dict) and set(row) == set(PRICE_COLUMNS), 'ROW_SCHEMA')
@@ -358,15 +372,25 @@ class ResearchDataReader:
         return ReadResult(tuple(selected), tuple(verified), receipt)
 
     @staticmethod
-    def _rows(raw, format_name):
+    def _rows(raw, format_name, *, remaining_bytes, remaining_rows):
+        check(remaining_bytes > 0, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        check(remaining_rows > 0, 'BLOCKED_GENERATION_ROWS')
         if format_name in {'jsonl', 'gzip_jsonl'}:
             if format_name == 'gzip_jsonl':
                 try:
-                    raw = unpacked(raw)
+                    # Refuse on the first byte above the remaining generation
+                    # limit; preserve the old 128 MiB per-object decode ceiling.
+                    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
+                        raw = stream.read(min(128 * 1024 * 1024, remaining_bytes) + 1)
                 except (OSError, EOFError, ValueError):
                     raise ContractError('INVALID_GZIP') from None
             check(len(raw) <= 128 * 1024 * 1024, 'DECODE_SIZE')
-            return [decode(line) for line in raw.splitlines()]
+            check(len(raw) <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+            parsed = []
+            for line in io.BytesIO(raw):
+                check(len(parsed) < remaining_rows, 'BLOCKED_GENERATION_ROWS')
+                parsed.append(decode(line))
+            return parsed, len(raw)
         if format_name == 'parquet':
             try:
                 import pyarrow as pa
@@ -376,10 +400,15 @@ class ResearchDataReader:
             try:
                 parquet = pq.ParquetFile(io.BytesIO(raw))
                 check(0 < parquet.metadata.num_rows <= 1_000_000, 'PARQUET_ROW_BUDGET')
+                check(parquet.metadata.num_rows <= remaining_rows, 'BLOCKED_GENERATION_ROWS')
+                expanded_bytes = sum(parquet.metadata.row_group(i).total_byte_size
+                                     for i in range(parquet.metadata.num_row_groups))
+                check(0 < expanded_bytes <= remaining_bytes,
+                      'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
                 expected = pa.schema([(key, pa.string() if not kind.endswith('number') else pa.float64())
                                       for key, kind in PRICE_COLUMNS.items()])
                 check(parquet.schema_arrow.equals(expected, check_metadata=False), 'PARQUET_SCHEMA')
-                return parquet.read().to_pylist()
+                return parquet.read().to_pylist(), expanded_bytes
             except pa.ArrowException:
                 raise ContractError('INVALID_PARQUET') from None
         raise ContractError('UNSUPPORTED_FORMAT')

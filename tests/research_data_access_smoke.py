@@ -260,6 +260,23 @@ class ReaderTest(unittest.TestCase):
         self.blocked('PIT_NOT_VERIFIED', purpose='training')
         self.blocked('PIT_NOT_VERIFIED', purpose='backtest')
 
+    def test_eligible_purposes_reject_unhashable_and_nonstring_members(self):
+        invalid = (
+            'research', {'research': True}, ['research', {}],
+            ['research', ['discovery']], ['research', True],
+            ['research', 12], ['research', None], ['research', 1.5],
+        )
+        for value in invalid:
+            with self.subTest(value=repr(value)):
+                self.spec['source']['eligible_purposes'] = value
+                self.blocked('PURPOSE_NOT_LICENSED')
+
+    def test_eligible_purposes_duplicate_and_valid_unique(self):
+        self.spec['source']['eligible_purposes'] = ['research', 'research']
+        self.blocked('DUPLICATE_PURPOSE')
+        self.spec['source']['eligible_purposes'] = ['research', 'discovery']
+        self.assertEqual(len(self.read().rows), 6)
+
     def test_undeclared_instrument_and_purpose(self):
         self.blocked('MISSING_INSTRUMENT', instrument_ids=['FIXTURE:US:BLD'])
         self.spec['source']['eligible_purposes'] = ['discovery']
@@ -273,6 +290,40 @@ class ReaderTest(unittest.TestCase):
     def test_gzip_jsonl_roundtrip(self):
         self.replace_spy(prices(), raw=packed(b''.join(encoded(r) for r in prices())), format_name='gzip_jsonl')
         self.assertEqual(len(self.read().rows), 6)
+
+    def test_high_compression_multifile_generation_decompressed_limit(self):
+        # Every file is individually valid; the sum of expanded bytes is not.
+        self.spec['files'] = []
+        expanded = []
+        for ticker in ('SPY', 'QQQ'):
+            raw = b''.join(encoded(row) for row in prices(ticker))
+            expanded.append(raw)
+            compressed = packed(raw)
+            self.assertLess(len(compressed), len(raw))
+            self.add_file(prices(ticker), raw=compressed, format_name='gzip_jsonl')
+        cap = sum(map(len, expanded)) - 1
+        self.assertLess(max(map(len, expanded)), cap)
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap):
+            self.blocked('BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        self.assertEqual(len(self.read().rows), 6)
+
+    def test_high_compression_multifile_generation_rows_limit(self):
+        self.spec['files'] = []
+        for ticker in ('SPY', 'QQQ'):
+            raw = b''.join(encoded(row) for row in prices(ticker))
+            self.add_file(prices(ticker), raw=packed(raw), format_name='gzip_jsonl')
+        # 3 rows per file; 6 in one generation exceeds the test cap of 5.
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 5):
+            self.blocked('BLOCKED_GENERATION_ROWS')
+        self.assertEqual(len(self.read().rows), 6)
+
+    def test_actual_rows_budget_checks_even_when_manifest_understates_rows(self):
+        self.spec['files'] = []
+        item = self.add_file(prices() * 3)
+        item['rows'] = 3  # Declared 3, actually 9; block during parse.
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 5):
+            self.blocked('BLOCKED_GENERATION_ROWS',
+                         instrument_ids=['FIXTURE:US:SPY'], minimum_rows=1)
 
     def test_parquet_roundtrip_or_explicit_dependency_refusal(self):
         if importlib.util.find_spec('pyarrow') is None:
