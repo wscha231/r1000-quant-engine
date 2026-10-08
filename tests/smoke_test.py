@@ -1659,6 +1659,23 @@ def test_paper_executor_layer3_preflight() -> None:
     assert "allow-legacy-execute" in pe_src, (
         "paper_executor missing --allow-legacy-execute lock for old Alpaca executor"
     )
+    _run_g6_native_regressions()
+
+
+def _run_g6_native_regressions() -> None:
+    """Keep native source/history/cache refusals active in normal and -O CI."""
+    env = dict(os.environ)
+    env.pop("PYTHONOPTIMIZE", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    for name in ("g6_h1_regime_data_native_smoke", "g6_h1_executor_main_mock_smoke"):
+        for flags in ([], ["-O"]):
+            result = subprocess.run(
+                [sys.executable, "-B", *flags, str(ROOT / "tests" / (name + ".py"))],
+                cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", timeout=90, check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError("G6 native regression failed: " + result.stdout[-8000:])
 
 
 @_test("logic.tactical_empty_trade_plan_schema")

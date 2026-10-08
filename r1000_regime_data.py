@@ -35,10 +35,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
+from numbers import Real
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -64,6 +67,8 @@ class RegimeSnapshot:
 
     @property
     def regime_label(self) -> str:
+        if not _snapshot_usable(self):
+            return "unavailable"
         if self.vix_level >= 30:
             return "fear" if self.spy_above_200ma else "panic"
         if not self.spy_above_200ma:
@@ -76,6 +81,32 @@ class RegimeSnapshot:
 # ---------------------------------------------------------------------------
 # Fetchers
 # ---------------------------------------------------------------------------
+
+def _positive_price(value) -> bool:
+    # Check raw values before float conversion or pandas' skip-NaN mean.
+    return (isinstance(value, Real) and not isinstance(value, bool)
+            and math.isfinite(float(value)) and float(value) > 0.0)
+
+
+def _snapshot_usable(snap: RegimeSnapshot) -> bool:
+    return (snap.spy_source == "alpaca"
+            and snap.vix_source in ("yfinance", "fred")
+            and all(_positive_price(v) for v in
+                    (snap.spy_close, snap.spy_ma200, snap.vix_level))
+            and 5.0 <= snap.vix_level <= 100.0
+            and type(snap.spy_above_200ma) is bool
+            and snap.spy_above_200ma == (snap.spy_close > snap.spy_ma200))
+
+
+def _vix_observation(value) -> Optional[float]:
+    if isinstance(value, bool) or type(value).__name__ == "bool_":
+        return None
+    try:
+        level = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return level if math.isfinite(level) and 5.0 <= level <= 100.0 else None
+
 
 def fetch_spy_with_ma200() -> Tuple[float, float, str, list[str]]:
     """Fetch SPY current close + 200-day MA. Returns (close, ma200, source, warnings)."""
@@ -95,12 +126,37 @@ def fetch_spy_with_ma200() -> Tuple[float, float, str, list[str]]:
     if df is None or df.empty:
         warnings.append("SPY bars empty")
         return 0.0, 0.0, "alpaca_empty", warnings
+    if "close" not in df.columns:
+        warnings.append("SPY close column missing")
+        return 0.0, 0.0, "alpaca_invalid", warnings
     if len(df) < 200:
         warnings.append(f"SPY history too short ({len(df)} < 200 bars)")
-        return float(df["close"].iloc[-1]), 0.0, "alpaca_short", warnings
+        value = df["close"].iloc[-1]
+        return (float(value) if _positive_price(value) else 0.0), 0.0, "alpaca_short", warnings
 
-    close = float(df["close"].iloc[-1])
-    ma200 = float(df["close"].tail(200).mean())
+    window = df["close"].tail(200)
+    if not all(_positive_price(value) for value in window):
+        warnings.append("SPY 200MA requires 200 finite positive non-boolean closes")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    # The native provider contract is a UTC-aware daily DatetimeIndex.
+    # Duplicate timestamps on one date cannot count as distinct sessions.
+    import pandas as pd
+    index = window.index
+    if not isinstance(index, pd.DatetimeIndex) or index.tz is None or index.hasnans:
+        warnings.append("SPY daily timestamps missing or invalid")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    index = index.tz_convert("UTC")
+    sessions = index.normalize()
+    if (not sessions.is_unique or not sessions.is_monotonic_increasing
+            or (sessions.dayofweek >= 5).any()
+            or (index > datetime.now(timezone.utc)).any()):
+        warnings.append("SPY daily timestamps duplicate, unordered, non-trading or future")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    close = float(window.iloc[-1])
+    ma200 = float(window.mean())
+    if not _positive_price(ma200):
+        warnings.append("SPY 200MA is not finite and positive")
+        return 0.0, 0.0, "alpaca_invalid", warnings
     return close, ma200, "alpaca", warnings
 
 
@@ -117,8 +173,8 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
         t = yf.Ticker("^VIX")
         hist = t.history(period="5d", auto_adjust=False)
         if hist is not None and not hist.empty and "Close" in hist.columns:
-            level = float(hist["Close"].iloc[-1])
-            if 5 <= level <= 100:
+            level = _vix_observation(hist["Close"].iloc[-1])
+            if level is not None:
                 return level, "yfinance", warnings
             warnings.append(f"yfinance VIX out of plausible range: {level}")
     except ImportError:
@@ -141,7 +197,9 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
             for obs in data.get("observations", []):
                 v = obs.get("value", "")
                 if v and v != ".":
-                    return float(v), "fred", warnings
+                    level = _vix_observation(v)
+                    if level is not None:
+                        return level, "fred", warnings
             warnings.append("FRED VIXCLS returned no recent obs")
         except Exception as e:
             warnings.append(f"FRED VIXCLS failed: {type(e).__name__}: {e}")
@@ -158,6 +216,7 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
 
 _CACHE_PATH = ROOT / "outputs" / "regime_snapshot_cache.json"
 _CACHE_TTL_SEC = 3600
+_SOURCE_VALIDATION_VERSION = 1
 
 
 def _load_cached_snapshot() -> Optional[RegimeSnapshot]:
@@ -165,11 +224,18 @@ def _load_cached_snapshot() -> Optional[RegimeSnapshot]:
         return None
     try:
         data = json.loads(_CACHE_PATH.read_text())
-        ts = data.get("_cached_at", 0)
-        if time.time() - ts > _CACHE_TTL_SEC:
+        version = data.pop("_source_validation_version", None)
+        if type(version) is not int or version != _SOURCE_VALIDATION_VERSION:
             return None
-        data.pop("_cached_at", None)
-        return RegimeSnapshot(**data)
+        ts = data.pop("_cached_at", None)
+        now = time.time()
+        if not _positive_price(ts) or not 0 <= now - ts <= _CACHE_TTL_SEC:
+            return None
+        snap = RegimeSnapshot(**data)
+        observed = datetime.fromisoformat(snap.timestamp).timestamp()
+        if not 0 <= now - observed <= _CACHE_TTL_SEC or observed > ts:
+            return None
+        return snap if _snapshot_usable(snap) else None
     except Exception:
         return None
 
@@ -179,6 +245,7 @@ def _save_cached_snapshot(snap: RegimeSnapshot) -> None:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         d = asdict(snap)
         d["_cached_at"] = time.time()
+        d["_source_validation_version"] = _SOURCE_VALIDATION_VERSION
         _CACHE_PATH.write_text(json.dumps(d, indent=2))
     except Exception:
         pass  # cache write is best-effort
@@ -195,7 +262,6 @@ def current_regime(use_cache: bool = True) -> RegimeSnapshot:
         if cached is not None:
             return cached
 
-    from datetime import datetime
     spy_close, ma200, spy_src, spy_warns = fetch_spy_with_ma200()
     vix_level, vix_src, vix_warns = fetch_vix()
 
@@ -203,7 +269,8 @@ def current_regime(use_cache: bool = True) -> RegimeSnapshot:
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         spy_close=spy_close,
         spy_ma200=ma200,
-        spy_above_200ma=(spy_close > ma200) if (spy_close > 0 and ma200 > 0) else True,
+        spy_above_200ma=(_positive_price(spy_close) and _positive_price(ma200)
+                         and spy_close > ma200),
         vix_level=vix_level,
         vix_source=vix_src,
         spy_source=spy_src,
@@ -218,6 +285,8 @@ def layer3_actions_for_snapshot(snap: RegimeSnapshot) -> list[dict]:
 
     Returns plain dicts so callers don't need to import the dataclass.
     """
+    if not _snapshot_usable(snap):
+        return [{"error": "regime source unavailable or invalid"}]
     try:
         from r1000_risk_sensing import (
             PortfolioState, RiskConfig, evaluate_layer3_regime,
