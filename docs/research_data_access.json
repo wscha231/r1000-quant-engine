@@ -18,5 +18,14 @@
   "required_evidence": ["source_commit", "catalog_sha256", "commit_sha256", "execution_receipt_sha256", "quality_status", "dataset_evidence", "actual_history_window", "decision_cutoff"],
   "pit_policy": "Current revised histories and SEC filed-date filters alone do not certify historical PIT.",
   "refresh_policy": "Reuse verified objects; append source changes; resolve the latest verified commit on each new research run.",
-  "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index"
+  "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index",
+  "frozen_generation_reader": {
+    "reader": "tools/research_data_access.py",
+    "registry": "data_static/research_dataset_registry_v1.json",
+    "generation_schema": "docs/research_dataset_generation_v1.schema.json",
+    "guide": "docs/SHARED_RESEARCH_READER_V1.md",
+    "generation_policy": "explicit exact-manifest SHA256 only; no latest or cache fallback",
+    "admitted_frozen_generations": 0,
+    "authority": "RESEARCH_BYTES_ONLY; no source or economic admission"
+  }
 }

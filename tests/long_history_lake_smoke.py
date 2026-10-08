@@ -813,4 +813,11 @@ class HistoryTest(unittest.TestCase):
         self.assertNotIn("old['raw_objects'][0]",workflow)
 
 
+def load_tests(loader, tests, pattern):
+    # Keep the existing registered Tier-1 entry; avoid the shared runner/P0 lane.
+    from research_data_access_smoke import ReaderTest
+    tests.addTests(loader.loadTestsFromTestCase(ReaderTest))
+    return tests
+
+
 if __name__=='__main__': unittest.main()
