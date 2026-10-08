@@ -143,6 +143,7 @@ Do not deploy or send browser events until all are true:
 - `tests/product_analytics_collector_v1_smoke.py`
 - `tools/product_analytics_collector/deploy.env.example`
 - `tools/product_analytics_collector/iam_role.yaml`
+- `tools/product_analytics_collector/cloudbuild.yaml`
 - `tools/product_analytics_collector/predeploy_check.py`
 - `tools/product_analytics_collector/render_deploy_plan.py`
 - `docs/B5_PRODUCT_ANALYTICS_DEPLOY_RUNBOOK.md`

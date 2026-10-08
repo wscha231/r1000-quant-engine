@@ -327,16 +327,23 @@ def test_deploy_plan_is_render_only_and_predeploy_probe_is_read_only() -> None:
     probe = (root / "predeploy_check.py").read_text(encoding="utf-8")
     env = (root / "deploy.env.example").read_text(encoding="utf-8")
     role = (root / "iam_role.yaml").read_text(encoding="utf-8")
+    cloudbuild = (root / "cloudbuild.yaml").read_text(encoding="utf-8")
     require("MUTATING COMMANDS BELOW" in render, "plan warning")
     require("subprocess.run" not in render, "renderer must not execute commands")
     for forbidden in ("services enable", "repositories create", "run deploy"):
         require(forbidden not in probe, f"probe contains mutation: {forbidden}")
     require("REGION=asia-northeast3" in env, "Seoul env")
+    require("DEPLOY_SHA=" in env and "BUDGET_AMOUNT_USD=" in env, "deploy/budget pins")
+    require("tools/product_analytics_collector/Dockerfile" in cloudbuild, "custom Dockerfile")
+    require("${_IMAGE}" in cloudbuild, "immutable image substitution")
     require("datastore.entities.create" in role, "create permission")
     require("datastore.entities.get" in role, "get permission")
     require("datastore.entities.update" not in role, "no update permission")
     require("datastore.entities.delete" not in role, "no delete permission")
     require("datastore.entities.list" not in role, "no list permission")
+    require("billing budgets create" in render, "budget plan")
+    require("logging sinks update _Default" in render, "logging exclusion plan")
+    require("builds submit . --region=" in render, "Cloud Build config plan")
 
 
 def test_container_and_docs_remain_prepare_only() -> None:
