@@ -4067,6 +4067,20 @@ def test_product_analytics_v1_contract() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("structural.product_analytics_collector_v1")
+def test_product_analytics_collector_v1() -> None:
+    """Run PREPARE_ONLY collector privacy/transport regressions via registered Tier-1 smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "product_analytics_collector_v1_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 @_test("structural.investment_methodology_v1_contract")
 def test_investment_methodology_v1_contract() -> None:
     """Run the cross-method equal-pillar research contract."""

@@ -1,0 +1,7 @@
+title: R1000 Analytics Event Writer
+description: Minimal Firestore permissions for the B5 product analytics collector.
+stage: GA
+includedPermissions:
+- datastore.databases.get
+- datastore.entities.create
+- datastore.entities.get
