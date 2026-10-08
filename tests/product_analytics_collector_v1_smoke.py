@@ -6,6 +6,7 @@ import json
 import sys
 import tempfile
 from types import SimpleNamespace
+from types import ModuleType
 from unittest.mock import patch
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -514,6 +515,29 @@ def test_readonly_probe_blocks_failed_or_ambiguous_queries() -> None:
     require(result["status"] == "BLOCKED", "existing service cannot be overwritten")
 
 
+def test_gunicorn_logger_discards_request_error_payloads() -> None:
+    import importlib.util
+    import logging
+    fake = ModuleType("gunicorn.glogging")
+    fake.Logger = object
+    spec = importlib.util.spec_from_file_location("privacy_logger_under_test", ROOT / "tools/product_analytics_collector/privacy_logging.py")
+    module = importlib.util.module_from_spec(spec)
+    with patch.dict(sys.modules, {"gunicorn.glogging": fake}):
+        spec.loader.exec_module(module)
+    logger = module.PrivacySafeLogger()
+    observed = []
+    logger.error_log = SimpleNamespace(log=lambda level, message: observed.append((level, message)))
+    for method in ("debug", "info", "warning", "error", "critical", "exception"):
+        getattr(logger, method)("synthetic-private-request", "synthetic-private-argument", exc_info=True)
+    logger.log(logging.ERROR, "synthetic-private-request", exc_info=True)
+    logger.access(object(), object(), {"synthetic-private-request": "synthetic-private-argument"}, object())
+    require(len(observed) == 7, "no access log or exception details")
+    require(all(message in {"collector_runtime_debug", "collector_runtime_info", "collector_runtime_warning", "collector_runtime_error", "collector_runtime_critical"} for _, message in observed), "finite categories only")
+    docker = (ROOT / "tools/product_analytics_collector/Dockerfile").read_text()
+    require("COPY tools/product_analytics_collector/privacy_logging.py" in docker, "logger included in container")
+    require("--logger-class tools.product_analytics_collector.privacy_logging.PrivacySafeLogger" in docker, "privacy logger is actually selected")
+
+
 def main() -> int:
     tests = [
         test_config_is_fail_closed_and_seoul_only,
@@ -534,6 +558,7 @@ def main() -> int:
         test_render_input_rejects_nonfinite_budget_and_invalid_limits,
         test_render_preserves_multiple_origins_and_source_sha,
         test_readonly_probe_blocks_failed_or_ambiguous_queries,
+        test_gunicorn_logger_discards_request_error_payloads,
     ]
     for test in tests:
         test()

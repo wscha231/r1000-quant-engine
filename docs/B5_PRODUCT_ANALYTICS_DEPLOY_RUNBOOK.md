@@ -77,6 +77,10 @@ does not make the deployment `READY` while this blocker remains.
 - The logging exclusion uses the singular `--add-exclusion` flag, service name,
   resource type and request-log ID only. It precedes deployment; verify other
   project/ancestor sinks cannot retain the same request logs.
+- Docker selects the finite-category `PrivacySafeLogger`; it discards Gunicorn
+  access/error arguments and exception traces. Verify this logger remains selected
+  in the private revision before any traffic; platform exclusions alone do not
+  prevent IP/URI appearing in default Gunicorn container error logs.
 - The budget command has project scope and 50/80/100% alerts. USD is valid only
   for a USD billing account. A different billing currency requires a separately
   reviewed currency-specific plan. Budget alerts alone are not a hard spend cap.

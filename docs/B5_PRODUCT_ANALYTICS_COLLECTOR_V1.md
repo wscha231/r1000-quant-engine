@@ -60,6 +60,9 @@ Responses never echo `event_id` or `session_id`.
 - application code does not emit request/access logs. Cloud Run request logs are
   platform-generated and therefore require a Cloud Logging exclusion before any
   production traffic.
+- Gunicorn uses `PrivacySafeLogger`: operational messages are fixed categories
+  only. Access records, request/error strings, arguments and exception tracebacks
+  are discarded before logging; default Gunicorn parser errors can contain IP/URI.
 
 Cloud Run automatically creates request logs; Google Cloud documents that these
 can be controlled with Cloud Logging exclusions. The exclusion must be verified
@@ -143,6 +146,7 @@ Do not deploy or send browser events until all are true:
 
 - `tools/product_analytics_collector/app.py`
 - `tools/product_analytics_collector/firestore_store.py`
+- `tools/product_analytics_collector/privacy_logging.py`
 - `tools/product_analytics_collector/Dockerfile`
 - `tools/product_analytics_collector/requirements.txt`
 - `tests/product_analytics_collector_v1_smoke.py`

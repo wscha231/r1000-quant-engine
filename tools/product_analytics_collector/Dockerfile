@@ -14,5 +14,6 @@ COPY data_static/product_analytics_event_contract_v1.json /app/data_static/produ
 COPY tools/product_analytics_collector/__init__.py /app/tools/product_analytics_collector/__init__.py
 COPY tools/product_analytics_collector/app.py /app/tools/product_analytics_collector/app.py
 COPY tools/product_analytics_collector/firestore_store.py /app/tools/product_analytics_collector/firestore_store.py
+COPY tools/product_analytics_collector/privacy_logging.py /app/tools/product_analytics_collector/privacy_logging.py
 
-CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 30 --max-requests 10000 --max-requests-jitter 500 tools.product_analytics_collector.app:app"]
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 30 --max-requests 10000 --max-requests-jitter 500 --logger-class tools.product_analytics_collector.privacy_logging.PrivacySafeLogger tools.product_analytics_collector.app:app"]

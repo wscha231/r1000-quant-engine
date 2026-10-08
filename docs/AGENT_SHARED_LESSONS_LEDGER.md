@@ -6443,4 +6443,5 @@ Expected contract:
 - Multi-origin environment values need an alternate gcloud dictionary delimiter. Numeric budgets must reject NaN/Infinity; runtime limits must remain bounded. An immutable SHA tag must bind a clean source checkout at that exact SHA.
 - Latest official SDK 588.0.0 still rejects --no-traffic on new Cloud Run services (NoTrafficChange.Adjust). Do not claim PREDEPLOY_READY or silently remove this flag. Print a stop before all mutations and require a separate private-bootstrap contract.
 - Native Gunicorn config/import checks can pass while the local environment denies socket binding (Operation not permitted). Record the blocked socket probe separately; mock/WSGI tests and import checks do not prove native HTTP or deployed runtime behavior.
+- Gunicorn's default parser-error logger can emit client IP and URI before WSGI runs. Platform request-log exclusions and silent application code do not close that path. Select a finite-category server logger that drops access records, message arguments and exception traces; retain category-level operational visibility.
 
