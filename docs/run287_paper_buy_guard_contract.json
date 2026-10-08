@@ -1,0 +1,46 @@
+{
+  "schema_version": "run287-paper-buy-guard-contract-v1",
+  "scope": "review-only forward paper orders after one completed NYSE close",
+  "inputs": {
+    "same_close_manifest_status": "READY_SAME_CLOSE_PAPER_TARGETS",
+    "same_close_targets_hash_bound": true,
+    "canonical_crisis_state_required": true,
+    "component_availability_required": true,
+    "exact_marked_paper_accounts_required": true,
+    "valuation_dates_must_match": true
+  },
+  "policy": {
+    "GREEN": 1.0,
+    "WATCH": 0.0,
+    "DEFENSE": 0.0,
+    "CRISIS": 0.0,
+    "REENTRY_STAGE_1": 0.25,
+    "REENTRY_STAGE_2": 0.6,
+    "REENTRY_STAGE_3": 1.0,
+    "DEGRADED_DATA": 0.0,
+    "formula": "guarded_weight = proposed_weight - max(proposed_weight - marked_weight, 0) * (1 - state_multiplier)",
+    "selector_requested_reductions_preserved": true,
+    "forced_crisis_sales_allowed": false,
+    "blocked_incremental_weight_destination": "Reserve",
+    "missing_or_invalid_evidence": "fail closed and generate zero new orders"
+  },
+  "execution": {
+    "fill_mode": "next_close",
+    "integer_shares": true,
+    "order_role": "review-only virtual trading",
+    "target_handoff_is_hash_bound": true
+  },
+  "evidence_boundary": {
+    "historical_performance_validated": false,
+    "rejected_fixed-book_crisis_policy_promoted": false,
+    "fullrun_executed": false,
+    "next_gate": "one preregistered broker-ledger replay on identical July-through-current inputs"
+  },
+  "safety": {
+    "research_only": true,
+    "paper_only": true,
+    "production_activation_allowed": false,
+    "live_trading_enabled": false,
+    "automatic_promotion_allowed": false
+  }
+}
