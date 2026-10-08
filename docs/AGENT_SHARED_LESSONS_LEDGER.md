@@ -6432,4 +6432,6 @@ Expected contract:
 - Firestore TTL is asynchronous. Setting expiration before the contractual maximum creates margin but does not prove hard deletion by the deadline; verify/disclose TTL behavior or add a separately approved purge mechanism.
 - Cloud Run request logs are platform-generated even when application access logging is off; production traffic stays blocked until a Cloud Logging exclusion is configured and verified.
 - When a validated external ID becomes a Firestore document key, apply Firestore's own document-ID constraints as a second storage-boundary check; schema-valid `.`/`..`/`__...__` IDs must fail before persistence.
+- CI sparse checkout is part of the executable contract. New deployment-support packages needed by Tier-1 must live under already-included paths (here `tools/`) unless the protected workflow itself is separately reviewed.
+- Predeployment automation should separate read-only probes and command rendering from mutating apply steps. A renderer may print future GCP commands but must not execute them in PREPARE_ONLY mode.
 

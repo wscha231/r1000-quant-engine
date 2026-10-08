@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from services.product_analytics_collector.app import StorageUnavailable
+from tools.product_analytics_collector.app import StorageUnavailable
 
 
 class FirestoreEventStore:

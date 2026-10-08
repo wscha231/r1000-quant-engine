@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from services.product_analytics_collector.app import (  # noqa: E402
+from tools.product_analytics_collector.app import (  # noqa: E402
     COLLECTION,
     CollectorApplication,
     CollectorConfig,
@@ -292,7 +292,7 @@ def test_rate_limit_is_bounded_per_instance() -> None:
 def test_no_raw_request_metadata_is_referenced_by_application() -> None:
     source = (
         ROOT
-        / "services"
+        / "tools"
         / "product_analytics_collector"
         / "app.py"
     ).read_text(encoding="utf-8")
@@ -309,7 +309,7 @@ def test_no_raw_request_metadata_is_referenced_by_application() -> None:
 def test_firestore_adapter_uses_create_then_single_document_get() -> None:
     source = (
         ROOT
-        / "services"
+        / "tools"
         / "product_analytics_collector"
         / "firestore_store.py"
     ).read_text(encoding="utf-8")
@@ -321,10 +321,28 @@ def test_firestore_adapter_uses_create_then_single_document_get() -> None:
     require(".stream(" not in source and ".where(" not in source, "no query/list")
 
 
+def test_deploy_plan_is_render_only_and_predeploy_probe_is_read_only() -> None:
+    root = ROOT / "tools" / "product_analytics_collector"
+    render = (root / "render_deploy_plan.py").read_text(encoding="utf-8")
+    probe = (root / "predeploy_check.py").read_text(encoding="utf-8")
+    env = (root / "deploy.env.example").read_text(encoding="utf-8")
+    role = (root / "iam_role.yaml").read_text(encoding="utf-8")
+    require("MUTATING COMMANDS BELOW" in render, "plan warning")
+    require("subprocess.run" not in render, "renderer must not execute commands")
+    for forbidden in ("services enable", "repositories create", "run deploy"):
+        require(forbidden not in probe, f"probe contains mutation: {forbidden}")
+    require("REGION=asia-northeast3" in env, "Seoul env")
+    require("datastore.entities.create" in role, "create permission")
+    require("datastore.entities.get" in role, "get permission")
+    require("datastore.entities.update" not in role, "no update permission")
+    require("datastore.entities.delete" not in role, "no delete permission")
+    require("datastore.entities.list" not in role, "no list permission")
+
+
 def test_container_and_docs_remain_prepare_only() -> None:
     docker = (
         ROOT
-        / "services"
+        / "tools"
         / "product_analytics_collector"
         / "Dockerfile"
     ).read_text(encoding="utf-8")
@@ -352,6 +370,7 @@ def main() -> int:
         test_rate_limit_is_bounded_per_instance,
         test_no_raw_request_metadata_is_referenced_by_application,
         test_firestore_adapter_uses_create_then_single_document_get,
+        test_deploy_plan_is_render_only_and_predeploy_probe_is_read_only,
         test_container_and_docs_remain_prepare_only,
     ]
     for test in tests:

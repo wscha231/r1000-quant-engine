@@ -259,7 +259,7 @@ class CollectorApplication:
         with self._store_lock:
             if self._store is None:
                 try:
-                    from services.product_analytics_collector.firestore_store import (
+                    from tools.product_analytics_collector.firestore_store import (
                         FirestoreEventStore,
                     )
                     self._store = FirestoreEventStore(

@@ -136,10 +136,15 @@ Do not deploy or send browser events until all are true:
 
 ## Prepared files
 
-- `services/product_analytics_collector/app.py`
-- `services/product_analytics_collector/firestore_store.py`
-- `services/product_analytics_collector/Dockerfile`
-- `services/product_analytics_collector/requirements.txt`
+- `tools/product_analytics_collector/app.py`
+- `tools/product_analytics_collector/firestore_store.py`
+- `tools/product_analytics_collector/Dockerfile`
+- `tools/product_analytics_collector/requirements.txt`
 - `tests/product_analytics_collector_v1_smoke.py`
+- `tools/product_analytics_collector/deploy.env.example`
+- `tools/product_analytics_collector/iam_role.yaml`
+- `tools/product_analytics_collector/predeploy_check.py`
+- `tools/product_analytics_collector/render_deploy_plan.py`
+- `docs/B5_PRODUCT_ANALYTICS_DEPLOY_RUNBOOK.md`
 
 No deployment command is executed by this change.
