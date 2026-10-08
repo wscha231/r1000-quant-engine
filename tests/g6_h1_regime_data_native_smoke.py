@@ -20,14 +20,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
+import pandas_market_calendars as mcal
 import aggressive.data_alpaca as provider
 import r1000_regime_data as regime
 
 
 class NativeRegimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Reuse the real calendar's static holiday-rule cache; every clock still
+        # runs its actual schedule. No synthetic calendar/close data is supplied.
+        cls.nyse = mcal.get_calendar("NYSE")
+
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(mcal, "get_calendar", return_value=self.nyse))
         self.stack.enter_context(patch.object(socket, "socket", side_effect=RuntimeError("NETWORK_FORBIDDEN")))
         self.stack.enter_context(patch.object(urllib.request, "urlopen", side_effect=RuntimeError("HTTP_FORBIDDEN")))
         self.stack.enter_context(patch.dict("os.environ", {"FRED_API_KEY": ""}))
@@ -171,6 +179,30 @@ class NativeRegimeTests(unittest.TestCase):
         values.update(changes)
         return regime.RegimeSnapshot(**values)
 
+    def at_time(self, now):
+        class DateTimeType(type):
+            def __instancecheck__(cls, value):
+                # Preserve real datetime/Timestamp recognition in source readers.
+                return isinstance(value, datetime)
+
+        class FrozenDateTime(datetime, metaclass=DateTimeType):
+            @classmethod
+            def now(cls, tz=None):
+                return now.astimezone(tz) if tz else now.astimezone().replace(tzinfo=None)
+
+        stack = ExitStack()
+        stack.enter_context(patch.object(regime, "datetime", FrozenDateTime))
+        stack.enter_context(patch.object(regime.time, "time", return_value=now.timestamp()))
+        return stack
+
+    def snapshot_at(self, now, **changes):
+        session = regime._last_completed_us_session(now).isoformat()
+        values = dict(timestamp=now.astimezone().replace(tzinfo=None).isoformat(),
+                      collected_at_utc=(now - timedelta(seconds=1)).isoformat(),
+                      spy_session_date=session, vix_observation_date=session)
+        values.update(changes)
+        return self.snapshot(**values)
+
     def payload(self, **changes):
         result = asdict(self.snapshot())
         result.update(_cached_at=time.time(), _source_validation_version=1)
@@ -280,6 +312,102 @@ class NativeRegimeTests(unittest.TestCase):
         self.assertEqual(snap.regime_label, "normal")
         self.assertEqual(regime.layer3_actions_for_snapshot(snap), [])
         self.assertEqual(regime._load_cached_snapshot(), snap)
+
+    def test_exact_nyse_close_holiday_early_close_weekend_and_dst(self):
+        cases = (
+            ("2026-10-08T19:59:59+00:00", "2026-10-07"),
+            ("2026-10-08T20:00:00+00:00", "2026-10-08"),
+            ("2026-10-08T20:15:00+00:00", "2026-10-08"),
+            ("2026-10-10T21:00:00+00:00", "2026-10-09"),
+            ("2026-10-11T21:00:00+00:00", "2026-10-09"),
+            ("2026-11-02T20:59:59+00:00", "2026-10-30"),
+            ("2026-11-02T21:00:00+00:00", "2026-11-02"),
+            ("2026-11-26T22:00:00+00:00", "2026-11-25"),
+            ("2026-11-27T17:59:59+00:00", "2026-11-25"),
+            ("2026-11-27T18:00:00+00:00", "2026-11-27"),
+            ("2026-11-27T18:10:00+00:00", "2026-11-27"),
+            ("2026-12-24T17:59:59+00:00", "2026-12-23"),
+            ("2026-12-24T18:00:00+00:00", "2026-12-24"),
+            ("2026-12-25T22:00:00+00:00", "2026-12-24"),
+        )
+        for clock, expected in cases:
+            with self.subTest(clock=clock):
+                self.assertEqual(regime._last_completed_us_session(
+                    datetime.fromisoformat(clock)).isoformat(), expected)
+
+    def test_one_to_four_day_provider_lag_never_refreshed_by_collection(self):
+        now = datetime(2026, 10, 9, 21, 0, 10, tzinfo=timezone.utc)
+        current = "2026-10-09"
+        with self.at_time(now):
+            for days in range(1, 5):
+                old = (now.date() - timedelta(days=days)).isoformat()
+                for spy, vix in ((old, current), (current, old), (old, old)):
+                    with self.subTest(days=days, spy=spy, vix=vix):
+                        frame = pd.DataFrame({"close": [500.0] * 260},
+                            index=pd.bdate_range(end=spy, periods=260, tz="UTC"))
+                        self.mock_yfinance([20.0], end=vix)
+                        with patch.object(provider, "fetch_daily_bars", return_value=frame):
+                            snap = regime.current_regime(use_cache=False)
+                        self.assertEqual((snap.spy_session_date, snap.vix_observation_date), (spy, vix))
+                        self.assertEqual(snap.collected_at_utc, now.isoformat())
+                        self.assertEqual(snap.regime_label, "unavailable")
+                        self.assertIn("error", regime.layer3_actions_for_snapshot(snap)[0])
+                        self.assertFalse(self.cache.exists())
+
+    def test_fresh_cache_clocks_and_mtime_cannot_refresh_old_source_session(self):
+        now = datetime(2026, 10, 9, 21, 0, 10, tzinfo=timezone.utc)
+        with self.at_time(now):
+            for days in range(1, 5):
+                old = (now.date() - timedelta(days=days)).isoformat()
+                for fields in (("spy_session_date",), ("vix_observation_date",),
+                               ("spy_session_date", "vix_observation_date")):
+                    with self.subTest(days=days, fields=fields):
+                        snap = self.snapshot_at(now, **dict.fromkeys(fields, old))
+                        payload = asdict(snap)
+                        payload.update(_cached_at=now.timestamp(), _source_validation_version=1)
+                        self.write_cache(payload)
+                        future = now.timestamp() + 86400
+                        os.utime(self.cache, (future, future))
+                        self.assertIsNone(regime._load_cached_snapshot())
+
+    def test_cache_expires_at_actual_close_even_inside_one_hour_ttl(self):
+        for clock in ("2026-10-08T20:00:00+00:00", "2026-11-27T18:00:00+00:00"):
+            close = datetime.fromisoformat(clock)
+            with self.subTest(close=clock):
+                before = close - timedelta(seconds=10)
+                with self.at_time(before):
+                    regime._save_cached_snapshot(self.snapshot_at(before))
+                    self.assertIsNotNone(regime._load_cached_snapshot())
+                with self.at_time(close):
+                    self.assertIsNone(regime._load_cached_snapshot())
+                    current = self.snapshot_at(close, collected_at_utc=close.isoformat())
+                    self.assertTrue(regime._snapshot_usable(current))
+                    too_early = self.snapshot_at(close, collected_at_utc=before.isoformat())
+                    self.assertFalse(regime._snapshot_usable(too_early))
+
+    def test_holiday_or_incomplete_session_date_is_not_a_source_observation(self):
+        for clock, invalid in (("2026-11-26T22:00:00+00:00", "2026-11-26"),
+                               ("2026-12-25T22:00:00+00:00", "2026-12-25"),
+                               ("2026-11-27T17:59:59+00:00", "2026-11-27")):
+            now = datetime.fromisoformat(clock)
+            with self.subTest(clock=clock), self.at_time(now):
+                self.assertTrue(regime._snapshot_usable(self.snapshot_at(now)))
+                for field in ("spy_session_date", "vix_observation_date"):
+                    self.assertFalse(regime._snapshot_usable(self.snapshot_at(now, **{field: invalid})))
+
+    def test_calendar_missing_failed_empty_or_invalid_session_fails_closed(self):
+        snap = self.snapshot()
+        with patch.dict(sys.modules, {"pandas_market_calendars": None}):
+            self.assertFalse(regime._snapshot_usable(snap))
+            self.assertIn("error", regime.layer3_actions_for_snapshot(snap)[0])
+        for failure in (ImportError("calendar_missing"), RuntimeError("schedule_failed")):
+            with patch("pandas_market_calendars.get_calendar", side_effect=failure):
+                self.assertFalse(regime._snapshot_usable(snap))
+        with patch("pandas_market_calendars.get_calendar") as calendar:
+            calendar.return_value.schedule.return_value = pd.DataFrame({"market_close": []})
+            self.assertFalse(regime._snapshot_usable(snap))
+        with patch("r1000_legacy_input_guard.latest_completed_close", return_value=(None, None, None)):
+            self.assertFalse(regime._snapshot_usable(snap))
 
 
 if __name__ == "__main__":

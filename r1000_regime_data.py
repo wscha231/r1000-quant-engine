@@ -40,8 +40,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timezone
 from numbers import Real
 from pathlib import Path
 from typing import Optional, Tuple
@@ -49,11 +48,9 @@ from typing import Optional, Tuple
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-# Conservative execution-only clock bounds; not NYSE-calendar/PIT certification.
-_SOURCE_STALE_CALENDAR_DAYS = 5
+# Collection/cache clocks bound transport age, never source-session freshness.
 _SOURCE_COLLECTION_MAX_AGE_SECONDS = 3600
 _CACHE_COLLECTION_SKEW_SECONDS = 180
-_US_EASTERN = ZoneInfo('America/New_York')
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +106,18 @@ def _source_date(value) -> Optional[date]:
 
 
 def _last_completed_us_session(now: datetime) -> date:
-    """Conservative weekday/16:30 ET clock, not a holiday-calendar admission."""
-    eastern = now.astimezone(_US_EASTERN)
-    completed = eastern.date()
-    if (eastern.hour, eastern.minute) < (16, 30):
-        completed -= timedelta(days=1)
-    while completed.weekday() >= 5:
-        completed -= timedelta(days=1)
+    """Reuse the current-input gate's exact NYSE holiday/early-close schedule.
+
+    A session completes at its scheduled market close, including a half-day.
+    A late provider must fail closed after that boundary, not extend the prior
+    session's eligibility with a collection/cache timestamp or grace period.
+    """
+    from r1000_legacy_input_guard import latest_completed_close
+
+    session, _, _ = latest_completed_close(now)
+    completed = _source_date(session)
+    if completed is None:
+        raise ValueError("completed NYSE session unavailable")
     return completed
 
 
@@ -137,10 +139,10 @@ def _fresh_observations(snap: RegimeSnapshot, now: Optional[datetime] = None) ->
             return False
         completed = _last_completed_us_session(now)
         completed_at_collection = _last_completed_us_session(collected)
-        return (spy <= completed_at_collection and vix <= completed_at_collection
-                and 0 <= (completed - spy).days <= _SOURCE_STALE_CALENDAR_DAYS
-                and 0 <= (completed - vix).days <= _SOURCE_STALE_CALENDAR_DAYS)
-    except (AttributeError, TypeError, ValueError, OverflowError):
+        return spy == vix == completed == completed_at_collection
+    except Exception:
+        # Calendar import/schedule failures are unavailable data, not a weekday
+        # fallback. Both action generation and executable preflight refuse it.
         return False
 
 

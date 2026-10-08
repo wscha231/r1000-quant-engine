@@ -25,6 +25,7 @@ BASE = ROOT
 EXECUTOR_PATH = ROOT / "r1000_paper_executor.py"
 sys.path.insert(0, str(ROOT))
 import pandas as pd
+import pandas_market_calendars as mcal
 
 # Frozen from the verified packet's exact 37046b7 master source, not the candidate.
 BASELINE_AST = {
@@ -50,9 +51,16 @@ def FrameFixture():
 
 
 class ExecutorMainTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Reuse the real calendar's static holiday-rule cache; every clock still
+        # runs its actual schedule. No synthetic calendar/close data is supplied.
+        cls.nyse = mcal.get_calendar("NYSE")
+
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(mcal, "get_calendar", return_value=self.nyse))
         self.stack.enter_context(patch("socket.socket", side_effect=RuntimeError("NETWORK_FORBIDDEN")))
         self.stack.enter_context(patch.object(urllib.request, "urlopen", side_effect=RuntimeError("NETWORK_FORBIDDEN")))
         self.stack.enter_context(patch("builtins.input", side_effect=RuntimeError("PROMPT_FORBIDDEN")))
@@ -83,6 +91,30 @@ class ExecutorMainTests(unittest.TestCase):
                       spy_source="alpaca", warnings=[])
         values.update(changes)
         return self.regime.RegimeSnapshot(**values)
+
+    def at_time(self, now):
+        class DateTimeType(type):
+            def __instancecheck__(cls, value):
+                # Preserve real datetime/Timestamp recognition in source readers.
+                return isinstance(value, datetime)
+
+        class FrozenDateTime(datetime, metaclass=DateTimeType):
+            @classmethod
+            def now(cls, tz=None):
+                return now.astimezone(tz) if tz else now.astimezone().replace(tzinfo=None)
+
+        stack = ExitStack()
+        stack.enter_context(patch.object(self.regime, "datetime", FrozenDateTime))
+        stack.enter_context(patch.object(self.regime.time, "time", return_value=now.timestamp()))
+        return stack
+
+    def snap_at(self, now, **changes):
+        session = self.regime._last_completed_us_session(now).isoformat()
+        values = dict(timestamp=now.astimezone().replace(tzinfo=None).isoformat(),
+                      collected_at_utc=(now - timedelta(seconds=1)).isoformat(),
+                      spy_session_date=session, vix_observation_date=session)
+        values.update(changes)
+        return self.snap(**values)
 
     def run_main(self, snap=None, actions=None, exception=None, execute=True,
                  skip=False, override=False, legacy=True, executor=None,
@@ -231,12 +263,12 @@ class ExecutorMainTests(unittest.TestCase):
         self.refused(self.run_main(self.snap(spy_close=True, spy_ma200=0.5,
                                             spy_above_200ma=True)))
 
-    def native_provider(self, frame, cache_path):
+    def native_provider(self, frame, cache_path, vix_date=None):
         provider = ModuleType("aggressive.data_alpaca")
         provider.fetch_spy_benchmark = Mock(return_value=frame)
         yf = ModuleType("yfinance")
         current_session = self.regime._last_completed_us_session(datetime.now(timezone.utc))
-        vix_index = pd.DatetimeIndex([pd.Timestamp(current_session, tz="America/New_York")])
+        vix_index = pd.DatetimeIndex([pd.Timestamp(vix_date or current_session, tz="America/New_York")])
         yf.Ticker = Mock(return_value=Mock(history=Mock(return_value=pd.DataFrame(
             {"Close": [20.0]}, index=vix_index))))
         self.stack.enter_context(patch.dict(sys.modules, {"aggressive.data_alpaca": provider, "yfinance": yf}))
@@ -287,6 +319,110 @@ class ExecutorMainTests(unittest.TestCase):
             self.assertEqual(result["rc"], 0)
             fetch.assert_not_called()
             self.assertEqual(result["buy"].call_args.args[1:], ("AAA", 5.0, 100.5))
+
+    def test_one_to_four_day_stale_spy_vix_or_both_refuse_before_any_target_or_order(self):
+        now = datetime(2026, 10, 9, 21, 0, 10, tzinfo=timezone.utc)
+        with self.at_time(now):
+            for days in range(1, 5):
+                old = (now.date() - timedelta(days=days)).isoformat()
+                for fields in (("spy_session_date",), ("vix_observation_date",),
+                               ("spy_session_date", "vix_observation_date")):
+                    for override in (False, True):
+                        with self.subTest(days=days, fields=fields, override=override):
+                            snap = self.snap_at(now, **dict.fromkeys(fields, old))
+                            self.refused(self.run_main(snap, override=override))
+
+    def test_actual_nyse_session_boundaries_preserve_valid_order_contract(self):
+        cases = (
+            ("2026-10-08T19:59:59+00:00", "2026-10-07"),
+            ("2026-10-08T20:00:01+00:00", "2026-10-08"),
+            ("2026-10-08T20:15:00+00:00", "2026-10-08"),
+            ("2026-10-10T21:00:00+00:00", "2026-10-09"),
+            ("2026-11-02T21:00:01+00:00", "2026-11-02"),
+            ("2026-11-26T22:00:00+00:00", "2026-11-25"),
+            ("2026-11-27T17:59:59+00:00", "2026-11-25"),
+            ("2026-11-27T18:00:01+00:00", "2026-11-27"),
+            ("2026-12-25T22:00:00+00:00", "2026-12-24"),
+        )
+        for clock, session in cases:
+            now = datetime.fromisoformat(clock)
+            with self.subTest(clock=clock), self.at_time(now):
+                snap = self.snap_at(now, spy_session_date=session, vix_observation_date=session)
+                result = self.run_main(snap)
+                self.assertEqual(result["rc"], 0)
+                self.assertEqual(result["load"].call_count, 1)
+                self.assertEqual(result["client"].call_count, 1)
+                self.assertEqual(result["buy"].call_args.args[1:], ("AAA", 5.0, 100.5))
+                result["sell"].assert_not_called()
+
+    def test_holiday_pending_session_and_post_close_provider_lag_refuse(self):
+        cases = (
+            ("2026-10-08T20:00:01+00:00", "2026-10-07"),
+            ("2026-11-26T22:00:00+00:00", "2026-11-26"),
+            ("2026-11-27T17:59:59+00:00", "2026-11-27"),
+            ("2026-11-27T18:00:01+00:00", "2026-11-25"),
+            ("2026-12-25T22:00:00+00:00", "2026-12-25"),
+        )
+        for clock, invalid in cases:
+            now = datetime.fromisoformat(clock)
+            with self.subTest(clock=clock), self.at_time(now):
+                for field in ("spy_session_date", "vix_observation_date"):
+                    self.refused(self.run_main(self.snap_at(now, **{field: invalid}), override=True))
+
+    def test_unavailable_calendar_refuses_even_valid_halt_override(self):
+        snap = self.snap(vix_level=30.0)
+        with patch.dict(sys.modules, {"pandas_market_calendars": None}):
+            self.refused(self.run_main(snap, override=True))
+        with patch("pandas_market_calendars.get_calendar", side_effect=RuntimeError("schedule_unavailable")):
+            self.refused(self.run_main(snap, override=True))
+        with patch("pandas_market_calendars.get_calendar") as calendar:
+            calendar.return_value.schedule.return_value = pd.DataFrame({"market_close": []})
+            self.refused(self.run_main(snap, override=True))
+
+    def test_native_one_to_four_day_provider_lag_refuses_all_execution_boundaries(self):
+        now = datetime(2026, 10, 9, 21, 0, 10, tzinfo=timezone.utc)
+        current = "2026-10-09"
+        with self.at_time(now):
+            for days in range(1, 5):
+                old = (now.date() - timedelta(days=days)).isoformat()
+                for spy, vix in ((old, current), (current, old), (old, old)):
+                    with self.subTest(days=days, spy=spy, vix=vix), tempfile.TemporaryDirectory() as tmp:
+                        frame = pd.DataFrame({"close": [500.0] * 260},
+                            index=pd.bdate_range(end=spy, periods=260, tz="UTC"))
+                        fetch = self.native_provider(frame, Path(tmp) / "cache.json", vix_date=vix)
+                        self.refused(self.run_main(native_regime=True, override=True))
+                        fetch.assert_called_once_with(days=260)
+
+    def test_native_stale_cache_with_fresh_clocks_and_future_mtime_refuses(self):
+        now = datetime(2026, 10, 9, 21, 0, 10, tzinfo=timezone.utc)
+        with self.at_time(now):
+            for fields in (("spy_session_date",), ("vix_observation_date",),
+                           ("spy_session_date", "vix_observation_date")):
+                with self.subTest(fields=fields), tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "cache.json"
+                    snap = self.snap_at(now, **dict.fromkeys(fields, "2026-10-08"))
+                    payload = dict(vars(snap))
+                    payload.update(_cached_at=now.timestamp(), _source_validation_version=1)
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    future = now.timestamp() + 86400
+                    os.utime(path, (future, future))
+                    fetch = self.native_provider(pd.DataFrame(), path, vix_date="2026-10-09")
+                    self.refused(self.run_main(native_regime=True, override=True))
+                    fetch.assert_called_once_with(days=260)
+
+    def test_native_cache_crossing_actual_close_cannot_authorize_orders(self):
+        for clock in ("2026-10-08T20:00:00+00:00", "2026-11-27T18:00:00+00:00"):
+            close = datetime.fromisoformat(clock)
+            with self.subTest(close=clock), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "cache.json"
+                self.stack.enter_context(patch.object(self.regime, "_CACHE_PATH", path))
+                with self.at_time(close - timedelta(seconds=10)):
+                    self.regime._save_cached_snapshot(self.snap_at(close - timedelta(seconds=10)))
+                    self.assertTrue(path.exists())
+                with self.at_time(close):
+                    fetch = self.native_provider(pd.DataFrame(), path, vix_date=close.date().isoformat())
+                    self.refused(self.run_main(native_regime=True, override=True))
+                    fetch.assert_called_once_with(days=260)
 
 
 if __name__ == "__main__":
