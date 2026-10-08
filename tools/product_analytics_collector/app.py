@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -30,6 +31,18 @@ SEOUL_REGION = "asia-northeast3"
 DEFAULT_MAX_BODY_BYTES = 16 * 1024
 DEFAULT_RATE_PER_MINUTE = 120
 RAW_TTL_DAYS = 89
+ORIGIN_RE = re.compile(
+    r"https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?::[0-9]{1,5})?"
+)
+
+
+def valid_https_origin(origin: str) -> bool:
+    if not isinstance(origin, str) or not ORIGIN_RE.fullmatch(origin):
+        return False
+    authority = origin[len("https://"):]
+    host, _, port = authority.partition(":")
+    return len(host) <= 253 and (not port or 1 <= int(port) <= 65535)
 
 
 class StorageUnavailable(RuntimeError):
@@ -63,7 +76,7 @@ class CollectorConfig:
     def from_environment(cls) -> "CollectorConfig":
         raw_origins = os.environ.get("R1000_ANALYTICS_ALLOWED_ORIGINS", "")
         origins = frozenset(
-            token.strip().rstrip("/")
+            token.strip()
             for token in raw_origins.split(",")
             if token.strip()
         )
@@ -105,12 +118,7 @@ class CollectorConfig:
     def error(self) -> str | None:
         if not self.allowed_origins:
             return "allowed_origins_missing"
-        if any(
-            origin == "*"
-            or not origin.startswith("https://")
-            or "/" in origin[len("https://"):]
-            for origin in self.allowed_origins
-        ):
+        if any(not valid_https_origin(origin) for origin in self.allowed_origins):
             return "allowed_origins_invalid"
         if not self.project_id:
             return "project_id_missing"
@@ -207,6 +215,8 @@ def _read_body(environ: dict[str, Any], max_bytes: int) -> bytes:
     raw_length = str(environ.get("CONTENT_LENGTH") or "").strip()
     expected: int | None = None
     if raw_length:
+        if not raw_length.isascii() or not raw_length.isdecimal() or len(raw_length) > 10:
+            raise ContractError("invalid_content_length")
         try:
             expected = int(raw_length)
         except ValueError as exc:
@@ -218,7 +228,12 @@ def _read_body(environ: dict[str, Any], max_bytes: int) -> bytes:
     stream = environ.get("wsgi.input")
     if stream is None or not hasattr(stream, "read"):
         raise ContractError("missing_request_body_stream")
-    body = stream.read(max_bytes + 1)
+    if expected is None and environ.get("wsgi.input_terminated") is not True:
+        raise ContractError("request_body_length_required")
+    try:
+        body = stream.read(expected if expected is not None else max_bytes + 1)
+    except (OSError, ValueError) as exc:
+        raise ContractError("request_body_read_failed") from exc
     if not isinstance(body, (bytes, bytearray)):
         raise ContractError("request_body_not_bytes")
     encoded = bytes(body)
@@ -248,7 +263,7 @@ class CollectorApplication:
         )
 
     def _allowed_origin(self, environ: dict[str, Any]) -> str | None:
-        origin = str(environ.get("HTTP_ORIGIN") or "").strip().rstrip("/")
+        origin = str(environ.get("HTTP_ORIGIN") or "")
         if origin in self.config.allowed_origins:
             return origin
         return None

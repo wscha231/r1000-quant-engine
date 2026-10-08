@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from tools.product_analytics_collector.app import StorageUnavailable
+from tools.aggregate_product_analytics import canonical_bytes
+from tools.product_analytics_collector.app import SERVER_FIELDS, StorageUnavailable
 
 
 class FirestoreEventStore:
@@ -56,10 +57,7 @@ class FirestoreEventStore:
         try:
             ref.create(document)
             return "CREATED"
-        except (
-            self._exceptions.AlreadyExists,
-            self._exceptions.Conflict,
-        ):
+        except self._exceptions.AlreadyExists:
             pass
         except self._exceptions.GoogleAPICallError as exc:
             raise StorageUnavailable("firestore_create_failed") from exc
@@ -72,9 +70,9 @@ class FirestoreEventStore:
             raise StorageUnavailable("firestore_duplicate_missing_after_conflict")
         existing = snapshot.to_dict() or {}
         comparable = {
-            key: existing.get(key)
-            for key in event_payload
+            key: value for key, value in existing.items()
+            if key not in SERVER_FIELDS
         }
-        if comparable == event_payload:
+        if canonical_bytes(comparable) == canonical_bytes(event_payload):
             return "DUPLICATE"
         return "CONFLICT"

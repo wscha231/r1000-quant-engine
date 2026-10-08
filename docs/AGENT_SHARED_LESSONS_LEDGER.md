@@ -6435,3 +6435,12 @@ Expected contract:
 - CI sparse checkout is part of the executable contract. New deployment-support packages needed by Tier-1 must live under already-included paths (here `tools/`) unless the protected workflow itself is separately reviewed.
 - Predeployment automation should separate read-only probes and command rendering from mutating apply steps. A renderer may print future GCP commands but must not execute them in PREPARE_ONLY mode.
 
+### 2026-10-08 — Collector exact-head correction and provider bootstrap limitation
+
+- WSGI readers must respect declared CONTENT_LENGTH; absent length requires a server-guaranteed terminated stream. Never assume a BytesIO fixture proves real socket behavior. Request Origin matching must preserve exact bytes rather than strip slashes/whitespace.
+- Exact duplicate checks compare every stored event field, excluding only server-generated timestamps; dropping optional fields cannot make a conflicting event idempotent. Only AlreadyExists permits a duplicate read, not a broader Conflict error.
+- Read-only GCP probes must treat permission/query/JSON/placement failures as unknown and blocked; summarize outputs without printing raw CLI stderr. Every resource query must explicitly select the intended project.
+- Multi-origin environment values need an alternate gcloud dictionary delimiter. Numeric budgets must reject NaN/Infinity; runtime limits must remain bounded. An immutable SHA tag must bind a clean source checkout at that exact SHA.
+- Latest official SDK 588.0.0 still rejects --no-traffic on new Cloud Run services (NoTrafficChange.Adjust). Do not claim PREDEPLOY_READY or silently remove this flag. Print a stop before all mutations and require a separate private-bootstrap contract.
+- Native Gunicorn config/import checks can pass while the local environment denies socket binding (Operation not permitted). Record the blocked socket probe separately; mock/WSGI tests and import checks do not prove native HTTP or deployed runtime behavior.
+

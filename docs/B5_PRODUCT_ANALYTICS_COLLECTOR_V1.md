@@ -4,6 +4,11 @@ Issue: #588
 
 Status: `PREPARED_NOT_DEPLOYED`
 
+Deployment preparation is blocked: current official SDK 588.0.0 rejects
+`--no-traffic` when creating a new Cloud Run service. The renderer therefore
+prints an unconditional stop before any GCP mutation. See the deployment runbook
+for evidence and the separate private-bootstrap decision required.
+
 This is a B-side product-analytics transport preparation only. It does not alter
 Leadership, RS, Fundamentals, ER/Thesis, ranking, portfolio targets, broker/paper
 books, publication authority, or any A-side investment meaning. It also does not

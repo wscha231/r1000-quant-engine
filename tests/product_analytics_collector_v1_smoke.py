@@ -4,6 +4,9 @@ from __future__ import annotations
 import io
 import json
 import sys
+import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +21,7 @@ from tools.product_analytics_collector.app import (  # noqa: E402
     CollectorConfig,
     SlidingWindowLimiter,
     StorageUnavailable,
+    _read_body,
 )
 
 ORIGIN = "https://wscha231.github.io"
@@ -42,8 +46,8 @@ class FakeStore:
         existing = self.docs.get(event_id)
         if existing is not None:
             comparable = {
-                key: existing.get(key)
-                for key in event_payload
+                key: value for key, value in existing.items()
+                if key not in {"server_received_at_utc", "expires_at"}
             }
             return "DUPLICATE" if comparable == event_payload else "CONFLICT"
         self.docs[event_id] = {
@@ -365,6 +369,151 @@ def test_container_and_docs_remain_prepare_only() -> None:
     require(COLLECTION in doc, "collection")
 
 
+def test_wsgi_read_stays_inside_declared_body() -> None:
+    class DeclaredStream:
+        def read(self, size):
+            require(size == 2, "WSGI must not read past CONTENT_LENGTH")
+            return b"{}"
+    require(_read_body({"CONTENT_LENGTH": "2", "wsgi.input": DeclaredStream()}, 100) == b"{}", "declared body")
+    from tools.aggregate_product_analytics import ContractError
+    try:
+        _read_body({"wsgi.input": DeclaredStream()}, 100)
+    except ContractError:
+        pass
+    else:
+        raise AssertionError("unterminated stream without a length must be rejected")
+    require(_read_body({"wsgi.input": io.BytesIO(b"{}"), "wsgi.input_terminated": True}, 100) == b"{}", "terminated chunked body")
+
+
+def test_origins_are_exact_and_json_errors_are_finite() -> None:
+    app, store = make_app()
+    for origin in (ORIGIN + "/", ORIGIN + " ", "https://*.example.com", "https://example.com?x=1", "https://user@example.com"):
+        require(call(app, payload=event(), origin=origin)[0] == 403, "exact request origin")
+    for invalid in ("https://*.example.com", "https://example.com?x=1", "https://user@example.com", "https://"):
+        require(config(allowed_origins=frozenset({invalid})).error() is not None, "invalid configured origin")
+    for body in (b"{", b'{"event_version":' + b"9" * 5000 + b"}", b"[" * 2000 + b"]" * 2000, b'{"event_id":1,"event_id":2}'):
+        require(call(app, payload=body)[0] == 400, "finite malformed JSON response")
+    require(not store.docs, "rejected input never persists")
+
+
+def test_adapter_duplicate_compares_all_fields_and_only_already_exists_reads() -> None:
+    from tools.product_analytics_collector.firestore_store import FirestoreEventStore
+    class ApiError(Exception): pass
+    class Conflict(ApiError): pass
+    class AlreadyExists(Conflict): pass
+    class Ref:
+        def __init__(self):
+            self.saved = None
+            self.failure = None
+            self.gets = 0
+        def create(self, document):
+            if self.failure:
+                raise self.failure
+            if self.saved is not None:
+                raise AlreadyExists()
+            self.saved = deepcopy(document)
+        def get(self):
+            self.gets += 1
+            return SimpleNamespace(exists=True, to_dict=lambda: deepcopy(self.saved))
+    ref = Ref()
+    store = FirestoreEventStore.__new__(FirestoreEventStore)
+    store._exceptions = SimpleNamespace(AlreadyExists=AlreadyExists, Conflict=Conflict, GoogleAPICallError=ApiError)
+    store._collection = COLLECTION
+    store._client = SimpleNamespace(collection=lambda name: SimpleNamespace(document=lambda key: ref))
+    row = event(market="US")
+    def put(payload):
+        return store.create_or_compare(payload["event_id"], payload, server_received_at_utc=FIXED_NOW, expires_at=FIXED_NOW)
+    require(put(row) == "CREATED" and ref.gets == 0, "atomic create first")
+    require(put(deepcopy(row)) == "DUPLICATE", "exact duplicate")
+    less = deepcopy(row); less.pop("market")
+    require(put(less) == "CONFLICT", "removing a stored optional field conflicts")
+    ref.saved["unexpected"] = "unknown"
+    require(put(row) == "CONFLICT", "unknown stored fields fail exact comparison")
+    before = ref.gets
+    ref.failure = Conflict()
+    try:
+        put(row)
+    except StorageUnavailable:
+        pass
+    else:
+        raise AssertionError("non-AlreadyExists conflict must be unavailable")
+    require(ref.gets == before, "only AlreadyExists permits get")
+
+
+def deploy_values():
+    from tools.product_analytics_collector.render_deploy_plan import read_env
+    raw = (ROOT / "tools/product_analytics_collector/deploy.env.example").read_text()
+    raw = raw.replace("PROJECT_ID=\n", "PROJECT_ID=r1000-test-project\n").replace("BILLING_ACCOUNT_ID=\n", "BILLING_ACCOUNT_ID=000000-000000-000000\n").replace("BUDGET_AMOUNT_USD=\n", "BUDGET_AMOUNT_USD=10\n").replace("DEPLOY_SHA=\n", "DEPLOY_SHA=" + "a" * 40 + "\n")
+    with tempfile.TemporaryDirectory() as temp:
+        path = Path(temp) / "deploy.env"
+        path.write_text(raw)
+        return read_env(path)
+
+
+def test_render_input_rejects_nonfinite_budget_and_invalid_limits() -> None:
+    from tools.product_analytics_collector.render_deploy_plan import read_env
+    values = deploy_values()
+    for key, value in (("BUDGET_AMOUNT_USD", "nan"), ("BUDGET_AMOUNT_USD", "inf"), ("ALLOWED_ORIGINS", "https://*.example.com"), ("ALLOWED_ORIGINS", "http://example.com"), ("MAX_INSTANCES", "1000"), ("RAW_TTL_DAYS", "90"), ("DATABASE_ID", "x")):
+        bad = {**values, key: value}
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "deploy.env"
+            path.write_text("\n".join(k + "=" + v for k, v in bad.items()))
+            try:
+                read_env(path)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError("invalid deployment value accepted: " + key)
+
+
+def test_render_preserves_multiple_origins_and_source_sha() -> None:
+    import shlex
+    from tools.product_analytics_collector.render_deploy_plan import render_plan
+    values = deploy_values()
+    values["ALLOWED_ORIGINS"] = ORIGIN + ",https://r1000.example.com"
+    commands = render_plan(values)
+    stop = next(c for c in commands if "exit 2" in c and "private bootstrap" in c)
+    require(commands.index(stop) < next(i for i, c in enumerate(commands) if c.startswith("gcloud ")), "bootstrap incompatibility blocks all mutation")
+    deploy = next(c for c in commands if c.startswith("gcloud run deploy "))
+    env_arg = next(c for c in shlex.split(deploy) if c.startswith("--set-env-vars="))
+    require(env_arg.startswith("--set-env-vars=^|^"), "alternate gcloud dictionary delimiter")
+    require("R1000_ANALYTICS_ALLOWED_ORIGINS=" + values["ALLOWED_ORIGINS"] + "|" in env_arg, "two origins stay in one env value")
+    require(any("git rev-parse HEAD" in c and values["DEPLOY_SHA"] in c for c in commands), "source SHA guard before mutations")
+    require(any("git status --porcelain" in c for c in commands), "clean build-source guard")
+    log = next(c for c in commands if c.startswith("gcloud logging sinks update"))
+    require("--add-exclusion=" in log and "cloud_run_revision" in log and "run.googleapis.com%2Frequests" in log, "scoped request-log exclusion")
+    require(commands.index(log) < commands.index(deploy), "exclusion precedes private deployment")
+    require("--no-allow-unauthenticated" in deploy and "--no-traffic" in deploy, "private no-traffic boundary")
+
+
+def test_readonly_probe_blocks_failed_or_ambiguous_queries() -> None:
+    from tools.product_analytics_collector import predeploy_check as probe
+    values = deploy_values()
+    observed = []
+    def response(*args):
+        observed.append(args)
+        if args[1:3] == ("auth", "list"): return 0, "operator@example.invalid"
+        if args[1:3] == ("config", "get-value"): return 0, values["PROJECT_ID"]
+        if "describe" in args: return 0, json.dumps({"name": "_Default", "destination": "logging.googleapis.com/projects/r1000-test-project/locations/global/buckets/_Default"})
+        return 0, "[]"
+    with patch.object(probe, "run", side_effect=response):
+        result = probe.probe(values)
+    require(result["status"] == "PREDEPLOY_READ_ONLY_OK" and result["mutations_performed"] == [], "successful absent resources")
+    require(all("--project" in cmd for cmd in observed if cmd[1] not in {"auth", "config"}), "explicit project for every resource query")
+    for code, output in ((1, "PERMISSION_DENIED credential-like-stderr"), (0, "invalid-json"), (0, "[{}]"), (0, json.dumps([{"name": "projects/" + values["PROJECT_ID"] + "/databases/" + values["DATABASE_ID"], "type": "FIRESTORE_NATIVE"}]))):
+        def broken(*args):
+            if args[1:3] == ("firestore", "databases"): return code, output
+            return response(*args)
+        with patch.object(probe, "run", side_effect=broken): result = probe.probe(values)
+        require(result["status"] == "BLOCKED", "unknown database state fails closed")
+        require("credential-like-stderr" not in json.dumps(result), "raw query output never printed")
+    def existing_service(*args):
+        if args[1:3] == ("run", "services"): return 0, json.dumps([{"metadata": {"name": values["SERVICE_NAME"]}}])
+        return response(*args)
+    with patch.object(probe, "run", side_effect=existing_service): result = probe.probe(values)
+    require(result["status"] == "BLOCKED", "existing service cannot be overwritten")
+
+
 def main() -> int:
     tests = [
         test_config_is_fail_closed_and_seoul_only,
@@ -379,6 +528,12 @@ def main() -> int:
         test_firestore_adapter_uses_create_then_single_document_get,
         test_deploy_plan_is_render_only_and_predeploy_probe_is_read_only,
         test_container_and_docs_remain_prepare_only,
+        test_wsgi_read_stays_inside_declared_body,
+        test_origins_are_exact_and_json_errors_are_finite,
+        test_adapter_duplicate_compares_all_fields_and_only_already_exists_reads,
+        test_render_input_rejects_nonfinite_budget_and_invalid_limits,
+        test_render_preserves_multiple_origins_and_source_sha,
+        test_readonly_probe_blocks_failed_or_ambiguous_queries,
     ]
     for test in tests:
         test()
