@@ -6,6 +6,7 @@ import sys
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 
@@ -92,6 +93,7 @@ def test_13f_xml_parser_extracts_information_table_rows() -> None:
             "manager_name": "Example Manager",
             "period_of_report": "2026-03-31",
             "accepted_at": "2026-05-15T18:00:00+00:00",
+            "accession_number": "0001067983-26-000003",
         },
     )
     assert len(rows) == 1
@@ -130,11 +132,17 @@ def test_13f_write_outputs_normalizes_parse_error_dtypes() -> None:
         }
     )
     with tempfile.TemporaryDirectory() as tmp:
-        paths = write_outputs(pd.DataFrame(rows), Path(tmp))
-        out = pd.read_parquet(paths["parquet"])
-        assert str(out["shares"].dtype).startswith("float")
-        assert str(out["market_value_usd"].dtype).startswith("float")
-        assert out["issuer_name"].astype(str).str.contains("PARSE_ERROR").any()
+        root = Path(tmp)
+        sentinel = root / "institutional_13f_holdings.csv"
+        sentinel.write_bytes(b"PRIOR_SUCCESS_DO_NOT_REPLACE")
+        try:
+            write_outputs(pd.DataFrame(rows), root)
+        except ValueError as exc:
+            assert "legacy_parse_error" in str(exc)
+        else:
+            raise AssertionError("malformed filing was published as holdings")
+        assert sentinel.read_bytes() == b"PRIOR_SUCCESS_DO_NOT_REPLACE"
+        assert not (root / "institutional_13f_holdings.parquet").exists()
 
 
 def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
@@ -160,12 +168,13 @@ def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
         "available_from": "2026-05-15T18:00:00+00:00",
         "period_of_report": "2026-03-31",
     }
-    frame = parse_13f_index(
-        pd.DataFrame([older, newer]),
-        raw_dir=Path("."),
-        max_filings=1,
-        sleep_s=0.0,
-    )
+    with mock.patch.object(parser_module, "cache_13f_document", return_value=(Path("fixture.xml"), SAMPLE_13F)):
+        frame = parse_13f_index(
+            pd.DataFrame([older, newer]),
+            raw_dir=Path("."),
+            max_filings=1,
+            sleep_s=0.0,
+        )
     assert len(frame) == 1
     assert frame.iloc[0]["manager_cik"] == "0000000002"
 
@@ -401,6 +410,21 @@ def test_late_prior_period_restatement_cannot_resurrect_position() -> None:
     assert int(latest.loc["AAPL", "sec_13f_selling_manager_count"]) == 1
 
 
+def test_h1_13f_contract_suites() -> None:
+    suites = [
+        "tests/test_sec_13f_parser_integration.py",
+    ]
+    for rel in suites:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / rel)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"{rel} failed\n{result.stdout}\n{result.stderr}"
+
+
 if __name__ == "__main__":
     test_13f_xml_parser_extracts_information_table_rows()
     test_13f_signal_is_pit_and_scores_accumulation()
@@ -411,4 +435,5 @@ if __name__ == "__main__":
     test_restatement_removal_emits_latest_exit_in_signal()
     test_new_holdings_only_period_does_not_emit_false_exits()
     test_late_prior_period_restatement_cannot_resurrect_position()
+    test_h1_13f_contract_suites()
     print("sec_13f_parser_smoke: PASS")
