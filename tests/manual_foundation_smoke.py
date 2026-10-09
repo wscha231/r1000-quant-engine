@@ -465,6 +465,122 @@ class ManualTests(unittest.TestCase):
                 manual.load_catalog(self.root)
         self.write(manual.CATALOG, original)
 
+    def test_semantic_version_core_accepts_canonical_integer_components(self):
+        for value, expected in (
+            ('0.0.0', (0, 0, 0)), ('0.1.0', (0, 1, 0)), ('1.0.0', (1, 0, 0)),
+            ('1.10.3', (1, 10, 3)), ('10.2.15', (10, 2, 15)),
+        ):
+            with self.subTest(version=value):
+                self.assertEqual(manual.semantic_version(value), expected)
+
+    def test_semantic_version_core_refuses_malformed_or_extended_versions(self):
+        for value in ('00.0.0', '01.1.0', '1.01.0', '1.1.00', '1..0', '1.0',
+                      '1.0.0.0', 'v1.0.0', '+1.0.0', '1.0.0-rc.1', '1.0.0+build',
+                      '１.０.０', '1.0.0\n', None, 100):
+            with self.subTest(version=value):
+                with self.assertRaisesRegex(manual.ContractError, 'invalid_playbook_version'):
+                    manual.semantic_version(value)
+
+    def test_zero_padded_successor_is_refused_with_fully_rebound_packet(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for version in ('00.0.0', '01.1.0', '1.01.0', '1.1.00'):
+            with self.subTest(version=version):
+                self.write(manual.MANIFEST, original)
+                packet, scope = self.packet()
+                manifest = copy.deepcopy(original)
+                current = manifest['playbooks'][0]
+                old = copy.deepcopy(current)
+                old['status'] = 'SUPERSEDED'
+                old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
+                current.update(playbook_version=version, supersedes='1.0.0')
+                current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
+                manifest['playbooks'].append(old)
+                manifest['current_versions'][current['playbook_id']] = version
+                self.write(manual.MANIFEST, manifest)
+                packet.update(playbook_version=version, playbook_sha256=current['playbook_sha256'])
+                dependency = hashlib.sha256((self.root / manual.MANIFEST).read_bytes()).hexdigest()
+                packet['dependencies'][manual.MANIFEST] = scope['dependencies'][manual.MANIFEST] = dependency
+                self.rejected(self.bind(packet), scope, 'invalid_playbook_version')
+        self.write(manual.MANIFEST, original)
+
+    def test_successor_numeric_tuple_order_and_reflexive_replacement(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for previous, successor, allowed in (
+            ('1.9.0', '1.10.0', True), ('1.0.9', '1.0.10', True),
+            ('1.10.0', '1.9.0', False), ('1.0.0', '1.0.0', False),
+        ):
+            with self.subTest(previous=previous, successor=successor):
+                manifest = copy.deepcopy(original)
+                current = manifest['playbooks'][0]
+                old = copy.deepcopy(current)
+                old.update(playbook_version=previous, status='SUPERSEDED')
+                old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
+                current.update(playbook_version=successor, supersedes=previous)
+                current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
+                manifest['playbooks'].append(old)
+                manifest['current_versions'][current['playbook_id']] = successor
+                self.write(manual.MANIFEST, manifest)
+                if allowed:
+                    self.assertEqual(manual.load_playbook(current['playbook_id'], self.root)[1]['playbook_version'], successor)
+                else:
+                    with self.assertRaises(manual.ContractError):
+                        manual.load_playbook(current['playbook_id'], self.root)
+        self.write(manual.MANIFEST, original)
+
+    def test_expiry_normal_aware_clock_spellings_preserve_reuse(self):
+        original = manual.load_catalog(self.root)
+        for expiry in ('2099-01-01T00:00:00Z', '2099-01-01T00:00:00+00:00',
+                       '2099-01-01T09:00:00+09:00', '2099-01-01T00:00:00-04:00',
+                       '2099-01-01T00:00:00.123456Z', '2099-01-01 00:00:00+00:00',
+                       '2099-01-01T00:00:00+23:59', None):
+            with self.subTest(expiry=expiry):
+                catalog = copy.deepcopy(original)
+                next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')['expiry'] = expiry
+                self.write(manual.CATALOG, catalog)
+                packet, scope = self.packet()
+                packet['reuse_entries'] = ['group_591']
+                self.assertEqual(self.validate(self.bind(packet), scope)['status'], 'VALIDATED_PREPARE_ONLY')
+        self.write(manual.CATALOG, original)
+
+    def test_malformed_expiry_offsets_refuse_reuse_and_rebound_packet(self):
+        original = manual.load_catalog(self.root)
+        for expiry in ('2099-01-01T00:00:00+00:60', '2099-01-01T00:00:00+01:99',
+                       '2099-01-01T00:00:00+99:00', '2099-01-01T00:00:00+24:00',
+                       '2099-01-01T00:00:00', '2099-01-01',
+                       '2099-01-01T00:00:00+00/00', '2099-01-01X00:00:00Z'):
+            with self.subTest(expiry=expiry):
+                catalog = copy.deepcopy(original)
+                next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')['expiry'] = expiry
+                self.write(manual.CATALOG, catalog)
+                with self.assertRaisesRegex(manual.ContractError, 'catalog_expiry_invalid'):
+                    manual.lookup_reuse('group_591', self.root)
+                packet, scope = self.packet()
+                packet['reuse_entries'] = ['group_591']
+                self.rejected(self.bind(packet), scope, 'catalog_expiry_invalid')
+        self.write(manual.CATALOG, original)
+
+    def test_cli_malformed_expiry_returns_two_without_invoking_worker(self):
+        for name in ('mission_contract.py', 'r1000_config.py'):
+            shutil.copyfile(ROOT / name, self.root / name)
+        original = manual.load_catalog(self.root)
+        for expiry in ('2099-01-01T00:00:00+00:60', '2099-01-01T00:00:00+01:99'):
+            with self.subTest(expiry=expiry):
+                catalog = copy.deepcopy(original)
+                next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')['expiry'] = expiry
+                self.write(manual.CATALOG, catalog)
+                packet, scope = self.packet()
+                packet['reuse_entries'] = ['group_591']
+                self.write('packet.json', self.bind(packet))
+                self.write('scope.json', scope)
+                result = subprocess.run([sys.executable, str(self.root / 'tools/manual_foundation.py'),
+                    '--packet', str(self.root / 'packet.json'), '--scope', str(self.root / 'scope.json'),
+                    '--expected-base', BASE], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                output = json.loads(result.stdout)
+                self.assertEqual(output['reason'], 'catalog_expiry_invalid')
+                self.assertFalse(output['worker_invoked'])
+        self.write(manual.CATALOG, original)
+
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.
         _, row = manual.load_playbook('L0_RESUME_HANDOFF')

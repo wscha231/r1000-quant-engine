@@ -55,7 +55,8 @@ def allowed_file_at(root: Path, value: str) -> Path:
 
 
 def semantic_version(value: str) -> tuple[int, int, int]:
-    if not isinstance(value, str) or re.fullmatch(r'\d+\.\d+\.\d+', value) is None:
+    if (not isinstance(value, str) or re.fullmatch(
+            r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', value) is None):
         raise ContractError('invalid_playbook_version')
     return tuple(int(part) for part in value.split('.'))
 
@@ -150,7 +151,11 @@ def load_catalog(root: Path = ROOT) -> dict:
 
         expiry = row.get('expiry')
         if expiry is not None:
-            if not isinstance(expiry, str):
+            # Check the original clock/offset before datetime can normalize it.
+            if (not isinstance(expiry, str) or re.fullmatch(
+                    r'[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                    r'(?:[.,][0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])',
+                    expiry) is None):
                 raise ContractError('catalog_expiry_invalid')
             try:
                 expiry_at = board.timestamp(expiry)
