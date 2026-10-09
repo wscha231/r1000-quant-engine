@@ -129,6 +129,47 @@ def normalize_picks(df: pd.DataFrame, capital: float, advisor: str = "v3") -> li
     return out
 
 
+def _regime_preflight_usable(snap, actions) -> bool:
+    """Only verified-looking source observations may authorize legacy paper orders.
+
+    Provider labels are not historical PIT/freshness receipts.  This narrowly
+    refuses known missing-data proxies without changing the regime thresholds.
+    """
+    import math
+
+    try:
+        if any(isinstance(getattr(snap, field), bool)
+               for field in ("vix_level", "spy_close", "spy_ma200")):
+            return False
+        vix = float(snap.vix_level)
+        close = float(snap.spy_close)
+        ma200 = float(snap.spy_ma200)
+        if snap.vix_source not in ("yfinance", "fred"):
+            return False
+        if snap.spy_source != "alpaca":
+            return False
+        if not (math.isfinite(vix) and 5.0 <= vix <= 100.0):
+            return False
+        if not (math.isfinite(close) and math.isfinite(ma200)
+                and close > 0.0 and ma200 > 0.0):
+            return False
+        if type(snap.spy_above_200ma) is not bool:
+            return False
+        if snap.spy_above_200ma != (close > ma200):
+            return False
+        # A valid numeric snapshot alone cannot authorize execution. Verify
+        # original SPY/VIX dates and collection time, not the cache file mtime.
+        from r1000_regime_data import _snapshot_usable
+        if not _snapshot_usable(snap):
+            return False
+        if not isinstance(actions, list):
+            return False
+        return all(isinstance(a, dict) and "error" not in a and a.get("type") in
+                   ("HALT_NEW", "INCREASE_CASH") for a in actions)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return False
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--advisor",
@@ -151,7 +192,7 @@ def main() -> int:
                    help="proceed with --execute even when Layer 3 emits HALT_NEW "
                         "(VIX>=30 or other regime block). Use only with deliberate intent.")
     p.add_argument("--skip-regime-check", action="store_true",
-                   help="skip Layer 3 regime pre-flight entirely (not recommended for --execute)")
+                   help="skip Layer 3 regime pre-flight for previews only (incompatible with --execute)")
     args = p.parse_args()
 
     if args.advisor == "v4" and not args.allow_deprecated_v4:
@@ -188,12 +229,20 @@ def main() -> int:
     print(f"  {datetime.now():%Y-%m-%d %H:%M:%S}")
     print("=" * 70)
 
+    if args.execute and args.skip_regime_check:
+        print("REFUSING --execute: regime pre-flight cannot be skipped", file=sys.stderr)
+        return 1
+
     # Layer 3 regime pre-flight (VIX/SPY-200MA gate)
     if not args.skip_regime_check:
         try:
             from r1000_regime_data import current_regime, layer3_actions_for_snapshot
             snap = current_regime()
             actions = layer3_actions_for_snapshot(snap)
+            if args.execute and not _regime_preflight_usable(snap, actions):
+                print("REFUSING --execute: regime source unavailable or pre-flight "
+                      "invalid", file=sys.stderr)
+                return 1
             print()
             print(f"[regime] {snap.regime_label:12s} "
                   f"VIX={snap.vix_level:.1f}({snap.vix_source}) "
@@ -219,14 +268,14 @@ def main() -> int:
                 print("Options:", file=sys.stderr)
                 print("  - drop --execute (run dry-run; orders not placed)", file=sys.stderr)
                 print("  - pass --override-regime-halt (deliberate, take responsibility)", file=sys.stderr)
-                print("  - pass --skip-regime-check (no Layer 3 evaluation at all)", file=sys.stderr)
                 return 1
             if args.execute and cash_actions:
                 print(f"  [warn] cash buffer suggested but not auto-applied — review weights")
         except Exception as e:
             print(f"\n[regime] WARNING: pre-flight failed ({type(e).__name__}: {e})")
             if args.execute:
-                print(f"[regime] proceeding with --execute despite regime-check failure", file=sys.stderr)
+                print("REFUSING --execute: regime pre-flight failed", file=sys.stderr)
+                return 1
 
     # Load advisor output
     df = load_advisor_picks(args.advisor)
