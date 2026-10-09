@@ -108,6 +108,9 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
                 or not isinstance(row.get('toolbox_refs'), list) or not row['toolbox_refs']):
             raise ContractError('manual_layers_missing')
         if row['status'] == 'CURRENT':
+            if (not isinstance(row['process'].get('stop_condition'), list)
+                    or not row['process']['stop_condition']):
+                raise ContractError('manual_stop_condition_invalid')
             if row['playbook_id'] in current:
                 raise ContractError('multiple_current_playbooks')
             current[row['playbook_id']] = row
@@ -317,6 +320,8 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
         raise ContractError('catalog_reuse_not_allowed')
     if 'do_not_repeat_candidate' in packet:
         registry = board.read_json(path_at(root, DNR))
+        if registry.get('match_fields') != ['signal', 'mechanism', 'book', 'window']:
+            raise ContractError('do_not_repeat_match_fields_not_canonical')
         threshold = (registry.get('reuse_policy') or {}).get('minimum_component_coverage_increase_pp', 5.0)
         try:
             valid_threshold = (type(threshold) in (int, float)

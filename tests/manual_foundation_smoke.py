@@ -777,6 +777,87 @@ class ManualTests(unittest.TestCase):
                     self.rejected(self.bind(packet), scope, 'BLOCKED_DO_NOT_REPEAT')
         self.write(manual.DNR, original)
 
+    def test_canonical_match_fields_refuse_fully_rebound_registry_changes(self):
+        original = manual.board.read_json(self.root / manual.DNR)
+        fields = ['signal', 'mechanism', 'book', 'window']
+        row = next(r for r in original['entries'] if r['id'] == 'broad_gross_floor')
+        variants = {'missing': None, 'null': None, 'empty': [], 'extra': fields + ['id'],
+                    'omitted': fields[:-1], 'reordered': list(reversed(fields)),
+                    'duplicate': fields + ['signal'], 'string': ','.join(fields),
+                    'mapping': {k: True for k in fields}}
+        for case, value in variants.items():
+            with self.subTest(case=case):
+                self.write(manual.DNR, original)
+                packet, scope = self.packet()
+                packet['do_not_repeat_candidate'] = {k: row[k] for k in fields}
+                registry = copy.deepcopy(original)
+                if case == 'missing':
+                    del registry['match_fields']
+                else:
+                    registry['match_fields'] = value
+                self.write(manual.DNR, registry)
+                self.rejected(self.rebind_dependency(packet, scope, manual.DNR), scope,
+                              'do_not_repeat_match_fields_not_canonical')
+        self.write(manual.DNR, original)
+
+    def test_canonical_match_fields_preserve_block_and_allowed_controls(self):
+        registry = manual.board.read_json(self.root / manual.DNR)
+        fields = ['signal', 'mechanism', 'book', 'window']
+        self.assertEqual(registry['match_fields'], fields)
+        row = next(r for r in registry['entries'] if r['id'] == 'broad_gross_floor')
+        candidate = {k: row[k] for k in fields}
+        packet, scope = self.packet()
+        packet['do_not_repeat_candidate'] = candidate.copy()
+        self.rejected(self.bind(packet), scope, 'BLOCKED_DO_NOT_REPEAT')
+        for change in (dict(component_coverage_increase_pp=5.0),
+                       dict(semantics_changed=True, change_note='Different application semantics'),
+                       dict(window='SYNTHETIC_NEW_WINDOW')):
+            with self.subTest(change=change):
+                packet, scope = self.packet()
+                packet['do_not_repeat_candidate'] = {**candidate, **change}
+                result = self.validate(self.bind(packet), scope)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertFalse(result['completed_task'])
+
+    def test_current_stop_conditions_refuse_fully_rebound_manifest_changes(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        variants = {'missing': None, 'null': None, 'empty': [],
+                    'string': 'CALLER_ONLY_STOP', 'mapping': {'stop': True}, 'boolean': True}
+        for changed_key in manual.PLAYBOOK_IDS:
+            for requested_key in manual.PLAYBOOK_IDS:
+                for case, value in variants.items():
+                    with self.subTest(changed=changed_key, requested=requested_key, case=case):
+                        self.write(manual.MANIFEST, original)
+                        packet, scope = self.packet(requested_key)
+                        manifest = copy.deepcopy(original)
+                        row = next(r for r in manifest['playbooks'] if r['playbook_id'] == changed_key)
+                        if case == 'missing':
+                            del row['process']['stop_condition']
+                        else:
+                            row['process']['stop_condition'] = value
+                        row['playbook_sha256'] = independent_hash(row, 'playbook_sha256')
+                        self.write(manual.MANIFEST, manifest)
+                        if changed_key == requested_key:
+                            packet['playbook_sha256'] = row['playbook_sha256']
+                        packet['stop_condition'] = ['CALLER_ONLY_STOP']
+                        self.rejected(self.rebind_dependency(packet, scope, manual.MANIFEST), scope,
+                                      'manual_stop_condition_invalid')
+        self.write(manual.MANIFEST, original)
+
+    def test_nonempty_current_stop_conditions_keep_required_stops(self):
+        for key in manual.PLAYBOOK_IDS:
+            with self.subTest(playbook=key):
+                _, row = manual.load_playbook(key, self.root)
+                self.assertIsInstance(row['process']['stop_condition'], list)
+                self.assertTrue(row['process']['stop_condition'])
+                packet, scope = self.packet(key)
+                packet['stop_condition'].append('ADDITIONAL_TASK_STOP')
+                result = self.validate(self.bind(packet), scope)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertFalse(result['worker_invoked'])
+                packet['stop_condition'].remove(row['process']['stop_condition'][0])
+                self.rejected(self.bind(packet), scope, 'manual_contract_changed')
+
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.
         _, row = manual.load_playbook('L0_RESUME_HANDOFF')
