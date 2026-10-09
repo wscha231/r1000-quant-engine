@@ -9,6 +9,13 @@ on:
       - 'tools/macro_research_cycle.py'
       - 'tools/macro_research_checkpoint.py'
       - 'tools/configure_macro_research_drive.py'
+      - 'tools/research_data_access.py'
+      - 'tools/run_data_freshness_contract.py'
+      - 'r1000_legacy_input_guard.py'
+      - 'tests/research_data_access_smoke.py'
+      - 'data_static/research_dataset_registry_v1.json'
+      - 'docs/research_dataset_generation_v1.schema.json'
+      - 'docs/research_data_access.json'
       - 'docs/macro_indicator_registry.json'
       - 'tests/long_history_lake_smoke.py'
       - 'tests/macro_technical_evidence_smoke.py'
@@ -42,6 +49,13 @@ jobs:
             /tools/macro_research_cycle.py
             /tools/macro_research_checkpoint.py
             /tools/configure_macro_research_drive.py
+            /tools/research_data_access.py
+            /tools/run_data_freshness_contract.py
+            /r1000_legacy_input_guard.py
+            /tests/research_data_access_smoke.py
+            /data_static/research_dataset_registry_v1.json
+            /docs/research_dataset_generation_v1.schema.json
+            /docs/research_data_access.json
             /tests/long_history_lake_smoke.py
             /tests/macro_technical_evidence_smoke.py
             /tests/macro_research_cycle_smoke.py
