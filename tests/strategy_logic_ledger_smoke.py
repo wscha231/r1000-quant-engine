@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,11 @@ def test_strategy_logic_ledger_records_decision_attribution() -> None:
                     "official_metric_mode": "broker_ledger_next_close",
                     "portfolios": {
                         "main": {"cagr": 0.20, "max_dd": -0.30, "sharpe": 1.0},
-                        "concentrated": {"cagr": 0.30, "max_dd": -0.38, "sharpe": 1.1},
+                        "concentrated": {
+                            "cagr": 0.30,
+                            "max_dd": -0.38,
+                            "sharpe": 1.1,
+                        },
                     },
                 }
             ),
@@ -45,7 +50,10 @@ def test_strategy_logic_ledger_records_decision_attribution() -> None:
                     "metric_mode": "broker_ledger_next_close",
                 }
             ]
-        ).to_csv(latest / "market_leader_challenger" / "grid_results.csv", index=False)
+        ).to_csv(
+            latest / "market_leader_challenger" / "grid_results.csv",
+            index=False,
+        )
         pd.DataFrame(
             [
                 {
@@ -116,14 +124,63 @@ def test_strategy_logic_ledger_records_decision_attribution() -> None:
             "evidence_reason",
         }
         assert required.issubset(ledger.columns)
-        assert {"strategy_outcome_matrix.csv", "logic_family_summary.csv", "best_logic_by_regime.csv"}.issubset(
-            {path.name for path in out.iterdir()}
-        )
+        assert {
+            "strategy_outcome_matrix.csv",
+            "logic_family_summary.csv",
+            "best_logic_by_regime.csv",
+        }.issubset({path.name for path in out.iterdir()})
         assert "final_candidate" in set(ledger["strategy_family"])
+
+
+def test_strategy_difference_reporter_contract_normal_and_optimized() -> None:
+    for optimized in (False, True):
+        cmd = [sys.executable]
+        if optimized:
+            cmd.append("-O")
+        cmd.append(str(ROOT / "tests" / "strategy_difference_reporter_smoke.py"))
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "strategy_difference_reporter: PASS (16 tests)" in proc.stdout
+
+
+def test_r0_all_legacy_parity_contract_normal_and_optimized() -> None:
+    # Structural-only: this bridge can never declare economic R0 parity PASS.
+    for optimized in (False, True):
+        cmd = [sys.executable]
+        if optimized:
+            cmd.append("-O")
+        cmd.append(
+            str(ROOT / "tests" / "r0_all_legacy_full_control_parity_smoke.py")
+        )
+        env = dict(os.environ)
+        env["R0_OPTIMIZED_CHILD"] = "1"
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert (
+            "r0_all_legacy_full_control_parity_smoke: "
+            "PASS (22 structural tests)"
+        ) in proc.stdout
 
 
 def main() -> int:
     test_strategy_logic_ledger_records_decision_attribution()
+    test_strategy_difference_reporter_contract_normal_and_optimized()
+    test_r0_all_legacy_parity_contract_normal_and_optimized()
     print("strategy_logic_ledger_smoke: PASS")
     return 0
 
