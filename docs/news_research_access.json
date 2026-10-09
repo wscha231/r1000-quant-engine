@@ -1,0 +1,17 @@
+{
+  "schema_version": "news-research-source-entry-v1",
+  "repository": "wscha231/r1000-quant-engine",
+  "guide": "docs/NEWS_RESEARCH_ACCESS.md",
+  "source_entrypoint": "tools/run_news_research_cloud.py",
+  "reader": "tools/read_news_research.py",
+  "discovery_drive_file_id": "1i0f0cQ4BfreWiFJdMl7okO9kJkChOn08",
+  "drive_folder_id": "1GdikTcHjAnhWLFXLiaVO4zcpUgetVFdH",
+  "result_namespace": "source_captures/<run_id>-<attempt>",
+  "research_only": true,
+  "model_training_eligible": false,
+  "selector_eligible": false,
+  "official_score_contribution": 0,
+  "runtime_state_source": "actual run STARTED and TERMINAL plus manifest/readback, never this static file",
+  "automatic_dispatch": false,
+  "automatic_promotion": false
+}
