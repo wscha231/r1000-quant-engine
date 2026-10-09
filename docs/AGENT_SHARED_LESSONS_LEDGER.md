@@ -1,5 +1,92 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-04 — Correct native admission before accepting bounded A8 scratch output (#573)
+
+- The user approved correction of review5400633185 on head6d2fe16a. Reuse
+  all native summary false-authority fields, empty blockers and strict actual
+  event counts; hashes alone do not establish semantic source eligibility.
+- A completed label requires finite native diagnostics, including actionable
+  metrics after horizon1. At horizon1 they remain explicitly not applicable;
+  missing costs, identity/PIT or ER must still never be imputed.
+  Oversized JSON integers can raise OverflowError during a finite check; keep
+  that malformed-input path inside the same blocked preview boundary.
+- Candidate identity is one decision-date/ticker with no portfolio; held
+  identity includes a normalized nonblank portfolio and positive marked weight.
+  Reject noncanonical identity spellings rather than rewriting original intent.
+- Resolve a relative intake under latest-run in both prewrite isolation and
+  preparation. Reject traversal before creating output or taking its lock.
+- Initial reads and verification rereads spend the same aggregate byte bound.
+  Request no extra sentinel byte beyond the remaining allowance; exercise an
+  exact-capacity success, one-byte-short failure and padded real scratch files.
+- Master advanced again to a53aebc3 after the initial integrated review. Preserve
+  both lesson histories when incorporating it and bind final CI/review to the
+  resulting exact head. Neither successful fixture checks nor code integration
+  establish real-input, economic, durable or automatic-operation readiness.
+
+## 2026-10-03 — A8 preview must preserve failure, intent and write ownership
+
+- Daily37103143806 skipped outcomes and accepted persistence after a session
+  gap. Diagnostic uploads cannot admit fresh outcomes or durable completion.
+- Use native 24-character observation identities and original intent hashes;
+  keep missing costs/PIT/ER unavailable and MFE/MAE diagnostic. A source's
+  declared success plus local hashes does not authenticate GitHub or Drive.
+- Reuse needs maturity, expiry and dependency identity, not only input hash.
+  Inspect partial saves, commit the scratch manifest last and never steal a
+  writer's O_EXCL lock. Check fixed temporary-file aliases before board writes.
+- Preserve another causal writer and user-owned files. Use the explicitly
+  approved isolated worktree; synthetic tests never grant A1/A6 completion,
+  model budget, durable publication, strategy promotion or standing activation.
+- Proportionate Windows validation passed A0/lessons/rejection contracts but
+  workflow_artifact_smoke failed its unchanged capture-config path assertion:
+  Bash emits a '/' suffix and the Windows fixture expects '\\'. Record this
+  platform limitation; do not repair an unrelated transactional workflow here.
+- The bundled Python3.12 lacks jsonschema; native Python3.14 normal/-O tests
+  passed. Keep missing-runtime-dependency evidence distinct from CI validation.
+- Independent A6 found four concrete gaps: protect separately supplied intake,
+  evidence and state paths; make default and opt-in writers honor one lock;
+  reject outcomes predating their signal; preserve the native skipped summary's
+  absent timestamp. Add regressions and check all source clocks before byte reads.
+- Windows extended/device namespace spellings can preserve a different prefix
+  even after Path.resolve while referring to the same directory. Reject those
+  spellings before writes and canonicalize ordinary paths; reproduce with real
+  temporary filesystem aliases, not only lexical Path comparisons.
+
+## 2026-10-03 — Refresh the base before final exact-head review (#573)
+
+- Master659ded5834395c3851c0e10771b6a0cc6c6b65a2 adds the PR570 recovery
+  history. Merge it without rewriting the A8 preview branch; preserve all 85
+  master lesson lines and all 28 preview lesson lines. Review of old head
+  fe88d270ca97784faa88ce6b44f789fefe7f4bd5 cannot approve the integrated head.
+- The capture-config fixture fails identically on Windows using frozen
+  current-master blobs and the integrated worktree: Bash appends '/' while
+  the fixture's native Path expects '\\'. Both tested source blobs are identical.
+  Keep this pre-existing platform finding outside the H1 preview correction.
+- Local bundled Python3.12 lacks jsonschema; the unchanged CI contract installs
+  requirements_github.txt, including jsonschema. Keep local dependency absence
+  separate from the actual new-head CI installation and validation evidence.
+- Wait for stable-head required CI before the single fresh independent review.
+  Source integration does not verify real outcomes or activate research.
+
+## 2026-10-03 — Passing CI does not establish native A8 source admission (#573)
+
+- One fresh GitHub Codex review of 6d2fe16a6bdd783c3bd85a41cb7ca3839bb6a00c
+  found four P2 issues and one P3 issue. Evidence: PR573 review5400633185.
+  Keep all five threads unresolved until their corrections are verified;
+  232/232 CI smoke entries passing does not make this head ready for approval.
+- Normal and Python -O synthetic probes both reproduce admission of summaries
+  with blockers, mismatched counts or unchecked authority flags; completed
+  outcomes with missing diagnostics; duplicate candidate decision/ticker units
+  with arbitrary portfolios; and held observations with blank portfolios.
+- Relative intake paths resolve beneath the repository rather than latest-run.
+  With 2,504,317 first-read bytes, final source rechecks raise physical reads to
+  5,007,223 bytes while the configured aggregate budget is 4,194,304 bytes.
+- Reuse the native summary, completed-outcome and identity invariants in the
+  next bounded H1 correction. Preserve zero research calls, disabled activation,
+  UNKNOWN economic inputs and all account/strategy authority boundaries.
+- This lesson is prepared locally for that correction commit. Preserve the
+  reviewed remote head during the authorized integration-only verification;
+  no additional implementation or second review was performed in this pass.
+
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
 - Authenticated review of `9de5aede` found four defects despite Linux232/232
