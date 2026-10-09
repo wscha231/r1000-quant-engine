@@ -6423,3 +6423,25 @@ Expected contract:
 - Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.
 - Bound JSON integer token length explicitly at decode time so interpreter-specific oversized-integer ValueError cannot bypass ContractError handling.
 - Identifier-free analytics output must not publish a stable digest over raw event/session identifiers. Hash the redacted aggregate payload, not identifier-bearing source rows.
+
+## 2026-10-08 — G6 regime execution requires validated producer inputs
+
+- A 200-row frame is not 200 usable closes: check raw non-boolean finite positive
+  prices before conversion/mean and distinct ordered dated observations before
+  publishing an alpaca source label. A skip-NaN mean or duplicate dates must not
+  authorize legacy paper execution. Weekend/future/date-shape checks do not
+  certify full NYSE-calendar coverage, source freshness or historical PIT.
+- Reject future/nonfinite/boolean cache clocks and old producer cache versions.
+  Otherwise a previously computed positive aggregate can bypass the new raw
+  checks. Preserve the one-hour TTL and valid-source regime thresholds.
+- An invalid source is unavailable, with an error action; it cannot become a
+  benign regime or an execute override. Preserve dry-run visibility and the
+  existing valid HALT_NEW override; execute+skip and pre-flight errors refuse
+  before target loading, broker construction, orders, alerts or audit writes.
+- Reuse the verified PREP executor patch on exact master. Native tests must use
+  actual pandas/producer/history/cache code, with all network and broker/order
+  boundaries mocked; register normal/-O through the existing smoke wrapper.
+  Frozen master AST checks preserve target normalization and the execution tail.
+- A local partial clone can lack an unrelated blob even when checkout returns
+  success. Require a clean diff before applying code; restore only exact bytes
+  verified against the missing Git object SHA. Preserve the source worktree.
