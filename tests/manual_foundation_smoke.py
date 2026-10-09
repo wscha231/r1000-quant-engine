@@ -518,8 +518,14 @@ class ManualTests(unittest.TestCase):
             with self.subTest(previous=previous, successor=successor):
                 manifest = copy.deepcopy(original)
                 current = manifest['playbooks'][0]
+                anchor = copy.deepcopy(current)
                 old = copy.deepcopy(current)
                 old.update(playbook_version=previous, status='SUPERSEDED')
+                if manual.semantic_version(previous) > manual.semantic_version(anchor['playbook_version']):
+                    old['supersedes'] = anchor['playbook_version']
+                    anchor['status'] = 'SUPERSEDED'
+                    anchor['playbook_sha256'] = independent_hash(anchor, 'playbook_sha256')
+                    manifest['playbooks'].append(anchor)
                 old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
                 current.update(playbook_version=successor, supersedes=previous)
                 current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
@@ -625,15 +631,22 @@ class ManualTests(unittest.TestCase):
         packet, scope = self.packet()
         manifest = manual.board.read_json(self.root / manual.MANIFEST)
         current = manifest['playbooks'][0]
+        anchor = copy.deepcopy(current)
         old = copy.deepcopy(current)
         old.update(playbook_version=previous, status='SUPERSEDED')
+        if manual.semantic_version(previous) > manual.semantic_version(anchor['playbook_version']):
+            old['supersedes'] = anchor['playbook_version']
+            if older != anchor['playbook_version']:
+                anchor['status'] = 'SUPERSEDED'
+                anchor['playbook_sha256'] = independent_hash(anchor, 'playbook_sha256')
+                manifest['playbooks'].append(anchor)
         old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
         current.update(playbook_version=successor, supersedes=supersedes)
         current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
         manifest['playbooks'].append(old)
         if older:
             earlier = copy.deepcopy(old)
-            earlier.update(playbook_version=older)
+            earlier.update(playbook_version=older, supersedes=None)
             earlier['playbook_sha256'] = independent_hash(earlier, 'playbook_sha256')
             manifest['playbooks'].append(earlier)
         manifest['current_versions'][current['playbook_id']] = successor
@@ -857,6 +870,200 @@ class ManualTests(unittest.TestCase):
                 self.assertFalse(result['worker_invoked'])
                 packet['stop_condition'].remove(row['process']['stop_condition'][0])
                 self.rejected(self.bind(packet), scope, 'manual_contract_changed')
+
+    def rebind_all(self, packet, scope, manifest=None):
+        if manifest is not None:
+            for row in manifest['playbooks']:
+                row['playbook_sha256'] = independent_hash(row, 'playbook_sha256')
+            self.write(manual.MANIFEST, manifest)
+            row = next(row for row in manifest['playbooks']
+                       if row['playbook_id'] == packet['playbook_id'] and row['status'] == 'CURRENT')
+            packet.update(playbook_version=row['playbook_version'],
+                          playbook_sha256=row['playbook_sha256'], toolbox_refs=row['toolbox_refs'].copy())
+        for name in packet['dependencies']:
+            packet['dependencies'][name] = scope['dependencies'][name] = hashlib.sha256(
+                (self.root / name).read_bytes()).hexdigest()
+        return self.bind(packet)
+
+    def test_dnr_normalized_identity_refuses_blank_missing_and_wrong_types(self):
+        fields = ('signal', 'mechanism', 'book', 'window')
+        for field in fields:
+            for value in ('', ' ', '\t\r\n', ' \u00a0\u2003\t ', None, False, 0, [], {}):
+                with self.subTest(field=field, value=value):
+                    packet, scope = self.packet()
+                    candidate = dict.fromkeys(fields, 'VALID_NEW_IDENTITY')
+                    candidate[field] = value
+                    packet['do_not_repeat_candidate'] = candidate
+                    self.rejected(self.rebind_all(packet, scope), scope)
+            packet, scope = self.packet()
+            packet['do_not_repeat_candidate'] = dict.fromkeys(fields, 'VALID_NEW_IDENTITY')
+            del packet['do_not_repeat_candidate'][field]
+            self.rejected(self.rebind_all(packet, scope), scope)
+        packet, scope = self.packet()
+        packet['do_not_repeat_candidate'] = dict.fromkeys(fields, ' \t\u2003\n')
+        self.rejected(self.rebind_all(packet, scope), scope, 'do_not_repeat_identity_invalid')
+
+    def test_dnr_normalized_valid_identities_preserve_blocks_and_exceptions(self):
+        registry = manual.board.read_json(self.root / manual.DNR)
+        row = next(row for row in registry['entries'] if row.get('blocked_reuse'))
+        candidate = {field: ' \t' + row[field].upper() + '\u2003 '
+                     for field in ('signal', 'mechanism', 'book', 'window')}
+        packet, scope = self.packet()
+        packet['do_not_repeat_candidate'] = copy.deepcopy(candidate)
+        self.rejected(self.rebind_all(packet, scope), scope, 'BLOCKED_DO_NOT_REPEAT')
+        for exception in ({'component_coverage_increase_pp': 5.0},
+                          {'semantics_changed': True, 'change_note': 'Actual changed application'},
+                          {'signal': ' VALID_NEW_COMBINATION '}):
+            packet, scope = self.packet()
+            packet['do_not_repeat_candidate'] = dict(candidate, **exception)
+            result = self.validate(self.rebind_all(packet, scope), scope)
+            self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertFalse(result['economic_authority'])
+
+    def test_reviewed_version_anchor_has_exact_existing_blob_provenance(self):
+        # Canonical manifest bytes remain unchanged in this correction. This
+        # binds the code anchor to the independently retrieved reviewed blob.
+        raw = (ROOT / manual.MANIFEST).read_bytes()
+        git_blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+        self.assertEqual(git_blob, manual.VERSION_ANCHOR_BLOB)
+        self.assertEqual(manual.VERSION_ANCHOR_HEAD, '86bdcd474ae12d240d1dac31f72f758f45f26843')
+        baseline = json.loads(raw)
+        self.assertEqual(dict(manual.VERSION_ANCHOR), baseline['current_versions'])
+        self.assertEqual(set(manual.VERSION_ANCHOR),
+                         {(row['playbook_id'], row['playbook_version']) for row in baseline['playbooks']})
+
+    def test_history_removal_cannot_reset_reviewed_anchor_after_all_hash_rebinding(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            for selected in manual.PLAYBOOK_IDS:
+                for version in ('0.0.0', '0.9.0', '1.1.0'):
+                    with self.subTest(changed=changed, selected=selected, version=version):
+                        self.write(manual.MANIFEST, original)
+                        packet, scope = self.packet(selected)
+                        manifest = copy.deepcopy(original)
+                        manifest['playbooks'] = [row for row in manifest['playbooks'] if row['status'] == 'CURRENT']
+                        row = next(row for row in manifest['playbooks'] if row['playbook_id'] == changed)
+                        row.update(playbook_version=version, supersedes=None)
+                        manifest['current_versions'][changed] = version
+                        # Attacker-controlled declarations are not the anchor.
+                        manifest['version_anchor'] = {changed: version}
+                        self.rejected(self.rebind_all(packet, scope, manifest), scope,
+                                      'missing_reviewed_playbook_anchor')
+        self.write(manual.MANIFEST, original)
+
+    def test_reviewed_anchor_preserves_full_upgrade_lineage_for_all_playbooks(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet(changed)
+            manifest = copy.deepcopy(original)
+            current = next(row for row in manifest['playbooks'] if row['playbook_id'] == changed)
+            anchor = copy.deepcopy(current)
+            anchor['status'] = 'SUPERSEDED'
+            middle = copy.deepcopy(anchor)
+            middle.update(playbook_version='1.1.0', supersedes='1.0.0')
+            current.update(playbook_version='1.2.0', supersedes='1.1.0')
+            manifest['current_versions'][changed] = '1.2.0'
+            manifest['playbooks'].extend([anchor, middle])
+            result = self.validate(self.rebind_all(packet, scope, manifest), scope)
+            self.assertEqual(result['playbook_version'], '1.2.0')
+            self.assertFalse(result['completed_task'])
+        self.write(manual.MANIFEST, original)
+
+    def test_historical_predecessor_edge_cannot_be_erased_after_full_rebinding(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet()
+            manifest = copy.deepcopy(original)
+            current = next(row for row in manifest['playbooks'] if row['playbook_id'] == changed)
+            anchor = copy.deepcopy(current)
+            anchor['status'] = 'SUPERSEDED'
+            middle = copy.deepcopy(anchor)
+            middle.update(playbook_version='1.1.0', supersedes=None)
+            current.update(playbook_version='1.2.0', supersedes='1.1.0')
+            manifest['current_versions'][changed] = '1.2.0'
+            manifest['playbooks'].extend([anchor, middle])
+            self.rejected(self.rebind_all(packet, scope, manifest), scope,
+                          'reviewed_playbook_lineage_invalid')
+        self.write(manual.MANIFEST, original)
+
+    def test_a1_reader_closure_remains_required_when_toolbox_refs_are_removed(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        expected = {'tools/research_data_access.py', 'data_static/research_dataset_registry_v1.json',
+                    'tools/long_history_lake.py', 'tools/macro_history_sources.py',
+                    'tools/macro_research_checkpoint.py', 'tools/run_data_freshness_contract.py',
+                    'r1000_legacy_input_guard.py'}
+        packet, scope = self.packet('A1_SOURCE_ADMISSION_REFRESH')
+        manifest = copy.deepcopy(original)
+        row = next(row for row in manifest['playbooks'] if row['playbook_id'] == packet['playbook_id'])
+        row['toolbox_refs'] = ['docs/RESEARCH_DATA_ACCESS.md']
+        self.rebind_all(packet, scope, manifest)
+        self.assertTrue(expected.issubset(manual.required_dependencies(packet['playbook_id'], self.root)))
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+        for name in expected:
+            with self.subTest(name=name):
+                altered, altered_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                del altered['dependencies'][name]
+                del altered_scope['dependencies'][name]
+                self.rejected(self.rebind_all(altered, altered_scope), altered_scope, 'missing_dependency')
+        self.write(manual.MANIFEST, original)
+
+    def test_each_reader_dependency_byte_change_invalidates_existing_a1_packet(self):
+        packet, scope = self.packet('A1_SOURCE_ADMISSION_REFRESH')
+        for name in manual.A1_READER_DEPENDENCIES:
+            with self.subTest(name=name):
+                target = self.root / name
+                raw = target.read_bytes()
+                try:
+                    target.write_bytes(raw + b'\n ')
+                    self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+                finally:
+                    target.write_bytes(raw)
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+
+    def test_all_current_nested_instructions_refuse_fully_rebound_mutations(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            for selected in manual.PLAYBOOK_IDS:
+                for layer, field in (('process', 'steps'), ('process', 'stop_condition'),
+                                     ('proof', 'checks'), ('learning', 'steps')):
+                    for case, value in (('missing', None), ('null', None), ('empty', []),
+                                        ('string', 'instruction'), ('mapping', {'step': 'instruction'}),
+                                        ('boolean', False), ('blank', [' \t\u2003\n']),
+                                        ('blank_member', ['valid', ' \u00a0\t']), ('nonstring_member', ['valid', 1])):
+                        with self.subTest(changed=changed, selected=selected, layer=layer, field=field, case=case):
+                            self.write(manual.MANIFEST, original)
+                            packet, scope = self.packet(selected)
+                            manifest = copy.deepcopy(original)
+                            row = next(row for row in manifest['playbooks'] if row['playbook_id'] == changed)
+                            if case == 'missing':
+                                del row[layer][field]
+                            else:
+                                row[layer][field] = value
+                            reason = ('manual_stop_condition_invalid' if field == 'stop_condition'
+                                      else 'manual_instructions_invalid:' + layer + '.' + field)
+                            if case == 'missing' and layer == 'proof':
+                                reason = 'manual_layers_missing'
+                            self.rejected(self.rebind_all(packet, scope, manifest), scope, reason)
+        self.write(manual.MANIFEST, original)
+
+    def test_valid_nested_instructions_and_additional_caller_stop_remain_prepare_only(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for key in manual.PLAYBOOK_IDS:
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet(key)
+            manifest = copy.deepcopy(original)
+            row = next(row for row in manifest['playbooks'] if row['playbook_id'] == key)
+            for layer, field in (('process', 'steps'), ('proof', 'checks'), ('learning', 'steps')):
+                row[layer][field].append('Additional meaningful instruction')
+            packet['stop_condition'].append('ADDITIONAL_CALLER_STOP')
+            result = self.validate(self.rebind_all(packet, scope, manifest), scope)
+            self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+            self.assertFalse(result['worker_invoked'])
+            self.assertFalse(result['economic_authority'])
+        self.write(manual.MANIFEST, original)
 
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.

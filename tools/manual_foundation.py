@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools import run_agent_board as board
-from tools.check_run287_do_not_repeat import evaluate_candidate
+from tools.check_run287_do_not_repeat import evaluate_candidate, normalize
 
 MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
@@ -27,6 +27,22 @@ OPERATING_CONTRACTS = ['AGENTS.md', 'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD
                        'docs/AGENT_SHARED_LESSONS_LEDGER.md', 'docs/MANUAL_FOUNDATION_V1.md']
 PLAYBOOK_IDS = {'L0_RESUME_HANDOFF': 'A0', 'A1_SOURCE_ADMISSION_REFRESH': 'A1',
                 'A6_INDEPENDENT_QA': 'A6'}
+# Independently verified review baseline, not a value supplied by the manifest.
+# Git commit 86bdcd474ae12d240d1dac31f72f758f45f26843 contains this manifest
+# blob and these retained version identities. Changes to the anchor require
+# a separately reviewed code change; packet/manifest rehashing cannot reset it.
+VERSION_ANCHOR_HEAD = '86bdcd474ae12d240d1dac31f72f758f45f26843'
+VERSION_ANCHOR_BLOB = 'cc4f0ced44f12210b88b001ee1a2a87b827cdbe0'
+VERSION_ANCHOR = (('L0_RESUME_HANDOFF', '1.0.0'),
+                  ('A1_SOURCE_ADMISSION_REFRESH', '1.0.0'),
+                  ('A6_INDEPENDENT_QA', '1.0.0'))
+# Actual frozen Reader imports/default registry, including its NYSE calendar.
+# Collector-only imports are not consumed by the read-only Reader path.
+A1_READER_DEPENDENCIES = [
+    'tools/research_data_access.py', 'data_static/research_dataset_registry_v1.json',
+    'tools/long_history_lake.py', 'tools/macro_history_sources.py',
+    'tools/macro_research_checkpoint.py', 'tools/run_data_freshness_contract.py',
+    'r1000_legacy_input_guard.py']
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
 TIERS = ('T0_READ', 'T1_COMPUTE', 'T2_PREPARE')
 REVIEW_REPOSITORY = 'wscha231/r1000-quant-engine'
@@ -108,9 +124,15 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
                 or not isinstance(row.get('toolbox_refs'), list) or not row['toolbox_refs']):
             raise ContractError('manual_layers_missing')
         if row['status'] == 'CURRENT':
-            if (not isinstance(row['process'].get('stop_condition'), list)
-                    or not row['process']['stop_condition']):
-                raise ContractError('manual_stop_condition_invalid')
+            for layer, field in (('process', 'steps'), ('process', 'stop_condition'),
+                                 ('proof', 'checks'), ('learning', 'steps')):
+                instructions = row[layer].get(field)
+                if (not isinstance(instructions, list) or not instructions
+                        or any(not isinstance(item, str) or not item.strip()
+                               for item in instructions)):
+                    reason = ('manual_stop_condition_invalid' if field == 'stop_condition'
+                              else 'manual_instructions_invalid:' + layer + '.' + field)
+                    raise ContractError(reason)
             if row['playbook_id'] in current:
                 raise ContractError('multiple_current_playbooks')
             current[row['playbook_id']] = row
@@ -136,6 +158,23 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
                 raise ContractError('playbook_version_not_increasing')
             if row['supersedes'] != latest:
                 raise ContractError('playbook_predecessor_not_latest')
+    for key, version in VERSION_ANCHOR:
+        anchor = rows_by_identity.get((key, version))
+        if anchor is None:
+            raise ContractError('missing_reviewed_playbook_anchor')
+        if semantic_version(current[key]['playbook_version']) < semantic_version(version):
+            raise ContractError('playbook_version_not_increasing')
+        # Retain a coherent chain all the way to the reviewed initial version,
+        # including intermediate SUPERSEDED rows, rather than only the last edge.
+        for (book_id, historical_version), row in rows_by_identity.items():
+            if book_id != key or semantic_version(historical_version) <= semantic_version(version):
+                continue
+            older = [v for b, v in seen if b == key
+                     and semantic_version(v) < semantic_version(historical_version)]
+            predecessor = max(older, key=semantic_version)
+            if (row.get('supersedes') != predecessor
+                    or rows_by_identity[(key, predecessor)].get('status') != 'SUPERSEDED'):
+                raise ContractError('reviewed_playbook_lineage_invalid')
     if playbook_id not in current:
         raise ContractError('unknown_playbook')
     return manifest, current[playbook_id]
@@ -250,7 +289,8 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
 
 def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
     manifest, playbook = load_playbook(playbook_id, root)
-    return sorted(set(OPERATING_CONTRACTS + manifest['policy_refs'] + playbook['toolbox_refs'] + [
+    reader = A1_READER_DEPENDENCIES if playbook_id == 'A1_SOURCE_ADMISSION_REFRESH' else []
+    return sorted(set(OPERATING_CONTRACTS + reader + manifest['policy_refs'] + playbook['toolbox_refs'] + [
         MANIFEST, SCHEMA, CATALOG, DNR,
         'tools/manual_foundation.py', 'tools/run_agent_board.py',
         'tools/check_run287_do_not_repeat.py',
@@ -319,6 +359,10 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
     if any(not row['allowed'] for row in reuse):
         raise ContractError('catalog_reuse_not_allowed')
     if 'do_not_repeat_candidate' in packet:
+        candidate = packet['do_not_repeat_candidate']
+        if any(not isinstance(candidate.get(field), str) or not normalize(candidate[field])
+               for field in ('signal', 'mechanism', 'book', 'window')):
+            raise ContractError('do_not_repeat_identity_invalid')
         registry = board.read_json(path_at(root, DNR))
         if registry.get('match_fields') != ['signal', 'mechanism', 'book', 'window']:
             raise ContractError('do_not_repeat_match_fields_not_canonical')
@@ -330,7 +374,7 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
             valid_threshold = False
         if not valid_threshold:
             raise ContractError('do_not_repeat_threshold_invalid')
-        result = evaluate_candidate(registry, **packet['do_not_repeat_candidate'])
+        result = evaluate_candidate(registry, **candidate)
         if not result['allowed']:
             raise ContractError('BLOCKED_DO_NOT_REPEAT')
     return {'schema_version': 'manual-packet-preflight-v1', 'status': 'VALIDATED_PREPARE_ONLY',
