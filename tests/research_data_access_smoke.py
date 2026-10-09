@@ -3,8 +3,10 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -15,6 +17,7 @@ from tools.long_history_lake import Lake, LocalTransport, PREFIX, packed
 from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import (
     ContractError, PRICE_COLUMNS, PREFIX_V1, REGISTRY, ResearchDataReader, pinned_lake,
+    _decode_parquet, PARQUET_WORKER_AS_BYTES,
 )
 
 DECISION = '2026-10-08T07:30:00Z'
@@ -277,6 +280,22 @@ class ReaderTest(unittest.TestCase):
         self.spec['source']['eligible_purposes'] = ['research', 'discovery']
         self.assertEqual(len(self.read().rows), 6)
 
+    def test_enum_metadata_dict_list_bool_number_refusal(self):
+        targets = (
+            (self.spec['source'], 'classification', 'SOURCE_CLASSIFICATION'),
+            (self.spec['source'], 'pit_status', 'PIT_UNKNOWN'),
+            (self.spec['files'][0]['instrument'], 'adjustment_basis', 'ADJUSTMENT_BASIS'),
+            (self.spec['files'][0], 'format', 'UNSUPPORTED_FORMAT'),
+        )
+        for owner, key, refusal in targets:
+            original = owner.get(key)
+            for invalid in ({'fake': True}, ['research'], True, False, 12, 1.5, None):
+                with self.subTest(field=key, invalid=repr(invalid)):
+                    owner[key] = invalid
+                    self.blocked(refusal)
+            owner[key] = original
+        self.assertEqual(len(self.read().rows), 6)
+
     def test_undeclared_instrument_and_purpose(self):
         self.blocked('MISSING_INSTRUMENT', instrument_ids=['FIXTURE:US:BLD'])
         self.spec['source']['eligible_purposes'] = ['discovery']
@@ -337,7 +356,202 @@ class ReaderTest(unittest.TestCase):
         table = pa.Table.from_pylist(prices(), schema=schema)
         output = io.BytesIO(); pq.write_table(table, output)
         self.replace_spy(prices(), raw=output.getvalue(), format_name='parquet')
+        if sys.platform != 'linux':
+            self.blocked('PARQUET_RESOURCE_GUARD_UNAVAILABLE')
+            return
+        generation = self.generation()
+        a = self.read(generation, consumer_id='parquet_feature', restore_to=self.root / 'parquet-a')
+        b = self.read(generation, consumer_id='parquet_audit', restore_to=self.root / 'parquet-b')
+        self.assertEqual(len(a.rows), 6)
+        self.assertEqual(a.rows, b.rows)
+        self.assertEqual(a.files, b.files)
+        for key in ('data_generation_id', 'manifest_sha256', 'file_sha256', 'row_set_sha256'):
+            self.assertEqual(a.receipt[key], b.receipt[key])
+        self.assertFalse(a.receipt['eligible_for_economics'])
+        self.assertFalse(a.receipt['eligible_for_selector'])
+        self.assertEqual(a.receipt['provider_refresh_count'], 0)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_parquet_multifile_decoded_budget_and_row_underreport(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('pyarrow unavailable: native Parquet must run in CI')
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        schema = pa.schema([(k, pa.string() if not t.endswith('number') else pa.float64())
+                            for k, t in PRICE_COLUMNS.items()])
+        self.spec['files'] = []
+        expanded = []
+        for ticker in ('SPY', 'QQQ'):
+            records = prices(ticker)
+            buf = io.BytesIO()
+            pq.write_table(pa.Table.from_pylist(records, schema=schema), buf, compression='gzip')
+            self.add_file(records, raw=buf.getvalue(), format_name='parquet')
+            _, nbytes = ResearchDataReader._rows(buf.getvalue(), 'parquet',
+                                                  remaining_bytes=256 * 1024 * 1024,
+                                                  remaining_rows=1_000_000)
+            expanded.append(nbytes)
         self.assertEqual(len(self.read().rows), 6)
+        cap = sum(expanded) - 1
+        self.assertGreater(cap, max(expanded))
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap):
+            self.blocked('BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        # The cross-file declared rows are independently checked before decoding.
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 5):
+            self.blocked('BLOCKED_GENERATION_ROWS')
+        # Understated file count cannot hide actual Parquet rows.
+        self.spec['files'] = []
+        records = prices() * 3
+        buf = io.BytesIO()
+        pq.write_table(pa.Table.from_pylist(records, schema=schema), buf)
+        item = self.add_file(records, raw=buf.getvalue(), format_name='parquet')
+        item['rows'] = 3
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 5):
+            self.blocked('BLOCKED_GENERATION_ROWS', instrument_ids=['FIXTURE:US:SPY'])
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_parquet_malformed_metadata_fails_with_contract_code(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('pyarrow unavailable: malformed engine test runs in CI')
+        self.replace_spy(prices(), raw=b'PAR1fakePAR1', format_name='parquet')
+        self.blocked('INVALID_PARQUET')
+
+    def test_parquet_untrusted_metadata_cannot_skip_actual_decoded_budget(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('pyarrow unavailable: native Parquet must run in CI')
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from types import SimpleNamespace
+        schema = pa.schema([(k, pa.string() if not t.endswith('number') else pa.float64())
+                            for k, t in PRICE_COLUMNS.items()])
+        buf = io.BytesIO()
+        pq.write_table(pa.Table.from_pylist(prices(), schema=schema), buf)
+        real = pq.ParquetFile(io.BytesIO(buf.getvalue()))
+        # Fake metadata reports only one byte, while the iterator returns real rows.
+        class Underreported:
+            metadata = SimpleNamespace(num_rows=3, num_row_groups=1,
+                                       row_group=lambda _: SimpleNamespace(total_byte_size=1))
+            schema_arrow = real.schema_arrow
+            def iter_batches(self, **kwargs):
+                return real.iter_batches(**kwargs)
+        # Fault injection exercises worker accounting, not a corrupt-footer claim.
+        with patch.object(pq, 'ParquetFile', return_value=Underreported()), \
+             self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+            _decode_parquet(buf.getvalue(), 100, 1_000_000, lambda _: None)
+        # False declared row count must also refuse despite valid underlying bytes.
+        class UnderreportedRows(Underreported):
+            metadata = SimpleNamespace(num_rows=2, num_row_groups=1,
+                                       row_group=lambda _: SimpleNamespace(total_byte_size=1))
+        with patch.object(pq, 'ParquetFile', return_value=UnderreportedRows()), \
+             self.assertRaisesRegex(ContractError, 'PARQUET_ROW_COUNT'):
+            _decode_parquet(buf.getvalue(), 256 * 1024 * 1024, 1_000_000, lambda _: None)
+        with patch.object(pq, 'ParquetFile', return_value=UnderreportedRows()), \
+             self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_ROWS'):
+            _decode_parquet(buf.getvalue(), 256 * 1024 * 1024, 2, lambda _: None)
+        for invalid in (True, {}, [], None, -1):
+            malformed = Underreported()
+            malformed.metadata = SimpleNamespace(num_rows=invalid, num_row_groups=1)
+            with self.subTest(metadata=repr(invalid)), \
+                 patch.object(pq, 'ParquetFile', return_value=malformed), \
+                 self.assertRaisesRegex(ContractError, 'PARQUET_ROW_BUDGET'):
+                _decode_parquet(buf.getvalue(), 256 * 1024 * 1024, 1_000_000, lambda _: None)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_mixed_formats_share_generation_byte_and_row_limits(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('native PyArrow required')
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        schema = pa.schema([(k, pa.string() if not t.endswith('number') else pa.float64())
+                            for k, t in PRICE_COLUMNS.items()])
+        self.spec['files'] = []
+        output = io.BytesIO()
+        pq.write_table(pa.Table.from_pylist(prices(), schema=schema), output)
+        self.add_file(prices(), raw=output.getvalue(), format_name='parquet')
+        qq = b''.join(encoded(r) for r in prices('QQQ'))
+        self.add_file(prices('QQQ'), raw=packed(qq), format_name='gzip_jsonl')
+        bld = b''.join(encoded(r) for r in prices('BLD'))
+        self.add_file(prices('BLD'), raw=bld)
+        _, charge = ResearchDataReader._rows(output.getvalue(), 'parquet',
+            remaining_bytes=256 * 1024 * 1024, remaining_rows=1_000_000)
+        self.assertEqual(len(self.read().rows), 6)
+        cap = charge + len(qq) + len(bld)
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap):
+            self.assertEqual(len(self.read().rows), 6)
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap - 1):
+            self.blocked('BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        self.spec['files'][-1]['rows'] = 1  # Advertised total 7, actual total 9.
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 8):
+            self.blocked('BLOCKED_GENERATION_ROWS')
+
+    @staticmethod
+    def dictionary_parquet(count, width):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        # No full expanded string table is materialized by the fixture producer.
+        arrays = []
+        for key, kind in PRICE_COLUMNS.items():
+            if not kind.endswith('number'):
+                value = 'x' * width if key in ('instrument_id', 'ticker') else prices()[0][key]
+                arrays.append(pa.DictionaryArray.from_arrays(
+                    pa.array([0] * count, type=pa.int32()), pa.array([value])))
+            else:
+                arrays.append(pa.array([100.0] * count, type=pa.float64()))
+        output = io.BytesIO()
+        pq.write_table(pa.Table.from_arrays(arrays, names=list(PRICE_COLUMNS)), output,
+                       compression='gzip', use_dictionary=True, store_schema=False,
+                       write_statistics=False)
+        return output.getvalue()
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_parquet_default_256mib_dictionary_expansion_refuses(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('native PyArrow required')
+        import pyarrow.parquet as pq
+        raw = self.dictionary_parquet(630000, 200)
+        meta = pq.ParquetFile(io.BytesIO(raw)).metadata
+        declared = sum(meta.row_group(i).total_byte_size for i in range(meta.num_row_groups))
+        self.assertLess(declared, 256 * 1024 * 1024)
+        self.assertGreater(630000 * (400 + 10 + 20), 256 * 1024 * 1024)
+        with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+            ResearchDataReader._rows(raw, 'parquet', remaining_bytes=256 * 1024 * 1024,
+                                     remaining_rows=1_000_000)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_parquet_native_pre_yield_allocation_is_process_bounded(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('native PyArrow required')
+        raw = self.dictionary_parquet(64, 8 * 1024 * 1024)
+        real_run, observed = subprocess.run, []
+        def capture(*args, **kwargs):
+            result = real_run(*args, **kwargs)
+            observed.append((result.returncode, os.fstat(kwargs['stdout'].fileno()).st_size))
+            return result
+        with patch('tools.research_data_access.subprocess.run', side_effect=capture), \
+             self.assertRaisesRegex(ContractError,
+                'BLOCKED_GENERATION_DECOMPRESSED_BYTES|BLOCKED_PARQUET_RESOURCE_LIMIT'):
+            ResearchDataReader._rows(raw, 'parquet', remaining_bytes=256 * 1024 * 1024,
+                                     remaining_rows=1_000_000)
+        self.assertEqual(PARQUET_WORKER_AS_BYTES, 512 * 1024 * 1024)
+        self.assertEqual(len(observed), 1)
+        self.assertNotEqual(observed[0][0], 0)
+        # Header placeholder only: failure precedes the first yielded row.
+        self.assertEqual(observed[0][1], 16)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux native resource guard required')
+    def test_parquet_resource_failures_never_return_partial_rows(self):
+        if importlib.util.find_spec('pyarrow') is None:
+            self.skipTest('native PyArrow required')
+        raw = self.dictionary_parquet(3, 20)
+        for failure in (subprocess.TimeoutExpired('worker', 1), OSError('worker unavailable')):
+            with self.subTest(failure=type(failure).__name__), \
+                 patch('tools.research_data_access.subprocess.run', side_effect=failure), \
+                 self.assertRaisesRegex(ContractError, 'BLOCKED_PARQUET_RESOURCE_LIMIT'):
+                ResearchDataReader._rows(raw, 'parquet', remaining_bytes=256 * 1024 * 1024,
+                                         remaining_rows=1_000_000)
+        with patch('tools.research_data_access.sys.platform', 'unsupported'), \
+             self.assertRaisesRegex(ContractError, 'PARQUET_RESOURCE_GUARD_UNAVAILABLE'):
+            ResearchDataReader._rows(raw, 'parquet', remaining_bytes=256 * 1024 * 1024,
+                                     remaining_rows=1_000_000)
 
     def test_registry_has_zero_admitted_generations(self):
         registry = json.loads(REGISTRY.read_bytes())

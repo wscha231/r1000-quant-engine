@@ -10,11 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 import gzip
 from datetime import date, datetime
+import importlib.util
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
+import struct
+import subprocess
+import sys
+import tempfile
 
 from tools.long_history_lake import Lake, PREFIX, MAX_OBJECT
 from tools.macro_history_sources import digest, encoded, exclusive
@@ -27,6 +33,16 @@ SCHEMA = 'research-data-generation-v1'
 # Per-read ceilings across every file in the pinned generation.
 MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
 MAX_GENERATION_ROWS = 1_000_000
+# Linux RLIMIT_AS bounds even native allocations made before a batch is yielded.
+# This is a separate interpreter/decoder ceiling, not the decoded-byte charge.
+PARQUET_WORKER_AS_BYTES = 512 * 1024 * 1024
+PARQUET_WORKER_SECONDS = 30
+_PARQUET_REFUSALS = (
+    'PARQUET_ENGINE_UNAVAILABLE', 'PARQUET_RESOURCE_GUARD_UNAVAILABLE',
+    'INVALID_PARQUET', 'PARQUET_SCHEMA', 'PARQUET_ROW_BUDGET',
+    'BLOCKED_GENERATION_ROWS', 'BLOCKED_GENERATION_DECOMPRESSED_BYTES',
+    'PARQUET_ROW_COUNT',
+)
 PRICE_COLUMNS = {
     'instrument_id': 'string', 'ticker': 'string', 'session_date': 'date',
     'available_from': 'timestamp', 'open': 'positive_number',
@@ -42,6 +58,149 @@ class ContractError(ValueError):
 def check(condition, code):
     if not condition:
         raise ContractError(code)
+
+
+def _parquet_retained_row_bytes(row):
+    """Conservative Python-retention charge for the *fixed primitive* schema.
+
+    Arrow batch nbytes is charged separately. Count Python dictionaries, every
+    key/value object (even when shared), and list/reference slack; do not use
+    a JSON payload length as a substitute for retained object memory.
+    """
+    check(type(row) is dict and set(row) == set(PRICE_COLUMNS), 'ROW_SCHEMA')
+    return (sys.getsizeof(row) + 32 +
+            sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.items()))
+
+
+def _decode_parquet(raw, remaining_bytes, remaining_rows, emit):
+    """Worker-only decode; metadata is a precheck, never actual size evidence."""
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError:
+        raise ContractError('PARQUET_ENGINE_UNAVAILABLE') from None
+    try:
+        pa.set_cpu_count(1)
+        pa.set_io_thread_count(1)
+        parquet = pq.ParquetFile(io.BytesIO(raw), pre_buffer=False,
+            thrift_string_size_limit=1024 * 1024, thrift_container_size_limit=10000,
+            arrow_extensions_enabled=False)
+        meta = parquet.metadata
+        check(meta is not None and type(meta.num_rows) is int and
+              0 < meta.num_rows <= MAX_GENERATION_ROWS, 'PARQUET_ROW_BUDGET')
+        check(meta.num_rows <= remaining_rows, 'BLOCKED_GENERATION_ROWS')
+        check(type(meta.num_row_groups) is int and
+              0 < meta.num_row_groups <= meta.num_rows, 'INVALID_PARQUET')
+        declared_bytes = 0
+        for i in range(meta.num_row_groups):
+            nbytes = meta.row_group(i).total_byte_size
+            check(type(nbytes) is int and nbytes >= 0, 'INVALID_PARQUET')
+            declared_bytes += nbytes
+            check(declared_bytes <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        check(declared_bytes > 0, 'INVALID_PARQUET')
+        expected = pa.schema([(key, pa.string() if not kind.endswith('number') else pa.float64())
+                              for key, kind in PRICE_COLUMNS.items()])
+        check(parquet.schema_arrow.equals(expected, check_metadata=False), 'PARQUET_SCHEMA')
+        row_count, charged_bytes = 0, 0
+        for batch in parquet.iter_batches(batch_size=64, use_threads=False):
+            check(0 < batch.num_rows <= remaining_rows - row_count, 'BLOCKED_GENERATION_ROWS')
+            check(type(batch.nbytes) is int and batch.nbytes >= 0, 'INVALID_PARQUET')
+            charged_bytes += batch.nbytes
+            check(charged_bytes <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+            columns = [batch.column(i) for i in range(len(PRICE_COLUMNS))]
+            for row_i in range(batch.num_rows):
+                row = {name: columns[i][row_i].as_py() for i, name in enumerate(PRICE_COLUMNS)}
+                wire = encoded(row)
+                # Account for actual Arrow buffers, retained Python rows, and
+                # transfer bytes. Shared objects are deliberately overcharged.
+                charged_bytes += _parquet_retained_row_bytes(row) + len(wire)
+                check(charged_bytes <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+                emit(wire)
+                row_count += 1
+        check(row_count == meta.num_rows, 'PARQUET_ROW_COUNT')
+        return max(declared_bytes, charged_bytes), row_count
+    except ContractError:
+        raise
+    except (MemoryError, pa.ArrowMemoryError):
+        raise ContractError('BLOCKED_GENERATION_DECOMPRESSED_BYTES') from None
+    except Exception:
+        raise ContractError('INVALID_PARQUET') from None
+
+
+def _parquet_worker(remaining_bytes, remaining_rows):
+    """Only entered by the resource-limited fresh interpreter below."""
+    try:
+        raw = sys.stdin.buffer.read(MAX_OBJECT + 1)
+        check(0 < len(raw) <= MAX_OBJECT, 'INVALID_PARQUET')
+        output = sys.stdout.buffer
+        output.write(b'\0' * 16)
+        charge, count = _decode_parquet(raw, remaining_bytes, remaining_rows, output.write)
+        output.seek(0)
+        output.write(struct.pack('!QQ', charge, count))
+        output.flush()
+    except MemoryError:
+        sys.exit(20 + _PARQUET_REFUSALS.index('BLOCKED_GENERATION_DECOMPRESSED_BYTES'))
+    except ContractError as exc:
+        sys.exit(20 + _PARQUET_REFUSALS.index(str(exc)))
+
+
+def _isolated_parquet_rows(raw, remaining_bytes, remaining_rows):
+    """No native Parquet allocation in the caller, and no unbounded IPC.
+
+    Unsupported enforcement platforms refuse Parquet, never fall back to an
+    in-process decoder. CPU/wall/output limits cover malformed/error paths.
+    """
+    check(importlib.util.find_spec('pyarrow') is not None, 'PARQUET_ENGINE_UNAVAILABLE')
+    check(sys.platform == 'linux', 'PARQUET_RESOURCE_GUARD_UNAVAILABLE')
+    check(type(raw) is bytes and 0 < len(raw) <= MAX_OBJECT, 'INVALID_PARQUET')
+    bootstrap = '''import json, sys
+try:
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (int(sys.argv[4]), int(sys.argv[4])))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (int(sys.argv[2]) + 16, int(sys.argv[2]) + 16))
+    resource.setrlimit(resource.RLIMIT_CPU, (int(sys.argv[5]), int(sys.argv[5])))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+except Exception:
+    sys.exit(21)
+sys.path[:] = json.loads(sys.argv[1])
+from tools.research_data_access import _parquet_worker
+_parquet_worker(int(sys.argv[2]), int(sys.argv[3]))
+'''
+    command = [sys.executable] + ([] if __debug__ else ['-O']) + ['-B', '-c', bootstrap,
+        json.dumps(sys.path), str(remaining_bytes), str(remaining_rows),
+        str(PARQUET_WORKER_AS_BYTES), str(PARQUET_WORKER_SECONDS)]
+    environment = dict(os.environ, OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1',
+                       MKL_NUM_THREADS='1', ARROW_NUM_THREADS='1')
+    try:
+        with tempfile.TemporaryFile() as output:
+            result = subprocess.run(command, input=raw, stdout=output, stderr=subprocess.DEVNULL,
+                                    env=environment, timeout=PARQUET_WORKER_SECONDS + 5)
+            if 20 <= result.returncode < 20 + len(_PARQUET_REFUSALS):
+                raise ContractError(_PARQUET_REFUSALS[result.returncode - 20])
+            check(result.returncode == 0, 'BLOCKED_PARQUET_RESOURCE_LIMIT')
+            check(os.fstat(output.fileno()).st_size <= remaining_bytes + 16,
+                  'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+            output.seek(0)
+            header = output.read(16)
+            check(len(header) == 16, 'INVALID_PARQUET')
+            charge, count = struct.unpack('!QQ', header)
+            check(0 < charge <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+            check(0 < count <= remaining_rows, 'BLOCKED_GENERATION_ROWS')
+            parsed, retained = [], 0
+            for line in output:
+                check(len(parsed) < count, 'PARQUET_ROW_COUNT')
+                row = decode(line)
+                retained += _parquet_retained_row_bytes(row) + len(line)
+                check(retained <= charge, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+                parsed.append(row)
+            check(len(parsed) == count, 'PARQUET_ROW_COUNT')
+            return parsed, charge
+    except ContractError:
+        raise
+    except MemoryError:
+        raise ContractError('BLOCKED_GENERATION_DECOMPRESSED_BYTES') from None
+    except (OSError, subprocess.TimeoutExpired):
+        raise ContractError('BLOCKED_PARQUET_RESOURCE_LIMIT') from None
 
 
 def sha(value):
@@ -184,7 +343,7 @@ class ResearchDataReader:
         required_sessions is an explicit caller-supplied calendar window. Without
         it this slice validates bounds and counts, not complete exchange sessions.
         """
-        check(dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
+        check(type(dataset_id) is str and dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
         generation = sha(data_generation_id)
         decision = clock(decision_time)
         check(type(purpose) is str and purpose in {'discovery', 'research', 'training', 'backtest'}, 'INVALID_PURPOSE')
@@ -224,7 +383,9 @@ class ResearchDataReader:
         check(isinstance(source, dict), 'SOURCE_METADATA')
         for key in ('provider', 'license', 'access_policy'):
             text(source.get(key))
-        check(source.get('classification') in {'REAL_SOURCE', 'CONTRACT_FIXTURE'}, 'SOURCE_CLASSIFICATION')
+        classification = source.get('classification')
+        check(type(classification) is str and
+              classification in {'REAL_SOURCE', 'CONTRACT_FIXTURE'}, 'SOURCE_CLASSIFICATION')
         check(source.get('admission_state') == 'RESEARCH_BYTES_ONLY', 'ADMISSION_SCOPE')
         purposes = source.get('eligible_purposes')
         check(type(purposes) is list and bool(purposes) and
@@ -233,7 +394,8 @@ class ResearchDataReader:
         # Member types are now known-safe for hashing.
         check(len(purposes) == len(set(purposes)), 'DUPLICATE_PURPOSE')
         check(purpose in purposes, 'PURPOSE_NOT_LICENSED')
-        check(source.get('pit_status') in {'VERIFIED', 'PIT_PROXY'}, 'PIT_UNKNOWN')
+        pit_status = source.get('pit_status')
+        check(type(pit_status) is str and pit_status in {'VERIFIED', 'PIT_PROXY'}, 'PIT_UNKNOWN')
         if purpose in {'training', 'backtest'}:
             check(source['pit_status'] == 'VERIFIED' and source['classification'] == 'REAL_SOURCE',
                   'PIT_NOT_VERIFIED')
@@ -270,7 +432,9 @@ class ResearchDataReader:
             for key in ('instrument_id', 'ticker', 'market', 'mic', 'timezone', 'calendar', 'currency'):
                 text(identity.get(key), 'INSTRUMENT_IDENTITY')
             check(identity['market'] == 'US' and identity['currency'] == 'USD', 'DATASET_MARKET')
-            check(identity.get('adjustment_basis') in {'RAW', 'SPLIT_ADJUSTED', 'TOTAL_RETURN'}, 'ADJUSTMENT_BASIS')
+            basis = identity.get('adjustment_basis')
+            check(type(basis) is str and basis in {'RAW', 'SPLIT_ADJUSTED', 'TOTAL_RETURN'},
+                  'ADJUSTMENT_BASIS')
             iid = identity['instrument_id']
             check(iid not in identity_map or identity_map[iid] == identity, 'IDENTITY_DRIFT')
             symbol = (identity['market'], identity['ticker'])
@@ -288,7 +452,8 @@ class ResearchDataReader:
                         execution_receipt_sha256=binding.get('execution_receipt_sha256'))
                 try:
                     entry = lake.catalog['datasets'][item.get('lake_key')]
-                    check(entry['status'] in {'COLLECTED', 'UNCHANGED'} and
+                    status = entry['status']
+                    check(type(status) is str and status in {'COLLECTED', 'UNCHANGED'} and
                           entry['normalized'] == file_sha and item.get('format') == 'gzip_jsonl',
                           'LAKE_DATASET_BINDING')
                     lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
@@ -375,6 +540,8 @@ class ResearchDataReader:
     def _rows(raw, format_name, *, remaining_bytes, remaining_rows):
         check(remaining_bytes > 0, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
         check(remaining_rows > 0, 'BLOCKED_GENERATION_ROWS')
+        check(type(format_name) is str and
+              format_name in {'jsonl', 'gzip_jsonl', 'parquet'}, 'UNSUPPORTED_FORMAT')
         if format_name in {'jsonl', 'gzip_jsonl'}:
             if format_name == 'gzip_jsonl':
                 try:
@@ -392,23 +559,5 @@ class ResearchDataReader:
                 parsed.append(decode(line))
             return parsed, len(raw)
         if format_name == 'parquet':
-            try:
-                import pyarrow as pa
-                import pyarrow.parquet as pq
-            except ImportError:
-                raise ContractError('PARQUET_ENGINE_UNAVAILABLE') from None
-            try:
-                parquet = pq.ParquetFile(io.BytesIO(raw))
-                check(0 < parquet.metadata.num_rows <= 1_000_000, 'PARQUET_ROW_BUDGET')
-                check(parquet.metadata.num_rows <= remaining_rows, 'BLOCKED_GENERATION_ROWS')
-                expanded_bytes = sum(parquet.metadata.row_group(i).total_byte_size
-                                     for i in range(parquet.metadata.num_row_groups))
-                check(0 < expanded_bytes <= remaining_bytes,
-                      'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
-                expected = pa.schema([(key, pa.string() if not kind.endswith('number') else pa.float64())
-                                      for key, kind in PRICE_COLUMNS.items()])
-                check(parquet.schema_arrow.equals(expected, check_metadata=False), 'PARQUET_SCHEMA')
-                return parquet.read().to_pylist(), expanded_bytes
-            except pa.ArrowException:
-                raise ContractError('INVALID_PARQUET') from None
+            return _isolated_parquet_rows(raw, remaining_bytes, remaining_rows)
         raise ContractError('UNSUPPORTED_FORMAT')
