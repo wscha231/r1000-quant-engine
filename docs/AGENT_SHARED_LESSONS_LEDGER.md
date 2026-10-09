@@ -6463,3 +6463,12 @@ Expected contract:
 - Bind test counts and independent verdicts to the reviewed revision. The
   original A6 PIT matrix missed a licensed REAL_SOURCE pre-close branch;
   supersede its CLEAN verdict when a later independent counterexample appears.
+- Registering a suite through an existing entrypoint also changes every narrow
+  workflow using that entrypoint. Reproduce its exact sparse file inventory and
+  offline scripts; preserve collector triggers, credentials and execution steps.
+- An optional restore destination cannot become mandatory for pinned Lake
+  reads. Use a temporary cache with refusal-path cleanup, expose verified
+  commit/catalog/execution/quality/report evidence and require completed study.
+- Normalize US symbols for collision comparison while preserving original
+  immutable bytes. Freeze returned row/receipt mappings recursively and expose
+  canonical JSON bytes; a frozen dataclass alone does not protect nested values.

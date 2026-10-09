@@ -115,6 +115,28 @@ class ReaderTest(unittest.TestCase):
         self.assertTrue(a.receipt['requested_session_coverage_verified'])
         self.assertFalse(a.receipt['calendar_source_verified'])
 
+    def test_verified_return_values_are_recursively_immutable(self):
+        result = self.read()
+        wire = json.loads(result.receipt_bytes)
+        stored_hash = wire.pop('receipt_sha256')
+        self.assertEqual(digest(encoded(wire)), stored_hash)
+        self.assertEqual(digest(encoded([dict(row) for row in result.rows])),
+                         result.receipt['row_set_sha256'])
+        with self.assertRaises(TypeError):
+            result.rows[0]['close'] = 999.0
+        with self.assertRaises(TypeError):
+            result.receipt['eligible_for_economics'] = True
+        with self.assertRaises(TypeError):
+            result.receipt['file_sha256'][0] = 'f' * 64
+        mutable_copy = json.loads(result.receipt_bytes)
+        mutable_copy['eligible_for_economics'] = True
+        self.assertFalse(result.receipt['eligible_for_economics'])
+
+    def test_case_insensitive_us_symbol_collision(self):
+        rows = [dict(row, ticker='spy', instrument_id='FIXTURE:US:spy') for row in prices()]
+        self.add_file(rows, identity=instrument('spy'))
+        self.blocked('SYMBOL_COLLISION')
+
     def test_bld_three_rows_cannot_meet_two_hundred(self):
         self.add_file(prices('BLD'))
         self.blocked('SHORT_HISTORY', instrument_ids=['FIXTURE:US:BLD'], minimum_rows=200)
@@ -666,7 +688,7 @@ class ReaderTest(unittest.TestCase):
         self.spec['files'][0]['instrument']['market'] = 'KR'
         self.blocked('DATASET_MARKET')
 
-    def lake_fixture(self, tickers=('SPY',)):
+    def lake_fixture(self, tickers=('SPY',), completed=True):
         lake = Lake(self.transport, self.root / 'producer-fixture')
         raw = b''.join(encoded(r) for r in prices())
         for ticker in tickers:
@@ -678,7 +700,7 @@ class ReaderTest(unittest.TestCase):
         receipt_raw = encoded(dict(schema='long-history-execution-v1', run_id='fixture_one',
             commit_sha256=publication['commit_sha256'], catalog_sha256=publication['catalog_sha256'],
             reports={'quality.json': quality_sha}, consumer_rows=3,
-            study_recomputed_from_drive=False, quality_status='PARTIAL', eligible_for_selector=False))
+            study_recomputed_from_drive=completed, quality_status='PARTIAL', eligible_for_selector=False))
         receipt_sha = digest(receipt_raw)
         self.transport.write(f'{PREFIX}/executions/{receipt_sha}', receipt_raw)
         binding = dict(commit_sha256=publication['commit_sha256'],
@@ -705,6 +727,52 @@ class ReaderTest(unittest.TestCase):
         result = self.read(instrument_ids=['FIXTURE:US:SPY'], restore_to=self.root / 'restore')
         self.assertEqual(result.files[0][1], lake.get_bytes(item['sha256']))
         self.assertEqual(result.rows, tuple(prices()))
+
+    def test_lake_default_read_exposes_execution_and_cleans_temporary_workspace(self):
+        _, binding, raw = self.lake_fixture()
+        self.spec['files'] = []
+        item = self.add_file(prices(), raw=packed(raw), format_name='gzip_jsonl')
+        item.update(storage='lake', lake_key='prices/SPY')
+        self.spec['lake_binding'] = binding
+        original = tempfile.TemporaryDirectory
+        workspaces = []
+        def temporary(*args, **kwargs):
+            temp = original(*args, **kwargs)
+            workspaces.append(Path(temp.name))
+            return temp
+        with patch('tools.research_data_access.tempfile.TemporaryDirectory', temporary):
+            result = self.read(instrument_ids=['FIXTURE:US:SPY'])
+        self.assertEqual(result.rows, tuple(prices()))
+        self.assertTrue(workspaces)
+        self.assertTrue(all(not path.exists() for path in workspaces))
+        evidence = result.receipt['lake_evidence']
+        for key, value in binding.items():
+            self.assertEqual(evidence[key], value)
+        self.assertEqual(evidence['quality_status'], 'PARTIAL')
+        self.assertIs(evidence['study_recomputed_from_drive'], True)
+        self.assertEqual(evidence['consumer_rows'], 3)
+        with self.assertRaises(TypeError):
+            evidence['reports']['quality.json'] = 'f' * 64
+        wire = json.loads(result.receipt_bytes)
+        expected = wire.pop('receipt_sha256')
+        self.assertEqual(digest(encoded(wire)), expected)
+
+    def test_lake_incomplete_study_refuses_and_cleans_temporary_workspace(self):
+        _, binding, raw = self.lake_fixture(completed=False)
+        self.spec['files'] = []
+        item = self.add_file(prices(), raw=packed(raw), format_name='gzip_jsonl')
+        item.update(storage='lake', lake_key='prices/SPY')
+        self.spec['lake_binding'] = binding
+        original = tempfile.TemporaryDirectory
+        workspaces = []
+        def temporary(*args, **kwargs):
+            temp = original(*args, **kwargs)
+            workspaces.append(Path(temp.name))
+            return temp
+        with patch('tools.research_data_access.tempfile.TemporaryDirectory', temporary):
+            self.blocked('LAKE_STUDY_INCOMPLETE', instrument_ids=['FIXTURE:US:SPY'])
+        self.assertTrue(workspaces)
+        self.assertTrue(all(not path.exists() for path in workspaces))
 
     def test_lake_multiple_files_verify_dependency_inventory_once_per_boundary(self):
         _, binding, _ = self.lake_fixture(('SPY', 'QQQ'))

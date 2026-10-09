@@ -8,6 +8,8 @@ transport (the legacy RcloneTransport constructor can create directories).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
+from contextlib import ExitStack
 import gzip
 from datetime import date, datetime, time, timezone
 import importlib.util
@@ -22,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from types import MappingProxyType
 
 from tools.long_history_lake import Lake, PREFIX, MAX_OBJECT
 from tools.macro_history_sources import digest, encoded, exclusive
@@ -72,13 +75,13 @@ def _parquet_retained_row_bytes(row):
     a JSON payload length as a substitute for retained object memory.
     """
     check(type(row) is dict and set(row) == set(PRICE_COLUMNS), 'ROW_SCHEMA')
-    return (sys.getsizeof(row) + 32 +
+    return (sys.getsizeof(row) + 32 + sys.getsizeof(MappingProxyType({})) +
             sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.items()))
 
 
 def _json_retained_bytes(value, remaining_bytes):
     """Charge every retained JSON object, including malformed nested rows."""
-    charge, pending = 32, [value]
+    charge, pending = 32 + sys.getsizeof(MappingProxyType({})), [value]
     while pending:
         current = pending.pop()
         charge += sys.getsizeof(current)
@@ -103,6 +106,14 @@ def _session_close(session):
         raise
     except Exception:
         raise ContractError('SESSION_CALENDAR_UNAVAILABLE') from None
+
+
+def _freeze(value):
+    if type(value) is dict:
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if type(value) is list:
+        return tuple(_freeze(item) for item in value)
+    return value
 
 
 def _decode_parquet(raw, remaining_bytes, remaining_rows, emit):
@@ -347,6 +358,7 @@ def pinned_lake(transport, workspace, *, commit_sha256, catalog_sha256, executio
         check(commit['catalog'] == sha(catalog_sha256), 'LAKE_CATALOG_MISMATCH')
         receipt = lake.verified_execution()
         check(receipt['execution_receipt_sha256'] == execution_receipt_sha256, 'LAKE_RECEIPT_MISMATCH')
+        lake._reader_execution_receipt = _freeze(receipt)
         return lake
     except (OSError, ValueError, KeyError, TypeError):
         raise ContractError('LAKE_VERIFICATION_FAILED') from None
@@ -356,7 +368,8 @@ def pinned_lake(transport, workspace, *, commit_sha256, catalog_sha256, executio
 class ReadResult:
     rows: tuple
     files: tuple  # (SHA256, exact immutable bytes); never legacy cache bytes.
-    receipt: dict
+    receipt: Mapping
+    receipt_bytes: bytes  # Canonical JSON for serialization, with immutable public views.
 
 
 class ResearchDataReader:
@@ -380,6 +393,18 @@ class ResearchDataReader:
         required_sessions is an explicit caller-supplied calendar window. Without
         it this slice validates bounds and counts, not complete exchange sessions.
         """
+        # Lake needs a cache workspace, not a consumer restore destination.
+        # Cleanup also covers every refusal path; no persistent restore is implied.
+        with ExitStack() as resources:
+            return self._read(dataset_id, data_generation_id, decision_time=decision_time,
+                purpose=purpose, instrument_ids=instrument_ids, required_start=required_start,
+                required_end=required_end, minimum_rows=minimum_rows,
+                required_sessions=required_sessions, consumer_id=consumer_id,
+                restore_to=restore_to, resources=resources)
+
+    def _read(self, dataset_id, data_generation_id, *, decision_time, purpose,
+              instrument_ids, required_start, required_end, minimum_rows,
+              required_sessions, consumer_id, restore_to, resources):
         check(type(dataset_id) is str and dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
         generation = sha(data_generation_id)
         decision = clock(decision_time)
@@ -480,7 +505,7 @@ class ResearchDataReader:
                   'ADJUSTMENT_BASIS')
             iid = identity['instrument_id']
             check(iid not in identity_map or identity_map[iid] == identity, 'IDENTITY_DRIFT')
-            symbol = (identity['market'], identity['ticker'])
+            symbol = (identity['market'], identity['ticker'].upper())
             check(symbol not in symbol_map or symbol_map[symbol] == iid, 'SYMBOL_COLLISION')
             identity_map[iid], symbol_map[symbol] = identity, iid
             file_sha = item['sha256']
@@ -488,11 +513,21 @@ class ResearchDataReader:
                 raw = read_object(self.transport, f'{PREFIX_V1}/objects/{file_sha}', file_sha)
             elif item.get('storage') == 'lake':
                 binding = spec.get('lake_binding')
-                check(isinstance(binding, dict) and restore_to is not None, 'LAKE_BINDING')
+                check(isinstance(binding, dict), 'LAKE_BINDING')
                 if lake is None:
-                    lake = pinned_lake(self.transport, Path(restore_to) / generation / 'lake-cache',
+                    if restore_to is not None:
+                        workspace = Path(restore_to) / generation / 'lake-cache'
+                    else:
+                        try:
+                            workspace = resources.enter_context(
+                                tempfile.TemporaryDirectory(prefix='research-reader-'))
+                        except OSError:
+                            raise ContractError('LAKE_WORKSPACE_UNAVAILABLE') from None
+                    lake = pinned_lake(self.transport, workspace,
                         commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
                         execution_receipt_sha256=binding.get('execution_receipt_sha256'))
+                    check(lake._reader_execution_receipt['study_recomputed_from_drive'] is True,
+                          'LAKE_STUDY_INCOMPLETE')
                     try:
                         lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
                             for p in set(lake.catalog['locations'].values())})
@@ -583,8 +618,15 @@ class ResearchDataReader:
             registry_sha256=self.registry_sha256, provider_refresh_count=0,
             cache_prices_authority=False, eligible_for_economics=False, eligible_for_selector=False,
             freshness_contract_source=next(x['path'] for x in DATA_SOURCES if x['name'] == 'prices'))
+        if lake is not None:
+            evidence = lake._reader_execution_receipt
+            receipt['lake_evidence'] = {key: evidence[key] for key in
+                ('commit_sha256', 'catalog_sha256', 'execution_receipt_sha256',
+                 'quality_status', 'study_recomputed_from_drive', 'consumer_rows', 'run_id')}
+            receipt['lake_evidence']['reports'] = dict(evidence['reports'])
         receipt['receipt_sha256'] = digest(encoded(receipt))
-        return ReadResult(tuple(selected), tuple(verified), receipt)
+        return ReadResult(tuple(MappingProxyType(row) for row in selected),
+                          tuple(verified), _freeze(receipt), encoded(receipt))
 
     @staticmethod
     def _rows(raw, format_name, *, remaining_bytes, remaining_rows):
