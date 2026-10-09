@@ -7,6 +7,7 @@ import copy
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -53,6 +54,12 @@ def allowed_file_at(root: Path, value: str) -> Path:
     return path
 
 
+def semantic_version(value: str) -> tuple[int, int, int]:
+    if not isinstance(value, str) or re.fullmatch(r'\d+\.\d+\.\d+', value) is None:
+        raise ContractError('invalid_playbook_version')
+    return tuple(int(part) for part in value.split('.'))
+
+
 def payload_hash(value: dict, hash_field: str) -> str:
     return board.digest({key: item for key, item in value.items() if key != hash_field})
 
@@ -78,11 +85,14 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
         raise ContractError('manual_manifest_invalid')
     current = {}
     seen = set()
+    rows_by_identity = {}
     for row in manifest.get('playbooks', []):
         identity = (row['playbook_id'], row['playbook_version'])
+        semantic_version(row['playbook_version'])
         if identity in seen or row['playbook_id'] not in PLAYBOOK_IDS:
             raise ContractError('duplicate_or_unknown_playbook')
         seen.add(identity)
+        rows_by_identity[identity] = row
         if row['playbook_sha256'] != payload_hash(row, 'playbook_sha256'):
             raise ContractError('playbook_hash_mismatch')
         if (row['owner'] != PLAYBOOK_IDS[row['playbook_id']]
@@ -101,10 +111,16 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
     for key, row in current.items():
         if row['playbook_version'] != manifest['current_versions'][key]:
             raise ContractError('stale_current_version')
+        semantic_version(manifest['current_versions'][key])
         if row.get('supersedes') is not None:
             previous = (key, row['supersedes'])
             if previous not in seen or previous == (key, row['playbook_version']):
                 raise ContractError('invalid_supersedes')
+            predecessor = rows_by_identity[previous]
+            if predecessor.get('status') != 'SUPERSEDED':
+                raise ContractError('predecessor_not_superseded')
+            if semantic_version(row['playbook_version']) <= semantic_version(row['supersedes']):
+                raise ContractError('playbook_version_not_increasing')
     if playbook_id not in current:
         raise ContractError('unknown_playbook')
     return manifest, current[playbook_id]
@@ -131,6 +147,17 @@ def load_catalog(root: Path = ROOT) -> dict:
         has_successor = row.get('superseded_by') is not None
         if (classification == 'SUPERSEDED') != has_successor:
             raise ContractError('catalog_supersedes_invariant')
+
+        expiry = row.get('expiry')
+        if expiry is not None:
+            if not isinstance(expiry, str):
+                raise ContractError('catalog_expiry_invalid')
+            try:
+                expiry_at = board.timestamp(expiry)
+            except (ContractError, ValueError, TypeError, AttributeError):
+                raise ContractError('catalog_expiry_invalid')
+            if classification == 'REUSE_NOW' and expiry_at <= datetime.now(timezone.utc):
+                raise ContractError('catalog_reuse_expired')
 
         source_kind = row.get('source_kind')
         metadata, heads = row.get('source_metadata'), row.get('source_heads')

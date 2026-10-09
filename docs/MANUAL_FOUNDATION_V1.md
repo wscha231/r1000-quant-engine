@@ -108,3 +108,10 @@ component coverage increase and explicit semantic-change fields may be supplied
 and are included in the packet hash. The Manual layer does not redefine the
 evaluator's allow/block policy.
 
+Final-review hardening also makes manual succession monotonic: a current
+playbook that declares a predecessor must use a strictly greater semantic
+version and the predecessor row must already be marked SUPERSEDED. A REUSE_NOW
+catalog row with a non-null expiry must carry a valid timezone-aware timestamp
+that is still in the future; expired reusable evidence fails closed rather than
+remaining selectable.
+

@@ -401,6 +401,70 @@ class ManualTests(unittest.TestCase):
         with self.assertRaisesRegex(manual.ContractError, 'catalog_unpinned_reuse_path'):
             manual.load_catalog(self.root)
 
+    def test_playbook_successor_version_must_increase(self):
+        manifest = manual.board.read_json(self.root / manual.MANIFEST)
+        current = manifest['playbooks'][0]
+        old = copy.deepcopy(current)
+        old['status'] = 'SUPERSEDED'
+        old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
+        current['playbook_version'] = '1.1.0'
+        current['supersedes'] = '1.0.0'
+        current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
+        manifest['current_versions'][current['playbook_id']] = '1.1.0'
+        manifest['playbooks'].append(old)
+        self.write(manual.MANIFEST, manifest)
+        _, row = manual.load_playbook(current['playbook_id'], self.root)
+        self.assertEqual(row['playbook_version'], '1.1.0')
+
+    def test_playbook_version_downgrade_or_live_predecessor_is_rejected(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for case in ('downgrade', 'predecessor_current'):
+            manifest = copy.deepcopy(original)
+            current = manifest['playbooks'][0]
+            old = copy.deepcopy(current)
+            if case == 'downgrade':
+                old['playbook_version'] = '1.0.0'
+                old['status'] = 'SUPERSEDED'
+                old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
+                current['playbook_version'] = '0.9.0'
+                current['supersedes'] = '1.0.0'
+                reason = 'playbook_version_not_increasing'
+            else:
+                old['playbook_version'] = '0.9.0'
+                old['status'] = 'HISTORICAL'
+                old['playbook_sha256'] = independent_hash(old, 'playbook_sha256')
+                current['playbook_version'] = '1.0.0'
+                current['supersedes'] = '0.9.0'
+                reason = 'predecessor_not_superseded'
+            current['playbook_sha256'] = independent_hash(current, 'playbook_sha256')
+            manifest['current_versions'][current['playbook_id']] = current['playbook_version']
+            manifest['playbooks'].append(old)
+            self.write(manual.MANIFEST, manifest)
+            with self.assertRaisesRegex(manual.ContractError, reason):
+                manual.load_playbook(current['playbook_id'], self.root)
+        self.write(manual.MANIFEST, original)
+
+    def test_reuse_now_future_expiry_is_allowed(self):
+        catalog = manual.load_catalog(self.root)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        row['expiry'] = '2099-01-01T00:00:00Z'
+        self.write(manual.CATALOG, catalog)
+        self.assertTrue(manual.lookup_reuse('group_591', self.root)['allowed'])
+
+    def test_reuse_now_past_or_invalid_expiry_is_rejected(self):
+        original = manual.load_catalog(self.root)
+        for expiry, reason in (
+            ('2000-01-01T00:00:00Z', 'catalog_reuse_expired'),
+            ('not-a-time', 'catalog_expiry_invalid'),
+        ):
+            catalog = copy.deepcopy(original)
+            row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+            row['expiry'] = expiry
+            self.write(manual.CATALOG, catalog)
+            with self.assertRaisesRegex(manual.ContractError, reason):
+                manual.load_catalog(self.root)
+        self.write(manual.CATALOG, original)
+
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.
         _, row = manual.load_playbook('L0_RESUME_HANDOFF')
