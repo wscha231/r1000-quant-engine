@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import math
 import re
 import sys
 from datetime import datetime, timezone
@@ -22,6 +23,8 @@ MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
 CATALOG = 'docs/pr_reuse_catalog.json'
 DNR = 'docs/run287_do_not_repeat_registry.json'
+OPERATING_CONTRACTS = ['AGENTS.md', 'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
+                       'docs/AGENT_SHARED_LESSONS_LEDGER.md', 'docs/MANUAL_FOUNDATION_V1.md']
 PLAYBOOK_IDS = {'L0_RESUME_HANDOFF': 'A0', 'A1_SOURCE_ADMISSION_REFRESH': 'A1',
                 'A6_INDEPENDENT_QA': 'A6'}
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
@@ -101,7 +104,8 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
                 or row['authority_tier_max'] not in TIERS
                 or row['mode'] != ('READ_ONLY' if row['owner'] == 'A6' else 'PROPOSAL_ONLY')):
             raise ContractError('playbook_authority')
-        if not all(isinstance(row.get(k), dict) and row[k] for k in ('process', 'proof', 'learning')):
+        if (not all(isinstance(row.get(k), dict) and row[k] for k in ('process', 'proof', 'learning'))
+                or not isinstance(row.get('toolbox_refs'), list) or not row['toolbox_refs']):
             raise ContractError('manual_layers_missing')
         if row['status'] == 'CURRENT':
             if row['playbook_id'] in current:
@@ -113,6 +117,10 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
         if row['playbook_version'] != manifest['current_versions'][key]:
             raise ContractError('stale_current_version')
         semantic_version(manifest['current_versions'][key])
+        history = [version for book_id, version in seen
+                   if book_id == key and version != row['playbook_version']]
+        if history and row.get('supersedes') is None:
+            raise ContractError('missing_playbook_predecessor')
         if row.get('supersedes') is not None:
             previous = (key, row['supersedes'])
             if previous not in seen or previous == (key, row['playbook_version']):
@@ -120,8 +128,11 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
             predecessor = rows_by_identity[previous]
             if predecessor.get('status') != 'SUPERSEDED':
                 raise ContractError('predecessor_not_superseded')
-            if semantic_version(row['playbook_version']) <= semantic_version(row['supersedes']):
+            latest = max(history, key=semantic_version)
+            if semantic_version(row['playbook_version']) <= semantic_version(latest):
                 raise ContractError('playbook_version_not_increasing')
+            if row['supersedes'] != latest:
+                raise ContractError('playbook_predecessor_not_latest')
     if playbook_id not in current:
         raise ContractError('unknown_playbook')
     return manifest, current[playbook_id]
@@ -236,8 +247,8 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
 
 def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
     manifest, playbook = load_playbook(playbook_id, root)
-    return sorted(set(manifest['policy_refs'] + playbook['toolbox_refs'] + [
-        MANIFEST, SCHEMA, CATALOG, DNR, 'docs/AGENT_SHARED_LESSONS_LEDGER.md',
+    return sorted(set(OPERATING_CONTRACTS + manifest['policy_refs'] + playbook['toolbox_refs'] + [
+        MANIFEST, SCHEMA, CATALOG, DNR,
         'tools/manual_foundation.py', 'tools/run_agent_board.py',
         'tools/check_run287_do_not_repeat.py',
         'research/control_plane/agent_contracts_v2.yaml',
@@ -300,11 +311,21 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
             or packet['proof_set'] != playbook['proof_set']
             or not set(playbook['process']['stop_condition']).issubset(packet['stop_condition'])):
         raise ContractError('manual_contract_changed')
+    load_catalog(root)
     reuse = [lookup_reuse(key, root) for key in packet['reuse_entries']]
     if any(not row['allowed'] for row in reuse):
         raise ContractError('catalog_reuse_not_allowed')
     if 'do_not_repeat_candidate' in packet:
-        result = evaluate_candidate(board.read_json(path_at(root, DNR)), **packet['do_not_repeat_candidate'])
+        registry = board.read_json(path_at(root, DNR))
+        threshold = (registry.get('reuse_policy') or {}).get('minimum_component_coverage_increase_pp', 5.0)
+        try:
+            valid_threshold = (type(threshold) in (int, float)
+                               and math.isfinite(threshold) and threshold >= 0)
+        except (OverflowError, ValueError):
+            valid_threshold = False
+        if not valid_threshold:
+            raise ContractError('do_not_repeat_threshold_invalid')
+        result = evaluate_candidate(registry, **packet['do_not_repeat_candidate'])
         if not result['allowed']:
             raise ContractError('BLOCKED_DO_NOT_REPEAT')
     return {'schema_version': 'manual-packet-preflight-v1', 'status': 'VALIDATED_PREPARE_ONLY',
