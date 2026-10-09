@@ -2,9 +2,11 @@
 
 Task: `R1000-A1-H1-SHARED-RESEARCH-DATA-V2-20261008`.
 Base: `37046b734eccba9176d091c0fcc2745f5050a8e3`.
-Owner: the user-designated single Source/Data implementation lane. Active P0
-executor/regime, shared runner and shared lessons ledger are outside this task.
-Scope: H1, research bytes only; Draft PR, no merge. The checked-in registry
+Owner: the user-designated Source/Data implementation lane, with a separate
+independent A6 reviewer. Initial scope: H1, research bytes only; Draft PR, no
+merge. The 2026-10-09 approved pre-merge corrections affect the Reader, its
+tests, this evidence note and a concise shared lesson; other implementation
+lanes and the shared runner remain intact. The checked-in registry
 has **zero admitted generations** and `source_manifest_complete=false`.
 
 ## Contract and reuse
@@ -43,6 +45,17 @@ columns and float64 OHLCV columns. An unavailable engine refuses the read.
 Raw legacy yfinance Parquet is not silently normalized by this Reader; a later
 reviewed producer binding must provide this declared view.
 
+The pinned generation shares a 256 MiB conservative decoded/retained-object
+budget and 1,000,000-row ceiling across every partition and format. JSONL and
+gzip JSONL charge expanded bytes plus retained Python objects, including
+malformed nested rows; each line is capped at 64 KiB before JSON decoding.
+Parquet charges actual Arrow buffers, retained rows and transfer bytes. Native
+decoding uses a fresh Linux process with a 512 MiB address-space ceiling plus
+CPU, wall-time and output limits; batch size alone is not a memory-safety claim.
+Failed or unsupported workers return a finite refusal and no partial rows.
+PyArrow 15-20 omit the newer extension keyword while retaining the mandatory
+primitive schema and metadata limits; newer engines disable extensions explicitly.
+
 Required columns: `instrument_id`, `ticker`, `session_date`, `available_from`,
 `open`, `high`, `low`, `close`, `volume`. All columns are required. OHLC must
 be finite, positive, non-boolean and consistent; volume may be genuine zero.
@@ -65,7 +78,14 @@ the unknown local offset `-00:00` is refused. Manifest/source/row
 availability, collection and expiry are checked before slicing; future or
 unknown clocks fail. Research/discovery can retain declared `PIT_PROXY`.
 Training/backtest reads require declared verified PIT, real-source
-classification and purpose/license permission. These checks enforce a pinned
+classification and purpose/license permission. They also require an explicitly
+supported NYSE/XNYS calendar, America/New_York timezone and XNYS/XNAS MIC.
+For those identities, every daily bar must become available at or after its
+actual session close, resolved through the existing offline NYSE holiday and
+half-day schedule. Unknown calendars or schedule failures refuse training and
+backtest; there is no weekday or fixed-hour fallback. Delayed publication
+retains its original row/session clock. Research/discovery retain synthetic
+calendar compatibility and no calendar-admission claim. These checks enforce a pinned
 manifest's contract; they do not authenticate those declarations or approve
 economics. Every success receipt has `eligible_for_economics=false` and
 `eligible_for_selector=false`.
@@ -109,17 +129,22 @@ identities, source receipts and calendars in these tests are synthetic contract
 fixtures. They are not real-source admission evidence.
 
 The existing registered `tests/long_history_lake_smoke.py` loads this suite;
-the shared validation runner and lessons ledger are untouched because the P0
-writer may be using them. Run both scripts in normal Python and `python -O`.
+the shared validation runner requires no change. Run both scripts in normal
+Python and `python -O`.
 The Parquet case explicitly checks dependency refusal when pyarrow is absent;
 with repository CI dependencies it performs a real typed Parquet round-trip.
 
-Local Python 3.12.10: 40 Reader tests and 51 existing Lake tests, 91 unique
-methods total, passed normally and with `-O`. Repeated executions are not
-additional unique tests. Local pandas/pyarrow are unavailable, and the isolated
-dependency installation found no accessible distributions. The Parquet test
-therefore proves explicit engine refusal locally; native Parquet decoding is a
-new-head CI requirement, not a local PASS claim.
+Historical initial minimal-environment evidence was Python 3.12.10,
+40 Reader + 51 Lake = 91 unique methods, normal/-O, without native Parquet.
+The correction at `31f7e0e11b65981401cc6dcb9192253306c6f7b8` increased this to
+53 Reader + 51 Lake = 104 methods, independently executed with PyArrow 23.0.1.
+The subsequent formal-review corrections add seven Reader methods:
+**60 Reader + 51 Lake = 111 unique methods**. Local native Python 3.12.14
+verification uses PyArrow 23.0.1; the supported older 15.0.2 and 20.0.0 engines
+also execute all 60 Reader methods. The exact-head GitHub receipts distinguish
+author runs, separate A6 executions and native CI. Repeated runs, optimized
+variants and subcases do not increase the unique-method count. Native tests
+prove synthetic contract compatibility and refusal, never real-source admission.
 
 One author verification command incorrectly used the runner's additive
 `--include` option. It started the full suite, observed dependency/import

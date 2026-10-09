@@ -6445,3 +6445,21 @@ Expected contract:
 - A local partial clone can lack an unrelated blob even when checkout returns
   success. Require a clean diff before applying code; restore only exact bytes
   verified against the missing Git object SHA. Preserve the source worktree.
+
+## 2026-10-09 — frozen Reader formal-review corrections (#591)
+
+- Charge retained Python objects as well as expanded JSONL bytes across the
+  whole generation. Bound a line before decoding so malformed nested input
+  cannot allocate an unbounded intermediate row; normalize allocation failure.
+- A same-date availability clock cannot certify a daily close. Reuse the
+  existing offline NYSE holiday/half-day schedule, compare original row time
+  to that session's actual close and preserve delayed publication. Unsupported
+  calendars fail closed for training/backtest; this grants no source admission.
+- Dependency minimums are executable contracts: test actual PyArrow 15, 20
+  and 23 and omit unsupported optional keywords. A small batch does not bound
+  native pre-yield allocation; retain the isolated 512 MiB process guard.
+- Verify immutable Lake inventories once per restore/publication boundary,
+  rather than once per partition. Keep chain/hash/report validators unchanged.
+- Bind test counts and independent verdicts to the reviewed revision. The
+  original A6 PIT matrix missed a licensed REAL_SOURCE pre-close branch;
+  supersede its CLEAN verdict when a later independent counterexample appears.

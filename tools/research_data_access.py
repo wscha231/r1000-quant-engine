@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import gzip
-from datetime import date, datetime
+from datetime import date, datetime, time, timezone
 import importlib.util
+import inspect
 import io
 import json
 import math
@@ -33,6 +34,9 @@ SCHEMA = 'research-data-generation-v1'
 # Per-read ceilings across every file in the pinned generation.
 MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
 MAX_GENERATION_ROWS = 1_000_000
+# A fixed primitive price record needs far less than this. Bound each JSON
+# decode before allocating its Python objects, including malformed schemas.
+MAX_JSONL_LINE_BYTES = 64 * 1024
 # Linux RLIMIT_AS bounds even native allocations made before a batch is yielded.
 # This is a separate interpreter/decoder ceiling, not the decoded-byte charge.
 PARQUET_WORKER_AS_BYTES = 512 * 1024 * 1024
@@ -72,6 +76,35 @@ def _parquet_retained_row_bytes(row):
             sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.items()))
 
 
+def _json_retained_bytes(value, remaining_bytes):
+    """Charge every retained JSON object, including malformed nested rows."""
+    charge, pending = 32, [value]
+    while pending:
+        current = pending.pop()
+        charge += sys.getsizeof(current)
+        check(charge <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        if type(current) is dict:
+            pending.extend(current.keys())
+            pending.extend(current.values())
+        elif type(current) is list:
+            pending.extend(current)
+    return charge
+
+
+def _session_close(session):
+    """Use the existing offline NYSE holiday/half-day schedule, never a fallback."""
+    try:
+        from r1000_legacy_input_guard import latest_completed_close
+        completed, close, _ = latest_completed_close(
+            datetime.combine(session, time.max, timezone.utc))
+        check(completed == session.isoformat(), 'INVALID_EXCHANGE_SESSION')
+        return clock(close.isoformat())
+    except ContractError:
+        raise
+    except Exception:
+        raise ContractError('SESSION_CALENDAR_UNAVAILABLE') from None
+
+
 def _decode_parquet(raw, remaining_bytes, remaining_rows, emit):
     """Worker-only decode; metadata is a precheck, never actual size evidence."""
     try:
@@ -82,9 +115,13 @@ def _decode_parquet(raw, remaining_bytes, remaining_rows, emit):
     try:
         pa.set_cpu_count(1)
         pa.set_io_thread_count(1)
-        parquet = pq.ParquetFile(io.BytesIO(raw), pre_buffer=False,
-            thrift_string_size_limit=1024 * 1024, thrift_container_size_limit=10000,
-            arrow_extensions_enabled=False)
+        options = dict(pre_buffer=False, thrift_string_size_limit=1024 * 1024,
+                       thrift_container_size_limit=10000)
+        # PyArrow 15-20 satisfy the repository dependency contract but predate
+        # this keyword. The fixed primitive schema remains mandatory on all versions.
+        if 'arrow_extensions_enabled' in inspect.signature(pq.ParquetFile).parameters:
+            options['arrow_extensions_enabled'] = False
+        parquet = pq.ParquetFile(io.BytesIO(raw), **options)
         meta = parquet.metadata
         check(meta is not None and type(meta.num_rows) is int and
               0 < meta.num_rows <= MAX_GENERATION_ROWS, 'PARQUET_ROW_BUDGET')
@@ -424,6 +461,7 @@ class ResearchDataReader:
         check(sum(x['rows'] for x in files) <= MAX_GENERATION_ROWS, 'BLOCKED_GENERATION_ROWS')
         decompressed_total, row_total = 0, 0
         lake = None
+        session_closes = {}
         rows, verified, identity_map, symbol_map, seen = [], [], {}, {}, set()
         for item in files:
             check(item.get('columns') == PRICE_COLUMNS, 'FILE_SCHEMA')
@@ -432,6 +470,11 @@ class ResearchDataReader:
             for key in ('instrument_id', 'ticker', 'market', 'mic', 'timezone', 'calendar', 'currency'):
                 text(identity.get(key), 'INSTRUMENT_IDENTITY')
             check(identity['market'] == 'US' and identity['currency'] == 'USD', 'DATASET_MARKET')
+            scheduled = (identity['calendar'] in {'NYSE', 'XNYS'} and
+                         identity['timezone'] == 'America/New_York' and
+                         identity['mic'] in {'XNYS', 'XNAS'})
+            if purpose in {'training', 'backtest'}:
+                check(scheduled, 'UNSUPPORTED_SESSION_CALENDAR')
             basis = identity.get('adjustment_basis')
             check(type(basis) is str and basis in {'RAW', 'SPLIT_ADJUSTED', 'TOTAL_RETURN'},
                   'ADJUSTMENT_BASIS')
@@ -450,14 +493,17 @@ class ResearchDataReader:
                     lake = pinned_lake(self.transport, Path(restore_to) / generation / 'lake-cache',
                         commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
                         execution_receipt_sha256=binding.get('execution_receipt_sha256'))
+                    try:
+                        lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
+                            for p in set(lake.catalog['locations'].values())})
+                    except (OSError, ValueError, KeyError, TypeError):
+                        raise ContractError('LAKE_VERIFICATION_FAILED') from None
                 try:
                     entry = lake.catalog['datasets'][item.get('lake_key')]
                     status = entry['status']
                     check(type(status) is str and status in {'COLLECTED', 'UNCHANGED'} and
                           entry['normalized'] == file_sha and item.get('format') == 'gzip_jsonl',
                           'LAKE_DATASET_BINDING')
-                    lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
-                        for p in set(lake.catalog['locations'].values())})
                     raw = lake.get_bytes(file_sha)
                 except (OSError, ValueError, KeyError, TypeError):
                     raise ContractError('LAKE_VERIFICATION_FAILED') from None
@@ -479,6 +525,10 @@ class ResearchDataReader:
                 row_available = clock(row['available_from'])
                 check(session <= row_available.date() and row_available <= available and
                       row_available <= decision, 'FUTURE_AVAILABLE_FROM')
+                if scheduled:
+                    if session not in session_closes:
+                        session_closes[session] = _session_close(session)
+                    check(session_closes[session] <= row_available, 'PRE_CLOSE_AVAILABLE_FROM')
                 for key, kind in PRICE_COLUMNS.items():
                     if kind.endswith('number'):
                         value = row[key]
@@ -549,15 +599,25 @@ class ResearchDataReader:
                     # limit; preserve the old 128 MiB per-object decode ceiling.
                     with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
                         raw = stream.read(min(128 * 1024 * 1024, remaining_bytes) + 1)
+                except MemoryError:
+                    raise ContractError('BLOCKED_GENERATION_DECOMPRESSED_BYTES') from None
                 except (OSError, EOFError, ValueError):
                     raise ContractError('INVALID_GZIP') from None
             check(len(raw) <= 128 * 1024 * 1024, 'DECODE_SIZE')
             check(len(raw) <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
-            parsed = []
-            for line in io.BytesIO(raw):
-                check(len(parsed) < remaining_rows, 'BLOCKED_GENERATION_ROWS')
-                parsed.append(decode(line))
-            return parsed, len(raw)
+            parsed, charged_bytes = [], len(raw)
+            try:
+                stream = io.BytesIO(raw)
+                while line := stream.readline(MAX_JSONL_LINE_BYTES + 1):
+                    check(len(parsed) < remaining_rows, 'BLOCKED_GENERATION_ROWS')
+                    check(len(line) <= MAX_JSONL_LINE_BYTES,
+                          'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+                    row = decode(line)
+                    charged_bytes += _json_retained_bytes(row, remaining_bytes - charged_bytes)
+                    parsed.append(row)
+                return parsed, charged_bytes
+            except MemoryError:
+                raise ContractError('BLOCKED_GENERATION_DECOMPRESSED_BYTES') from None
         if format_name == 'parquet':
             return _isolated_parquet_rows(raw, remaining_bytes, remaining_rows)
         raise ContractError('UNSUPPORTED_FORMAT')

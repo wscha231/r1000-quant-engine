@@ -320,11 +320,106 @@ class ReaderTest(unittest.TestCase):
             compressed = packed(raw)
             self.assertLess(len(compressed), len(raw))
             self.add_file(prices(ticker), raw=compressed, format_name='gzip_jsonl')
-        cap = sum(map(len, expanded)) - 1
-        self.assertLess(max(map(len, expanded)), cap)
+        charges = [ResearchDataReader._rows(raw, 'jsonl', remaining_bytes=256 * 1024 * 1024,
+                   remaining_rows=1_000_000)[1] for raw in expanded]
+        cap = sum(charges) - 1
+        self.assertLess(max(charges), cap)
         with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap):
             self.blocked('BLOCKED_GENERATION_DECOMPRESSED_BYTES')
         self.assertEqual(len(self.read().rows), 6)
+
+    def test_jsonl_retained_objects_share_cumulative_budget(self):
+        for format_name in ('jsonl', 'gzip_jsonl'):
+            with self.subTest(format_name=format_name):
+                self.spec['files'] = []
+                charges = []
+                for ticker in ('SPY', 'QQQ'):
+                    raw = b''.join(encoded(r) for r in prices(ticker))
+                    stored = packed(raw) if format_name == 'gzip_jsonl' else raw
+                    self.add_file(prices(ticker), raw=stored, format_name=format_name)
+                    parsed, charge = ResearchDataReader._rows(stored, format_name,
+                        remaining_bytes=256 * 1024 * 1024, remaining_rows=1_000_000)
+                    self.assertEqual(parsed, prices(ticker))
+                    self.assertGreater(charge, len(raw))
+                    charges.append(charge)
+                with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', sum(charges)):
+                    self.assertEqual(len(self.read().rows), 6)
+                with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', sum(charges) - 1):
+                    self.blocked('BLOCKED_GENERATION_DECOMPRESSED_BYTES')
+        # Invalid nested schemas must still be accounted before row validation.
+        raw = encoded({'nested': [dict(k='v') for _ in range(100)]})
+        with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+            ResearchDataReader._rows(raw, 'jsonl', remaining_bytes=len(raw) * 2, remaining_rows=1)
+
+    def test_jsonl_oversized_line_and_allocation_failure_refuse(self):
+        for format_name in ('jsonl', 'gzip_jsonl'):
+            raw = encoded(dict(prices()[0], ticker='X' * (64 * 1024)))
+            stored = packed(raw) if format_name == 'gzip_jsonl' else raw
+            with self.subTest(format_name=format_name), patch('tools.research_data_access.decode') as parser:
+                with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+                    ResearchDataReader._rows(stored, format_name,
+                        remaining_bytes=256 * 1024 * 1024, remaining_rows=1_000_000)
+                parser.assert_not_called()
+        with patch('tools.research_data_access.decode', side_effect=MemoryError), \
+             self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+            ResearchDataReader._rows(encoded(prices()[0]), 'jsonl', remaining_bytes=10000, remaining_rows=1)
+
+    def real_session(self, session, available):
+        row = dict(prices()[0], session_date=session, available_from=available)
+        self.spec['files'] = []
+        identity = dict(instrument('SPY'), calendar='NYSE')
+        self.add_file([row], identity=identity)
+        self.spec['source'].update(classification='REAL_SOURCE', pit_status='VERIFIED',
+            eligible_purposes=['discovery', 'research', 'training', 'backtest'],
+            available_from=available, collected_at=available)
+        self.manifest['created_at'] = available
+        return dict(instrument_ids=[identity['instrument_id']], required_start=session,
+                    required_end=session, required_sessions=[session], minimum_rows=1)
+
+    def test_verified_real_daily_bar_refuses_preclose_all_purposes(self):
+        options = self.real_session('2026-10-01', '2026-10-01T00:00:00Z')
+        for purpose in ('training', 'backtest', 'research', 'discovery'):
+            with self.subTest(purpose=purpose):
+                self.blocked('PRE_CLOSE_AVAILABLE_FROM', purpose=purpose,
+                             decision_time='2026-10-01T13:00:00Z', **options)
+
+    def test_actual_nyse_halfday_dst_and_holiday_boundaries(self):
+        cases = [('2026-10-01', '20:00:00'), ('2026-07-02', '20:00:00'),
+                 ('2025-07-03', '17:00:00'),
+                 ('2026-01-05', '21:00:00')]
+        for session, close in cases:
+            with self.subTest(session=session):
+                options = self.real_session(session, session + 'T' + close + 'Z')
+                result = self.read(purpose='training', decision_time=DECISION, **options)
+                self.assertEqual(len(result.rows), 1)
+                self.assertFalse(result.receipt['eligible_for_economics'])
+                self.assertFalse(result.receipt['eligible_for_selector'])
+                self.assertEqual(result.receipt['provider_refresh_count'], 0)
+                self.assertFalse(result.receipt['calendar_source_verified'])
+                row = dict(result.rows[0], available_from=session + 'T00:00:00Z')
+                self.spec['files'] = []
+                self.add_file([row], identity=dict(instrument('SPY'), calendar='NYSE'))
+                self.blocked('PRE_CLOSE_AVAILABLE_FROM', purpose='backtest', **options)
+        options = self.real_session('2026-07-03', '2026-07-03T21:00:00Z')
+        self.blocked('INVALID_EXCHANGE_SESSION', purpose='training', **options)
+
+    def test_delayed_real_publication_preserves_original_session(self):
+        options = self.real_session('2026-10-01', '2026-10-07T21:00:00Z')
+        result = self.read(purpose='backtest', **options)
+        self.assertEqual(result.rows[0]['session_date'], '2026-10-01')
+        self.assertEqual(result.rows[0]['available_from'], '2026-10-07T21:00:00Z')
+
+    def test_training_unsupported_or_unavailable_calendar_refuses(self):
+        options = self.real_session('2026-10-01', '2026-10-01T20:00:00Z')
+        identity = self.spec['files'][0]['instrument']
+        for key, bad in [('calendar', 'FIXTURE_CALENDAR'), ('timezone', 'UTC'), ('mic', 'XASE')]:
+            original = identity[key]
+            identity[key] = bad
+            with self.subTest(key=key):
+                self.blocked('UNSUPPORTED_SESSION_CALENDAR', purpose='training', **options)
+            identity[key] = original
+        with patch('r1000_legacy_input_guard.latest_completed_close', side_effect=RuntimeError('schedule absent')):
+            self.blocked('SESSION_CALENDAR_UNAVAILABLE', purpose='backtest', **options)
 
     def test_high_compression_multifile_generation_rows_limit(self):
         self.spec['files'] = []
@@ -474,7 +569,8 @@ class ReaderTest(unittest.TestCase):
         _, charge = ResearchDataReader._rows(output.getvalue(), 'parquet',
             remaining_bytes=256 * 1024 * 1024, remaining_rows=1_000_000)
         self.assertEqual(len(self.read().rows), 6)
-        cap = charge + len(qq) + len(bld)
+        cap = charge + sum(ResearchDataReader._rows(raw, 'jsonl', remaining_bytes=256 * 1024 * 1024,
+            remaining_rows=1_000_000)[1] for raw in (qq, bld))
         with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap):
             self.assertEqual(len(self.read().rows), 6)
         with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', cap - 1):
@@ -570,10 +666,11 @@ class ReaderTest(unittest.TestCase):
         self.spec['files'][0]['instrument']['market'] = 'KR'
         self.blocked('DATASET_MARKET')
 
-    def lake_fixture(self):
+    def lake_fixture(self, tickers=('SPY',)):
         lake = Lake(self.transport, self.root / 'producer-fixture')
         raw = b''.join(encoded(r) for r in prices())
-        lake.dataset('prices/SPY', [b'synthetic-price-source'], prices(), dict(rows=3, evidence='FIXTURE'))
+        for ticker in tickers:
+            lake.dataset('prices/' + ticker, [b'synthetic-price-source'], prices(ticker), dict(rows=3, evidence='FIXTURE'))
         publication = lake.publish('fixture_one', {})
         quality_raw = encoded(dict(schema='long-history-quality-v1', status='PARTIAL', eligible_for_selector=False))
         quality_sha = digest(quality_raw)
@@ -608,6 +705,25 @@ class ReaderTest(unittest.TestCase):
         result = self.read(instrument_ids=['FIXTURE:US:SPY'], restore_to=self.root / 'restore')
         self.assertEqual(result.files[0][1], lake.get_bytes(item['sha256']))
         self.assertEqual(result.rows, tuple(prices()))
+
+    def test_lake_multiple_files_verify_dependency_inventory_once_per_boundary(self):
+        _, binding, _ = self.lake_fixture(('SPY', 'QQQ'))
+        self.spec['files'] = []
+        for ticker in ('SPY', 'QQQ'):
+            raw = b''.join(encoded(r) for r in prices(ticker))
+            item = self.add_file(prices(ticker), raw=packed(raw), format_name='gzip_jsonl')
+            item.update(storage='lake', lake_key='prices/' + ticker)
+        self.spec['lake_binding'] = binding
+        original = Lake.verify_pack_dependencies
+        calls = []
+        def verify(lake, dependencies):
+            calls.append(dependencies)
+            return original(lake, dependencies)
+        with patch.object(Lake, 'verify_pack_dependencies', verify):
+            result = self.read(restore_to=self.root / 'restore')
+        self.assertEqual(len(result.rows), 6)
+        self.assertEqual(len(calls), 2)  # constructor ancestor restore + one read boundary
+        self.assertTrue(all(calls))
 
     def test_lake_receipt_missing_or_corrupt_cannot_pass(self):
         _, binding, _ = self.lake_fixture()
