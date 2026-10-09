@@ -1,0 +1,1101 @@
+{
+  "schema_version": "pr-reuse-catalog-v1",
+  "verified_at": "2026-10-09T03:12:15.701Z",
+  "master_sha": "11163fb3e30125359346102eb2b12c04aa52ae15",
+  "seed_basis": "Previously reviewed capability groups from #448 Manual V1, reconciled with exact GitHub PR/Issue metadata and local current paths; no new 500-PR census or economic certification.",
+  "lessons_ledger": "docs/AGENT_SHARED_LESSONS_LEDGER.md",
+  "do_not_repeat_registry": "docs/run287_do_not_repeat_registry.json",
+  "entries": [
+    {
+      "entry_id": "group_1",
+      "pr_or_group": "#1",
+      "source_kind": "PR",
+      "capability": "Foundational sleeve/winner/regime context",
+      "classification": "HISTORICAL_LESSON",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#1": "7ead37e921ff3e088a95e59036d780f781ef84a9"
+      },
+      "source_metadata": {
+        "#1": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Add sleeve split portfolio policy and refresh Colab workflow"
+        }
+      },
+      "current_equivalent": [
+        "r1000_config.py"
+      ],
+      "toolbox_refs": [
+        "r1000_config.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/1",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Historical philosophy only; no old weights or thresholds."
+      ],
+      "next_use": "Read historical lesson only.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "r1000_config.py": "a96e5f31ec1953f4fa3135932735a5effe7d05cccebec1b334da3519663dab2a"
+      }
+    },
+    {
+      "entry_id": "group_158",
+      "pr_or_group": "#158",
+      "source_kind": "PR",
+      "capability": "Position-risk grid sidecar and shared broker evaluation",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#158": "9b52e4e3f6b488e2308cbf27cb886bad4783d111"
+      },
+      "source_metadata": {
+        "#158": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "research: add broker position-risk grid sidecar"
+        }
+      },
+      "current_equivalent": [
+        "tools/run_broker_position_risk_grid_sweep.py",
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "toolbox_refs": [
+        "tools/run_broker_position_risk_grid_sweep.py",
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/158",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Reuse evaluator/account contracts; not a certified economic result."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_broker_position_risk_grid_sweep.py": "d7fafc86c1a4340dfa9ab2e71805fa362a95a412163361d741312c06e8eb12f7",
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+      }
+    },
+    {
+      "entry_id": "group_174",
+      "pr_or_group": "#174",
+      "source_kind": "PR",
+      "capability": "Rejected broad gross-floor mechanism",
+      "classification": "DO_NOT_REPEAT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#174": "591b5dc0fd009ea4cf577985ea4cd6d4062555c4"
+      },
+      "source_metadata": {
+        "#174": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "fix: wire gross floor sweep override"
+        }
+      },
+      "current_equivalent": [
+        "tools/check_run287_do_not_repeat.py"
+      ],
+      "toolbox_refs": [
+        "tools/check_run287_do_not_repeat.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/174",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Canonical do-not-repeat guard owns semantic/new-data exceptions; catalog grants none."
+      ],
+      "next_use": "Consult canonical registry; refuse unchanged rejected research.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [
+        "broad_gross_floor"
+      ],
+      "dependency_hashes": {
+        "tools/check_run287_do_not_repeat.py": "f80ebf0065fdc651612e416bb14cd59220f18eb08e4b11973f87b30f74b9780a"
+      }
+    },
+    {
+      "entry_id": "group_267",
+      "pr_or_group": "#267",
+      "source_kind": "PR",
+      "capability": "Rejected delayed partial-resize replay / human delivery-delay lesson",
+      "classification": "HISTORICAL_LESSON",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#267": "6dfb7b9d2c6d040cc5f30d030184cb6cdbc7a67f"
+      },
+      "source_metadata": {
+        "#267": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Record rejected partial-resize replay"
+        }
+      },
+      "current_equivalent": [
+        "tools/run_broker_ledger_replay.py",
+        "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md"
+      ],
+      "toolbox_refs": [
+        "tools/run_broker_ledger_replay.py",
+        "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/267",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Preserve rejected lineage; do not rerun economics from a coordination label."
+      ],
+      "next_use": "Read historical lesson only.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md": "255db76caccfbaeae241b030492c35e3b34fd9dbfbd7c798512beeb918851d37",
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+      }
+    },
+    {
+      "entry_id": "group_400_405",
+      "pr_or_group": "#400/#405",
+      "source_kind": "PR",
+      "capability": "Evidence-based qualitative and valuation research bridge",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#400": "65d41968d796caeb91c7e672074b6280001b1726",
+        "#405": "9435b2c1f04f9a0c82f8c1ce74ddd55bdfe0a3ef"
+      },
+      "source_metadata": {
+        "#400": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "[H2][RESEARCH_ONLY] Deterministic valuation, research ranking and portfolio proposals"
+        },
+        "#405": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "[H2][RESEARCH_ONLY] \uadfc\uac70 \uae30\ubc18 \uc815\uc131 \ud310\ub2e8\u00b7\uae30\uc874 \uac00\uce58\ud3c9\uac00 \uc5f0\uacb0 \ubc0f \ubd80\ubd84 \uc2e4\uc81c \ud45c\ubcf8"
+        }
+      },
+      "current_equivalent": [
+        "research/a3_candidate_packet_v1.py"
+      ],
+      "toolbox_refs": [
+        "research/a3_candidate_packet_v1.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/400",
+        "https://github.com/wscha231/r1000-quant-engine/pull/405",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Old unmerged stacks; reconstruct selected capability against current A3/domain contracts."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "research/a3_candidate_packet_v1.py": "c477f7323814b2f980449da3db6e238b8416c5644d151bda4e3e4790eb3b003e"
+      }
+    },
+    {
+      "entry_id": "group_423_574",
+      "pr_or_group": "#423/#574",
+      "source_kind": "PR",
+      "capability": "Shared verified-history access and Lake handle lifecycle",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#423": "ed304d857c5128fd11d85dd6ed054591ce144848",
+        "#574": "a7078af18538b1769adecda6c615c014068652b1"
+      },
+      "source_metadata": {
+        "#423": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Restore verified research history and publish shared data access contract"
+        },
+        "#574": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Close SQLite handles after rejected long-history materialization"
+        }
+      },
+      "current_equivalent": [
+        "tools/long_history_lake.py",
+        "docs/RESEARCH_DATA_ACCESS.md",
+        "tools/research_data_access.py"
+      ],
+      "toolbox_refs": [
+        "tools/long_history_lake.py",
+        "docs/RESEARCH_DATA_ACCESS.md",
+        "tools/research_data_access.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/423",
+        "https://github.com/wscha231/r1000-quant-engine/pull/574",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Retained bytes/availability/license required; Reader access is not PIT/admission."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/long_history_lake.py": "fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4064bda3b8c",
+        "tools/research_data_access.py": "6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f",
+        "docs/RESEARCH_DATA_ACCESS.md": "de16d4908f5b6fb0a7b2a99db3f0a1196dc033da7dd6b954b23a5be3ca482e2f"
+      }
+    },
+    {
+      "entry_id": "group_459",
+      "pr_or_group": "#459",
+      "source_kind": "PR",
+      "capability": "News capture/shared read-only consumer",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#459": "803a4442323f1c181918871c50b94e0b11f536bc"
+      },
+      "source_metadata": {
+        "#459": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "news: integrate P0 sources, manual cloud capture and shared read-only consumer"
+        }
+      },
+      "current_equivalent": [
+        "docs/RESEARCH_DATA_ACCESS.md"
+      ],
+      "toolbox_refs": [
+        "docs/RESEARCH_DATA_ACCESS.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/459",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "No new bots/schedules; old PR needs current-source and domain review."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/RESEARCH_DATA_ACCESS.md": "de16d4908f5b6fb0a7b2a99db3f0a1196dc033da7dd6b954b23a5be3ca482e2f"
+      }
+    },
+    {
+      "entry_id": "group_473",
+      "pr_or_group": "#473",
+      "source_kind": "PR",
+      "capability": "Telegram checkpoint/delta discovery bridge",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#473": "6d6df9e043a0b23a44eb498adff8c73daef346ab"
+      },
+      "source_metadata": {
+        "#473": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "Research: durable Telegram checkpoint and A2 discovery bridge"
+        }
+      },
+      "current_equivalent": [
+        "tools/candidate_reassessment_bridge.py"
+      ],
+      "toolbox_refs": [
+        "tools/candidate_reassessment_bridge.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/473",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Discovery-only; not verified facts, ER or BUY; no new bot/scheduler."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/candidate_reassessment_bridge.py": "0356996ea199cb42333304a227824495ee0cdc29dd83949ee621f38d9fb8032a"
+      }
+    },
+    {
+      "entry_id": "group_505",
+      "pr_or_group": "#505",
+      "source_kind": "ISSUE",
+      "capability": "Existing A0/control schemas; remaining registry bindings",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {},
+      "source_metadata": {
+        "#505": {
+          "kind": "ISSUE",
+          "state": "open",
+          "title": "P0 Control Plane Registries V1: system state, artifact, dependency and global book contracts"
+        }
+      },
+      "current_equivalent": [
+        "research/control_plane/system_state_schema.json",
+        "research/control_plane/task_packet_schema.json",
+        "tools/run_agent_board.py"
+      ],
+      "toolbox_refs": [
+        "research/control_plane/system_state_schema.json",
+        "research/control_plane/task_packet_schema.json",
+        "tools/run_agent_board.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/issues/505",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Issue, not PR. Existing partial surfaces do not imply all four registry drafts are implemented."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_agent_board.py": "cb7bdd0e89827375fbc3f682d46e63b3f181ab3e8d95f5544cfe412962b45a69",
+        "research/control_plane/task_packet_schema.json": "0e055984f97158fe01511cc70b7a19a9bf9c5abe6e8c9427fa2d192e2d714255",
+        "research/control_plane/system_state_schema.json": "96ee0e301131683c845cc5da8ebea5b8c0e495307716f836e7399f228475328a"
+      }
+    },
+    {
+      "entry_id": "group_510",
+      "pr_or_group": "#510",
+      "source_kind": "ISSUE",
+      "capability": "ER V2 economic gate and required horizon/downside contract",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {},
+      "source_metadata": {
+        "#510": {
+          "kind": "ISSUE",
+          "state": "open",
+          "title": "ER V2: 252-session return, net-cost contract and calibrated downside for A3 promotion"
+        }
+      },
+      "current_equivalent": [
+        "docs/run287_expected_return_challenger_contract.json",
+        "tools/run_run287_expected_return_challenger.py"
+      ],
+      "toolbox_refs": [
+        "docs/run287_expected_return_challenger_contract.json",
+        "tools/run_run287_expected_return_challenger.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/issues/510",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Issue, not PR. Gross challenger does not satisfy validated net 1/3/6/12m ER/downside."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_run287_expected_return_challenger.py": "1b8f5b3dc548fe9c20ee3ac3c67b0b2b0f0b787fae1f4106f1d636285e30da27",
+        "docs/run287_expected_return_challenger_contract.json": "9aed29f777f0c3098f5d6b7c68d9e0c956b68db3d0cebaaeb8259bcebaaa485e"
+      }
+    },
+    {
+      "entry_id": "group_516",
+      "pr_or_group": "#516",
+      "source_kind": "ISSUE",
+      "capability": "Existing A3 packet and Candidate Registry reference contract",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {},
+      "source_metadata": {
+        "#516": {
+          "kind": "ISSUE",
+          "state": "open",
+          "title": "P1: standardize candidate lifecycle, reusable A3 packets, A5 consumer contract, retention + automation dedup"
+        }
+      },
+      "current_equivalent": [
+        "research/a3_candidate_packet_v1.py",
+        "research/candidate_registry_v1.py",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md"
+      ],
+      "toolbox_refs": [
+        "research/a3_candidate_packet_v1.py",
+        "research/candidate_registry_v1.py",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/issues/516",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Issue, not PR. Reuse implemented reference-only slice; broader lifecycle/A5/GC is not complete."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "e9944846aeb74aa760aa5307ce571c2061b71b46e8f80c255eeaf74a51e1d0b6",
+        "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf",
+        "research/a3_candidate_packet_v1.py": "c477f7323814b2f980449da3db6e238b8416c5644d151bda4e3e4790eb3b003e"
+      }
+    },
+    {
+      "entry_id": "group_526",
+      "pr_or_group": "#526",
+      "source_kind": "ISSUE",
+      "capability": "A5 incumbent/challenger and risk-budget requirements",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {},
+      "source_metadata": {
+        "#526": {
+          "kind": "ISSUE",
+          "state": "open",
+          "title": "A5 Portfolio Engine V2: robust ER competition, hysteresis and risk-budgeted sizing"
+        }
+      },
+      "current_equivalent": [
+        "tools/evaluate_run287_hold_exit_replacement.py"
+      ],
+      "toolbox_refs": [
+        "tools/evaluate_run287_hold_exit_replacement.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/issues/526",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Issue, not PR. Requirements/old tools are not a complete ER-calibrated A5 engine."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/evaluate_run287_hold_exit_replacement.py": "e7a032bc3b5e63e882168fd8703f2665ca6d09c447327e8cb08566bab5ce2ed2"
+      }
+    },
+    {
+      "entry_id": "group_531",
+      "pr_or_group": "#531",
+      "source_kind": "ISSUE",
+      "capability": "Historical membership acquisition / denominator contract",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {},
+      "source_metadata": {
+        "#531": {
+          "kind": "ISSUE",
+          "state": "open",
+          "title": "P2 Data: acquire historical R1000 membership for final 8Y PIT certification"
+        }
+      },
+      "current_equivalent": [
+        "tools/build_pit_membership_by_month.py",
+        "tools/run_pit_membership_audit.py"
+      ],
+      "toolbox_refs": [
+        "tools/build_pit_membership_by_month.py",
+        "tools/run_pit_membership_audit.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/issues/531",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Issue, not PR. No historic constituents from current universe; final coverage not certified."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_pit_membership_audit.py": "c3ef59b9eb862b0dba49a5320174a5e5c7cceb216f0edb6bcced8c64f7576229",
+        "tools/build_pit_membership_by_month.py": "ce6f2c4d7d494db5331286e04869d5f7e62e5033b3b4fb4e86741d5630b1c7de"
+      }
+    },
+    {
+      "entry_id": "group_556",
+      "pr_or_group": "#556",
+      "source_kind": "PR",
+      "capability": "Earnings/consensus retained-source PIT and transaction integrity",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#556": "5a775d9c92237a2fcf446d466f7672e63b52567e"
+      },
+      "source_metadata": {
+        "#556": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "H1: repair earnings consensus source identity and PIT admission"
+        }
+      },
+      "current_equivalent": [
+        "tools/earnings_consensus_h1.py",
+        "tools/build_earnings_estimate_archive_manifest.py",
+        "docs/EARNINGS_CONSENSUS_SOURCE_V2.md"
+      ],
+      "toolbox_refs": [
+        "tools/earnings_consensus_h1.py",
+        "tools/build_earnings_estimate_archive_manifest.py",
+        "docs/EARNINGS_CONSENSUS_SOURCE_V2.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/556",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Current raw/transaction/readback evidence required; no automatic recollection."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/EARNINGS_CONSENSUS_SOURCE_V2.md": "c6b6b9fda4825f0388e119574cca83cea973d883d51bbd64fc1fb4f13fb09e82",
+        "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
+        "tools/build_earnings_estimate_archive_manifest.py": "5fc703f9fbbbe00ac9ae1d86617549d1cda6078bf90248768c7d8e3cd4d56cbd"
+      }
+    },
+    {
+      "entry_id": "group_559",
+      "pr_or_group": "#559",
+      "source_kind": "PR",
+      "capability": "Purpose/capability-scoped partial readiness",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#559": "c414d8ff49481d5ede0380c582b5030a80a55f54"
+      },
+      "source_metadata": {
+        "#559": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Scope partial data gates to capability readiness"
+        }
+      },
+      "current_equivalent": [
+        "tools/audit_data_readiness.py",
+        "tools/run_pit_membership_audit.py"
+      ],
+      "toolbox_refs": [
+        "tools/audit_data_readiness.py",
+        "tools/run_pit_membership_audit.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/559",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Partial research readiness never certifies unrelated economics or final universe."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_pit_membership_audit.py": "c3ef59b9eb862b0dba49a5320174a5e5c7cceb216f0edb6bcced8c64f7576229",
+        "tools/audit_data_readiness.py": "60eb06638645e1a6c67ef5af87fb9e60f27672954cd5c4e03659c1540d727824"
+      }
+    },
+    {
+      "entry_id": "group_560",
+      "pr_or_group": "#560",
+      "source_kind": "PR",
+      "capability": "Hash-bound A3 Candidate Registry reference index",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#560": "83f952b7c18089f87da31f392b83f0946b7b605f"
+      },
+      "source_metadata": {
+        "#560": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "H1: add hash-bound A3 Candidate Registry reference index"
+        }
+      },
+      "current_equivalent": [
+        "research/candidate_registry_v1.py",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md"
+      ],
+      "toolbox_refs": [
+        "research/candidate_registry_v1.py",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/560",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Reference-only; current membership/ER/A5 authority remain separate."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "e9944846aeb74aa760aa5307ce571c2061b71b46e8f80c255eeaf74a51e1d0b6",
+        "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf"
+      }
+    },
+    {
+      "entry_id": "group_577",
+      "pr_or_group": "#577",
+      "source_kind": "PR",
+      "capability": "SEC-first changed-slice reassessment proposal bridge",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#577": "adf09912db4e06d86e659d16a047887d32ae42ff"
+      },
+      "source_metadata": {
+        "#577": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "Add native SEC-first reassessment with optional Calendar boundary"
+        }
+      },
+      "current_equivalent": [
+        "tools/candidate_reassessment_bridge.py",
+        "docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md"
+      ],
+      "toolbox_refs": [
+        "tools/candidate_reassessment_bridge.py",
+        "docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/577",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Proposal-only; no specialist dispatch, ER/scoring or canonical writer."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md": "83ecf9d2b882285dddd8704f231d907eaac602607a304c50b26988df8f490571",
+        "tools/candidate_reassessment_bridge.py": "0356996ea199cb42333304a227824495ee0cdc29dd83949ee621f38d9fb8032a"
+      }
+    },
+    {
+      "entry_id": "group_578",
+      "pr_or_group": "#578",
+      "source_kind": "PR",
+      "capability": "Common bound NAV/account/execution-cost measurement",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#578": "5cd07838cba5c6e8ec69d1d82319317a67153f9f"
+      },
+      "source_metadata": {
+        "#578": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "E2: add bound research NAV measurement to existing replay"
+        }
+      },
+      "current_equivalent": [
+        "tools/nav_metrics_v2.py",
+        "tools/run_broker_ledger_replay.py",
+        "tools/execution_cost_model.py"
+      ],
+      "toolbox_refs": [
+        "tools/nav_metrics_v2.py",
+        "tools/run_broker_ledger_replay.py",
+        "tools/execution_cost_model.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/578",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Common evaluator/PIT/cost/capital/session identities required; no performance claim here."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
+        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+      }
+    },
+    {
+      "entry_id": "group_582_583_584",
+      "pr_or_group": "#582/#583/#584",
+      "source_kind": "PR",
+      "capability": "Current-master G1/G2/G3 modular boundaries",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#582": "a37d50026850eb76e7454fa7ae02ad7a66d43319",
+        "#583": "f7bd98b43209b4cebb0e0c78f17963b6aba3795d",
+        "#584": "451b67cfb132921088b73a883f03116417b85fa6"
+      },
+      "source_metadata": {
+        "#582": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "G1 prep: add all-legacy Control modular adapter"
+        },
+        "#583": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "G2 validation: exact G1/G2 native integration"
+        },
+        "#584": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "G3 prep: bind read-only strategy difference reporter"
+        }
+      },
+      "current_equivalent": [
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "toolbox_refs": [
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/582",
+        "https://github.com/wscha231/r1000-quant-engine/pull/583",
+        "https://github.com/wscha231/r1000-quant-engine/pull/584",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "No blind merge of old-base stack. G2 OFF; independent current-master parity first."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+      }
+    },
+    {
+      "entry_id": "group_586",
+      "pr_or_group": "#586",
+      "source_kind": "PR",
+      "capability": "All-LEGACY R0 runner/guard capability",
+      "classification": "SELECTIVE_PORT",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#586": "68bbaeb05fd965a1d1197295d2fa46205eb4f78c"
+      },
+      "source_metadata": {
+        "#586": {
+          "kind": "PR",
+          "state": "open",
+          "merged": false,
+          "title": "R0: isolated all-LEGACY full-Control parity gate"
+        }
+      },
+      "current_equivalent": [
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "toolbox_refs": [
+        "tools/run_broker_ledger_replay.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/586",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Preserve old July BLOCKED lineage; a separately admitted new generation does not repair it."
+      ],
+      "next_use": "Prepare a focused current-master port/reconciliation; no automatic adoption.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+      }
+    },
+    {
+      "entry_id": "group_591",
+      "pr_or_group": "#591",
+      "source_kind": "PR",
+      "capability": "Frozen explicit shared research Reader",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#591": "3c1ecd4c1ba189a6188949f7281116e77f30a108"
+      },
+      "source_metadata": {
+        "#591": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "H1: add explicit frozen shared research data reader"
+        }
+      },
+      "current_equivalent": [
+        "tools/research_data_access.py",
+        "docs/SHARED_RESEARCH_READER_V1.md",
+        "docs/research_dataset_generation_v1.schema.json"
+      ],
+      "toolbox_refs": [
+        "tools/research_data_access.py",
+        "docs/SHARED_RESEARCH_READER_V1.md",
+        "docs/research_dataset_generation_v1.schema.json"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/591",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Immutable generation only; no refresh/fallback/latest; no G0/ER/selector claim."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "docs/SHARED_RESEARCH_READER_V1.md": "b7ac6942435fa86488058b3a1de2107517362259bd9cc59586d99233b12e2788",
+        "docs/research_dataset_generation_v1.schema.json": "f5ed343b1148bf4f9037ce6085ea8a8fd08d6756286ffc6cc6a78274c073d60e",
+        "tools/research_data_access.py": "6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f"
+      }
+    },
+    {
+      "entry_id": "group_592",
+      "pr_or_group": "#592",
+      "source_kind": "PR",
+      "capability": "NYSE-session native regime/executor fail-closed boundary",
+      "classification": "REUSE_NOW",
+      "verified_at": "2026-10-09T03:12:15.701Z",
+      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "source_heads": {
+        "#592": "a8ba06e7e6ece568f424bd7689359164d9de1fa2"
+      },
+      "source_metadata": {
+        "#592": {
+          "kind": "PR",
+          "state": "closed",
+          "merged": true,
+          "title": "G6-H1: fail closed on invalid native regime data before legacy execution"
+        }
+      },
+      "current_equivalent": [
+        "r1000_regime_data.py",
+        "tests/g6_h1_regime_data_native_smoke.py"
+      ],
+      "toolbox_refs": [
+        "r1000_regime_data.py",
+        "tests/g6_h1_regime_data_native_smoke.py"
+      ],
+      "evidence_refs": [
+        "https://github.com/wscha231/r1000-quant-engine/pull/592",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+      ],
+      "semantic_constraints": [
+        "Merged guard capability is not source admission or broker authority."
+      ],
+      "next_use": "Read/reuse the bound current equivalent within a separately authorized task.",
+      "recheck_trigger": [
+        "Consumed path hash changes",
+        "Source PR head/status or domain contract changes",
+        "Expiry/correction/source failure or a superseding reviewed capability appears"
+      ],
+      "expiry": null,
+      "superseded_by": null,
+      "do_not_repeat_refs": [],
+      "dependency_hashes": {
+        "tests/g6_h1_regime_data_native_smoke.py": "4a2da1d6da11f1dbf80439260489a8b9cd46f473e01dc36d86682078b326b0a8",
+        "r1000_regime_data.py": "dbeb813549d392ca490d7b7893a13f539d1381aba555087a6016736ffc5a8dd3"
+      }
+    }
+  ]
+}

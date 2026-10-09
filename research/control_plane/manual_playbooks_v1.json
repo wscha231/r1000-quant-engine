@@ -1,0 +1,258 @@
+{
+  "schema_version": "manual-playbooks-v1",
+  "adoption": "PROPOSED_REQUIRES_EXACT_HEAD_REVIEW",
+  "verified_at": "2026-10-09T03:09:22.435Z",
+  "master_sha": "11163fb3e30125359346102eb2b12c04aa52ae15",
+  "policy_refs": [
+    "AGENTS.md",
+    "docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md"
+  ],
+  "canonical_catalog": "docs/pr_reuse_catalog.json",
+  "current_versions": {
+    "L0_RESUME_HANDOFF": "1.0.0",
+    "A1_SOURCE_ADMISSION_REFRESH": "1.0.0",
+    "A6_INDEPENDENT_QA": "1.0.0"
+  },
+  "playbooks": [
+    {
+      "playbook_id": "L0_RESUME_HANDOFF",
+      "owner": "A0",
+      "mode": "PROPOSAL_ONLY",
+      "toolbox_refs": [
+        "tools/run_agent_board.py",
+        "research/control_plane/system_state_schema.json",
+        "docs/AGENT_SHARED_LESSONS_LEDGER.md"
+      ],
+      "process": {
+        "trigger": "New chat/model/computer or material dependency/blocker change.",
+        "inputs": [
+          "Live master and exact scoped task; current contracts.",
+          "Existing authorized clean worktree/status/diff and current writer evidence.",
+          "Current source/artifact/receipt identities and scoped roadmap node."
+        ],
+        "steps": [
+          "Read current AGENTS/operating/domain contracts; check live base and writer overlap.",
+          "Check catalog plus do-not-repeat; reuse exact artifacts and affected roadmap nodes.",
+          "Pin latest compatible playbook, dependencies, scope, authority and proof in one packet.",
+          "Reconcile only affected state; retain UNKNOWN/NOT_RUN and historical exact-SHA evidence.",
+          "Return one linked receipt/handoff and release the scoped lane; never invoke specialists."
+        ],
+        "stop_condition": [
+          "Base/dependency conflict or unknown live HEAD.",
+          "No existing authorized writable clean worktree for implementation.",
+          "Overlapping writer, absent scoped authority or failed readback."
+        ]
+      },
+      "proof_set": [
+        "LIVE_BASE_MATCH",
+        "WORKTREE_SCOPE_AND_WRITER",
+        "PLAYBOOK_VERSION_HASH_BOUND",
+        "DEPENDENCY_BYTE_MATCH",
+        "REUSE_AND_DO_NOT_REPEAT_LOOKUP",
+        "COORDINATION_NOT_COMPLETION"
+      ],
+      "proof": {
+        "checks": [
+          "Live master equals the independently supplied expected base.",
+          "Worktree status/diff/permission and writer evidence are recorded.",
+          "Packet SHA binds current playbook ID/version/hash and all scope fields.",
+          "Required dependency bytes match externally pinned SHA256.",
+          "Catalog lookup rejects superseded entries and records blocked research reuse.",
+          "Handoff distinguishes GitHub/Drive/local evidence and NOT_RUN; no completed_tasks mutation."
+        ]
+      },
+      "playbook_version": "1.0.0",
+      "status": "CURRENT",
+      "supersedes": null,
+      "authority": {
+        "research_only": true,
+        "execute": false,
+        "target": false,
+        "broker": false,
+        "scheduler": false,
+        "promotion": false,
+        "peer_dispatch": false
+      },
+      "authority_tier_max": "T2_PREPARE",
+      "learning": {
+        "failure_classes": [
+          "Process",
+          "Toolbox",
+          "Proof"
+        ],
+        "steps": [
+          "Bind exact input/code/proof evidence and classify the failure.",
+          "Look up the canonical reuse catalog and do-not-repeat registry.",
+          "Propose the smallest C2 manual/tool/test correction; record version and supersedes.",
+          "Run affected proof; independent review before adoption. C3 retains existing approval gates."
+        ],
+        "canonical_refs": [
+          "docs/AGENT_SHARED_LESSONS_LEDGER.md",
+          "docs/run287_do_not_repeat_registry.json"
+        ]
+      },
+      "playbook_sha256": "b538747d039193051a39dc83b5bf2b87e8994ba806f8912a1928bafbf9289d9b"
+    },
+    {
+      "playbook_id": "A1_SOURCE_ADMISSION_REFRESH",
+      "owner": "A1",
+      "mode": "PROPOSAL_ONLY",
+      "toolbox_refs": [
+        "tools/research_data_access.py",
+        "tools/long_history_lake.py",
+        "docs/RESEARCH_DATA_ACCESS.md",
+        "docs/research_data_access.json",
+        "r1000_legacy_input_guard.py"
+      ],
+      "process": {
+        "trigger": "Required source generation changed, expired, corrected or unavailable.",
+        "inputs": [
+          "Exact retained raw/generation/catalog/execution/quality identities and declared scope.",
+          "Observation/effective/public-availability/collection/decision clocks.",
+          "Identity/license/lifecycle/coverage/calendar requirements and source-lane owner."
+        ],
+        "steps": [
+          "Verify source identity/availability/hash/license and required population without recollection.",
+          "Use the existing frozen Reader/Lake; bind all consumed sources and record blocked optional sources.",
+          "Check missing/stale/future/conflict/synthetic/lifecycle/corporate-action/calendar/PIT boundaries.",
+          "Prepare immutable-generation/admission evidence and readback proof; no pointer write by this manual.",
+          "Return scoped eligible/blocked evidence to A0; actual collection/admission publication requires separate domain authorization."
+        ],
+        "stop_condition": [
+          "Missing, stale, future, synthetic, conflicting or unlicensed required source.",
+          "Unknown required universe/lifecycle/calendar identity or writer conflict.",
+          "No verified immutable readback or absent separate publication authority."
+        ]
+      },
+      "proof_set": [
+        "SOURCE_IDENTITY_HASH",
+        "CAUSAL_CLOCK_AND_PIT",
+        "REQUIRED_COVERAGE_LIFECYCLE",
+        "FROZEN_READBACK",
+        "NO_REFRESH_FALLBACK",
+        "NO_ECONOMIC_ADMISSION"
+      ],
+      "proof": {
+        "checks": [
+          "Actual source/raw/catalog/receipt SHA256 and immutable generation match.",
+          "Availability and collection clocks are causal and decision-eligible.",
+          "Required population/denominator/lifecycle/calendar and missingness are explicit.",
+          "Readback validates required bytes; catalog/hash alone is not economic readiness.",
+          "Reader performs no provider refresh, silent latest or fallback.",
+          "Engineering/PARTIAL evidence never certifies whole-universe G0/ER/A5 or writes an accepted pointer."
+        ]
+      },
+      "playbook_version": "1.0.0",
+      "status": "CURRENT",
+      "supersedes": null,
+      "authority": {
+        "research_only": true,
+        "execute": false,
+        "target": false,
+        "broker": false,
+        "scheduler": false,
+        "promotion": false,
+        "peer_dispatch": false
+      },
+      "authority_tier_max": "T2_PREPARE",
+      "learning": {
+        "failure_classes": [
+          "Process",
+          "Toolbox",
+          "Proof"
+        ],
+        "steps": [
+          "Bind exact input/code/proof evidence and classify the failure.",
+          "Look up the canonical reuse catalog and do-not-repeat registry.",
+          "Propose the smallest C2 manual/tool/test correction; record version and supersedes.",
+          "Run affected proof; independent review before adoption. C3 retains existing approval gates."
+        ],
+        "canonical_refs": [
+          "docs/AGENT_SHARED_LESSONS_LEDGER.md",
+          "docs/run287_do_not_repeat_registry.json"
+        ]
+      },
+      "playbook_sha256": "ac83a09dbc881538b96a1db08f8255a6dd20f48ad9dba9ea8503f11c60bbb367"
+    },
+    {
+      "playbook_id": "A6_INDEPENDENT_QA",
+      "owner": "A6",
+      "mode": "READ_ONLY",
+      "toolbox_refs": [
+        "tools/run_pr_validation.py",
+        "tools/run_agent_board.py",
+        "research/control_plane/task_packet_schema.json",
+        "research/control_plane/system_state_schema.json"
+      ],
+      "process": {
+        "trigger": "One exact implementation head or corrected artifact is ready for independent review.",
+        "inputs": [
+          "Exact review HEAD/base/diff, required checks and current threads.",
+          "Pinned task/playbook/dependencies, actual output bytes and claimed proof.",
+          "Independent reviewer identity and scoped counterexamples."
+        ],
+        "steps": [
+          "Confirm reviewer is separate from authors; pin exact HEAD and actual diff/dependencies.",
+          "Read current contracts and reproduce reachable boundary counterexamples read-only.",
+          "Verify output/raw hashes, causal clocks and claim completeness; preserve historical test identity.",
+          "Check focused normal/-O where applicable and new exact-head required CI; list NOT_RUN.",
+          "Return CLEAN/CORRECTION_REQUIRED/STALE_INPUT scoped findings to A0; no fixes, dispatch, merge or approval escalation."
+        ],
+        "stop_condition": [
+          "Review HEAD/base/dependency moves or required evidence cannot be read.",
+          "Reviewer is an implementation author or observed mutation is needed.",
+          "Missing current-head CI/output binding or unresolved reachable finding."
+        ]
+      },
+      "proof_set": [
+        "REVIEWER_INDEPENDENT",
+        "EXACT_HEAD_AND_DIFF",
+        "ADVERSARIAL_BOUNDARIES",
+        "OUTPUT_CAUSAL_BINDING",
+        "CURRENT_CI_NORMAL_OPTIMIZED",
+        "CLAIMS_AND_AUTHORITY"
+      ],
+      "proof": {
+        "checks": [
+          "Reviewer identity is independent of implementation authors.",
+          "Live HEAD/base/diff match the pinned review bundle; changed head is STALE_INPUT.",
+          "Applicable positive/negative/adversarial fixtures are executed and falsifiable.",
+          "Actual output hashes and availability bind to causal dependencies.",
+          "Normal/-O and all current required CI apply to this head; old PASS is historical.",
+          "Findings/NOT_RUN are explicit and do not grant source/economic/target/broker authority."
+        ]
+      },
+      "playbook_version": "1.0.0",
+      "status": "CURRENT",
+      "supersedes": null,
+      "authority": {
+        "research_only": true,
+        "execute": false,
+        "target": false,
+        "broker": false,
+        "scheduler": false,
+        "promotion": false,
+        "peer_dispatch": false
+      },
+      "authority_tier_max": "T2_PREPARE",
+      "learning": {
+        "failure_classes": [
+          "Process",
+          "Toolbox",
+          "Proof"
+        ],
+        "steps": [
+          "Bind exact input/code/proof evidence and classify the failure.",
+          "Look up the canonical reuse catalog and do-not-repeat registry.",
+          "Propose the smallest C2 manual/tool/test correction; record version and supersedes.",
+          "Run affected proof; independent review before adoption. C3 retains existing approval gates."
+        ],
+        "canonical_refs": [
+          "docs/AGENT_SHARED_LESSONS_LEDGER.md",
+          "docs/run287_do_not_repeat_registry.json"
+        ]
+      },
+      "playbook_sha256": "5e564ae8ed2437c33bb4539aad8932d46cb855bb518255fb9c8aff6b999a9849"
+    }
+  ]
+}

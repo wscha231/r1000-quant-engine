@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-09 — Manual pinning is preparation, not execution authority
+
+- Bind the recurring playbook version/hash, actual dependency bytes, base,
+  owner, files and proof in one task envelope. A new model/computer does not
+  change domain authority. Matching supplied JSON/hash alone neither verifies
+  human approval nor creates an A0 completed-task receipt.
+- The canonical reuse catalog records PR heads separately from Issue
+  requirements: #505/#510/#516/#526/#531 are Issues, not PRs. Reuse only the
+  named current capability; a merged guard or reference index is not complete
+  source admission, calibrated economics or actual execution.
+- Resolve failed-research IDs in the existing do-not-repeat registry. Keep
+  superseded/manual/catalog records historical; version and recheck only the
+  affected Process/Toolbox/Proof dependency. See MANUAL_FOUNDATION_V1.md.
+
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
 - Authenticated review of `9de5aede` found four defects despite Linux232/232
