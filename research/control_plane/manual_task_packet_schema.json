@@ -12,6 +12,7 @@
     "playbook_sha256",
     "owner",
     "base_sha",
+    "review_identity",
     "dependencies",
     "allowed_files",
     "toolbox_refs",
@@ -145,8 +146,21 @@
         "window": {
           "type": "string",
           "minLength": 1
+        },
+        "component_coverage_increase_pp": {
+          "type": "number"
+        },
+        "semantics_changed": {
+          "type": "boolean"
+        },
+        "change_note": {
+          "type": "string",
+          "maxLength": 2048
         }
       }
+    },
+    "review_identity": {
+      "$ref": "#/$defs/reviewIdentityOrNull"
     }
   },
   "$defs": {
@@ -184,6 +198,7 @@
       "additionalProperties": false,
       "required": [
         "base_sha",
+        "review_identity",
         "owner",
         "dependencies",
         "allowed_files",
@@ -217,6 +232,41 @@
             "T1_COMPUTE",
             "T2_PREPARE"
           ]
+        },
+        "review_identity": {
+          "$ref": "#/$defs/reviewIdentityOrNull"
+        }
+      }
+    },
+    "reviewIdentityOrNull": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/reviewIdentity"
+        }
+      ]
+    },
+    "reviewIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "pr_number",
+        "head_sha"
+      ],
+      "properties": {
+        "repository": {
+          "const": "wscha231/r1000-quant-engine"
+        },
+        "pr_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
         }
       }
     }

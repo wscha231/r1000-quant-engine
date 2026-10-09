@@ -17,6 +17,8 @@ sys.path.insert(0, str(ROOT))
 from tools import manual_foundation as manual
 
 BASE = '11163fb3e30125359346102eb2b12c04aa52ae15'
+REVIEW_HEAD = 'a' * 40
+MOVED_REVIEW_HEAD = 'b' * 40
 
 
 def independent_hash(value, excluded):
@@ -46,11 +48,15 @@ class ManualTests(unittest.TestCase):
         _, playbook = manual.load_playbook(key, self.root)
         dependencies = {name: hashlib.sha256((self.root / name).read_bytes()).hexdigest()
                         for name in manual.required_dependencies(key, self.root)}
-        scope = dict(base_sha=BASE, owner=playbook['owner'], dependencies=dependencies,
+        review_identity = (dict(repository=manual.REVIEW_REPOSITORY, pr_number=593, head_sha=REVIEW_HEAD)
+                           if key == 'A6_INDEPENDENT_QA' else None)
+        scope = dict(base_sha=BASE, review_identity=copy.deepcopy(review_identity),
+                     owner=playbook['owner'], dependencies=dependencies,
                      allowed_files=[], authority=manual.board.AUTHORITY.copy(), authority_tier='T2_PREPARE')
         packet = dict(schema_version='manual-task-packet-v1', task_key='SYNTHETIC-MANUAL-TEST',
             packet_sha256='', playbook_id=key, playbook_version=playbook['playbook_version'],
             playbook_sha256=playbook['playbook_sha256'], owner=playbook['owner'], base_sha=BASE,
+            review_identity=copy.deepcopy(review_identity),
             dependencies=copy.deepcopy(dependencies), allowed_files=[],
             toolbox_refs=playbook['toolbox_refs'].copy(), proof_set=playbook['proof_set'].copy(),
             authority=manual.board.AUTHORITY.copy(), authority_tier='T2_PREPARE', mode=playbook['mode'],
@@ -63,8 +69,11 @@ class ManualTests(unittest.TestCase):
         packet['packet_sha256'] = independent_hash(packet, 'packet_sha256')
         return packet
 
-    def validate(self, packet, scope):
-        return manual.validate_packet(packet, scope, expected_base=BASE, root=self.root)
+    def validate(self, packet, scope, expected_review_head=None):
+        if expected_review_head is None and packet['playbook_id'] == 'A6_INDEPENDENT_QA':
+            expected_review_head = REVIEW_HEAD
+        return manual.validate_packet(packet, scope, expected_base=BASE,
+                                      expected_review_head=expected_review_head, root=self.root)
 
     def rejected(self, packet, scope, reason=None):
         with self.assertRaises(manual.ContractError) as caught:
@@ -274,6 +283,123 @@ class ManualTests(unittest.TestCase):
             path.write_text(text)
             with self.assertRaises(manual.ContractError):
                 manual.board.read_json(path)
+
+    def test_a6_review_identity_accepts_exact_verified_head(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        result = self.validate(packet, scope, REVIEW_HEAD)
+        self.assertEqual(result['review_identity']['head_sha'], REVIEW_HEAD)
+
+    def test_a6_old_review_head_refused_after_live_head_moves(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        with self.assertRaisesRegex(manual.ContractError, 'stale_review_head'):
+            self.validate(packet, scope, MOVED_REVIEW_HEAD)
+
+    def test_common_lessons_ledger_is_required_for_a1_and_a6(self):
+        for key in ('A1_SOURCE_ADMISSION_REFRESH', 'A6_INDEPENDENT_QA'):
+            self.assertIn('docs/AGENT_SHARED_LESSONS_LEDGER.md',
+                          manual.required_dependencies(key, self.root))
+            packet, scope = self.packet(key)
+            self.validate(packet, scope)
+
+    def test_lessons_ledger_change_invalidates_old_packet(self):
+        packet, scope = self.packet('A1_SOURCE_ADMISSION_REFRESH')
+        with (self.root / 'docs/AGENT_SHARED_LESSONS_LEDGER.md').open('a') as stream:
+            stream.write('\n# NEW DURABLE LESSON\n')
+        self.rejected(packet, scope, 'dependency_bytes_changed')
+
+    def test_superseded_classification_with_successor_is_valid_but_not_reusable(self):
+        catalog = manual.load_catalog(self.root)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        row.update(classification='SUPERSEDED', superseded_by='group_423_574')
+        self.write(manual.CATALOG, catalog)
+        manual.load_catalog(self.root)
+        with self.assertRaisesRegex(manual.ContractError, 'catalog_superseded'):
+            manual.lookup_reuse('group_591', self.root)
+
+    def test_reuse_now_with_superseded_by_is_invalid_catalog(self):
+        catalog = manual.load_catalog(self.root)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        row['superseded_by'] = 'group_423_574'
+        self.write(manual.CATALOG, catalog)
+        with self.assertRaisesRegex(manual.ContractError, 'catalog_supersedes_invariant'):
+            manual.load_catalog(self.root)
+
+    def test_do_not_repeat_coverage_and_semantic_exceptions_are_preserved(self):
+        registry = manual.board.read_json(self.root / manual.DNR)
+        row = next(r for r in registry['entries'] if r['id'] == 'broad_gross_floor')
+        base = {k: row[k] for k in ('signal', 'mechanism', 'book', 'window')}
+        for exception in (
+            dict(component_coverage_increase_pp=5.0),
+            dict(semantics_changed=True, change_note='Different application semantics')
+        ):
+            packet, scope = self.packet()
+            packet['do_not_repeat_candidate'] = {**base, **exception}
+            result = self.validate(self.bind(packet), scope)
+            self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+
+    def test_do_not_repeat_invalid_exception_still_blocks(self):
+        registry = manual.board.read_json(self.root / manual.DNR)
+        row = next(r for r in registry['entries'] if r['id'] == 'broad_gross_floor')
+        packet, scope = self.packet()
+        packet['do_not_repeat_candidate'] = {
+            **{k: row[k] for k in ('signal', 'mechanism', 'book', 'window')},
+            'semantics_changed': True, 'change_note': '   '
+        }
+        self.rejected(self.bind(packet), scope, 'BLOCKED_DO_NOT_REPEAT')
+
+    def test_prospective_explicit_allowed_file_is_permitted(self):
+        packet, scope = self.packet()
+        future = 'docs/future_manual_output.json'
+        packet['allowed_files'] = scope['allowed_files'] = [future]
+        result = self.validate(self.bind(packet), scope)
+        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse((self.root / future).exists())
+
+    def test_existing_directory_cannot_be_allowed_file_scope(self):
+        packet, scope = self.packet()
+        packet['allowed_files'] = scope['allowed_files'] = ['docs']
+        self.rejected(self.bind(packet), scope, 'allowed_file_is_directory')
+
+    def test_current_catalog_pr_issue_provenance_is_structurally_valid(self):
+        catalog = manual.load_catalog(self.root)
+        for row in catalog['entries']:
+            if row['source_kind'] == 'ISSUE':
+                self.assertEqual(row['source_heads'], {})
+                self.assertTrue(all(meta['kind'] == 'ISSUE' for meta in row['source_metadata'].values()))
+            else:
+                self.assertEqual(set(row['source_heads']), set(row['source_metadata']))
+                self.assertTrue(all(meta['kind'] == 'PR' for meta in row['source_metadata'].values()))
+
+    def test_fake_issue_head_or_pr_kind_metadata_is_rejected(self):
+        original = manual.load_catalog(self.root)
+        for mutate in ('head', 'kind'):
+            catalog = copy.deepcopy(original)
+            row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_505')
+            if mutate == 'head':
+                row['source_heads'] = {'#505': 'a' * 40}
+                reason = 'catalog_issue_has_source_head'
+            else:
+                row['source_metadata']['#505']['kind'] = 'PR'
+                reason = 'catalog_source_identity'
+            self.write(manual.CATALOG, catalog)
+            with self.assertRaisesRegex(manual.ContractError, reason):
+                manual.load_catalog(self.root)
+        self.write(manual.CATALOG, original)
+
+    def test_reuse_now_consumed_paths_are_all_hash_pinned(self):
+        catalog = manual.load_catalog(self.root)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        consumed = set(row['current_equivalent']) | set(row['toolbox_refs'])
+        self.assertTrue(consumed.issubset(row['dependency_hashes']))
+        self.assertTrue(manual.lookup_reuse('group_591', self.root)['allowed'])
+
+    def test_reuse_now_unpinned_consumed_path_is_rejected(self):
+        catalog = manual.load_catalog(self.root)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        row['toolbox_refs'].append('AGENTS.md')
+        self.write(manual.CATALOG, catalog)
+        with self.assertRaisesRegex(manual.ContractError, 'catalog_unpinned_reuse_path'):
+            manual.load_catalog(self.root)
 
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.

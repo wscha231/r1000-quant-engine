@@ -84,3 +84,27 @@ planning remains proposal-only. No scheduler/framework/dispatcher/backtester,
 source collection, strategy threshold, A3/ER/A5, Fullrun, paper/broker, website
 or auto-merge change. After this Main writer releases, next Main-lane work is
 P1-B frozen all-consumed-source fairness under its exact dependencies/lease.
+
+## Exact-head correction rules
+
+The A6 manual packet and independently verified scope carry review_identity with
+repository, PR number and exact implementation HEAD. A6 validation also requires
+the independently observed expected review HEAD; a moved PR HEAD invalidates an
+old handoff. Non-A6 packets carry a null review identity.
+
+The shared lessons ledger is a common required dependency for all three
+playbooks. Allowed-file scope means explicit files only: an existing directory
+is rejected, while an explicit not-yet-created file path may be prepared when
+the independent scope allows it.
+
+Catalog provenance is structural. Issue rows carry Issue-kind metadata and no
+source HEAD. PR rows carry PR-kind metadata and one exact head for every
+declared PR. A REUSE_NOW entry must hash-bind every path named by both
+current_equivalent and toolbox_refs. SUPERSEDED classification and a successor
+declaration must appear together; a superseded row cannot be reused.
+
+Do-not-repeat packets preserve the canonical evaluator contract. The existing
+component coverage increase and explicit semantic-change fields may be supplied
+and are included in the packet hash. The Manual layer does not redefine the
+evaluator's allow/block policy.
+

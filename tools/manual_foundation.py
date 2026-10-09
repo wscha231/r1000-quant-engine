@@ -25,6 +25,7 @@ PLAYBOOK_IDS = {'L0_RESUME_HANDOFF': 'A0', 'A1_SOURCE_ADMISSION_REFRESH': 'A1',
                 'A6_INDEPENDENT_QA': 'A6'}
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
 TIERS = ('T0_READ', 'T1_COMPUTE', 'T2_PREPARE')
+REVIEW_REPOSITORY = 'wscha231/r1000-quant-engine'
 ContractError = board.ContractError
 
 
@@ -41,6 +42,14 @@ def path_at(root: Path, value: str) -> Path:
         path = path / part
         if path.is_symlink():
             raise ContractError('symlink_path')
+    return path
+
+
+def allowed_file_at(root: Path, value: str) -> Path:
+    """Validate one explicit allowed file; existing directories are never file scope."""
+    path = path_at(root, value)
+    if path.exists() and path.is_dir():
+        raise ContractError('allowed_file_is_directory')
     return path
 
 
@@ -107,20 +116,62 @@ def load_catalog(root: Path = ROOT) -> dict:
             or value.get('do_not_repeat_registry') != DNR
             or value.get('lessons_ledger') != 'docs/AGENT_SHARED_LESSONS_LEDGER.md'):
         raise ContractError('catalog_contract')
+    entries = value.get('entries')
+    if not isinstance(entries, list):
+        raise ContractError('catalog_entries')
     seen = set()
-    for row in value['entries']:
-        if row['entry_id'] in seen or row['classification'] not in CLASSES:
+    for row in entries:
+        if not isinstance(row, dict):
+            raise ContractError('catalog_entry_shape')
+        entry_id, classification = row.get('entry_id'), row.get('classification')
+        if not isinstance(entry_id, str) or not entry_id or entry_id in seen or classification not in CLASSES:
             raise ContractError('catalog_duplicate_or_classification')
-        seen.add(row['entry_id'])
-        if row['classification'] == 'SUPERSEDED' and not row.get('superseded_by'):
-            raise ContractError('catalog_supersedes_missing')
-        for path, sha in row['dependency_hashes'].items():
+        seen.add(entry_id)
+
+        has_successor = row.get('superseded_by') is not None
+        if (classification == 'SUPERSEDED') != has_successor:
+            raise ContractError('catalog_supersedes_invariant')
+
+        source_kind = row.get('source_kind')
+        metadata, heads = row.get('source_metadata'), row.get('source_heads')
+        if (source_kind not in {'PR', 'ISSUE'} or not isinstance(metadata, dict)
+                or not metadata or not isinstance(heads, dict)):
+            raise ContractError('catalog_source_identity')
+        for ref, item in metadata.items():
+            if (not isinstance(ref, str) or re.fullmatch(r'#\d+', ref) is None
+                    or not isinstance(item, dict) or item.get('kind') != source_kind):
+                raise ContractError('catalog_source_identity')
+        if source_kind == 'ISSUE':
+            if heads:
+                raise ContractError('catalog_issue_has_source_head')
+        else:
+            if set(heads) != set(metadata):
+                raise ContractError('catalog_pr_head_identity')
+            if any(not isinstance(sha, str) or re.fullmatch('[0-9a-f]{40}', sha) is None
+                   for sha in heads.values()):
+                raise ContractError('catalog_pr_head_identity')
+
+        for field in ('current_equivalent', 'toolbox_refs'):
+            paths = row.get(field)
+            if (not isinstance(paths, list) or not all(isinstance(item, str) and item for item in paths)
+                    or len(set(paths)) != len(paths)):
+                raise ContractError('catalog_path_set')
+            for item in paths:
+                path_at(root, item)
+
+        dependencies = row.get('dependency_hashes')
+        if not isinstance(dependencies, dict):
+            raise ContractError('catalog_dependency_hash')
+        for path, sha in dependencies.items():
             path_at(root, path)
-            if not re.fullmatch('[0-9a-f]{64}', sha):
+            if not isinstance(sha, str) or re.fullmatch('[0-9a-f]{64}', sha) is None:
                 raise ContractError('catalog_dependency_hash')
-        if row['classification'] == 'REUSE_NOW' and not row['dependency_hashes']:
-            raise ContractError('catalog_unbound_reuse')
-    for row in value['entries']:
+        if classification == 'REUSE_NOW':
+            consumed = set(row['current_equivalent']) | set(row['toolbox_refs'])
+            if not consumed or not consumed.issubset(dependencies):
+                raise ContractError('catalog_unpinned_reuse_path')
+
+    for row in entries:
         if row.get('superseded_by') and (row['superseded_by'] not in seen or row['superseded_by'] == row['entry_id']):
             raise ContractError('catalog_invalid_supersedes')
     return value
@@ -132,7 +183,7 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
     if len(matches) != 1:
         raise ContractError('catalog_entry_unknown')
     row = matches[0]
-    if row['classification'] == 'SUPERSEDED':
+    if row['classification'] == 'SUPERSEDED' or row.get('superseded_by') is not None:
         raise ContractError('catalog_superseded')
     registry = board.read_json(path_at(root, DNR))
     indexed = {item['id']: item for item in registry['entries']}
@@ -154,13 +205,15 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
 def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
     manifest, playbook = load_playbook(playbook_id, root)
     return sorted(set(manifest['policy_refs'] + playbook['toolbox_refs'] + [
-        MANIFEST, SCHEMA, CATALOG, DNR, 'tools/manual_foundation.py',
-        'tools/run_agent_board.py', 'tools/check_run287_do_not_repeat.py',
+        MANIFEST, SCHEMA, CATALOG, DNR, 'docs/AGENT_SHARED_LESSONS_LEDGER.md',
+        'tools/manual_foundation.py', 'tools/run_agent_board.py',
+        'tools/check_run287_do_not_repeat.py',
         'research/control_plane/agent_contracts_v2.yaml',
         'research/control_plane/task_packet_schema.json']))
 
 
-def validate_packet(packet: dict, scope: dict, *, expected_base: str, root: Path = ROOT) -> dict:
+def validate_packet(packet: dict, scope: dict, *, expected_base: str,
+                    expected_review_head: str | None = None, root: Path = ROOT) -> dict:
     """Scope/base come from the independently verified task, never from packet claims.
 
     Consistent JSON/hash proves pinning, not human approval or completed work.
@@ -172,6 +225,18 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str, root: Path
     if packet['base_sha'] != expected_base or scope['base_sha'] != expected_base:
         raise ContractError('wrong_base')
     _, playbook = load_playbook(packet['playbook_id'], root)
+    is_a6 = playbook['owner'] == 'A6'
+    if is_a6:
+        if expected_review_head is None:
+            raise ContractError('expected_review_head_required')
+        if re.fullmatch('[0-9a-f]{40}', expected_review_head) is None:
+            raise ContractError('expected_review_head_invalid')
+        if packet['review_identity'] != scope['review_identity'] or packet['review_identity'] is None:
+            raise ContractError('wrong_review_identity')
+        if packet['review_identity']['head_sha'] != expected_review_head:
+            raise ContractError('stale_review_head')
+    elif packet['review_identity'] is not None or scope['review_identity'] is not None:
+        raise ContractError('unexpected_review_identity')
     if (packet['playbook_version'] != playbook['playbook_version']
             or packet['playbook_sha256'] != playbook['playbook_sha256']):
         raise ContractError('stale_playbook')
@@ -194,7 +259,7 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str, root: Path
         if board.file_hash(path_at(root, path)) != sha:
             raise ContractError('dependency_bytes_changed:' + path)
     for path in scope['allowed_files'] + packet['allowed_files']:
-        path_at(root, path)
+        allowed_file_at(root, path)
     if not set(packet['allowed_files']).issubset(scope['allowed_files']):
         raise ContractError('file_scope_escalation')
     if packet['owner'] == 'A6' and packet['allowed_files']:
@@ -214,6 +279,7 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str, root: Path
             'task_key': packet['task_key'], 'packet_sha256': packet['packet_sha256'],
             'playbook_id': packet['playbook_id'], 'playbook_version': packet['playbook_version'],
             'playbook_sha256': packet['playbook_sha256'], 'base_sha': expected_base,
+            'review_identity': copy.deepcopy(packet['review_identity']),
             'dependency_sha256': board.digest(packet['dependencies']),
             'proof_results': {key: 'NOT_RUN' for key in packet['proof_set']},
             'output_receipt': copy.deepcopy(packet['output_receipt']),
@@ -226,9 +292,12 @@ def main() -> int:
     parser.add_argument('--packet', type=Path, required=True)
     parser.add_argument('--scope', type=Path, required=True, help='Independently verified task scope; not approval authentication')
     parser.add_argument('--expected-base', required=True, help='Independently verified live master SHA')
+    parser.add_argument('--expected-review-head', help='Independently verified exact implementation PR HEAD for A6')
     args = parser.parse_args()
     try:
-        result = validate_packet(board.read_json(args.packet), board.read_json(args.scope), expected_base=args.expected_base)
+        result = validate_packet(board.read_json(args.packet), board.read_json(args.scope),
+                                 expected_base=args.expected_base,
+                                 expected_review_head=args.expected_review_head)
     except (ContractError, OSError, KeyError, TypeError, ValueError) as exc:
         print(json.dumps({'status': 'BLOCKED_INPUT', 'reason': str(exc), 'worker_invoked': False}))
         return 2
