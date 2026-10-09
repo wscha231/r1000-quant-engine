@@ -124,9 +124,16 @@ function renderHeader() {
   const quotes = state.quotes;
   const priceDate = quotes?.as_of_close;
   const stale = isPortfolioStale();
+  const marketExpires = Date.parse(quotes?.freshness_valid_until_utc);
+  const marketFresh = quotes?.status === "COMPLETE" &&
+    quotes?.as_of_close === quotes?.expected_session_date &&
+    Number.isFinite(marketExpires) && Date.now() < marketExpires;
   $("#header-status-text").textContent = stale ? "포트폴리오 갱신 지연" : `포트 기준 ${formatDate(data.as_of_close)}`;
   $(".header-status").classList.toggle("is-stale", stale);
   $("#quote-asof").textContent = priceDate ? formatDate(priceDate) : "미확인 / 일부 누락";
+  $("#portfolio-data-state").textContent = stale ? "갱신 지연 · 공개 연구 스냅샷" : "최신 공개 연구 스냅샷";
+  $("#market-data-state").textContent = marketFresh ? "최신 완료 종가" :
+    (priceDate ? "최신성 확인 필요" : "미확인 / 일부 누락");
   const notice = $("#freshness-notice");
   notice.hidden = !stale && !!priceDate;
   notice.textContent = `포트폴리오·비중·성과는 ${formatDate(data.as_of_close)} 기준입니다. ` +

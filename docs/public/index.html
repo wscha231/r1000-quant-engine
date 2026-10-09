@@ -7,8 +7,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#07101f">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="description" content="Run287 Main 및 Concentrated 포트폴리오의 연구용 보유 비중, 성과, 매매 원장 대시보드">
-  <title>Run287 Portfolio Monitor</title>
+  <meta name="description" content="R1000의 시장·기업 연구, 공개 연구 포트폴리오 스냅샷, 데이터 최신성을 분리해 보여주는 투자 인텔리전스 대시보드">
+  <title>R1000 Research Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Noto+Sans+KR:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
@@ -19,11 +19,11 @@
   <div class="ambient ambient-two" aria-hidden="true"></div>
 
   <header class="site-header">
-    <a class="brand" href="#top" aria-label="Run287 Portfolio Monitor 홈">
-      <span class="brand-mark">R287</span>
+    <a class="brand" href="#top" aria-label="R1000 Research Intelligence 홈">
+      <span class="brand-mark">R1000</span>
       <span>
-        <strong>Portfolio Monitor</strong>
-        <small>Research ledger · daily close</small>
+        <strong>R1000 Research</strong>
+        <small>Investment Intelligence</small>
       </span>
     </a>
     <div class="header-status">
@@ -35,37 +35,58 @@
   <main id="top" class="page-shell">
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <div class="eyebrow">RUN287 · SIMULATED BROKER LEDGER</div>
-        <h1 id="hero-title">매일의 판단을<br><span>한 화면에.</span></h1>
+        <div class="eyebrow">R1000 · RESEARCH / INVESTMENT INTELLIGENCE</div>
+        <h1 id="hero-title">무엇이 바뀌었는지,<br><span>근거와 위험까지.</span></h1>
         <p class="hero-description">
-          Main과 Concentrated의 마지막 공개 포트폴리오와 매매 이력을 보여줍니다.
-          최근 종가는 별도로 조회하며, 비중과 성과의 기준일을 함께 표시합니다.
+          시장·기업 연구 자료와 공개 연구 포트폴리오 스냅샷의 기준일·검증 상태를 한 화면에서 추적합니다.
+          데이터별 최신성을 분리해 보여주며, 현재 투자 순위나 자동 매수 추천을 제공하지 않습니다.
         </p>
         <div class="guardrail-row" aria-label="운용 안전 상태">
           <span class="guardrail">연구·검토 전용</span>
+          <span class="guardrail">현재 투자 순위 아님</span>
           <span class="guardrail">자동 주문 없음</span>
-          <span class="guardrail">달러 자산액 비공개</span>
         </div>
       </div>
-      <aside class="asof-card" aria-label="데이터 기준일">
-        <span>PORTFOLIO AS OF</span>
-        <strong id="as-of-close">—</strong>
-        <p>포트폴리오 평가 기준일</p>
-        <dl>
-          <div><dt>갱신</dt><dd id="generated-at">—</dd></div>
-          <div><dt>종가 조회</dt><dd id="quote-asof">확인 중</dd></div>
-          <div><dt>출처</dt><dd id="source-label">—</dd></div>
-          <div><dt>판정</dt><dd id="decision-label">—</dd></div>
-        </dl>
-      </aside>
+
+      <div class="data-status-label">DATA STATUS · 서로 다른 기준일을 분리해 표시합니다</div>
+      <div class="data-status-grid" aria-label="데이터 상태">
+        <article class="data-status-card data-status-portfolio">
+          <span>PORTFOLIO SNAPSHOT</span>
+          <strong id="as-of-close">—</strong>
+          <p id="portfolio-data-state">공개 연구 스냅샷 확인 중</p>
+          <dl>
+            <div><dt>생성</dt><dd id="generated-at">—</dd></div>
+            <div><dt>출처</dt><dd id="source-label">—</dd></div>
+            <div><dt>판정</dt><dd id="decision-label">—</dd></div>
+          </dl>
+        </article>
+        <article class="data-status-card">
+          <span>MARKET CLOSE</span>
+          <strong id="quote-asof">확인 중</strong>
+          <p id="market-data-state">종가 최신성 확인 중</p>
+          <small>새 종가로 포트폴리오 비중·성과를 재계산하지 않습니다.</small>
+        </article>
+        <article class="data-status-card">
+          <span>RESEARCH SOURCES</span>
+          <strong>연구 전용</strong>
+          <p id="research-data-state">자료 연결 확인 중</p>
+          <small>현재 투자 순위 아님</small>
+        </article>
+      </div>
     </section>
 
     <section id="freshness-notice" class="freshness-notice" role="status" hidden></section>
 
     <section class="panel project-results" aria-labelledby="project-results-title">
       <div class="section-heading section-heading-wrap">
-        <div><span class="section-kicker">PROJECT RESULTS</span><h2 id="project-results-title">프로젝트 최신 결과</h2>
-        <p class="section-description" id="project-results-status" role="status">연구 결과 연결 확인 중</p></div>
+        <div>
+          <span class="section-kicker">RESEARCH STATUS</span>
+          <div class="section-title-row">
+            <h2 id="project-results-title">연구자료 갱신 현황</h2>
+            <span class="research-boundary">연구 전용 · 현재 투자 순위 아님</span>
+          </div>
+          <p class="section-description" id="project-results-status" role="status">연구 결과 연결 확인 중</p>
+        </div>
         <label class="search-field"><span class="sr-only">연구 종목 검색</span><input id="research-results-search" type="search" placeholder="연구 종목 검색" autocomplete="off"></label>
       </div>
       <div class="project-source-grid" id="project-source-cards"></div>
@@ -74,14 +95,14 @@
       <p class="chart-note" id="project-diagnostics"></p>
     </section>
 
-    <section class="metric-grid" id="metric-grid" aria-label="포트폴리오 핵심 성과"></section>
+    <section class="metric-grid" id="metric-grid" aria-label="공개 연구 포트폴리오 핵심 성과"></section>
 
     <section class="panel allocation-overview" aria-labelledby="allocation-overview-title">
       <div class="section-heading section-heading-wrap">
         <div>
-          <span class="section-kicker">PORTFOLIO COMPOSITION</span>
-          <h2 id="allocation-overview-title">두 포트 보유 구성</h2>
-          <p class="section-description">원형 차트와 범례에서 종목별 비중과 현금을 한눈에 비교할 수 있습니다.</p>
+          <span class="section-kicker">PORTFOLIO SNAPSHOT</span>
+          <h2 id="allocation-overview-title">공개 연구 포트폴리오 스냅샷</h2>
+          <p class="section-description">공개 기준일의 종목별 비중과 현금을 보여줍니다. 최신 시장 종가와는 별도 기준일입니다.</p>
         </div>
         <span class="asof-inline"><span class="status-dot" aria-hidden="true"></span><span id="allocation-asof">—</span> 종가</span>
       </div>
@@ -106,8 +127,8 @@
     <section class="panel" aria-labelledby="holdings-title">
       <div class="section-heading section-heading-wrap">
         <div>
-          <span class="section-kicker">CURRENT ALLOCATION</span>
-          <h2 id="holdings-title">공개 기준일 보유 비중</h2>
+          <span class="section-kicker">SNAPSHOT ALLOCATION</span>
+          <h2 id="holdings-title">공개 연구 스냅샷 보유 비중</h2>
         </div>
         <div class="controls">
           <div class="segmented" role="group" aria-label="보유 포트폴리오 선택">
@@ -125,7 +146,7 @@
         <table>
           <thead>
             <tr>
-              <th scope="col">순위</th>
+              <th scope="col">비중 순서</th>
               <th scope="col">종목</th>
               <th scope="col" class="number">평가 당시 종가</th>
               <th scope="col" class="number">조회 종가 · 날짜</th>
@@ -259,7 +280,7 @@
   </main>
 
   <footer class="site-footer">
-    <span>r1000 Research · Run287 Portfolio Monitor</span>
+    <span>R1000 Research · Investment Intelligence</span>
     <a href="./privacy.html">개인정보처리방침</a>
     <a href="https://github.com/wscha231/r1000-quant-engine" rel="noreferrer">GitHub repository</a>
   </footer>

@@ -610,6 +610,7 @@ def test_static_site_references_only_public_assets() -> None:
     html = (ROOT / "docs" / "public" / "index.html").read_text(encoding="utf-8")
     javascript = (ROOT / "docs" / "public" / "app.js").read_text(encoding="utf-8")
     stylesheet = (ROOT / "docs" / "public" / "styles.css").read_text(encoding="utf-8")
+    privacy = (ROOT / "docs" / "public" / "privacy.html").read_text(encoding="utf-8")
     assert "./styles.css" in html
     assert "./app.js" in html
     assert 'id="allocation-donuts"' in html
@@ -621,7 +622,20 @@ def test_static_site_references_only_public_assets() -> None:
     assert "FORWARD_PAPER" in javascript and "Forward 모의" in javascript
     assert "LATEST-CLOSE CAGR (DIAGNOSTIC)" in javascript
     assert "LATEST-CLOSE MDD (OPTIMISTIC BOUND)" in javascript
+    assert "<title>R1000 Research Intelligence</title>" in html
+    assert "무엇이 바뀌었는지," in html and "근거와 위험까지." in html
+    assert 'id="portfolio-data-state"' in html and 'id="market-data-state"' in html
+    assert 'id="research-data-state"' in html
+    assert "연구자료 갱신 현황" in html
+    assert "연구 전용 · 현재 투자 순위 아님" in html
+    assert "공개 연구 포트폴리오 스냅샷" in html
+    assert "공개 연구 스냅샷 보유 비중" in html
+    assert "프로젝트 최신 결과" not in html
+    assert "Run287 Portfolio Monitor" not in html
+    assert "R1000 Research · Investment Intelligence" in privacy
+    assert "Run287 Portfolio Monitor" not in privacy
     assert "역사적 성과의 대체값이나 승격 근거가 아닙니다" in html
+    assert ".data-status-grid" in stylesheet and ".research-boundary" in stylesheet
     assert ".donut-chart" in stylesheet and ".ledger-open" in stylesheet and ".record-forward" in stylesheet
     assert "CODEX_" not in html
     assert "AGENT_SHARED" not in html
