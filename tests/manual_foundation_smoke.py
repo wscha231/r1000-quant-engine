@@ -47,10 +47,11 @@ class ManualTests(unittest.TestCase):
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
 
-    def packet(self, key='L0_RESUME_HANDOFF'):
-        _, playbook = manual.load_playbook(key, self.root)
+    def packet(self, key='L0_RESUME_HANDOFF', *, propose_successor=False):
+        _, playbook = manual.load_playbook(key, self.root, propose_successor=propose_successor)
         dependencies = {name: hashlib.sha256((self.root / name).read_bytes()).hexdigest()
-                        for name in manual.required_dependencies(key, self.root)}
+                        for name in manual.required_dependencies(key, self.root,
+                                                                  propose_successor=propose_successor)}
         review_identity = (dict(repository=manual.REVIEW_REPOSITORY, pr_number=593, head_sha=REVIEW_HEAD)
                            if key == 'A6_INDEPENDENT_QA' else None)
         scope = dict(base_sha=BASE, review_identity=copy.deepcopy(review_identity),
@@ -77,17 +78,53 @@ class ManualTests(unittest.TestCase):
         packet['dependencies'][name] = scope['dependencies'][name] = digest
         return self.bind(packet)
 
-    def validate(self, packet, scope, expected_review_head=None):
+    def validate(self, packet, scope, expected_review_head=None, *, propose_successor=False):
         if expected_review_head is None and packet['playbook_id'] == 'A6_INDEPENDENT_QA':
             expected_review_head = REVIEW_HEAD
         return manual.validate_packet(packet, scope, expected_base=BASE,
-                                      expected_review_head=expected_review_head, root=self.root)
+                                      expected_review_head=expected_review_head, root=self.root,
+                                      propose_successor=propose_successor)
 
-    def rejected(self, packet, scope, reason=None):
+    def rejected(self, packet, scope, reason=None, *, propose_successor=False):
         with self.assertRaises(manual.ContractError) as caught:
-            self.validate(packet, scope)
+            self.validate(packet, scope, propose_successor=propose_successor)
         if reason:
             self.assertIn(reason, str(caught.exception))
+
+    def reviewed_fixture_anchors(self, manifest, accepted=None):
+        # Synthetic independent approval context, captured BEFORE mutations.
+        # Never overwrite the actual reviewed baseline or read an input anchor.
+        trusted = copy.deepcopy(manual.VERSION_ANCHOR_CONTENT)
+        for row in manifest['playbooks']:
+            identity = (row['playbook_id'], row['playbook_version'])
+            if accepted is None or identity in accepted:
+                raw = json.dumps({k: v for k, v in row.items()
+                                  if k not in ('status', 'playbook_sha256')},
+                                 sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+                trusted.setdefault(identity, hashlib.sha256(raw).hexdigest())
+        return patch.object(manual, 'VERSION_ANCHOR_CONTENT', trusted)
+
+    def successor_fixture(self, manifest, key, version):
+        row = next(r for r in manifest['playbooks'] if r['playbook_id'] == key and r['status'] == 'CURRENT')
+        old = copy.deepcopy(row)
+        old['status'] = 'SUPERSEDED'
+        manifest['playbooks'].append(old)
+        row.update(playbook_version=version, supersedes=old['playbook_version'])
+        manifest['current_versions'][key] = version
+        return row
+
+    def cli_fixture(self, packet, scope, *, propose_successor=False):
+        self.write('packet.json', packet)
+        self.write('scope.json', scope)
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONOPTIMIZE=str(sys.flags.optimize))
+        env['PYTHONPATH'] = str(ROOT) + os.pathsep + env.get('PYTHONPATH', '')
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        command = prefix + [str(self.root / 'tools/manual_foundation.py'), '--packet',
+                            str(self.root / 'packet.json'), '--scope', str(self.root / 'scope.json'),
+                            '--expected-base', BASE, '--expected-review-head', REVIEW_HEAD]
+        if propose_successor:
+            command.append('--propose-successor')
+        return subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
 
     def test_all_three_manuals_have_current_hash_and_four_layers(self):
         for key, owner in manual.PLAYBOOK_IDS.items():
@@ -202,11 +239,12 @@ class ManualTests(unittest.TestCase):
         manifest['current_versions'][current['playbook_id']] = '1.1.0'
         manifest['playbooks'].append(old)
         self.write(manual.MANIFEST, manifest)
-        packet, scope = self.packet()
-        self.assertEqual(packet['playbook_version'], '1.1.0')
-        packet['playbook_version'] = old['playbook_version']
-        packet['playbook_sha256'] = old['playbook_sha256']
-        self.rejected(self.bind(packet), scope, 'stale_playbook')
+        with self.reviewed_fixture_anchors(manifest):
+            packet, scope = self.packet()
+            self.assertEqual(packet['playbook_version'], '1.1.0')
+            packet['playbook_version'] = old['playbook_version']
+            packet['playbook_sha256'] = old['playbook_sha256']
+            self.rejected(self.bind(packet), scope, 'stale_playbook')
 
     def test_hash_valid_manifest_with_wrong_current_mapping_refused(self):
         manifest = manual.board.read_json(self.root / manual.MANIFEST)
@@ -421,7 +459,7 @@ class ManualTests(unittest.TestCase):
         manifest['current_versions'][current['playbook_id']] = '1.1.0'
         manifest['playbooks'].append(old)
         self.write(manual.MANIFEST, manifest)
-        _, row = manual.load_playbook(current['playbook_id'], self.root)
+        _, row = manual.load_playbook(current['playbook_id'], self.root, propose_successor=True)
         self.assertEqual(row['playbook_version'], '1.1.0')
 
     def test_playbook_version_downgrade_or_live_predecessor_is_rejected(self):
@@ -535,7 +573,8 @@ class ManualTests(unittest.TestCase):
                 manifest['current_versions'][current['playbook_id']] = successor
                 self.write(manual.MANIFEST, manifest)
                 if allowed:
-                    self.assertEqual(manual.load_playbook(current['playbook_id'], self.root)[1]['playbook_version'], successor)
+                    with self.reviewed_fixture_anchors(manifest):
+                        self.assertEqual(manual.load_playbook(current['playbook_id'], self.root)[1]['playbook_version'], successor)
                 else:
                     with self.assertRaises(manual.ContractError):
                         manual.load_playbook(current['playbook_id'], self.root)
@@ -682,7 +721,8 @@ class ManualTests(unittest.TestCase):
             with self.subTest(previous=previous, successor=successor):
                 self.write(manual.MANIFEST, original)
                 packet, scope = self.succession_packet(previous, successor, previous)
-                self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                with self.reviewed_fixture_anchors(manual.board.read_json(self.root / manual.MANIFEST)):
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
         self.write(manual.MANIFEST, original)
 
     def test_empty_reuse_selection_still_refuses_rebound_invalid_catalog(self):
@@ -971,7 +1011,8 @@ class ManualTests(unittest.TestCase):
             current.update(playbook_version='1.2.0', supersedes='1.1.0')
             manifest['current_versions'][changed] = '1.2.0'
             manifest['playbooks'].extend([anchor, middle])
-            result = self.validate(self.rebind_all(packet, scope, manifest), scope)
+            with self.reviewed_fixture_anchors(manifest, {(changed, '1.1.0')}):
+                result = self.validate(self.rebind_all(packet, scope, manifest), scope, propose_successor=True)
             self.assertEqual(result['playbook_version'], '1.2.0')
             self.assertFalse(result['completed_task'])
         self.write(manual.MANIFEST, original)
@@ -1010,14 +1051,15 @@ class ManualTests(unittest.TestCase):
         manifest['current_versions'][row['playbook_id']] = '1.1.0'
         row['toolbox_refs'] = ['docs/RESEARCH_DATA_ACCESS.md']
         self.rebind_all(packet, scope, manifest)
-        self.assertTrue(expected.issubset(manual.required_dependencies(packet['playbook_id'], self.root)))
-        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
-        for name in expected:
-            with self.subTest(name=name):
-                altered, altered_scope = copy.deepcopy(packet), copy.deepcopy(scope)
-                del altered['dependencies'][name]
-                del altered_scope['dependencies'][name]
-                self.rejected(self.rebind_all(altered, altered_scope), altered_scope, 'missing_dependency')
+        with self.reviewed_fixture_anchors(manifest):
+            self.assertTrue(expected.issubset(manual.required_dependencies(packet['playbook_id'], self.root)))
+            self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+            for name in expected:
+                with self.subTest(name=name):
+                    altered, altered_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                    del altered['dependencies'][name]
+                    del altered_scope['dependencies'][name]
+                    self.rejected(self.rebind_all(altered, altered_scope), altered_scope, 'missing_dependency')
         self.write(manual.MANIFEST, original)
 
     def test_each_reader_dependency_byte_change_invalidates_existing_a1_packet(self):
@@ -1074,7 +1116,8 @@ class ManualTests(unittest.TestCase):
             for layer, field in (('process', 'steps'), ('proof', 'checks'), ('learning', 'steps')):
                 row[layer][field].append('Additional meaningful instruction')
             packet['stop_condition'].append('ADDITIONAL_CALLER_STOP')
-            result = self.validate(self.rebind_all(packet, scope, manifest), scope)
+            with self.reviewed_fixture_anchors(manifest):
+                result = self.validate(self.rebind_all(packet, scope, manifest), scope)
             self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
             self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
             self.assertFalse(result['worker_invoked'])
@@ -1131,7 +1174,8 @@ class ManualTests(unittest.TestCase):
                     row['process']['steps'].append('Changed instructions in the new version')
                     manifest['playbooks'].append(old)
                     manifest['current_versions'][changed] = '1.1.0'
-                    result = self.validate(self.rebind_all(packet, scope, manifest), scope)
+                    with self.reviewed_fixture_anchors(manifest):
+                        result = self.validate(self.rebind_all(packet, scope, manifest), scope)
                     self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
                     self.assertFalse(result['economic_authority'])
                     old['proof']['checks'].append('Retrospectively changed reviewed content')
@@ -1310,6 +1354,205 @@ class ManualTests(unittest.TestCase):
                     self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
                                      'reason': 'do_not_repeat_coverage_invalid', 'worker_invoked': False})
                     self.assertNotIn('Traceback', result.stderr)
+
+    def test_every_reviewed_successor_content_is_immutable_even_when_unselected(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            for version in ('1.1.0', '1.2.0'):
+                manifest = copy.deepcopy(original)
+                row = self.successor_fixture(manifest, changed, '1.1.0')
+                if version == '1.2.0':
+                    row = self.successor_fixture(manifest, changed, version)
+                row['process']['steps'].append('Separately reviewed successor fixture')
+                for selected in manual.PLAYBOOK_IDS:
+                    self.write(manual.MANIFEST, original)
+                    packet, scope = self.packet(selected)
+                    reviewed = self.reviewed_fixture_anchors(manifest)
+                    with reviewed:
+                        self.assertEqual(self.validate(self.rebind_all(packet, scope, manifest), scope)['status'],
+                                         'VALIDATED_PREPARE_ONLY')
+                        for layer, field in (('process', 'steps'), ('process', 'stop_condition'),
+                                             ('proof', 'checks'), ('learning', 'steps')):
+                            with self.subTest(changed=changed, selected=selected, version=version, field=field):
+                                altered = copy.deepcopy(manifest)
+                                target = next(r for r in altered['playbooks']
+                                              if r['playbook_id'] == changed and r['status'] == 'CURRENT')
+                                target[layer][field] = ['Changed same-version content after independent review']
+                                candidate, verified_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                                current = next(r for r in altered['playbooks']
+                                               if r['playbook_id'] == selected and r['status'] == 'CURRENT')
+                                candidate['stop_condition'] = current['process']['stop_condition'].copy()
+                                self.rejected(self.rebind_all(candidate, verified_scope, altered), verified_scope,
+                                              'reviewed_playbook_content_changed', propose_successor=True)
+        self.write(manual.MANIFEST, original)
+
+    def test_later_reviewed_retained_versions_cannot_change_or_disappear(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for changed in manual.PLAYBOOK_IDS:
+            manifest = copy.deepcopy(original)
+            self.successor_fixture(manifest, changed, '1.1.0')
+            self.successor_fixture(manifest, changed, '1.2.0')
+            reviewed = self.reviewed_fixture_anchors(manifest, {(changed, '1.1.0')})
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet()
+            with reviewed:
+                baseline = self.rebind_all(packet, scope, manifest)
+                self.assertEqual(self.validate(baseline, scope, propose_successor=True)['status'],
+                                 'VALIDATED_SUCCESSOR_PROPOSAL_ONLY')
+                for layer, field in (('process', 'steps'), ('process', 'stop_condition'),
+                                     ('proof', 'checks'), ('learning', 'steps')):
+                    altered = copy.deepcopy(manifest)
+                    old = next(r for r in altered['playbooks']
+                               if r['playbook_id'] == changed and r['playbook_version'] == '1.1.0')
+                    old[layer][field].append('Retrospective alteration of an accepted predecessor')
+                    p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                    self.rejected(self.rebind_all(p, s, altered), s, 'reviewed_playbook_content_changed',
+                                  propose_successor=True)
+                altered = copy.deepcopy(manifest)
+                altered['playbooks'] = [r for r in altered['playbooks']
+                                       if (r['playbook_id'], r['playbook_version']) != (changed, '1.1.0')]
+                next(r for r in altered['playbooks'] if r['playbook_id'] == changed
+                     and r['status'] == 'CURRENT')['supersedes'] = '1.0.0'
+                p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                self.rejected(self.rebind_all(p, s, altered), s, 'missing_reviewed_playbook_anchor',
+                              propose_successor=True)
+        self.write(manual.MANIFEST, original)
+
+    def test_successor_proposals_require_reviewed_anchors_for_adoption_and_retention(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for key in manual.PLAYBOOK_IDS:
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet(key)
+            manifest = copy.deepcopy(original)
+            self.successor_fixture(manifest, key, '1.1.0')
+            self.rebind_all(packet, scope, manifest)
+            self.rejected(packet, scope, 'unreviewed_playbook_version')
+            result = self.validate(packet, scope, propose_successor=True)
+            self.assertEqual(result['status'], 'VALIDATED_SUCCESSOR_PROPOSAL_ONLY')
+            self.assertEqual(result['proposed_playbook_versions'], {key: '1.1.0'})
+            self.assertTrue(result['adoption_requires_independent_anchor_review'])
+            self.assertFalse(result['worker_invoked'])
+            self.assertFalse(result['completed_task'])
+            self.assertFalse(result['economic_authority'])
+            self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+            # Caller-controlled manifest claims cannot become the trusted table.
+            manifest['version_anchor_content'] = {key: {'1.1.0': packet['playbook_sha256']}}
+            self.rejected(self.rebind_all(packet, scope, manifest), scope, 'unreviewed_playbook_version')
+            with self.reviewed_fixture_anchors(manifest):
+                adopted = self.validate(packet, scope)
+                self.assertEqual(adopted['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertNotIn('proposed_playbook_versions', adopted)
+            self.successor_fixture(manifest, key, '1.2.0')
+            self.rejected(self.rebind_all(packet, scope, manifest), scope,
+                          'unreviewed_retained_playbook_version', propose_successor=True)
+        self.write(manual.MANIFEST, original)
+
+    def test_manifest_and_catalog_nonobject_roots_fail_closed_after_full_hash_rebinding(self):
+        for name, reason, loader in ((manual.MANIFEST, 'manual_manifest_invalid',
+                                     lambda: manual.load_playbook('L0_RESUME_HANDOFF', self.root)),
+                                    (manual.CATALOG, 'catalog_contract', lambda: manual.load_catalog(self.root))):
+            original = (self.root / name).read_bytes()
+            for selected in manual.PLAYBOOK_IDS:
+                for root in ([], None, 42, 6.25, 'nonobject', True, False):
+                    with self.subTest(name=name, selected=selected, root=root):
+                        packet, scope = self.packet(selected)
+                        try:
+                            self.write(name, root)
+                            with self.assertRaisesRegex(manual.ContractError, reason):
+                                loader()
+                            self.rejected(self.rebind_all(packet, scope), scope, reason)
+                        finally:
+                            (self.root / name).write_bytes(original)
+
+    def test_real_cli_nonobject_canonical_roots_return_structured_blocked_input(self):
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONOPTIMIZE=str(sys.flags.optimize))
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        child = subprocess.run(prefix + ['-c', 'import sys; print(sys.flags.optimize)'],
+                               env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(int(child.stdout), sys.flags.optimize)
+        for name, reason in ((manual.MANIFEST, 'manual_manifest_invalid'), (manual.CATALOG, 'catalog_contract')):
+            original = (self.root / name).read_bytes()
+            for root in ([], None, 42, 6.25, 'nonobject', True, False):
+                with self.subTest(name=name, root=root):
+                    packet, scope = self.packet()
+                    try:
+                        self.write(name, root)
+                        self.rebind_all(packet, scope)
+                        result = self.cli_fixture(packet, scope)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                                         'reason': reason, 'worker_invoked': False})
+                        self.assertNotIn('Traceback', result.stderr)
+                        self.assertNotIn('AttributeError', result.stderr)
+                    finally:
+                        (self.root / name).write_bytes(original)
+        packet, scope = self.packet()
+        result = self.cli_fixture(packet, scope)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+
+    def test_real_cli_successor_proposal_is_not_automatic_adoption(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for key in manual.PLAYBOOK_IDS:
+            self.write(manual.MANIFEST, original)
+            packet, scope = self.packet(key)
+            manifest = copy.deepcopy(original)
+            self.successor_fixture(manifest, key, '1.1.0')
+            self.rebind_all(packet, scope, manifest)
+            blocked = self.cli_fixture(packet, scope)
+            self.assertEqual(blocked.returncode, 2, blocked.stdout + blocked.stderr)
+            self.assertEqual(json.loads(blocked.stdout)['reason'], 'unreviewed_playbook_version')
+            proposal = self.cli_fixture(packet, scope, propose_successor=True)
+            self.assertEqual(proposal.returncode, 0, proposal.stdout + proposal.stderr)
+            result = json.loads(proposal.stdout)
+            self.assertEqual(result['status'], 'VALIDATED_SUCCESSOR_PROPOSAL_ONLY')
+            self.assertTrue(result['adoption_requires_independent_anchor_review'])
+            self.assertFalse(result['worker_invoked'])
+            self.assertFalse(result['economic_authority'])
+        self.write(manual.MANIFEST, original)
+
+    def test_l0_mandatory_board_closure_cannot_be_removed_from_proposed_toolbox(self):
+        expected = {'mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
+                    'research/control_plane/system_state_schema.json'}
+        packet, scope = self.packet()
+        manifest = manual.board.read_json(self.root / manual.MANIFEST)
+        current = self.successor_fixture(manifest, packet['playbook_id'], '1.1.0')
+        current['toolbox_refs'] = ['docs/MANUAL_FOUNDATION_V1.md']
+        self.rebind_all(packet, scope, manifest)
+        self.assertTrue(expected.issubset(manual.required_dependencies(packet['playbook_id'], self.root,
+                                                                     propose_successor=True)))
+        self.assertEqual(self.validate(packet, scope, propose_successor=True)['status'],
+                         'VALIDATED_SUCCESSOR_PROPOSAL_ONLY')
+        for name in expected:
+            with self.subTest(name=name):
+                p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                del p['dependencies'][name]
+                del s['dependencies'][name]
+                self.rejected(self.rebind_all(p, s), s, 'missing_dependency', propose_successor=True)
+
+    def test_l0_old_packet_byte_pins_and_independent_scope_survive_packet_rehash(self):
+        for name in ('mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
+                     'research/control_plane/system_state_schema.json'):
+            with self.subTest(name=name):
+                packet, scope = self.packet()
+                original = (self.root / name).read_bytes()
+                try:
+                    (self.root / name).write_bytes(original + b'\n')
+                    self.rejected(self.bind(packet), scope, 'dependency_bytes_changed:' + name)
+                    result = self.cli_fixture(packet, scope)
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertEqual(json.loads(result.stdout)['reason'], 'dependency_bytes_changed:' + name)
+                    self.assertNotIn('Traceback', result.stderr)
+                    fresh_packet, fresh_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                    self.rebind_dependency(fresh_packet, fresh_scope, name)
+                    self.assertEqual(self.validate(fresh_packet, fresh_scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.rejected(fresh_packet, scope, 'wrong_dependency')
+                    del fresh_packet['dependencies'][name]
+                    del fresh_scope['dependencies'][name]
+                    self.rejected(self.bind(fresh_packet), fresh_scope, 'missing_dependency')
+                finally:
+                    (self.root / name).write_bytes(original)
 
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.

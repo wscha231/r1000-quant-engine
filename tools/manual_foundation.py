@@ -39,6 +39,8 @@ VERSION_ANCHOR = (('L0_RESUME_HANDOFF', '1.0.0'),
                   ('A6_INDEPENDENT_QA', '1.0.0'))
 # Canonical SHA256 of each actual reviewed row, excluding only status and its
 # derived playbook_sha256. Status may become SUPERSEDED; its content stays fixed.
+# Every subsequently adopted version requires its own independently reviewed
+# entry here. Unanchored CURRENT rows are proposals, never adopted versions.
 VERSION_ANCHOR_CONTENT = {
     ('L0_RESUME_HANDOFF', '1.0.0'): 'c9f3a1d54fbcb699b20565e73a469c0c5b1a7c49e917bb395ab9f646da60159c',
     ('A1_SOURCE_ADMISSION_REFRESH', '1.0.0'): 'bdb5291b17aa145394a076c5865ccd73cfeb9943c6436943587db2ab7031caa6',
@@ -51,6 +53,13 @@ A1_READER_DEPENDENCIES = [
     'tools/long_history_lake.py', 'tools/macro_history_sources.py',
     'tools/macro_research_checkpoint.py', 'tools/run_data_freshness_contract.py',
     'r1000_legacy_input_guard.py']
+# The board is already a common fixed dependency. Its mandatory local import,
+# source_identity() inputs and AST-read mission/gate literals must travel with
+# that pin, even when a proposed Toolbox omits them. Other state/task inputs
+# remain the independently verified caller's explicit dependency responsibility.
+BOARD_INPUT_DEPENDENCIES = [
+    'mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
+    'research/control_plane/system_state_schema.json']
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
 TIERS = ('T0_READ', 'T1_COMPUTE', 'T2_PREPARE')
 REVIEW_REPOSITORY = 'wscha231/r1000-quant-engine'
@@ -106,9 +115,11 @@ def validate_shape(value: dict, *, scope: bool = False, root: Path = ROOT) -> No
         raise ContractError('manual_schema_invalid:' + '/'.join(map(str, errors[0].absolute_path)))
 
 
-def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
+def load_playbook(playbook_id: str, root: Path = ROOT, *,
+                  propose_successor: bool = False) -> tuple[dict, dict]:
     manifest = board.read_json(path_at(root, MANIFEST))
-    if (manifest.get('schema_version') != 'manual-playbooks-v1'
+    if (not isinstance(manifest, dict)
+            or manifest.get('schema_version') != 'manual-playbooks-v1'
             or set(manifest.get('current_versions', {})) != set(PLAYBOOK_IDS)):
         raise ContractError('manual_manifest_invalid')
     current = {}
@@ -166,13 +177,14 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
                 raise ContractError('playbook_version_not_increasing')
             if row['supersedes'] != latest:
                 raise ContractError('playbook_predecessor_not_latest')
-    for key, version in VERSION_ANCHOR:
-        anchor = rows_by_identity.get((key, version))
+    for identity, reviewed_hash in VERSION_ANCHOR_CONTENT.items():
+        anchor = rows_by_identity.get(identity)
         if anchor is None:
             raise ContractError('missing_reviewed_playbook_anchor')
         if board.digest({k: v for k, v in anchor.items()
-                         if k not in ('status', 'playbook_sha256')}) != VERSION_ANCHOR_CONTENT[(key, version)]:
+                         if k not in ('status', 'playbook_sha256')}) != reviewed_hash:
             raise ContractError('reviewed_playbook_content_changed')
+    for key, version in VERSION_ANCHOR:
         if semantic_version(current[key]['playbook_version']) < semantic_version(version):
             raise ContractError('playbook_version_not_increasing')
         # Retain a coherent chain all the way to the reviewed initial version,
@@ -186,6 +198,14 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
             if (row.get('supersedes') != predecessor
                     or rows_by_identity[(key, predecessor)].get('status') != 'SUPERSEDED'):
                 raise ContractError('reviewed_playbook_lineage_invalid')
+    for identity, row in rows_by_identity.items():
+        if identity not in VERSION_ANCHOR_CONTENT:
+            # Retaining a predecessor asserts adoption. An unreviewed row may
+            # only be the sole current version in an explicit successor proposal.
+            if row['status'] != 'CURRENT':
+                raise ContractError('unreviewed_retained_playbook_version')
+            if not propose_successor:
+                raise ContractError('unreviewed_playbook_version')
     if playbook_id not in current:
         raise ContractError('unknown_playbook')
     return manifest, current[playbook_id]
@@ -222,7 +242,8 @@ def load_do_not_repeat_registry(root: Path = ROOT) -> dict:
 
 def load_catalog(root: Path = ROOT) -> dict:
     value = board.read_json(path_at(root, CATALOG))
-    if (value.get('schema_version') != 'pr-reuse-catalog-v1'
+    if (not isinstance(value, dict)
+            or value.get('schema_version') != 'pr-reuse-catalog-v1'
             or value.get('do_not_repeat_registry') != DNR
             or value.get('lessons_ledger') != 'docs/AGENT_SHARED_LESSONS_LEDGER.md'):
         raise ContractError('catalog_contract')
@@ -339,10 +360,11 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
             'blocked_registry_ids': blocked, 'economic_authority': False}
 
 
-def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
-    manifest, playbook = load_playbook(playbook_id, root)
+def required_dependencies(playbook_id: str, root: Path = ROOT, *,
+                          propose_successor: bool = False) -> list[str]:
+    manifest, playbook = load_playbook(playbook_id, root, propose_successor=propose_successor)
     reader = A1_READER_DEPENDENCIES if playbook_id == 'A1_SOURCE_ADMISSION_REFRESH' else []
-    return sorted(set(OPERATING_CONTRACTS + reader + manifest['policy_refs'] + playbook['toolbox_refs'] + [
+    return sorted(set(OPERATING_CONTRACTS + BOARD_INPUT_DEPENDENCIES + reader + manifest['policy_refs'] + playbook['toolbox_refs'] + [
         MANIFEST, SCHEMA, CATALOG, DNR,
         'tools/manual_foundation.py', 'tools/run_agent_board.py',
         'tools/check_run287_do_not_repeat.py',
@@ -352,7 +374,8 @@ def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
 
 
 def validate_packet(packet: dict, scope: dict, *, expected_base: str,
-                    expected_review_head: str | None = None, root: Path = ROOT) -> dict:
+                    expected_review_head: str | None = None, root: Path = ROOT,
+                    propose_successor: bool = False) -> dict:
     """Scope/base come from the independently verified task, never from packet claims.
 
     Consistent JSON/hash proves pinning, not human approval or completed work.
@@ -363,7 +386,8 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
         raise ContractError('expected_base_invalid')
     if packet['base_sha'] != expected_base or scope['base_sha'] != expected_base:
         raise ContractError('wrong_base')
-    _, playbook = load_playbook(packet['playbook_id'], root)
+    manifest, playbook = load_playbook(packet['playbook_id'], root,
+                                      propose_successor=propose_successor)
     is_a6 = playbook['owner'] == 'A6'
     if is_a6:
         if expected_review_head is None:
@@ -392,7 +416,8 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
         raise ContractError('authority_tier_escalation')
     if packet['dependencies'] != scope['dependencies']:
         raise ContractError('wrong_dependency')
-    if not set(required_dependencies(packet['playbook_id'], root)).issubset(packet['dependencies']):
+    if not set(required_dependencies(packet['playbook_id'], root,
+                                    propose_successor=propose_successor)).issubset(packet['dependencies']):
         raise ContractError('missing_dependency')
     for path, sha in packet['dependencies'].items():
         if board.file_hash(path_at(root, path)) != sha:
@@ -427,7 +452,10 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
         result = evaluate_candidate(registry, **candidate)
         if not result['allowed']:
             raise ContractError('BLOCKED_DO_NOT_REPEAT')
-    return {'schema_version': 'manual-packet-preflight-v1', 'status': 'VALIDATED_PREPARE_ONLY',
+    proposals = {row['playbook_id']: row['playbook_version'] for row in manifest['playbooks']
+                 if (row['playbook_id'], row['playbook_version']) not in VERSION_ANCHOR_CONTENT}
+    result = {'schema_version': 'manual-packet-preflight-v1',
+            'status': 'VALIDATED_SUCCESSOR_PROPOSAL_ONLY' if proposals else 'VALIDATED_PREPARE_ONLY',
             'task_key': packet['task_key'], 'packet_sha256': packet['packet_sha256'],
             'playbook_id': packet['playbook_id'], 'playbook_version': packet['playbook_version'],
             'playbook_sha256': packet['playbook_sha256'], 'base_sha': expected_base,
@@ -437,6 +465,10 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
             'output_receipt': copy.deepcopy(packet['output_receipt']),
             'authority': copy.deepcopy(board.AUTHORITY), 'worker_invoked': False,
             'completed_task': False, 'economic_authority': False}
+    if proposals:
+        result['proposed_playbook_versions'] = proposals
+        result['adoption_requires_independent_anchor_review'] = True
+    return result
 
 
 def main() -> int:
@@ -445,11 +477,14 @@ def main() -> int:
     parser.add_argument('--scope', type=Path, required=True, help='Independently verified task scope; not approval authentication')
     parser.add_argument('--expected-base', required=True, help='Independently verified live master SHA')
     parser.add_argument('--expected-review-head', help='Independently verified exact implementation PR HEAD for A6')
+    parser.add_argument('--propose-successor', action='store_true',
+                        help='Prepare an unadopted versioned successor; adoption requires a separately reviewed content anchor')
     args = parser.parse_args()
     try:
         result = validate_packet(board.read_json(args.packet), board.read_json(args.scope),
                                  expected_base=args.expected_base,
-                                 expected_review_head=args.expected_review_head)
+                                 expected_review_head=args.expected_review_head,
+                                 propose_successor=args.propose_successor)
     except (ContractError, OSError, KeyError, TypeError, ValueError, OverflowError) as exc:
         print(json.dumps({'status': 'BLOCKED_INPUT', 'reason': str(exc), 'worker_invoked': False}))
         return 2
