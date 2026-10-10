@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -115,8 +116,24 @@ class Fixture:
         kwargs.update(overrides)
         return fairness.verify(self.raw, a, b, **kwargs)
 
+    def cli(self, a: bytes, b: bytes):
+        for name, raw in (('contract', self.raw), ('stage-a', a), ('stage-b', b),
+                          ('control', admission.canonical(self.control)),
+                          ('challenger', admission.canonical(self.challenger))):
+            (self.root / name).write_bytes(raw)
+        command = [sys.executable, '-B', *(['-O'] if sys.flags.optimize else []),
+            str(ROOT / 'tools/frozen_stage_ab_fairness.py')]
+        for name in ('contract', 'stage-a', 'stage-b', 'control', 'challenger'):
+            command += ['--' + name, str(self.root / name)]
+        command += ['--generation-sha256', self.pin, '--stage-a-sha256', admission.digest(a),
+            '--stage-b-sha256', admission.digest(b), '--frozen-root', str(self.frozen),
+            '--evidence-root', str(self.evidence), '--environment-root', str(self.environment)]
+        return subprocess.run(command, capture_output=True, text=True, timeout=30)
+
 
 class FrozenFairnessTests(unittest.TestCase):
+    OVERFLOW_CLOCKS = ('0001-01-01T00:00:00+01:00', '9999-12-31T23:59:59-01:00')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.f = Fixture(Path(self.tmp.name))
@@ -300,6 +317,73 @@ class FrozenFairnessTests(unittest.TestCase):
                 source.update(original); source[key] = value; self.f.rebind()
                 with self.assertRaises(admission.AdmissionError):
                     fairness.validate_contract(self.f.raw, self.f.pin)
+
+    def rebound_clock_receipts(self, a: bytes, b: bytes, value: str):
+        self.f.contract['groups']['candidates']['sources'][0]['available_at'] = value
+        self.f.rebind()
+        # Bind both receipts to the changed contract so stale pins cannot mask
+        # the clock failure. Retained source/evidence bytes remain unchanged.
+        rebound = []
+        for raw in (a, b):
+            receipt = json.loads(raw)
+            receipt['generation_sha256'] = self.f.pin
+            rebound.append(admission.canonical(receipt))
+        return rebound
+
+    def test_clock_api_normalizes_lower_and_upper_utc_overflow(self):
+        for value in self.OVERFLOW_CLOCKS:
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(admission.AdmissionError, r'\ACLOCK_INVALID\Z'):
+                    fairness.clock(value)
+
+    def test_verify_normalizes_lower_and_upper_utc_overflow(self):
+        a, b = self.f.receipts()
+        for value in self.OVERFLOW_CLOCKS:
+            with self.subTest(value=value):
+                changed_a, changed_b = self.rebound_clock_receipts(a, b, value)
+                with self.assertRaisesRegex(admission.AdmissionError, r'\ACLOCK_INVALID\Z'):
+                    self.f.verify(changed_a, changed_b)
+
+    def test_cli_blocks_lower_and_upper_utc_overflow_with_json(self):
+        a, b = self.f.receipts()
+        for value in self.OVERFLOW_CLOCKS:
+            with self.subTest(value=value):
+                changed_a, changed_b = self.rebound_clock_receipts(a, b, value)
+                result = self.f.cli(changed_a, changed_b)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(result.stderr, '')
+                blocked = json.loads(result.stdout)
+                self.assertEqual(blocked['status'], 'BLOCKED_FROZEN_FAIRNESS')
+                self.assertEqual(blocked['reason'], 'CLOCK_INVALID')
+                for key, expected in fairness.AUTHORITY.items():
+                    self.assertIs(blocked[key], expected)
+
+    def test_valid_utc_offset_session_and_pit_clocks_remain_admitted(self):
+        expected = datetime(2026, 10, 8, 22, tzinfo=timezone.utc)
+        for value in ('2026-10-08T22:00:00Z', '2026-10-08T23:00:00+01:00',
+                      '2026-10-08T21:00:00-01:00'):
+            with self.subTest(value=value):
+                self.assertEqual(fairness.clock(value), expected)
+        self.assertEqual(fairness.clock('0001-01-01T00:00:00Z'),
+                         datetime.min.replace(tzinfo=timezone.utc))
+        self.assertEqual(fairness.clock('9999-12-31T23:59:59.999999Z'),
+                         datetime.max.replace(tzinfo=timezone.utc))
+        self.f.contract['decision_time'] = '2026-10-08T23:00:00+01:00'
+        for group in self.f.contract['groups'].values():
+            for source in group['sources']:
+                source.update(available_at='2026-10-09T05:00:00+09:00',
+                              collected_at='2026-10-08T22:00:00+01:00',
+                              expires_at='2026-10-09T21:00:00+01:00')
+        self.f.rebind()
+        a, b = self.f.receipts()
+        result = self.f.verify(a, b)
+        self.assertEqual(result['status'], 'FROZEN_CONTRACT_BYTE_PASS_RESEARCH_ONLY')
+        cli = self.f.cli(a, b)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(cli.stderr, '')
+        for output in (result, json.loads(cli.stdout)):
+            for key, expected in fairness.AUTHORITY.items():
+                self.assertIs(output[key], expected)
 
     def test_source_manifest_and_environment_cannot_disagree(self):
         self.f.contract['price_generation_sha256'] = '0' * 64; self.f.rebind()

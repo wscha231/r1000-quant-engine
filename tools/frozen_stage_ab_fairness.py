@@ -60,7 +60,7 @@ def clock(value: Any) -> datetime:
         require(int(value[-5:-3]) < 24 and int(value[-2:]) < 60, 'CLOCK_INVALID')
     try:
         return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(timezone.utc)
-    except ValueError:
+    except (ValueError, OverflowError):
         raise admission.AdmissionError('CLOCK_INVALID') from None
 
 
