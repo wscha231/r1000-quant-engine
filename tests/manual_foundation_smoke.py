@@ -17,6 +17,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools import manual_foundation as manual
+from tools import run_pr_validation as registered_validation
 
 BASE = '11163fb3e30125359346102eb2b12c04aa52ae15'
 REVIEW_HEAD = 'a' * 40
@@ -1394,7 +1395,7 @@ class ManualTests(unittest.TestCase):
             self.successor_fixture(manifest, changed, '1.2.0')
             reviewed = self.reviewed_fixture_anchors(manifest, {(changed, '1.1.0')})
             self.write(manual.MANIFEST, original)
-            packet, scope = self.packet()
+            packet, scope = self.packet(changed)
             with reviewed:
                 baseline = self.rebind_all(packet, scope, manifest)
                 self.assertEqual(self.validate(baseline, scope, propose_successor=True)['status'],
@@ -1553,6 +1554,201 @@ class ManualTests(unittest.TestCase):
                     self.rejected(self.bind(fresh_packet), fresh_scope, 'missing_dependency')
                 finally:
                     (self.root / name).write_bytes(original)
+
+    def test_unselected_successor_is_refused_after_complete_hash_rebinding(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for selected in manual.PLAYBOOK_IDS:
+            for other in manual.PLAYBOOK_IDS:
+                if other == selected:
+                    continue
+                for attack in ('valid_toolbox', 'missing_toolbox', 'changed_reader'):
+                    with self.subTest(selected=selected, other=other, attack=attack):
+                        self.write(manual.MANIFEST, original)
+                        packet, scope = self.packet(selected)
+                        manifest = copy.deepcopy(original)
+                        row = self.successor_fixture(manifest, other, '1.1.0')
+                        reader = self.root / 'tools/research_data_access.py'
+                        reader_bytes = reader.read_bytes()
+                        try:
+                            if attack == 'missing_toolbox':
+                                row['toolbox_refs'].append('tools/nonexistent_unselected_successor_toolbox.py')
+                            if attack == 'changed_reader':
+                                reader.write_bytes(reader_bytes + b'\n# changed unselected Reader\n')
+                            self.rebind_all(packet, scope, manifest)
+                            self.rejected(packet, scope, 'unreviewed_playbook_version')
+                            self.rejected(packet, scope, 'unselected_unreviewed_playbook_version',
+                                          propose_successor=True)
+                            with self.assertRaisesRegex(manual.ContractError,
+                                                       'unselected_unreviewed_playbook_version'):
+                                manual.required_dependencies(selected, self.root, propose_successor=True)
+                        finally:
+                            reader.write_bytes(reader_bytes)
+        self.write(manual.MANIFEST, original)
+
+    def test_real_cli_unselected_successor_refuses_without_traceback(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for selected in manual.PLAYBOOK_IDS:
+            for other in manual.PLAYBOOK_IDS:
+                if other == selected:
+                    continue
+                self.write(manual.MANIFEST, original)
+                packet, scope = self.packet(selected)
+                manifest = copy.deepcopy(original)
+                row = self.successor_fixture(manifest, other, '1.1.0')
+                row['toolbox_refs'].append('tools/nonexistent_unselected_successor_toolbox.py')
+                self.rebind_all(packet, scope, manifest)
+                child = self.cli_fixture(packet, scope, propose_successor=True)
+                self.assertEqual(child.returncode, 2, child.stdout + child.stderr)
+                self.assertEqual(json.loads(child.stdout), dict(status='BLOCKED_INPUT',
+                    reason='unselected_unreviewed_playbook_version', worker_invoked=False))
+                self.assertEqual(child.stderr, '')
+        self.write(manual.MANIFEST, original)
+
+    def test_proposal_receipt_reports_only_selected_with_trusted_other_successor(self):
+        original = manual.board.read_json(self.root / manual.MANIFEST)
+        for selected in manual.PLAYBOOK_IDS:
+            for other in manual.PLAYBOOK_IDS:
+                if other == selected:
+                    continue
+                self.write(manual.MANIFEST, original)
+                packet, scope = self.packet(selected)
+                manifest = copy.deepcopy(original)
+                self.successor_fixture(manifest, other, '1.1.0')
+                self.successor_fixture(manifest, selected, '1.1.0')
+                # Establish the synthetic reviewed OTHER anchor before validation;
+                # it is fixture context, never production approval or adoption.
+                with self.reviewed_fixture_anchors(manifest, {(other, '1.1.0')}):
+                    self.rebind_all(packet, scope, manifest)
+                    result = self.validate(packet, scope, propose_successor=True)
+                    self.assertEqual(result['proposed_playbook_versions'], {selected: '1.1.0'})
+                    self.assertFalse(result['completed_task'])
+                    self.assertFalse(result['worker_invoked'])
+                    self.assertTrue(result['adoption_requires_independent_anchor_review'])
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+        self.write(manual.MANIFEST, original)
+
+    def test_a6_requires_actual_registered_programs_and_combined_imports(self):
+        # Oracle is the existing runner's actual registry, not the implementation
+        # inventory being tested. No runner main/proof procedure is invoked.
+        programs = {path for path, _ in registered_validation.DEFAULT_TESTS}
+        programs.update({'tests/control_plane_agent_contract_smoke.py',
+                         'tests/system_state_materializer_smoke.py',
+                         'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 235)
+        required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        self.assertTrue(programs.issubset(required), sorted(programs - required))
+        self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
+                         'tools/research_data_access.py'}.issubset(required))
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        result = self.validate(packet, scope)
+        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse(result['worker_invoked'])
+        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+
+    def test_each_registered_a6_program_byte_change_refuses_old_packet(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        programs = {path for path, _ in registered_validation.DEFAULT_TESTS}
+        programs.update({'tests/control_plane_agent_contract_smoke.py',
+                         'tests/system_state_materializer_smoke.py',
+                         'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
+        for name in sorted(programs):
+            with self.subTest(name=name):
+                target = self.root / name
+                original = target.read_bytes()
+                try:
+                    target.write_bytes(original + b'\n# changed proof program\n')
+                    self.rejected(self.bind(packet), scope, 'dependency_bytes_changed:' + name)
+                finally:
+                    target.write_bytes(original)
+
+    def test_each_fixed_a6_program_pin_cannot_be_omitted_and_rehashed(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        for name in manual.A6_FIXED_PROOF_PROGRAMS:
+            with self.subTest(name=name):
+                candidate, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+                del candidate['dependencies'][name]
+                del verified['dependencies'][name]
+                self.rejected(self.rebind_all(candidate, verified), verified, 'missing_dependency')
+
+    def test_a6_weakened_checks_refuse_old_scope_but_new_scope_is_only_preparation(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        for name in ('tests/agent_board_smoke.py', 'tests/manual_foundation_smoke.py',
+                     'tests/control_plane_agent_contract_smoke.py',
+                     'tests/system_state_materializer_smoke.py'):
+            target = self.root / name
+            original = target.read_bytes()
+            try:
+                target.write_text('def main():\n    return 0\n')
+                self.rejected(self.bind(packet), scope, 'dependency_bytes_changed:' + name)
+                candidate = copy.deepcopy(packet)
+                candidate['dependencies'][name] = hashlib.sha256(target.read_bytes()).hexdigest()
+                self.rejected(self.bind(candidate), scope, 'wrong_dependency')
+                # A genuinely new independently supplied scope binds new bytes;
+                # preflight still makes no claim that the changed tests passed.
+                fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                result = self.validate(fresh, fresh_scope)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertFalse(result['completed_task'])
+                self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+            finally:
+                target.write_bytes(original)
+
+    def test_real_cli_a6_changed_or_omitted_program_returns_blocked_input(self):
+        for name in ('tests/agent_board_smoke.py', 'tests/manual_foundation_smoke.py'):
+            packet, scope = self.packet('A6_INDEPENDENT_QA')
+            target = self.root / name
+            original = target.read_bytes()
+            try:
+                target.write_text('def main():\n    return 0\n')
+                self.bind(packet)
+                result = self.cli_fixture(packet, scope)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(json.loads(result.stdout)['reason'], 'dependency_bytes_changed:' + name)
+                self.assertEqual(result.stderr, '')
+                del packet['dependencies'][name]
+                del scope['dependencies'][name]
+                self.rebind_all(packet, scope)
+                result = self.cli_fixture(packet, scope)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(json.loads(result.stdout)['reason'], 'missing_dependency')
+                self.assertEqual(result.stderr, '')
+            finally:
+                target.write_bytes(original)
+
+    def test_a6_fixed_proof_pins_survive_successor_toolbox_replacement(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        manifest = manual.board.read_json(self.root / manual.MANIFEST)
+        current = self.successor_fixture(manifest, packet['playbook_id'], '1.1.0')
+        current['toolbox_refs'] = ['docs/MANUAL_FOUNDATION_V1.md']
+        self.rebind_all(packet, scope, manifest)
+        self.assertTrue(set(manual.A6_FIXED_PROOF_PROGRAMS).issubset(
+            manual.required_dependencies(packet['playbook_id'], self.root, propose_successor=True)))
+        result = self.validate(packet, scope, propose_successor=True)
+        self.assertEqual(result['proposed_playbook_versions'], {'A6_INDEPENDENT_QA': '1.1.0'})
+        for name in ('tools/run_pr_validation.py', 'tests/agent_board_smoke.py',
+                     'tests/manual_foundation_smoke.py'):
+            p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+            del p['dependencies'][name]
+            del s['dependencies'][name]
+            self.rejected(self.rebind_all(p, s), s, 'missing_dependency', propose_successor=True)
+
+    def test_new_lesson_invalidates_all_three_old_packets_then_fresh_scopes_pass(self):
+        name = 'docs/AGENT_SHARED_LESSONS_LEDGER.md'
+        target = self.root / name
+        original = target.read_bytes()
+        for selected in manual.PLAYBOOK_IDS:
+            target.write_bytes(original)
+            packet, scope = self.packet(selected)
+            try:
+                target.write_bytes(original + b'\n# reusable new corrective lesson\n')
+                self.rejected(self.bind(packet), scope, 'dependency_bytes_changed:' + name)
+                candidate = copy.deepcopy(packet)
+                candidate['dependencies'][name] = hashlib.sha256(target.read_bytes()).hexdigest()
+                self.rejected(self.bind(candidate), scope, 'wrong_dependency')
+                fresh, fresh_scope = self.packet(selected)
+                self.assertEqual(self.validate(fresh, fresh_scope)['status'], 'VALIDATED_PREPARE_ONLY')
+            finally:
+                target.write_bytes(original)
 
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.

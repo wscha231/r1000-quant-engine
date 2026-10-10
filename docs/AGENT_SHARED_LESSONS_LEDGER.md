@@ -1,5 +1,27 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-10 — Manual review anchors and proof pins need complete scope (#593)
+
+- A packet/manifest rehash proves consistency, not adoption. Preserve immutable
+  semantic content for every accepted retained playbook version, including
+  successors; deleting history cannot reset the reviewed baseline. Capture a
+  separately reviewed anchor before adoption. Explicit successor preparation
+  covers only the selected playbook and never approves an unselected proposal.
+- Validate canonical JSON object roots before field access. Malformed roots
+  must return structured BLOCKED_INPUT, including under Python optimization.
+- Pin actual mandatory consumers, not only their entrypoint: Board mission,
+  configuration/requirements/schema inputs; A1 Reader imports/default registry;
+  A6 fixed registered test programs and their local program helpers. Keep fixed
+  pins even when mutable Toolbox/manifest declarations remove them. A changed
+  proof program invalidates its old packet just as a changed operating contract
+  does. Review consumed-input inventory changes with the proof procedure.
+- Independent QA must derive attacks from every claimed validation target and
+  actual consumer path. Large test counts and normal/-O PASS do not close a
+  missing boundary; exercise fully rebound hashes, selected/unselected rows,
+  omitted pins and actual CLI behavior. Record reusable lessons in this ledger,
+  not only PR comments. Review receipts remain NOT_RUN/RESEARCH_ONLY preparation;
+  no source admission, economic, Fullrun or trading authority follows.
+
 ## 2026-10-09 — Manual pinning is preparation, not execution authority
 
 - Bind the recurring playbook version/hash, actual dependency bytes, base,
