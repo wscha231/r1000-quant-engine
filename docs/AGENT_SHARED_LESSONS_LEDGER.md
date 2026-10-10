@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
+
+- A valid source contract can produce an oversized phase receipt. Reserve the
+  consumer's unchanged byte/node limits before callbacks or evidence writes,
+  including maximum legal sink ID lengths and JSON-escaped caller identities.
+  An outer partition cap alone cannot guarantee verifiable output capacity.
+- Budget immutable retained evidence per phase, as the producer snapshots do.
+  Fresh IDs per save are valid without content deduplication. Recheck every
+  prior physical snapshot at the end so later reads cannot mask its mutation;
+  report the bounded retained-memory allowance separately from archive size.
+- Equal price/source hashes and Git HEAD cannot authenticate all native reads.
+  ConsumerView is a trusted API, not an OS/network sandbox; undeclared external
+  reads and executed module bytes remain unverified. Byte PASS never grants
+  fairness, G0, economic readiness or A1 source admission.
+- Normalize timezone conversion overflow to a finite clock refusal. Keep author
+  regressions separate from independent exact-head A6 and final PR review;
+  later reproducible findings supersede a prior scoped CLEAN result.
+
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
 - Authenticated review of `9de5aede` found four defects despite Linux232/232

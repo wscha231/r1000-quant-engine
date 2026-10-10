@@ -122,6 +122,38 @@ def group_digest(records: list[dict]) -> str:
     return runtime.sha256_bytes(runtime.canonical_json(sorted(records, key=lambda r: r['path'])))
 
 
+def phase_order(stage: str) -> list[str]:
+    order = ['FROZEN', 'RESTORE']
+    for name in CONSUMERS[stage]:
+        order += ['PRE_' + name, 'EXECUTION_' + name, 'POST_' + name]
+    return order + ['POST']
+
+
+def receipt_bytes(contract: dict, pin: str, stage: str, run_id: str, phases: list) -> bytes:
+    return admission.canonical({'schema': SCHEMA, 'stage': stage,
+        'generation_sha256': pin, **{k: contract[k] for k in
+            ('price_generation_sha256', 'code_sha', 'session', 'decision_time')},
+        'run_id': run_id, 'phases': phases})
+
+
+def require_receipt_capacity(contract: dict, pin: str, stage: str, run_id: str) -> None:
+    # The sink may legally choose any 200-character ASCII artifact ID for each
+    # save. Reserve that worst case before saving evidence or invoking consumers.
+    # Receipt byte/node/depth budgets are the verifier's unchanged JSON budgets.
+    groups = {g: [{'path': s['ref']['artifact_id'], 'size_bytes': s['bytes'],
+        'sha256': s['ref']['sha256'], 'evidence_ref': {
+            'artifact_id': 'x' * 200, 'sha256': s['ref']['sha256']}}
+        for s in spec['sources']] for g, spec in contract['groups'].items()}
+    phases = []
+    for phase in phase_order(stage):
+        used = contract['consumers'][stage][phase[10:]] if phase.startswith('EXECUTION_') else GROUPS
+        phases.append({'phase': phase, 'groups': {g: groups[g] for g in used}})
+    try:
+        admission.strict_json(receipt_bytes(contract, pin, stage, run_id, phases))
+    except admission.AdmissionError:
+        raise admission.AdmissionError('STAGE_RECEIPT_BUDGET') from None
+
+
 def bound_environment(contract: dict, control: dict, challenger: dict, root: str | Path) -> dict:
     resolver = admission.BoundedArtifactResolver(root)
     result = admission.compare_environment(control, challenger,
@@ -189,6 +221,7 @@ class FrozenStage:
         self.contract = validate_contract(contract_raw, expected_generation_sha256)
         require(stage in CONSUMERS, 'STAGE_INVALID')
         require(type(run_id) is str and bool(run_id.strip()), 'RUN_ID_REQUIRED')
+        require_receipt_capacity(self.contract, expected_generation_sha256, stage, run_id)
         require(runtime.git_head() == self.contract['code_sha'], 'EXECUTED_CODE_SHA_MISMATCH')
         self.environment = bound_environment(self.contract, control, challenger, environment_root)
         self.stage, self.root, self.frozen, self.save = stage, runtime_root, frozen_root, save_evidence
@@ -235,15 +268,13 @@ class FrozenStage:
                     'STAGE_INCOMPLETE_OR_BLOCKED')
             require(runtime.git_head() == self.contract['code_sha'], 'EXECUTED_CODE_SHA_MISMATCH')
             self.snapshot('POST', self.root)
+            raw = receipt_bytes(self.contract, self.pin, self.stage, self.run_id, self.phases)
+            admission.strict_json(raw)
             self.failed = True  # Seal the successful invocation; no later reuse.
         except Exception:
             self.failed = True
             raise
-        return admission.canonical({'schema': SCHEMA, 'stage': self.stage,
-            'generation_sha256': self.pin, 'price_generation_sha256': self.contract['price_generation_sha256'],
-            'code_sha': self.contract['code_sha'], 'session': self.contract['session'],
-            'decision_time': self.contract['decision_time'], 'run_id': self.run_id,
-            'phases': self.phases})
+        return raw
 
 
 def verify(contract_raw: bytes, stage_a_raw: bytes, stage_b_raw: bytes, *,
@@ -270,7 +301,7 @@ def verify(contract_raw: bytes, stage_a_raw: bytes, stage_b_raw: bytes, *,
             rows.append({'path': source['ref']['artifact_id'], 'size_bytes': len(raw),
                          'sha256': admission.digest(raw)})
         expected[group] = group_digest(rows)
-    evidence = admission.BoundedArtifactResolver(evidence_root)
+    evidence_snapshots = []
     rebuilt = {}
     for stage, raw, pin in (('A', stage_a_raw, expected_stage_a_sha256),
                             ('B', stage_b_raw, expected_stage_b_sha256)):
@@ -284,10 +315,7 @@ def verify(contract_raw: bytes, stage_a_raw: bytes, stage_b_raw: bytes, *,
             **{k: contract[k] for k in ('price_generation_sha256', 'code_sha', 'session', 'decision_time')}}.items():
             require(receipt[key] == wanted, 'STAGE_IDENTITY_MISMATCH')
         require(type(receipt['run_id']) is str and bool(receipt['run_id'].strip()), 'RUN_ID_REQUIRED')
-        order = ['FROZEN', 'RESTORE']
-        for name in CONSUMERS[stage]:
-            order += ['PRE_' + name, 'EXECUTION_' + name, 'POST_' + name]
-        order += ['POST']
+        order = phase_order(stage)
         phases = receipt['phases']
         require(type(phases) is list and len(phases) == len(order), 'PHASE_COVERAGE')
         rebuilt[stage] = []
@@ -296,6 +324,9 @@ def verify(contract_raw: bytes, stage_a_raw: bytes, stage_b_raw: bytes, *,
             require(phase['phase'] == wanted, 'PHASE_ORDER')
             used = set(contract['consumers'][stage][wanted[10:]]) if wanted.startswith('EXECUTION_') else GROUPS
             keys(phase['groups'], used, 'RUNTIME_GROUP_COVERAGE')
+            # A fresh immutable copy per save is valid: charge one phase, not
+            # every retained copy across all A/B phases, against the 16 MiB cap.
+            evidence = admission.BoundedArtifactResolver(evidence_root)
             hashes = {}
             for group, records in phase['groups'].items():
                 require(type(records) is list, 'RUNTIME_RECORDS')
@@ -316,8 +347,13 @@ def verify(contract_raw: bytes, stage_a_raw: bytes, stage_b_raw: bytes, *,
                     independent.append({k: row[k] for k in ('path', 'size_bytes', 'sha256')})
                 hashes[group] = group_digest(independent)
                 require(hashes[group] == expected[group], 'COMMON_SOURCE_MISMATCH')
+            evidence.validate_snapshot()
+            evidence_snapshots.append(evidence)
             rebuilt[stage].append({'phase': wanted, 'group_sha256': hashes})
-    frozen.validate_snapshot(); evidence.validate_snapshot()
+    frozen.validate_snapshot()
+    # Later phase reads must not hide replacement of an earlier retained leaf.
+    for evidence in evidence_snapshots:
+        evidence.validate_snapshot()
     return {'schema': SCHEMA, 'status': 'FROZEN_CONTRACT_BYTE_PASS_RESEARCH_ONLY',
         'generation_sha256': expected_generation_sha256, 'data_scope': contract['data_scope'],
         'rebuilt_phases': rebuilt, 'common_group_sha256': expected,

@@ -50,6 +50,12 @@ naive, malformed/future/stale clocks refuse. Bytes bind adjustment, identities,
 calendar grid and source metadata; declarations alone do not authenticate PIT.
 Limits intentionally reuse the existing bounded precheck: 1 MiB per artifact,
 16 MiB per resolver snapshot, at most 2,048 partitions per group, bounded JSON.
+The partition cap is an outer contract limit. Before any evidence save or
+callback, stage construction reserves every phase's full receipt using maximum
+200-character sink IDs and the actual JSON-escaped run ID. A contract whose
+worst-case receipt exceeds the unchanged 1 MiB/50,000-node JSON limits refuses
+with `STAGE_RECEIPT_BUDGET`; thus the effective partition allowance is smaller.
+Finish also checks the actual serialized receipt against those verifier limits.
 This is a limited contract/slice, **not** a complete R1000 Fullrun transport.
 Larger future generations require a separately reviewed partition/transport
 binding; these limits must not be silently relaxed to make a run green.
@@ -78,6 +84,13 @@ availability contract, phase order, consumed coverage, context/source links and
 same session/code/decision. It does not trust a declared runtime hash and does
 not require the two full runtime/workflow/run identity hashes to match.
 The evidence sink and receipt pins must be held outside mutable run output.
+Each retained phase has a fresh 16 MiB resolver snapshot. A sink may use a fresh
+immutable ID for every saved copy; content-addressed deduplication is optional.
+Every phase is checked immediately and all phase snapshots are checked again at
+the end, so later reads cannot hide replacement of an earlier evidence file.
+Verification retains at most fifteen phase byte caches (nine A, six B), each
+bounded by 16 MiB, plus the separate frozen/environment snapshots. This is a
+bounded retained-memory allowance, not a 16 MiB cap on the entire A/B archive.
 
 ## Native API and verification
 
@@ -124,11 +137,12 @@ reviewed Reader-to-native format/identity binding; independently audited complet
 native engine/broker/replay read closure and environment/parameter capture.
 Then perform a separately authorized limited same-generation consumer audit.
 Actual economic Stage A/B/R0/Fullrun remains a separate approval and gate.
-New-head CI and independent A6 precede any merge. This task does not merge.
+New-head CI, independent A6 and final exact-head review precede any separately
+user-authorized merge; the adapter grants no merge or economic authority.
 
 Reusable lesson: same source_run_id, price digest or green environment precheck
 cannot prove identical consumed inputs. Reconstruct group bytes across all
 phases; distinguish bytes returned to a guarded consumer from authentication of
 the real native read closure. Missing consumption evidence must stay blocked.
-This dated linked note records the lesson instead of editing the shared lessons
-ledger, whose concurrent #593 change scope is preserved.
+The canonical lesson is recorded in
+[the shared ledger](AGENT_SHARED_LESSONS_LEDGER.md#2026-10-10--frozen-stage-ab-receipt-capacity-and-consumer-evidence-595).

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -86,10 +87,10 @@ class Fixture:
             path.write_bytes(raw)
         return {'artifact_id': ident, 'sha256': admission.digest(raw)}
 
-    def stage(self, name: str) -> fairness.FrozenStage:
+    def stage(self, name: str, *, run_id: str | None = None) -> fairness.FrozenStage:
         return fairness.FrozenStage(self.raw, expected_generation_sha256=self.pin, stage=name,
             runtime_root=self.a if name == 'A' else self.b, frozen_root=self.frozen,
-            save_evidence=self.save, run_id='workflow-' + name,
+            save_evidence=self.save, run_id=run_id or 'workflow-' + name,
             control=self.control, challenger=self.challenger, environment_root=self.environment)
 
     def consume(self, view):
@@ -148,6 +149,112 @@ class FrozenFairnessTests(unittest.TestCase):
         self.assertNotEqual(json.loads(a)['run_id'], json.loads(b)['run_id'])
         for key, value in fairness.AUTHORITY.items():
             self.assertIs(result[key], value)
+
+    def test_receipt_capacity_refuses_600_partitions_before_evidence_save(self):
+        for index in range(600):
+            self.f.groups['candidates']['sources'].append(
+                self.f.source('candidate-partition-%04d' % index, b'x'))
+        self.f.rebind()
+        fairness.validate_contract(self.f.raw, self.f.pin)
+        for stage in ('A', 'B'):
+            with self.subTest(stage=stage):
+                with self.assertRaisesRegex(admission.AdmissionError, r'\ASTAGE_RECEIPT_BUDGET\Z'):
+                    self.f.stage(stage)
+                self.assertEqual(list(self.f.evidence.iterdir()), [])
+
+    def test_receipt_capacity_reserves_escaped_run_id_before_save(self):
+        # The original unbounded run ID could alone make an unverifiable receipt.
+        for stage in ('A', 'B'):
+            with self.subTest(stage=stage):
+                with self.assertRaisesRegex(admission.AdmissionError, r'\ASTAGE_RECEIPT_BUDGET\Z'):
+                    self.f.stage(stage, run_id='\u2603' * 180000)
+                self.assertEqual(list(self.f.evidence.iterdir()), [])
+
+    def unique_sink(self, *, maximum_id: bool = False):
+        counter = 0
+        def save(raw):
+            nonlocal counter
+            counter += 1
+            ident = 'copy-%06d' % counter
+            if maximum_id:
+                ident += 'x' * (200 - len(ident))
+            (self.f.evidence / ident).write_bytes(raw)
+            return {'artifact_id': ident, 'sha256': admission.digest(raw)}
+        self.f.save = save
+
+    def test_receipt_capacity_positive_with_maximum_sink_ids_and_partitions(self):
+        for index in range(100):
+            self.f.groups['candidates']['sources'].append(
+                self.f.source('candidate-partition-%04d' % index, b'x'))
+        self.f.rebind(); self.unique_sink(maximum_id=True)
+        a, b = self.f.receipts()
+        for raw in (a, b):
+            self.assertLessEqual(len(raw), admission.MAX_BLOB_BYTES)
+            admission.strict_json(raw)
+        result = self.f.verify(a, b)
+        cli = self.f.cli(a, b)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(cli.stderr, '')
+        for output in (result, json.loads(cli.stdout)):
+            for key, expected in fairness.AUTHORITY.items():
+                self.assertIs(output[key], expected)
+
+    def large_sources(self):
+        for index in range(2):
+            self.f.groups['candidates']['sources'].append(
+                self.f.source('large-source-%d' % index, bytes([65 + index]) * 700000))
+        self.f.rebind()
+
+    def test_phase_local_budget_accepts_unique_retained_copies_api_and_cli(self):
+        self.large_sources(); self.unique_sink()
+        a, b = self.f.receipts()
+        self.assertGreater(sum(p.stat().st_size for p in self.f.evidence.iterdir()),
+                           admission.MAX_TOTAL_BYTES)
+        result = self.f.verify(a, b)
+        cli = self.f.cli(a, b)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(cli.stderr, '')
+        for output in (result, json.loads(cli.stdout)):
+            self.assertEqual(output['status'], 'FROZEN_CONTRACT_BYTE_PASS_RESEARCH_ONLY')
+            for key, expected in fairness.AUTHORITY.items():
+                self.assertIs(output[key], expected)
+
+    def test_phase_local_budget_accepts_content_addressed_large_sources(self):
+        self.large_sources()
+        a, b = self.f.receipts()
+        self.assertEqual(self.f.verify(a, b)['status'], 'FROZEN_CONTRACT_BYTE_PASS_RESEARCH_ONLY')
+        cli = self.f.cli(a, b)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(cli.stderr, '')
+
+    def test_final_recheck_refuses_earlier_phase_mutation_during_later_reads(self):
+        self.unique_sink()
+        a, b = self.f.receipts()
+        phases = json.loads(a)['phases']
+        first = next(row for rows in phases[0]['groups'].values() for row in rows)
+        later = next(row for rows in phases[1]['groups'].values() for row in rows)
+        victim = self.f.evidence / first['evidence_ref']['artifact_id']
+        trigger = later['evidence_ref']['artifact_id']
+        read = admission.BoundedArtifactResolver.__call__
+        def altered(resolver, ident):
+            raw = read(resolver, ident)
+            if resolver.root == self.f.evidence and ident == trigger:
+                # Earlier phase has already passed its immediate snapshot check.
+                victim.write_bytes(b'changed after earlier phase was verified')
+            return raw
+        with patch.object(admission.BoundedArtifactResolver, '__call__', altered):
+            with self.assertRaisesRegex(admission.AdmissionError, r'\AARTIFACT_CHANGED\Z'):
+                self.f.verify(a, b)
+
+    def test_phase_local_snapshot_still_refuses_oversized_artifact(self):
+        self.unique_sink()
+        a, b = self.f.receipts()
+        next(self.f.evidence.iterdir()).write_bytes(b'x' * (admission.MAX_BLOB_BYTES + 1))
+        with self.assertRaisesRegex(admission.AdmissionError, r'\AARTIFACT_BYTE_BUDGET\Z'):
+            self.f.verify(a, b)
+        cli = self.f.cli(a, b)
+        self.assertEqual(cli.returncode, 2, cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['reason'], 'ARTIFACT_BYTE_BUDGET')
 
     def test_optional_sec_used_and_unused_have_exact_coverage(self):
         self.assertEqual(self.f.groups['sec_event']['sources'], [])
