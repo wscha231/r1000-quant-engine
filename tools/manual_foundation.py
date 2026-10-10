@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -59,11 +60,13 @@ A1_READER_DEPENDENCIES = [
 # remain the independently verified caller's explicit dependency responsibility.
 BOARD_INPUT_DEPENDENCIES = [
     'mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
-    'research/control_plane/system_state_schema.json']
+    'research/control_plane/system_state_schema.json', 'tools/materialize_system_state.py']
 # Existing default PR-validation program closure traced at source HEAD
 # 2677e0281ce8fa98154a296885275b70db3fed50: 235 registered scripts plus
 # their fixed local Python import/read helpers (including the three combined
-# suites). Keep these mandatory independently of mutable Toolbox/runner rows;
+# suites). Master e89c8f61 (#595) adds the frozen Stage A/B smoke/helper consumed
+# by the existing fullrun_runtime_source_manifest smoke entrypoint below.
+# Keep these mandatory independently of mutable Toolbox/runner rows;
 # deleting a helper must not remove its required pin. This is a path inventory,
 # not a claim of approved semantics or completed proof. Changes to the proof
 # procedure require reviewing/updating its consumed inputs, like the Reader.
@@ -223,6 +226,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/free_data_forward_paper_ledger_smoke.py',
     'tests/free_data_selection_overlay_smoke.py',
     'tests/free_market_context_library_smoke.py',
+    'tests/frozen_stage_ab_fairness_smoke.py',
     'tests/fullrun_latest_cross_section_preflight_smoke.py',
     'tests/fullrun_runtime_source_manifest_smoke.py',
     'tests/fullrun_source_manifest_smoke.py',
@@ -495,6 +499,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/explosive_mover_scan_daily.py',
     'tools/fetch_run287_recent_companyfacts.py',
     'tools/free_market_context.py',
+    'tools/frozen_stage_ab_fairness.py',
     'tools/historical_replay_lib.py',
     'tools/long_history_lake.py',
     'tools/macro_daily_snapshot.py',
@@ -741,12 +746,21 @@ def payload_hash(value: dict, hash_field: str) -> str:
 def validate_shape(value: dict, *, scope: bool = False, root: Path = ROOT) -> None:
     schema = board.read_json(path_at(root, SCHEMA))
     # Resolve this one existing contract locally; never retrieve a schema URL.
-    authority = board.read_json(path_at(root, 'research/control_plane/task_packet_schema.json'))['properties']['authority']
+    task_schema = board.read_json(path_at(root, 'research/control_plane/task_packet_schema.json'))
+    try:
+        Draft202012Validator.check_schema(schema)
+        Draft202012Validator.check_schema(task_schema)
+    except SchemaError as exc:
+        raise ContractError('manual_schema_contract_invalid') from exc
+    authority = task_schema['properties']['authority']
     schema['properties']['authority'] = authority
     schema['$defs']['scope']['properties']['authority'] = authority
     if scope:
         schema = {'$schema': schema['$schema'], '$defs': schema['$defs'], '$ref': '#/$defs/scope'}
-    Draft202012Validator.check_schema(schema)
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as exc:
+        raise ContractError('manual_schema_contract_invalid') from exc
     errors = list(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(value))
     if errors:
         raise ContractError('manual_schema_invalid:' + '/'.join(map(str, errors[0].absolute_path)))
@@ -879,6 +893,19 @@ def load_do_not_repeat_registry(root: Path = ROOT) -> dict:
     return registry
 
 
+def catalog_timestamp(value, reason: str) -> datetime:
+    # Check the original clock/offset before datetime can normalize it.
+    if (not isinstance(value, str) or re.fullmatch(
+            r'[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}'
+            r'(?:[.,][0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])',
+            value) is None):
+        raise ContractError(reason)
+    try:
+        return board.timestamp(value)
+    except (ContractError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+        raise ContractError(reason) from exc
+
+
 def load_catalog(root: Path = ROOT) -> dict:
     value = board.read_json(path_at(root, CATALOG))
     if (not isinstance(value, dict)
@@ -900,22 +927,18 @@ def load_catalog(root: Path = ROOT) -> dict:
             raise ContractError('catalog_duplicate_or_classification')
         seen.add(entry_id)
 
+        catalog_timestamp(row.get('verified_at'), 'catalog_verified_at_invalid')
+        master = row.get('last_verified_master')
+        if not isinstance(master, str) or re.fullmatch('[0-9a-f]{40}', master) is None:
+            raise ContractError('catalog_last_verified_master_invalid')
+
         has_successor = row.get('superseded_by') is not None
         if (classification == 'SUPERSEDED') != has_successor:
             raise ContractError('catalog_supersedes_invariant')
 
         expiry = row.get('expiry')
         if expiry is not None:
-            # Check the original clock/offset before datetime can normalize it.
-            if (not isinstance(expiry, str) or re.fullmatch(
-                    r'[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}'
-                    r'(?:[.,][0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])',
-                    expiry) is None):
-                raise ContractError('catalog_expiry_invalid')
-            try:
-                expiry_at = board.timestamp(expiry)
-            except (ContractError, ValueError, TypeError, AttributeError):
-                raise ContractError('catalog_expiry_invalid')
+            expiry_at = catalog_timestamp(expiry, 'catalog_expiry_invalid')
             if classification == 'REUSE_NOW' and expiry_at <= datetime.now(timezone.utc):
                 raise ContractError('catalog_reuse_expired')
 

@@ -1,5 +1,42 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
+
+- Trace mandatory lazy imports as well as top-level imports. The Board's
+  materializer executes during verification, so every Board consumer must pin
+  it even when a successor Toolbox omits it. Refuse changed bytes with old pins;
+  a freshly authorized dependency binding is preparation, not inherited proof.
+- Validate verification timestamps and exact master identities for every
+  canonical catalog row, including unselected rows. Complete hash rebinding
+  cannot replace missing provenance. Preserve historical master evidence and
+  timezone-aware clocks; normalize UTC conversion overflow and never claim
+  current live review from syntax.
+- Check both local canonical schemas and normalize SchemaError to structured
+  BLOCKED_INPUT for API/CLI callers; invalid schema JSON is different from an
+  invalid packet. Test the actual refusal under normal/-O with child optimization
+  inherited. Preserve separate author/A6/Codex evidence and all authority gates.
+- Reconcile current master in the existing released Main checkout. Keep both
+  accepted shared-lesson blocks when resolving an append conflict; an older
+  green CI or scoped CLEAN does not approve the reconciled source HEAD.
+
+## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
+
+- A valid source contract can produce an oversized phase receipt. Reserve the
+  consumer's unchanged byte/node limits before callbacks or evidence writes,
+  including maximum legal sink ID lengths and JSON-escaped caller identities.
+  An outer partition cap alone cannot guarantee verifiable output capacity.
+- Budget immutable retained evidence per phase, as the producer snapshots do.
+  Fresh IDs per save are valid without content deduplication. Recheck every
+  prior physical snapshot at the end so later reads cannot mask its mutation;
+  report the bounded retained-memory allowance separately from archive size.
+- Equal price/source hashes and Git HEAD cannot authenticate all native reads.
+  ConsumerView is a trusted API, not an OS/network sandbox; undeclared external
+  reads and executed module bytes remain unverified. Byte PASS never grants
+  fairness, G0, economic readiness or A1 source admission.
+- Normalize timezone conversion overflow to a finite clock refusal. Keep author
+  regressions separate from independent exact-head A6 and final PR review;
+  later reproducible findings supersede a prior scoped CLEAN result.
+
 ## 2026-10-10 — Manual review anchors and proof pins need complete scope (#593)
 
 - A packet/manifest rehash proves consistency, not adoption. Preserve immutable

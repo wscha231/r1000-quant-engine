@@ -1515,7 +1515,7 @@ class ManualTests(unittest.TestCase):
 
     def test_l0_mandatory_board_closure_cannot_be_removed_from_proposed_toolbox(self):
         expected = {'mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
-                    'research/control_plane/system_state_schema.json'}
+                    'research/control_plane/system_state_schema.json', 'tools/materialize_system_state.py'}
         packet, scope = self.packet()
         manifest = manual.board.read_json(self.root / manual.MANIFEST)
         current = self.successor_fixture(manifest, packet['playbook_id'], '1.1.0')
@@ -1534,7 +1534,7 @@ class ManualTests(unittest.TestCase):
 
     def test_l0_old_packet_byte_pins_and_independent_scope_survive_packet_rehash(self):
         for name in ('mission_contract.py', 'r1000_config.py', 'requirements_github.txt',
-                     'research/control_plane/system_state_schema.json'):
+                     'research/control_plane/system_state_schema.json', 'tools/materialize_system_state.py'):
             with self.subTest(name=name):
                 packet, scope = self.packet()
                 original = (self.root / name).read_bytes()
@@ -1638,7 +1638,8 @@ class ManualTests(unittest.TestCase):
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
         self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
-                         'tools/research_data_access.py'}.issubset(required))
+                         'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
+                         'tools/frozen_stage_ab_fairness.py'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
         result = self.validate(packet, scope)
         self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
@@ -1650,7 +1651,8 @@ class ManualTests(unittest.TestCase):
         programs = {path for path, _ in registered_validation.DEFAULT_TESTS}
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
-                         'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
+                         'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py',
+                         'tests/frozen_stage_ab_fairness_smoke.py', 'tools/frozen_stage_ab_fairness.py'})
         for name in sorted(programs):
             with self.subTest(name=name):
                 target = self.root / name
@@ -1749,6 +1751,154 @@ class ManualTests(unittest.TestCase):
                 self.assertEqual(self.validate(fresh, fresh_scope)['status'], 'VALIDATED_PREPARE_ONLY')
             finally:
                 target.write_bytes(original)
+
+    def test_all_board_consumers_refuse_removed_materializer_pin_after_full_rebinding(self):
+        name = 'tools/materialize_system_state.py'
+        for selected in manual.PLAYBOOK_IDS:
+            with self.subTest(selected=selected):
+                packet, scope = self.packet(selected)
+                self.assertIn(name, packet['dependencies'])
+                del packet['dependencies'][name]
+                del scope['dependencies'][name]
+                self.rebind_all(packet, scope)
+                self.rejected(packet, scope, 'missing_dependency')
+                result = self.cli_fixture(packet, scope)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(json.loads(result.stdout)['reason'], 'missing_dependency')
+                self.assertEqual(result.stderr, '')
+
+    def test_catalog_every_row_requires_verification_provenance_after_full_rebinding(self):
+        original = manual.load_catalog(self.root)
+        packet, scope = self.packet()
+        for index, row in enumerate(original['entries']):
+            for field in ('verified_at', 'last_verified_master'):
+                for value in ('missing', None, 17, 'not-valid'):
+                    with self.subTest(entry=row['entry_id'], field=field, value=value):
+                        try:
+                            catalog = copy.deepcopy(original)
+                            if value == 'missing':
+                                del catalog['entries'][index][field]
+                            else:
+                                catalog['entries'][index][field] = value
+                            self.write(manual.CATALOG, catalog)
+                            reason = 'catalog_' + field + '_invalid'
+                            with self.assertRaisesRegex(manual.ContractError, reason):
+                                manual.load_catalog(self.root)
+                            p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                            self.rejected(self.rebind_all(p, s), s, reason)
+                        finally:
+                            self.write(manual.CATALOG, original)
+
+    def test_selected_and_unselected_catalog_clocks_and_master_types_fail_closed(self):
+        original = manual.load_catalog(self.root)
+        bad = {
+            'verified_at': ['', ' \t\n', True, [], {}, '2026-10-09',
+                '2026-10-09T12:00:00', '2026-02-30T12:00:00Z',
+                '2026-10-09T24:00:00Z', '2026-10-09T12:00:00+00:60',
+                '2026-10-09T12:00:00+24:00', '0001-01-01T00:00:00+23:59',
+                '9999-12-31T23:59:59-23:59'],
+            'last_verified_master': ['', ' \t\n', True, [], {}, 'a' * 39,
+                'a' * 41, 'g' * 40, 'A' * 40, 'a' * 40 + '\n']}
+        for reuse in ([], ['group_158']):
+            packet, scope = self.packet()
+            packet['reuse_entries'] = reuse
+            index = next(i for i, r in enumerate(original['entries']) if r['entry_id'] == 'group_158')
+            for field, values in bad.items():
+                for value in values:
+                    with self.subTest(reuse=reuse, field=field, value=value):
+                        try:
+                            catalog = copy.deepcopy(original)
+                            catalog['entries'][index][field] = value
+                            self.write(manual.CATALOG, catalog)
+                            p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                            self.rejected(self.rebind_all(p, s), s, 'catalog_' + field + '_invalid')
+                        finally:
+                            self.write(manual.CATALOG, original)
+
+    def test_catalog_provenance_aware_clocks_and_historical_master_preserve_reuse(self):
+        original = manual.load_catalog(self.root)
+        for clock in ('2026-10-09T12:00:00Z', '2026-10-09T12:00:00+00:00',
+                      '2026-10-09T21:00:00+09:00', '2026-10-09T08:00:00-04:00',
+                      '2026-10-09T12:00:00.123456Z', '2026-10-09 12:00:00+00:00'):
+            with self.subTest(clock=clock):
+                try:
+                    packet, scope = self.packet()
+                    packet['reuse_entries'] = ['group_158']
+                    catalog = copy.deepcopy(original)
+                    row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                    row['verified_at'] = clock
+                    self.assertRegex(row['last_verified_master'], r'^[0-9a-f]{40}$')
+                    self.write(manual.CATALOG, catalog)
+                    result = self.validate(self.rebind_all(packet, scope), scope)
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertTrue(manual.lookup_reuse('group_158', self.root)['allowed'])
+                    self.assertFalse(result['economic_authority'])
+                finally:
+                    self.write(manual.CATALOG, original)
+
+    def test_real_cli_catalog_provenance_returns_structured_refusal_and_valid_control(self):
+        original = manual.load_catalog(self.root)
+        for selected in (False, True):
+            for field in ('verified_at', 'last_verified_master'):
+                values = ['missing', None, 17, 'not-valid']
+                if field == 'verified_at':
+                    values += ['0001-01-01T00:00:00+23:59', '9999-12-31T23:59:59-23:59']
+                for value in values:
+                    with self.subTest(selected=selected, field=field, value=value):
+                        try:
+                            packet, scope = self.packet()
+                            packet['reuse_entries'] = ['group_158'] if selected else []
+                            catalog = copy.deepcopy(original)
+                            row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                            if value == 'missing':
+                                del row[field]
+                            else:
+                                row[field] = value
+                            self.write(manual.CATALOG, catalog)
+                            self.rebind_all(packet, scope)
+                            result = self.cli_fixture(packet, scope)
+                            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                            self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                                'reason': 'catalog_' + field + '_invalid', 'worker_invoked': False})
+                            self.assertEqual(result.stderr, '')
+                        finally:
+                            self.write(manual.CATALOG, original)
+        packet, scope = self.packet()
+        packet['reuse_entries'] = ['group_158']
+        self.bind(packet)
+        result = self.cli_fixture(packet, scope)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+
+    def test_invalid_canonical_schemas_refuse_api_and_cli_after_complete_rebinding(self):
+        for name, field in ((manual.SCHEMA, 'task_key'),
+                            ('research/control_plane/task_packet_schema.json', 'authority'),
+                            ('research/control_plane/task_packet_schema.json', 'task_key')):
+            original = (self.root / name).read_bytes()
+            for selected in manual.PLAYBOOK_IDS:
+                with self.subTest(schema=name, field=field, selected=selected):
+                    try:
+                        packet, scope = self.packet(selected)
+                        schema = manual.board.read_json(self.root / name)
+                        schema['properties'][field]['type'] = 17
+                        self.write(name, schema)
+                        self.rebind_all(packet, scope)
+                        self.rejected(packet, scope, 'manual_schema_contract_invalid')
+                        for value, is_scope in ((packet, False), (scope, True)):
+                            with self.assertRaisesRegex(manual.ContractError, 'manual_schema_contract_invalid'):
+                                manual.validate_shape(value, scope=is_scope, root=self.root)
+                        result = self.cli_fixture(packet, scope)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                            'reason': 'manual_schema_contract_invalid', 'worker_invoked': False})
+                        self.assertEqual(result.stderr, '')
+                    finally:
+                        (self.root / name).write_bytes(original)
+        for selected in manual.PLAYBOOK_IDS:
+            packet, scope = self.packet(selected)
+            result = self.cli_fixture(packet, scope)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(json.loads(result.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
 
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.
