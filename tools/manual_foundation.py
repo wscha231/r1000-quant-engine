@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools import run_agent_board as board
 from tools.check_run287_do_not_repeat import evaluate_candidate, normalize
+from tools.build_run287_u0_v2_github_census import validated_do_not_repeat_entries
 
 MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
@@ -36,6 +37,13 @@ VERSION_ANCHOR_BLOB = 'cc4f0ced44f12210b88b001ee1a2a87b827cdbe0'
 VERSION_ANCHOR = (('L0_RESUME_HANDOFF', '1.0.0'),
                   ('A1_SOURCE_ADMISSION_REFRESH', '1.0.0'),
                   ('A6_INDEPENDENT_QA', '1.0.0'))
+# Canonical SHA256 of each actual reviewed row, excluding only status and its
+# derived playbook_sha256. Status may become SUPERSEDED; its content stays fixed.
+VERSION_ANCHOR_CONTENT = {
+    ('L0_RESUME_HANDOFF', '1.0.0'): 'c9f3a1d54fbcb699b20565e73a469c0c5b1a7c49e917bb395ab9f646da60159c',
+    ('A1_SOURCE_ADMISSION_REFRESH', '1.0.0'): 'bdb5291b17aa145394a076c5865ccd73cfeb9943c6436943587db2ab7031caa6',
+    ('A6_INDEPENDENT_QA', '1.0.0'): 'bed61231c97ea31ec5b23127af5481d6121713331d1925faa39b363ff4ff34ce',
+}
 # Actual frozen Reader imports/default registry, including its NYSE calendar.
 # Collector-only imports are not consumed by the read-only Reader path.
 A1_READER_DEPENDENCIES = [
@@ -162,6 +170,9 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
         anchor = rows_by_identity.get((key, version))
         if anchor is None:
             raise ContractError('missing_reviewed_playbook_anchor')
+        if board.digest({k: v for k, v in anchor.items()
+                         if k not in ('status', 'playbook_sha256')}) != VERSION_ANCHOR_CONTENT[(key, version)]:
+            raise ContractError('reviewed_playbook_content_changed')
         if semantic_version(current[key]['playbook_version']) < semantic_version(version):
             raise ContractError('playbook_version_not_increasing')
         # Retain a coherent chain all the way to the reviewed initial version,
@@ -180,6 +191,35 @@ def load_playbook(playbook_id: str, root: Path = ROOT) -> tuple[dict, dict]:
     return manifest, current[playbook_id]
 
 
+def load_do_not_repeat_registry(root: Path = ROOT) -> dict:
+    registry = board.read_json(path_at(root, DNR))
+    if not isinstance(registry, dict):
+        raise ContractError('do_not_repeat_registry_invalid')
+    if registry.get('match_fields') != ['signal', 'mechanism', 'book', 'window']:
+        raise ContractError('do_not_repeat_match_fields_not_canonical')
+    try:
+        validated_do_not_repeat_entries(registry)
+    except ValueError as exc:
+        raise ContractError('do_not_repeat_registry_invalid:' + str(exc)) from exc
+    # Registry identities/descriptors are JSON text, like candidate identities;
+    # the census validator's str() compatibility must not admit coerced objects.
+    if any(not isinstance(item[field], str) for item in registry['entries']
+           for field in ('id', 'status', 'signal', 'mechanism', 'book', 'window')):
+        raise ContractError('do_not_repeat_registry_invalid:nontext_entry_field')
+    policy = registry.get('reuse_policy') or {}
+    if not isinstance(policy, dict):
+        raise ContractError('do_not_repeat_threshold_invalid')
+    threshold = policy.get('minimum_component_coverage_increase_pp', 5.0)
+    try:
+        valid_threshold = (type(threshold) in (int, float)
+                           and math.isfinite(threshold) and threshold >= 0)
+    except (OverflowError, ValueError):
+        valid_threshold = False
+    if not valid_threshold:
+        raise ContractError('do_not_repeat_threshold_invalid')
+    return registry
+
+
 def load_catalog(root: Path = ROOT) -> dict:
     value = board.read_json(path_at(root, CATALOG))
     if (value.get('schema_version') != 'pr-reuse-catalog-v1'
@@ -189,6 +229,8 @@ def load_catalog(root: Path = ROOT) -> dict:
     entries = value.get('entries')
     if not isinstance(entries, list):
         raise ContractError('catalog_entries')
+    registry = load_do_not_repeat_registry(root)
+    indexed = {str(item['id']).strip(): item for item in registry['entries']}
     seen = set()
     for row in entries:
         if not isinstance(row, dict):
@@ -256,6 +298,16 @@ def load_catalog(root: Path = ROOT) -> dict:
             if not consumed or not consumed.issubset(dependencies):
                 raise ContractError('catalog_unpinned_reuse_path')
 
+        refs = row.get('do_not_repeat_refs')
+        if (not isinstance(refs, list)
+                or any(not isinstance(ref, str) or not ref.strip() for ref in refs)
+                or len(set(refs)) != len(refs)):
+            raise ContractError('do_not_repeat_refs_invalid')
+        if any(ref not in indexed for ref in refs):
+            raise ContractError('do_not_repeat_ref_missing')
+        if classification == 'DO_NOT_REPEAT' and not any(indexed[ref]['blocked_reuse'] is True for ref in refs):
+            raise ContractError('do_not_repeat_unbound')
+
     for row in entries:
         if row.get('superseded_by') and (row['superseded_by'] not in seen or row['superseded_by'] == row['entry_id']):
             raise ContractError('catalog_invalid_supersedes')
@@ -270,8 +322,8 @@ def lookup_reuse(entry_id: str, root: Path = ROOT) -> dict:
     row = matches[0]
     if row['classification'] == 'SUPERSEDED' or row.get('superseded_by') is not None:
         raise ContractError('catalog_superseded')
-    registry = board.read_json(path_at(root, DNR))
-    indexed = {item['id']: item for item in registry['entries']}
+    registry = load_do_not_repeat_registry(root)
+    indexed = {str(item['id']).strip(): item for item in registry['entries']}
     blocked = []
     for ref in row['do_not_repeat_refs']:
         if ref not in indexed:
@@ -294,6 +346,7 @@ def required_dependencies(playbook_id: str, root: Path = ROOT) -> list[str]:
         MANIFEST, SCHEMA, CATALOG, DNR,
         'tools/manual_foundation.py', 'tools/run_agent_board.py',
         'tools/check_run287_do_not_repeat.py',
+        'tools/build_run287_u0_v2_github_census.py',
         'research/control_plane/agent_contracts_v2.yaml',
         'research/control_plane/task_packet_schema.json']))
 
@@ -363,17 +416,14 @@ def validate_packet(packet: dict, scope: dict, *, expected_base: str,
         if any(not isinstance(candidate.get(field), str) or not normalize(candidate[field])
                for field in ('signal', 'mechanism', 'book', 'window')):
             raise ContractError('do_not_repeat_identity_invalid')
-        registry = board.read_json(path_at(root, DNR))
-        if registry.get('match_fields') != ['signal', 'mechanism', 'book', 'window']:
-            raise ContractError('do_not_repeat_match_fields_not_canonical')
-        threshold = (registry.get('reuse_policy') or {}).get('minimum_component_coverage_increase_pp', 5.0)
+        registry = load_do_not_repeat_registry(root)
+        coverage = candidate.get('component_coverage_increase_pp', 0.0)
         try:
-            valid_threshold = (type(threshold) in (int, float)
-                               and math.isfinite(threshold) and threshold >= 0)
+            valid_coverage = type(coverage) in (int, float) and math.isfinite(coverage)
         except (OverflowError, ValueError):
-            valid_threshold = False
-        if not valid_threshold:
-            raise ContractError('do_not_repeat_threshold_invalid')
+            valid_coverage = False
+        if not valid_coverage:
+            raise ContractError('do_not_repeat_coverage_invalid')
         result = evaluate_candidate(registry, **candidate)
         if not result['allowed']:
             raise ContractError('BLOCKED_DO_NOT_REPEAT')
@@ -400,7 +450,7 @@ def main() -> int:
         result = validate_packet(board.read_json(args.packet), board.read_json(args.scope),
                                  expected_base=args.expected_base,
                                  expected_review_head=args.expected_review_head)
-    except (ContractError, OSError, KeyError, TypeError, ValueError) as exc:
+    except (ContractError, OSError, KeyError, TypeError, ValueError, OverflowError) as exc:
         print(json.dumps({'status': 'BLOCKED_INPUT', 'reason': str(exc), 'worker_invoked': False}))
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))
