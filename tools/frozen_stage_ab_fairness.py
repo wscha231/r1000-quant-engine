@@ -137,6 +137,7 @@ def receipt_bytes(contract: dict, pin: str, stage: str, run_id: str, phases: lis
 
 
 def require_receipt_capacity(contract: dict, pin: str, stage: str, run_id: str) -> None:
+    require(len(run_id) <= admission.MAX_BLOB_BYTES, 'STAGE_RECEIPT_BUDGET')
     # The sink may legally choose any 200-character ASCII artifact ID for each
     # save. Reserve that worst case before saving evidence or invoking consumers.
     # Receipt byte/node/depth budgets are the verifier's unchanged JSON budgets.

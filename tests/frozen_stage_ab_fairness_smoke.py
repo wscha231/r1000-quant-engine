@@ -164,11 +164,12 @@ class FrozenFairnessTests(unittest.TestCase):
 
     def test_receipt_capacity_reserves_escaped_run_id_before_save(self):
         # The original unbounded run ID could alone make an unverifiable receipt.
-        for stage in ('A', 'B'):
-            with self.subTest(stage=stage):
-                with self.assertRaisesRegex(admission.AdmissionError, r'\ASTAGE_RECEIPT_BUDGET\Z'):
-                    self.f.stage(stage, run_id='\u2603' * 180000)
-                self.assertEqual(list(self.f.evidence.iterdir()), [])
+        for run_id in ('\u2603' * 180000, 'x' * (admission.MAX_BLOB_BYTES + 1)):
+            for stage in ('A', 'B'):
+                with self.subTest(stage=stage, characters=len(run_id)):
+                    with self.assertRaisesRegex(admission.AdmissionError, r'\ASTAGE_RECEIPT_BUDGET\Z'):
+                        self.f.stage(stage, run_id=run_id)
+                    self.assertEqual(list(self.f.evidence.iterdir()), [])
 
     def unique_sink(self, *, maximum_id: bool = False):
         counter = 0
