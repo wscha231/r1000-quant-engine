@@ -259,7 +259,8 @@ class OwnerDrive:
         body = (('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n').encode()
                 + metadata + ('\r\n--' + boundary + '\r\nContent-Type: application/octet-stream\r\n\r\n').encode()
                 + raw + ('\r\n--' + boundary + '--\r\n').encode())
-        result = decode(self.request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        result = decode(self.request('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart'
+                                    '&ignoreDefaultVisibility=true&fields=id',
                                     method='POST', body=body,
                                     headers={'Content-Type': 'multipart/related; boundary=' + boundary}))
         file_id = result.get('id')
@@ -276,7 +277,7 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
         for adjustment in ('none', 'splits'):
             pause(10)
             query = dict(symbol=symbol, mic_code=mic, interval='1day', start_date=START,
-                         end_date=END, outputsize=5000, order='ASC', adjust=adjustment)
+                         end_date=END, outputsize=5000, order='asc', adjust=adjustment)
             raw, _ = provider('/time_series', query, key)
             data = credential_safe_json(raw, (key,))
             normalized_rows = rows(data, symbol, mic, adjustment)

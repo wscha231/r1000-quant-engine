@@ -8,6 +8,7 @@ import sys
 import unittest
 import zipfile
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -130,7 +131,8 @@ class PrivateCaptureTests(unittest.TestCase):
         self.assertEqual(len(queries), 8)
         self.assertEqual(pauses, [10]*8)
         self.assertEqual({q[1]['adjust'] for q in queries}, {'none', 'splits'})
-        self.assertTrue(all(q[1]['outputsize'] == 5000 and q[1]['end_date'] == '2026-10-10' for q in queries))
+        self.assertTrue(all(q[1]['outputsize'] == 5000 and q[1]['end_date'] == '2026-10-10'
+                            and q[1]['order'] == 'asc' for q in queries))
         self.assertEqual(out['rows'], 8)
         receipt = json.loads(drive.read(out['receipt']['file_id']))
         self.assertTrue(receipt['restored_from_drive'])
@@ -208,6 +210,27 @@ class PrivateCaptureTests(unittest.TestCase):
             drive.get = lambda *args, changed=changed: dict(good, **changed)
             with self.assertRaises(m.Refused):
                 drive.check('file-canary', 'root-canary')
+
+    def test_production_upload_bypasses_domain_default_visibility(self):
+        drive = object.__new__(m.OwnerDrive)
+        drive.root_id = 'root-canary'
+        checks, requests = [], []
+        drive.check = lambda *args, **kwargs: checks.append((args, kwargs))
+        raw = b'private-storage-canary'
+        drive.read = lambda _: raw
+        def request(url, **kwargs):
+            requests.append((url, kwargs))
+            return m.encoded(dict(id='file-canary'))
+        drive.request = request
+        out = drive.write('folder-canary', raw, '.json')
+        self.assertEqual(out['sha256'], m.digest(raw))
+        self.assertEqual(len(requests), 1)
+        query = parse_qs(urlsplit(requests[0][0]).query)
+        self.assertEqual(query['ignoreDefaultVisibility'], ['true'])
+        self.assertEqual(query['uploadType'], ['multipart'])
+        self.assertEqual(requests[0][1]['method'], 'POST')
+        self.assertEqual(checks[0][0], ('folder-canary', 'root-canary'))
+        self.assertEqual(checks[1][0], ('file-canary', 'folder-canary'))
 
     def test_invalid_or_service_account_config_refuses_without_child_process(self):
         import tempfile

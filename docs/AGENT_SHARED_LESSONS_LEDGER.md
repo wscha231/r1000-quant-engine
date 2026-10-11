@@ -6579,3 +6579,7 @@ Expected contract:
   historical security identity, certified session completeness, PIT, source
   admission, Alpaca raw/split concordance or Immutable Reader E2E. Preserve
   these separate gates and keep bulk capture disabled until its cohort binds.
+- Final Codex review requires documented lowercase Twelve order values and
+  Drive files.create ignoreDefaultVisibility=true. Post-upload owner checks
+  detect unwanted domain-default sharing too late to prevent exposure; bypass
+  that default at creation and keep private-parent and readback gates.
