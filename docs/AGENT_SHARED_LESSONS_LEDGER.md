@@ -15,6 +15,11 @@
   BLOCKED_INPUT for API/CLI callers; invalid schema JSON is different from an
   invalid packet. Test the actual refusal under normal/-O with child optimization
   inherited. Preserve separate author/A6/Codex evidence and all authority gates.
+- Metaschema checks do not resolve instance-time references. Catch the public
+  Unresolvable family at iter_errors and use a Registry with no retrieval;
+  missing pointers/anchors must refuse without traceback or external reads.
+  Hash-rebound packet/scope negatives and valid local-reference positives
+  need actual API/CLI coverage before a new exact-head review can be CLEAN.
 - Reconcile current master in the existing released Main checkout. Keep both
   accepted shared-lesson blocks when resolving an append conflict; an older
   green CI or scoped CLEAN does not approve the reconciled source HEAD.

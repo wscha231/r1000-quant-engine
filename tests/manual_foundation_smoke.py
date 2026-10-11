@@ -1900,6 +1900,94 @@ class ManualTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(json.loads(result.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
 
+    def test_unresolvable_schema_references_refuse_api_cli_after_complete_rebinding(self):
+        locations = ((manual.SCHEMA, ('properties', 'task_key'), False),
+                     ('research/control_plane/task_packet_schema.json',
+                      ('properties', 'authority'), False),
+                     (manual.SCHEMA, ('$defs', 'scope', 'properties', 'owner'), True))
+        references = ({'$ref': '#/$defs/MISSING_REVIEWED_DEFINITION'},
+                      {'$ref': '#MISSING_REVIEWED_ANCHOR'},
+                      {'$dynamicRef': '#/$defs/MISSING_REVIEWED_DEFINITION'})
+        for name, keys, is_scope in locations:
+            original = (self.root / name).read_bytes()
+            for selected in manual.PLAYBOOK_IDS:
+                for reference in references:
+                    with self.subTest(schema=name, location=keys, selected=selected,
+                                      reference=reference):
+                        try:
+                            packet, scope = self.packet(selected)
+                            schema = manual.board.read_json(self.root / name)
+                            node = schema
+                            for key in keys[:-1]:
+                                node = node[key]
+                            node[keys[-1]] = copy.deepcopy(reference)
+                            manual.Draft202012Validator.check_schema(schema)
+                            self.write(name, schema)
+                            self.rebind_all(packet, scope)
+                            self.rejected(packet, scope, 'manual_schema_contract_invalid')
+                            value = scope if is_scope else packet
+                            with self.assertRaisesRegex(manual.ContractError,
+                                                        'manual_schema_contract_invalid'):
+                                manual.validate_shape(value, scope=is_scope, root=self.root)
+                            result = self.cli_fixture(packet, scope)
+                            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                            self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                                'reason': 'manual_schema_contract_invalid', 'worker_invoked': False})
+                            self.assertEqual(result.stderr, '')
+                        finally:
+                            (self.root / name).write_bytes(original)
+
+    def test_external_schema_references_refuse_without_retrieval(self):
+        original = (self.root / manual.SCHEMA).read_bytes()
+        references = ('https://example.invalid/manual-contract.json',
+                      (self.root / 'unregistered-schema.json').as_uri())
+        for selected in manual.PLAYBOOK_IDS:
+            for reference in references:
+                with self.subTest(selected=selected, reference=reference):
+                    try:
+                        packet, scope = self.packet(selected)
+                        schema = manual.board.read_json(self.root / manual.SCHEMA)
+                        schema['properties']['task_key'] = {'$ref': reference}
+                        self.write(manual.SCHEMA, schema)
+                        self.rebind_all(packet, scope)
+                        with patch('urllib.request.urlopen',
+                                   side_effect=AssertionError('schema retrieval forbidden')) as fetch:
+                            self.rejected(packet, scope, 'manual_schema_contract_invalid')
+                            fetch.assert_not_called()
+                        result = self.cli_fixture(packet, scope)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                            'reason': 'manual_schema_contract_invalid', 'worker_invoked': False})
+                        self.assertEqual(result.stderr, '')
+                    finally:
+                        (self.root / manual.SCHEMA).write_bytes(original)
+
+    def test_valid_local_schema_references_preserve_prepare_only(self):
+        original = (self.root / manual.SCHEMA).read_bytes()
+        for selected in manual.PLAYBOOK_IDS:
+            for keyword in ('$ref', '$dynamicRef'):
+                with self.subTest(selected=selected, keyword=keyword):
+                    try:
+                        packet, scope = self.packet(selected)
+                        schema = manual.board.read_json(self.root / manual.SCHEMA)
+                        schema['$defs']['reviewedTaskKey'] = {'type': 'string', 'minLength': 1}
+                        schema['properties']['task_key'] = {keyword: '#/$defs/reviewedTaskKey'}
+                        self.write(manual.SCHEMA, schema)
+                        self.rebind_all(packet, scope)
+                        result = self.validate(packet, scope)
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                        manual.validate_shape(scope, scope=True, root=self.root)
+                        cli = self.cli_fixture(packet, scope)
+                        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                        self.assertEqual(json.loads(cli.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertEqual(cli.stderr, '')
+                    finally:
+                        (self.root / manual.SCHEMA).write_bytes(original)
+
     def test_cli_preflight_is_non_executing_and_wrong_base_returns_two(self):
         # CLI reads canonical repo; packet/scope are ephemeral synthetic artifacts.
         _, row = manual.load_playbook('L0_RESUME_HANDOFF')

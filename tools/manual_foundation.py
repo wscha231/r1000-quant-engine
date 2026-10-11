@@ -13,6 +13,8 @@ from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -761,7 +763,14 @@ def validate_shape(value: dict, *, scope: bool = False, root: Path = ROOT) -> No
         Draft202012Validator.check_schema(schema)
     except SchemaError as exc:
         raise ContractError('manual_schema_contract_invalid') from exc
-    errors = list(Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(value))
+    try:
+        # The metaschema checks syntax, not whether a reference resolves when
+        # validating an instance. Keep resolution offline and normalize its
+        # public exception family, including missing pointers and anchors.
+        errors = list(Draft202012Validator(schema, format_checker=FormatChecker(),
+                                          registry=Registry()).iter_errors(value))
+    except Unresolvable as exc:
+        raise ContractError('manual_schema_contract_invalid') from exc
     if errors:
         raise ContractError('manual_schema_invalid:' + '/'.join(map(str, errors[0].absolute_path)))
 
