@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Separate provider availability probes from historical admission
+
+- Use the owner's exact GitHub Secret name (`TWELVE_API_KEY` here); an empty
+  Native environment does not prove repository Secrets are missing.
+- Validate a fixed one-bar response and earliest-date metadata without retaining
+  prices or vendor error text. Stop on authentication, quota or redirect refusal;
+  use one account and no retry to multiply access attempts.
+- An advertised or reported ten-year span does not certify account-bound private
+  retention, complete sessions, raw/split concordance, historical identity or PIT.
+  A Draft workflow cannot replace reviewed-master execution or independent A6.
+
 ## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
 
 - A valid source contract can produce an oversized phase receipt. Reserve the
