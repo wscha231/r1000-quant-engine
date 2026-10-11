@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Keep proof packages and preflight boundaries fail closed (#593)
+
+- Bind the complete local AutoLearning package consumed by registered proofs,
+  including package initialization and sibling imports. Mandatory paths remain
+  required after deletion or fully rebound dependency omission. Fresh hashes
+  allow preparation only, never proof approval or economic execution.
+- JSON decoding can exhaust recursion before schema validation. Return the
+  existing structured input refusal at the CLI/API entrypoint, without raising
+  recursion limits or exposing a traceback.
+- An explicit output leaf needs directory ancestors. Refuse existing regular
+  file ancestors while retaining valid existing files and prospective directories.
+
+## 2026-10-11 — Reconstruct tracked test inputs in sparse CI (#593)
+
+- Native proof pinning can include canonical tracked inputs outside CI's sparse
+  checkout. A copy-only test fixture then fails before any assertion executes.
+- Capture one checked-out Git commit and reconstruct absent tracked regular
+  blobs only into temporary test fixtures. Preserve existing working-tree bytes;
+  unavailable, untracked, symlink and non-blob inputs must fail, never skip.
+- Production dependency existence and byte checks remain mandatory. Exercise
+  stale-byte and fully rebound missing-pin refusal with the reconstructed input.
+  A Native scoped CLEAN does not replace fresh required CI on the successor.
+
 ## 2026-10-11 — Bind non-Python subprocess proof entrypoints (#593)
 
 - Python imports and repository read traces miss local programs passed to a

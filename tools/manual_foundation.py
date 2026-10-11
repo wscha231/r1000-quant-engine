@@ -233,6 +233,15 @@ A6_FIXED_PROOF_PROGRAMS = (
     'aggressive/signals_technical.py',
     'aggressive/telegram_alert.py',
     'aggressive/universe.py',
+    'auto_learning_v2/__init__.py',
+    'auto_learning_v2/anomaly_detector.py',
+    'auto_learning_v2/challenger_backtester.py',
+    'auto_learning_v2/counterfactual_tester.py',
+    'auto_learning_v2/hypothesis_generator.py',
+    'auto_learning_v2/novelty_regime_detector.py',
+    'auto_learning_v2/policy_candidate_builder.py',
+    'auto_learning_v2/policy_grammar.py',
+    'auto_learning_v2/promotion_governor.py',
     'mission_contract.py',
     'r1000_alphaops_reporting.py',
     'r1000_auto_learning_evidence.py',
@@ -884,6 +893,11 @@ def allowed_file_at(root: Path, value: str) -> Path:
     path = path_at(root, value)
     if path.exists() and path.is_dir():
         raise ContractError('allowed_file_is_directory')
+    for parent in path.parents:
+        if parent == root.resolve():
+            break
+        if parent.exists() and not parent.is_dir():
+            raise ContractError('allowed_file_parent_not_directory')
     return path
 
 
@@ -1325,7 +1339,7 @@ def main() -> int:
                                  expected_base=args.expected_base,
                                  expected_review_head=args.expected_review_head,
                                  propose_successor=args.propose_successor)
-    except (ContractError, OSError, KeyError, TypeError, ValueError, OverflowError) as exc:
+    except (ContractError, OSError, KeyError, TypeError, ValueError, OverflowError, RecursionError) as exc:
         print(json.dumps({'status': 'BLOCKED_INPUT', 'reason': str(exc), 'worker_invoked': False}))
         return 2
     print(json.dumps(result, indent=2, sort_keys=True))

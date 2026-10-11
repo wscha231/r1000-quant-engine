@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -29,11 +31,31 @@ def independent_hash(value, excluded):
         sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
+def fixture_dependency_bytes(name, source_commit):
+    source = ROOT / name
+    if source.is_symlink():
+        raise FileNotFoundError(str(source))
+    try:
+        return source.read_bytes()
+    except FileNotFoundError:
+        entry = subprocess.check_output(['git', 'ls-tree', '-z', source_commit, '--', name],
+                                        cwd=ROOT, stderr=subprocess.PIPE)
+        metadata, separator, path = entry.rstrip(b'\0').partition(b'\t')
+        fields = metadata.split()
+        if (not separator or path != name.encode() or len(fields) != 3 or
+                fields[0] not in (b'100644', b'100755') or fields[1] != b'blob'):
+            raise
+        return subprocess.check_output(['git', 'cat-file', 'blob', fields[2].decode()],
+                                       cwd=ROOT, stderr=subprocess.PIPE)
+
+
 class ManualTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                               cwd=ROOT, text=True).strip()
         paths = {'AGENTS.md', 'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
                  'docs/AGENT_SHARED_LESSONS_LEDGER.md', 'docs/MANUAL_FOUNDATION_V1.md'}
         for key in manual.PLAYBOOK_IDS:
@@ -43,10 +65,81 @@ class ManualTests(unittest.TestCase):
         for name in paths:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, target)
+            # Sparse CI omits some tracked proof inputs. Reconstruct only this
+            # temporary fixture from one immutable checked-out Git snapshot.
+            target.write_bytes(fixture_dependency_bytes(name, source_commit))
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
+
+    def test_sparse_fixture_uses_exact_git_blob_and_keeps_input_refusals(self):
+        name = 'manifests/fullrun/run287_canonical_a_20260731.json'
+        missing = ROOT / name
+        source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                               cwd=ROOT, text=True).strip()
+        canonical = subprocess.check_output(['git', 'show', source_commit + ':' + name], cwd=ROOT)
+        read_bytes, copyfile = Path.read_bytes, shutil.copyfile
+
+        def sparse_read(path):
+            if path == missing:
+                raise FileNotFoundError(str(path))
+            return read_bytes(path)
+
+        def sparse_copy(source, target, **kwargs):
+            if Path(source) == missing:
+                raise FileNotFoundError(str(source))
+            return copyfile(source, target, **kwargs)
+
+        fixture = type(self)(self._testMethodName)
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(Path, 'read_bytes', autospec=True, side_effect=sparse_read), \
+             patch.object(shutil, 'copyfile', side_effect=sparse_copy):
+            fixture.setUp()
+        with self.assertRaises(FileNotFoundError):
+            fixture_dependency_bytes('tests/synthetic-absent-fixture-input.json', source_commit)
+        with patch.object(Path, 'read_bytes', autospec=True, return_value=b'changed working bytes'), \
+             patch.object(subprocess, 'check_output') as git_read:
+            self.assertEqual(fixture_dependency_bytes(name, source_commit), b'changed working bytes')
+            git_read.assert_not_called()
+        with patch.object(Path, 'is_symlink', return_value=True), \
+             patch.object(subprocess, 'check_output') as git_read, \
+             self.assertRaises(FileNotFoundError):
+            fixture_dependency_bytes(name, source_commit)
+        git_read.assert_not_called()
+        for mode, kind in ((b'120000', b'blob'), (b'040000', b'tree')):
+            with self.subTest(mode=mode), \
+                 patch.object(Path, 'read_bytes', autospec=True, side_effect=sparse_read), \
+                 patch.object(subprocess, 'check_output',
+                              return_value=mode + b' ' + kind + b' ' + b'a' * 40 +
+                                           b'\t' + name.encode() + b'\0'), \
+                 self.assertRaises(FileNotFoundError):
+                fixture_dependency_bytes(name, source_commit)
+        target = fixture.root / name
+        self.assertEqual(target.read_bytes(), canonical)
+        packet, scope = fixture.packet('A6_INDEPENDENT_QA')
+        self.assertEqual(fixture.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+        cli = fixture.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(cli.stderr, '')
+        for result in (fixture.validate(packet, scope), json.loads(cli.stdout)):
+            self.assertFalse(result['worker_invoked'])
+            self.assertFalse(result['completed_task'])
+            self.assertFalse(result['economic_authority'])
+            self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+        target.write_bytes(canonical + b'\n')
+        fixture.rejected(packet, scope, 'dependency_bytes_changed')
+        cli = fixture.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertTrue(json.loads(cli.stdout)['reason'].startswith('dependency_bytes_changed:'))
+        self.assertEqual(cli.stderr, '')
+        del packet['dependencies'][name]
+        del scope['dependencies'][name]
+        target.unlink()
+        fixture.rejected(fixture.rebind_schema_fixture(packet, scope), scope, 'missing_dependency')
+        cli = fixture.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+        self.assertEqual(cli.stderr, '')
 
     def packet(self, key='L0_RESUME_HANDOFF', *, propose_successor=False):
         _, playbook = manual.load_playbook(key, self.root, propose_successor=propose_successor)
@@ -126,6 +219,131 @@ class ManualTests(unittest.TestCase):
         if propose_successor:
             command.append('--propose-successor')
         return subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+
+    def test_a6_auto_learning_package_refuses_stale_and_rebound_omission(self):
+        # Literal import witnesses stay independent of the validator's list.
+        names = (
+            'auto_learning_v2/__init__.py',
+            'auto_learning_v2/anomaly_detector.py',
+            'auto_learning_v2/challenger_backtester.py',
+            'auto_learning_v2/counterfactual_tester.py',
+            'auto_learning_v2/hypothesis_generator.py',
+            'auto_learning_v2/novelty_regime_detector.py',
+            'auto_learning_v2/policy_candidate_builder.py',
+            'auto_learning_v2/policy_grammar.py',
+            'auto_learning_v2/promotion_governor.py',
+        )
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((ROOT / name).read_bytes())
+        for name in names:
+            with self.subTest(name=name):
+                target = self.root / name
+                original = target.read_bytes()
+                try:
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    changed = b'pass\n'
+                    compile(changed, name, 'exec')  # Syntax only; never execute economic code.
+                    target.write_bytes(changed)
+                    self.rejected(packet, scope, 'dependency_bytes_changed')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertTrue(json.loads(cli.stdout)['reason'].startswith('dependency_bytes_changed:'))
+                    self.assertEqual(cli.stderr, '')
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    cli = self.cli_fixture(fresh, fresh_scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    self.assertEqual(cli.stderr, '')
+                    for result in (self.validate(fresh, fresh_scope), json.loads(cli.stdout)):
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    del fresh['dependencies'][name]
+                    del fresh_scope['dependencies'][name]
+                    for delete_file in (False, True):
+                        if delete_file:
+                            target.unlink()
+                        self.rejected(self.rebind_schema_fixture(fresh, fresh_scope),
+                                      fresh_scope, 'missing_dependency')
+                        cli = self.cli_fixture(fresh, fresh_scope)
+                        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                        self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                        self.assertEqual(cli.stderr, '')
+                finally:
+                    target.write_bytes(original)
+
+    def test_deep_json_decode_returns_blocked_input_without_traceback(self):
+        packet, scope = self.packet()
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONOPTIMIZE=str(sys.flags.optimize))
+        env['PYTHONPATH'] = str(ROOT) + os.pathsep + env.get('PYTHONPATH', '')
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        arguments = [str(self.root / 'tools/manual_foundation.py'), '--packet',
+                     str(self.root / 'packet.json'), '--scope', str(self.root / 'scope.json'),
+                     '--expected-base', BASE]
+        deep = '[' * 10000 + '0' + ']' * 10000
+        for name in ('packet.json', 'scope.json'):
+            with self.subTest(name=name):
+                self.write('packet.json', packet)
+                self.write('scope.json', scope)
+                (self.root / name).write_text(deep)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with patch.object(sys, 'argv', arguments), \
+                     contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    self.assertEqual(manual.main(), 2)
+                result = json.loads(stdout.getvalue())
+                self.assertEqual(result['status'], 'BLOCKED_INPUT')
+                self.assertFalse(result['worker_invoked'])
+                self.assertEqual(stderr.getvalue(), '')
+                cli = subprocess.run(prefix + arguments, env=env, capture_output=True,
+                                     text=True, timeout=30)
+                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                self.assertEqual(json.loads(cli.stdout)['status'], 'BLOCKED_INPUT')
+                self.assertFalse(json.loads(cli.stdout)['worker_invoked'])
+                self.assertEqual(cli.stderr, '')
+        for value in ([], None, 1, 'text', True):
+            cli = self.cli_fixture(value, scope)
+            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+            self.assertEqual(json.loads(cli.stdout)['status'], 'BLOCKED_INPUT')
+            self.assertEqual(cli.stderr, '')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse(json.loads(cli.stdout)['worker_invoked'])
+        self.assertEqual(cli.stderr, '')
+
+    def test_allowed_file_parent_is_directory_or_prospective(self):
+        for name in ('AGENTS.md/result.json', 'AGENTS.md/new/sub/result.json'):
+            for location in ('packet', 'scope', 'both'):
+                with self.subTest(name=name, location=location):
+                    packet, scope = self.packet()
+                    if location in ('packet', 'both'):
+                        packet['allowed_files'] = [name]
+                    if location in ('scope', 'both'):
+                        scope['allowed_files'] = [name]
+                    self.rejected(self.rebind_schema_fixture(packet, scope), scope,
+                                  'allowed_file_parent_not_directory')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'allowed_file_parent_not_directory')
+                    self.assertEqual(cli.stderr, '')
+        for name in ('AGENTS.md', 'docs/new-result.json', 'docs/new/sub/result.json'):
+            with self.subTest(positive=name):
+                packet, scope = self.packet()
+                packet['allowed_files'] = scope['allowed_files'] = [name]
+                self.rebind_schema_fixture(packet, scope)
+                self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                self.assertFalse(json.loads(cli.stdout)['worker_invoked'])
+                self.assertFalse(json.loads(cli.stdout)['economic_authority'])
+                self.assertEqual(cli.stderr, '')
+        packet, scope = self.packet()
+        packet['allowed_files'] = scope['allowed_files'] = ['docs']
+        self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'allowed_file_is_directory')
 
     def test_all_three_manuals_have_current_hash_and_four_layers(self):
         for key, owner in manual.PLAYBOOK_IDS.items():
