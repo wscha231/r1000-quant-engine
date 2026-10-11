@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Resolved schema cycles need structured runtime refusal (#593)
+
+- A valid metaschema and resolvable local pointer can still loop on one instance.
+  Normalize RecursionError only at schema evaluation to the existing contract
+  refusal; keep terminating recursion valid and do not raise recursion limits.
+- Rebind canonical/dependency/packet hashes and exercise actual API/CLI in both
+  optimization modes. A CI pass does not supersede an independent failing case.
+- Preserve both sides of accepted lesson changes during master reconciliation;
+  pin new proof helpers and embedded workflows consumed by registered tests.
+
 ## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
 
 - Trace mandatory lazy imports as well as top-level imports. The Board's
@@ -23,6 +33,34 @@
 - Reconcile current master in the existing released Main checkout. Keep both
   accepted shared-lesson blocks when resolving an append conflict; an older
   green CI or scoped CLEAN does not approve the reconciled source HEAD.
+## 2026-10-11 — Use the provider instrument's segment MIC in strict probes
+
+- Current Twelve AAPL/MSFT catalog and daily EOD sample use `XNGS`; generic
+  older examples use operating MIC `XNAS`. Verify the instrument-specific MIC
+  before filtering. Keep exact response MIC validation; do not accept aliases.
+- Model a catalog that refuses the wrong MIC. A response echoing any requested
+  MIC misses the failure. Current catalog identity does not certify historical
+  identity, PIT, account entitlement or retained-data rights.
+
+## 2026-10-11 — Model provider date boundaries in access probes
+
+- Twelve's daily historical example excludes the date-only `end_date`; equal
+  start/end dates can produce an empty query. Use the next date as the upper
+  bound while still requiring the exact requested session in the response.
+- A mock that returns a valid bar for any query misses this failure. Exercise
+  the documented half-open range behavior. Keep runtime 400 causes, account
+  entitlement, retained data rights and historical admission unverified.
+
+## 2026-10-11 — Separate provider availability probes from historical admission
+
+- Use the owner's exact GitHub Secret name (`TWELVE_API_KEY` here); an empty
+  Native environment does not prove repository Secrets are missing.
+- Validate a fixed one-bar response and earliest-date metadata without retaining
+  prices or vendor error text. Stop on authentication, quota or redirect refusal;
+  use one account and no retry to multiply access attempts.
+- An advertised or reported ten-year span does not certify account-bound private
+  retention, complete sessions, raw/split concordance, historical identity or PIT.
+  A Draft workflow cannot replace reviewed-master execution or independent A6.
 
 ## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
 
@@ -6550,3 +6588,19 @@ Expected contract:
 - Normalize US symbols for collision comparison while preserving original
   immutable bytes. Freeze returned row/receipt mappings recursively and expose
   canonical JSON bytes; a frozen dataclass alone does not protect nested values.
+
+## 2026-10-11 — Secondary Twelve Secret registration needs explicit selection
+
+- Add a bounded master-only choice between TWELVE_API_KEY and TWELVE_API_KEY2;
+  inject only the selected credential and refuse missing/unknown selections
+  before any provider request. Secret names may be reported, never key values.
+- Registration does not establish an independent account quota or permission to
+  combine accounts. Twelve terms2.3(h)/(i) prohibit exceeding rate limits and
+  circumventing technical limitations; quota/auth stop remains terminal with
+  no fallback or retry while account-scoped permission is unverified.
+- An existing private Drive storage contract and recovery canary do not bind a
+  production collector. Keep retained history, Receipt, Immutable Generation
+  and Shared Reader E2E separate from this non-retaining credential preflight.
+- Offline loaded-workflow tests cover second-key selection, absent selected
+  key with another key present, unknown selection and quota/auth refusal in
+  both directions; fixtures do not authenticate either live account.

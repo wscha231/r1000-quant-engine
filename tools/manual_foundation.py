@@ -68,11 +68,14 @@ BOARD_INPUT_DEPENDENCIES = [
 # their fixed local Python import/read helpers (including the three combined
 # suites). Master e89c8f61 (#595) adds the frozen Stage A/B smoke/helper consumed
 # by the existing fullrun_runtime_source_manifest smoke entrypoint below.
+# Master 1640819e (#597-#600) adds the Twelve suite and embedded workflow
+# consumed by the existing api_credentials_check smoke entrypoint.
 # Keep these mandatory independently of mutable Toolbox/runner rows;
 # deleting a helper must not remove its required pin. This is a path inventory,
 # not a claim of approved semantics or completed proof. Changes to the proof
 # procedure require reviewing/updating its consumed inputs, like the Reader.
 A6_FIXED_PROOF_PROGRAMS = (
+    '.github/workflows/twelve_data_credential_preflight.yml',
     'aggressive/__init__.py',
     'aggressive/agg_config.py',
     'aggressive/data_alpaca.py',
@@ -148,6 +151,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/alpha_selector_broker_grid_smoke.py',
     'tests/alphaops_vnext_policy_replay_smoke.py',
     'tests/api_credentials_check_smoke.py',
+    'tests/twelve_data_credential_preflight_smoke.py',
     'tests/audit_features.py',
     'tests/auto_learning_evidence_smoke.py',
     'tests/auto_learning_proposal_only_smoke.py',
@@ -767,9 +771,11 @@ def validate_shape(value: dict, *, scope: bool = False, root: Path = ROOT) -> No
         # The metaschema checks syntax, not whether a reference resolves when
         # validating an instance. Keep resolution offline and normalize its
         # public exception family, including missing pointers and anchors.
+        # A resolved cycle can instead exhaust instance-time recursion; do not
+        # reject legitimate terminating recursive schemas or change its limit.
         errors = list(Draft202012Validator(schema, format_checker=FormatChecker(),
                                           registry=Registry()).iter_errors(value))
-    except Unresolvable as exc:
+    except (Unresolvable, RecursionError) as exc:
         raise ContractError('manual_schema_contract_invalid') from exc
     if errors:
         raise ContractError('manual_schema_invalid:' + '/'.join(map(str, errors[0].absolute_path)))

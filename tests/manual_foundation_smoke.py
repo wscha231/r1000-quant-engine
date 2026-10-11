@@ -1639,12 +1639,34 @@ class ManualTests(unittest.TestCase):
         self.assertTrue(programs.issubset(required), sorted(programs - required))
         self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
                          'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
-                         'tools/frozen_stage_ab_fairness.py'}.issubset(required))
+                         'tools/frozen_stage_ab_fairness.py',
+                         'tests/twelve_data_credential_preflight_smoke.py',
+                         '.github/workflows/twelve_data_credential_preflight.yml'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
         result = self.validate(packet, scope)
         self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
         self.assertFalse(result['worker_invoked'])
         self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+
+    def test_reconciled_a6_proof_inputs_refuse_stale_or_missing_pins(self):
+        for name in ('tests/twelve_data_credential_preflight_smoke.py',
+                     '.github/workflows/twelve_data_credential_preflight.yml'):
+            with self.subTest(path=name):
+                original = (self.root / name).read_bytes()
+                try:
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    self.assertIn(name, packet['dependencies'])
+                    (self.root / name).write_bytes(original + b'\n# SYNTHETIC PROOF CHANGE\n')
+                    self.rejected(packet, scope, 'dependency_bytes_changed')
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    result = self.validate(packet, scope)
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    del packet['dependencies'][name]
+                    del scope['dependencies'][name]
+                    self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'missing_dependency')
+                finally:
+                    (self.root / name).write_bytes(original)
 
     def test_each_registered_a6_program_byte_change_refuses_old_packet(self):
         packet, scope = self.packet('A6_INDEPENDENT_QA')
@@ -1936,6 +1958,100 @@ class ManualTests(unittest.TestCase):
                             self.assertEqual(result.stderr, '')
                         finally:
                             (self.root / name).write_bytes(original)
+
+    def rebind_schema_fixture(self, packet, scope):
+        manifest = manual.board.read_json(self.root / manual.MANIFEST)
+        for row in manifest['playbooks']:
+            row['playbook_sha256'] = independent_hash(row, 'playbook_sha256')
+        self.write(manual.MANIFEST, manifest)
+        catalog = manual.board.read_json(self.root / manual.CATALOG)
+        for row in catalog['entries']:
+            for name in row['dependency_hashes']:
+                row['dependency_hashes'][name] = hashlib.sha256((self.root / name).read_bytes()).hexdigest()
+        self.write(manual.CATALOG, catalog)
+        return self.rebind_all(packet, scope)
+
+    def test_cyclic_schema_references_refuse_api_cli_after_complete_rebinding(self):
+        locations = ((manual.SCHEMA, ('properties', 'task_key'), False),
+                     ('research/control_plane/task_packet_schema.json',
+                      ('properties', 'authority'), False),
+                     (manual.SCHEMA, ('$defs', 'scope', 'properties', 'owner'), True))
+        for name, keys, is_scope in locations:
+            original = (self.root / name).read_bytes()
+            for selected in manual.PLAYBOOK_IDS:
+                for kind in ('direct', 'dynamic', 'mutual'):
+                    with self.subTest(schema=name, location=keys, selected=selected, kind=kind):
+                        try:
+                            packet, scope = self.packet(selected)
+                            schema = manual.board.read_json(self.root / name)
+                            pointer = '#/' + '/'.join(keys)
+                            keyword = '$dynamicRef' if kind == 'dynamic' else '$ref'
+                            reference = {'allOf': [{keyword: pointer}]}
+                            if kind == 'mutual':
+                                # Both definitions live in the manual schema after
+                                # the task authority is composed into that schema.
+                                manual_schema = manual.board.read_json(self.root / manual.SCHEMA)
+                                manual_schema['$defs'].update({
+                                    'cycleLeft': {'allOf': [{'$ref': '#/$defs/cycleRight'}]},
+                                    'cycleRight': {'allOf': [{'$ref': '#/$defs/cycleLeft'}]}})
+                                self.write(manual.SCHEMA, manual_schema)
+                                if name == manual.SCHEMA:
+                                    schema = manual_schema
+                                reference = {'$ref': '#/$defs/cycleLeft'}
+                            node = schema
+                            for key in keys[:-1]:
+                                node = node[key]
+                            node[keys[-1]] = reference
+                            manual.Draft202012Validator.check_schema(schema)
+                            self.write(name, schema)
+                            self.rebind_schema_fixture(packet, scope)
+                            self.rejected(packet, scope, 'manual_schema_contract_invalid')
+                            value = scope if is_scope else packet
+                            with self.assertRaisesRegex(manual.ContractError,
+                                                        'manual_schema_contract_invalid'):
+                                manual.validate_shape(value, scope=is_scope, root=self.root)
+                            result = self.cli_fixture(packet, scope)
+                            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                            self.assertEqual(json.loads(result.stdout), {'status': 'BLOCKED_INPUT',
+                                'reason': 'manual_schema_contract_invalid', 'worker_invoked': False})
+                            self.assertEqual(result.stderr, '')
+                        finally:
+                            (self.root / name).write_bytes(original)
+                            if name != manual.SCHEMA:
+                                shutil.copyfile(ROOT / manual.SCHEMA, self.root / manual.SCHEMA)
+
+    def test_terminating_recursive_schemas_preserve_prepare_only(self):
+        original = (self.root / manual.SCHEMA).read_bytes()
+        for selected in manual.PLAYBOOK_IDS:
+            for keyword in ('$ref', '$dynamicRef'):
+                with self.subTest(selected=selected, keyword=keyword):
+                    try:
+                        packet, scope = self.packet(selected)
+                        schema = manual.board.read_json(self.root / manual.SCHEMA)
+                        schema['$defs']['stopTree'] = {'anyOf': [
+                            {'type': 'string', 'minLength': 1},
+                            {'type': 'array', 'items': {keyword: '#/$defs/stopTree'}}]}
+                        schema['properties']['stop_condition'] = {keyword: '#/$defs/stopTree'}
+                        schema['$defs']['dependencyTree'] = {'anyOf': [
+                            {'type': 'string', 'pattern': '^[a-f0-9]{64}$'},
+                            {'type': 'object', 'additionalProperties':
+                                {keyword: '#/$defs/dependencyTree'}}]}
+                        schema['$defs']['scope']['properties']['dependencies'] = {
+                            keyword: '#/$defs/dependencyTree'}
+                        self.write(manual.SCHEMA, schema)
+                        self.rebind_schema_fixture(packet, scope)
+                        result = self.validate(packet, scope)
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+                            self.assertFalse(result[field])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                        manual.validate_shape(scope, scope=True, root=self.root)
+                        cli = self.cli_fixture(packet, scope)
+                        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                        self.assertEqual(json.loads(cli.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertEqual(cli.stderr, '')
+                    finally:
+                        (self.root / manual.SCHEMA).write_bytes(original)
 
     def test_external_schema_references_refuse_without_retrieval(self):
         original = (self.root / manual.SCHEMA).read_bytes()
