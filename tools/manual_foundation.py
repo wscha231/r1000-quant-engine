@@ -27,7 +27,7 @@ MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
 CATALOG = 'docs/pr_reuse_catalog.json'
 DNR = 'docs/run287_do_not_repeat_registry.json'
-# Actual local implementation consumed by the existing replay and grid child.
+# Actual local implementation consumed by the replay and the grid's child.
 # Required names survive catalog declaration edits and row renaming.
 BROKER_REPLAY_IMPORTS = (
     'tools/nav_metrics_v2.py', 'tools/run_weekly_evaluation.py',
@@ -135,8 +135,12 @@ CATALOG_FIXED_IMPORTS = {
     'tools/nav_metrics_v2.py': (),
     'tools/research_data_access.py': tuple(A1_READER_DEPENDENCIES[1:]),
     'tools/run_broker_ledger_replay.py': BROKER_REPLAY_IMPORTS,
-    'tools/run_broker_position_risk_grid_sweep.py':
-        ('tools/run_broker_ledger_replay.py',) + BROKER_REPLAY_IMPORTS,
+    'tools/run_broker_position_risk_grid_sweep.py': (
+        'tools/run_broker_position_risk_replay.py',
+        'tools/run_position_aware_risk_replay.py',
+        'tools/historical_replay_lib.py',
+        'tools/run_broker_ledger_replay.py',
+    ) + BROKER_REPLAY_IMPORTS,
     'tools/run_pit_membership_audit.py': (),
 }
 # The board is already a common fixed dependency. Its mandatory local import,

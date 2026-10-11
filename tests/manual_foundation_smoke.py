@@ -455,6 +455,83 @@ class ManualTests(unittest.TestCase):
             finally:
                 (self.root / manual.CATALOG).write_bytes(canonical)
 
+    def test_grid_subprocess_closure_refuses_stale_and_rebound_omissions(self):
+        # Literal subprocess/import witnesses, independent of the recipe.
+        names = ('tools/run_broker_position_risk_replay.py',
+                 'tools/run_position_aware_risk_replay.py', 'tools/historical_replay_lib.py')
+        canonical = (self.root / manual.CATALOG).read_bytes()
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            original = (ROOT / name).read_bytes()
+            target.write_bytes(original)
+            with self.subTest(name=name):
+                try:
+                    packet, scope = self.packet()
+                    packet['reuse_entries'] = ['group_158']
+                    self.bind(packet)
+                    self.assertTrue(manual.lookup_reuse('group_158', self.root)['allowed'])
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    target.write_bytes(b'pass\n')
+                    compile(target.read_bytes(), name, 'exec')
+                    self.rejected(packet, scope, 'catalog_dependency_changed')
+                    with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed'):
+                        manual.lookup_reuse('group_158', self.root)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertTrue(json.loads(cli.stdout)['reason'].startswith('catalog_dependency_changed:'))
+                    self.assertEqual(cli.stderr, '')
+                    # A freshly verified dependency may be rebound; preflight
+                    # still grants no worker execution or economic authority.
+                    self.rebind_schema_fixture(packet, scope)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    self.assertEqual(cli.stderr, '')
+                    for result in (self.validate(packet, scope), json.loads(cli.stdout)):
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    rebound_catalog = (self.root / manual.CATALOG).read_bytes()
+                    for selected in manual.PLAYBOOK_IDS:
+                        for reuse in ([], ['group_158']):
+                            (self.root / manual.CATALOG).write_bytes(rebound_catalog)
+                            catalog = manual.board.read_json(self.root / manual.CATALOG)
+                            row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                            row['dependency_hashes'].pop(name, None)
+                            self.write(manual.CATALOG, catalog)
+                            fresh, fresh_scope = self.packet(selected)
+                            fresh['reuse_entries'] = reuse
+                            self.rejected(self.rebind_schema_fixture(fresh, fresh_scope),
+                                          fresh_scope, 'catalog_unpinned_reuse_path')
+                            cli = self.cli_fixture(fresh, fresh_scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_unpinned_reuse_path')
+                            self.assertEqual(cli.stderr, '')
+                    for renamed in (False, True):
+                        (self.root / manual.CATALOG).write_bytes(rebound_catalog)
+                        catalog = manual.board.read_json(self.root / manual.CATALOG)
+                        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                        row['dependency_hashes'].pop(name, None)
+                        if renamed:
+                            row['entry_id'] = 'SYNTHETIC_RENAMED_GRID_ROUTE'
+                        else:
+                            row['current_equivalent'] = row['toolbox_refs'] = [
+                                'tools/run_broker_position_risk_grid_sweep.py']
+                        self.write(manual.CATALOG, catalog)
+                        fresh, fresh_scope = self.packet()
+                        fresh['reuse_entries'] = [row['entry_id']]
+                        self.rejected(self.rebind_schema_fixture(fresh, fresh_scope),
+                                      fresh_scope, 'catalog_unpinned_reuse_path')
+                        cli = self.cli_fixture(fresh, fresh_scope)
+                        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                        self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_unpinned_reuse_path')
+                        self.assertEqual(cli.stderr, '')
+                finally:
+                    target.write_bytes(original)
+                    (self.root / manual.CATALOG).write_bytes(canonical)
+
     def test_reader_catalog_imports_refuse_stale_and_rebound_omissions(self):
         # Actual Reader imports/default registry; independent literal witnesses.
         names = ('data_static/research_dataset_registry_v1.json',

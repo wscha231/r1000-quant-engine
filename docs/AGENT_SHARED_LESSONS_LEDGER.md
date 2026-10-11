@@ -6734,3 +6734,14 @@ Expected contract:
   that early-refusal case and supply a valid reviewed closure to reach the
   intended inner refusal. A different error is not proof of the inner guard;
   test its actual API/CLI rejection and a permitted control before full reruns.
+
+## 2026-10-11 — Bind actual subprocess targets as well as Python imports (#593)
+
+- A static import inventory missed the risk-grid's subprocess entrypoint.
+  Follow the actual command target and its mandatory local import closure:
+  broker position-risk replay, position-aware replay and historical replay
+  library, in addition to the existing ledger/evaluation dependencies.
+- Use literal independent path witnesses to reproduce stale acceptance and
+  reject fully rebound missing pins, including renamed and grid-only rows and
+  unselected catalog entries. A freshly hash-bound PREPARE_ONLY control keeps
+  NOT_RUN proofs and grants no worker or economic authority.

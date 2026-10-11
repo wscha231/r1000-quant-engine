@@ -58,7 +58,7 @@
       "source_kind": "PR",
       "capability": "Position-risk grid sidecar and shared broker evaluation",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-11T13:04:24.371215+00:00",
+      "verified_at": "2026-10-11T16:37:05.628813+00:00",
       "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#158": "9b52e4e3f6b488e2308cbf27cb886bad4783d111"
@@ -102,7 +102,10 @@
         "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
         "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45",
         "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
-        "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9"
+        "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9",
+        "tools/run_broker_position_risk_replay.py": "83b9853db57c7ea156ce2b66c40baa1f0f1629d333e4656d3bfb73929256b4ba",
+        "tools/run_position_aware_risk_replay.py": "9af3e99bea83d7f05d84dd24636d1fafa4c71ccd9b1c4965429d1fb66feb045f",
+        "tools/historical_replay_lib.py": "40255d58d3ee4b50ffd583c0a17909c1416211bd766f40b9231243bd0fdda33e"
       }
     },
     {
