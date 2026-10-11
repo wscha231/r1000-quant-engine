@@ -420,6 +420,9 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/post_disclosure_overlay_challenger_smoke.py',
     'tests/post_disclosure_signal_learning_smoke.py',
     'tests/product_analytics_v1_smoke.py',
+    # public_portfolio_dashboard -> public_market_quotes -> Node child program.
+    # A subprocess entrypoint is proof procedure, not merely a Python import.
+    'tests/public_dashboard_runtime_smoke.js',
     'tests/public_market_quotes_smoke.py',
     'tests/public_portfolio_dashboard_smoke.py',
     'tests/public_project_results_smoke.py',

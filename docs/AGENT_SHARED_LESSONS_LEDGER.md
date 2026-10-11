@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Bind non-Python subprocess proof entrypoints (#593)
+
+- Python imports and repository read traces miss local programs passed to a
+  subprocess. The registered dashboard smoke launches a Node child that reads
+  the already pinned app.js; the child JavaScript also requires a fixed byte pin.
+- Retain this mandatory name after deletion and reject its omission even after
+  every packet/catalog/playbook hash is rebound. Fresh binding permits offline
+  preparation only; it does not invoke or approve the altered proof program.
+- A scoped independent CLEAN is one gate. A later actual Codex finding stops
+  the merge gate and requires fresh tests and reviews on the corrected HEAD.
+
 ## 2026-10-11 — Pin consumed proof inputs and reject future verification (#593)
 
 - A proof entrypoint/import inventory also needs non-Python read inputs: workflow
