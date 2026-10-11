@@ -75,11 +75,38 @@ class TwelvePreflightTests(unittest.TestCase):
             if endpoint == '/time_series':
                 self.assertEqual(query['adjust'], 'none')
                 self.assertEqual(query['outputsize'], 1)
-                self.assertEqual(query['start_date'], query['end_date'])
                 self.assertEqual(query['start_date'], '2026-10-09')
+                self.assertEqual(query['end_date'], '2026-10-10')
         for field in ('raw_bytes_persisted', 'full_history_collected', 'continuous_history_verified',
                       'provider_rights_verified', 'historical_identity_verified', 'pit_verified', 'source_admission'):
             self.assertIs(report[field], False)
+
+    def test_documented_exclusive_end_date_reaches_the_requested_daily_bar(self):
+        # Vendor's daily example excludes end_date itself. Model that behavior
+        # rather than returning a successful bar regardless of the query.
+        def provider(endpoint, query, key):
+            if endpoint == '/earliest_timestamp':
+                return 200, raw({'datetime': '2018-07-25'})
+            sessions = ('2026-10-08', '2026-10-09', '2026-10-12')
+            selected = [day for day in sessions
+                        if query['start_date'] <= day < query['end_date']]
+            selected = sorted(selected, reverse=True)[:query['outputsize']]
+            if not selected:
+                return 404, None
+            data = bar(query['symbol'], query['mic_code'])
+            data['values'][0]['datetime'] = selected[0]
+            return 200, raw(data)
+        # This is a real counterexample to the old empty [session, session)
+        # query: no access, no earliest call, and a controlled failure.
+        self.assertEqual(provider('/time_series', {'start_date': '2026-10-09',
+                         'end_date': '2026-10-09', 'outputsize': 1}, ''), (404, None))
+        code, report, output = invoke(provider)
+        self.assertEqual(code, 0)
+        self.assertEqual(report['request_count'], 8)
+        self.assertTrue(all(row['access'] == 'DAILY_ACCESS_CONFIRMED'
+                            and row['history'] == 'EARLIEST_DATE_REPORTED'
+                            for row in report['results']))
+        self.assertNotIn('offline-canary', output)
 
     def test_auth_quota_network_and_redirect_stop_without_retry(self):
         cases = [(401, None, 'AUTH'), (429, None, 'RATE_LIMIT'), (0, None, 'NETWORK'),

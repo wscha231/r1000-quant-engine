@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Model provider date boundaries in access probes
+
+- Twelve's daily historical example excludes the date-only `end_date`; equal
+  start/end dates can produce an empty query. Use the next date as the upper
+  bound while still requiring the exact requested session in the response.
+- A mock that returns a valid bar for any query misses this failure. Exercise
+  the documented half-open range behavior. Keep runtime 400 causes, account
+  entitlement, retained data rights and historical admission unverified.
+
 ## 2026-10-11 — Separate provider availability probes from historical admission
 
 - Use the owner's exact GitHub Secret name (`TWELVE_API_KEY` here); an empty
