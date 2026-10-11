@@ -2191,6 +2191,73 @@ class ManualTests(unittest.TestCase):
         self.assertFalse(result['worker_invoked'])
         self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
 
+    def test_a6_canonical_contract_reads_refuse_stale_and_rebound_omissions(self):
+        # Literal witnesses from registered tests and their actual default reads,
+        # independent of the validator inventory. Never run economic programs.
+        names = (
+            'data_static/run287_durable_environment_contract.json',
+            'data_static/run287_promotion_gate_contract.json',
+            'docs/run287_chameleon_macro_risk_contract.json',
+            'docs/run287_expected_return_challenger_contract.json',
+            'docs/run287_next_scheduled_artifact_gate_contract.json',
+            'docs/run287_ohlcv_pattern_memory_contract.json',
+            'docs/run287_same_close_target_contract.json',
+            'docs/run287_sec_management_guidance_scout_contract.json',
+            'docs/run287_sector_leadership_challenger_contract.json',
+            'docs/run287_u0_v3_acceptance_contract.json',
+            'docs/run287_u0_v3_recovery_contract.json',
+        )
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            original = (ROOT / name).read_bytes()
+            target.write_bytes(original)
+            with self.subTest(path=name):
+                try:
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    packet['stop_condition'].append('SYNTHETIC_CALLER_STOP')
+                    self.bind(packet)
+                    target.write_bytes(original + b'\n')
+                    self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+                    child = self.cli_fixture(packet, scope)
+                    self.assertEqual(child.returncode, 2, child.stdout + child.stderr)
+                    self.assertEqual(json.loads(child.stdout)['reason'],
+                                     'dependency_bytes_changed:' + name)
+                    self.assertEqual(child.stderr, '')
+
+                    # Fresh complete pins permit preparation, never completed proof.
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    fresh['stop_condition'].append('SYNTHETIC_CALLER_STOP')
+                    self.rebind_schema_fixture(fresh, fresh_scope)
+                    child = self.cli_fixture(fresh, fresh_scope)
+                    self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+                    self.assertEqual(child.stderr, '')
+                    for result in (self.validate(fresh, fresh_scope), json.loads(child.stdout)):
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+
+                    # Rebind manifest, catalog, dependencies, packet and scope.
+                    del fresh['dependencies'][name]
+                    del fresh_scope['dependencies'][name]
+                    self.rebind_schema_fixture(fresh, fresh_scope)
+                    self.rejected(fresh, fresh_scope, 'missing_dependency')
+                    for removed in (False, True):
+                        if removed:
+                            target.unlink()
+                        child = self.cli_fixture(fresh, fresh_scope)
+                        self.assertEqual(child.returncode, 2, child.stdout + child.stderr)
+                        self.assertEqual(json.loads(child.stdout)['reason'], 'missing_dependency')
+                        self.assertEqual(child.stderr, '')
+                finally:
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+
     def test_a6_proof_inputs_refuse_stale_bytes_and_rebound_omissions(self):
         packet, scope = self.packet('A6_INDEPENDENT_QA')
         contracts = {name: (self.root / name).read_bytes()

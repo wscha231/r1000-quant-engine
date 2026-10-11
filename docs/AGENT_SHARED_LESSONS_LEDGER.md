@@ -6745,3 +6745,15 @@ Expected contract:
   reject fully rebound missing pins, including renamed and grid-only rows and
   unselected catalog entries. A freshly hash-bound PREPARE_ONLY control keeps
   NOT_RUN proofs and grants no worker or economic authority.
+
+## 2026-10-12 — Bind canonical contract reads in the A6 proof procedure (#593)
+
+- Pinning every registered script and Python helper still omits JSON contracts
+  read through defaults or fingerprints. Inspect actual registered consumers
+  together and retain those canonical paths independently of caller declarations.
+- Literal stale-byte and fully rebound omission/deletion controls must reach
+  both API and CLI. Fresh complete pins permit PREPARE_ONLY with NOT_RUN proof
+  and no worker/economic authority; they do not certify a completed review.
+- Recover a lost checkout only at its approved path and exact published Git
+  tree. Verify consumed bytes and preserve prior posted evidence as historical;
+  do not invent replacement execution logs or a cause for resource loss.
