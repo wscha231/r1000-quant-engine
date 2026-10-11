@@ -21,7 +21,7 @@ def raw(data):
     return json.dumps(data).encode()
 
 
-def bar(symbol='AAPL', mic='XNAS'):
+def bar(symbol='AAPL', mic='XNGS'):
     return {'meta': {'symbol': symbol, 'mic_code': mic, 'currency': 'USD', 'interval': '1day'},
             'values': [{'datetime': '2026-10-09', 'open': '10', 'high': '12',
                         'low': '9', 'close': '11', 'volume': '0'}]}
@@ -108,6 +108,28 @@ class TwelvePreflightTests(unittest.TestCase):
                             for row in report['results']))
         self.assertNotIn('offline-canary', output)
 
+    def test_catalog_segment_mic_reaches_nasdaq_daily_data_without_identity_aliases(self):
+        # Current provider instrument pages use segment MIC XNGS. Generic
+        # documentation's operating MIC XNAS is not an interchangeable filter.
+        catalog = {'AAPL': ('XNGS', '1980-12-12'), 'MSFT': ('XNGS', '1986-03-13'),
+                   'BE': ('XNYS', '2018-07-25'), 'TSM': ('XNYS', '1997-10-09')}
+        def provider(endpoint, query, key):
+            mic, earliest = catalog[query['symbol']]
+            if query['mic_code'] != mic:
+                return 404, None
+            if endpoint == '/earliest_timestamp':
+                return 200, raw({'datetime': earliest})
+            return 200, raw(bar(query['symbol'], mic))
+        code, report, output = invoke(provider)
+        self.assertEqual(code, 0)
+        self.assertEqual(report['request_count'], 8)
+        self.assertTrue(all(row['access'] == 'DAILY_ACCESS_CONFIRMED'
+                            and row['history'] == 'EARLIEST_DATE_REPORTED'
+                            for row in report['results']))
+        self.assertNotEqual(NS['access_result'](bar('AAPL', 'XNAS'), 'AAPL', 'XNGS'),
+                            'DAILY_ACCESS_CONFIRMED')
+        self.assertNotIn('offline-canary', output)
+
     def test_auth_quota_network_and_redirect_stop_without_retry(self):
         cases = [(401, None, 'AUTH'), (429, None, 'RATE_LIMIT'), (0, None, 'NETWORK'),
                  (302, None, 'REDIRECT_REFUSED'),
@@ -148,21 +170,21 @@ class TwelvePreflightTests(unittest.TestCase):
             data = bar()
             target = data[section][0] if section == 'values' else data[section]
             target[name] = value
-            self.assertNotEqual(NS['access_result'](data, 'AAPL', 'XNAS'), 'DAILY_ACCESS_CONFIRMED')
+            self.assertNotEqual(NS['access_result'](data, 'AAPL', 'XNGS'), 'DAILY_ACCESS_CONFIRMED')
 
     def test_ohlcv_refusals_and_genuine_zero_volume(self):
-        self.assertEqual(NS['access_result'](bar(), 'AAPL', 'XNAS'), 'DAILY_ACCESS_CONFIRMED')
+        self.assertEqual(NS['access_result'](bar(), 'AAPL', 'XNGS'), 'DAILY_ACCESS_CONFIRMED')
         for name, value in [('open', True), ('open', '0'), ('close', 'NaN'), ('high', '8'),
                             ('low', '12'), ('volume', '-1'), ('volume', '1.5'), ('close', 'offline-canary')]:
             data = bar()
             data['values'][0][name] = value
-            self.assertEqual(NS['access_result'](data, 'AAPL', 'XNAS'), 'INVALID_RESPONSE')
+            self.assertEqual(NS['access_result'](data, 'AAPL', 'XNGS'), 'INVALID_RESPONSE')
 
     def test_empty_or_multiple_bars_do_not_confirm_access(self):
         for values, expected in [([], 'NO_DATA'), ([bar()['values'][0]] * 2, 'INVALID_RESPONSE')]:
             data = bar()
             data['values'] = values
-            self.assertEqual(NS['access_result'](data, 'AAPL', 'XNAS'), expected)
+            self.assertEqual(NS['access_result'](data, 'AAPL', 'XNGS'), expected)
 
     def test_invalid_future_or_vendor_text_earliest_date_not_published(self):
         for value in ('2026-10-10', '1899-12-31', '2016-02-30', '2016-01-01T00:00:00', 'offline-canary', None, True):
