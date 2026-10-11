@@ -6612,3 +6612,6 @@ Expected contract:
   overwritten value containing a Unicode-escaped key disappears from the parsed
   object while its original bytes are still archived. The capture-boundary
   counterexample must refuse before any raw upload.
+- The protected P0-4 publication pins the Tier-1 runner bytes. Keep that
+  runner unchanged when adding capture-only checks; execute cohort guards in
+  the sparse pre-credential capture workflow and independently under normal/-O.
