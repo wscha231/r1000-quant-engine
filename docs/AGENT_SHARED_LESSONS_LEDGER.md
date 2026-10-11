@@ -3,9 +3,11 @@
 ## 2026-10-11 — Bind non-Python subprocess proof entrypoints (#593)
 
 - Python imports and repository read traces miss local programs passed to a
-  subprocess. The registered dashboard smoke launches a Node child that reads
-  the already pinned app.js; the child JavaScript also requires a fixed byte pin.
-- Retain this mandatory name after deletion and reject its omission even after
+  subprocess and files read by embedded non-Python programs. The registered
+  dashboard chain executes a Node child and inline Node reads of app.js and
+  project-results.js; its Python consumer also reads the canonical promotion
+  state. Bind every actual procedure and input, preserving canonical state bytes.
+- Retain mandatory names after deletion and reject their omission even after
   every packet/catalog/playbook hash is rebound. Fresh binding permits offline
   preparation only; it does not invoke or approve the altered proof program.
 - A scoped independent CLEAN is one gate. A later actual Codex finding stops

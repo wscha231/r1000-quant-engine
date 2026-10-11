@@ -1856,51 +1856,55 @@ class ManualTests(unittest.TestCase):
                     (self.root / name).write_bytes(original)
 
     def test_a6_node_child_runtime_refuses_stale_and_rebound_missing_pins(self):
-        # Literal witness: dashboard -> quotes smoke -> Node -> app.js. The
-        # executed child is mandatory even though no Python import/read sees it.
-        name = 'tests/public_dashboard_runtime_smoke.js'
-        target = self.root / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        original = (ROOT / name).read_bytes()
-        target.write_bytes(original)
-        packet, scope = self.packet('A6_INDEPENDENT_QA')
-        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
-        target.write_text("console.log('synthetic fixture: dashboard assertions removed');\n")
-        self.rejected(packet, scope, 'dependency_bytes_changed')
-        cli = self.cli_fixture(packet, scope)
-        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
-        self.assertTrue(json.loads(cli.stdout)['reason'].startswith('dependency_bytes_changed:'))
-        self.assertEqual(cli.stderr, '')
+        # Literal witnesses include a subprocess program and an asset consumed
+        # by inline Node; neither appears in a Python import/read inventory.
+        for name in ('tests/public_dashboard_runtime_smoke.js',
+                     'docs/public/project-results.js',
+                     'data_static/run287_promotion_state.json'):
+            with self.subTest(name=name):
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                original = (ROOT / name).read_bytes()
+                target.write_bytes(original)
+                packet, scope = self.packet('A6_INDEPENDENT_QA')
+                self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                target.write_bytes(b"console.log('synthetic fixture: dashboard assertions removed');\n"
+                                   if name.endswith('.js') else original + b'\n')
+                self.rejected(packet, scope, 'dependency_bytes_changed')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                self.assertTrue(json.loads(cli.stdout)['reason'].startswith('dependency_bytes_changed:'))
+                self.assertEqual(cli.stderr, '')
 
-        packet, scope = self.packet('A6_INDEPENDENT_QA')
-        cli = self.cli_fixture(packet, scope)
-        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
-        self.assertEqual(cli.stderr, '')
-        for result in (self.validate(packet, scope), json.loads(cli.stdout)):
-            self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
-            self.assertFalse(result['worker_invoked'])
-            self.assertFalse(result['completed_task'])
-            self.assertFalse(result['economic_authority'])
-            self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
-        del packet['dependencies'][name]
-        del scope['dependencies'][name]
-        self.rebind_schema_fixture(packet, scope)
-        self.rejected(packet, scope, 'missing_dependency')
-        cli = self.cli_fixture(packet, scope)
-        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
-        self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
-        self.assertEqual(cli.stderr, '')
+                packet, scope = self.packet('A6_INDEPENDENT_QA')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                self.assertEqual(cli.stderr, '')
+                for result in (self.validate(packet, scope), json.loads(cli.stdout)):
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertFalse(result['worker_invoked'])
+                    self.assertFalse(result['completed_task'])
+                    self.assertFalse(result['economic_authority'])
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                del packet['dependencies'][name]
+                del scope['dependencies'][name]
+                self.rebind_schema_fixture(packet, scope)
+                self.rejected(packet, scope, 'missing_dependency')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                self.assertEqual(cli.stderr, '')
 
-        target.unlink()
-        self.rebind_schema_fixture(packet, scope)
-        self.rejected(packet, scope, 'missing_dependency')
-        cli = self.cli_fixture(packet, scope)
-        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
-        self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
-        self.assertEqual(cli.stderr, '')
-        target.write_bytes(original)
-        packet, scope = self.packet('A6_INDEPENDENT_QA')
-        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                target.unlink()
+                self.rebind_schema_fixture(packet, scope)
+                self.rejected(packet, scope, 'missing_dependency')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                self.assertEqual(cli.stderr, '')
+                target.write_bytes(original)
+                packet, scope = self.packet('A6_INDEPENDENT_QA')
+                self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
 
     def test_each_registered_a6_program_byte_change_refuses_old_packet(self):
         packet, scope = self.packet('A6_INDEPENDENT_QA')
