@@ -1,5 +1,29 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
+
+- Trace mandatory lazy imports as well as top-level imports. The Board's
+  materializer executes during verification, so every Board consumer must pin
+  it even when a successor Toolbox omits it. Refuse changed bytes with old pins;
+  a freshly authorized dependency binding is preparation, not inherited proof.
+- Validate verification timestamps and exact master identities for every
+  canonical catalog row, including unselected rows. Complete hash rebinding
+  cannot replace missing provenance. Preserve historical master evidence and
+  timezone-aware clocks; normalize UTC conversion overflow and never claim
+  current live review from syntax.
+- Check both local canonical schemas and normalize SchemaError to structured
+  BLOCKED_INPUT for API/CLI callers; invalid schema JSON is different from an
+  invalid packet. Test the actual refusal under normal/-O with child optimization
+  inherited. Preserve separate author/A6/Codex evidence and all authority gates.
+- Metaschema checks do not resolve instance-time references. Catch the public
+  Unresolvable family at iter_errors and use a Registry with no retrieval;
+  missing pointers/anchors must refuse without traceback or external reads.
+  Hash-rebound packet/scope negatives and valid local-reference positives
+  need actual API/CLI coverage before a new exact-head review can be CLEAN.
+- Reconcile current master in the existing released Main checkout. Keep both
+  accepted shared-lesson blocks when resolving an append conflict; an older
+  green CI or scoped CLEAN does not approve the reconciled source HEAD.
+
 ## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
 
 - A valid source contract can produce an oversized phase receipt. Reserve the
@@ -17,6 +41,42 @@
 - Normalize timezone conversion overflow to a finite clock refusal. Keep author
   regressions separate from independent exact-head A6 and final PR review;
   later reproducible findings supersede a prior scoped CLEAN result.
+
+## 2026-10-10 — Manual review anchors and proof pins need complete scope (#593)
+
+- A packet/manifest rehash proves consistency, not adoption. Preserve immutable
+  semantic content for every accepted retained playbook version, including
+  successors; deleting history cannot reset the reviewed baseline. Capture a
+  separately reviewed anchor before adoption. Explicit successor preparation
+  covers only the selected playbook and never approves an unselected proposal.
+- Validate canonical JSON object roots before field access. Malformed roots
+  must return structured BLOCKED_INPUT, including under Python optimization.
+- Pin actual mandatory consumers, not only their entrypoint: Board mission,
+  configuration/requirements/schema inputs; A1 Reader imports/default registry;
+  A6 fixed registered test programs and their local program helpers. Keep fixed
+  pins even when mutable Toolbox/manifest declarations remove them. A changed
+  proof program invalidates its old packet just as a changed operating contract
+  does. Review consumed-input inventory changes with the proof procedure.
+- Independent QA must derive attacks from every claimed validation target and
+  actual consumer path. Large test counts and normal/-O PASS do not close a
+  missing boundary; exercise fully rebound hashes, selected/unselected rows,
+  omitted pins and actual CLI behavior. Record reusable lessons in this ledger,
+  not only PR comments. Review receipts remain NOT_RUN/RESEARCH_ONLY preparation;
+  no source admission, economic, Fullrun or trading authority follows.
+
+## 2026-10-09 — Manual pinning is preparation, not execution authority
+
+- Bind the recurring playbook version/hash, actual dependency bytes, base,
+  owner, files and proof in one task envelope. A new model/computer does not
+  change domain authority. Matching supplied JSON/hash alone neither verifies
+  human approval nor creates an A0 completed-task receipt.
+- The canonical reuse catalog records PR heads separately from Issue
+  requirements: #505/#510/#516/#526/#531 are Issues, not PRs. Reuse only the
+  named current capability; a merged guard or reference index is not complete
+  source admission, calibrated economics or actual execution.
+- Resolve failed-research IDs in the existing do-not-repeat registry. Keep
+  superseded/manual/catalog records historical; version and recheck only the
+  affected Process/Toolbox/Proof dependency. See MANUAL_FOUNDATION_V1.md.
 
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 

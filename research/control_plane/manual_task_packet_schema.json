@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Non-executable manual task pinning envelope; does not replace task-packet-v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_key",
+    "packet_sha256",
+    "playbook_id",
+    "playbook_version",
+    "playbook_sha256",
+    "owner",
+    "base_sha",
+    "review_identity",
+    "dependencies",
+    "allowed_files",
+    "toolbox_refs",
+    "proof_set",
+    "authority",
+    "authority_tier",
+    "mode",
+    "stop_condition",
+    "output_receipt",
+    "reuse_entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "manual-task-packet-v1"
+    },
+    "task_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "packet_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "playbook_id": {
+      "enum": [
+        "L0_RESUME_HANDOFF",
+        "A1_SOURCE_ADMISSION_REFRESH",
+        "A6_INDEPENDENT_QA"
+      ]
+    },
+    "playbook_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "playbook_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "owner": {
+      "enum": [
+        "A0",
+        "A1",
+        "A6"
+      ]
+    },
+    "base_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "dependencies": {
+      "$ref": "#/$defs/dependencies"
+    },
+    "allowed_files": {
+      "$ref": "#/$defs/paths"
+    },
+    "toolbox_refs": {
+      "$ref": "#/$defs/paths"
+    },
+    "proof_set": {
+      "$ref": "#/$defs/nonemptyStrings"
+    },
+    "authority": {
+      "$ref": "task_packet_schema.json#/properties/authority"
+    },
+    "authority_tier": {
+      "enum": [
+        "T0_READ",
+        "T1_COMPUTE",
+        "T2_PREPARE"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "PROPOSAL_ONLY",
+        "READ_ONLY"
+      ]
+    },
+    "stop_condition": {
+      "$ref": "#/$defs/nonemptyStrings"
+    },
+    "output_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "reference"
+      ],
+      "properties": {
+        "schema_version": {
+          "enum": [
+            "R1000_WORKER_RESULT_V1",
+            "verification-receipt-v2"
+          ]
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    },
+    "reuse_entries": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "do_not_repeat_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signal",
+        "mechanism",
+        "book",
+        "window"
+      ],
+      "properties": {
+        "signal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mechanism": {
+          "type": "string",
+          "minLength": 1
+        },
+        "book": {
+          "type": "string",
+          "minLength": 1
+        },
+        "window": {
+          "type": "string",
+          "minLength": 1
+        },
+        "component_coverage_increase_pp": {
+          "type": "number"
+        },
+        "semantics_changed": {
+          "type": "boolean"
+        },
+        "change_note": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
+    "review_identity": {
+      "$ref": "#/$defs/reviewIdentityOrNull"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
+      }
+    },
+    "nonemptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_sha",
+        "review_identity",
+        "owner",
+        "dependencies",
+        "allowed_files",
+        "authority",
+        "authority_tier"
+      ],
+      "properties": {
+        "base_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "owner": {
+          "enum": [
+            "A0",
+            "A1",
+            "A6"
+          ]
+        },
+        "dependencies": {
+          "$ref": "#/$defs/dependencies"
+        },
+        "allowed_files": {
+          "$ref": "#/$defs/paths"
+        },
+        "authority": {
+          "$ref": "task_packet_schema.json#/properties/authority"
+        },
+        "authority_tier": {
+          "enum": [
+            "T0_READ",
+            "T1_COMPUTE",
+            "T2_PREPARE"
+          ]
+        },
+        "review_identity": {
+          "$ref": "#/$defs/reviewIdentityOrNull"
+        }
+      }
+    },
+    "reviewIdentityOrNull": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/reviewIdentity"
+        }
+      ]
+    },
+    "reviewIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "pr_number",
+        "head_sha"
+      ],
+      "properties": {
+        "repository": {
+          "const": "wscha231/r1000-quant-engine"
+        },
+        "pr_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    }
+  }
+}
