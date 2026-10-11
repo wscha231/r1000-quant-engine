@@ -262,8 +262,8 @@
       "source_kind": "PR",
       "capability": "Shared verified-history access and Lake handle lifecycle",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.291915+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#423": "ed304d857c5128fd11d85dd6ed054591ce144848",
         "#574": "a7078af18538b1769adecda6c615c014068652b1"
@@ -313,7 +313,15 @@
       "dependency_hashes": {
         "tools/long_history_lake.py": "fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4064bda3b8c",
         "tools/research_data_access.py": "6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f",
-        "docs/RESEARCH_DATA_ACCESS.md": "de16d4908f5b6fb0a7b2a99db3f0a1196dc033da7dd6b954b23a5be3ca482e2f"
+        "docs/RESEARCH_DATA_ACCESS.md": "de16d4908f5b6fb0a7b2a99db3f0a1196dc033da7dd6b954b23a5be3ca482e2f",
+        "data_static/research_dataset_registry_v1.json": "1dc9e4ba5f779d2a01433cd94e675d4fa60b2797821f6cf9581faa30e671eb6d",
+        "docs/macro_indicator_registry.json": "de29102fc90270f51699c3d80a1e16f2619a9afa43f97fe5c7f8cd2ab22123c5",
+        "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
+        "tools/macro_history_sources.py": "029ae7337618211c1520adc78c9199831ed739918070c6b29204e9110aa9ab08",
+        "tools/macro_research_checkpoint.py": "62438ff85c17ecbd0311338a7f0b8e8edd5907cb0f7031af89e1e18a546fb863",
+        "tools/macro_research_cycle.py": "fd15dd05f9c5a8690371a839adf924572825e1af5ecd12455765aaf4cdcfc2b2",
+        "tools/macro_technical_study.py": "3be72cfe62c39c9e4fe6508548f17ef8a6884d600094121bed8311c2e516a18c",
+        "tools/run_data_freshness_contract.py": "6d5f2af03b3a713a83b4ff75ffc50cb7480916cb6aae1323c383944b7c1e13be"
       }
     },
     {
@@ -647,8 +655,8 @@
       "source_kind": "PR",
       "capability": "Earnings/consensus retained-source PIT and transaction integrity",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.312460+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#556": "5a775d9c92237a2fcf446d466f7672e63b52567e"
       },
@@ -690,7 +698,9 @@
       "dependency_hashes": {
         "docs/EARNINGS_CONSENSUS_SOURCE_V2.md": "c6b6b9fda4825f0388e119574cca83cea973d883d51bbd64fc1fb4f13fb09e82",
         "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
-        "tools/build_earnings_estimate_archive_manifest.py": "5fc703f9fbbbe00ac9ae1d86617549d1cda6078bf90248768c7d8e3cd4d56cbd"
+        "tools/build_earnings_estimate_archive_manifest.py": "5fc703f9fbbbe00ac9ae1d86617549d1cda6078bf90248768c7d8e3cd4d56cbd",
+        "r1000_config.py": "a96e5f31ec1953f4fa3135932735a5effe7d05cccebec1b334da3519663dab2a",
+        "tools/collect_earnings_estimates_finnhub.py": "c2e8d0cac33d243dce534244d6ab1d8b76e800bd6ee7f8f52f128141337f5917"
       }
     },
     {
@@ -748,8 +758,8 @@
       "source_kind": "PR",
       "capability": "Hash-bound A3 Candidate Registry reference index",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.322127+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#560": "83f952b7c18089f87da31f392b83f0946b7b605f"
       },
@@ -788,7 +798,8 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "e9944846aeb74aa760aa5307ce571c2061b71b46e8f80c255eeaf74a51e1d0b6",
-        "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf"
+        "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf",
+        "research/a3_candidate_packet_v1.py": "c477f7323814b2f980449da3db6e238b8416c5644d151bda4e3e4790eb3b003e"
       }
     },
     {
@@ -797,8 +808,8 @@
       "source_kind": "PR",
       "capability": "SEC-first changed-slice reassessment proposal bridge",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.449547+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#577": "adf09912db4e06d86e659d16a047887d32ae42ff"
       },
@@ -837,7 +848,38 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md": "83ecf9d2b882285dddd8704f231d907eaac602607a304c50b26988df8f490571",
-        "tools/candidate_reassessment_bridge.py": "0356996ea199cb42333304a227824495ee0cdc29dd83949ee621f38d9fb8032a"
+        "tools/candidate_reassessment_bridge.py": "0356996ea199cb42333304a227824495ee0cdc29dd83949ee621f38d9fb8032a",
+        "aggressive/__init__.py": "f1a39ce9b24cd0157bed98123e07f182fbef1b64fe7369378600b9fe1133c6ec",
+        "aggressive/agg_config.py": "98ac5464d721e22d44db73181b78818dd96c772cfb521367f5ff7ccc88460e0b",
+        "aggressive/universe.py": "1d85a168339c2c3d5d4c13c0a83958f0f93a58227c609f843de9561bf5be5b12",
+        "docs/macro_indicator_registry.json": "de29102fc90270f51699c3d80a1e16f2619a9afa43f97fe5c7f8cd2ab22123c5",
+        "r1000_alphaops_reporting.py": "1171ee80c4f079711b35cbf9e9424b1da3351453b94dd777100a6484e9a3b313",
+        "r1000_bootstrap_ci.py": "2d905031958acf93bf249d8332103b59b02015bcd028dea8b6fd73cb83fa6894",
+        "r1000_candidate_lanes.py": "cd804d8c0c3eb09ea68ccad67a46cb901ffe953ba69a7b0c115479d0a6410690",
+        "r1000_config.py": "a96e5f31ec1953f4fa3135932735a5effe7d05cccebec1b334da3519663dab2a",
+        "r1000_features.py": "96decfe3eef4bfe7fc92e2419ffddf9d1ffc54be685c98d96f270a551cd568da",
+        "r1000_helpers.py": "811cd036ec99bb5f7b75df10180e1f6e14d62e6fa501152086244e750080d988",
+        "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
+        "r1000_market_leader_engine.py": "2dcb02a7cc46a2728de81ecaf337c65530da4b08827819b9cd7e1e9566545160",
+        "r1000_operator.py": "5953c5020ccaf9901cac8f9ed09e03de23b64f4a4f1a1de1b0256fcc5787f0c3",
+        "r1000_orchestrator.py": "8f2e5a1a03bcead6ed9663d56f94e281b6f6a156af275afa9d46e68866237e64",
+        "r1000_pipeline.py": "8384a59befc11ebbb80fe9235e40dadc6fddefe3a8f2cf6adebf47621d1a3880",
+        "r1000_portfolio_state.py": "8e3833327e23f1c0de001ab8fe124a27dfc05a0cfa19a778aedfc694c429f350",
+        "r1000_signals.py": "b2c1b23dca33ca9e1620153ae713c670a58bb60bf883b8baefbb9d4ebb0fe3a3",
+        "r1000_themes.py": "e563ad66fc86491dbb6d0b211ea501e66bb1d1b27f13fa434581a49199596561",
+        "r1000_trade_journal.py": "40de0697e923306c80111e06e30c46fd36f42e7c237df587a16319ef9012d56f",
+        "tools/build_run287_chameleon_macro_inputs.py": "3f3a46d0a7d03a8ceec4721236da9d055a80377a3d881acbe8b32ab071d81812",
+        "tools/build_run287_chameleon_macro_risk.py": "5de7373a04097ae7c396d107a65da76ec5a578c75a8fa4563c3a740ced8ed024",
+        "tools/chameleon_market_context_v2.py": "2127c43fdb04c2eb0e52ed8ffd8cad998f730c59f6506e6e9b4803d0c1f7d9d3",
+        "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
+        "tools/eodhd_calendar_trends.py": "45835a01480231310c47f855d784ddfba26ea731a0ee4309edbb7324045f5107",
+        "tools/etf_leadership_snapshot.py": "9fa8d66db01519fc3c8d36d3909b540e1303f96322789ee4ad1eb0770de587e4",
+        "tools/free_market_context.py": "501c256479dacc948659e3dc316951641c222f87762fb0bc3c9937005ee24181",
+        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
+        "tools/run_sec_institutional_signals.py": "cb1ed3bd92355db2c3f774ac0b93f553c302a540561866208c885f189b57e945",
+        "tools/run_sec_ownership_signals.py": "a81c210d64945f236cc64e8bbc5af3b85014c963b7d6dbd8acd9ec604b7518b4",
+        "tools/run_sec_submissions_collector.py": "81113d1b6b37014f45f9db711d04657342eae64291f6ba2761dd21b5c21e77a0",
+        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45"
       }
     },
     {
@@ -1008,8 +1050,8 @@
       "source_kind": "PR",
       "capability": "Frozen explicit shared research Reader",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.481909+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#591": "3c1ecd4c1ba189a6188949f7281116e77f30a108"
       },
@@ -1051,7 +1093,13 @@
       "dependency_hashes": {
         "docs/SHARED_RESEARCH_READER_V1.md": "b7ac6942435fa86488058b3a1de2107517362259bd9cc59586d99233b12e2788",
         "docs/research_dataset_generation_v1.schema.json": "f5ed343b1148bf4f9037ce6085ea8a8fd08d6756286ffc6cc6a78274c073d60e",
-        "tools/research_data_access.py": "6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f"
+        "tools/research_data_access.py": "6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f",
+        "data_static/research_dataset_registry_v1.json": "1dc9e4ba5f779d2a01433cd94e675d4fa60b2797821f6cf9581faa30e671eb6d",
+        "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
+        "tools/long_history_lake.py": "fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4064bda3b8c",
+        "tools/macro_history_sources.py": "029ae7337618211c1520adc78c9199831ed739918070c6b29204e9110aa9ab08",
+        "tools/macro_research_checkpoint.py": "62438ff85c17ecbd0311338a7f0b8e8edd5907cb0f7031af89e1e18a546fb863",
+        "tools/run_data_freshness_contract.py": "6d5f2af03b3a713a83b4ff75ffc50cb7480916cb6aae1323c383944b7c1e13be"
       }
     },
     {
@@ -1060,8 +1108,8 @@
       "source_kind": "PR",
       "capability": "NYSE-session native regime/executor fail-closed boundary",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T14:40:40.504340+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#592": "a8ba06e7e6ece568f424bd7689359164d9de1fa2"
       },
@@ -1100,7 +1148,12 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "tests/g6_h1_regime_data_native_smoke.py": "4a2da1d6da11f1dbf80439260489a8b9cd46f473e01dc36d86682078b326b0a8",
-        "r1000_regime_data.py": "dbeb813549d392ca490d7b7893a13f539d1381aba555087a6016736ffc5a8dd3"
+        "r1000_regime_data.py": "dbeb813549d392ca490d7b7893a13f539d1381aba555087a6016736ffc5a8dd3",
+        "aggressive/__init__.py": "f1a39ce9b24cd0157bed98123e07f182fbef1b64fe7369378600b9fe1133c6ec",
+        "aggressive/agg_config.py": "98ac5464d721e22d44db73181b78818dd96c772cfb521367f5ff7ccc88460e0b",
+        "aggressive/data_alpaca.py": "43b734d6691fd0e4d3296a9347a0a187ad83310d83f249b8a733dd2b88ac354f",
+        "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
+        "r1000_risk_sensing.py": "ce557439ce3346d2fee6be36cb15c05347a3d5d66a80a8a16a5cbefaa2eacbe1"
       }
     }
   ]

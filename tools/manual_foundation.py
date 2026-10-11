@@ -33,11 +33,6 @@ BROKER_REPLAY_IMPORTS = (
     'tools/nav_metrics_v2.py', 'tools/run_weekly_evaluation.py',
     'tools/execution_cost_model.py', 'tools/reserve_asset_policy.py',
 )
-CATALOG_FIXED_IMPORTS = {
-    'tools/run_broker_ledger_replay.py': BROKER_REPLAY_IMPORTS,
-    'tools/run_broker_position_risk_grid_sweep.py':
-        ('tools/run_broker_ledger_replay.py',) + BROKER_REPLAY_IMPORTS,
-}
 OPERATING_CONTRACTS = ['AGENTS.md', 'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
                        'docs/AGENT_SHARED_LESSONS_LEDGER.md', 'docs/MANUAL_FOUNDATION_V1.md']
 PLAYBOOK_IDS = {'L0_RESUME_HANDOFF': 'A0', 'A1_SOURCE_ADMISSION_REFRESH': 'A1',
@@ -67,6 +62,83 @@ A1_READER_DEPENDENCIES = [
     'tools/long_history_lake.py', 'tools/macro_history_sources.py',
     'tools/macro_research_checkpoint.py', 'tools/run_data_freshness_contract.py',
     'r1000_legacy_input_guard.py']
+# Reviewed local import/default-input recipes for every currently advertised
+# Python reuse capability. Rows cannot invent a recipe by changing declarations.
+CATALOG_FIXED_IMPORTS = {
+    'r1000_regime_data.py': (
+        'aggressive/__init__.py',
+        'aggressive/agg_config.py',
+        'aggressive/data_alpaca.py',
+        'r1000_legacy_input_guard.py',
+        'r1000_risk_sensing.py',
+    ),
+    'research/a3_candidate_packet_v1.py': (),
+    'research/candidate_registry_v1.py': (
+        'research/a3_candidate_packet_v1.py',
+    ),
+    'tests/g6_h1_regime_data_native_smoke.py': (
+        'aggressive/__init__.py',
+        'aggressive/agg_config.py',
+        'aggressive/data_alpaca.py',
+        'r1000_legacy_input_guard.py',
+        'r1000_regime_data.py',
+        'r1000_risk_sensing.py',
+    ),
+    'tools/audit_data_readiness.py': (),
+    'tools/build_earnings_estimate_archive_manifest.py': (
+        'r1000_config.py',
+        'tools/collect_earnings_estimates_finnhub.py',
+        'tools/earnings_consensus_h1.py',
+    ),
+    'tools/candidate_reassessment_bridge.py': (
+        'aggressive/__init__.py',
+        'aggressive/agg_config.py',
+        'aggressive/universe.py',
+        'docs/macro_indicator_registry.json',
+        'r1000_alphaops_reporting.py',
+        'r1000_bootstrap_ci.py',
+        'r1000_candidate_lanes.py',
+        'r1000_config.py',
+        'r1000_features.py',
+        'r1000_helpers.py',
+        'r1000_legacy_input_guard.py',
+        'r1000_market_leader_engine.py',
+        'r1000_operator.py',
+        'r1000_orchestrator.py',
+        'r1000_pipeline.py',
+        'r1000_portfolio_state.py',
+        'r1000_signals.py',
+        'r1000_themes.py',
+        'r1000_trade_journal.py',
+        'tools/build_run287_chameleon_macro_inputs.py',
+        'tools/build_run287_chameleon_macro_risk.py',
+        'tools/chameleon_market_context_v2.py',
+        'tools/earnings_consensus_h1.py',
+        'tools/eodhd_calendar_trends.py',
+        'tools/etf_leadership_snapshot.py',
+        'tools/free_market_context.py',
+        'tools/nav_metrics_v2.py',
+        'tools/run_sec_institutional_signals.py',
+        'tools/run_sec_ownership_signals.py',
+        'tools/run_sec_submissions_collector.py',
+        'tools/run_weekly_evaluation.py',
+    ),
+    'tools/earnings_consensus_h1.py': (),
+    'tools/execution_cost_model.py': (),
+    'tools/long_history_lake.py': (
+        'docs/macro_indicator_registry.json',
+        'tools/macro_history_sources.py',
+        'tools/macro_research_checkpoint.py',
+        'tools/macro_research_cycle.py',
+        'tools/macro_technical_study.py',
+    ),
+    'tools/nav_metrics_v2.py': (),
+    'tools/research_data_access.py': tuple(A1_READER_DEPENDENCIES[1:]),
+    'tools/run_broker_ledger_replay.py': BROKER_REPLAY_IMPORTS,
+    'tools/run_broker_position_risk_grid_sweep.py':
+        ('tools/run_broker_ledger_replay.py',) + BROKER_REPLAY_IMPORTS,
+    'tools/run_pit_membership_audit.py': (),
+}
 # The board is already a common fixed dependency. Its mandatory local import,
 # source_identity() inputs and AST-read mission/gate literals must travel with
 # that pin, even when a proposed Toolbox omits them. Other state/task inputs
@@ -1174,7 +1246,9 @@ def load_catalog(root: Path = ROOT) -> dict:
             consumed = set(row['current_equivalent']) | set(row['toolbox_refs'])
             required = consumed | {dependency for path in consumed
                                    for dependency in CATALOG_FIXED_IMPORTS.get(path, ())}
-            if not consumed or not required.issubset(dependencies):
+            if (not consumed or not required.issubset(dependencies) or
+                    any(path.lower().endswith('.py') and path not in CATALOG_FIXED_IMPORTS
+                        for path in consumed)):
                 raise ContractError('catalog_unpinned_reuse_path')
 
         refs = row.get('do_not_repeat_refs')

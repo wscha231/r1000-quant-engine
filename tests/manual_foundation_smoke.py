@@ -455,6 +455,117 @@ class ManualTests(unittest.TestCase):
             finally:
                 (self.root / manual.CATALOG).write_bytes(canonical)
 
+    def test_reader_catalog_imports_refuse_stale_and_rebound_omissions(self):
+        # Actual Reader imports/default registry; independent literal witnesses.
+        names = ('data_static/research_dataset_registry_v1.json',
+                 'tools/long_history_lake.py', 'tools/macro_history_sources.py',
+                 'tools/macro_research_checkpoint.py', 'tools/run_data_freshness_contract.py',
+                 'r1000_legacy_input_guard.py')
+        canonical = (self.root / manual.CATALOG).read_bytes()
+        for entry in ('group_423_574', 'group_591'):
+            for name in names:
+                with self.subTest(entry=entry, name=name):
+                    target = self.root / name
+                    original = target.read_bytes()
+                    try:
+                        packet, scope = self.packet()
+                        packet['reuse_entries'] = [entry]
+                        self.bind(packet)
+                        self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
+                        target.write_bytes(b'pass\n' if name.endswith('.py') else b'{}\n')
+                        if name.endswith('.py'):
+                            compile(target.read_bytes(), name, 'exec')
+                        self.rejected(packet, scope, 'catalog_dependency_changed')
+                        cli = self.cli_fixture(packet, scope)
+                        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                        self.assertEqual(cli.stderr, '')
+                        self.rebind_schema_fixture(packet, scope)
+                        result = self.validate(packet, scope)
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                        rebound = (self.root / manual.CATALOG).read_bytes()
+                        for selected in manual.PLAYBOOK_IDS:
+                            for reuse in ([], [entry]):
+                                (self.root / manual.CATALOG).write_bytes(rebound)
+                                catalog = manual.board.read_json(self.root / manual.CATALOG)
+                                row = next(r for r in catalog['entries'] if r['entry_id'] == entry)
+                                row['dependency_hashes'].pop(name, None)
+                                self.write(manual.CATALOG, catalog)
+                                fresh, fresh_scope = self.packet(selected)
+                                fresh['reuse_entries'] = reuse
+                                self.rejected(self.rebind_schema_fixture(fresh, fresh_scope),
+                                              fresh_scope, 'catalog_unpinned_reuse_path')
+                                cli = self.cli_fixture(fresh, fresh_scope)
+                                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                                self.assertEqual(json.loads(cli.stdout)['reason'],
+                                                 'catalog_unpinned_reuse_path')
+                                self.assertEqual(cli.stderr, '')
+                    finally:
+                        target.write_bytes(original)
+                        (self.root / manual.CATALOG).write_bytes(canonical)
+
+    def test_other_reuse_imports_and_unreviewed_python_refuse_rebinding(self):
+        # Local import witnesses from the other existing advertised capabilities.
+        cases = (('group_560', 'research/a3_candidate_packet_v1.py'),
+                 ('group_556', 'tools/collect_earnings_estimates_finnhub.py'),
+                 ('group_577', 'tools/chameleon_market_context_v2.py'),
+                 ('group_592', 'aggressive/data_alpaca.py'),
+                 ('group_592', 'r1000_risk_sensing.py'),
+                 ('group_423_574', 'tools/macro_research_cycle.py'),
+                 ('group_423_574', 'docs/macro_indicator_registry.json'))
+        canonical = (self.root / manual.CATALOG).read_bytes()
+        for entry, name in cases:
+            with self.subTest(entry=entry, name=name):
+                target = self.root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.is_file():
+                    target.write_bytes((ROOT / name).read_bytes())
+                original = target.read_bytes()
+                try:
+                    packet, scope = self.packet()
+                    packet['reuse_entries'] = [entry]
+                    self.bind(packet)
+                    self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
+                    target.write_bytes(b'pass\n' if name.endswith('.py') else b'{}\n')
+                    if name.endswith('.py'):
+                        compile(target.read_bytes(), name, 'exec')
+                    self.rejected(packet, scope, 'catalog_dependency_changed')
+                    self.rebind_schema_fixture(packet, scope)
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    catalog = manual.board.read_json(self.root / manual.CATALOG)
+                    row = next(r for r in catalog['entries'] if r['entry_id'] == entry)
+                    row['entry_id'] = 'SYNTHETIC_RENAMED_CAPABILITY'
+                    row['dependency_hashes'].pop(name, None)
+                    self.write(manual.CATALOG, catalog)
+                    self.rejected(self.rebind_schema_fixture(packet, scope), scope,
+                                  'catalog_unpinned_reuse_path')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(cli.stderr, '')
+                finally:
+                    target.write_bytes(original)
+                    (self.root / manual.CATALOG).write_bytes(canonical)
+        packet, scope = self.packet()
+        # An editable row cannot supply an empty reviewed recipe for new code.
+        name = 'tools/SYNTHETIC_UNREVIEWED_CAPABILITY.py'
+        (self.root / name).write_bytes(b'pass\n')
+        catalog = manual.board.read_json(self.root / manual.CATALOG)
+        row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_591')
+        row['current_equivalent'] = row['toolbox_refs'] = [name]
+        row['dependency_hashes'] = {name: hashlib.sha256((self.root / name).read_bytes()).hexdigest()}
+        self.write(manual.CATALOG, catalog)
+        self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'catalog_unpinned_reuse_path')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertEqual(cli.stderr, '')
+        (self.root / manual.CATALOG).write_bytes(canonical)
+        for row in manual.load_catalog(self.root)['entries']:
+            if row['classification'] == 'REUSE_NOW':
+                self.assertTrue(manual.lookup_reuse(row['entry_id'], self.root)['allowed'])
+
     def test_all_three_manuals_have_current_hash_and_four_layers(self):
         for key, owner in manual.PLAYBOOK_IDS.items():
             _, row = manual.load_playbook(key, self.root)

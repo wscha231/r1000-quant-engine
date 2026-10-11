@@ -6716,3 +6716,17 @@ Expected contract:
   Drive files.create ignoreDefaultVisibility=true. Post-upload owner checks
   detect unwanted domain-default sharing too late to prevent exposure; bypass
   that default at creation and keep private-parent and readback gates.
+
+# Bind every advertised reuse capability, not only a specialist playbook (#593)
+
+- A1 Reader pins do not protect an L0 packet selecting the same Reader from the
+  reuse catalog. Verify the consumed imports and default registry at that second
+  boundary as well, including unselected rows after complete hash rebinding.
+- Inspect every currently advertised Python capability together. Preserve an
+  independently reviewed local-input recipe for each entrypoint, including
+  stdlib-only leaves, and refuse unreviewed Python recipes supplied by a row.
+- Refresh only exact hash/time/master metadata for unchanged source. A fresh
+  PREPARE_ONLY packet still means NOT_RUN proofs and no worker/economic action.
+- When an ephemeral Native resource disappears, recover only the same approved
+  path and reviewed Git tree, verify one worktree/clean status/actual inputs, and
+  rerun successor validation. Record the incident and exact dependency versions.
