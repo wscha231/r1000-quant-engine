@@ -74,6 +74,146 @@ BOARD_INPUT_DEPENDENCIES = [
 # deleting a helper must not remove its required pin. This is a path inventory,
 # not a claim of approved semantics or completed proof. Changes to the proof
 # procedure require reviewing/updating its consumed inputs, like the Reader.
+# Non-Python proof inputs read by registered tests and their pinned helpers,
+# traced against accepted source cdbe9cf9. Deletion cannot erase these required
+# pins. New *.yml inputs consumed by the workflow glob are bound below as well.
+A6_FIXED_PROOF_INPUTS = (
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/SECRETS_SETUP.md",
+    ".github/workflows/adr_candidate_monthly.yml",
+    ".github/workflows/after_close_daily.yml",
+    ".github/workflows/agent_board_manual.yml",
+    ".github/workflows/aggressive_lab_manual.yml",
+    ".github/workflows/alphaops_replay_sidecars_manual.yml",
+    ".github/workflows/daily_autolearning_scan.yml",
+    ".github/workflows/daily_crisis_monitor.yml",
+    ".github/workflows/daily_operating_selection_refresh.yml",
+    ".github/workflows/data_readiness_preflight.yml",
+    ".github/workflows/earnings_estimate_source_probe.yml",
+    ".github/workflows/earnings_estimates_daily.yml",
+    ".github/workflows/etf_holdings_monthly_refresh.yml",
+    ".github/workflows/free_data_daily_update.yml",
+    ".github/workflows/free_data_lake_bootstrap.yml",
+    ".github/workflows/free_historical_data_backfill.yml",
+    ".github/workflows/full_rebuild_manual.yml",
+    ".github/workflows/gate_ablation_study_manual.yml",
+    ".github/workflows/gdrive_smoke_test.yml",
+    ".github/workflows/layer4_monthly_swap.yml",
+    ".github/workflows/live_extension_daily.yml",
+    ".github/workflows/long_history_research.yml",
+    ".github/workflows/monthly_research.yml",
+    ".github/workflows/multi_asset_leadership_v1.yml",
+    ".github/workflows/overlay_combination_search_manual.yml",
+    ".github/workflows/pages_deploy.yml",
+    ".github/workflows/phase_ab_quick_rescore_manual.yml",
+    ".github/workflows/phase_g_crisis_evidence_liquidity_replay.yml",
+    ".github/workflows/portfolio_system_guard.yml",
+    ".github/workflows/post_disclosure_alpha_pipeline.yml",
+    ".github/workflows/pr_validation.yml",
+    ".github/workflows/quarterly_auto_learning.yml",
+    ".github/workflows/review_complete_gate.yml",
+    ".github/workflows/run287_daily_research_monitor.yml",
+    ".github/workflows/run287_paper_publication_recovery.yml",
+    ".github/workflows/run287_risk_outcome_legacy_migration.yml",
+    ".github/workflows/run287_risk_outcome_recovery_preflight.yml",
+    ".github/workflows/run287_sector_leadership_research.yml",
+    ".github/workflows/run287_u0_acceptance.yml",
+    ".github/workflows/sec_13f_manager_reselection.yml",
+    ".github/workflows/sec_13f_quarterly_refresh.yml",
+    ".github/workflows/sec_evidence_learning_manual.yml",
+    ".github/workflows/sec_form4_daily_refresh.yml",
+    ".github/workflows/sidecar_only_verify.yml",
+    ".github/workflows/smart_money_top30_refresh.yml",
+    ".github/workflows/subdaily_exit_grid_sweep_manual.yml",
+    ".github/workflows/theme_etf_runtime_v1.yml",
+    ".github/workflows/unified_monthly.yml",
+    ".github/workflows/us_gold_set_market_capture_v1.yml",
+    ".github/workflows/weekly_data_refresh.yml",
+    "AUTOMATION_STRATEGY.md",
+    "aggressive/state/finnhub/r1000_features.parquet",
+    "adr_universe.yaml",
+    "colab_run.ipynb",
+    "cycle_play_universe.yaml",
+    "data_static/iwb_holdings_seed.csv",
+    "data_static/product_analytics_event_contract_v1.json",
+    "data_static/research_dataset_registry_v1.json",
+    "data_static/run287_multiple_testing_approved_pointer.json",
+    "data_static/run287_operating_scorecard_sources_v1/forward/summary.json",
+    "data_static/run287_operating_scorecard_sources_v1/manifest.json",
+    "data_static/run287_operating_scorecard_sources_v1/p3/concentrated_evaluation.json",
+    "data_static/run287_operating_scorecard_sources_v1/p3/main_evaluation.json",
+    "data_static/run287_operating_scorecard_sources_v1/p4/concentrated/reserve_reason_audit.json",
+    "data_static/run287_operating_scorecard_sources_v1/p4/main/reserve_reason_audit.json",
+    "data_static/run287_operating_scorecard_sources_v1/p4/summary.json",
+    "data_static/run287_operating_scorecard_sources_v1/p5/summary.json",
+    "data_static/run287_operating_scorecard_sources_v1/p6/summary.json",
+    "data_static/run287_review_complete_gate_contract.json",
+    "docs/AGENT_API_ACCESS_CONTRACT.md",
+    "docs/a3_candidate_packet_v1_contract.json",
+    "docs/investment_methodology_v1_contract.json",
+    "docs/macro_indicator_registry.json",
+    "docs/moat_quality_v2_contract.json",
+    "docs/public/app.js",
+    "docs/public/data/dashboard.json",
+    "docs/public/index.html",
+    "docs/public/styles.css",
+    "docs/research_data_access.json",
+    "docs/research_dataset_generation_v1.schema.json",
+    "docs/run287_abcd_cadence_challenger_contract.json",
+    "docs/run287_candidate_risk_watch_contract.json",
+    "docs/run287_chameleon_macro_input_shadow_evidence_20260829.json",
+    "docs/run287_chameleon_macro_inputs_contract.json",
+    "docs/run287_daily_research_monitor_contract.json",
+    "docs/run287_decision_observation_archive_contract.json",
+    "docs/run287_exact_packet_producer_contract.json",
+    "docs/run287_exact_packet_upstream_plan.json",
+    "docs/run287_execution_cost_capacity_contract.json",
+    "docs/run287_holding_risk_watch_contract.json",
+    "docs/run287_multiple_testing_gate_contract.json",
+    "docs/run287_ohlcv_location_timing_challenger_contract.json",
+    "docs/run287_operating_scorecard_sources.json",
+    "docs/run287_p0_3_authority_census/README.md",
+    "docs/run287_p0_3_authority_census/branch_census.parquet",
+    "docs/run287_p0_3_authority_census/pr_census.parquet",
+    "docs/run287_p0_3_authority_census/requirements.txt",
+    "docs/run287_p0_3_authority_census/source_branch_protection_contract.json",
+    "docs/run287_p0_3_authority_census/source_branch_supplement.parquet",
+    "docs/run287_p0_3_authority_census/source_pr_supplement.json.gz",
+    "docs/run287_p0_3_authority_census/source_u0_github_census.json.gz",
+    "docs/run287_p0_3_authority_census/source_workflow_authority_policy.json",
+    "docs/run287_p0_3_authority_census/summary.json",
+    "docs/run287_p0_3_authority_census/workflow_registry.yaml",
+    "docs/run287_p0_3_workflow_authority_policy.json",
+    "docs/run287_p0_4_artifact_inventory/README.md",
+    "docs/run287_p0_4_artifact_inventory/artifact_registry.parquet",
+    "docs/run287_p0_4_artifact_inventory/dataset_registry.yaml",
+    "docs/run287_p0_4_artifact_inventory/durable_state_registry.yaml",
+    "docs/run287_p0_4_artifact_inventory/latest_to_immutable_map.yaml",
+    "docs/run287_p0_4_artifact_inventory/migration_map.md",
+    "docs/run287_p0_4_artifact_inventory/model_registry.yaml",
+    "docs/run287_p0_4_artifact_inventory/requirements.txt",
+    "docs/run287_p0_4_artifact_inventory/source_inventory_snapshot.json",
+    "docs/run287_p0_4_artifact_inventory/summary.json",
+    "docs/run287_pit_estimate_guidance_source_requirements.json",
+    "docs/run287_risk_outcome_archive_contract.json",
+    "docs/run287_sec_guidance_goldset_contract.json",
+    "docs/run287_system_foundation_review_20260727.json",
+    "docs/run287_u0_experiment_audit_contract.json",
+    "docs/run287_u0_experiment_inventory.json",
+    "manifests/fullrun/run287_canonical_a_20260731.json",
+    "outputs/auto_learning_v2/challenger_review.json",
+    "outputs/auto_learning_v2/policy_candidate.json",
+    "outputs/auto_learning_v2/promotion_decision.json",
+    "outputs/experiments/experiment_matrix_summary.json",
+    "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
+    "outputs/portfolio_goal_search/goal_search_summary.json",
+    "research/cross_market_gold_set_v1.json",
+    "research/sec_13f_cusip_map_overrides.csv",
+    "research/sec_13f_manager_universe_20260519/managers.csv",
+    "strategic_global_hardware_universe.yaml",
+    "themes.yaml",
+    "tools/run_alphaops_replay_sidecars.sh",
+)
 A6_FIXED_PROOF_PROGRAMS = (
     '.github/workflows/api_credentials_check.yml',
     '.github/workflows/twelve_data_credential_preflight.yml',
@@ -935,6 +1075,7 @@ def load_catalog(root: Path = ROOT) -> dict:
     registry = load_do_not_repeat_registry(root)
     indexed = {str(item['id']).strip(): item for item in registry['entries']}
     seen = set()
+    now = datetime.now(timezone.utc)
     for row in entries:
         if not isinstance(row, dict):
             raise ContractError('catalog_entry_shape')
@@ -943,7 +1084,9 @@ def load_catalog(root: Path = ROOT) -> dict:
             raise ContractError('catalog_duplicate_or_classification')
         seen.add(entry_id)
 
-        catalog_timestamp(row.get('verified_at'), 'catalog_verified_at_invalid')
+        verified_at = catalog_timestamp(row.get('verified_at'), 'catalog_verified_at_invalid')
+        if verified_at > now:
+            raise ContractError('catalog_verified_at_future')
         master = row.get('last_verified_master')
         if not isinstance(master, str) or re.fullmatch('[0-9a-f]{40}', master) is None:
             raise ContractError('catalog_last_verified_master_invalid')
@@ -955,7 +1098,7 @@ def load_catalog(root: Path = ROOT) -> dict:
         expiry = row.get('expiry')
         if expiry is not None:
             expiry_at = catalog_timestamp(expiry, 'catalog_expiry_invalid')
-            if classification == 'REUSE_NOW' and expiry_at <= datetime.now(timezone.utc):
+            if classification == 'REUSE_NOW' and expiry_at <= now:
                 raise ContractError('catalog_reuse_expired')
 
         source_kind = row.get('source_kind')
@@ -1042,7 +1185,16 @@ def required_dependencies(playbook_id: str, root: Path = ROOT, *,
                           propose_successor: bool = False) -> list[str]:
     manifest, playbook = load_playbook(playbook_id, root, propose_successor=propose_successor)
     reader = A1_READER_DEPENDENCIES if playbook_id == 'A1_SOURCE_ADMISSION_REFRESH' else []
-    proofs = list(A6_FIXED_PROOF_PROGRAMS) if playbook_id == 'A6_INDEPENDENT_QA' else []
+    proofs = []
+    if playbook_id == 'A6_INDEPENDENT_QA':
+        proofs = list(A6_FIXED_PROOF_PROGRAMS + A6_FIXED_PROOF_INPUTS)
+        # The registered workflow syntax test reads every current *.yml input.
+        # Retain fixed reviewed paths and bind newly proposed files too.
+        for path in path_at(root, '.github/workflows').glob('*.yml'):
+            name = path.relative_to(root.resolve()).as_posix()
+            if not path_at(root, name).is_file():
+                raise ContractError('a6_proof_input_not_file')
+            proofs.append(name)
     return sorted(set(OPERATING_CONTRACTS + BOARD_INPUT_DEPENDENCIES + reader + proofs + manifest['policy_refs'] + playbook['toolbox_refs'] + [
         MANIFEST, SCHEMA, CATALOG, DNR,
         'tools/manual_foundation.py', 'tools/run_agent_board.py',

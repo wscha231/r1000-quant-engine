@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Pin consumed proof inputs and reject future verification (#593)
+
+- A proof entrypoint/import inventory also needs non-Python read inputs: workflow
+  glob members, contract JSON, schemas and tracked fixture/evidence files. Retain
+  mandatory paths when files are removed; bind newly consumed workflow members.
+- Verify stale-byte and fully rebound omitted-pin refusal with actual API/CLI
+  controls; a fresh byte binding prepares work and does not attest proof success.
+- Parse verification clocks and compare them to one current UTC snapshot. Valid
+  syntax is insufficient evidence of past verification; retain equal/past clocks
+  and future expiry controls across selected and unselected catalog rows.
+
 ## 2026-10-11 — Resolved schema cycles need structured runtime refusal (#593)
 
 - A valid metaschema and resolvable local pointer can still loop on one instance.

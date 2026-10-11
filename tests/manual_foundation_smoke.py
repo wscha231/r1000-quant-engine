@@ -1649,6 +1649,173 @@ class ManualTests(unittest.TestCase):
         self.assertFalse(result['worker_invoked'])
         self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
 
+    def test_a6_proof_inputs_refuse_stale_bytes_and_rebound_omissions(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        contracts = {name: (self.root / name).read_bytes()
+                     for name in (manual.MANIFEST, manual.CATALOG)}
+        for name in manual.A6_FIXED_PROOF_INPUTS:
+            with self.subTest(path=name):
+                original = (self.root / name).read_bytes()
+                try:
+                    self.assertIn(name, packet['dependencies'])
+                    (self.root / name).write_bytes(original + b'\n')
+                    self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+                    p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                    del p['dependencies'][name]
+                    del s['dependencies'][name]
+                    self.rejected(self.rebind_schema_fixture(p, s), s, 'missing_dependency')
+                finally:
+                    (self.root / name).write_bytes(original)
+                    for path, raw in contracts.items():
+                        (self.root / path).write_bytes(raw)
+
+    def test_a6_actual_workflow_and_contract_consumers_have_cli_pin_controls(self):
+        # Independent examples from actual registered readers, not the product
+        # inventory: account-window, workflow-glob, Reader, census and public UI.
+        for name in ('.github/workflows/full_rebuild_manual.yml',
+                     '.github/workflows/review_complete_gate.yml',
+                     'data_static/research_dataset_registry_v1.json',
+                     'docs/research_dataset_generation_v1.schema.json',
+                     'docs/run287_p0_3_authority_census/workflow_registry.yaml',
+                     'docs/public/app.js',
+                     'research/sec_13f_cusip_map_overrides.csv',
+                     'manifests/fullrun/run287_canonical_a_20260731.json'):
+            with self.subTest(path=name):
+                original = (self.root / name).read_bytes()
+                contracts = {path: (self.root / path).read_bytes()
+                             for path in (manual.MANIFEST, manual.CATALOG)}
+                try:
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    self.assertIn(name, packet['dependencies'])
+                    (self.root / name).write_bytes(original + b'\n')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'],
+                                     'dependency_bytes_changed:' + name)
+                    self.assertEqual(cli.stderr, '')
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    self.rebind_schema_fixture(fresh, fresh_scope)
+                    result = self.validate(fresh, fresh_scope)
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    cli = self.cli_fixture(fresh, fresh_scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    self.assertEqual(cli.stderr, '')
+                    del fresh['dependencies'][name]
+                    del fresh_scope['dependencies'][name]
+                    self.rebind_schema_fixture(fresh, fresh_scope)
+                    cli = self.cli_fixture(fresh, fresh_scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                    self.assertEqual(cli.stderr, '')
+                finally:
+                    (self.root / name).write_bytes(original)
+                    for path, raw in contracts.items():
+                        (self.root / path).write_bytes(raw)
+
+    def test_a6_new_workflow_glob_input_requires_a_fresh_pin(self):
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        name = '.github/workflows/SYNTHETIC_PROOF_INPUT.yml'
+        (self.root / name).write_text('name: synthetic offline fixture\njobs: {}\n')
+        for rebound in (False, True):
+            with self.subTest(rebound=rebound):
+                if rebound:
+                    self.rebind_schema_fixture(packet, scope)
+                self.rejected(packet, scope, 'missing_dependency')
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                self.assertEqual(cli.stderr, '')
+        packet['dependencies'][name] = scope['dependencies'][name] = hashlib.sha256(
+            (self.root / name).read_bytes()).hexdigest()
+        self.rebind_schema_fixture(packet, scope)
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(set(json.loads(cli.stdout)['proof_results'].values()), {'NOT_RUN'})
+        self.assertEqual(cli.stderr, '')
+
+        (self.root / name).unlink()
+        (self.root / name).mkdir()
+        self.rejected(packet, scope, 'a6_proof_input_not_file')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['reason'], 'a6_proof_input_not_file')
+        self.assertEqual(cli.stderr, '')
+        (self.root / name).rmdir()
+        (self.root / name).symlink_to(self.root / 'docs/public/app.js')
+        self.rejected(packet, scope, 'symlink_path')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['reason'], 'symlink_path')
+        self.assertEqual(cli.stderr, '')
+
+    def test_catalog_future_verification_refuses_all_rows_after_full_rebinding(self):
+        original = manual.load_catalog(self.root)
+        contracts = {name: (self.root / name).read_bytes()
+                     for name in (manual.MANIFEST, manual.CATALOG)}
+        for reuse in ([], ['group_158']):
+            packet, scope = self.packet()
+            packet['reuse_entries'] = reuse
+            for index, row in enumerate(original['entries']):
+                for clock in ('2099-01-01T00:00:00Z',
+                              '2099-01-01T09:00:00+09:00',
+                              '2098-12-31T20:00:00-04:00'):
+                    with self.subTest(reuse=reuse, entry=row['entry_id'], clock=clock):
+                        try:
+                            catalog = copy.deepcopy(original)
+                            catalog['entries'][index]['verified_at'] = clock
+                            self.write(manual.CATALOG, catalog)
+                            with self.assertRaisesRegex(manual.ContractError,
+                                                        'catalog_verified_at_future'):
+                                manual.load_catalog(self.root)
+                            p, s = copy.deepcopy(packet), copy.deepcopy(scope)
+                            self.rejected(self.rebind_schema_fixture(p, s), s,
+                                          'catalog_verified_at_future')
+                        finally:
+                            for name, raw in contracts.items():
+                                (self.root / name).write_bytes(raw)
+        for selected in manual.PLAYBOOK_IDS:
+            for reuse in ([], ['group_158']):
+                try:
+                    packet, scope = self.packet(selected)
+                    packet['reuse_entries'] = reuse
+                    catalog = copy.deepcopy(original)
+                    next(row for row in catalog['entries']
+                         if row['entry_id'] == 'group_158')['verified_at'] = '2099-01-01T00:00:00Z'
+                    self.write(manual.CATALOG, catalog)
+                    self.rebind_schema_fixture(packet, scope)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_verified_at_future')
+                    self.assertEqual(cli.stderr, '')
+                finally:
+                    for name, raw in contracts.items():
+                        (self.root / name).write_bytes(raw)
+
+    def test_catalog_now_past_and_future_expiry_controls_preserve_reuse(self):
+        from datetime import datetime, timedelta, timezone
+        frozen = datetime(2026, 10, 11, tzinfo=timezone.utc)
+        original = manual.load_catalog(self.root)
+        with patch.object(manual, 'datetime') as clock:
+            clock.now.return_value = frozen
+            for verified in (frozen, frozen - timedelta(microseconds=1),
+                             frozen.astimezone(timezone(timedelta(hours=9)))):
+                catalog = copy.deepcopy(original)
+                row = next(row for row in catalog['entries'] if row['entry_id'] == 'group_158')
+                row['verified_at'] = verified.isoformat()
+                row['expiry'] = '2030-01-01T00:00:00Z'
+                self.write(manual.CATALOG, catalog)
+                packet, scope = self.packet()
+                packet['reuse_entries'] = ['group_158']
+                self.rebind_schema_fixture(packet, scope)
+                self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertTrue(manual.lookup_reuse('group_158', self.root)['allowed'])
+            row['verified_at'] = (frozen + timedelta(microseconds=1)).isoformat()
+            self.write(manual.CATALOG, catalog)
+            with self.assertRaisesRegex(manual.ContractError, 'catalog_verified_at_future'):
+                manual.lookup_reuse('group_158', self.root)
+
     def test_reconciled_a6_proof_inputs_refuse_stale_or_missing_pins(self):
         for name in ('tests/twelve_data_credential_preflight_smoke.py',
                      '.github/workflows/api_credentials_check.yml',
