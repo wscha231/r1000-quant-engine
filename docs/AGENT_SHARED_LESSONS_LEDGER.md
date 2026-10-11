@@ -6730,3 +6730,7 @@ Expected contract:
 - When an ephemeral Native resource disappears, recover only the same approved
   path and reviewed Git tree, verify one worktree/clean status/actual inputs, and
   rerun successor validation. Record the incident and exact dependency versions.
+- When a stronger outer contract rejects an old negative fixture first, retain
+  that early-refusal case and supply a valid reviewed closure to reach the
+  intended inner refusal. A different error is not proof of the inner guard;
+  test its actual API/CLI rejection and a permitted control before full reruns.

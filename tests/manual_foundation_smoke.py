@@ -754,7 +754,30 @@ class ManualTests(unittest.TestCase):
         self.write(manual.CATALOG, catalog)
         packet, scope = self.packet()
         packet['reuse_entries'] = ['group_174']
+        self.rejected(self.bind(packet), scope, 'catalog_unpinned_reuse_path')
+
+        # Supply a reviewed recipe so the canonical DNR boundary is exercised
+        # independently of the earlier unreviewed-capability refusal.
+        path = 'tools/nav_metrics_v2.py'
+        row['current_equivalent'] = row['toolbox_refs'] = [path]
+        row['dependency_hashes'][path] = hashlib.sha256((self.root / path).read_bytes()).hexdigest()
+        self.write(manual.CATALOG, catalog)
+        lookup = manual.lookup_reuse('group_174', self.root)
+        self.assertFalse(lookup['allowed'])
+        self.assertEqual(lookup['blocked_registry_ids'], ['broad_gross_floor'])
+        packet, scope = self.packet()
+        packet['reuse_entries'] = ['group_174']
         self.rejected(self.bind(packet), scope, 'catalog_reuse_not_allowed')
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+        self.assertEqual(json.loads(cli.stdout)['status'], 'BLOCKED_INPUT')
+        self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_reuse_not_allowed')
+        self.assertEqual(cli.stderr, '')
+        packet['reuse_entries'] = ['group_158']
+        result = self.validate(self.bind(packet), scope)
+        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse(result['economic_authority'])
+        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
 
     def test_catalog_change_invalidates_existing_packet(self):
         packet, scope = self.packet()
