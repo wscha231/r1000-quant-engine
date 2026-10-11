@@ -9,6 +9,9 @@
   optimization modes. A CI pass does not supersede an independent failing case.
 - Preserve both sides of accepted lesson changes during master reconciliation;
   pin new proof helpers and embedded workflows consumed by registered tests.
+- Pin the parent workflow read/compiled by a registered test as well as a new
+  helper's workflow. A pinned entrypoint alone cannot bind its embedded source;
+  verify old-byte and fully rebound omission refusal with fresh-binding controls.
 
 ## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
 

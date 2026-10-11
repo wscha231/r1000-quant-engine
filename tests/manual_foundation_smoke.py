@@ -1641,6 +1641,7 @@ class ManualTests(unittest.TestCase):
                          'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
                          'tools/frozen_stage_ab_fairness.py',
                          'tests/twelve_data_credential_preflight_smoke.py',
+                         '.github/workflows/api_credentials_check.yml',
                          '.github/workflows/twelve_data_credential_preflight.yml'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
         result = self.validate(packet, scope)
@@ -1650,6 +1651,7 @@ class ManualTests(unittest.TestCase):
 
     def test_reconciled_a6_proof_inputs_refuse_stale_or_missing_pins(self):
         for name in ('tests/twelve_data_credential_preflight_smoke.py',
+                     '.github/workflows/api_credentials_check.yml',
                      '.github/workflows/twelve_data_credential_preflight.yml'):
             with self.subTest(path=name):
                 original = (self.root / name).read_bytes()
@@ -1658,13 +1660,25 @@ class ManualTests(unittest.TestCase):
                     self.assertIn(name, packet['dependencies'])
                     (self.root / name).write_bytes(original + b'\n# SYNTHETIC PROOF CHANGE\n')
                     self.rejected(packet, scope, 'dependency_bytes_changed')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['status'], 'BLOCKED_INPUT')
+                    self.assertEqual(cli.stderr, '')
                     packet, scope = self.packet('A6_INDEPENDENT_QA')
                     result = self.validate(packet, scope)
                     self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
                     self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertEqual(cli.stderr, '')
                     del packet['dependencies'][name]
                     del scope['dependencies'][name]
                     self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'missing_dependency')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                    self.assertEqual(cli.stderr, '')
                 finally:
                     (self.root / name).write_bytes(original)
 

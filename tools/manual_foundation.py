@@ -75,6 +75,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # not a claim of approved semantics or completed proof. Changes to the proof
 # procedure require reviewing/updating its consumed inputs, like the Reader.
 A6_FIXED_PROOF_PROGRAMS = (
+    '.github/workflows/api_credentials_check.yml',
     '.github/workflows/twelve_data_credential_preflight.yml',
     'aggressive/__init__.py',
     'aggressive/agg_config.py',
