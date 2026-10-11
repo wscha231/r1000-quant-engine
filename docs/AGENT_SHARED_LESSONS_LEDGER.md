@@ -47,6 +47,32 @@
 - Reconcile current master in the existing released Main checkout. Keep both
   accepted shared-lesson blocks when resolving an append conflict; an older
   green CI or scoped CLEAN does not approve the reconciled source HEAD.
+
+## 2026-10-11 — Bind conditional private retention to actual account and storage
+
+- Owner consent and provider terms are distinct evidence. Twelve's current
+  Individual Basic pricing includes internal non-display use; its US equities
+  guide explicitly includes EOD/history from Basic without an additional license.
+  Terms2.2/16 still restrict retention by subscription/provider conditions and
+  require deletion on termination/expiry. Do not demand perpetual rights for a
+  conditional research capture, or claim that conditional rights are perpetual.
+- A live api_usage result must identify the selected individual plan and actual
+  quota. Unknown plans/limits, auth/quota failures or an absent selected Secret
+  stop capture; no account fallback. Do not retain the usage response body.
+  Official SDK JSON fields are plan_category and plan_daily_limit. Strictly
+  bound the known Basic quota signature; invented plan/daily_limit fixtures
+  do not verify the real endpoint. Reject unexpected price-response fields.
+- Reuse reviewed rclone OAuth validation/refresh without exposing configuration;
+  verify the actual Drive user/sole owner, parent folders, sharing, contract hash,
+  capacity and upload/readback before price capture. Service-account sharing is
+  not equivalent to the requested sole-owner destination.
+- A bounded four-symbol raw/splits history pack and its clean Drive restore can
+  prove research-byte persistence. It cannot prove Russell membership, complete
+  NYSE sessions, historical identity/PIT, Alpaca IEX concordance, an Immutable
+  Reader generation, source admission or economics. Whole-cohort batches remain
+  disabled until this pilot and the exact versioned cohort are independently
+  verified. Vendor raw must never enter public Actions artifacts or output.
+
 ## 2026-10-11 — Use the provider instrument's segment MIC in strict probes
 
 - Current Twelve AAPL/MSFT catalog and daily EOD sample use `XNGS`; generic
@@ -6618,3 +6644,26 @@ Expected contract:
 - Offline loaded-workflow tests cover second-key selection, absent selected
   key with another key present, unknown selection and quota/auth refusal in
   both directions; fixtures do not authenticate either live account.
+
+## 2026-10-11 — Private Twelve capture must verify decoded credentials and the whole restore
+
+- User permission to store research data does not establish vendor rights.
+  Bind the current account's documented Basic quota/category and conditional
+  internal noncommercial terms before capture. Subscription/third-party
+  restrictions and termination deletion still apply; perpetual retention is
+  not asserted. Unknown account/quota or Drive ownership/capacity stops capture.
+- Initial upload readback does not prove a subsequent archive restore. A6
+  reproduced a valid ZIP with changed capture.json rights metadata passing
+  CRC, price-member hashes and normalization. Verify the complete restored
+  ZIP hash and length plus all original members before publishing success.
+- Literal credential bytes can be absent while a JSON string contains the
+  key through Unicode escapes. A6 reproduced this inside an allowed metadata
+  field. Inspect decoded JSON keys and values before any provider raw upload.
+- A restored four-symbol history pilot is not Russell cohort coverage,
+  historical security identity, certified session completeness, PIT, source
+  admission, Alpaca raw/split concordance or Immutable Reader E2E. Preserve
+  these separate gates and keep bulk capture disabled until its cohort binds.
+- Final Codex review requires documented lowercase Twelve order values and
+  Drive files.create ignoreDefaultVisibility=true. Post-upload owner checks
+  detect unwanted domain-default sharing too late to prevent exposure; bypass
+  that default at creation and keep private-parent and readback gates.

@@ -1641,6 +1641,9 @@ class ManualTests(unittest.TestCase):
                          'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
                          'tools/frozen_stage_ab_fairness.py',
                          'tests/twelve_data_credential_preflight_smoke.py',
+                         'tests/twelve_private_capture_smoke.py',
+                         'tools/twelve_private_capture.py',
+                         '.github/workflows/twelve_private_capture.yml',
                          '.github/workflows/api_credentials_check.yml',
                          '.github/workflows/twelve_data_credential_preflight.yml'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
@@ -1818,6 +1821,9 @@ class ManualTests(unittest.TestCase):
 
     def test_reconciled_a6_proof_inputs_refuse_stale_or_missing_pins(self):
         for name in ('tests/twelve_data_credential_preflight_smoke.py',
+                     'tests/twelve_private_capture_smoke.py',
+                     'tools/twelve_private_capture.py',
+                     '.github/workflows/twelve_private_capture.yml',
                      '.github/workflows/api_credentials_check.yml',
                      '.github/workflows/twelve_data_credential_preflight.yml'):
             with self.subTest(path=name):
