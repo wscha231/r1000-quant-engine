@@ -1,5 +1,30 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Bind conditional private retention to actual account and storage
+
+- Owner consent and provider terms are distinct evidence. Twelve's current
+  Individual Basic pricing includes internal non-display use; its US equities
+  guide explicitly includes EOD/history from Basic without an additional license.
+  Terms2.2/16 still restrict retention by subscription/provider conditions and
+  require deletion on termination/expiry. Do not demand perpetual rights for a
+  conditional research capture, or claim that conditional rights are perpetual.
+- A live api_usage result must identify the selected individual plan and actual
+  quota. Unknown plans/limits, auth/quota failures or an absent selected Secret
+  stop capture; no account fallback. Do not retain the usage response body.
+  Official SDK JSON fields are plan_category and plan_daily_limit. Strictly
+  bound the known Basic quota signature; invented plan/daily_limit fixtures
+  do not verify the real endpoint. Reject unexpected price-response fields.
+- Reuse reviewed rclone OAuth validation/refresh without exposing configuration;
+  verify the actual Drive user/sole owner, parent folders, sharing, contract hash,
+  capacity and upload/readback before price capture. Service-account sharing is
+  not equivalent to the requested sole-owner destination.
+- A bounded four-symbol raw/splits history pack and its clean Drive restore can
+  prove research-byte persistence. It cannot prove Russell membership, complete
+  NYSE sessions, historical identity/PIT, Alpaca IEX concordance, an Immutable
+  Reader generation, source admission or economics. Whole-cohort batches remain
+  disabled until this pilot and the exact versioned cohort are independently
+  verified. Vendor raw must never enter public Actions artifacts or output.
+
 ## 2026-10-11 — Use the provider instrument's segment MIC in strict probes
 
 - Current Twelve AAPL/MSFT catalog and daily EOD sample use `XNGS`; generic
