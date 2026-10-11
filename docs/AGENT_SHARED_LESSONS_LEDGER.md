@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Use the provider instrument's segment MIC in strict probes
+
+- Current Twelve AAPL/MSFT catalog and daily EOD sample use `XNGS`; generic
+  older examples use operating MIC `XNAS`. Verify the instrument-specific MIC
+  before filtering. Keep exact response MIC validation; do not accept aliases.
+- Model a catalog that refuses the wrong MIC. A response echoing any requested
+  MIC misses the failure. Current catalog identity does not certify historical
+  identity, PIT, account entitlement or retained-data rights.
+
 ## 2026-10-11 — Model provider date boundaries in access probes
 
 - Twelve's daily historical example excludes the date-only `end_date`; equal
