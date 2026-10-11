@@ -253,6 +253,7 @@ class OwnerDrive:
 
     def write(self, folder_id, raw, extension):
         require(0 < len(raw) <= MAX_PACK and extension in ('.json', '.zip', '.jsonl.gz'), 'PACK_SIZE')
+        require(self.free >= len(raw), 'DRIVE_SPACE')
         self.check(folder_id, self.root_id)
         boundary = 'r1000-' + digest(raw)
         metadata = encoded(dict(name=digest(raw) + extension, parents=[folder_id]))
@@ -267,12 +268,20 @@ class OwnerDrive:
         require(isinstance(file_id, str), 'DRIVE_UPLOAD')
         self.check(file_id, folder_id, folder=False)
         require(self.read(file_id) == raw, 'DRIVE_READBACK')
+        self.free -= len(raw)
         return dict(file_id=file_id, sha256=digest(raw), bytes=len(raw))
 
 
-def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
+def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep,
+            symbols=SYMBOLS, collection_scope=None):
+    require(isinstance(symbols, (list, tuple)) and 1 <= len(symbols) <= 4
+            and all(isinstance(p, tuple) and len(p) == 2 for p in symbols)
+            and len(set(symbols)) == len(symbols)
+            and all(isinstance(s, str) and re.fullmatch(r'[A-Z0-9][A-Z0-9.-]{0,14}', s)
+                    and mic in {'XNGS', 'XNGM', 'XNCM', 'XNYS', 'XASE'} for s, mic in symbols),
+            'SOURCE_FIELDS')
     raw_members, normalized, evidence = {}, [], []
-    for symbol, mic in SYMBOLS:
+    for symbol, mic in symbols:
         bases = {}
         for adjustment in ('none', 'splits'):
             pause(10)
@@ -318,6 +327,8 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
                    historical_identity_verified=False, pit_verified=False, source_admission=False,
                    immutable_reader_e2e=False, economic_authority=False,
                    run_id=os.environ.get('GITHUB_RUN_ID'), code_sha=os.environ.get('GITHUB_SHA'))
+    if collection_scope is not None:
+        receipt['collection_scope'] = collection_scope
     saved = drive.write(folders['06-receipts'], encoded(receipt), '.json')
     checkpoint = drive.write(folders['05-checkpoints'], encoded(dict(schema='twelve-private-pilot-checkpoint-v1',
                              receipt=saved, status='PILOT_CAPTURE_RESTORED', bulk_enabled=False)), '.json')
@@ -325,7 +336,8 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
                 history=[{k: e[k] for k in ('symbol', 'adjustment', 'rows', 'first', 'last')} for e in evidence])
 
 
-def run(capture_history=False):
+def run(capture_history=False, cohort_reference=None, resume_reference=None, max_new_symbols=32):
+    require(cohort_reference is None or capture_history, 'SOURCE_FIELDS')
     require(os.environ.get('A1_PRIVATE_RESEARCH_AUTHORIZED') == 'true', 'USER_AUTHORIZATION_MISSING')
     selected = os.environ.get('TWELVE_KEY_NAME')
     require(selected in KEYS, 'KEY_SELECTION')
@@ -362,18 +374,32 @@ def run(capture_history=False):
                       source_admission=False, pointer_promotion=False, economic_authority=False,
                       fullrun=False, auto_merge=False, automatic_key_switch=False)
         if capture_history:
-            result.update(capture(drive, folders, key, rights_object))
-            result['status'] = 'FOUR_SYMBOL_HISTORY_CAPTURE_RESTORED'
-            result['retained_provider_raw_objects'] = 1
+            if cohort_reference is None:
+                result.update(capture(drive, folders, key, rights_object))
+                result['status'] = 'FOUR_SYMBOL_HISTORY_CAPTURE_RESTORED'
+                result['retained_provider_raw_objects'] = 1
+            else:
+                from tools.twelve_private_cohort import collect
+                result.update(collect(drive, folders, key, rights_object, budget,
+                                      cohort_reference, resume_reference, max_new_symbols))
         return result
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--capture-history', action='store_true')
+    parser.add_argument('--cohort-file-id', default='')
+    parser.add_argument('--cohort-sha256', default='')
+    parser.add_argument('--resume-file-id', default='')
+    parser.add_argument('--resume-sha256', default='')
+    parser.add_argument('--max-new-symbols', type=int, default=32)
     args = parser.parse_args()
     try:
-        report = run(args.capture_history)
+        from tools.twelve_private_cohort import reference
+        cohort = reference(args.cohort_file_id, args.cohort_sha256)
+        resume = reference(args.resume_file_id, args.resume_sha256)
+        require(resume is None or cohort is not None, 'SOURCE_FIELDS')
+        report = run(args.capture_history, cohort, resume, args.max_new_symbols)
     except Refused as exc:
         # Only this module's constant diagnostic codes are emitted.
         code = str(exc)
@@ -390,4 +416,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # The resume worker must share this module's refusal type at the real CLI.
+    sys.modules.setdefault('tools.twelve_private_capture', sys.modules[__name__])
     raise SystemExit(main())

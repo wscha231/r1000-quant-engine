@@ -214,6 +214,7 @@ class PrivateCaptureTests(unittest.TestCase):
     def test_production_upload_bypasses_domain_default_visibility(self):
         drive = object.__new__(m.OwnerDrive)
         drive.root_id = 'root-canary'
+        drive.free = 32_000_000
         checks, requests = [], []
         drive.check = lambda *args, **kwargs: checks.append((args, kwargs))
         raw = b'private-storage-canary'
@@ -266,7 +267,7 @@ class PrivateCaptureTests(unittest.TestCase):
         self.assertEqual(env['TWELVE_API_KEY2'], "${{ inputs.twelve_key_name == 'TWELVE_API_KEY2' && secrets.TWELVE_API_KEY2 || '' }}")
         self.assertEqual(env['R1000_PRIVATE_RESEARCH_FOLDER_ID'], '${{ inputs.private_root_folder_id }}')
         self.assertEqual(env['A1_PRIVATE_RESEARCH_AUTHORIZED'], '${{ inputs.private_research_authorized }}')
-        self.assertLessEqual(value['jobs']['capture']['timeout-minutes'], 15)
+        self.assertEqual(value['jobs']['capture']['timeout-minutes'], 180)
 
 
 if __name__ == '__main__':
