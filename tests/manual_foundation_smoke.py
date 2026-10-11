@@ -345,6 +345,116 @@ class ManualTests(unittest.TestCase):
         packet['allowed_files'] = scope['allowed_files'] = ['docs']
         self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'allowed_file_is_directory')
 
+    def test_a6_candidate_proof_modules_refuse_stale_and_rebound_omission(self):
+        for name in ('research/a3_candidate_packet_v1.py', 'research/candidate_registry_v1.py'):
+            with self.subTest(name=name):
+                target = self.root / name
+                original = target.read_bytes()
+                try:
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    target.write_bytes(b'pass\n')
+                    compile(target.read_bytes(), name, 'exec')
+                    self.rejected(packet, scope, 'dependency_bytes_changed')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertTrue(json.loads(cli.stdout)['reason'].startswith('dependency_bytes_changed:'))
+                    self.assertEqual(cli.stderr, '')
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    cli = self.cli_fixture(fresh, fresh_scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    for result in (self.validate(fresh, fresh_scope), json.loads(cli.stdout)):
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    del fresh['dependencies'][name]
+                    del fresh_scope['dependencies'][name]
+                    for deleted in (False, True):
+                        if deleted:
+                            target.unlink()
+                            # This catalog also names the now-absent source.
+                            # Retain its declared hash; rebind every other input.
+                            self.rebind_all(fresh, fresh_scope)
+                        else:
+                            self.rebind_schema_fixture(fresh, fresh_scope)
+                        self.rejected(fresh, fresh_scope, 'missing_dependency')
+                        cli = self.cli_fixture(fresh, fresh_scope)
+                        self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                        self.assertEqual(json.loads(cli.stdout)['reason'], 'missing_dependency')
+                        self.assertEqual(cli.stderr, '')
+                finally:
+                    target.write_bytes(original)
+
+    def test_replay_reuse_imports_stale_and_omitted_hashes_fail_closed(self):
+        names = ('tools/nav_metrics_v2.py', 'tools/run_weekly_evaluation.py',
+                 'tools/execution_cost_model.py', 'tools/reserve_asset_policy.py')
+        canonical = (self.root / manual.CATALOG).read_bytes()
+        for name in names:
+            with self.subTest(name=name):
+                target = self.root / name
+                original = target.read_bytes()
+                try:
+                    packet, scope = self.packet()
+                    packet['reuse_entries'] = ['group_158']
+                    self.bind(packet)
+                    self.assertTrue(manual.lookup_reuse('group_158', self.root)['allowed'])
+                    self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                    target.write_bytes(b'pass\n')
+                    compile(target.read_bytes(), name, 'exec')
+                    self.rejected(packet, scope, 'catalog_dependency_changed')
+                    with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed'):
+                        manual.lookup_reuse('group_158', self.root)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(cli.stderr, '')
+                    self.rebind_schema_fixture(packet, scope)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                    for result in (self.validate(packet, scope), json.loads(cli.stdout)):
+                        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                        self.assertFalse(result['worker_invoked'])
+                        self.assertFalse(result['completed_task'])
+                        self.assertFalse(result['economic_authority'])
+                        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    rebound_catalog = (self.root / manual.CATALOG).read_bytes()
+                    for selected in manual.PLAYBOOK_IDS:
+                        for reuse in ([], ['group_158']):
+                            (self.root / manual.CATALOG).write_bytes(rebound_catalog)
+                            catalog = manual.board.read_json(self.root / manual.CATALOG)
+                            row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                            row['dependency_hashes'].pop(name, None)
+                            self.write(manual.CATALOG, catalog)
+                            fresh, fresh_scope = self.packet(selected)
+                            fresh['reuse_entries'] = reuse
+                            self.rejected(self.rebind_schema_fixture(fresh, fresh_scope),
+                                          fresh_scope, 'catalog_unpinned_reuse_path')
+                            cli = self.cli_fixture(fresh, fresh_scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_unpinned_reuse_path')
+                            self.assertEqual(cli.stderr, '')
+                finally:
+                    target.write_bytes(original)
+                    (self.root / manual.CATALOG).write_bytes(canonical)
+        # Closure follows actual consumer paths despite row renaming or use of
+        # the risk-grid subprocess wrapper without the replay in its path list.
+        for renamed in (False, True):
+            try:
+                catalog = manual.board.read_json(self.root / manual.CATALOG)
+                row = next(r for r in catalog['entries'] if r['entry_id'] == 'group_158')
+                row['dependency_hashes'].pop('tools/nav_metrics_v2.py', None)
+                if renamed:
+                    row['entry_id'] = 'SYNTHETIC_RENAMED_REPLAY_ROUTE'
+                else:
+                    row['current_equivalent'] = row['toolbox_refs'] = ['tools/run_broker_position_risk_grid_sweep.py']
+                    row['dependency_hashes'].pop('tools/run_broker_ledger_replay.py', None)
+                self.write(manual.CATALOG, catalog)
+                packet, scope = self.packet()
+                self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'catalog_unpinned_reuse_path')
+            finally:
+                (self.root / manual.CATALOG).write_bytes(canonical)
+
     def test_all_three_manuals_have_current_hash_and_four_layers(self):
         for key, owner in manual.PLAYBOOK_IDS.items():
             _, row = manual.load_playbook(key, self.root)
@@ -2016,7 +2126,7 @@ class ManualTests(unittest.TestCase):
 
     def test_catalog_now_past_and_future_expiry_controls_preserve_reuse(self):
         from datetime import datetime, timedelta, timezone
-        frozen = datetime(2026, 10, 11, tzinfo=timezone.utc)
+        frozen = datetime.now(timezone.utc)
         original = manual.load_catalog(self.root)
         with patch.object(manual, 'datetime') as clock:
             clock.now.return_value = frozen

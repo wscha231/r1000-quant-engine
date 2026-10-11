@@ -27,6 +27,17 @@ MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
 CATALOG = 'docs/pr_reuse_catalog.json'
 DNR = 'docs/run287_do_not_repeat_registry.json'
+# Actual local implementation consumed by the existing replay and grid child.
+# Required names survive catalog declaration edits and row renaming.
+BROKER_REPLAY_IMPORTS = (
+    'tools/nav_metrics_v2.py', 'tools/run_weekly_evaluation.py',
+    'tools/execution_cost_model.py', 'tools/reserve_asset_policy.py',
+)
+CATALOG_FIXED_IMPORTS = {
+    'tools/run_broker_ledger_replay.py': BROKER_REPLAY_IMPORTS,
+    'tools/run_broker_position_risk_grid_sweep.py':
+        ('tools/run_broker_ledger_replay.py',) + BROKER_REPLAY_IMPORTS,
+}
 OPERATING_CONTRACTS = ['AGENTS.md', 'docs/RUN287_GITHUB_AGENT_OPERATING_STANDARD.md',
                        'docs/AGENT_SHARED_LESSONS_LEDGER.md', 'docs/MANUAL_FOUNDATION_V1.md']
 PLAYBOOK_IDS = {'L0_RESUME_HANDOFF': 'A0', 'A1_SOURCE_ADMISSION_REFRESH': 'A1',
@@ -242,6 +253,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'auto_learning_v2/policy_candidate_builder.py',
     'auto_learning_v2/policy_grammar.py',
     'auto_learning_v2/promotion_governor.py',
+    'research/a3_candidate_packet_v1.py',
+    'research/candidate_registry_v1.py',
     'mission_contract.py',
     'r1000_alphaops_reporting.py',
     'r1000_auto_learning_evidence.py',
@@ -1159,7 +1172,9 @@ def load_catalog(root: Path = ROOT) -> dict:
                 raise ContractError('catalog_dependency_hash')
         if classification == 'REUSE_NOW':
             consumed = set(row['current_equivalent']) | set(row['toolbox_refs'])
-            if not consumed or not consumed.issubset(dependencies):
+            required = consumed | {dependency for path in consumed
+                                   for dependency in CATALOG_FIXED_IMPORTS.get(path, ())}
+            if not consumed or not required.issubset(dependencies):
                 raise ContractError('catalog_unpinned_reuse_path')
 
         refs = row.get('do_not_repeat_refs')

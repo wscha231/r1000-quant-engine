@@ -1,5 +1,18 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-11 — Bind proof modules and reuse implementation closure (#593)
+
+- A registered test route can delegate to another test which imports research
+  modules. Pin the actual candidate packet and registry implementations as
+  mandatory A6 sources, retaining names after source deletion or hash rebinding.
+- A reusable replay entrypoint also consumes NAV, weekly-price, execution-cost
+  and reserve implementations. Bind their actual byte hashes in the existing
+  catalog row and require the bounded local closure for both replay and its
+  risk-grid subprocess wrapper, including unselected and renamed rows.
+- Refresh source verification metadata from the checked snapshot without
+  certifying economic results. Fresh hashes permit preparation only. Final
+  Codex findings stop the merge gate even after scoped independent A6 CLEAN.
+
 ## 2026-10-11 — Keep proof packages and preflight boundaries fail closed (#593)
 
 - Bind the complete local AutoLearning package consumed by registered proofs,

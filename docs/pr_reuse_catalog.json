@@ -58,8 +58,8 @@
       "source_kind": "PR",
       "capability": "Position-risk grid sidecar and shared broker evaluation",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T13:04:24.371215+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#158": "9b52e4e3f6b488e2308cbf27cb886bad4783d111"
       },
@@ -98,7 +98,11 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "tools/run_broker_position_risk_grid_sweep.py": "d7fafc86c1a4340dfa9ab2e71805fa362a95a412163361d741312c06e8eb12f7",
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af",
+        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
+        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45",
+        "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
+        "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9"
       }
     },
     {
@@ -842,8 +846,8 @@
       "source_kind": "PR",
       "capability": "Common bound NAV/account/execution-cost measurement",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-11T13:06:50.661645+00:00",
+      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
       "source_heads": {
         "#578": "5cd07838cba5c6e8ec69d1d82319317a67153f9f"
       },
@@ -885,7 +889,9 @@
       "dependency_hashes": {
         "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
         "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af",
+        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45",
+        "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9"
       }
     },
     {
