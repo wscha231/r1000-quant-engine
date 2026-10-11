@@ -46,7 +46,7 @@ SAFE_CODES = frozenset('ACCOUNT_PLAN_UNVERIFIED ACCOUNT_QUOTA_UNVERIFIED BAR_DAT
                       'DRIVE_ENDPOINT DRIVE_FOLDER DRIVE_ID DRIVE_NOT_OWNER_ONLY DRIVE_OWNER_UNVERIFIED '
                       'DRIVE_PARENT DRIVE_QUOTA_UNVERIFIED DRIVE_READBACK DRIVE_SPACE DRIVE_UPLOAD ENDPOINT '
                       'HISTORY_SIZE HTTP_ERROR INVALID_JSON KEY_SELECTION MEMBER_HASH NETWORK OWNER_OAUTH_REQUIRED '
-                      'PACK_CRC_OR_MEMBERSHIP PACK_SIZE PRIVATE_ROOT_MISSING PROVIDER_SHAPE PROVIDER_ERROR '
+                      'PACK_CRC_OR_MEMBERSHIP PACK_HASH PACK_SIZE PRIVATE_ROOT_MISSING PROVIDER_SHAPE PROVIDER_ERROR '
                       'RAW_RESTORE_NORMALIZATION RAW_SPLIT_SESSION_MISMATCH RESPONSE_SIZE SELECTED_SECRET_MISSING '
                       'STORAGE_CONTRACT_HASH STORAGE_ROOT_BINDING USER_AUTHORIZATION_MISSING SOURCE_FIELDS AUTH ENTITLEMENT '
                       'PERMISSION RATE_LIMIT'.split())
@@ -74,6 +74,23 @@ def decode(raw):
         raise Refused('INVALID_JSON') from None
 
 
+def credential_safe_json(raw, credentials):
+    """Inspect original JSON strings and keys after escape decoding, before storage."""
+    require(all(not value or value.encode() not in raw for value in credentials), 'CREDENTIAL_ECHO')
+    data = decode(raw)
+    pending = [data]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            require(all(not key or key not in value for key in credentials), 'CREDENTIAL_ECHO')
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+    return data
+
+
 def http(url, *, method='GET', headers=None, body=None, limit=MAX_BYTES, credentials=()):
     """No redirects/retries; do not expose vendor bodies, exception text or URLs."""
     try:
@@ -98,7 +115,7 @@ def twelve(endpoint, query, key):
     raw = http('https://api.twelvedata.com' + endpoint + '?' + urlencode(query),
                headers={'Authorization': 'apikey ' + key, 'Accept': 'application/json'},
                credentials=(key,))
-    data = decode(raw)
+    data = credential_safe_json(raw, (key,))
     require(isinstance(data, dict), 'PROVIDER_SHAPE')
     if data.get('status') == 'error' or ('code' in data and data['code'] != 200):
         raise Refused({401: 'AUTH', 402: 'ENTITLEMENT', 403: 'ENTITLEMENT',
@@ -260,8 +277,8 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
             pause(10)
             query = dict(symbol=symbol, mic_code=mic, interval='1day', start_date=START,
                          end_date=END, outputsize=5000, order='ASC', adjust=adjustment)
-            raw, data = provider('/time_series', query, key)
-            require(key.encode() not in raw, 'CREDENTIAL_ECHO')
+            raw, _ = provider('/time_series', query, key)
+            data = credential_safe_json(raw, (key,))
             normalized_rows = rows(data, symbol, mic, adjustment)
             member = digest(raw) + '.json'
             raw_members[member] = raw
@@ -280,9 +297,13 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep):
             pack.writestr(name, raw)
     raw_object = drive.write(folders['01-provider-raw'], stream.getvalue(), '.zip')
     restored = drive.read(raw_object['file_id'])
+    require(len(restored) == raw_object['bytes'] and digest(restored) == raw_object['sha256'], 'PACK_HASH')
     rebuilt = []
     with zipfile.ZipFile(io.BytesIO(restored)) as pack:
-        require(pack.testzip() is None and set(pack.namelist()) == set(raw_members), 'PACK_CRC_OR_MEMBERSHIP')
+        require(pack.testzip() is None and len(pack.namelist()) == len(raw_members)
+                and set(pack.namelist()) == set(raw_members), 'PACK_CRC_OR_MEMBERSHIP')
+        for name, original in raw_members.items():
+            require(pack.read(name) == original, 'MEMBER_HASH')
         for e in evidence:
             raw = pack.read(e['member'])
             require(digest(raw) == e['sha256'], 'MEMBER_HASH')

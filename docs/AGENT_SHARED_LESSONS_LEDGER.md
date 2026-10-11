@@ -6560,3 +6560,22 @@ Expected contract:
 - Offline loaded-workflow tests cover second-key selection, absent selected
   key with another key present, unknown selection and quota/auth refusal in
   both directions; fixtures do not authenticate either live account.
+
+## 2026-10-11 — Private Twelve capture must verify decoded credentials and the whole restore
+
+- User permission to store research data does not establish vendor rights.
+  Bind the current account's documented Basic quota/category and conditional
+  internal noncommercial terms before capture. Subscription/third-party
+  restrictions and termination deletion still apply; perpetual retention is
+  not asserted. Unknown account/quota or Drive ownership/capacity stops capture.
+- Initial upload readback does not prove a subsequent archive restore. A6
+  reproduced a valid ZIP with changed capture.json rights metadata passing
+  CRC, price-member hashes and normalization. Verify the complete restored
+  ZIP hash and length plus all original members before publishing success.
+- Literal credential bytes can be absent while a JSON string contains the
+  key through Unicode escapes. A6 reproduced this inside an allowed metadata
+  field. Inspect decoded JSON keys and values before any provider raw upload.
+- A restored four-symbol history pilot is not Russell cohort coverage,
+  historical security identity, certified session completeness, PIT, source
+  admission, Alpaca raw/split concordance or Immutable Reader E2E. Preserve
+  these separate gates and keep bulk capture disabled until its cohort binds.

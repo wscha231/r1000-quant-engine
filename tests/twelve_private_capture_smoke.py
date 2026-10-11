@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -140,6 +141,47 @@ class PrivateCaptureTests(unittest.TestCase):
         checkpoint = json.loads(drive.read(out['checkpoint']['file_id']))
         self.assertEqual(checkpoint['receipt'], out['receipt'])
         self.assertIs(checkpoint['bulk_enabled'], False)
+
+    def test_unicode_escaped_credential_in_json_keys_or_values_is_refused(self):
+        key = 'credential-canary'
+        escaped = ''.join('\\u%04x' % ord(char) for char in key)
+        for data in ({'meta': {'type': key}}, {key: 'value'}, {'nested': [key]}):
+            raw = json.dumps(data).replace(key, escaped).encode()
+            self.assertNotIn(key.encode(), raw)
+            with self.assertRaisesRegex(m.Refused, 'CREDENTIAL_ECHO'):
+                m.credential_safe_json(raw, (key,))
+        drive = Drive()
+        def provider(endpoint, query, selected):
+            data = bar(query['symbol'], query['mic_code'])
+            data['meta']['type'] = selected
+            raw = json.dumps(data).replace(selected, escaped).encode()
+            return raw, data
+        with self.assertRaisesRegex(m.Refused, 'CREDENTIAL_ECHO'):
+            m.capture(drive, FOLDERS, key, {'sha256': 'a'*64}, provider, lambda _: None)
+        self.assertEqual(drive.calls, [])
+
+    def test_valid_zip_with_changed_capture_metadata_blocks_success(self):
+        class ChangedDrive(Drive):
+            def read(self, key):
+                raw = super().read(key)
+                changed = io.BytesIO()
+                with zipfile.ZipFile(io.BytesIO(raw)) as old, \
+                        zipfile.ZipFile(changed, 'w', zipfile.ZIP_DEFLATED) as new:
+                    for name in old.namelist():
+                        member = old.read(name)
+                        if name == 'capture.json':
+                            data = json.loads(member)
+                            data['rights_sha256'] = 'f'*64
+                            member = m.encoded(data)
+                        new.writestr(name, member)
+                return changed.getvalue()
+        drive = ChangedDrive()
+        def provider(endpoint, query, key):
+            data = bar(query['symbol'], query['mic_code'])
+            return m.encoded(data), data
+        with self.assertRaisesRegex(m.Refused, 'PACK_HASH'):
+            m.capture(drive, FOLDERS, 'credential-canary', {'sha256': 'a'*64}, provider, lambda _: None)
+        self.assertEqual(drive.calls, ['01-provider-raw'])
 
     def test_corrupted_drive_restore_cannot_publish_normalization_or_success(self):
         drive = Drive()
