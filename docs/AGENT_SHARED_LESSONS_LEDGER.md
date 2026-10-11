@@ -6602,3 +6602,9 @@ Expected contract:
 - Compare canonical decompressed normalized bytes across runtimes rather than
   regenerated gzip headers. Charge successful private uploads against the
   verified remaining capacity. The CLI and worker must share one refusal type.
+- Independent A6 reproduced three resume defects: replacing the initial pilot
+  with a newly scoped receipt, requiring uninstalled PyYAML in the sparse live
+  runner, and accepting fully hash-rebound none/splits histories with different
+  sessions. Require the original pilot file/hash on every resume, keep the
+  pre-credential runner stdlib-only, and recheck basis session equality after
+  restoring bytes. The corrected independent counterexamples pass normal/-O.
