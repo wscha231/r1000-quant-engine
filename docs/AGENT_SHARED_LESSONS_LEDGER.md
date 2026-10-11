@@ -6608,3 +6608,7 @@ Expected contract:
   sessions. Require the original pilot file/hash on every resume, keep the
   pre-credential runner stdlib-only, and recheck basis session equality after
   restoring bytes. The corrected independent counterexamples pass normal/-O.
+- Reject duplicate JSON keys before decoded credential scanning: otherwise an
+  overwritten value containing a Unicode-escaped key disappears from the parsed
+  object while its original bytes are still archived. The capture-boundary
+  counterexample must refuse before any raw upload.

@@ -68,8 +68,14 @@ def now():
 def decode(raw):
     def constant(_):
         raise Refused('INVALID_JSON')
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value, 'INVALID_JSON')
+            value[key] = item
+        return value
     try:
-        return json.loads(raw, parse_constant=constant)
+        return json.loads(raw, parse_constant=constant, object_pairs_hook=unique)
     except (ValueError, UnicodeError, TypeError, RecursionError):
         raise Refused('INVALID_JSON') from None
 
