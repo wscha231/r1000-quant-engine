@@ -27,18 +27,27 @@ def bar(symbol='AAPL', mic='XNGS'):
                         'low': '9', 'close': '11', 'volume': '0'}]}
 
 
-def invoke(request, key='offline-canary'):
-    with patch.dict(os.environ, {'TWELVE_API_KEY': key}, clear=True), patch.dict(NS, request_body=request), contextlib.redirect_stdout(io.StringIO()) as out:
+def invoke(request, key='offline-canary', key_name='TWELVE_API_KEY', extra_env=None):
+    env = {'TWELVE_KEY_NAME': key_name, key_name: key}
+    env.update(extra_env or {})
+    with patch.dict(os.environ, env, clear=True), patch.dict(NS, request_body=request), contextlib.redirect_stdout(io.StringIO()) as out:
         code = NS['run']()
     return code, json.loads(out.getvalue()), out.getvalue()
 
 
 class TwelvePreflightTests(unittest.TestCase):
     def test_manual_master_only_exact_secret_and_no_persistence(self):
-        self.assertEqual(WORKFLOW.get('on', WORKFLOW.get(True)), {'workflow_dispatch': None})
+        dispatch = WORKFLOW.get('on', WORKFLOW.get(True))['workflow_dispatch']
+        self.assertEqual(dispatch['inputs']['twelve_key_name'], {
+            'description': 'Select one registered key; no quota fallback or pooling',
+            'required': True, 'default': 'TWELVE_API_KEY', 'type': 'choice',
+            'options': ['TWELVE_API_KEY', 'TWELVE_API_KEY2']})
         self.assertEqual(WORKFLOW['permissions'], {})
         self.assertEqual(WORKFLOW['jobs']['probe']['if'], "github.ref == 'refs/heads/master'")
-        self.assertEqual(STEP['env'], {'TWELVE_API_KEY': '${{ secrets.TWELVE_API_KEY }}'})
+        self.assertEqual(STEP['env'], {
+            'TWELVE_KEY_NAME': "${{ inputs.twelve_key_name || 'TWELVE_API_KEY' }}",
+            'TWELVE_API_KEY': "${{ (inputs.twelve_key_name || 'TWELVE_API_KEY') == 'TWELVE_API_KEY' && secrets.TWELVE_API_KEY || '' }}",
+            'TWELVE_API_KEY2': "${{ inputs.twelve_key_name == 'TWELVE_API_KEY2' && secrets.TWELVE_API_KEY2 || '' }}"})
         self.assertEqual(len(WORKFLOW['jobs']['probe']['steps']), 1)
         self.assertNotIn('uses', STEP)
         for forbidden in ('open(', 'write(', 'GITHUB_STEP_SUMMARY', 'upload-artifact', 'checkout@'):
@@ -54,6 +63,65 @@ class TwelvePreflightTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report['request_count'], 0)
         self.assertTrue(all(r['access'] == 'MISSING_SECRET_IN_RUNNER' for r in report['results']))
+
+    def test_secondary_selection_uses_only_secondary_credential(self):
+        calls = []
+        def fake(endpoint, query, key):
+            calls.append(key)
+            if endpoint == '/time_series':
+                return 200, raw(bar(query['symbol'], query['mic_code']))
+            return 200, raw({'datetime': '1997-10-09'})
+        code, report, output = invoke(fake, key='secondary-canary', key_name='TWELVE_API_KEY2',
+                                      extra_env={'TWELVE_API_KEY': 'primary-canary'})
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ['secondary-canary'] * 8)
+        self.assertEqual(report['selected_secret_name'], 'TWELVE_API_KEY2')
+        self.assertIs(report['automatic_key_switch'], False)
+        self.assertNotIn('secondary-canary', output)
+        self.assertNotIn('primary-canary', output)
+
+    def test_missing_selected_key_never_falls_back_to_other_registered_key(self):
+        for selected, other in [('TWELVE_API_KEY', 'TWELVE_API_KEY2'),
+                                ('TWELVE_API_KEY2', 'TWELVE_API_KEY')]:
+            with self.subTest(selected=selected):
+                code, report, output = invoke(lambda *a: self.fail('unselected credential used'),
+                                              key='', key_name=selected,
+                                              extra_env={other: 'unselected-canary'})
+                self.assertEqual(code, 1)
+                self.assertEqual(report['request_count'], 0)
+                self.assertTrue(all(r['access'] == 'MISSING_SECRET_IN_RUNNER' for r in report['results']))
+                self.assertNotIn('unselected-canary', output)
+
+    def test_invalid_selector_refuses_before_any_request_or_vendor_text_output(self):
+        code, report, output = invoke(lambda *a: self.fail('invalid selector sent a request'),
+                                      key_name='unknown-selector-canary',
+                                      extra_env={'TWELVE_API_KEY': 'primary-canary',
+                                                 'TWELVE_API_KEY2': 'secondary-canary'})
+        self.assertEqual(code, 1)
+        self.assertEqual(report['request_count'], 0)
+        self.assertIsNone(report['selected_secret_name'])
+        self.assertTrue(all(r['access'] == 'INVALID_KEY_SELECTION' for r in report['results']))
+        for value in ('unknown-selector-canary', 'primary-canary', 'secondary-canary'):
+            self.assertNotIn(value, output)
+
+    def test_quota_and_auth_failures_do_not_rotate_even_if_both_keys_are_present(self):
+        for selected, other in [('TWELVE_API_KEY', 'TWELVE_API_KEY2'),
+                                ('TWELVE_API_KEY2', 'TWELVE_API_KEY')]:
+            for status, expected in [(429, 'RATE_LIMIT'), (401, 'AUTH')]:
+                with self.subTest(selected=selected, status=status):
+                    calls = []
+                    def fake(endpoint, query, key):
+                        calls.append(key)
+                        return status, None
+                    code, report, output = invoke(fake, key_name=selected,
+                                                  extra_env={other: 'unselected-canary'})
+                    self.assertEqual(code, 1)
+                    self.assertEqual(calls, ['offline-canary'])
+                    self.assertEqual(report['request_count'], 1)
+                    self.assertEqual(report['results'][0]['access'], expected)
+                    self.assertIs(report['automatic_key_switch'], False)
+                    self.assertTrue(all(r['access'] == 'SKIPPED_AFTER_STOP' for r in report['results'][1:]))
+                    self.assertNotIn('unselected-canary', output)
 
     def test_fixed_queries_max_eight_and_distinct_listing_histories(self):
         calls = []

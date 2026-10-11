@@ -6519,3 +6519,19 @@ Expected contract:
 - Normalize US symbols for collision comparison while preserving original
   immutable bytes. Freeze returned row/receipt mappings recursively and expose
   canonical JSON bytes; a frozen dataclass alone does not protect nested values.
+
+## 2026-10-11 — Secondary Twelve Secret registration needs explicit selection
+
+- Add a bounded master-only choice between TWELVE_API_KEY and TWELVE_API_KEY2;
+  inject only the selected credential and refuse missing/unknown selections
+  before any provider request. Secret names may be reported, never key values.
+- Registration does not establish an independent account quota or permission to
+  combine accounts. Twelve terms2.3(h)/(i) prohibit exceeding rate limits and
+  circumventing technical limitations; quota/auth stop remains terminal with
+  no fallback or retry while account-scoped permission is unverified.
+- An existing private Drive storage contract and recovery canary do not bind a
+  production collector. Keep retained history, Receipt, Immutable Generation
+  and Shared Reader E2E separate from this non-retaining credential preflight.
+- Offline loaded-workflow tests cover second-key selection, absent selected
+  key with another key present, unknown selection and quota/auth refusal in
+  both directions; fixtures do not authenticate either live account.
