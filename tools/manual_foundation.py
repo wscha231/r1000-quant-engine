@@ -220,6 +220,13 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
+    "data_static/run287_exact_packet/security_lifecycle_events.csv",
+    "docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md",
+    "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md",
+    "docs/EARNINGS_CONSENSUS_SOURCE_V2.md",
+    "docs/RESEARCH_DATA_ACCESS.md",
+    "docs/SHARED_RESEARCH_READER_V1.md",
     "research/sec_13f_filing_schedule.json",
     "data_static/run287_promotion_evidence_current.json",
     ".github/PULL_REQUEST_TEMPLATE.md",
@@ -403,6 +410,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'auto_learning_v2/promotion_governor.py',
     'research/a3_candidate_packet_v1.py',
     'research/candidate_registry_v1.py',
+    'tests/g6_h1_regime_data_native_smoke.py',
     'tests/twelve_private_cohort_smoke.py',
     'mission_contract.py',
     'r1000_alphaops_reporting.py',

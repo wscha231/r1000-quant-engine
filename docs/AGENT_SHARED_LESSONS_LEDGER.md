@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Close default CSV and reuse proof inputs (#593)
+
+- Pin the repository defaults consumed by lifecycle and candidate-metadata
+  proof cases even when most tests supply synthetic files. Pin every reusable
+  catalog dependency hashed by the registered manual proof, including reference
+  documents and test programs; an empty packet reuse selection does not omit
+  those proof inputs. Fixed names survive deletion and complete hash rebinding.
+- Fresh hashes still prepare work only: proofs NOT_RUN, no worker/completion
+  or economic authority, and no accepted lifecycle or metadata byte mutation.
+
 ## 2026-10-12 — Preserve catalog and rejected-research history (#593)
 
 - Pin broker audit data consumed by the registered challenger proof. When master

@@ -249,6 +249,80 @@ class ManualTests(unittest.TestCase):
             self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
             self.assertFalse(accepted['economic_authority'])
 
+    def a6_bound_input_controls(self, name):
+        target = self.root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_bytes(fixture_dependency_bytes(name, 'HEAD'))
+        original = target.read_bytes()
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            for attack in ('stale', 'rebound-omission', 'rebound-deletion'):
+                with self.subTest(path=name, attack=attack):
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    target.write_bytes(original + b'\n')
+                    reason = 'dependency_bytes_changed:' + name
+                    if attack.startswith('rebound-'):
+                        packet['dependencies'].pop(name, None)
+                        scope['dependencies'].pop(name, None)
+                        self.rebind_schema_fixture(packet, scope)
+                        if attack == 'rebound-deletion':
+                            target.unlink()
+                        reason = 'missing_dependency'
+                    self.rejected(packet, scope, reason)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                    self.assertEqual(cli.stderr, '')
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        accepted = self.validate(packet, scope)
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
+        for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+            self.assertFalse(accepted[field])
+
+    def test_a6_default_lifecycle_csv_is_immutable_proof_input(self):
+        name = 'data_static/run287_exact_packet/security_lifecycle_events.csv'
+        for proof in ('tests/daily_simulated_fill_ledger_smoke.py',
+                      'tests/run287_paper_ledger_transaction_smoke.py'):
+            self.assertIn(proof, {path for path, _ in registered_validation.DEFAULT_TESTS})
+            self.assertIn('"security_lifecycle_events.csv"',
+                          fixture_dependency_bytes(proof, 'HEAD').decode())
+        self.a6_bound_input_controls(name)
+
+    def test_a6_default_candidate_metadata_is_immutable_proof_input(self):
+        self.assertIn('tests/post_disclosure_alpha_candidates_smoke.py',
+                      {path for path, _ in registered_validation.DEFAULT_TESTS})
+        witness = fixture_dependency_bytes('tools/run_post_disclosure_alpha_candidates.py', 'HEAD').decode()
+        self.assertIn('DEFAULT_METADATA = "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv"', witness)
+        self.a6_bound_input_controls('cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv')
+
+    def test_a6_catalog_only_reuse_dependencies_are_immutable_proof_inputs(self):
+        names = ('docs/CANDIDATE_REASSESSMENT_BRIDGE_V1.md',
+                 'docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md',
+                 'docs/EARNINGS_CONSENSUS_SOURCE_V2.md',
+                 'docs/RESEARCH_DATA_ACCESS.md',
+                 'docs/SHARED_RESEARCH_READER_V1.md',
+                 'tests/g6_h1_regime_data_native_smoke.py')
+        catalog = manual.load_catalog(self.root)
+        consumed = {path for row in catalog['entries'] if row['classification'] == 'REUSE_NOW'
+                    for path in row['dependency_hashes']}
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIn(name, consumed)
+                self.a6_bound_input_controls(name)
+        self.assertTrue(consumed.issubset(manual.required_dependencies('A6_INDEPENDENT_QA', self.root)))
+
     def test_a6_broker_audit_refuses_stale_and_rebound_missing_pin(self):
         name = 'research/broker_accounting_audit.json'
         self.assertIn('tests/auto_policy_challenger_smoke.py',
