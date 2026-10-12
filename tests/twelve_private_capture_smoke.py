@@ -185,6 +185,22 @@ class PrivateCaptureTests(unittest.TestCase):
             m.capture(drive, FOLDERS, 'credential-canary', {'sha256': 'a'*64}, provider, lambda _: None)
         self.assertEqual(drive.calls, ['01-provider-raw'])
 
+    def test_duplicate_json_keys_cannot_hide_an_escaped_credential_before_archive(self):
+        key = 'credential-canary'
+        escaped = ''.join('\\u%04x' % ord(char) for char in key)
+        drive = Drive()
+        def provider(endpoint, query, selected):
+            data = bar(query['symbol'], query['mic_code'])
+            raw = m.encoded(data).replace(b'"mic_code":',
+                 ('"type":"'+escaped+'","type":"Common Stock","mic_code":').encode(), 1)
+            self.assertNotIn(key.encode(), raw)
+            return raw, data
+        with self.assertRaisesRegex(m.Refused, 'INVALID_JSON'):
+            m.capture(drive, FOLDERS, key, {'sha256':'a'*64}, provider, lambda _: None)
+        self.assertEqual(drive.calls, [])
+        for raw in (b'{"x":1,"x":2}', b'{"meta":{"x":1,"x":2}}'):
+            with self.assertRaisesRegex(m.Refused, 'INVALID_JSON'): m.decode(raw)
+
     def test_corrupted_drive_restore_cannot_publish_normalization_or_success(self):
         drive = Drive()
         def provider(endpoint, query, key):
@@ -214,6 +230,7 @@ class PrivateCaptureTests(unittest.TestCase):
     def test_production_upload_bypasses_domain_default_visibility(self):
         drive = object.__new__(m.OwnerDrive)
         drive.root_id = 'root-canary'
+        drive.free = 32_000_000
         checks, requests = [], []
         drive.check = lambda *args, **kwargs: checks.append((args, kwargs))
         raw = b'private-storage-canary'
@@ -266,7 +283,7 @@ class PrivateCaptureTests(unittest.TestCase):
         self.assertEqual(env['TWELVE_API_KEY2'], "${{ inputs.twelve_key_name == 'TWELVE_API_KEY2' && secrets.TWELVE_API_KEY2 || '' }}")
         self.assertEqual(env['R1000_PRIVATE_RESEARCH_FOLDER_ID'], '${{ inputs.private_root_folder_id }}')
         self.assertEqual(env['A1_PRIVATE_RESEARCH_AUTHORIZED'], '${{ inputs.private_research_authorized }}')
-        self.assertLessEqual(value['jobs']['capture']['timeout-minutes'], 15)
+        self.assertEqual(value['jobs']['capture']['timeout-minutes'], 180)
 
 
 if __name__ == '__main__':

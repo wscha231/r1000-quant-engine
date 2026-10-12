@@ -45,6 +45,18 @@ authority remain stronger than a playbook. No specialist is invoked.
      --scope /path/verified_scope.json --expected-base <live-master-sha>
    ```
 
+   For `A6_INDEPENDENT_QA`, independently verify the implementation PR HEAD and
+   bind that SHA in both packet/scope `review_identity.head_sha`. Supply the
+   same independently verified SHA to the CLI:
+
+   ```bash
+   python tools/manual_foundation.py --packet /path/task.json \
+     --scope /path/verified_scope.json --expected-base <live-master-sha> \
+     --expected-review-head <implementation-head-sha>
+   ```
+
+   If the PR HEAD moves, stop and prepare against the newly verified HEAD.
+
 The command only prints a preflight result. A consistent supplied scope/hash is
 not authentication of human approval or a live GitHub read. The operator must
 ground those independently. `VALIDATED_PREPARE_ONLY` means pins match; all job
@@ -114,4 +126,3 @@ version and the predecessor row must already be marked SUPERSEDED. A REUSE_NOW
 catalog row with a non-null expiry must carry a valid timezone-aware timestamp
 that is still in the future; expired reusable evidence fails closed rather than
 remaining selectable.
-

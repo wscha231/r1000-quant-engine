@@ -8,6 +8,8 @@ import hashlib
 import io
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -71,6 +73,103 @@ class ManualTests(unittest.TestCase):
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
+
+    def test_a6_scorecard_required_absorbed_sources_are_all_pinned(self):
+        registry = manual.board.read_json(self.root / 'docs/run287_operating_scorecard_sources.json')
+        consumed = {row['path'] for row in registry['sources']
+                    if row.get('required') is True and row.get('disposition') == 'ABSORBED_SOURCE'}
+        self.assertTrue(consumed)
+        missing = consumed - set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        self.assertEqual(missing, set())
+
+    def test_a6_scorecard_csvs_refuse_stale_and_rebound_missing_inputs(self):
+        from tools import build_run287_operating_scorecard as scorecard
+        names = (
+            'data_static/run287_operating_scorecard_sources_v1/p4/reserve_mode_metrics.csv',
+            'data_static/run287_operating_scorecard_sources_v1/p6/selected_vs_rank_matched_metrics.csv',
+        )
+        for name in names:
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(fixture_dependency_bytes(name, 'HEAD'))
+        registry = manual.board.read_json(self.root / 'docs/run287_operating_scorecard_sources.json')
+        original_controls = {name: (self.root / name).read_bytes()
+                             for name in (manual.MANIFEST, manual.CATALOG)}
+        with patch.object(scorecard, 'REPO_ROOT', self.root), \
+             patch.object(scorecard, 'CANONICAL_SOURCE_ROOT',
+                          (self.root / scorecard.CANONICAL_SOURCE_PREFIX).resolve()):
+            bundle, errors = scorecard.verify_canonical_source_bundle(registry)
+            self.assertEqual((bundle['status'], errors), ('VERIFIED', []))
+            for name in names:
+                target = self.root / name
+                original = target.read_bytes()
+                for attack in ('stale', 'rebound-omission', 'rebound-deletion'):
+                    with self.subTest(path=name, attack=attack):
+                        try:
+                            packet, scope = self.packet('A6_INDEPENDENT_QA')
+                            positive = self.cli_fixture(packet, scope)
+                            self.assertEqual(positive.returncode, 0, positive.stdout + positive.stderr)
+                            self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+                            target.write_bytes(original + b'synthetic_unreviewed,0\n')
+                            changed, errors = scorecard.verify_canonical_source_bundle(registry)
+                            self.assertEqual(changed['status'], 'INTEGRITY_ERROR')
+                            self.assertTrue(any('source_hash_mismatch' in value for value in errors))
+                            reason = 'dependency_bytes_changed'
+                            if attack != 'stale':
+                                packet['dependencies'].pop(name, None)
+                                scope['dependencies'].pop(name, None)
+                                if attack == 'rebound-deletion':
+                                    target.unlink()
+                                self.rebind_schema_fixture(packet, scope)
+                                reason = 'missing_dependency'
+                            self.rejected(packet, scope, reason)
+                            refused = self.cli_fixture(packet, scope)
+                            self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                            self.assertIn(reason, json.loads(refused.stdout)['reason'])
+                            self.assertEqual(refused.stderr, '')
+                        finally:
+                            target.write_bytes(original)
+                            for control, raw in original_controls.items():
+                                (self.root / control).write_bytes(raw)
+                            restored, errors = scorecard.verify_canonical_source_bundle(registry)
+                            self.assertEqual((restored['status'], errors), ('VERIFIED', []))
+
+    def test_documented_a6_command_supplies_independent_review_head(self):
+        text = (self.root / 'docs/MANUAL_FOUNDATION_V1.md').read_text()
+        commands = re.findall(r'```bash\s*\n(.*?)\n\s*```', text, re.DOTALL)
+        a6 = [value for value in commands if '--expected-review-head' in value]
+        general = [value for value in commands if '--expected-review-head' not in value]
+        self.assertEqual(len(a6), 1)
+        self.assertEqual(len(general), 1)
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONOPTIMIZE=str(sys.flags.optimize))
+        env['PYTHONPATH'] = str(ROOT) + os.pathsep + env.get('PYTHONPATH', '')
+        replacements = {'/path/task.json': str(self.root / 'packet.json'),
+                        '/path/verified_scope.json': str(self.root / 'scope.json'),
+                        '<live-master-sha>': BASE, '<implementation-head-sha>': REVIEW_HEAD}
+
+        def run(command, key):
+            packet, scope = self.packet(key)
+            self.write('packet.json', packet)
+            self.write('scope.json', scope)
+            argv = [replacements.get(value, value) for value in shlex.split(command.replace('\\\n', ' '))]
+            self.assertEqual(argv[:2], ['python', 'tools/manual_foundation.py'])
+            argv[:1] = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+            return subprocess.run(argv, cwd=self.root, env=env, capture_output=True, text=True, timeout=30)
+
+        for command, key in ((a6[0], 'A6_INDEPENDENT_QA'), (general[0], 'L0_RESUME_HANDOFF')):
+            positive = run(command, key)
+            self.assertEqual(positive.returncode, 0, positive.stdout + positive.stderr)
+            value = json.loads(positive.stdout)
+            self.assertEqual(value['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertEqual(set(value['proof_results'].values()), {'NOT_RUN'})
+            self.assertFalse(value['worker_invoked'])
+            self.assertFalse(value['completed_task'])
+            self.assertFalse(value['economic_authority'])
+            self.assertEqual(positive.stderr, '')
+        missing = run(general[0], 'A6_INDEPENDENT_QA')
+        self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr)
+        self.assertEqual(json.loads(missing.stdout)['reason'], 'expected_review_head_required')
+        self.assertEqual(missing.stderr, '')
 
     def test_sparse_fixture_uses_exact_git_blob_and_keeps_input_refusals(self):
         name = 'manifests/fullrun/run287_canonical_a_20260731.json'
