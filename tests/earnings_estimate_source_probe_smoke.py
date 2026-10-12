@@ -448,6 +448,18 @@ class SourceProbeTests(unittest.TestCase):
         self.assertEqual(config["on"]["workflow_dispatch"]["inputs"]["verified_api_units"]["default"], "0")
         self.assertNotIn("if", config["jobs"]["probe"])
         steps = config["jobs"]["probe"]["steps"]
+        # A full checkout of this large repository exhausted the former five-minute
+        # probe limit before any provider GET. Lock the bounded checkout contract.
+        self.assertEqual(config["jobs"]["probe"]["timeout-minutes"], "15")
+        checkout = steps[1]
+        self.assertEqual(checkout["uses"], "actions/checkout@v4")
+        self.assertEqual(checkout["with"]["ref"], "${{ github.sha }}")
+        self.assertEqual(checkout["with"]["persist-credentials"], "false")
+        self.assertEqual(checkout["with"]["fetch-depth"], "1")
+        self.assertEqual(checkout["with"]["filter"], "blob:none")
+        self.assertEqual(checkout["with"]["sparse-checkout-cone-mode"], "false")
+        self.assertEqual(checkout["with"]["sparse-checkout"].splitlines(),
+                         ["/tools/", "/r1000_config.py"])
         self.assertEqual(steps[0]["name"], "Verify approved repository ref and exact head")
         self.assertEqual(steps[0]["env"], {"PROBE_EXPECTED_HEAD": "${{ inputs.expected_head }}"})
         self.assertFalse(any("secrets." in str(value) for value in steps[0]["env"].values()))
