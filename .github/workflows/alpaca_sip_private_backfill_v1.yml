@@ -70,6 +70,7 @@ jobs:
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
             /tests/alpaca_sip_private_backfill_v1_smoke.py
+            /tests/api_credentials_check_smoke.py
             /.github/workflows/alpaca_sip_private_backfill_v1.yml
       - uses: actions/setup-python@v5
         with:
@@ -109,6 +110,7 @@ jobs:
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
             /tests/alpaca_sip_private_backfill_v1_smoke.py
+            /tests/api_credentials_check_smoke.py
             /.github/workflows/alpaca_sip_private_backfill_v1.yml
       - uses: actions/setup-python@v5
         with:
