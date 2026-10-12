@@ -166,6 +166,108 @@ class ManualTests(unittest.TestCase):
             for path, raw in controls.items():
                 (self.root / path).write_bytes(raw)
 
+
+    def test_a6_sec_filing_schedule_semantic_change_requires_new_proof_pins(self):
+        name = 'research/sec_13f_filing_schedule.json'
+        # Fixed independent consumer witness from registered SEC 13F proof.
+        self.assertIn('tests/sec_13f_filing_freshness_smoke.py',
+                      {path for path, _ in registered_validation.DEFAULT_TESTS})
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        target = self.root / name
+        original = target.read_bytes()
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            packet, scope = self.packet('A6_INDEPENDENT_QA')
+            self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+            value = json.loads(original)
+            self.assertEqual(value['deadlines'][0]['filing_deadline'], '2026-05-15')
+            value['deadlines'][0]['filing_deadline'] = '2026-05-18'
+            self.write(name, value)
+            self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+            stale = self.cli_fixture(packet, scope)
+            self.assertEqual(stale.returncode, 2, stale.stdout + stale.stderr)
+            self.assertEqual(json.loads(stale.stdout)['reason'], 'dependency_bytes_changed:' + name)
+            self.assertEqual(stale.stderr, '')
+            packet['dependencies'].pop(name)
+            scope['dependencies'].pop(name)
+            self.rebind_schema_fixture(packet, scope)
+            self.rejected(packet, scope, 'missing_dependency')
+            missing = self.cli_fixture(packet, scope)
+            self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr)
+            self.assertEqual(json.loads(missing.stdout)['reason'], 'missing_dependency')
+            self.assertEqual(missing.stderr, '')
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        accepted = self.validate(packet, scope)
+        self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
+        self.assertFalse(accepted['worker_invoked'])
+        self.assertFalse(accepted['economic_authority'])
+
+    def test_catalog_historical_ids_refuse_full_hash_rebound_deletion(self):
+        baseline = frozenset((
+            'group_1',
+            'group_158',
+            'group_174',
+            'group_267',
+            'group_400_405',
+            'group_423_574',
+            'group_459',
+            'group_473',
+            'group_505',
+            'group_510',
+            'group_516',
+            'group_526',
+            'group_531',
+            'group_556',
+            'group_559',
+            'group_560',
+            'group_577',
+            'group_578',
+            'group_582_583_584',
+            'group_586',
+            'group_591',
+            'group_592',
+        ))
+        self.assertEqual(manual.CATALOG_ACCEPTED_ENTRY_IDS, baseline)
+        target = self.root / manual.CATALOG
+        original = target.read_bytes()
+        self.assertEqual({row['entry_id'] for row in json.loads(original)['entries']}, baseline)
+        try:
+            for victim in ('group_1', 'group_174', 'ALL'):
+                with self.subTest(victim=victim):
+                    target.write_bytes(original)
+                    packet, scope = self.packet('L0_RESUME_HANDOFF')
+                    catalog = json.loads(original)
+                    catalog['entries'] = ([] if victim == 'ALL' else
+                                          [row for row in catalog['entries']
+                                           if row['entry_id'] != victim])
+                    self.write(manual.CATALOG, catalog)
+                    self.rebind_all(packet, scope)
+                    self.rejected(packet, scope, 'catalog_historical_identity_removed')
+                    rejected_cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(rejected_cli.returncode, 2,
+                                     rejected_cli.stdout + rejected_cli.stderr)
+                    self.assertEqual(json.loads(rejected_cli.stdout)['reason'],
+                                     'catalog_historical_identity_removed')
+                    self.assertEqual(rejected_cli.stderr, '')
+            target.write_bytes(original)
+            catalog = json.loads(original)
+            catalog['entries'][0]['capability'] += ' (reviewed metadata correction)'
+            self.write(manual.CATALOG, catalog)
+            packet, scope = self.packet('L0_RESUME_HANDOFF')
+            accepted = self.validate(packet, scope)
+            self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertFalse(accepted['worker_invoked'])
+            self.assertFalse(accepted['completed_task'])
+            self.assertFalse(accepted['economic_authority'])
+        finally:
+            target.write_bytes(original)
+
     def test_a6_scorecard_required_absorbed_sources_are_all_pinned(self):
         registry = manual.board.read_json(self.root / 'docs/run287_operating_scorecard_sources.json')
         consumed = {row['path'] for row in registry['sources']

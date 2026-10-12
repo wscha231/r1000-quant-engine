@@ -55,6 +55,33 @@ VERSION_ANCHOR_CONTENT = {
     ('A1_SOURCE_ADMISSION_REFRESH', '1.0.0'): 'bdb5291b17aa145394a076c5865ccd73cfeb9943c6436943587db2ab7031caa6',
     ('A6_INDEPENDENT_QA', '1.0.0'): 'bed61231c97ea31ec5b23127af5481d6121713331d1925faa39b363ff4ff34ce',
 }
+# Immutable reviewed identities from 86bdcd474ae12d240d1dac31f72f758f45f26843
+# (catalog Git blob 3f536d48ee0070390fa196b3e31905eac717719d).
+# Keep historical entries while permitting new rows and reviewed metadata changes.
+CATALOG_ACCEPTED_ENTRY_IDS = frozenset((
+    'group_1',
+    'group_158',
+    'group_174',
+    'group_267',
+    'group_400_405',
+    'group_423_574',
+    'group_459',
+    'group_473',
+    'group_505',
+    'group_510',
+    'group_516',
+    'group_526',
+    'group_531',
+    'group_556',
+    'group_559',
+    'group_560',
+    'group_577',
+    'group_578',
+    'group_582_583_584',
+    'group_586',
+    'group_591',
+    'group_592',
+))
 # Actual frozen Reader imports/default registry, including its NYSE calendar.
 # Collector-only imports are not consumed by the read-only Reader path.
 A1_READER_DEPENDENCIES = [
@@ -167,6 +194,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    "research/sec_13f_filing_schedule.json",
     ".github/PULL_REQUEST_TEMPLATE.md",
     ".github/SECRETS_SETUP.md",
     ".github/workflows/adr_candidate_monthly.yml",
@@ -1284,6 +1312,8 @@ def load_catalog(root: Path = ROOT) -> dict:
     for row in entries:
         if row.get('superseded_by') and (row['superseded_by'] not in seen or row['superseded_by'] == row['entry_id']):
             raise ContractError('catalog_invalid_supersedes')
+    if not CATALOG_ACCEPTED_ENTRY_IDS.issubset(seen):
+        raise ContractError('catalog_historical_identity_removed')
     return value
 
 

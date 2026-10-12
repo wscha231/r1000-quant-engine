@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Keep SEC proof schedules and accepted catalog identities pinned (#593)
+
+- A registered SEC 13F test consumes the actual filing schedule JSON; hash-bind the
+  schedule along with proof code, rejecting stale bytes and fully rebound omissions.
+- A rehashed or empty reuse catalog cannot erase the independently reviewed 22
+  historical entry identities. Keep the accepted baseline fixed while permitting
+  independently reviewed metadata updates and additive new entries.
+- These guards validate offline preparation only; they do not grant A6 completion,
+  provider/source admission, portfolio execution, target, broker, or merge authority.
+
 ## 2026-10-11 — Bind proof modules and reuse implementation closure (#593)
 
 - A registered test route can delegate to another test which imports research
