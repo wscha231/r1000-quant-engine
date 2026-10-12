@@ -1,5 +1,22 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
+
+- Earnings Estimate Source Probe runs `38267566200` and `37183899304`
+  were cancelled during full `actions/checkout@v4` under the 5-minute
+  job limit. The first run's exact-master guard passed, but neither run
+  reached provider GET; no controlled probe report/artifact was produced.
+  Do not classify these as EODHD/FMP authentication or entitlement failures.
+- Use a depth-one `blob:none` non-cone sparse checkout limited to `/tools/`
+  and `/r1000_config.py`, with a 15-minute job limit. The original
+  exact-head guard, selected-secret isolation, request/unit budget,
+  concurrency group, read-only permissions and no durable source admission
+  remain unchanged. Regression tests pin this exact checkout contract.
+- Do not rerun cancelled run IDs as proof of the correction: old attempts
+  use their original source revision. After a reviewed merge, dispatch a
+  *new* exact-master, single-provider, bounded sample only with confirmed
+  API-unit authorization. No full-universe, Drive, paper or broker mutation.
+
 ## 2026-10-12 — Close default CSV and reuse proof inputs (#593)
 
 - Pin the repository defaults consumed by lifecycle and candidate-metadata
