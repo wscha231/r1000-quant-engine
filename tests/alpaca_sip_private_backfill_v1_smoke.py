@@ -146,25 +146,65 @@ class FakePrivateDrive:
         return {"file_id": fid, "sha256": cap.digest(raw), "bytes": len(raw)}
 
 
-def saved_checkpoint(drive, names, completed, previous):
-    raw = cap.persist_object(drive, drive.folder,
-                             cap.zip_bytes({"capture.json": b'{}'}), ".zip")
-    norm = cap.persist_object(drive, drive.folder,
-                              gzip.compress(b'{}\n', mtime=0), ".jsonl.gz")
-    rec = cap.persist_object(drive, drive.folder, cap.encoded({
-        "schema": cap.SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY", "source": cap.SOURCE,
-        "seed_sha256": "a" * 64, "start": cap.MIN_START, "end": "2026-10-10",
-        "source_admission": False, "readback_verified": True, "raw_object": raw,
-        "normalized_object": norm, "symbols": names,
-        "collected": names, "no_bars": []}), ".json")
-    return cap.persist_object(drive, drive.folder, cap.encoded({
+def saved_checkpoint(drive, names, completed, previous,
+                     bad_original=False, bad_normalized=False):
+    """Realistically shaped SHA-pinned two-basis archive for resume tests."""
+    seed_sha, source_sha = "a" * 64, "fixture-code-revision"
+    start, end = cap.MIN_START, "2026-10-10"
+    response = cap.encoded({
+        "bars": {name: [bar()] for name in names},
+        "next_page_token": None,
+    })
+    member = cap.digest(response) + ".json"
+    pages = [
+        {"member": member, "sha256": cap.digest(response),
+         "bytes": len(response), "page": 0, "symbols": names,
+         "adjustment": adjustment}
+        for adjustment in ("raw", "split")
+    ]
+    manifest = {
+        "schema": cap.SCHEMA, "source": cap.SOURCE,
+        "symbols": names, "collected": names, "no_bars": [],
+        "seed_sha256": seed_sha, "source_sha": source_sha,
+        "start": start, "end": end, "pages": pages,
+        "raw_adjustments": ["raw", "split"],
+        "source_admission": False,
+    }
+    raw_archive = cap.zip_bytes({
+        member: response,
+        "capture.json": cap.encoded(manifest) if not bad_original else b"{}",
+    })
+    raw = cap.persist_object(drive, drive.folder, raw_archive, ".zip")
+    rows = []
+    for name in names:
+        for adjustment in ("raw", "split"):
+            rows.extend(cap.normalize([bar()], name, adjustment, start, end))
+    compressed = gzip.compress(
+        b"".join(cap.encoded(row) for row in rows)
+        if not bad_normalized else b'{}\n',
+        mtime=0,
+    )
+    norm = cap.persist_object(drive, drive.folder, compressed, ".jsonl.gz")
+    receipt = {
+        "schema": cap.SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
+        "source": cap.SOURCE, "seed_sha256": seed_sha,
+        "source_sha": source_sha, "start": start, "end": end,
+        "source_admission": False, "readback_verified": True,
+        "raw_object": raw, "normalized_object": norm,
+        "symbols": names, "collected": names, "no_bars": [],
+        "pages": 2, "rows": len(rows),
+    }
+    rec = cap.persist_object(drive, drive.folder, cap.encoded(receipt), ".json")
+    state = {
         "schema": cap.SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
-        "source": cap.SOURCE, "seed_sha256": "a" * 64,
-        "start": cap.MIN_START, "end": "2026-10-10", "completed": completed,
+        "source": cap.SOURCE, "seed_sha256": seed_sha,
+        "start": start, "end": end, "completed": completed,
         "last_objects": [raw, norm, rec], "last_collected": names,
         "last_no_bars": [], "previous_checkpoint": previous,
         "historical_identity_verified": False, "pit_verified": False,
-        "source_admission": False}), ".json")
+        "source_admission": False,
+    }
+    return cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
 
 
 class CorrectionTests(unittest.TestCase):
@@ -176,6 +216,12 @@ class CorrectionTests(unittest.TestCase):
         self.assertIn('--resume-sha256 "$INPUT_RESUME_SHA256"', yml)
         capture = yml.rsplit("      - name: Collect immutable owner-only Alpaca history", 1)[1]
         self.assertNotIn("$" + "{{ inputs.", capture)
+        pre_capture = yml.split("\n  capture:\n", 1)[1].split("\n    steps:\n", 1)[0]
+        self.assertNotIn("secrets.ALPACA_API_KEY", pre_capture)
+        self.assertNotIn("secrets.ALPACA_API_SECRET", pre_capture)
+        self.assertNotIn("secrets.RCLONE_CONFIG_GDRIVE", pre_capture)
+        for name in ("ALPACA_API_KEY", "ALPACA_API_SECRET", "MACRO_DRIVE_CONFIG"):
+            self.assertIn("          " + name + ":", capture)
 
     def test_dependency_changes_trigger_and_registered_runner(self):
         root = Path(__file__).resolve().parents[1]
@@ -233,6 +279,53 @@ class CorrectionTests(unittest.TestCase):
     def test_archive_bytes_deterministic(self):
         members = {"capture.json": cap.encoded({"symbols": ["AAPL"]})}
         self.assertEqual(cap.zip_bytes(members), cap.zip_bytes(members))
+
+    def test_hash_valid_but_semantically_forged_archive_refused(self):
+        drive = FakePrivateDrive()
+        forged = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None,
+                                  bad_original=True)
+        with self.assertRaises(Refused):
+            cap.resume_state(drive, drive.folder, forged["file_id"],
+                             forged["sha256"], "a" * 64, "2016-01-04",
+                             "2026-10-10")
+
+    def test_hash_valid_but_false_normalized_records_refused(self):
+        drive = FakePrivateDrive()
+        forged = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None,
+                                  bad_normalized=True)
+        with self.assertRaisesRegex(Refused, "RESUME_NORMALIZED_MISMATCH"):
+            cap.resume_state(drive, drive.folder, forged["file_id"],
+                             forged["sha256"], "a" * 64, "2016-01-04",
+                             "2026-10-10")
+
+    def test_retry_across_run_ids_reuses_receipt_and_checkpoint_bytes(self):
+        drive = FakePrivateDrive()
+        count = {"calls": 0}
+        def offline_provider(symbols, adjustment, start, end, key, secret):
+            count["calls"] += 1
+            response = cap.encoded({
+                "bars": {name: [bar()] for name in symbols},
+                "next_page_token": None,
+            })
+            member = cap.digest(response) + ".json"
+            page = {
+                "member": member, "sha256": cap.digest(response),
+                "bytes": len(response), "page": 0, "symbols": symbols,
+                "adjustment": adjustment,
+            }
+            return {member: response}, {name: [bar()] for name in symbols}, [page]
+        refs = []
+        with patch.object(cap, "request_pages", side_effect=offline_provider):
+            for run_id in ("attempt-A", "attempt-B"):
+                with patch.dict("os.environ", {"GITHUB_RUN_ID": run_id}):
+                    objects, accepted, missing, rows = cap.capture_one_group(
+                        drive, drive.folder, ["AAPL"], cap.MIN_START,
+                        "2026-10-10", "key", "secret", "a" * 64, "code-sha")
+                    refs.append(objects)
+        self.assertEqual(refs[0], refs[1])
+        self.assertEqual(drive.write_count, 3)
+        self.assertEqual(count["calls"], 4)
+
 
 
 if __name__ == "__main__":

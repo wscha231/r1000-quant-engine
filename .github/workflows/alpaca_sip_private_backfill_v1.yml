@@ -87,9 +87,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-      ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
-      MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
       A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
       ALPACA_NONCOMMERCIAL_ACKNOWLEDGED: ${{ inputs.noncommercial_terms_acknowledged }}
       INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ inputs.private_root_folder_id }}
@@ -130,6 +127,10 @@ jobs:
           unzip -q "$RUNNER_TEMP/alpaca-rclone.zip" -d "$RUNNER_TEMP/rclone-bin"
           echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
       - name: Collect immutable owner-only Alpaca history
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
         run: |
           python -m tools.alpaca_sip_private_backfill_v1 \
             --private-root-folder-id "$INPUT_PRIVATE_ROOT_FOLDER_ID" \

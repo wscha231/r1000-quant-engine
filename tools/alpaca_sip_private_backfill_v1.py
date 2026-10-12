@@ -226,6 +226,129 @@ def _private_object(drive: OwnerDrive, folder: str, ref: dict,
     return raw
 
 
+def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
+                          receipt: dict) -> None:
+    """Rebuild every retained bar from bounded original response members.
+
+    Hashes and file magic alone cannot prove symbol, date, adjustment, or
+    normalized-row membership. A restored checkpoint never skips unverifiable
+    inputs, even when its own bytes were preserved without modification.
+    """
+    require(isinstance(receipt, dict), "RESUME_RECEIPT_CONTENT")
+    names = receipt.get("symbols")
+    require(isinstance(names, list) and 1 <= len(names) <= GROUP_SIZE
+            and len(names) == len(set(names))
+            and all(isinstance(t, str) and SYMBOL.fullmatch(t) for t in names),
+            "RESUME_RECEIPT_CONTENT")
+    require(isinstance(raw_pack, bytes) and 0 < len(raw_pack) < 16_000_000
+            and isinstance(normalized_pack, bytes)
+            and 0 < len(normalized_pack) < 16_000_000,
+            "RESUME_ARCHIVE_LIMIT")
+    grids = {basis: {name: [] for name in names} for basis in ("raw", "split")}
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw_pack)) as archive:
+            infos = archive.infolist()
+            members = [item.filename for item in infos]
+            require(len(infos) <= 2 * MAX_PAGES + 1
+                    and len(infos) == len(set(members))
+                    and "capture.json" in members
+                    and all(re.fullmatch(r"[0-9a-f]{64}\.json|capture\.json", n)
+                            for n in members)
+                    and sum(info.file_size for info in infos) <= 128_000_000
+                    and all(info.file_size <= MAX_PAGE_BYTES
+                            for info in infos if info.filename != "capture.json")
+                    and archive.testzip() is None, "RESUME_ARCHIVE")
+            manifest = decode(archive.read("capture.json"))
+            require(isinstance(manifest, dict)
+                    and manifest.get("schema") == SCHEMA
+                    and manifest.get("source") == SOURCE
+                    and manifest.get("symbols") == names
+                    and manifest.get("collected") == receipt.get("collected")
+                    and manifest.get("no_bars") == receipt.get("no_bars")
+                    and manifest.get("seed_sha256") == receipt.get("seed_sha256")
+                    and manifest.get("source_sha") == receipt.get("source_sha")
+                    and manifest.get("start") == receipt.get("start")
+                    and manifest.get("end") == receipt.get("end")
+                    and manifest.get("raw_adjustments") == ["raw", "split"]
+                    and manifest.get("source_admission") is False,
+                    "RESUME_MANIFEST")
+            evidence = manifest.get("pages")
+            require(isinstance(evidence, list)
+                    and 2 <= len(evidence) <= 2 * MAX_PAGES
+                    and len(evidence) == receipt.get("pages"),
+                    "RESUME_EVIDENCE")
+            visited = {"raw": [], "split": []}
+            expected_members = {"capture.json"}
+            for row in evidence:
+                require(isinstance(row, dict)
+                        and row.get("adjustment") in grids
+                        and row.get("symbols") == names
+                        and type(row.get("page")) is int
+                        and row["page"] == len(visited[row["adjustment"]])
+                        and type(row.get("bytes")) is int
+                        and 0 < row["bytes"] <= MAX_PAGE_BYTES
+                        and isinstance(row.get("sha256"), str)
+                        and re.fullmatch(r"[0-9a-f]{64}", row["sha256"])
+                        and row.get("member") == row["sha256"] + ".json",
+                        "RESUME_EVIDENCE")
+                member = row["member"]
+                require(member in members, "RESUME_MEMBER_MISSING")
+                raw = archive.read(member)
+                require(len(raw) == row["bytes"]
+                        and digest(raw) == row["sha256"], "RESUME_MEMBER_HASH")
+                payload = decode(raw)
+                require(isinstance(payload, dict)
+                        and isinstance(payload.get("bars"), dict)
+                        and set(payload["bars"]) <= set(names),
+                        "RESUME_BARS_SCHEMA")
+                for name, bars in payload["bars"].items():
+                    require(isinstance(bars, list), "RESUME_BARS_SCHEMA")
+                    grids[row["adjustment"]][name].extend(bars)
+                token = payload.get("next_page_token")
+                require(token is None or
+                        (isinstance(token, str) and 0 < len(token) <= 4096),
+                        "RESUME_PAGE_TOKEN")
+                visited[row["adjustment"]].append(token)
+                expected_members.add(member)
+            require(set(members) == expected_members, "RESUME_MEMBER_SET")
+            for tokens in visited.values():
+                require(tokens and tokens[-1] is None
+                        and all(token is not None for token in tokens[:-1]),
+                        "RESUME_PAGINATION")
+    except (zipfile.BadZipFile, OSError, EOFError, RuntimeError,
+            ValueError, OverflowError):
+        raise Refused("RESUME_ARCHIVE") from None
+    restored_rows, collected, missing = [], [], []
+    for name in names:
+        raw_rows = normalize(grids["raw"][name], name, "raw",
+                             receipt["start"], receipt["end"])
+        split_rows = normalize(grids["split"][name], name, "split",
+                               receipt["start"], receipt["end"])
+        require([x["date"] for x in raw_rows] ==
+                [x["date"] for x in split_rows],
+                "RESUME_BASIS_GRID")
+        if raw_rows:
+            collected.append(name)
+        else:
+            missing.append(name)
+        restored_rows.extend(raw_rows)
+        restored_rows.extend(split_rows)
+    require(bool(collected)
+            and collected == receipt.get("collected")
+            and missing == receipt.get("no_bars")
+            and len(restored_rows) == receipt.get("rows"),
+            "RESUME_ROWS")
+    expected = b"".join(encoded(row) for row in restored_rows)
+    require(len(expected) <= 32_000_000, "RESUME_NORMALIZED_LIMIT")
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(normalized_pack), mode="rb") as gz:
+            recovered = gz.read(32_000_001)
+    except (OSError, EOFError, ValueError, OverflowError):
+        raise Refused("RESUME_NORMALIZED_FORMAT") from None
+    require(len(recovered) <= 32_000_000 and recovered == expected,
+            "RESUME_NORMALIZED_MISMATCH")
+
+
 def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                  seed_sha: str, start: str, end: str) -> tuple[list[str], dict | None]:
     if not file_id and not sha:
@@ -282,10 +405,9 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                 and receipt.get("raw_object") == refs[0]
                 and receipt.get("normalized_object") == refs[1],
                 "RESUME_RECEIPT_BINDING")
-        # A matching compressed byte hash alone is sufficient for preservation;
-        # no provider body is printed or sent to an untrusted consumer.
-        require(raw_pack[:2] == b"PK" and normalized_pack[:2] == b"\x1f\x8b",
-                "RESUME_FORMAT")
+        # Independently rebuild archived originals; hash-preservation is not
+        # sufficient to declare a security's historical bars collected.
+        verify_archived_group(raw_pack, normalized_pack, receipt)
         current_symbols = receipt.get("symbols")
         collected = receipt.get("collected")
         absent = receipt.get("no_bars")
@@ -359,14 +481,16 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
     raw_members["capture.json"] = encoded(meta)
     zipped = zip_bytes(raw_members)
     require(0 < len(zipped) < 16_000_000, "PACK_BUDGET")
+    require(sum(len(v) for v in raw_members.values()) <= 128_000_000, "PACK_BUDGET")
     raw_obj = persist_object(drive, folder, zipped, ".zip")
     normalized_bytes = gzip.compress(
         b"".join(encoded(r) for r in normalized), mtime=0,
     )
+    require(len(normalized_bytes) < 16_000_000, "PACK_BUDGET")
     norm_obj = persist_object(drive, folder, normalized_bytes, ".jsonl.gz")
     receipt = {
         "schema": SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
-        "source": SOURCE, "run_id": os.environ.get("GITHUB_RUN_ID"),
+        "source": SOURCE,
         "source_sha": source_sha, "seed_sha256": seed_sha,
         "start": start, "end": end,
         "symbols": symbols, "collected": collected, "no_bars": missing,
