@@ -143,4 +143,4 @@ jobs:
           python tools/check_run287_artifact_hygiene.py --base-ref "$base_sha"
 
       - name: Run Tier-1 PR validation
-        run: python tools/run_pr_validation.py --include twelve_private_capture_smoke --include twelve_private_cohort_smoke
+        run: python tools/run_pr_validation.py

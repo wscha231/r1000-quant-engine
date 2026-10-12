@@ -6628,9 +6628,10 @@ Expected contract:
 - Catch only the fresh capture's constant BAR_VALUE. Authentication, quota,
   credential, identity, storage, checkpoint and prior-receipt restore failures
   stay terminal. Preserve the daily reserve and selected account; no key switch.
-- Include both offline capture suites through the existing runner's --include
-  interface in PR CI. Its frozen DEFAULT_TESTS does not discover new scripts;
-  keeping the runner bytes unchanged requires an explicit workflow invocation.
+- Both the Tier-1 runner and PR validation workflow are protected by P0-4.
+  Extend the already registered api_credentials_check_smoke -> private capture
+  suite with unittest load_tests for cohort coverage; preserve both frozen
+  files. An explicit CI --include workflow delta also violates that boundary.
 - A pruned Native checkout can be recovered at its exact original path from
   authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
   preserve unrelated paths and publish only the validated explicit-path diff.
