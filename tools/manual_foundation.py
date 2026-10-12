@@ -342,6 +342,7 @@ A6_FIXED_PROOF_INPUTS = (
     "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
     "outputs/portfolio_goal_search/goal_search_summary.json",
     "research/cross_market_gold_set_v1.json",
+    "research/etf_holdings_universe_20260520/thematic_etfs.yaml",
     "research/sec_13f_cusip_map_overrides.csv",
     "research/sec_13f_manager_universe_20260519/managers.csv",
     "strategic_global_hardware_universe.yaml",
@@ -1085,6 +1086,12 @@ def load_playbook(playbook_id: str, root: Path = ROOT, *,
             or manifest.get('schema_version') != 'manual-playbooks-v1'
             or set(manifest.get('current_versions', {})) != set(PLAYBOOK_IDS)):
         raise ContractError('manual_manifest_invalid')
+    verified_at = catalog_timestamp(manifest.get('verified_at'), 'manual_manifest_verified_at_invalid')
+    if verified_at > datetime.now(timezone.utc):
+        raise ContractError('manual_manifest_verified_at_future')
+    master = manifest.get('master_sha')
+    if not isinstance(master, str) or re.fullmatch('[0-9a-f]{40}', master) is None:
+        raise ContractError('manual_manifest_master_sha_invalid')
     current = {}
     seen = set()
     rows_by_identity = {}
@@ -1269,6 +1276,11 @@ def load_catalog(root: Path = ROOT) -> dict:
         if source_kind == 'ISSUE':
             if heads:
                 raise ContractError('catalog_issue_has_source_head')
+            declared = row.get('pr_or_group')
+            if (not isinstance(declared, str)
+                    or re.fullmatch(r'#\d+(?:/#\d+)*', declared) is None
+                    or set(declared.split('/')) != set(metadata)):
+                raise ContractError('catalog_issue_reference_identity')
         else:
             declared = row.get('pr_or_group')
             if (not isinstance(declared, str)

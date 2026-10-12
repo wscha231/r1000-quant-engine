@@ -249,6 +249,131 @@ class ManualTests(unittest.TestCase):
             self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
             self.assertFalse(accepted['economic_authority'])
 
+    def test_a6_etf_universe_refuses_stale_and_rebound_missing_pin(self):
+        name = 'research/etf_holdings_universe_20260520/thematic_etfs.yaml'
+        self.assertIn('tests/smoke_test.py',
+                      {path for path, _ in registered_validation.DEFAULT_TESTS})
+        witness = fixture_dependency_bytes('tests/smoke_test.py', 'HEAD').decode()
+        self.assertIn('def test_etf_holdings_overlay_wired()', witness)
+        self.assertIn('"thematic_etfs.yaml").exists()', witness)
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        target = self.root / name
+        original = target.read_bytes()
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            for attack in ('stale', 'rebound-omission', 'rebound-deletion'):
+                with self.subTest(attack=attack):
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    target.write_bytes(original + b'\n')
+                    reason = 'dependency_bytes_changed:' + name
+                    if attack.startswith('rebound-'):
+                        packet['dependencies'].pop(name)
+                        scope['dependencies'].pop(name)
+                        if attack == 'rebound-deletion':
+                            target.unlink()
+                        self.rebind_schema_fixture(packet, scope)
+                        reason = 'missing_dependency'
+                    self.rejected(packet, scope, reason)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                    self.assertEqual(cli.stderr, '')
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        accepted = self.validate(packet, scope)
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
+        for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+            self.assertFalse(accepted[field])
+
+    def test_declared_issue_refs_match_metadata_after_full_rebinding(self):
+        original = (self.root / manual.CATALOG).read_bytes()
+        try:
+            for key in manual.PLAYBOOK_IDS:
+                for selected in (False, True):
+                    for declared in (None, '#999'):
+                        with self.subTest(playbook=key, selected=selected, declared=declared):
+                            (self.root / manual.CATALOG).write_bytes(original)
+                            packet, scope = self.packet(key)
+                            catalog = json.loads(original)
+                            row = next(row for row in catalog['entries']
+                                       if row['entry_id'] == 'group_516')
+                            self.assertEqual(set(row['source_metadata']), {'#516'})
+                            if declared is None:
+                                row.pop('pr_or_group')
+                            else:
+                                row['pr_or_group'] = declared
+                            self.write(manual.CATALOG, catalog)
+                            packet['reuse_entries'] = ['group_516'] if selected else []
+                            self.rebind_all(packet, scope)
+                            with self.assertRaisesRegex(manual.ContractError, 'catalog_issue_reference_identity'):
+                                manual.lookup_reuse('group_516', root=self.root)
+                            self.rejected(packet, scope, 'catalog_issue_reference_identity')
+                            cli = self.cli_fixture(packet, scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_issue_reference_identity')
+                            self.assertEqual(cli.stderr, '')
+        finally:
+            (self.root / manual.CATALOG).write_bytes(original)
+        catalog = manual.load_catalog(self.root)
+        issues = [row for row in catalog['entries'] if row['source_kind'] == 'ISSUE']
+        self.assertTrue(issues)
+        for row in issues:
+            self.assertEqual(set(row['pr_or_group'].split('/')), set(row['source_metadata']))
+            self.assertEqual(row['source_heads'], {})
+        self.assertTrue(manual.lookup_reuse('group_516', root=self.root)['allowed'])
+
+    def test_manifest_verification_provenance_refuses_full_rebinding(self):
+        original = (self.root / manual.MANIFEST).read_bytes()
+        try:
+            for key in manual.PLAYBOOK_IDS:
+                for field in ('verified_at', 'master_sha'):
+                    bad = [None, '', True, 'not-valid']
+                    bad.append('2099-01-01T00:00:00Z' if field == 'verified_at' else 'A' * 40)
+                    for value in bad:
+                        with self.subTest(playbook=key, field=field, value=value):
+                            (self.root / manual.MANIFEST).write_bytes(original)
+                            packet, scope = self.packet(key)
+                            manifest = json.loads(original)
+                            if value is None:
+                                manifest.pop(field)
+                            else:
+                                manifest[field] = value
+                            self.rebind_all(packet, scope, manifest)
+                            reason = 'manual_manifest_' + field + ('_future' if value == '2099-01-01T00:00:00Z' else '_invalid')
+                            with self.assertRaisesRegex(manual.ContractError, reason):
+                                manual.load_playbook(key, self.root)
+                            self.rejected(packet, scope, reason)
+                            cli = self.cli_fixture(packet, scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                            self.assertEqual(cli.stderr, '')
+            manifest = json.loads(original)
+            manifest['verified_at'] = '2026-10-09T12:00:00+09:00'
+            manifest['master_sha'] = 'a' * 40
+            for key in manual.PLAYBOOK_IDS:
+                (self.root / manual.MANIFEST).write_bytes(original)
+                packet, scope = self.packet(key)
+                self.rebind_all(packet, scope, manifest)
+                result = self.validate(packet, scope)
+                cli = self.cli_fixture(packet, scope)
+                self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+                    self.assertFalse(result[field])
+        finally:
+            (self.root / manual.MANIFEST).write_bytes(original)
+
     def test_a6_sec_filing_schedule_semantic_change_requires_new_proof_pins(self):
         name = 'research/sec_13f_filing_schedule.json'
         # Fixed independent consumer witness from registered SEC 13F proof.

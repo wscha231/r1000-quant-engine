@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Preserve ETF proof and manual provenance (#593)
+
+- Pin the ETF universe whose existence the registered smoke proof consumes;
+  stale packets and fully rebound omissions must refuse preparation.
+- Issue declarations must equal their metadata references while source heads
+  stay empty. Validate manifest verification clocks and historical master SHA
+  before trusting any playbook, including fully rebound packets.
+- These integrity checks permit preparation only, with proofs NOT_RUN and no
+  worker completion, source admission, portfolio, broker or live authority.
+
 ## 2026-10-12 — Bind promotion proof evidence and declared PR groups (#593)
 
 - Pin the canonical promotion evidence hashed by the registered accepted-publication
