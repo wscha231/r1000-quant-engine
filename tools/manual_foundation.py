@@ -961,6 +961,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/trade_insights.py',
     'tools/train_explosion_classifier.py',
     'tools/twelve_private_capture.py',
+    'tools/twelve_private_cohort.py',
     'tools/validate_daily_close_prices.py',
     'tools/validate_target_book_cash_contract.py',
     'tools/verify_fullrun_source_manifest.py',

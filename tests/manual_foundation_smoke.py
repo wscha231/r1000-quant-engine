@@ -2,6 +2,7 @@
 """Offline adversarial manual pinning tests; no specialist/provider/state writes."""
 from __future__ import annotations
 
+import ast
 import copy
 import contextlib
 import hashlib
@@ -73,6 +74,97 @@ class ManualTests(unittest.TestCase):
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
+
+    def test_a6_private_capture_local_tool_imports_are_pinned(self):
+        # Derive the consumer's local imports independently of the fixed inventory.
+        consumed = {'tools/twelve_private_capture.py', 'tools/twelve_private_cohort.py'}
+        for name in tuple(consumed):
+            tree = ast.parse(fixture_dependency_bytes(name, 'HEAD'))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module == 'tools':
+                    consumed.update('tools/' + alias.name + '.py' for alias in node.names)
+                elif (isinstance(node, ast.ImportFrom) and node.module and
+                      node.module.startswith('tools.')):
+                    consumed.add(node.module.replace('.', '/') + '.py')
+                elif isinstance(node, ast.Import):
+                    consumed.update(alias.name.replace('.', '/') + '.py'
+                                    for alias in node.names if alias.name.startswith('tools.'))
+        missing = consumed - set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        self.assertEqual(missing, set())
+
+    def test_a6_cohort_helper_proof_and_stale_rebound_absence_controls(self):
+        name = 'tools/twelve_private_cohort.py'
+        target = self.root / name
+        original = fixture_dependency_bytes(name, 'HEAD')
+        target.write_bytes(original)
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1',
+                   PYTHONOPTIMIZE=str(sys.flags.optimize))
+        env['PYTHONPATH'] = str(self.root) + os.pathsep + env.get('PYTHONPATH', '')
+        # Execute only the real registered offline leaf; its run/provider call is mocked.
+        runner = ('import importlib.util,sys,unittest; '
+                  's=importlib.util.spec_from_file_location("actual_capture_proof",sys.argv[1]); '
+                  'm=importlib.util.module_from_spec(s); s.loader.exec_module(m); '
+                  'suite=unittest.TestSuite([m.PrivateCaptureTests('
+                  '"test_known_provider_or_configuration_failure_is_safe_at_cli_boundary")]); '
+                  'r=unittest.TextTestRunner().run(suite); sys.exit(not r.wasSuccessful())')
+        def proof():
+            return subprocess.run(prefix + ['-c', runner,
+                str(self.root / 'tests/twelve_private_capture_smoke.py')], env=env,
+                capture_output=True, text=True, timeout=30)
+        try:
+            canonical = proof()
+            self.assertEqual(canonical.returncode, 0, canonical.stdout + canonical.stderr)
+            target.write_bytes(original + b'\nraise RuntimeError("synthetic-unreviewed-proof-input")\n')
+            changed = proof()
+            self.assertEqual(changed.returncode, 1, changed.stdout + changed.stderr)
+            self.assertIn('UNEXPECTED_FAILURE', changed.stderr)
+            target.write_bytes(original)
+            restored = proof()
+            self.assertEqual(restored.returncode, 0, restored.stdout + restored.stderr)
+            for attack in ('stale', 'rebound-omission', 'rebound-deletion', 'retained-deletion'):
+                with self.subTest(attack=attack):
+                    try:
+                        packet, scope = self.packet('A6_INDEPENDENT_QA')
+                        good = self.cli_fixture(packet, scope)
+                        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+                        target.write_bytes(original + b'\nraise RuntimeError("unreviewed")\n')
+                        reason = 'dependency_bytes_changed'
+                        if attack.startswith('rebound-'):
+                            packet['dependencies'].pop(name, None)
+                            scope['dependencies'].pop(name, None)
+                            if attack == 'rebound-deletion':
+                                target.unlink()
+                            self.rebind_schema_fixture(packet, scope)
+                            reason = 'missing_dependency'
+                        if attack == 'retained-deletion':
+                            target.unlink()
+                            with self.assertRaises((OSError, manual.ContractError)):
+                                self.validate(packet, scope)
+                        else:
+                            self.rejected(packet, scope, reason)
+                        refused = self.cli_fixture(packet, scope)
+                        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                        self.assertEqual(json.loads(refused.stdout)['status'], 'BLOCKED_INPUT')
+                        if attack != 'retained-deletion':
+                            self.assertIn(reason, json.loads(refused.stdout)['reason'])
+                        self.assertEqual(refused.stderr, '')
+                    finally:
+                        target.write_bytes(original)
+                        for path, raw in controls.items():
+                            (self.root / path).write_bytes(raw)
+            packet, scope = self.packet('A6_INDEPENDENT_QA')
+            result = self.validate(packet, scope)
+            self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+            for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+                self.assertFalse(result[field])
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
 
     def test_a6_scorecard_required_absorbed_sources_are_all_pinned(self):
         registry = manual.board.read_json(self.root / 'docs/run287_operating_scorecard_sources.json')

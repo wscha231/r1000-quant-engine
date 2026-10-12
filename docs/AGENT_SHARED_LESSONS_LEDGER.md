@@ -6799,6 +6799,14 @@ Expected contract:
 - Execute documented command blocks against both normal and optimized CLI.
   A6 requires an independently supplied implementation review HEAD; generic
   handoff commands alone must not be advertised as the complete A6 procedure.
+- Reconcile executable proof inputs when accepted master adds a local helper:
+  #602's capture CLI imported twelve_private_cohort before its mocked provider
+  call, so a frozen A6 program inventory missed code that changed a registered
+  proof. Independently check the consumer's local tool imports and run its real
+  offline proof on canonical, tampered, and restored bytes, alongside stale,
+  fully rebound omitted-pin, and absent-file packet controls. Sparse checkout
+  omissions are environment failures; restore exact Git bytes and keep those
+  failed attempts separate from the demonstrated unpinned-code bypass.
 - Preserve both reviewed lesson histories when a concurrent master append
   conflicts. Record the exact new base and publish one reconciled, frozen HEAD
   before parallel author/independent A6/CI; correctable P2 pauses approval gates
