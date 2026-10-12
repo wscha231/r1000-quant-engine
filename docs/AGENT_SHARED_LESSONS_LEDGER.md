@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Bind promotion proof evidence and declared PR groups (#593)
+
+- Pin the canonical promotion evidence hashed by the registered accepted-publication
+  proof; stale bytes and completely rebound omitted dependencies must fail closed.
+- A grouped PR declaration must match both exact-head and metadata mapping keys.
+  Removing a source from both mappings cannot silently shorten the declared group;
+  retain the separate ISSUE contract with no fabricated source heads.
+- These are preparation-only integrity guards. They grant no proof completion,
+  source admission, promotion, portfolio, paper, broker or live authority.
+
 ## 2026-10-12 — Keep SEC proof schedules and accepted catalog identities pinned (#593)
 
 - A registered SEC 13F test consumes the actual filing schedule JSON; hash-bind the

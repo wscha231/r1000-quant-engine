@@ -195,6 +195,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
     "research/sec_13f_filing_schedule.json",
+    "data_static/run287_promotion_evidence_current.json",
     ".github/PULL_REQUEST_TEMPLATE.md",
     ".github/SECRETS_SETUP.md",
     ".github/workflows/adr_candidate_monthly.yml",
@@ -1269,7 +1270,11 @@ def load_catalog(root: Path = ROOT) -> dict:
             if heads:
                 raise ContractError('catalog_issue_has_source_head')
         else:
-            if set(heads) != set(metadata):
+            declared = row.get('pr_or_group')
+            if (not isinstance(declared, str)
+                    or re.fullmatch(r'#\d+(?:/#\d+)*', declared) is None
+                    or set(declared.split('/')) != set(heads)
+                    or set(heads) != set(metadata)):
                 raise ContractError('catalog_pr_head_identity')
             if any(not isinstance(sha, str) or re.fullmatch('[0-9a-f]{40}', sha) is None
                    for sha in heads.values()):

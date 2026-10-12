@@ -167,6 +167,88 @@ class ManualTests(unittest.TestCase):
                 (self.root / path).write_bytes(raw)
 
 
+    def test_a6_promotion_evidence_refuses_stale_and_rebound_missing_pin(self):
+        name = 'data_static/run287_promotion_evidence_current.json'
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        target = self.root / name
+        original = target.read_bytes()
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            for attack in ('stale', 'rebound-omission', 'rebound-deletion'):
+                with self.subTest(attack=attack):
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    target.write_bytes(original + b'\n')
+                    reason = 'dependency_bytes_changed:' + name
+                    if attack.startswith('rebound-'):
+                        packet['dependencies'].pop(name)
+                        scope['dependencies'].pop(name)
+                        if attack == 'rebound-deletion':
+                            target.unlink()
+                        self.rebind_schema_fixture(packet, scope)
+                        reason = 'missing_dependency'
+                    self.rejected(packet, scope, reason)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                    self.assertEqual(cli.stderr, '')
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        accepted = self.validate(packet, scope)
+        cli = self.cli_fixture(packet, scope)
+        self.assertEqual(cli.returncode, 0, cli.stdout + cli.stderr)
+        self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
+        for field in ('worker_invoked', 'completed_task', 'economic_authority'):
+            self.assertFalse(accepted[field])
+
+    def test_declared_pr_group_matches_both_source_mapping_key_sets(self):
+        original = (self.root / manual.CATALOG).read_bytes()
+        try:
+            for key, selected in (('L0_RESUME_HANDOFF', False),
+                                  ('L0_RESUME_HANDOFF', True),
+                                  ('A1_SOURCE_ADMISSION_REFRESH', False),
+                                  ('A6_INDEPENDENT_QA', False)):
+                with self.subTest(playbook=key, selected=selected):
+                    (self.root / manual.CATALOG).write_bytes(original)
+                    packet, scope = self.packet(key)
+                    catalog = json.loads(original)
+                    row = next(row for row in catalog['entries']
+                               if row['entry_id'] == 'group_423_574')
+                    self.assertEqual(row['pr_or_group'], '#423/#574')
+                    row['source_heads'].pop('#574')
+                    row['source_metadata'].pop('#574')
+                    self.write(manual.CATALOG, catalog)
+                    if selected:
+                        packet['reuse_entries'] = ['group_423_574']
+                    self.rebind_all(packet, scope)
+                    with self.assertRaisesRegex(manual.ContractError, 'catalog_pr_head_identity'):
+                        manual.lookup_reuse('group_423_574', root=self.root)
+                    self.rejected(packet, scope, 'catalog_pr_head_identity')
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_pr_head_identity')
+                    self.assertEqual(cli.stderr, '')
+        finally:
+            (self.root / manual.CATALOG).write_bytes(original)
+        catalog = manual.load_catalog(self.root)
+        self.assertTrue(manual.lookup_reuse('group_423_574', root=self.root)['allowed'])
+        issues = [row for row in catalog['entries'] if row['source_kind'] == 'ISSUE']
+        self.assertTrue(issues)
+        self.assertTrue(all(not row['source_heads'] for row in issues))
+        for key in manual.PLAYBOOK_IDS:
+            packet, scope = self.packet(key)
+            accepted = self.validate(packet, scope)
+            self.assertEqual(accepted['status'], 'VALIDATED_PREPARE_ONLY')
+            self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
+            self.assertFalse(accepted['economic_authority'])
+
     def test_a6_sec_filing_schedule_semantic_change_requires_new_proof_pins(self):
         name = 'research/sec_13f_filing_schedule.json'
         # Fixed independent consumer witness from registered SEC 13F proof.
