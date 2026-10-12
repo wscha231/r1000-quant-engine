@@ -137,11 +137,49 @@ def restore_receipt(drive, folders, value):
               and b''.join(m.encoded(r) for r in rebuilt) == normalized, 'RAW_RESTORE_NORMALIZATION')
 
 
-def resume_completed(drive, folders, ref, cohort_ref, instruments):
+def quarantined_pairs(groups, allowed, completed):
+    """A hold identifies an unretained group, never an individual invalid bar."""
+    m.require(isinstance(groups, list) and len(groups) <= len(allowed), 'SOURCE_FIELDS')
+    pairs = set()
+    for group in groups:
+        m.require(isinstance(group, dict)
+                  and set(group) == {'status', 'reason', 'instruments', 'individual_invalidity_verified',
+                                     'original_body_retained', 'code_sha', 'run_id', 'recorded_at', *FLAGS}
+                  and group.get('status') == 'GROUP_CAPTURE_BLOCKED_CULPRIT_UNKNOWN'
+                  and group.get('reason') == 'BAR_VALUE'
+                  and group.get('individual_invalidity_verified') is False
+                  and group.get('original_body_retained') is False
+                  and all(group.get(flag) is False for flag in FLAGS), 'SOURCE_FIELDS')
+        m.require((group['code_sha'] is None or isinstance(group['code_sha'], str)
+                   and re.fullmatch(r'[a-f0-9]{40}', group['code_sha']))
+                  and (group['run_id'] is None or isinstance(group['run_id'], str)
+                       and re.fullmatch(r'[0-9]{1,20}', group['run_id']))
+                  and isinstance(group['recorded_at'], str)
+                  and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+\+00:00',
+                                   group['recorded_at']), 'SOURCE_FIELDS')
+        members = group.get('instruments')
+        m.require(isinstance(members, list) and 1 <= len(members) <= 4, 'SOURCE_FIELDS')
+        for row in members:
+            m.require(isinstance(row, dict) and set(row) == {'symbol', 'mic'}
+                      and all(isinstance(row[k], str) for k in row), 'SOURCE_FIELDS')
+            pair = (row.get('symbol'), row.get('mic'))
+            m.require(pair in allowed and pair not in completed and pair not in pairs,
+                      'CURRENT_IDENTITY_MISMATCH')
+            pairs.add(pair)
+    return pairs
+
+
+def resume_completed(drive, folders, ref, cohort_ref, instruments, with_quarantine=False):
     state = read(drive, ref, folders['05-checkpoints'])
-    m.require(state.get('schema') == 'twelve-private-cohort-checkpoint-v1'
+    m.require(state.get('schema') in ('twelve-private-cohort-checkpoint-v1',
+                                     'twelve-private-cohort-checkpoint-v2')
               and state.get('collection_scope') == cohort_ref
               and all(state.get(flag) is False for flag in FLAGS), 'SOURCE_FIELDS')
+    if state['schema'] == 'twelve-private-cohort-checkpoint-v1':
+        m.require('quarantined_groups' not in state, 'SOURCE_FIELDS')
+        quarantine = []
+    else:
+        quarantine = state.get('quarantined_groups')
     completed = state.get('completed')
     m.require(isinstance(completed, list) and len(completed) <= len(instruments), 'SOURCE_FIELDS')
     allowed = {(r['symbol'], r['mic']) for r in instruments}
@@ -167,7 +205,8 @@ def resume_completed(drive, folders, ref, cohort_ref, instruments):
         m.require(source_pairs <= pairs, 'SOURCE_FIELDS')
     m.require(set(m.SYMBOLS) <= pairs, 'SOURCE_FIELDS')
     m.require((INITIAL['file_id'], INITIAL['sha256']) in receipts, 'SOURCE_FIELDS')
-    return completed
+    quarantined_pairs(quarantine, allowed, pairs)
+    return (completed, quarantine) if with_quarantine else completed
 
 
 def collect(drive, folders, key, rights, account, cohort_ref, resume_ref, maximum,
@@ -175,10 +214,14 @@ def collect(drive, folders, key, rights, account, cohort_ref, resume_ref, maximu
     m.require(type(maximum) is int and 1 <= maximum <= 360, 'SOURCE_FIELDS')
     value = read(drive, cohort_ref, folders['00-control'])
     instruments = scope(value)
-    completed = (resume_completed(drive, folders, resume_ref, cohort_ref, instruments) if resume_ref
-                 else verify_initial(drive, folders, instruments))
+    completed, quarantine = (resume_completed(drive, folders, resume_ref, cohort_ref, instruments,
+                                              with_quarantine=True) if resume_ref
+                             else (verify_initial(drive, folders, instruments), []))
     done = {(r['symbol'], r['mic']) for r in completed}
-    pending = [(r['symbol'], r['mic']) for r in instruments if (r['symbol'], r['mic']) not in done]
+    allowed = {(r['symbol'], r['mic']) for r in instruments}
+    held = quarantined_pairs(quarantine, allowed, done)
+    pending = [(r['symbol'], r['mic']) for r in instruments
+               if (r['symbol'], r['mic']) not in done | held]
     added, raw_objects, latest, reason = 0, 0, resume_ref, None
     progress = progress or (lambda item: print(json.dumps(item, sort_keys=True), flush=True))
     for offset in range(0, min(len(pending), maximum), 4):
@@ -190,23 +233,42 @@ def collect(drive, folders, key, rights, account, cohort_ref, resume_ref, maximu
             break
         # Each group retains the reviewed 16 MiB raw/normalized object limits.
         m.require(drive.free >= 32_000_000, 'DRIVE_SPACE')
-        out = capture(drive, folders, key, rights, symbols=tuple(group), collection_scope=cohort_ref)
-        completed.extend(dict(symbol=s, mic=mic, receipt=out['receipt']) for s, mic in group)
-        added += len(group)
-        raw_objects += out['raw_objects']
-        state = dict(schema='twelve-private-cohort-checkpoint-v1', collection_scope=cohort_ref,
-                     completed=completed, current_identity_only=True,
+        try:
+            # The production capture validates all bars before its first upload.
+            # Resume/restore validation stays outside this exception boundary.
+            out = capture(drive, folders, key, rights, symbols=tuple(group), collection_scope=cohort_ref)
+        except m.Refused as exc:
+            if str(exc) != 'BAR_VALUE':
+                raise
+            quarantine.append(dict(status='GROUP_CAPTURE_BLOCKED_CULPRIT_UNKNOWN', reason='BAR_VALUE',
+                instruments=[dict(symbol=s, mic=mic) for s, mic in group],
+                individual_invalidity_verified=False, original_body_retained=False,
+                code_sha=m.os.environ.get('GITHUB_SHA'), run_id=m.os.environ.get('GITHUB_RUN_ID'),
+                recorded_at=m.now(), **{flag: False for flag in FLAGS}))
+            held.update(group)
+            status = 'COHORT_GROUP_QUARANTINED'
+        else:
+            completed.extend(dict(symbol=s, mic=mic, receipt=out['receipt']) for s, mic in group)
+            added += len(group)
+            raw_objects += out['raw_objects']
+            status = 'COHORT_GROUP_CAPTURE_RESTORED'
+        state = dict(schema='twelve-private-cohort-checkpoint-v2', collection_scope=cohort_ref,
+                     completed=completed, quarantined_groups=quarantine, current_identity_only=True,
                      historical_identity_verified=False, pit_verified=False, source_admission=False,
                      economic_authority=False, code_sha=m.os.environ.get('GITHUB_SHA'),
                      run_id=m.os.environ.get('GITHUB_RUN_ID'), recorded_at=m.now())
         latest = drive.write(folders['05-checkpoints'], m.encoded(state), '.json')
-        progress(dict(status='COHORT_GROUP_CAPTURE_RESTORED', new_symbols=added,
+        progress(dict(status=status, new_symbols=added,
                       total_completed_symbols=len(completed), checkpoint=latest,
+                      quarantined_symbols=len(held),
                       symbols=[s for s, _ in group]))
     remaining = len(instruments) - len(completed)
     return dict(status='COHORT_BATCH_CAPTURE_RESTORED' if added else 'COHORT_BATCH_NO_NEW_CAPTURE',
                 collection_scope=cohort_ref, checkpoint=latest, new_symbols=added,
                 total_completed_symbols=len(completed), remaining_symbols=remaining,
+                pending_symbols=remaining - len(held), quarantined_symbols=len(held),
+                quarantined_group_count=len(quarantine),
+                quality_status='PARTIAL_WITH_HELD_GROUPS' if held else 'NO_HELD_GROUPS',
                 unresolved_symbols=len(value['unresolved']), requested_symbols=len(value['requested_targets']),
                 stop_reason=reason, retained_provider_raw_objects=raw_objects,
                 full_r1000_collection=False, source_admission=False, pointer_promotion=False,
