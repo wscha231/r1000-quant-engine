@@ -6615,3 +6615,23 @@ Expected contract:
 - The protected P0-4 publication pins the Tier-1 runner bytes. Keep that
   runner unchanged when adding capture-only checks; execute cohort guards in
   the sparse pre-credential capture workflow and independently under normal/-O.
+
+## 2026-10-12 — Numeric refusals must not discard a private capture queue
+
+- Run 38218494591 retained 36 new instruments before BAR_VALUE stopped the
+  next four-symbol group. Its checkpoint union is 200 instruments; neither the
+  failed group nor a subset checkpoint counter is additional completed history.
+- Validate bars unchanged before storage. Persist an exact-scope v2 checkpoint
+  holding the entire unretained group with unknown individual culprit, then
+  continue within the same bounded batch. Resume excludes completed and held
+  instruments; held groups remain incomplete, with no raw body or admission.
+- Catch only the fresh capture's constant BAR_VALUE. Authentication, quota,
+  credential, identity, storage, checkpoint and prior-receipt restore failures
+  stay terminal. Preserve the daily reserve and selected account; no key switch.
+- Include both offline capture suites through the existing runner's --include
+  interface in PR CI. Its frozen DEFAULT_TESTS does not discover new scripts;
+  keeping the runner bytes unchanged requires an explicit workflow invocation.
+- A pruned Native checkout can be recovered at its exact original path from
+  authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
+  preserve unrelated paths and publish only the validated explicit-path diff.
+  This is code recovery, not recovery or admission of vendor source bytes.

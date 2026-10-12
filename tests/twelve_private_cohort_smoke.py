@@ -184,6 +184,109 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(len(self.progress), 1)
         self.assertIsNotNone(out['checkpoint'])
 
+    def bad_first_group(self, *args, **kwargs):
+        self.calls.extend(kwargs['symbols'])
+        def data(endpoint, query, key):
+            raw, value = provider(endpoint, query, key)
+            if query.get('symbol') == 'TEST00':
+                value['values'][0]['low'] = '0'
+                raw = m.encoded(value)
+            return raw, value
+        return m.capture(*args, provider=data, pause=lambda _: None, **kwargs)
+
+    def test_invalid_fresh_group_is_unretained_and_later_groups_resume_without_retry(self):
+        with patch.object(self, 'capture', self.bad_first_group):
+            first = self.collect(8)
+        self.assertEqual(first['new_symbols'], 4)
+        self.assertEqual(first['total_completed_symbols'], 8)
+        self.assertEqual(first['quarantined_symbols'], 4)
+        self.assertEqual(first['pending_symbols'], 4)
+        self.assertEqual(first['quality_status'], 'PARTIAL_WITH_HELD_GROUPS')
+        self.assertEqual(first['retained_provider_raw_objects'], 1)
+        self.assertEqual([p['status'] for p in self.progress],
+                         ['COHORT_GROUP_QUARANTINED', 'COHORT_GROUP_CAPTURE_RESTORED'])
+        held_state = json.loads(self.drive.read(self.progress[0]['checkpoint']['file_id']))
+        self.assertEqual(len(held_state['completed']), 4)
+        group = held_state['quarantined_groups'][0]
+        self.assertFalse(group['individual_invalidity_verified'])
+        self.assertFalse(group['original_body_retained'])
+        self.assertNotIn('offline-credential-canary', json.dumps(held_state))
+        self.assertEqual(sum(p == FOLDERS['01-provider-raw'] for p in self.drive.parents.values()), 2)
+        attempted = set(self.calls)
+        self.calls.clear()
+        second = self.collect(4, first['checkpoint'])
+        self.assertEqual(second['new_symbols'], 4)
+        self.assertEqual(second['pending_symbols'], 0)
+        self.assertEqual(second['remaining_symbols'], 4)
+        self.assertEqual(second['quarantined_symbols'], 4)
+        self.assertFalse(attempted & set(self.calls))
+
+    def test_hold_only_checkpoint_and_daily_reserve_remain_durable(self):
+        usages = iter([dict(ACCOUNT, daily_usage=700), dict(ACCOUNT, daily_usage=719)])
+        def usage(*args):
+            value = next(usages)
+            return m.encoded(value), value
+        with patch.object(self, 'capture', self.bad_first_group):
+            out = self.collect(8, usage=usage)
+        self.assertEqual(out['new_symbols'], 0)
+        self.assertEqual(out['retained_provider_raw_objects'], 0)
+        self.assertEqual(out['quarantined_symbols'], 4)
+        self.assertEqual(out['stop_reason'], 'DAILY_BUDGET')
+        self.assertIsNotNone(out['checkpoint'])
+        self.calls.clear()
+        resumed = self.collect(4, out['checkpoint'])
+        self.assertEqual(resumed['new_symbols'], 4)
+        self.assertNotIn(('TEST00', 'XNGS'), self.calls)
+
+    def test_non_numeric_refusal_and_checkpoint_upload_failure_are_terminal(self):
+        for reason in ('RATE_LIMIT', 'AUTH', 'NETWORK', 'CREDENTIAL_ECHO', 'MEMBER_HASH',
+                       'CURRENT_IDENTITY_MISMATCH', 'RAW_SPLIT_SESSION_MISMATCH'):
+            before = len(self.drive.objects)
+            with self.subTest(reason=reason), patch.object(self, 'capture', side_effect=m.Refused(reason)):
+                with self.assertRaisesRegex(m.Refused, reason): self.collect(8)
+            self.assertEqual(len(self.drive.objects), before)
+            self.assertEqual(self.progress, [])
+        original_write = self.drive.write
+        def write(folder, *args):
+            if folder == FOLDERS['05-checkpoints']: raise m.Refused('NETWORK')
+            return original_write(folder, *args)
+        with patch.object(self, 'capture', self.bad_first_group), patch.object(self.drive, 'write', write):
+            with self.assertRaisesRegex(m.Refused, 'NETWORK'): self.collect(8)
+        self.assertEqual(self.progress, [])
+
+    def test_rebound_quarantine_metadata_cannot_suppress_foreign_or_completed_symbols(self):
+        with patch.object(self, 'capture', self.bad_first_group): out = self.collect(4)
+        state = json.loads(self.drive.read(out['checkpoint']['file_id']))
+        for mutation in ('duplicate', 'foreign', 'completed', 'flag', 'reason', 'body', 'v1', 'missing'):
+            value = copy.deepcopy(state)
+            group = value['quarantined_groups'][0]
+            if mutation == 'duplicate': value['quarantined_groups'].append(copy.deepcopy(group))
+            if mutation == 'foreign': group['instruments'][0]['symbol'] = 'OTHER'
+            if mutation == 'completed': group['instruments'][0] = dict(symbol='AAPL', mic='XNGS')
+            if mutation == 'flag': group['source_admission'] = True
+            if mutation == 'reason': group['reason'] = 'NETWORK'
+            if mutation == 'body': group['raw'] = 'untrusted-body-canary'
+            if mutation == 'v1': value['schema'] = 'twelve-private-cohort-checkpoint-v1'
+            if mutation == 'missing': value.pop('quarantined_groups')
+            ref = self.drive.write(FOLDERS['05-checkpoints'], m.encoded(value), '.json')
+            self.calls.clear()
+            with self.subTest(mutation=mutation), self.assertRaises(m.Refused): self.collect(4, ref)
+            self.assertEqual(self.calls, [])
+
+    def test_v1_checkpoint_remains_compatible_and_resume_bar_refusal_is_terminal(self):
+        out = self.collect(4)
+        state = json.loads(self.drive.read(out['checkpoint']['file_id']))
+        state['schema'] = 'twelve-private-cohort-checkpoint-v1'
+        state.pop('quarantined_groups')
+        ref = self.drive.write(FOLDERS['05-checkpoints'], m.encoded(state), '.json')
+        self.assertEqual(self.collect(4, ref)['new_symbols'], 4)
+        self.calls.clear()
+        before = len(self.progress)
+        with patch.object(c, 'restore_receipt', side_effect=m.Refused('BAR_VALUE')):
+            with self.assertRaisesRegex(m.Refused, 'BAR_VALUE'): self.collect(4, ref)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.progress), before)
+
     def test_credential_or_rate_error_never_falls_back_and_keeps_previous_progress(self):
         calls = []
         def usage(endpoint, query, key):
