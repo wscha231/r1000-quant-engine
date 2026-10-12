@@ -48,7 +48,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: a1-alpaca-private-sip-history-single-writer
+  group: a1-private-research-single-writer
   cancel-in-progress: false
 jobs:
   offline:

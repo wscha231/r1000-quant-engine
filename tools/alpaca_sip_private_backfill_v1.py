@@ -11,13 +11,11 @@ import csv
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import gzip
-import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import re
-import sys
 import tempfile
 import time
 from urllib.parse import urlencode
@@ -305,6 +303,13 @@ def run(args):
             checkpoint = drive.write(
                 args.private_data_folder_id, encoded(state), ".json",
             )
+            print(json.dumps({
+                "status": "PRIVATE_CHECKPOINT_SAVED",
+                "completed_or_examined": len(completed),
+                "checkpoint": checkpoint,
+                "last_no_bars": len(missing),
+                "source_admission": False,
+            }, sort_keys=True))
         print(json.dumps({
             "status": "PRIVATE_HISTORY_BATCH_RESTORED",
             "seed_count": len(names), "attempted_new": len(selected),
