@@ -1,5 +1,152 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Close default CSV and reuse proof inputs (#593)
+
+- Pin the repository defaults consumed by lifecycle and candidate-metadata
+  proof cases even when most tests supply synthetic files. Pin every reusable
+  catalog dependency hashed by the registered manual proof, including reference
+  documents and test programs; an empty packet reuse selection does not omit
+  those proof inputs. Fixed names survive deletion and complete hash rebinding.
+- Fresh hashes still prepare work only: proofs NOT_RUN, no worker/completion
+  or economic authority, and no accepted lifecycle or metadata byte mutation.
+
+## 2026-10-12 — Preserve catalog and rejected-research history (#593)
+
+- Pin broker audit data consumed by the registered challenger proof. When master
+  adds a dynamically loaded cohort proof, include that actual test in A6 pins.
+- Validate catalog header verification time and historical master SHA as well
+  as row provenance. Rehashing cannot erase accepted do-not-repeat identities
+  or their normalized matching descriptors; evidence updates and new rows remain
+  possible, along with existing explicit coverage/semantic-change exceptions.
+- Preparation remains NOT_RUN with no economic or execution authority.
+
+## 2026-10-12 — Preserve ETF proof and manual provenance (#593)
+
+- Pin the ETF universe whose existence the registered smoke proof consumes;
+  stale packets and fully rebound omissions must refuse preparation.
+- Issue declarations must equal their metadata references while source heads
+  stay empty. Validate manifest verification clocks and historical master SHA
+  before trusting any playbook, including fully rebound packets.
+- These integrity checks permit preparation only, with proofs NOT_RUN and no
+  worker completion, source admission, portfolio, broker or live authority.
+
+## 2026-10-12 — Bind promotion proof evidence and declared PR groups (#593)
+
+- Pin the canonical promotion evidence hashed by the registered accepted-publication
+  proof; stale bytes and completely rebound omitted dependencies must fail closed.
+- A grouped PR declaration must match both exact-head and metadata mapping keys.
+  Removing a source from both mappings cannot silently shorten the declared group;
+  retain the separate ISSUE contract with no fabricated source heads.
+- These are preparation-only integrity guards. They grant no proof completion,
+  source admission, promotion, portfolio, paper, broker or live authority.
+
+## 2026-10-12 — Keep SEC proof schedules and accepted catalog identities pinned (#593)
+
+- A registered SEC 13F test consumes the actual filing schedule JSON; hash-bind the
+  schedule along with proof code, rejecting stale bytes and fully rebound omissions.
+- A rehashed or empty reuse catalog cannot erase the independently reviewed 22
+  historical entry identities. Keep the accepted baseline fixed while permitting
+  independently reviewed metadata updates and additive new entries.
+- These guards validate offline preparation only; they do not grant A6 completion,
+  provider/source admission, portfolio execution, target, broker, or merge authority.
+
+## 2026-10-11 — Bind proof modules and reuse implementation closure (#593)
+
+- A registered test route can delegate to another test which imports research
+  modules. Pin the actual candidate packet and registry implementations as
+  mandatory A6 sources, retaining names after source deletion or hash rebinding.
+- A reusable replay entrypoint also consumes NAV, weekly-price, execution-cost
+  and reserve implementations. Bind their actual byte hashes in the existing
+  catalog row and require the bounded local closure for both replay and its
+  risk-grid subprocess wrapper, including unselected and renamed rows.
+- Refresh source verification metadata from the checked snapshot without
+  certifying economic results. Fresh hashes permit preparation only. Final
+  Codex findings stop the merge gate even after scoped independent A6 CLEAN.
+
+## 2026-10-11 — Keep proof packages and preflight boundaries fail closed (#593)
+
+- Bind the complete local AutoLearning package consumed by registered proofs,
+  including package initialization and sibling imports. Mandatory paths remain
+  required after deletion or fully rebound dependency omission. Fresh hashes
+  allow preparation only, never proof approval or economic execution.
+- JSON decoding can exhaust recursion before schema validation. Return the
+  existing structured input refusal at the CLI/API entrypoint, without raising
+  recursion limits or exposing a traceback.
+- An explicit output leaf needs directory ancestors. Refuse existing regular
+  file ancestors while retaining valid existing files and prospective directories.
+
+## 2026-10-11 — Reconstruct tracked test inputs in sparse CI (#593)
+
+- Native proof pinning can include canonical tracked inputs outside CI's sparse
+  checkout. A copy-only test fixture then fails before any assertion executes.
+- Capture one checked-out Git commit and reconstruct absent tracked regular
+  blobs only into temporary test fixtures. Preserve existing working-tree bytes;
+  unavailable, untracked, symlink and non-blob inputs must fail, never skip.
+- Production dependency existence and byte checks remain mandatory. Exercise
+  stale-byte and fully rebound missing-pin refusal with the reconstructed input.
+  A Native scoped CLEAN does not replace fresh required CI on the successor.
+
+## 2026-10-11 — Bind non-Python subprocess proof entrypoints (#593)
+
+- Python imports and repository read traces miss local programs passed to a
+  subprocess and files read by embedded non-Python programs. The registered
+  dashboard chain executes a Node child and inline Node reads of app.js and
+  project-results.js; its Python consumer also reads the canonical promotion
+  state. Bind every actual procedure and input, preserving canonical state bytes.
+- Retain mandatory names after deletion and reject their omission even after
+  every packet/catalog/playbook hash is rebound. Fresh binding permits offline
+  preparation only; it does not invoke or approve the altered proof program.
+- A scoped independent CLEAN is one gate. A later actual Codex finding stops
+  the merge gate and requires fresh tests and reviews on the corrected HEAD.
+
+## 2026-10-11 — Pin consumed proof inputs and reject future verification (#593)
+
+- A proof entrypoint/import inventory also needs non-Python read inputs: workflow
+  glob members, contract JSON, schemas and tracked fixture/evidence files. Retain
+  mandatory paths when files are removed; bind newly consumed workflow members.
+- Verify stale-byte and fully rebound omitted-pin refusal with actual API/CLI
+  controls; a fresh byte binding prepares work and does not attest proof success.
+- Parse verification clocks and compare them to one current UTC snapshot. Valid
+  syntax is insufficient evidence of past verification; retain equal/past clocks
+  and future expiry controls across selected and unselected catalog rows.
+
+## 2026-10-11 — Resolved schema cycles need structured runtime refusal (#593)
+
+- A valid metaschema and resolvable local pointer can still loop on one instance.
+  Normalize RecursionError only at schema evaluation to the existing contract
+  refusal; keep terminating recursion valid and do not raise recursion limits.
+- Rebind canonical/dependency/packet hashes and exercise actual API/CLI in both
+  optimization modes. A CI pass does not supersede an independent failing case.
+- Preserve both sides of accepted lesson changes during master reconciliation;
+  pin new proof helpers and embedded workflows consumed by registered tests.
+- Pin the parent workflow read/compiled by a registered test as well as a new
+  helper's workflow. A pinned entrypoint alone cannot bind its embedded source;
+  verify old-byte and fully rebound omission refusal with fresh-binding controls.
+
+## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
+
+- Trace mandatory lazy imports as well as top-level imports. The Board's
+  materializer executes during verification, so every Board consumer must pin
+  it even when a successor Toolbox omits it. Refuse changed bytes with old pins;
+  a freshly authorized dependency binding is preparation, not inherited proof.
+- Validate verification timestamps and exact master identities for every
+  canonical catalog row, including unselected rows. Complete hash rebinding
+  cannot replace missing provenance. Preserve historical master evidence and
+  timezone-aware clocks; normalize UTC conversion overflow and never claim
+  current live review from syntax.
+- Check both local canonical schemas and normalize SchemaError to structured
+  BLOCKED_INPUT for API/CLI callers; invalid schema JSON is different from an
+  invalid packet. Test the actual refusal under normal/-O with child optimization
+  inherited. Preserve separate author/A6/Codex evidence and all authority gates.
+- Metaschema checks do not resolve instance-time references. Catch the public
+  Unresolvable family at iter_errors and use a Registry with no retrieval;
+  missing pointers/anchors must refuse without traceback or external reads.
+  Hash-rebound packet/scope negatives and valid local-reference positives
+  need actual API/CLI coverage before a new exact-head review can be CLEAN.
+- Reconcile current master in the existing released Main checkout. Keep both
+  accepted shared-lesson blocks when resolving an append conflict; an older
+  green CI or scoped CLEAN does not approve the reconciled source HEAD.
+
 ## 2026-10-11 — Bind conditional private retention to actual account and storage
 
 - Owner consent and provider terms are distinct evidence. Twelve's current
@@ -71,6 +218,42 @@
 - Normalize timezone conversion overflow to a finite clock refusal. Keep author
   regressions separate from independent exact-head A6 and final PR review;
   later reproducible findings supersede a prior scoped CLEAN result.
+
+## 2026-10-10 — Manual review anchors and proof pins need complete scope (#593)
+
+- A packet/manifest rehash proves consistency, not adoption. Preserve immutable
+  semantic content for every accepted retained playbook version, including
+  successors; deleting history cannot reset the reviewed baseline. Capture a
+  separately reviewed anchor before adoption. Explicit successor preparation
+  covers only the selected playbook and never approves an unselected proposal.
+- Validate canonical JSON object roots before field access. Malformed roots
+  must return structured BLOCKED_INPUT, including under Python optimization.
+- Pin actual mandatory consumers, not only their entrypoint: Board mission,
+  configuration/requirements/schema inputs; A1 Reader imports/default registry;
+  A6 fixed registered test programs and their local program helpers. Keep fixed
+  pins even when mutable Toolbox/manifest declarations remove them. A changed
+  proof program invalidates its old packet just as a changed operating contract
+  does. Review consumed-input inventory changes with the proof procedure.
+- Independent QA must derive attacks from every claimed validation target and
+  actual consumer path. Large test counts and normal/-O PASS do not close a
+  missing boundary; exercise fully rebound hashes, selected/unselected rows,
+  omitted pins and actual CLI behavior. Record reusable lessons in this ledger,
+  not only PR comments. Review receipts remain NOT_RUN/RESEARCH_ONLY preparation;
+  no source admission, economic, Fullrun or trading authority follows.
+
+## 2026-10-09 — Manual pinning is preparation, not execution authority
+
+- Bind the recurring playbook version/hash, actual dependency bytes, base,
+  owner, files and proof in one task envelope. A new model/computer does not
+  change domain authority. Matching supplied JSON/hash alone neither verifies
+  human approval nor creates an A0 completed-task receipt.
+- The canonical reuse catalog records PR heads separately from Issue
+  requirements: #505/#510/#516/#526/#531 are Issues, not PRs. Reuse only the
+  named current capability; a merged guard or reference index is not complete
+  source admission, calibrated economics or actual execution.
+- Resolve failed-research IDs in the existing do-not-repeat registry. Keep
+  superseded/manual/catalog records historical; version and recheck only the
+  affected Process/Toolbox/Proof dependency. See MANUAL_FOUNDATION_V1.md.
 
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
@@ -6584,6 +6767,46 @@ Expected contract:
   detect unwanted domain-default sharing too late to prevent exposure; bypass
   that default at creation and keep private-parent and readback gates.
 
+# Bind every advertised reuse capability, not only a specialist playbook (#593)
+
+- A1 Reader pins do not protect an L0 packet selecting the same Reader from the
+  reuse catalog. Verify the consumed imports and default registry at that second
+  boundary as well, including unselected rows after complete hash rebinding.
+- Inspect every currently advertised Python capability together. Preserve an
+  independently reviewed local-input recipe for each entrypoint, including
+  stdlib-only leaves, and refuse unreviewed Python recipes supplied by a row.
+- Refresh only exact hash/time/master metadata for unchanged source. A fresh
+  PREPARE_ONLY packet still means NOT_RUN proofs and no worker/economic action.
+- When an ephemeral Native resource disappears, recover only the same approved
+  path and reviewed Git tree, verify one worktree/clean status/actual inputs, and
+  rerun successor validation. Record the incident and exact dependency versions.
+- When a stronger outer contract rejects an old negative fixture first, retain
+  that early-refusal case and supply a valid reviewed closure to reach the
+  intended inner refusal. A different error is not proof of the inner guard;
+  test its actual API/CLI rejection and a permitted control before full reruns.
+
+## 2026-10-11 — Bind actual subprocess targets as well as Python imports (#593)
+
+- A static import inventory missed the risk-grid's subprocess entrypoint.
+  Follow the actual command target and its mandatory local import closure:
+  broker position-risk replay, position-aware replay and historical replay
+  library, in addition to the existing ledger/evaluation dependencies.
+- Use literal independent path witnesses to reproduce stale acceptance and
+  reject fully rebound missing pins, including renamed and grid-only rows and
+  unselected catalog entries. A freshly hash-bound PREPARE_ONLY control keeps
+  NOT_RUN proofs and grants no worker or economic authority.
+
+## 2026-10-12 — Bind canonical contract reads in the A6 proof procedure (#593)
+
+- Pinning every registered script and Python helper still omits JSON contracts
+  read through defaults or fingerprints. Inspect actual registered consumers
+  together and retain those canonical paths independently of caller declarations.
+- Literal stale-byte and fully rebound omission/deletion controls must reach
+  both API and CLI. Fresh complete pins permit PREPARE_ONLY with NOT_RUN proof
+  and no worker/economic authority; they do not certify a completed review.
+- Recover a lost checkout only at its approved path and exact published Git
+  tree. Verify consumed bytes and preserve prior posted evidence as historical;
+  do not invent replacement execution logs or a cause for resource loss.
 ## 2026-10-12 — Separate private capture expansion from historical source admission
 
 - Pin the owner-only target scope and current vendor-reported symbol/MIC/FIGI
@@ -6615,6 +6838,30 @@ Expected contract:
 - The protected P0-4 publication pins the Tier-1 runner bytes. Keep that
   runner unchanged when adding capture-only checks; execute cohort guards in
   the sparse pre-credential capture workflow and independently under normal/-O.
+
+## 2026-10-12 — Bind canonical bundle references and executable A6 instructions (#593)
+
+- A filename-family inventory missed two required absorbed scorecard CSVs even
+  after all eleven canonical JSON contracts were pinned. The real canonical
+  bundle changed VERIFIED to INTEGRITY_ERROR while stale/rebound A6 packets
+  still prepared. Bind every required registry/manifest-referenced input, and
+  test the complete reference set independently of extensions and validator lists.
+- Execute documented command blocks against both normal and optimized CLI.
+  A6 requires an independently supplied implementation review HEAD; generic
+  handoff commands alone must not be advertised as the complete A6 procedure.
+- Reconcile executable proof inputs when accepted master adds a local helper:
+  #602's capture CLI imported twelve_private_cohort before its mocked provider
+  call, so a frozen A6 program inventory missed code that changed a registered
+  proof. Independently check the consumer's local tool imports and run its real
+  offline proof on canonical, tampered, and restored bytes, alongside stale,
+  fully rebound omitted-pin, and absent-file packet controls. Sparse checkout
+  omissions are environment failures; restore exact Git bytes and keep those
+  failed attempts separate from the demonstrated unpinned-code bypass.
+- Preserve both reviewed lesson histories when a concurrent master append
+  conflicts. Record the exact new base and publish one reconciled, frozen HEAD
+  before parallel author/independent A6/CI; correctable P2 pauses approval gates
+  while bounded repairs continue under existing authority. Preparation remains
+  NOT_RUN/no worker/completion/economic authority, never review-complete proof.
 
 ## 2026-10-12 — Numeric refusals must not discard a private capture queue
 
