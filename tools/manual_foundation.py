@@ -27,6 +27,32 @@ MANIFEST = 'research/control_plane/manual_playbooks_v1.json'
 SCHEMA = 'research/control_plane/manual_task_packet_schema.json'
 CATALOG = 'docs/pr_reuse_catalog.json'
 DNR = 'docs/run287_do_not_repeat_registry.json'
+# Accepted master 69acbb59afaba5bfd26b1cbaa2bc8811580a4c46; registry blob
+# be320d660c48b09956f6a32282ab76867e079dcb. Anchor normalized matching
+# descriptors independently of caller hashes; evidence and additions may evolve.
+DNR_ACCEPTED_DESCRIPTORS = {
+    'monthly_dd_vix_floor': '9ddb651f0ca0c6c4b58dfa375560163aace818ad30cc37bd6e1daa116a6f5318',
+    'broad_gross_floor': '2810df76809a631db80b3196bd4686d232bdc15682034245a3d080ebcf1c5480',
+    'stop_or_exit_delay': '825d93c0fa305a5e9b0c804e59c320c2364862ea68df00b7e6fb283c3b663f02',
+    'rank_rs_revenue_replacement': 'd3772202a5a0b1caac4eef5eebb80a9c4a74ce3e895261e832915e58f94e0d34',
+    'aggregate_cluster_cap': '079e9a0f1635615ab50ae094671257c5d36b33068e79897ca44d03d553b9b3b1',
+    'static_actual_profitability': '84a8eebfff0d72eded8334a029b44517a4e7cfd8f8000638a38bbfa7710a7ffa',
+    'ownership_13f_form4': '79a47fe2052b9578437fd42a1a235e6d2ff029bdbce764477c2589ca6f17281e',
+    'w4_sec_percentile_tilt': '5d43a146ddeb64b763fb32db60e3c4e30eed46d5528b2d6c364ae249a064de97',
+    'consensus_no_signal': 'd241d086fce40a542f9b06d1c52f6ae2153caba10b2171d9a5fded5f5064c21d',
+    'technical_macro_risk_financial_proxy': 'a515c1edfdb120c335915f705ca6d172515e6942db82c2345f64c3e66bf5ecd6',
+    'weak_source_fusion': '4916bea2e849c49c9c147df3adbef6580ed57688844c967826e6b5105a95db4d',
+    'direct_growth_tilt': '3c0158e79bd75658a631e91e016467bad9686743dd315e3df0022e21c3514d54',
+    'composite_account_aware_execution': 'dd0838723541e83281ea791a5b0db3583850737c66c07a26c297bca95f222f29',
+    'main_growth_downside_beta_neutral': '7ea602ccff4de3d98164ce475d44be38ef171ca736cb769c011f82d912f18359',
+    'sec_market_confirmed_fundamental_event': '067361c125d8dbdfc3ce8eedde5b6d964fc27cd8d84a0f5a3f8cea696e80d20b',
+    'sec_filing_quality_event': '42015be8427875951d9d33c3183cb9c47c23c7a98587afbe536c4a71f76c8c24',
+    'sec_management_guidance_keyword_scout': '23928affa648677c36e69001f7b26d1fa2114d178b8bb3c080b3e40f80467331',
+    'partial_resize_two_signal_confirmation': '7d32160356b246f0e2c6b2bea3b803869743744406e494b6db017b2a515910dd',
+    'leadership_persistence_v2_strict': '25b703b447da9d53336b6ab44c8b3799b8011e55a30520a16a334aa113340bd5',
+    'canonical_sector_relative_strength_materialization': '86459d0f4fd76745273b09b7391d7357a26e858fbf66d491f860d57f414ccaa7',
+    'hierarchical_sector_leadership_portfolio_reconstruction': '39d42a136323dea97bb368f2482b054552f37695bd711e7786fb8736ac5d6255',
+}
 # Actual local implementation consumed by the replay and the grid's child.
 # Required names survive catalog declaration edits and row renaming.
 BROKER_REPLAY_IMPORTS = (
@@ -342,6 +368,7 @@ A6_FIXED_PROOF_INPUTS = (
     "outputs/orchestrator_replay/concentrated_balanced/metrics.json",
     "outputs/portfolio_goal_search/goal_search_summary.json",
     "research/cross_market_gold_set_v1.json",
+    "research/broker_accounting_audit.json",
     "research/etf_holdings_universe_20260520/thematic_etfs.yaml",
     "research/sec_13f_cusip_map_overrides.csv",
     "research/sec_13f_manager_universe_20260519/managers.csv",
@@ -376,6 +403,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'auto_learning_v2/promotion_governor.py',
     'research/a3_candidate_packet_v1.py',
     'research/candidate_registry_v1.py',
+    'tests/twelve_private_cohort_smoke.py',
     'mission_contract.py',
     'r1000_alphaops_reporting.py',
     'r1000_auto_learning_evidence.py',
@@ -1198,6 +1226,12 @@ def load_do_not_repeat_registry(root: Path = ROOT) -> dict:
     if any(not isinstance(item[field], str) for item in registry['entries']
            for field in ('id', 'status', 'signal', 'mechanism', 'book', 'window')):
         raise ContractError('do_not_repeat_registry_invalid:nontext_entry_field')
+    descriptors = {item['id'].strip(): board.digest({
+        field: normalize(item[field]) for field in ('signal', 'mechanism', 'book', 'window')})
+        for item in registry['entries']}
+    if any(descriptors.get(identifier) != digest
+           for identifier, digest in DNR_ACCEPTED_DESCRIPTORS.items()):
+        raise ContractError('do_not_repeat_historical_identity_changed')
     policy = registry.get('reuse_policy') or {}
     if not isinstance(policy, dict):
         raise ContractError('do_not_repeat_threshold_invalid')
@@ -1232,6 +1266,12 @@ def load_catalog(root: Path = ROOT) -> dict:
             or value.get('do_not_repeat_registry') != DNR
             or value.get('lessons_ledger') != 'docs/AGENT_SHARED_LESSONS_LEDGER.md'):
         raise ContractError('catalog_contract')
+    verified_at = catalog_timestamp(value.get('verified_at'), 'catalog_header_verified_at_invalid')
+    if verified_at > datetime.now(timezone.utc):
+        raise ContractError('catalog_header_verified_at_future')
+    master = value.get('master_sha')
+    if not isinstance(master, str) or re.fullmatch('[0-9a-f]{40}', master) is None:
+        raise ContractError('catalog_header_master_sha_invalid')
     entries = value.get('entries')
     if not isinstance(entries, list):
         raise ContractError('catalog_entries')

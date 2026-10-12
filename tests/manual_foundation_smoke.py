@@ -249,6 +249,139 @@ class ManualTests(unittest.TestCase):
             self.assertEqual(set(accepted['proof_results'].values()), {'NOT_RUN'})
             self.assertFalse(accepted['economic_authority'])
 
+    def test_a6_broker_audit_refuses_stale_and_rebound_missing_pin(self):
+        name = 'research/broker_accounting_audit.json'
+        self.assertIn('tests/auto_policy_challenger_smoke.py',
+                      {path for path, _ in registered_validation.DEFAULT_TESTS})
+        witness = fixture_dependency_bytes('tests/auto_policy_challenger_smoke.py', 'HEAD').decode()
+        self.assertIn('def test_repository_audit_matches_schema_and_documents_open_bugs()', witness)
+        self.assertIn('audit_path = REPO_ROOT / DEFAULT_BROKER_ACCOUNTING_AUDIT', witness)
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        target = self.root / name
+        original = target.read_bytes()
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            for attack in ('stale', 'rebound-omission', 'rebound-deletion'):
+                with self.subTest(attack=attack):
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    target.write_bytes(original + b'\n')
+                    reason = 'dependency_bytes_changed:' + name
+                    if attack.startswith('rebound-'):
+                        packet['dependencies'].pop(name)
+                        scope['dependencies'].pop(name)
+                        if attack == 'rebound-deletion':
+                            target.unlink()
+                        self.rebind_schema_fixture(packet, scope)
+                        reason = 'missing_dependency'
+                    self.rejected(packet, scope, reason)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                    self.assertEqual(cli.stderr, '')
+        finally:
+            target.write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+
+    def test_catalog_top_level_provenance_refuses_full_rebinding(self):
+        original = (self.root / manual.CATALOG).read_bytes()
+        try:
+            for key in manual.PLAYBOOK_IDS:
+                for field in ('verified_at', 'master_sha'):
+                    for value in (None, '', True, 'not-valid', '2099-01-01T00:00:00Z'):
+                        with self.subTest(playbook=key, field=field, value=value):
+                            (self.root / manual.CATALOG).write_bytes(original)
+                            packet, scope = self.packet(key)
+                            packet['reuse_entries'] = ['group_158']
+                            catalog = json.loads(original)
+                            if value is None:
+                                catalog.pop(field)
+                            else:
+                                catalog[field] = value
+                            self.write(manual.CATALOG, catalog)
+                            self.rebind_all(packet, scope)
+                            reason = 'catalog_header_' + field + ('_future' if field == 'verified_at' and value == '2099-01-01T00:00:00Z' else '_invalid')
+                            with self.assertRaisesRegex(manual.ContractError, reason):
+                                manual.lookup_reuse('group_158', self.root)
+                            self.rejected(packet, scope, reason)
+                            cli = self.cli_fixture(packet, scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], reason)
+                            self.assertEqual(cli.stderr, '')
+            catalog = json.loads(original)
+            catalog.update(verified_at='2026-10-09T12:00:00+09:00', master_sha='a' * 40)
+            self.write(manual.CATALOG, catalog)
+            for key in manual.PLAYBOOK_IDS:
+                packet, scope = self.packet(key)
+                packet['reuse_entries'] = ['group_158']
+                result = self.validate(self.bind(packet), scope)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                self.assertFalse(result['economic_authority'])
+        finally:
+            (self.root / manual.CATALOG).write_bytes(original)
+
+    def test_accepted_dnr_records_cannot_be_deleted_or_reidentified(self):
+        original = (self.root / manual.DNR).read_bytes()
+        fields = ('signal', 'mechanism', 'book', 'window')
+        registry = json.loads(original)
+        self.assertEqual(len(registry['entries']), 21)
+        controls = {path: (self.root / path).read_bytes()
+                    for path in (manual.MANIFEST, manual.CATALOG)}
+        try:
+            for index, row in enumerate(registry['entries']):
+                for field in ('delete', 'id', *fields):
+                    with self.subTest(entry=row['id'], field=field):
+                        (self.root / manual.DNR).write_bytes(original)
+                        packet, scope = self.packet()
+                        packet['do_not_repeat_candidate'] = {k: row[k] for k in fields}
+                        changed = copy.deepcopy(registry)
+                        if field == 'delete':
+                            changed['entries'].pop(index)
+                        else:
+                            changed['entries'][index][field] += '_changed'
+                        self.write(manual.DNR, changed)
+                        self.rebind_schema_fixture(packet, scope)
+                        self.rejected(packet, scope, 'do_not_repeat_historical_identity_changed')
+                        if row['id'] == 'monthly_dd_vix_floor':
+                            cli = self.cli_fixture(packet, scope)
+                            self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                            self.assertEqual(json.loads(cli.stdout)['reason'], 'do_not_repeat_historical_identity_changed')
+                            self.assertEqual(cli.stderr, '')
+            changed = copy.deepcopy(registry)
+            changed['entries'][0]['evidence'].append('SYNTHETIC_METADATA_ONLY')
+            for field in fields:
+                changed['entries'][0][field] = ' ' + changed['entries'][0][field].upper() + ' '
+            added = copy.deepcopy(registry['entries'][0])
+            added['id'] = 'synthetic_additive_record'
+            added['signal'] = 'SYNTHETIC_NEW_SIGNAL'
+            changed['entries'].append(added)
+            self.write(manual.DNR, changed)
+            for key in manual.PLAYBOOK_IDS:
+                packet, scope = self.packet(key)
+                result = self.validate(packet, scope)
+                self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                self.assertFalse(result['economic_authority'])
+        finally:
+            (self.root / manual.DNR).write_bytes(original)
+            for path, raw in controls.items():
+                (self.root / path).write_bytes(raw)
+
+    def test_new_master_registered_cohort_proof_is_mandatory(self):
+        name = 'tests/twelve_private_cohort_smoke.py'
+        witness = (ROOT / 'tests/twelve_private_capture_smoke.py').read_text()
+        self.assertIn("path = ROOT / 'tests/twelve_private_cohort_smoke.py'", witness)
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        packet['dependencies'].pop(name)
+        scope['dependencies'].pop(name)
+        self.rejected(self.rebind_schema_fixture(packet, scope), scope, 'missing_dependency')
+
     def test_a6_etf_universe_refuses_stale_and_rebound_missing_pin(self):
         name = 'research/etf_holdings_universe_20260520/thematic_etfs.yaml'
         self.assertIn('tests/smoke_test.py',

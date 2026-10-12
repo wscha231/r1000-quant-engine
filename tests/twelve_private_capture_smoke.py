@@ -1,6 +1,7 @@
 """Private account/storage/capture boundaries; offline fixtures are not live proof."""
 import copy
 import io
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -284,6 +285,17 @@ class PrivateCaptureTests(unittest.TestCase):
         self.assertEqual(env['R1000_PRIVATE_RESEARCH_FOLDER_ID'], '${{ inputs.private_root_folder_id }}')
         self.assertEqual(env['A1_PRIVATE_RESEARCH_AUTHORIZED'], '${{ inputs.private_research_authorized }}')
         self.assertEqual(value['jobs']['capture']['timeout-minutes'], 180)
+
+
+def load_tests(loader, tests, pattern):
+    # api_credentials_check_smoke already loads this suite in frozen Tier-1.
+    # Extend that entrypoint without changing the protected runner/workflow.
+    path = ROOT / 'tests/twelve_private_cohort_smoke.py'
+    spec = importlib.util.spec_from_file_location('twelve_cohort_registered', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    tests.addTests(loader.loadTestsFromModule(module))
+    return tests
 
 
 if __name__ == '__main__':

@@ -1,5 +1,15 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-12 — Preserve catalog and rejected-research history (#593)
+
+- Pin broker audit data consumed by the registered challenger proof. When master
+  adds a dynamically loaded cohort proof, include that actual test in A6 pins.
+- Validate catalog header verification time and historical master SHA as well
+  as row provenance. Rehashing cannot erase accepted do-not-repeat identities
+  or their normalized matching descriptors; evidence updates and new rows remain
+  possible, along with existing explicit coverage/semantic-change exceptions.
+- Preparation remains NOT_RUN with no economic or execution authority.
+
 ## 2026-10-12 — Preserve ETF proof and manual provenance (#593)
 
 - Pin the ETF universe whose existence the registered smoke proof consumes;
@@ -6842,3 +6852,24 @@ Expected contract:
   before parallel author/independent A6/CI; correctable P2 pauses approval gates
   while bounded repairs continue under existing authority. Preparation remains
   NOT_RUN/no worker/completion/economic authority, never review-complete proof.
+
+## 2026-10-12 — Numeric refusals must not discard a private capture queue
+
+- Run 38218494591 retained 36 new instruments before BAR_VALUE stopped the
+  next four-symbol group. Its checkpoint union is 200 instruments; neither the
+  failed group nor a subset checkpoint counter is additional completed history.
+- Validate bars unchanged before storage. Persist an exact-scope v2 checkpoint
+  holding the entire unretained group with unknown individual culprit, then
+  continue within the same bounded batch. Resume excludes completed and held
+  instruments; held groups remain incomplete, with no raw body or admission.
+- Catch only the fresh capture's constant BAR_VALUE. Authentication, quota,
+  credential, identity, storage, checkpoint and prior-receipt restore failures
+  stay terminal. Preserve the daily reserve and selected account; no key switch.
+- Both the Tier-1 runner and PR validation workflow are protected by P0-4.
+  Extend the already registered api_credentials_check_smoke -> private capture
+  suite with unittest load_tests for cohort coverage; preserve both frozen
+  files. An explicit CI --include workflow delta also violates that boundary.
+- A pruned Native checkout can be recovered at its exact original path from
+  authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
+  preserve unrelated paths and publish only the validated explicit-path diff.
+  This is code recovery, not recovery or admission of vendor source bytes.
