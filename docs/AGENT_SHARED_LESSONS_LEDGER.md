@@ -6583,3 +6583,35 @@ Expected contract:
   Drive files.create ignoreDefaultVisibility=true. Post-upload owner checks
   detect unwanted domain-default sharing too late to prevent exposure; bypass
   that default at creation and keep private-parent and readback gates.
+
+## 2026-10-12 — Separate private capture expansion from historical source admission
+
+- Pin the owner-only target scope and current vendor-reported symbol/MIC/FIGI
+  mapping before extending a four-symbol collector. Nasdaq snapshot, SPY
+  holdings proxy and an undated IWB seed are distinct source roles; their union
+  is a research queue, not certified current or historical Russell membership.
+- Current vendor metadata can conflict with issuer labels. Preserve reported
+  identities and unresolved targets; do not turn this mapping into verified
+  historical lifecycle, corporate-action, PIT or Reader admission evidence.
+- Resume only an exact scope/checkpoint hash. Restore each completed receipt's
+  whole raw pack, bounded members and normalized bytes once per resume; a
+  completed-symbol list or restored_from_drive flag alone is insufficient.
+- Persist progress after each bounded group and keep auth/quota errors
+  terminal. Reserve daily credits and never rotate to another account. A new
+  batch is raw collection, not engine fullrun or source pointer promotion.
+- Compare canonical decompressed normalized bytes across runtimes rather than
+  regenerated gzip headers. Charge successful private uploads against the
+  verified remaining capacity. The CLI and worker must share one refusal type.
+- Independent A6 reproduced three resume defects: replacing the initial pilot
+  with a newly scoped receipt, requiring uninstalled PyYAML in the sparse live
+  runner, and accepting fully hash-rebound none/splits histories with different
+  sessions. Require the original pilot file/hash on every resume, keep the
+  pre-credential runner stdlib-only, and recheck basis session equality after
+  restoring bytes. The corrected independent counterexamples pass normal/-O.
+- Reject duplicate JSON keys before decoded credential scanning: otherwise an
+  overwritten value containing a Unicode-escaped key disappears from the parsed
+  object while its original bytes are still archived. The capture-boundary
+  counterexample must refuse before any raw upload.
+- The protected P0-4 publication pins the Tier-1 runner bytes. Keep that
+  runner unchanged when adding capture-only checks; execute cohort guards in
+  the sparse pre-credential capture workflow and independently under normal/-O.

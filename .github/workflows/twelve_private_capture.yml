@@ -18,10 +18,30 @@ on:
         type: boolean
         default: false
       capture_history:
-        description: After account and Drive gates, capture four symbols on none/splits bases
+        description: Capture history; without a pinned scope, use the existing four-symbol pilot
         required: true
         type: boolean
         default: false
+      cohort_file_id:
+        description: Optional owner-only collection scope file ID (current instruments; no PIT admission)
+        type: string
+        default: ''
+      cohort_sha256:
+        description: Exact scope SHA256; required together with cohort_file_id
+        type: string
+        default: ''
+      resume_file_id:
+        description: Optional exact checkpoint file ID for the same scope
+        type: string
+        default: ''
+      resume_sha256:
+        description: Exact resume checkpoint SHA256
+        type: string
+        default: ''
+      max_new_symbols:
+        description: Maximum new symbols this batch (1-360; account budget may stop earlier)
+        type: number
+        default: 32
 permissions:
   contents: read
 concurrency:
@@ -31,7 +51,7 @@ jobs:
   capture:
     if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,13 +59,17 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /tools/twelve_private_capture.py
+            /tools/twelve_private_cohort.py
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
             /tools/macro_research_checkpoint.py
             /tests/twelve_private_capture_smoke.py
+            /tests/twelve_private_cohort_smoke.py
             /.github/workflows/twelve_private_capture.yml
       - name: Offline contract checks before credentials
-        run: python3 tests/twelve_private_capture_smoke.py
+        run: |
+          python3 tests/twelve_private_capture_smoke.py
+          python3 tests/twelve_private_cohort_smoke.py
       - name: Install the existing pinned research transport
         env:
           MACRO_RCLONE_RELEASE: 1.75.0
@@ -65,10 +89,18 @@ jobs:
           R1000_PRIVATE_RESEARCH_FOLDER_ID: ${{ inputs.private_root_folder_id }}
           A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
           CAPTURE_HISTORY: ${{ inputs.capture_history }}
+          COHORT_FILE_ID: ${{ inputs.cohort_file_id }}
+          COHORT_SHA256: ${{ inputs.cohort_sha256 }}
+          RESUME_FILE_ID: ${{ inputs.resume_file_id }}
+          RESUME_SHA256: ${{ inputs.resume_sha256 }}
+          MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
         run: |
           set -euo pipefail
           if [ "$CAPTURE_HISTORY" = "true" ]; then
-            python3 tools/twelve_private_capture.py --capture-history
+            python3 tools/twelve_private_capture.py --capture-history \
+              --cohort-file-id "$COHORT_FILE_ID" --cohort-sha256 "$COHORT_SHA256" \
+              --resume-file-id "$RESUME_FILE_ID" --resume-sha256 "$RESUME_SHA256" \
+              --max-new-symbols "$MAX_NEW_SYMBOLS"
           else
             python3 tools/twelve_private_capture.py
           fi
