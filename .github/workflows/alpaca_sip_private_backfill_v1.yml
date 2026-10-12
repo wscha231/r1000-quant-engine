@@ -7,6 +7,10 @@ on:
       - 'tests/alpaca_sip_private_backfill_v1_smoke.py'
       - '.github/workflows/alpaca_sip_private_backfill_v1.yml'
       - 'data_static/iwb_holdings_seed.csv'
+      - 'tools/twelve_private_capture.py'
+      - 'tools/configure_macro_research_drive.py'
+      - 'tools/macro_history_sources.py'
+      - 'tests/api_credentials_check_smoke.py'
   workflow_dispatch:
     inputs:
       private_root_folder_id:
@@ -86,6 +90,12 @@ jobs:
       MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
       A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
       ALPACA_NONCOMMERCIAL_ACKNOWLEDGED: ${{ inputs.noncommercial_terms_acknowledged }}
+      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ inputs.private_root_folder_id }}
+      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ inputs.private_data_folder_id }}
+      INPUT_END_DATE: ${{ inputs.end_date }}
+      INPUT_MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
+      INPUT_RESUME_FILE_ID: ${{ inputs.resume_file_id }}
+      INPUT_RESUME_SHA256: ${{ inputs.resume_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,14 +124,14 @@ jobs:
             -o "$RUNNER_TEMP/alpaca-rclone.zip"
           printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/alpaca-rclone.zip" | sha256sum --check --strict
           unzip -q "$RUNNER_TEMP/alpaca-rclone.zip" -d "$RUNNER_TEMP/rclone-bin"
-          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" }} "$GITHUB_ENV"
+          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
       - name: Collect immutable owner-only Alpaca history
         run: |
           python -m tools.alpaca_sip_private_backfill_v1 \
-            --private-root-folder-id '${{ inputs.private_root_folder_id }}' \
-            --private-data-folder-id '${{ inputs.private_data_folder_id }}' \
-            --end '${{ inputs.end_date }}' \
-            --max-new-symbols '${{ inputs.max_new_symbols }}' \
-            --resume-file-id '${{ inputs.resume_file_id }}' \
-            --resume-sha256 '${{ inputs.resume_sha256 }}'
+            --private-root-folder-id "$INPUT_PRIVATE_ROOT_FOLDER_ID" \
+            --private-data-folder-id "$INPUT_PRIVATE_DATA_FOLDER_ID" \
+            --end "$INPUT_END_DATE" \
+            --max-new-symbols "$INPUT_MAX_NEW_SYMBOLS" \
+            --resume-file-id "$INPUT_RESUME_FILE_ID" \
+            --resume-sha256 "$INPUT_RESUME_SHA256"
       # No raw provider bytes in logs, Actions artifacts or public GitHub.

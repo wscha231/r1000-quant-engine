@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import gzip
 import io
@@ -32,6 +32,7 @@ URL = "https://data.alpaca.markets/v2/stocks/bars"
 SEED = Path("data_static/iwb_holdings_seed.csv")
 MIN_START = "2016-01-04"
 ALLOWED_SUFFIXES = (".json", ".zip", ".jsonl.gz")
+MAX_CHECKPOINT_CHAIN = 1200
 MAX_PAGE_BYTES = 8_000_000
 MAX_PAGES = 25
 GROUP_SIZE = 4
@@ -105,9 +106,17 @@ def request_pages(symbols: list[str], adjustment: str, start: str, end: str,
                   key: str, secret: str, get=http, pause=time.sleep):
     require(1 <= len(symbols) <= GROUP_SIZE and adjustment in ("raw", "split"),
             "REQUEST_SCOPE")
+    # Alpaca bars "end" is inclusive. The caller's contract is exclusive.
+    # Use the entire last requested civil day without spilling into end_date.
+    require(re.fullmatch(r"\d{4}-\d{2}-\d{2}", end or ""), "DATE_SCOPE")
+    try:
+        last_day = (date.fromisoformat(end) - timedelta(days=1)).isoformat()
+    except (ValueError, OverflowError):
+        raise Refused("DATE_SCOPE") from None
     query = {
         "symbols": ",".join(symbols), "timeframe": "1Day",
-        "start": start, "end": end, "adjustment": adjustment,
+        "start": start + "T00:00:00Z",
+        "end": last_day + "T23:59:59Z", "adjustment": adjustment,
         "feed": "sip", "limit": 10000, "sort": "asc",
     }
     headers = {
@@ -153,41 +162,159 @@ def zip_bytes(members: dict[str, bytes]) -> bytes:
         for name in sorted(members):
             require(re.fullmatch(r"[a-f0-9]{64}\.json|capture\.json", name),
                     "PACK_MEMBER")
-            dest.writestr(name, members[name])
+            # ZipInfo default mtime follows wall clock; fix it for exact retry.
+            item = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+            item.compress_type = zipfile.ZIP_DEFLATED
+            item.external_attr = 0o600 << 16
+            dest.writestr(item, members[name])
     return stream.getvalue()
+
+
+def persist_object(drive: OwnerDrive, folder: str, raw: bytes, extension: str):
+    """Content-addressed owner-only reuse before an external Drive POST.
+
+    With one writer and deterministic raw bytes, resuming after interrupted
+    uploads reuses exact originals. A missing/ambiguous listing fails closed.
+    """
+    require(isinstance(raw, bytes) and 0 < len(raw) <= 16_000_000
+            and extension in ALLOWED_SUFFIXES, "PACK_BUDGET")
+    require(isinstance(folder, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", folder), "PRIVATE_FOLDER")
+    name = digest(raw) + extension
+    q = "name = '" + name + "' and '" + folder + "' in parents and trashed = false"
+    result = credential_safe_json(
+        drive.request("https://www.googleapis.com/drive/v3/files?" + urlencode({
+            "q": q, "fields": "nextPageToken,files(id,name,parents)",
+            "pageSize": 100,
+        }), limit=MAX_PAGE_BYTES),
+        (drive.token,),
+    )
+    require(isinstance(result, dict) and result.get("nextPageToken") is None
+            and isinstance(result.get("files"), list), "STORAGE_LOOKUP")
+    matches = result["files"]
+    require(len(matches) <= 1, "STORAGE_DUPLICATE")
+    if matches:
+        item = matches[0]
+        require(isinstance(item, dict) and item.get("name") == name
+                and isinstance(item.get("id"), str), "STORAGE_LOOKUP")
+        drive.check(item["id"], folder, folder=False)
+        stored = drive.read(item["id"], 16_000_000)
+        require(stored == raw and digest(stored) == name[:64],
+                "STORAGE_CONTENT_CONFLICT")
+        return {"file_id": item["id"], "sha256": digest(raw),
+                "bytes": len(raw)}
+    written = drive.write(folder, raw, extension)
+    require(isinstance(written, dict)
+            and written.get("sha256") == digest(raw)
+            and written.get("bytes") == len(raw), "STORAGE_WRITE")
+    return written
+
+
+def _private_object(drive: OwnerDrive, folder: str, ref: dict,
+                    max_bytes: int = 16_000_000) -> bytes:
+    require(isinstance(ref, dict)
+            and isinstance(ref.get("file_id"), str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", ref["file_id"])
+            and isinstance(ref.get("sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])
+            and type(ref.get("bytes")) is int
+            and 0 < ref["bytes"] <= max_bytes, "RESUME_REFERENCE")
+    drive.check(ref["file_id"], folder, folder=False)
+    raw = drive.read(ref["file_id"], max_bytes)
+    require(len(raw) == ref["bytes"] and digest(raw) == ref["sha256"],
+            "RESUME_OBJECT_HASH")
+    return raw
 
 
 def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                  seed_sha: str, start: str, end: str) -> tuple[list[str], dict | None]:
     if not file_id and not sha:
         return [], None
-    require(bool(file_id and re.fullmatch(r"[a-f0-9]{64}", sha)), "RESUME_PAIR")
-    drive.check(file_id, folder, folder=False)
-    original = drive.read(file_id, 2_000_000)
-    require(digest(original) == sha, "RESUME_HASH")
-    receipt = decode(original)
-    require(isinstance(receipt, dict) and receipt.get("schema") == SCHEMA
-            and receipt.get("seed_sha256") == seed_sha
-            and receipt.get("start") == start and receipt.get("end") == end
-            and receipt.get("source") == SOURCE
-            and receipt.get("state") == "PRIVATE_RESEARCH_ONLY"
-            and receipt.get("source_admission") is False,
-            "RESUME_CONTEXT")
-    done = receipt.get("completed")
-    require(isinstance(done, list) and len(done) == len(set(done))
-            and all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in done),
-            "RESUME_MEMBERSHIP")
-    objects = receipt.get("last_objects")
-    if objects is not None:
-        require(isinstance(objects, list) and len(objects) == 3, "RESUME_OBJECTS")
-        for obj in objects:
-            require(isinstance(obj, dict) and "file_id" in obj
-                    and re.fullmatch(r"[a-f0-9]{64}", str(obj.get("sha256"))),
-                    "RESUME_OBJECTS")
-            drive.check(obj["file_id"], folder, folder=False)
-            require(digest(drive.read(obj["file_id"])) == obj["sha256"],
-                    "RESUME_OBJECT_HASH")
-    return done, {"file_id": file_id, "sha256": sha}
+    require(isinstance(file_id, str)
+            and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", file_id)
+            and isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{64}", sha),
+            "RESUME_PAIR")
+    original_ref = {"file_id": file_id, "sha256": sha}
+    pointer = original_ref
+    seen = set()
+    expected = None
+    final_completed = None
+    for _ in range(MAX_CHECKPOINT_CHAIN):
+        require(pointer["file_id"] not in seen, "RESUME_CYCLE")
+        seen.add(pointer["file_id"])
+        # Older checkpoint references historically use id/hash, not byte count.
+        drive.check(pointer["file_id"], folder, folder=False)
+        original = drive.read(pointer["file_id"], 2_000_000)
+        require(digest(original) == pointer["sha256"], "RESUME_HASH")
+        state = decode(original)
+        require(isinstance(state, dict) and state.get("schema") == SCHEMA
+                and state.get("seed_sha256") == seed_sha
+                and state.get("start") == start and state.get("end") == end
+                and state.get("source") == SOURCE
+                and state.get("state") == "PRIVATE_RESEARCH_ONLY"
+                and state.get("source_admission") is False
+                and state.get("historical_identity_verified") is False
+                and state.get("pit_verified") is False,
+                "RESUME_CONTEXT")
+        done = state.get("completed")
+        require(isinstance(done, list) and done and len(done) <= 1500
+                and len(done) == len(set(done))
+                and all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in done),
+                "RESUME_MEMBERSHIP")
+        if expected is None:
+            final_completed = done
+        else:
+            require(done == expected, "RESUME_CHAIN_MEMBERSHIP")
+        refs = state.get("last_objects")
+        require(isinstance(refs, list) and len(refs) == 3, "RESUME_OBJECTS")
+        raw_pack = _private_object(drive, folder, refs[0])
+        normalized_pack = _private_object(drive, folder, refs[1])
+        receipt_bytes = _private_object(drive, folder, refs[2], 2_000_000)
+        receipt = decode(receipt_bytes)
+        require(isinstance(receipt, dict) and receipt.get("schema") == SCHEMA
+                and receipt.get("scope") == "PRIVATE_RESEARCH_ONLY"
+                and receipt.get("source") == SOURCE
+                and receipt.get("seed_sha256") == seed_sha
+                and receipt.get("start") == start
+                and receipt.get("end") == end
+                and receipt.get("source_admission") is False
+                and receipt.get("readback_verified") is True
+                and receipt.get("raw_object") == refs[0]
+                and receipt.get("normalized_object") == refs[1],
+                "RESUME_RECEIPT_BINDING")
+        # A matching compressed byte hash alone is sufficient for preservation;
+        # no provider body is printed or sent to an untrusted consumer.
+        require(raw_pack[:2] == b"PK" and normalized_pack[:2] == b"\x1f\x8b",
+                "RESUME_FORMAT")
+        current_symbols = receipt.get("symbols")
+        collected = receipt.get("collected")
+        absent = receipt.get("no_bars")
+        require(isinstance(current_symbols, list)
+                and 1 <= len(current_symbols) <= GROUP_SIZE
+                and len(current_symbols) == len(set(current_symbols))
+                and all(isinstance(s, str) and SYMBOL.fullmatch(s)
+                        for s in current_symbols)
+                and isinstance(collected, list) and isinstance(absent, list)
+                and set(collected).isdisjoint(set(absent))
+                and set(collected) | set(absent) == set(current_symbols)
+                and state.get("last_collected") == collected
+                and state.get("last_no_bars") == absent
+                and done[-len(current_symbols):] == current_symbols,
+                "RESUME_CHAIN_MEMBERSHIP")
+        prefix = done[:-len(current_symbols)]
+        previous = state.get("previous_checkpoint")
+        if previous is None:
+            require(prefix == [], "RESUME_CHAIN_TRUNCATED")
+            return final_completed, original_ref
+        require(isinstance(previous, dict)
+                and isinstance(previous.get("file_id"), str)
+                and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", previous["file_id"])
+                and isinstance(previous.get("sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", previous["sha256"])
+                and prefix, "RESUME_CHAIN")
+        expected = prefix
+        pointer = previous
+    raise Refused("RESUME_CHAIN_LIMIT")
 
 
 def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
@@ -232,11 +359,11 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
     raw_members["capture.json"] = encoded(meta)
     zipped = zip_bytes(raw_members)
     require(0 < len(zipped) < 16_000_000, "PACK_BUDGET")
-    raw_obj = drive.write(folder, zipped, ".zip")
+    raw_obj = persist_object(drive, folder, zipped, ".zip")
     normalized_bytes = gzip.compress(
         b"".join(encoded(r) for r in normalized), mtime=0,
     )
-    norm_obj = drive.write(folder, normalized_bytes, ".jsonl.gz")
+    norm_obj = persist_object(drive, folder, normalized_bytes, ".jsonl.gz")
     receipt = {
         "schema": SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
         "source": SOURCE, "run_id": os.environ.get("GITHUB_RUN_ID"),
@@ -249,7 +376,7 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
         "pit_verified": False, "historical_identity_verified": False,
         "commercial_use_authorized": False,
     }
-    rec_obj = drive.write(folder, encoded(receipt), ".json")
+    rec_obj = persist_object(drive, folder, encoded(receipt), ".json")
     return [raw_obj, norm_obj, rec_obj], collected, missing, len(normalized)
 
 
@@ -278,7 +405,7 @@ def run(args):
             args.resume_file_id, args.resume_sha256,
             seed_sha, args.start, args.end,
         )
-        require(set(done) <= set(names), "RESUME_UNIVERSE")
+        require(done == names[:len(done)], "RESUME_UNIVERSE")
         selected = [s for s in names if s not in set(done)][:args.max_new_symbols]
         require(bool(selected), "COHORT_COMPLETE")
         completed, held, checkpoint, row_count = done[:], [], prior, 0
@@ -300,8 +427,8 @@ def run(args):
                 "historical_identity_verified": False, "pit_verified": False,
                 "source_admission": False, "commercial_use_authorized": False,
             }
-            checkpoint = drive.write(
-                args.private_data_folder_id, encoded(state), ".json",
+            checkpoint = persist_object(
+                drive, args.private_data_folder_id, encoded(state), ".json",
             )
             print(json.dumps({
                 "status": "PRIVATE_CHECKPOINT_SAVED",
