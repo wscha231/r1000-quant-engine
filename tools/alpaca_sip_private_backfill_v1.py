@@ -32,7 +32,7 @@ URL = "https://data.alpaca.markets/v2/stocks/bars"
 SEED = Path("data_static/iwb_holdings_seed.csv")
 MIN_START = "2016-01-04"
 ALLOWED_SUFFIXES = (".json", ".zip", ".jsonl.gz")
-MAX_CHECKPOINT_CHAIN = 1200
+MAX_CHECKPOINT_CHAIN = 1500
 MAX_PAGE_BYTES = 8_000_000
 MAX_PAGES = 25
 GROUP_SIZE = 4
@@ -333,8 +333,7 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
             missing.append(name)
         restored_rows.extend(raw_rows)
         restored_rows.extend(split_rows)
-    require(bool(collected)
-            and collected == receipt.get("collected")
+    require(collected == receipt.get("collected")
             and missing == receipt.get("no_bars")
             and len(restored_rows) == receipt.get("rows"),
             "RESUME_ROWS")
@@ -369,6 +368,9 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
         drive.check(pointer["file_id"], folder, folder=False)
         original = drive.read(pointer["file_id"], 2_000_000)
         require(digest(original) == pointer["sha256"], "RESUME_HASH")
+        if final_completed is None:
+            # Keep a consistent content-addressed ref across separate dispatches.
+            original_ref = {"file_id": file_id, "sha256": sha, "bytes": len(original)}
         state = decode(original)
         require(isinstance(state, dict) and state.get("schema") == SCHEMA
                 and state.get("seed_sha256") == seed_sha
@@ -469,7 +471,8 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
         collected.append(symbol)
         normalized.extend(raw)
         normalized.extend(split)
-    require(bool(collected), "GROUP_EMPTY")
+    # A verified all-missing group is an examined research result, not a
+    # source-admitted price series; persist its evidence so later names advance.
     meta = {
         "schema": SCHEMA, "source": SOURCE, "symbols": list(symbols),
         "collected": collected, "no_bars": missing, "start": start, "end": end,

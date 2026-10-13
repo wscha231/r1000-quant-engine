@@ -327,6 +327,59 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(count["calls"], 4)
 
 
+    def test_resume_checkpoint_reference_keeps_byte_count(self):
+        drive = FakePrivateDrive()
+        first = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
+        completed, resumed = cap.resume_state(
+            drive, drive.folder, first["file_id"], first["sha256"],
+            "a" * 64, "2016-01-04", "2026-10-10")
+        self.assertEqual(completed, ["AAPL"])
+        self.assertEqual(resumed, first)
+        same_continuous = saved_checkpoint(
+            drive, ["MSFT"], ["AAPL", "MSFT"], first)
+        same_resumed = saved_checkpoint(
+            drive, ["MSFT"], ["AAPL", "MSFT"], resumed)
+        self.assertEqual(same_continuous, same_resumed)
+
+    def test_checkpoint_limit_covers_all_valid_single_symbol_batches(self):
+        self.assertGreaterEqual(cap.MAX_CHECKPOINT_CHAIN, 1500)
+        self.assertLessEqual(cap.MAX_CHECKPOINT_CHAIN, 10000)
+
+    def test_all_missing_group_is_checkpointed_and_restored(self):
+        drive = FakePrivateDrive()
+        payload = cap.encoded({"bars": {}, "next_page_token": None})
+        member = cap.digest(payload) + ".json"
+
+        def only_missing(symbols, adjustment, start, end, key, secret):
+            page = {"member": member, "sha256": cap.digest(payload),
+                    "bytes": len(payload), "page": 0,
+                    "symbols": symbols, "adjustment": adjustment}
+            return {member: payload}, {name: [] for name in symbols}, [page]
+
+        with patch.object(cap, "request_pages", side_effect=only_missing):
+            objects, collected, absent, rows = cap.capture_one_group(
+                drive, drive.folder, ["IPO"], "2016-01-04", "2026-10-10",
+                "key", "secret", "a" * 64, "source-sha")
+        self.assertEqual((collected, absent, rows), ([], ["IPO"], 0))
+        state = {
+            "schema": cap.SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
+            "source": cap.SOURCE, "seed_sha256": "a" * 64,
+            "start": "2016-01-04", "end": "2026-10-10",
+            "completed": ["IPO"], "last_objects": objects,
+            "last_collected": [], "last_no_bars": ["IPO"],
+            "previous_checkpoint": None,
+            "historical_identity_verified": False,
+            "pit_verified": False, "source_admission": False,
+        }
+        checkpoint = cap.persist_object(
+            drive, drive.folder, cap.encoded(state), ".json")
+        completed, ref = cap.resume_state(
+            drive, drive.folder, checkpoint["file_id"], checkpoint["sha256"],
+            "a" * 64, "2016-01-04", "2026-10-10")
+        self.assertEqual(completed, ["IPO"])
+        self.assertEqual(ref, checkpoint)
+
+
 
 if __name__ == "__main__":
     unittest.main()
