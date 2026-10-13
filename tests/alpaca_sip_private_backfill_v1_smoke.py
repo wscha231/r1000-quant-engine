@@ -1,5 +1,6 @@
 """Offline and no-network controls for private Alpaca historical research capture."""
 import io
+import contextlib
 import gzip
 import re
 from pathlib import Path
@@ -86,7 +87,7 @@ class PrivateHistoryTests(unittest.TestCase):
     def test_resume_requires_exact_ref_hash(self):
         fake = object()
         with self.assertRaisesRegex(Refused, "^RESUME_PAIR$"):
-            cap.resume_state(fake, "folder", "some_id", "",
+            resume_clean(fake, "folder", "some_id", "",
                              "a" * 64, "2016-01-04", "2026-10-10")
 
     def test_pack_is_deterministic_and_member_bounded(self):
@@ -119,11 +120,14 @@ class PrivateHistoryTests(unittest.TestCase):
 
 
 class FakePrivateDrive:
+    root_id = "private_root_123456"
     token = "fake-token"
     folder = "private_folder_123456"
     def __init__(self):
         self.objects, self.names, self.write_count = {}, {}, 0
     def check(self, file_id, parent=None, folder=False):
+        if file_id == self.folder and parent == self.root_id:
+            return
         if file_id not in self.objects or (parent and parent != self.folder):
             raise Refused("MISSING_OBJECT")
     def read(self, file_id, limit=16_000_000):
@@ -147,9 +151,10 @@ class FakePrivateDrive:
 
 
 def saved_checkpoint(drive, names, completed, previous,
-                     bad_original=False, bad_normalized=False):
+                     bad_original=False, bad_normalized=False,
+                     seed_sha=None):
     """Realistically shaped SHA-pinned two-basis archive for resume tests."""
-    seed_sha, source_sha = "a" * 64, "fixture-code-revision"
+    seed_sha, source_sha = (seed_sha or "a" * 64), "fixture-code-revision"
     start, end = cap.MIN_START, "2026-10-10"
     response = cap.encoded({
         "bars": {name: [bar()] for name in names},
@@ -166,7 +171,8 @@ def saved_checkpoint(drive, names, completed, previous,
         "schema": cap.SCHEMA, "source": cap.SOURCE,
         "symbols": names, "collected": names, "no_bars": [],
         "seed_sha256": seed_sha, "source_sha": source_sha,
-        "start": start, "end": end, "pages": pages,
+        "start": start, "end": end, "asof": cap.mapping_asof(end),
+        "pages": pages,
         "raw_adjustments": ["raw", "split"],
         "source_admission": False,
     }
@@ -189,6 +195,7 @@ def saved_checkpoint(drive, names, completed, previous,
         "schema": cap.SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
         "source": cap.SOURCE, "seed_sha256": seed_sha,
         "source_sha": source_sha, "start": start, "end": end,
+        "asof": cap.mapping_asof(end),
         "source_admission": False, "readback_verified": True,
         "raw_object": raw, "normalized_object": norm,
         "symbols": names, "collected": names, "no_bars": [],
@@ -198,13 +205,23 @@ def saved_checkpoint(drive, names, completed, previous,
     state = {
         "schema": cap.SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
         "source": cap.SOURCE, "seed_sha256": seed_sha,
-        "start": start, "end": end, "completed": completed,
+        "start": start, "end": end, "asof": cap.mapping_asof(end),
+        "examined": completed, "completed": completed, "held": [],
+        "last_status": "VERIFIED_RAW_SPLIT", "last_held": [],
         "last_objects": [raw, norm, rec], "last_collected": names,
         "last_no_bars": [], "previous_checkpoint": previous,
         "historical_identity_verified": False, "pit_verified": False,
         "source_admission": False,
     }
     return cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
+
+
+def resume_clean(*args):
+    """Backwards-compatible assertion for verified-only test fixtures."""
+    examined, completed, held, ref = cap.resume_state(*args)
+    if examined != completed or held:
+        raise AssertionError("expected verified-only checkpoint")
+    return completed, ref
 
 
 class CorrectionTests(unittest.TestCase):
@@ -262,19 +279,134 @@ class CorrectionTests(unittest.TestCase):
         second = saved_checkpoint(drive, ["MSFT"], ["AAPL", "MSFT"], first)
         args = (drive, drive.folder, second["file_id"], second["sha256"],
                 "a" * 64, "2016-01-04", "2026-10-10")
-        self.assertEqual(cap.resume_state(*args)[0], ["AAPL", "MSFT"])
+        self.assertEqual(resume_clean(*args)[0], ["AAPL", "MSFT"])
         prior = cap.decode(drive.read(first["file_id"]))
         del drive.objects[prior["last_objects"][0]["file_id"]]
         with self.assertRaises(Refused):
-            cap.resume_state(*args)
+            resume_clean(*args)
 
     def test_checkpoint_omitted_chain_fails_closed(self):
         drive = FakePrivateDrive()
         invalid = saved_checkpoint(drive, ["AAPL"], ["MSFT", "AAPL"], None)
         with self.assertRaisesRegex(Refused, "^RESUME_CHAIN_TRUNCATED$"):
-            cap.resume_state(drive, drive.folder, invalid["file_id"],
+            resume_clean(drive, drive.folder, invalid["file_id"],
                              invalid["sha256"], "a" * 64,
                              "2016-01-04", "2026-10-10")
+
+    def test_symbol_mapping_asof_is_frozen_from_exclusive_end(self):
+        urls = []
+        cap.request_pages(["AAPL"], "raw", "2016-01-04", "2016-01-06",
+                          "key", "secret", get=lambda url, **kwargs:
+                          (urls.append(url) or cap.encoded({
+                              "bars": {"AAPL": [bar()]},
+                              "next_page_token": None,
+                          })), pause=lambda _: None)
+        query = parse_qs(urlparse(urls[0]).query)
+        self.assertEqual(query["asof"], ["2016-01-05"])
+        self.assertEqual(cap.mapping_asof("2026-10-10"), "2026-10-09")
+        drive = FakePrivateDrive()
+        checkpoint = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
+        state = cap.decode(drive.read(checkpoint["file_id"]))
+        receipt = cap.decode(drive.read(state["last_objects"][2]["file_id"]))
+        self.assertEqual(state["asof"], "2026-10-09")
+        self.assertEqual(receipt["asof"], "2026-10-09")
+        with self.assertRaisesRegex(Refused, "^RESUME_CONTEXT$"):
+            resume_clean(drive, drive.folder, checkpoint["file_id"],
+                         checkpoint["sha256"], "a" * 64, "2016-01-04",
+                         "2026-10-11")
+
+    def test_invalid_numeric_group_is_held_and_next_group_processed(self):
+        drive = FakePrivateDrive()
+        names = cap.cohort(cap.SEED.read_bytes())
+        selected = names[:8]
+        args = type("Args", (), dict(
+            start=cap.MIN_START, end="2026-10-10",
+            max_new_symbols=8, private_root_folder_id=drive.root_id,
+            private_data_folder_id=drive.folder, resume_file_id="",
+            resume_sha256="",
+        ))()
+        calls = []
+        def fake_capture(drive_arg, folder, group, start, end,
+                         key, secret, seed_sha, source_sha):
+            calls.append(tuple(group))
+            if len(calls) == 1:
+                raise Refused("BAR_VALUE")
+            cp = saved_checkpoint(drive_arg, group, group, None,
+                                  seed_sha=seed_sha)
+            state = cap.decode(drive_arg.read(cp["file_id"]))
+            return state["last_objects"], group, [], 2 * len(group)
+        env = {
+            "A1_PRIVATE_RESEARCH_AUTHORIZED": "true",
+            "ALPACA_NONCOMMERCIAL_ACKNOWLEDGED": "true",
+            "GITHUB_REPOSITORY": cap.REPOSITORY,
+            "GITHUB_REF": "refs/heads/master",
+            "GITHUB_SHA": "offline-code-sha",
+            "ALPACA_API_KEY": "dummy-key",
+            "ALPACA_API_SECRET": "dummy-secret",
+        }
+        output = io.StringIO()
+        with patch.dict("os.environ", env, clear=True), \
+             patch.object(cap, "OwnerDrive", return_value=drive), \
+             patch.object(cap, "capture_one_group", side_effect=fake_capture), \
+             contextlib.redirect_stdout(output):
+            cap.run(args)
+        report = json.loads(output.getvalue().splitlines()[-1])
+        self.assertEqual(report["status"], "PRIVATE_HISTORY_PARTIAL_HELD")
+        self.assertEqual(report["total_examined"], 8)
+        self.assertEqual(report["verified_or_no_bar"], 4)
+        self.assertEqual(report["total_held_invalid"], 4)
+        examined, done, held, ref = cap.resume_state(
+            drive, drive.folder, report["checkpoint"]["file_id"],
+            report["checkpoint"]["sha256"],
+            cap.digest(cap.SEED.read_bytes()),
+            cap.MIN_START, "2026-10-10")
+        self.assertEqual(examined, selected)
+        self.assertEqual(done, selected[4:])
+        self.assertEqual(held, selected[:4])
+        self.assertEqual(ref, report["checkpoint"])
+
+        # Restart from prior checkpoint: the held group must not repeat.
+        args.resume_file_id = ref["file_id"]
+        args.resume_sha256 = ref["sha256"]
+        args.max_new_symbols = 4
+        next_calls = []
+        def resumed_capture(*params):
+            group = params[2]
+            next_calls.append(tuple(group))
+            cp = saved_checkpoint(drive, group, group, None,
+                                  seed_sha=params[7])
+            st = cap.decode(drive.read(cp["file_id"]))
+            return st["last_objects"], group, [], 2 * len(group)
+        with patch.dict("os.environ", env, clear=True), \
+             patch.object(cap, "OwnerDrive", return_value=drive), \
+             patch.object(cap, "capture_one_group", side_effect=resumed_capture), \
+             contextlib.redirect_stdout(io.StringIO()):
+            cap.run(args)
+        self.assertEqual(next_calls, [tuple(names[8:12])])
+
+    def test_quota_refusal_still_fails_without_hold(self):
+        drive = FakePrivateDrive()
+        args = type("Args", (), dict(
+            start=cap.MIN_START, end="2026-10-10",
+            max_new_symbols=4, private_root_folder_id=drive.root_id,
+            private_data_folder_id=drive.folder, resume_file_id="",
+            resume_sha256="",
+        ))()
+        env = {
+            "A1_PRIVATE_RESEARCH_AUTHORIZED": "true",
+            "ALPACA_NONCOMMERCIAL_ACKNOWLEDGED": "true",
+            "GITHUB_REPOSITORY": cap.REPOSITORY,
+            "GITHUB_REF": "refs/heads/master",
+            "ALPACA_API_KEY": "dummy-key",
+            "ALPACA_API_SECRET": "dummy-secret",
+        }
+        with patch.dict("os.environ", env, clear=True), \
+             patch.object(cap, "OwnerDrive", return_value=drive), \
+             patch.object(cap, "capture_one_group",
+                          side_effect=Refused("RATE_LIMIT")):
+            with self.assertRaisesRegex(Refused, "^RATE_LIMIT$"):
+                cap.run(args)
+        self.assertEqual(drive.write_count, 0)
 
     def test_archive_bytes_deterministic(self):
         members = {"capture.json": cap.encoded({"symbols": ["AAPL"]})}
@@ -285,7 +417,7 @@ class CorrectionTests(unittest.TestCase):
         forged = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None,
                                   bad_original=True)
         with self.assertRaises(Refused):
-            cap.resume_state(drive, drive.folder, forged["file_id"],
+            resume_clean(drive, drive.folder, forged["file_id"],
                              forged["sha256"], "a" * 64, "2016-01-04",
                              "2026-10-10")
 
@@ -294,7 +426,7 @@ class CorrectionTests(unittest.TestCase):
         forged = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None,
                                   bad_normalized=True)
         with self.assertRaisesRegex(Refused, "RESUME_NORMALIZED_MISMATCH"):
-            cap.resume_state(drive, drive.folder, forged["file_id"],
+            resume_clean(drive, drive.folder, forged["file_id"],
                              forged["sha256"], "a" * 64, "2016-01-04",
                              "2026-10-10")
 
@@ -330,7 +462,7 @@ class CorrectionTests(unittest.TestCase):
     def test_resume_checkpoint_reference_keeps_byte_count(self):
         drive = FakePrivateDrive()
         first = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
-        completed, resumed = cap.resume_state(
+        completed, resumed = resume_clean(
             drive, drive.folder, first["file_id"], first["sha256"],
             "a" * 64, "2016-01-04", "2026-10-10")
         self.assertEqual(completed, ["AAPL"])
@@ -373,7 +505,7 @@ class CorrectionTests(unittest.TestCase):
         }
         checkpoint = cap.persist_object(
             drive, drive.folder, cap.encoded(state), ".json")
-        completed, ref = cap.resume_state(
+        completed, ref = resume_clean(
             drive, drive.folder, checkpoint["file_id"], checkpoint["sha256"],
             "a" * 64, "2016-01-04", "2026-10-10")
         self.assertEqual(completed, ["IPO"])

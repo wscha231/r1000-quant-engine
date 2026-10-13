@@ -57,6 +57,16 @@ def cohort(raw: bytes) -> list[str]:
     return sorted(values)
 
 
+def mapping_asof(end: str) -> str:
+    """Stable symbol-identity mapping date derived only from frozen cohort end."""
+    require(isinstance(end, str) and
+            re.fullmatch(r"\d{4}-\d{2}-\d{2}", end), "ASOF_DATE")
+    try:
+        return (date.fromisoformat(end) - timedelta(days=1)).isoformat()
+    except (ValueError, OverflowError):
+        raise Refused("ASOF_DATE") from None
+
+
 def valid_clock(value: str) -> bool:
     try:
         clock = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -118,6 +128,7 @@ def request_pages(symbols: list[str], adjustment: str, start: str, end: str,
         "start": start + "T00:00:00Z",
         "end": last_day + "T23:59:59Z", "adjustment": adjustment,
         "feed": "sip", "limit": 10000, "sort": "asc",
+        "asof": mapping_asof(end),
     }
     headers = {
         "APCA-API-KEY-ID": key,
@@ -269,6 +280,8 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
                     and manifest.get("source_sha") == receipt.get("source_sha")
                     and manifest.get("start") == receipt.get("start")
                     and manifest.get("end") == receipt.get("end")
+                    and manifest.get("asof") == receipt.get("asof")
+                    and manifest.get("asof") == mapping_asof(receipt.get("end"))
                     and manifest.get("raw_adjustments") == ["raw", "split"]
                     and manifest.get("source_admission") is False,
                     "RESUME_MANIFEST")
@@ -349,96 +362,160 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
 
 
 def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
-                 seed_sha: str, start: str, end: str) -> tuple[list[str], dict | None]:
+                 seed_sha: str, start: str, end: str):
+    """Restore verified groups and separately quarantined invalid observations.
+
+    examined is a contiguous discovery-queue prefix. completed contains only
+    groups with verified original raw/split evidence (including genuine no-bar
+    responses). held contains only invalid-data group members, never admitted.
+    """
     if not file_id and not sha:
-        return [], None
+        return [], [], [], None
     require(isinstance(file_id, str)
             and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", file_id)
             and isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{64}", sha),
             "RESUME_PAIR")
+    asof = mapping_asof(end)
     original_ref = {"file_id": file_id, "sha256": sha}
     pointer = original_ref
     seen = set()
     expected = None
-    final_completed = None
+    finals = None
     for _ in range(MAX_CHECKPOINT_CHAIN):
         require(pointer["file_id"] not in seen, "RESUME_CYCLE")
         seen.add(pointer["file_id"])
-        # Older checkpoint references historically use id/hash, not byte count.
         drive.check(pointer["file_id"], folder, folder=False)
         original = drive.read(pointer["file_id"], 2_000_000)
         require(digest(original) == pointer["sha256"], "RESUME_HASH")
-        if final_completed is None:
-            # Keep a consistent content-addressed ref across separate dispatches.
-            original_ref = {"file_id": file_id, "sha256": sha, "bytes": len(original)}
+        if "bytes" in pointer:
+            require(len(original) == pointer["bytes"], "RESUME_HASH")
+        if finals is None:
+            original_ref = {"file_id": file_id, "sha256": sha,
+                            "bytes": len(original)}
         state = decode(original)
         require(isinstance(state, dict) and state.get("schema") == SCHEMA
                 and state.get("seed_sha256") == seed_sha
                 and state.get("start") == start and state.get("end") == end
+                and state.get("asof") == asof
                 and state.get("source") == SOURCE
                 and state.get("state") == "PRIVATE_RESEARCH_ONLY"
                 and state.get("source_admission") is False
                 and state.get("historical_identity_verified") is False
                 and state.get("pit_verified") is False,
                 "RESUME_CONTEXT")
+        examined = state.get("examined")
         done = state.get("completed")
-        require(isinstance(done, list) and done and len(done) <= 1500
-                and len(done) == len(set(done))
-                and all(isinstance(s, str) and SYMBOL.fullmatch(s) for s in done),
+        held = state.get("held")
+        require(all(isinstance(x, list) for x in (examined, done, held))
+                and examined and len(examined) <= 1500
+                and len(set(examined)) == len(examined)
+                and len(set(done)) == len(done)
+                and len(set(held)) == len(held)
+                and all(isinstance(x, str) and SYMBOL.fullmatch(x)
+                        for x in examined + done + held)
+                and set(done).isdisjoint(set(held))
+                and set(examined) == set(done) | set(held),
                 "RESUME_MEMBERSHIP")
-        if expected is None:
-            final_completed = done
-        else:
-            require(done == expected, "RESUME_CHAIN_MEMBERSHIP")
+        if finals is None:
+            finals = (examined, done, held)
+        elif (examined, done, held) != expected:
+            raise Refused("RESUME_CHAIN_MEMBERSHIP")
         refs = state.get("last_objects")
-        require(isinstance(refs, list) and len(refs) == 3, "RESUME_OBJECTS")
-        raw_pack = _private_object(drive, folder, refs[0])
-        normalized_pack = _private_object(drive, folder, refs[1])
-        receipt_bytes = _private_object(drive, folder, refs[2], 2_000_000)
-        receipt = decode(receipt_bytes)
-        require(isinstance(receipt, dict) and receipt.get("schema") == SCHEMA
-                and receipt.get("scope") == "PRIVATE_RESEARCH_ONLY"
-                and receipt.get("source") == SOURCE
-                and receipt.get("seed_sha256") == seed_sha
-                and receipt.get("start") == start
-                and receipt.get("end") == end
-                and receipt.get("source_admission") is False
-                and receipt.get("readback_verified") is True
-                and receipt.get("raw_object") == refs[0]
-                and receipt.get("normalized_object") == refs[1],
-                "RESUME_RECEIPT_BINDING")
-        # Independently rebuild archived originals; hash-preservation is not
-        # sufficient to declare a security's historical bars collected.
-        verify_archived_group(raw_pack, normalized_pack, receipt)
-        current_symbols = receipt.get("symbols")
-        collected = receipt.get("collected")
-        absent = receipt.get("no_bars")
-        require(isinstance(current_symbols, list)
-                and 1 <= len(current_symbols) <= GROUP_SIZE
-                and len(current_symbols) == len(set(current_symbols))
-                and all(isinstance(s, str) and SYMBOL.fullmatch(s)
-                        for s in current_symbols)
-                and isinstance(collected, list) and isinstance(absent, list)
-                and set(collected).isdisjoint(set(absent))
-                and set(collected) | set(absent) == set(current_symbols)
-                and state.get("last_collected") == collected
-                and state.get("last_no_bars") == absent
-                and done[-len(current_symbols):] == current_symbols,
+        status = state.get("last_status")
+        require(status in ("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE")
+                and isinstance(refs, list)
+                and len(refs) == (3 if status == "VERIFIED_RAW_SPLIT" else 1),
+                "RESUME_OBJECTS")
+        if status == "VERIFIED_RAW_SPLIT":
+            raw_pack = _private_object(drive, folder, refs[0])
+            normalized_pack = _private_object(drive, folder, refs[1])
+            receipt_bytes = _private_object(drive, folder, refs[2], 2_000_000)
+            receipt = decode(receipt_bytes)
+            require(isinstance(receipt, dict)
+                    and receipt.get("schema") == SCHEMA
+                    and receipt.get("scope") == "PRIVATE_RESEARCH_ONLY"
+                    and receipt.get("source") == SOURCE
+                    and receipt.get("seed_sha256") == seed_sha
+                    and receipt.get("start") == start
+                    and receipt.get("end") == end
+                    and receipt.get("asof") == asof
+                    and receipt.get("source_admission") is False
+                    and receipt.get("readback_verified") is True
+                    and receipt.get("raw_object") == refs[0]
+                    and receipt.get("normalized_object") == refs[1],
+                    "RESUME_RECEIPT_BINDING")
+            verify_archived_group(raw_pack, normalized_pack, receipt)
+            group = receipt.get("symbols")
+            collected = receipt.get("collected")
+            absent = receipt.get("no_bars")
+            require(isinstance(group, list)
+                    and 1 <= len(group) <= GROUP_SIZE
+                    and len(group) == len(set(group))
+                    and all(isinstance(s, str) and SYMBOL.fullmatch(s)
+                            for s in group)
+                    and isinstance(collected, list)
+                    and isinstance(absent, list)
+                    and set(collected).isdisjoint(set(absent))
+                    and set(collected) | set(absent) == set(group)
+                    and state.get("last_collected") == collected
+                    and state.get("last_no_bars") == absent
+                    and state.get("last_held") == []
+                    and done[-len(group):] == group,
+                    "RESUME_CHAIN_MEMBERSHIP")
+            prefix_done = done[:-len(group)]
+            prefix_held = held
+        else:
+            marker = decode(_private_object(drive, folder, refs[0],
+                                            2_000_000))
+            require(isinstance(marker, dict)
+                    and marker.get("schema") == SCHEMA
+                    and marker.get("scope") == "PRIVATE_RESEARCH_ONLY"
+                    and marker.get("status") == "HELD_BAR_VALUE"
+                    and marker.get("reason") == "BAR_VALUE"
+                    and marker.get("source") == SOURCE
+                    and marker.get("seed_sha256") == seed_sha
+                    and marker.get("start") == start
+                    and marker.get("end") == end
+                    and marker.get("asof") == asof
+                    and marker.get("source_admission") is False
+                    and marker.get("pit_verified") is False
+                    and marker.get("historical_identity_verified") is False
+                    and marker.get("original_price_bytes_retained") is False,
+                    "RESUME_HELD_RECEIPT")
+            group = marker.get("symbols")
+            require(isinstance(group, list)
+                    and 1 <= len(group) <= GROUP_SIZE
+                    and len(group) == len(set(group))
+                    and all(isinstance(s, str) and SYMBOL.fullmatch(s)
+                            for s in group)
+                    and state.get("last_held") == group
+                    and state.get("last_collected") == []
+                    and state.get("last_no_bars") == []
+                    and held[-len(group):] == group,
+                    "RESUME_HELD_MEMBERSHIP")
+            prefix_done = done
+            prefix_held = held[:-len(group)]
+        require(examined[-len(group):] == group,
                 "RESUME_CHAIN_MEMBERSHIP")
-        prefix = done[:-len(current_symbols)]
+        prefix_examined = examined[:-len(group)]
         previous = state.get("previous_checkpoint")
         if previous is None:
-            require(prefix == [], "RESUME_CHAIN_TRUNCATED")
-            return final_completed, original_ref
+            require(not prefix_examined and not prefix_done and not prefix_held,
+                    "RESUME_CHAIN_TRUNCATED")
+            return (*finals, original_ref)
         require(isinstance(previous, dict)
                 and isinstance(previous.get("file_id"), str)
-                and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", previous["file_id"])
+                and re.fullmatch(r"[A-Za-z0-9_-]{10,100}",
+                                 previous["file_id"])
                 and isinstance(previous.get("sha256"), str)
                 and re.fullmatch(r"[0-9a-f]{64}", previous["sha256"])
-                and prefix, "RESUME_CHAIN")
-        expected = prefix
+                and type(previous.get("bytes")) is int
+                and previous["bytes"] > 0 and prefix_examined,
+                "RESUME_CHAIN")
+        expected = (prefix_examined, prefix_done, prefix_held)
         pointer = previous
     raise Refused("RESUME_CHAIN_LIMIT")
+
 
 
 def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
@@ -476,6 +553,7 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
     meta = {
         "schema": SCHEMA, "source": SOURCE, "symbols": list(symbols),
         "collected": collected, "no_bars": missing, "start": start, "end": end,
+        "asof": mapping_asof(end),
         "seed_sha256": seed_sha, "source_sha": source_sha,
         "pages": evidence, "raw_adjustments": ["raw", "split"],
         "historical_identity_verified": False, "pit_verified": False,
@@ -495,7 +573,7 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
         "schema": SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
         "source": SOURCE,
         "source_sha": source_sha, "seed_sha256": seed_sha,
-        "start": start, "end": end,
+        "start": start, "end": end, "asof": mapping_asof(end),
         "symbols": symbols, "collected": collected, "no_bars": missing,
         "pages": len(evidence), "rows": len(normalized),
         "raw_object": raw_obj, "normalized_object": norm_obj,
@@ -527,30 +605,77 @@ def run(args):
     with tempfile.TemporaryDirectory(prefix="a1-alpaca-private-") as tmp:
         drive = OwnerDrive(args.private_root_folder_id, tmp)
         drive.check(args.private_data_folder_id, drive.root_id)
-        done, prior = resume_state(
+        examined, completed, held_invalid, prior = resume_state(
             drive, args.private_data_folder_id,
             args.resume_file_id, args.resume_sha256,
             seed_sha, args.start, args.end,
         )
-        require(done == names[:len(done)], "RESUME_UNIVERSE")
-        selected = [s for s in names if s not in set(done)][:args.max_new_symbols]
+        # The discovery queue is immutable; held groups do not become
+        # completed data and cannot silently create holes in the worklist.
+        require(examined == names[:len(examined)], "RESUME_UNIVERSE")
+        require(set(completed).isdisjoint(set(held_invalid))
+                and set(examined) == set(completed) | set(held_invalid),
+                "RESUME_UNIVERSE")
+        selected = names[len(examined):len(examined) + args.max_new_symbols]
         require(bool(selected), "COHORT_COMPLETE")
-        completed, held, checkpoint, row_count = done[:], [], prior, 0
+        checkpoint, row_count = prior, 0
+        held_this_batch = []
+        no_data_this_batch = []
         for offset in range(0, len(selected), GROUP_SIZE):
             group = selected[offset:offset + GROUP_SIZE]
-            objs, accepted, missing, rows = capture_one_group(
-                drive, args.private_data_folder_id, group, args.start, args.end,
-                key, secret, seed_sha, os.environ.get("GITHUB_SHA", ""),
-            )
-            completed.extend(group)
-            held.extend(missing)
+            try:
+                objs, accepted, missing, rows = capture_one_group(
+                    drive, args.private_data_folder_id, group,
+                    args.start, args.end, key, secret, seed_sha,
+                    os.environ.get("GITHUB_SHA", ""),
+                )
+            except Refused as exc:
+                # A single invalid numerical bar gives no eligible data
+                # for any group member; retain a bounded, sanitized hold
+                # without original vendor responses. Only this exact
+                # deterministic error is recoverable. Auth, quota,
+                # incomplete pagination, identity and storage failures
+                # remain terminal.
+                if str(exc) != "BAR_VALUE":
+                    raise
+                marker = {
+                    "schema": SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
+                    "status": "HELD_BAR_VALUE", "reason": "BAR_VALUE",
+                    "symbols": group, "source": SOURCE,
+                    "seed_sha256": seed_sha,
+                    "start": args.start, "end": args.end,
+                    "asof": mapping_asof(args.end),
+                    "original_price_bytes_retained": False,
+                    "source_admission": False, "pit_verified": False,
+                    "historical_identity_verified": False,
+                }
+                objs = [persist_object(
+                    drive, args.private_data_folder_id,
+                    encoded(marker), ".json",
+                )]
+                accepted, missing, rows = [], [], 0
+                held_invalid.extend(group)
+                held_this_batch.extend(group)
+                status = "HELD_BAR_VALUE"
+                last_held = group
+            else:
+                completed.extend(group)
+                no_data_this_batch.extend(missing)
+                status = "VERIFIED_RAW_SPLIT"
+                last_held = []
+            examined.extend(group)
             row_count += rows
             state = {
                 "schema": SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
                 "source": SOURCE, "seed_sha256": seed_sha,
-                "start": args.start, "end": args.end, "completed": completed,
+                "start": args.start, "end": args.end,
+                "asof": mapping_asof(args.end),
+                "examined": examined, "completed": completed,
+                "held": held_invalid,
+                "last_status": status,
                 "last_objects": objs, "previous_checkpoint": checkpoint,
                 "last_collected": accepted, "last_no_bars": missing,
+                "last_held": last_held,
                 "historical_identity_verified": False, "pit_verified": False,
                 "source_admission": False, "commercial_use_authorized": False,
             }
@@ -559,17 +684,23 @@ def run(args):
             )
             print(json.dumps({
                 "status": "PRIVATE_CHECKPOINT_SAVED",
-                "completed_or_examined": len(completed),
+                "last_group_status": status,
+                "total_examined": len(examined),
+                "verified_or_no_bar": len(completed),
+                "held_invalid_count": len(held_invalid),
                 "checkpoint": checkpoint,
-                "last_no_bars": len(missing),
                 "source_admission": False,
             }, sort_keys=True))
         print(json.dumps({
-            "status": "PRIVATE_HISTORY_BATCH_RESTORED",
+            "status": ("PRIVATE_HISTORY_PARTIAL_HELD" if held_this_batch
+                       else "PRIVATE_HISTORY_BATCH_RESTORED"),
             "seed_count": len(names), "attempted_new": len(selected),
-            "total_completed_or_examined": len(completed),
-            "held_no_data": len(held), "rows_new": row_count,
-            "checkpoint": checkpoint,
+            "total_examined": len(examined),
+            "verified_or_no_bar": len(completed),
+            "total_held_invalid": len(held_invalid),
+            "held_this_batch": len(held_this_batch),
+            "no_data_this_batch": len(no_data_this_batch),
+            "rows_new": row_count, "checkpoint": checkpoint,
             "public_provider_bytes_uploaded": False,
             "source_admission": False, "economic_authority": False,
         }, sort_keys=True))
