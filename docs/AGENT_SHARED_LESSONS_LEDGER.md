@@ -6900,3 +6900,18 @@ Expected contract:
   authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
   preserve unrelated paths and publish only the validated explicit-path diff.
   This is code recovery, not recovery or admission of vendor source bytes.
+
+
+## 2026-10-14 — Keep archived valuation diagnostics closed and reuse A3 test routing
+
+- A legacy CSV may contain PEG or provider P/E without fiscal/accounting/PIT
+  proof. Keep current comparison and ranking authority false; preserve the
+  observed value and its uncertainty rather than manufacturing a current input.
+- Reuse the existing A3 unittest load_tests hook and retain RegistryTests. The
+  current smoke_test CLI has no --only option; scoped PR-runner filtering uses
+  tools/run_pr_validation.py --only smoke_test. Preserve runner/workflow pins.
+- CSV parsing can fail while DictReader obtains headers, before row iteration.
+  Apply the same structured refusal to headers and rows; probe API and CLI in
+  normal and optimized Python with a valid control.
+- Local Native tests do not replace new-head CI and independent A6 review;
+  source-snapshot results alone remain preparation evidence.
