@@ -396,7 +396,7 @@ def _business_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
 
 
 _MEMORY_EXCLUDED = _business_pattern((
-    "real estate", "reit", "self storage", "warehouse", "warehousing", "cold storage",
+    "real estate", "reit", "reits", "self storage", "warehouse", "warehousing", "cold storage",
     "energy storage", "battery storage", "oil storage", "gas storage", "logistics",
 ))
 _MEMORY_HARDWARE = _business_pattern((
@@ -412,7 +412,7 @@ _MEMORY_PRECISE = _business_pattern((
 ))
 _MEMORY_HINT = _business_pattern((*THEME_TAXONOMY["memory_semiconductors"]["keywords"], "storage"))
 _STORAGE = re.compile(r"\bstorage\b")
-_REAL_ESTATE = re.compile(r"\b(?:reit|real estate)\b")
+_REAL_ESTATE = re.compile(r"\b(?:reits?|real estate)\b")
 
 
 def _memory_business_match(fields: tuple[str, ...]) -> bool:

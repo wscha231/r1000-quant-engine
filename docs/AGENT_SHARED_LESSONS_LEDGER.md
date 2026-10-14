@@ -6992,3 +6992,5 @@ Expected contract:
 - Final review: precompile static business matchers rather than rebuilding regex
   alternatives per replay row. Normalize punctuation once for both storage/REIT
   routing and memory evidence; pin inspectable diagnostic files by manifest hashes.
+- Singular/plural business labels (REIT/REITs) must resolve to the same canonical
+  theme; verify missing-sector industry-only inputs as well as full metadata rows.

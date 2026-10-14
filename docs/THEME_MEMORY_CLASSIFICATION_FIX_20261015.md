@@ -55,7 +55,8 @@ industry/business evidence can now be conservatively excluded.
 
 Static business normalization and all memory/real-estate matchers are compiled
 once. Each row's business fields are normalized once and shared by both checks.
-Real-Estate, Real_Estate and Real Estate therefore use the same real_estate label.
+Real-Estate, Real_Estate, Real Estate and singular/plural REIT/REITs business
+labels therefore use the same real_estate label.
 The hot-path regression refuses per-row regex construction.
 
 On the exact existing latest candidate replay book, classification-only apply on

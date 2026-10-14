@@ -49,6 +49,15 @@ class ThemeTests(unittest.TestCase):
         for industry in ("REIT-Industrial", "REIT_Industrial", "REIT / Industrial"):
             self.assertEqual(self.theme(ticker="TEST", Name="Storage", industry=industry), "real_estate")
 
+    def test_plural_reit_business_labels(self):
+        for industry in ("Equity REITs", "Specialized REITs", "Self-Storage REITs"):
+            self.assertEqual(self.theme(ticker="TEST", Name="Public Storage", industry=industry),
+                             "real_estate")
+            self.assertEqual(self.theme(ticker="TEST", Name="Extra Space Storage", industry=industry),
+                             "real_estate")
+        self.assertNotEqual(self.theme(ticker="TEST", Name="Flash Memory", sector="Equity REITs"),
+                            "memory_semiconductors")
+
     def test_hot_path_reuses_compiled_patterns(self):
         with patch.object(tape.re, "compile", side_effect=AssertionError("per-row compile")), \
              patch.object(tape.re, "search", side_effect=AssertionError("per-row pattern construction")), \
