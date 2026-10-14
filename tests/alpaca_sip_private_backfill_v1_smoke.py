@@ -277,10 +277,15 @@ MISSING = object()
 
 
 class CorrectionTests(unittest.TestCase):
-    def test_rehashed_repeated_pagination_tokens_are_refused(self):
+    def test_rehashed_pagination_cycles_and_page_budgets(self):
         # Each adjustment can legitimately reuse the other's token values.
-        for repeated_basis in (None, "raw", "split"):
-            with self.subTest(repeated_basis=repeated_basis):
+        cases = ((None, 3, 3), ("raw", 3, 3), ("split", 3, 3),
+                 (None, cap.MAX_PAGES, cap.MAX_PAGES),
+                 (None, cap.MAX_PAGES + 1, 1),
+                 (None, 1, cap.MAX_PAGES + 1))
+        for repeated_basis, raw_pages, split_pages in cases:
+            with self.subTest(repeated_basis=repeated_basis,
+                              raw_pages=raw_pages, split_pages=split_pages):
                 drive = FakePrivateDrive()
                 original = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
                 prior_bytes = dict(drive.objects)
@@ -289,8 +294,8 @@ class CorrectionTests(unittest.TestCase):
                 with zipfile.ZipFile(io.BytesIO(drive.read(state["last_objects"][0]["file_id"]))) as archive:
                     manifest = cap.decode(archive.read("capture.json"))
                 members, pages = {}, []
-                for basis in ("raw", "split"):
-                    tokens = ["next-1", "next-2", None]
+                for basis, page_count in (("raw", raw_pages), ("split", split_pages)):
+                    tokens = ["next-" + str(i + 1) for i in range(page_count - 1)] + [None]
                     if basis == repeated_basis:
                         tokens[1] = tokens[0]
                     for index, token in enumerate(tokens):
@@ -313,7 +318,7 @@ class CorrectionTests(unittest.TestCase):
                 rebound = cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
                 args = (drive, drive.folder, rebound["file_id"], rebound["sha256"],
                         "a" * 64, cap.MIN_START, "2026-10-10")
-                if repeated_basis is None:
+                if repeated_basis is None and max(raw_pages, split_pages) <= cap.MAX_PAGES:
                     self.assertEqual(resume_clean(*args)[0], ["AAPL"])
                 else:
                     with self.assertRaises(Refused):
