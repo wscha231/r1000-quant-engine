@@ -373,6 +373,25 @@ class ReportClockTests(unittest.TestCase):
             with self.assertRaises(clock.Blocked):
                 clock.load_expectations(cfg_path,clock.digest(cfg_path.read_bytes()),producer)
 
+    def test_actual_expiry_is_rechecked_after_verification(self):
+        from datetime import timedelta
+        view, cfg = self.actual_shape_fixture()
+        now = clock.session_times(self.session)["AFTER_CLOSE"]
+        value = json.loads(view.read_bytes())
+        expectations = json.loads(cfg.read_bytes())
+        for item in value["source_clocks"]:
+            item["expiry"] = (now+timedelta(seconds=1)).isoformat()
+            expectations["sources"][item["source_sha256"]]["clock_sha256"] = clock.digest(clock.canonical(item))
+        view.write_bytes(clock.canonical(value)); cfg.write_bytes(clock.canonical(expectations))
+        anchor = json.loads(self.anchor); anchor.pop("content_sha256")
+        anchor["input_kind"] = "ACTUAL"; anchor["content_sha256"] = clock.digest(clock.canonical(anchor))
+        raw = clock.canonical(anchor)
+        with patch.object(clock,"trusted_now",side_effect=[now,now+timedelta(seconds=2)]):
+            result = self.run_cycle(view=view,previous_raw=raw,expected_previous_sha=clock.digest(raw),
+                expectations_path=cfg,expected_expectations_sha=clock.digest(cfg.read_bytes()))
+        self.assertIn("SOURCE_EXPIRED_DURING_VERIFICATION",result["blockers"])
+        self.assertEqual(result["completed_session_increment"],0)
+
     def test_duplicate_slot_cannot_complete_previously_uncounted_session(self):
         good = self.run_cycle()
         value = good["next_history"]
