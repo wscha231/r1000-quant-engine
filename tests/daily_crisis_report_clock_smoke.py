@@ -143,6 +143,27 @@ class ReportClockTests(unittest.TestCase):
         result = self.run_cycle(source_view=None)
         self.assertIn("REAL_INPUT_WAIT", result["blockers"])
 
+    def test_intraday_requires_exact_previous_completed_session(self):
+        session = "2025-01-15"
+        result = self.run_cycle(view=self.previous, slot="INTRADAY", session=session,
+                               now=clock.session_times(session)["INTRADAY"].isoformat())
+        self.assertIn("STALE_INTRADAY_SOURCE_SESSION", result["blockers"])
+
+    def test_hash_rebound_tail_history_is_not_a_full_restore(self):
+        view = json.loads(self.current.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        raw = Path(manifest["outputs"]["market_state_history"]["path"]).read_bytes()
+        lines = raw.splitlines(keepends=True)
+        tail = self.root / "tail-history.csv"
+        tail.write_bytes(lines[0]+b"".join(lines[-2:]))
+        manifest["outputs"]["market_state_history"] = clock.risk.fingerprint(tail)
+        path = self.root / "tail-manifest.json"
+        path.write_bytes(clock.canonical(manifest))
+        view["chameleon_manifest"] = clock.risk.fingerprint(path)
+        path = self.root / "tail-view.json"
+        path.write_bytes(clock.canonical(view))
+        self.assertIn("HISTORY_INPUT_COVERAGE_MISMATCH", self.run_cycle(view=path)["blockers"])
+
     def test_exact_clock_rights_revision_unit_and_breadth_fail_closed(self):
         changes = (("precision", "DATE", "DATE_ONLY_PUBLICATION_UNKNOWN"),
                    ("available_at", "2024-01-02", "EXACT_SOURCE_CLOCK_REQUIRED"),

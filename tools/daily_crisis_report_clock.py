@@ -277,6 +277,8 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     need(history.decision_date.map(lambda s: bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:T00:00:00)?", s))).all(),
          "HISTORY_SESSION_DATE")
     history["decision_date"] = history.decision_date.str[:10]
+    metric_dates = set(validated.decision_date.dt.date.astype(str))
+    need(set(history.decision_date) == metric_dates, "HISTORY_INPUT_COVERAGE_MISMATCH")
     need(not history["decision_date"].duplicated().any(), "DUPLICATE_COMPLETED_SESSION")
     indexed = calendar.set_index(calendar.decision_date.dt.date.astype(str))
     for row in history.itertuples(index=False):
@@ -306,6 +308,22 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     axes = snapshot.get("axes")
     need(isinstance(axes, list) and len(axes) == 10 and {a.get("axis") for a in axes} == set(contract["axes"]), "TEN_AXIS_IDENTITY")
     ready = {a["axis"] for a in axes if a.get("axis_ready") is True}
+    latest_metrics = validated[validated.decision_date == as_of]
+    for axis in ready:
+        present = set(latest_metrics.loc[latest_metrics.axis == axis, "component"])
+        spec = contract["axes"][axis]
+        need(len(present & set(spec["components"])) >= spec["minimum_ready_components"],
+             "READY_AXIS_COMPONENTS_MISSING")
+    # Consume the producer's pinned axis artifact, rather than recalculate risk
+    # for a second report in the same session.
+    axes_frame = table(read_ref(root, manifest["outputs"]["macro_risk_axes"]))
+    latest_axes = axes_frame[axes_frame.decision_date.str[:10] == latest.decision_date]
+    need(len(latest_axes) == 10 and not latest_axes.axis.duplicated().any(), "AXIS_ARTIFACT_IDENTITY")
+    for axis in axes:
+        match = latest_axes[latest_axes.axis == axis["axis"]]
+        need(len(match) == 1 and match.iloc[0].axis_ready in ("True", "False") and
+             (match.iloc[0].axis_ready == "True") == axis["axis_ready"], "AXIS_ARTIFACT_READINESS")
+        need(float(match.iloc[0].weight) == float(contract["axes"][axis["axis"]]["weight"]), "AXIS_WEIGHT_CHANGED")
     minimum = contract["readiness"]["minimum_ready_axes"]
     required = set(contract["readiness"]["required_axes"])
     ready_ok = len(ready) >= minimum and required <= ready
@@ -396,6 +414,10 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
             need(latest_date == session, "STALE_SUCCESS_NOT_CURRENT_REPORT")
         else:
             need(latest_date < session, "INTRADAY_DAILY_SNAPSHOT_NOT_COMPLETED")
+            end = datetime.fromisoformat(session)-timedelta(days=1)
+            schedule = mcal.get_calendar("NYSE").schedule(start_date=end-timedelta(days=30), end_date=end)
+            previous_session = schedule.index[-1].date().isoformat()
+            need(latest_date == previous_session, "STALE_INTRADAY_SOURCE_SESSION")
         last = prior.get("last_counted_completed_session")
         need(last is None or (isinstance(last, str) and last <= session), "HISTORY_TIME_REGRESSION")
         candidate = delivery_key not in prior["slots"]

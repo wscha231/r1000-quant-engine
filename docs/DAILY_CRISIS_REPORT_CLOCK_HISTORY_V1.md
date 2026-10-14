@@ -63,11 +63,13 @@ New York; early-close intraday is min(13:00, close minus 60 minutes). After-clos
 is actual close plus 60 minutes. Holidays produce no report candidate. Late
 intraday is not backfilled; ACTUAL runs must target the current New York date.
 
-Intraday is INTRADAY_PROVISIONAL and references only the last completed daily
+Intraday is INTRADAY_PROVISIONAL and requires the exact previous NYSE session's daily
 snapshot. It does not invent intraday axis values or advance EOD confirmations.
 After-close requires the exact session snapshot; old successful artifacts cannot
 be emitted as current success. Restored Chameleon history must be contiguous,
-calendar-bound, and reproduce existing 2-session entry/5-session release logic.
+calendar-bound, cover exactly the validated metric dates, and reproduce existing
+2-session entry/5-session release logic. Ready axes must have the canonical
+minimum actual metric components and match the pinned producer axis artifact.
 The report anchor separately pins recipient/mode, parent and content hashes,
 slot keys, completed count and `last_counted_completed_session`.
 
