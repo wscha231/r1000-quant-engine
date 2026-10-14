@@ -383,7 +383,9 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
                       risk_as_of_session=source["snapshot"]["decision_date"])
         result["analysis_artifact_key"] = digest(canonical(dict(source=source["source_view_sha256"],
             cutoff=cutoff.isoformat(), code_sha256=code_sha, contract=risk.CANONICAL_CONTRACT_SEMANTIC_SHA256)))
-        need(not source["issues"], source["issues"][0] if source["issues"] else "SOURCE_CLOCK")
+        if source["issues"]:
+            result["blockers"].extend(source["issues"])
+            raise Blocked("SOURCE_PROOF_INCOMPLETE")
         prior = load_previous(previous_raw, expected_previous_sha, expected_parent_sha, recipient, source["input_kind"])
         result["history_status"] = "VERIFIED_RESTORED"
         if source["input_kind"] == "ACTUAL":
@@ -408,7 +410,8 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         history["content_sha256"] = digest(canonical(history))
         result.update(next_history=history, delivery_candidate=candidate,
                       completed_session_increment=increment,
-                      current_report_status="READY_DRY_RUN" if candidate else "ALREADY_PREPARED_SAME_SLOT",
+                      current_report_status=("READY_DRY_RUN" if source["ready"] else "PARTIAL_DRY_RUN")
+                      if candidate else "ALREADY_PREPARED_SAME_SLOT",
                       data_health="DATA_READY" if source["ready"] else "DATA_PARTIAL")
         if not source["ready"]:
             result["blockers"].append("TEN_AXIS_READINESS_INSUFFICIENT")
