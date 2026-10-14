@@ -6940,3 +6940,15 @@ Expected contract:
   label denotes a TTM fallback and must be counted as trailing contamination.
 - Preserve FCF amount and yield independently. A missing amount must not erase
   an observed zero, negative or positive yield; keep both metrics unverified.
+
+## 2026-10-14 — Executable proof closure and untrusted CSV inputs need hard bounds
+
+- A load_tests hook adds transitive executable files and fixtures to A6 proof
+  inputs. Bind all consumed paths; test real changed proof execution, stale
+  packet refusal and omitted-pin refusal even after packet/scope rehashing.
+- Bound logical CSV records before cell materialization, including multiline
+  headers/data. A byte budget alone does not bound the number of cell objects.
+- Open nonblocking and check the opened descriptor's regular-file type before
+  reading; FIFOs without writers must refuse promptly and descriptors must close.
+- Source-category fields must emit only bounded known labels. Redact unknown
+  values rather than persisting arbitrary credential-like input strings.

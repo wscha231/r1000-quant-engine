@@ -17,6 +17,7 @@ import math
 import os
 from pathlib import Path
 import re
+import stat
 from typing import Any
 
 SCHEMA = "r1000-valuation-provenance-shadow-v1"
@@ -41,6 +42,11 @@ _INVALID_TOKENS = {"", "none", "null", "nan", "na", "n/a", "<na>", "--", "unknow
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_BYTES = 20_000_000
 _MAX_ROWS = 5000
+_MAX_RECORD_CHARS = 65_536
+_MAX_COLUMNS = 512
+_PE_SOURCE_LABELS = {"ep_ttm", "ttm", "trailing", "finnhub", "legacy", "alpha_vantage"}
+_FUND_SOURCE_LABELS = {"companyfacts", "sec", "sec_companyfacts", "alpha_vantage",
+                       "finnhub", "legacy", "yfinance", "yahoo"}
 
 
 class AuditInputError(ValueError):
@@ -60,8 +66,30 @@ def number(value: Any) -> float | None:
     return n if math.isfinite(n) else None
 
 
-def _has(value: Any) -> bool:
-    return isinstance(value, str) and value.strip().lower() not in _INVALID_TOKENS
+def _source_label(value: Any, allowed: set[str]) -> str | None:
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    label = value.strip().lower()
+    return label if label in allowed else None
+
+
+class _RecordLines:
+    """Bound each logical CSV record before csv.reader creates cell objects."""
+    def __init__(self, data: str):
+        self.stream = io.StringIO(data, newline="")
+        self.used = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> str:
+        line = self.stream.readline(_MAX_RECORD_CHARS + 1 - self.used)
+        if not line:
+            raise StopIteration
+        self.used += len(line)
+        if self.used > _MAX_RECORD_CHARS:
+            raise AuditInputError("CSV_RECORD_CHARACTER_BUDGET_EXCEEDED")
+        return line
 
 
 def _parse_date(value: str, reason: str) -> date:
@@ -84,8 +112,7 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
     peg_status = ("MISSING" if peg is None else
                   "NONPOSITIVE_UNUSABLE" if peg <= 0 else
                   "LEGACY_PRESENT_UNVERIFIED")
-    raw_source = row.get("forward_pe_source")
-    source = raw_source.strip().lower() if _has(raw_source) else ""
+    source = _source_label(row.get("forward_pe_source"), _PE_SOURCE_LABELS)
     pe_status = ("MISSING" if pe is None else "NONPOSITIVE_UNUSABLE" if pe <= 0 else
                  "TRAILING_MISLABELED_FORWARD" if source in ("ep_ttm", "ttm", "trailing", "finnhub") else
                  "PROVIDER_ONLY_UNVERIFIED" if source else
@@ -122,7 +149,7 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
         "fcf_status": "PRESENT_SOURCE_PROOF_UNVERIFIED" if fcf is not None else "MISSING",
         "fcfy_ttm": fcfy,
         "fcfy_status": "PRESENT_SOURCE_PROOF_UNVERIFIED" if fcfy is not None else "MISSING",
-        "fundamental_source": row.get("fund_source") or None,
+        "fundamental_source": _source_label(row.get("fund_source"), _FUND_SOURCE_LABELS),
         "fundamental_publication_proof": "NOT_ESTABLISHED_BY_SCORE_CSV",
         "current_valuation_comparison_allowed": False,
         "ranking_effect_allowed": False,
@@ -141,11 +168,14 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
         data = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise AuditInputError("CSV_NOT_UTF8") from exc
-    reader = csv.DictReader(io.StringIO(data, newline=""), strict=True)
+    lines = _RecordLines(data)
+    reader = csv.reader(lines, strict=True)
     try:
-        fields = reader.fieldnames or []
+        fields = next(reader, [])
     except csv.Error as exc:
         raise AuditInputError("CSV_PARSING_FAILURE") from exc
+    if len(fields) > _MAX_COLUMNS:
+        raise AuditInputError("CSV_COLUMN_BUDGET_EXCEEDED")
     if not fields or len(fields) != len(set(fields)) or any(not s or not s.strip() for s in fields):
         raise AuditInputError("INVALID_OR_DUPLICATE_HEADERS")
     if "ticker" not in fields:
@@ -156,13 +186,22 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
     excluded_non_equity = 0
     seen: set[tuple[str, str]] = set()
     try:
-        for parsed_rows, row in enumerate(reader, start=1):
+        parsed_rows = 0
+        while True:
+            lines.used = 0
+            values = next(reader, None)
+            if values is None:
+                break
+            parsed_rows += 1
             if parsed_rows > _MAX_ROWS:
                 raise AuditInputError("ROW_BUDGET_EXCEEDED")
-            if None in row:
+            if not values:
+                continue
+            if len(values) > len(fields):
                 raise AuditInputError("MALFORMED_CSV_EXTRA_FIELD")
-            if any(v is None for v in row.values()):
+            if len(values) < len(fields):
                 raise AuditInputError("MALFORMED_CSV_SHORT_ROW")
+            row = dict(zip(fields, values))
             if str(row.get("ticker") or "").strip().upper() == "CASH":
                 excluded_non_equity += 1
                 continue
@@ -204,11 +243,21 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
 
 
 def _read_input(path: Path) -> bytes:
-    with path.open("rb") as stream:
-        if os.fstat(stream.fileno()).st_size > _MAX_BYTES:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise AuditInputError("INPUT_NOT_REGULAR_FILE")
+        if info.st_size > _MAX_BYTES:
             raise AuditInputError("INPUT_BYTE_BUDGET_OR_EMPTY")
+        stream = os.fdopen(descriptor, "rb")
+        descriptor = None  # The stream owns the descriptor from this point.
         # Bound allocation even if the file grows or its size is unavailable.
-        raw = stream.read(_MAX_BYTES + 1)
+        with stream as opened:
+            raw = opened.read(_MAX_BYTES + 1)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
     if not raw or len(raw) > _MAX_BYTES:
         raise AuditInputError("INPUT_BYTE_BUDGET_OR_EMPTY")
     return raw

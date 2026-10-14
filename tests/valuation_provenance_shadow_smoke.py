@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -386,23 +387,32 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(json.loads(run.stdout)['reason'], 'INPUT_BYTE_BUDGET_OR_EMPTY')
             self.assertEqual(run.stderr, '')
             fake_path = MagicMock()
-            fake_stream = fake_path.open.return_value.__enter__.return_value
-            with patch.object(mod.os, 'fstat', return_value=SimpleNamespace(st_size=mod._MAX_BYTES + 1)):
+            with patch.object(mod.os, 'open', return_value=42), \
+                 patch.object(mod.os, 'fstat', return_value=SimpleNamespace(
+                     st_size=mod._MAX_BYTES + 1, st_mode=mod.stat.S_IFREG)), \
+                 patch.object(mod.os, 'fdopen') as fdopen, patch.object(mod.os, 'close') as close:
                 with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_BYTE_BUDGET_OR_EMPTY$'):
                     mod._read_input(fake_path)
-            fake_stream.read.assert_not_called()
+                fdopen.assert_not_called()
+                close.assert_called_once_with(42)
 
     def test_bounded_read_detects_growth_after_size_check(self):
         raw = make_csv(SAMPLE)
         fake_path = MagicMock()
-        fake_stream = fake_path.open.return_value.__enter__.return_value
+        manager = MagicMock()
+        fake_stream = manager.__enter__.return_value
         fake_stream.read.side_effect = lambda limit: (raw + b'x')[:limit]
         with patch.object(mod, '_MAX_BYTES', len(raw)), \
-             patch.object(mod.os, 'fstat', return_value=SimpleNamespace(st_size=len(raw))):
+             patch.object(mod.os, 'open', return_value=42) as opened, \
+             patch.object(mod.os, 'fstat', return_value=SimpleNamespace(
+                 st_size=len(raw), st_mode=mod.stat.S_IFREG)), \
+             patch.object(mod.os, 'fdopen', return_value=manager), patch.object(mod.os, 'close') as close:
             with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_BYTE_BUDGET_OR_EMPTY$'):
                 mod._read_input(fake_path)
+            close.assert_not_called()
+            opened.assert_called_once_with(fake_path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0))
         fake_stream.read.assert_called_once_with(len(raw) + 1)
-        fake_path.open.assert_called_once_with('rb')
+        manager.__exit__.assert_called_once()
 
     def test_bounded_read_exact_limit_and_empty_controls(self):
         raw = make_csv(SAMPLE)
@@ -418,12 +428,13 @@ class AuditTests(unittest.TestCase):
 
     def test_cli_read_failures_redact_private_path(self):
         with tempfile.TemporaryDirectory(prefix='private-account-marker-') as tmp:
-            for path in (Path(tmp) / 'missing-token-marker.csv', Path(tmp)):
+            for path, reason in ((Path(tmp) / 'missing-token-marker.csv', 'INPUT_READ_FAILURE'),
+                                 (Path(tmp), 'INPUT_NOT_REGULAR_FILE')):
                 run = subprocess.run([sys.executable, '-B', str(FILE), '--input-csv', str(path)],
                                      capture_output=True, text=True, check=False)
                 self.assertEqual(run.returncode, 2)
                 result = json.loads(run.stdout)
-                self.assertEqual(result['reason'], 'INPUT_READ_FAILURE')
+                self.assertEqual(result['reason'], reason)
                 self.assertFalse(result['authority']['orders_allowed'])
                 self.assertNotIn(tmp, run.stdout)
                 self.assertNotIn('private-account-marker', run.stdout)
@@ -434,6 +445,111 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(mod.main(['--input-csv', '/private-denied-marker/file.csv']), 2)
             self.assertEqual(json.loads(output.getvalue())['reason'], 'INPUT_READ_FAILURE')
             self.assertNotIn('private-denied-marker', output.getvalue())
+
+    def test_csv_record_and_column_budgets(self):
+        for raw in (b'ticker,' + b',' * mod._MAX_RECORD_CHARS + b'\nAAA,1\n',
+                    b'ticker,"' + b'a\n' * mod._MAX_RECORD_CHARS + b'"\nAAA,1\n',
+                    b'ticker\nAAA' + b',x' * mod._MAX_RECORD_CHARS + b'\n'):
+            with self.assertRaisesRegex(mod.AuditInputError, '^CSV_RECORD_CHARACTER_BUDGET_EXCEEDED$'):
+                mod.audit_bytes(raw)
+        columns = ['ticker'] + [f'field{i}' for i in range(mod._MAX_COLUMNS - 1)]
+        valid = (','.join(columns) + '\nAAA' + ',' * (len(columns) - 1) + '\n').encode()
+        self.assertEqual(mod.audit_bytes(valid)['row_count'], 1)
+        with self.assertRaisesRegex(mod.AuditInputError, '^CSV_COLUMN_BUDGET_EXCEEDED$'):
+            mod.audit_bytes((','.join(columns + ['extra']) + '\nAAA\n').encode())
+
+    def test_csv_quoted_multiline_and_blank_record_controls(self):
+        raw = b'ticker,"unused,\nheader"\n\nAAA,"two\nlines"\n\n'
+        self.assertEqual(mod.audit_bytes(raw)['row_count'], 1)
+        boundary = b'ticker\n' + b'\n' * (mod._MAX_ROWS - 1) + b'AAA\n'
+        self.assertEqual(mod.audit_bytes(boundary)['row_count'], 1)
+        with self.assertRaisesRegex(mod.AuditInputError, '^ROW_BUDGET_EXCEEDED$'):
+            mod.audit_bytes(b'ticker\n' + b'\n' * mod._MAX_ROWS + b'AAA\n')
+
+    def test_cli_oversized_header_has_structured_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'wide-header.csv'
+            path.write_bytes(b'ticker,' + b',' * mod._MAX_RECORD_CHARS + b'\nAAA,1\n')
+            for flags in ([], ['-O']):
+                run = subprocess.run([sys.executable, '-B', *flags, str(FILE), '--input-csv',
+                                      str(path)], capture_output=True, text=True, check=False, timeout=3)
+                self.assertEqual(run.returncode, 2)
+                self.assertEqual(json.loads(run.stdout)['reason'], 'CSV_RECORD_CHARACTER_BUDGET_EXCEEDED')
+                self.assertEqual(run.stderr, '')
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo') and hasattr(os, 'O_NONBLOCK'), 'Unix FIFO control')
+    def test_cli_special_inputs_refuse_without_blocking(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = Path(tmp) / 'no-writer.fifo'
+            os.mkfifo(fifo)
+            link = Path(tmp) / 'fifo-link'
+            link.symlink_to(fifo)
+            valid = Path(tmp) / 'regular.csv'
+            valid.write_bytes(make_csv(SAMPLE))
+            valid_link = Path(tmp) / 'regular-link.csv'
+            valid_link.symlink_to(valid)
+            for path in (fifo, link, Path(tmp), Path('/dev/null')):
+                for flags in ([], ['-O']):
+                    run = subprocess.run([sys.executable, '-B', *flags, str(FILE), '--input-csv',
+                                          str(path)], capture_output=True, text=True, check=False, timeout=3)
+                    self.assertEqual(run.returncode, 2)
+                    self.assertEqual(json.loads(run.stdout)['reason'], 'INPUT_NOT_REGULAR_FILE')
+                    self.assertEqual(run.stderr, '')
+            self.assertEqual(mod._read_input(valid_link), valid.read_bytes())
+
+    def test_source_category_redaction_and_known_label_controls(self):
+        for value in ('Authorization: Bearer synthetic-private-marker', 'api_key=synthetic-private-marker',
+                      'sk-proj-synthetic-private-marker', 'unknown_provider', 'x' * 65, None):
+            row = mod.classify({'ticker': 'AAA', 'forward_pe_final': '20',
+                                'forward_pe_source': value, 'fund_source': value})
+            self.assertIsNone(row['forward_pe_source'])
+            self.assertIsNone(row['fundamental_source'])
+            self.assertEqual(row['pe_status'], 'ORIGIN_UNKNOWN_UNVERIFIED')
+            self.assertNotIn('synthetic-private-marker', json.dumps(row))
+        row = mod.classify({'ticker': 'AAA', 'forward_pe_final': '20',
+                            'forward_pe_source': ' ALPHA_VANTAGE ', 'fund_source': ' COMPANYFACTS '})
+        self.assertEqual(row['forward_pe_source'], 'alpha_vantage')
+        self.assertEqual(row['fundamental_source'], 'companyfacts')
+        self.assertEqual(row['pe_status'], 'PROVIDER_ONLY_UNVERIFIED')
+
+    def test_cli_source_categories_never_echo_unknown_values(self):
+        raw = (b'ticker,forward_pe_final,forward_pe_source,fund_source\n'
+               b'AAA,20,Authorization: Bearer synthetic-private-marker,api_key=synthetic-private-marker\n')
+        out = mod.audit_bytes(raw)
+        self.assertIsNone(out['results'][0]['fundamental_source'])
+        self.assertIsNone(out['results'][0]['forward_pe_source'])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'redaction.csv'
+            path.write_bytes(raw)
+            for flags in ([], ['-O']):
+                run = subprocess.run([sys.executable, '-B', *flags, str(FILE), '--input-csv', str(path)],
+                                     capture_output=True, text=True, check=False)
+                self.assertEqual(run.returncode, 0)
+                self.assertNotIn('synthetic-private-marker', run.stdout)
+                self.assertEqual(json.loads(run.stdout), mod.audit_bytes(raw, source_name=path.name))
+                self.assertEqual(run.stderr, '')
+
+    def test_regular_descriptor_closes_after_read_and_size_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'input.csv'
+            captured = []
+            original_open = os.open
+            def capture(*args, **kwargs):
+                descriptor = original_open(*args, **kwargs)
+                captured.append(descriptor)
+                return descriptor
+            path.write_bytes(make_csv(SAMPLE))
+            with patch.object(mod.os, 'open', side_effect=capture):
+                self.assertEqual(mod._read_input(path), make_csv(SAMPLE))
+            with self.assertRaises(OSError):
+                os.fstat(captured[-1])
+            with path.open('wb') as stream:
+                stream.truncate(mod._MAX_BYTES + 1)
+            with patch.object(mod.os, 'open', side_effect=capture):
+                with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_BYTE_BUDGET_OR_EMPTY$'):
+                    mod._read_input(path)
+            with self.assertRaises(OSError):
+                os.fstat(captured[-1])
 
     def test_no_fallback_valuation(self):
         d=mod.audit_bytes(make_csv(SAMPLE))

@@ -52,7 +52,7 @@ Historical author-local coverage for the original draft was 43/43 normal and 43/
 
 ## 4. Native patch requirements
 
-Native patch includes ONLY: `tools/audit_valuation_provenance_shadow.py`, `tests/valuation_provenance_shadow_smoke.py`, `tests/fixtures/valuation_provenance/{main,concentrated}_*.csv`, `docs/US_ACTUAL_FIRST_VALUATION_H1_KO.md`, and a narrow existing A3 `load_tests` hook in `tests/a3_candidate_packet_v1_smoke.py`. Do not modify `tools/run_pr_validation.py`, broker, protected workflow, source pointers or scoring features.
+Native patch includes the audit tool/suite, two valuation CSV fixtures, this task document, the shared lessons ledger and the narrow existing A3 `load_tests` hook. The A6 transitive proof closure also adds the two programs and two fixtures to `tools/manual_foundation.py`, with a focused regression in `tests/manual_foundation_smoke.py`. Do not modify `tools/run_pr_validation.py`, broker, protected workflow, source pointers or scoring features.
 
 1. Recheck live master/Issue#448/Issue#590 A1 lane and PR#593 post-merge owner release, `AGENTS.md` and current Native worktree `git status/diff`; do NOT create additional worktree or remote content-API writes.
 2. Apply after owner release, only to approved Native workspace. Verify any overlapping smoke hook/candidate research already merged and adapt context without removing existing tests.
@@ -75,7 +75,7 @@ instead of an unhandled CSV parser traceback.
 
 Reuse the already registered `structural.a3_candidate_packet_v1` route through its
 existing unittest `load_tests` function, retaining all RegistryTests. No change to
-`tests/smoke_test.py`, `tools/run_pr_validation.py`, workflows or protected pins.
+`tests/smoke_test.py`, `tools/run_pr_validation.py`, workflows or historical anchor hashes.
 The current `tests/smoke_test.py` accepts `--quick` and `--verbose`, not `--only`.
 
 Proportionate local commands in an authorized Native checkout:
@@ -87,7 +87,7 @@ python -B tools/run_pr_validation.py --include a3_candidate_packet_v1_smoke --on
 git diff --check
 ```
 
-The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 60
+The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 67
 valuation-audit tests. Counts represent unique cases, not reruns.
 These local tests and scoped PR-runner checks do not replace required GitHub CI
 or independently supplied exact-head A6 review. Shared tests and lessons use the
@@ -112,3 +112,26 @@ P/E source labels follow this repository's legacy producer: `finnhub` denotes
 the known TTM fallback, not an unspecified provider basis. `fcf_ttm` amount and
 `fcfy_ttm` yield retain separate numeric observations, statuses and presence
 counts; yield presence does not manufacture a cash-flow amount or source proof.
+
+CSV parsing limits each logical header/data record to 65,536 characters before
+creating cells, and rejects more than 512 columns. Quoted multiline records
+retain CSV semantics. All parsed data records, including blank records, count
+toward the 5,000-record budget. Budget errors use
+`CSV_RECORD_CHARACTER_BUDGET_EXCEEDED` or `CSV_COLUMN_BUDGET_EXCEEDED`.
+
+On the tested Unix runtime, the CLI opens nonblocking and verifies the opened
+descriptor is a regular file before reading. FIFOs, devices and directories
+return `INPUT_NOT_REGULAR_FILE`; regular-file symlinks are checked through their
+actual opened descriptor. Descriptor ownership closes both successful reads
+and rejected inputs. OS failures retain the path-free `INPUT_READ_FAILURE`.
+
+Only known source-category labels of at most 64 characters are emitted.
+Unknown, excessive or credential-like source values become null/unknown;
+numeric observations and closed authority remain unchanged.
+
+The A6 dependency inventory now binds both executable audit files and both CSV
+fixtures. Changed bytes reject old packets; deleting a mandatory pin rejects
+even after hashes are recalculated. A newly supplied matching scope still means
+`VALIDATED_PREPARE_ONLY`, with proofs `NOT_RUN` and `completed_task=false`.
+The focused Manual Foundation regression exercises actual proof execution and
+API/CLI stale/omitted-pin refusals independently of the registered A3 suite.
