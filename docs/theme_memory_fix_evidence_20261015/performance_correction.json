@@ -1,0 +1,21 @@
+{
+  "mode": "CLASSIFICATION_ONLY_NO_REPLAY_OR_FULLRUN",
+  "rows": 46772,
+  "input_git_blob": "c527a6dce385410859b825ac0aa39f36feebab73",
+  "timings": [
+    {
+      "implementation": "parent",
+      "seconds": 2.0271496870009287
+    },
+    {
+      "implementation": "reviewed_uncompiled",
+      "seconds": 11.35883032899801
+    },
+    {
+      "implementation": "corrected_compiled",
+      "seconds": 2.6424938870004553
+    }
+  ],
+  "reviewed_vs_corrected_label_mismatches": 0,
+  "timing_method": "single DataFrame.apply run per implementation on same archived46772-row metadata; elapsed examples, not CI performance threshold"
+}
