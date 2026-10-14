@@ -7013,3 +7013,9 @@ Expected contract:
 - A claimed-ready axis must have a finite 0..100 score matching the pinned
   snapshot. pandas sums skip NaN and can otherwise turn absent scores into zero
   risk. Validate missingness before the existing summary reducer.
+- Hash agreement is insufficient when all outputs can be rebound together.
+  Verify full derivation from inputs and preserve the accepted source-history
+  prefix. Cache pure calculations, never admission decisions. Recheck clocks,
+  complete safety flags and separately pinned component/context unit expectations.
+- Caller timestamps cannot establish current ACTUAL execution. Use host time,
+  require evaluation before expiry, and never complete a suppressed duplicate.

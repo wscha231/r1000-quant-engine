@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import hashlib
 import io
 import json
@@ -105,7 +106,7 @@ def decode(raw):
     try:
         return json.loads(raw, object_pairs_hook=pairs,
                           parse_constant=lambda _: (_ for _ in ()).throw(Blocked("NONFINITE_JSON")))
-    except (ValueError, UnicodeError):
+    except (ValueError, UnicodeError, RecursionError):
         raise Blocked("INVALID_JSON") from None
 
 
@@ -177,18 +178,58 @@ def session_times(session):
                 AFTER_CLOSE=closing+timedelta(hours=1))
 
 
-def clock_check(records, metrics, cutoff, now, input_kind):
+def trusted_now():
+    return datetime.now(UTC)
+
+
+def load_expectations(path, expected_sha, producer):
+    need(path is not None, "ACTUAL_EXPECTATIONS_REQUIRED")
+    raw = bounded(path, 1024**2)
+    need(digest(raw) == sha(expected_sha), "EXPECTATIONS_PIN_MISMATCH")
+    value = decode(raw)
+    need(value.get("schema") == "daily-crisis-expectations-v1" and
+         value.get("purpose") == "US_MACRO_REPORT" and value.get("producer_sha256") == producer and
+         value.get("risk_contract_semantic_sha256") == risk.CANONICAL_CONTRACT_SEMANTIC_SHA256 and
+         isinstance(value.get("sources"), dict) and isinstance(value.get("components"), dict) and
+         isinstance(value.get("context_fields"), dict), "EXPECTATIONS_CONTRACT")
+    return value, digest(raw)
+
+
+def expected_units(row, item, key, expectations, context_fields):
+    source = expectations["sources"].get(key)
+    need(isinstance(source, dict) and source.get("source_id") == item.get("source_id") and
+         source.get("source_kind") == row.source_kind, "EXPECTED_SOURCE_IDENTITY_MISMATCH")
+    component = getattr(row, "component", None)
+    fields = [component] if component else [name for name in context_fields
+        if hasattr(row, name) and str(getattr(row, name)) not in ("", "None", "nan")]
+    wanted = expectations["components"] if component else expectations["context_fields"]
+    for name in fields:
+        spec, observed = wanted.get(name), item.get("units", {}).get(name)
+        need(isinstance(spec, dict) and isinstance(observed, dict) and
+             isinstance(spec.get("source_ids"), list) and "*" not in spec["source_ids"] and
+             source["source_id"] in spec["source_ids"] and spec.get("unit") and
+             spec.get("seasonal_basis") and spec["unit"] == observed.get("unit") and
+             spec["seasonal_basis"] == observed.get("seasonal_basis"), "COMPONENT_UNIT_CONTRACT_MISMATCH")
+        if component:
+            need(spec.get("axis") == row.axis, "COMPONENT_AXIS_CONTRACT_MISMATCH")
+
+
+def clock_check(records, metrics, cutoff, now, input_kind, expectations=None, context_fields=()):
     need(isinstance(records, list) and len(records) <= 5000, "CLOCK_MANIFEST")
     indexed, facts, issues = {}, [], []
     for item in records:
         try:
             key = sha(item.get("source_sha256"))
             need(key not in indexed, "DUPLICATE_SOURCE_CLOCK")
+            if input_kind == "ACTUAL":
+                approved_source = expectations["sources"].get(key)
+                need(isinstance(approved_source, dict) and approved_source.get("source_id") == item.get("source_id"),
+                     "EXPECTED_SOURCE_IDENTITY_MISMATCH")
             indexed[key] = item
             need(item.get("precision") in ("SECOND", "MICROSECOND"), "DATE_ONLY_PUBLICATION_UNKNOWN")
             published, available = stamp(item.get("published_at")), stamp(item.get("available_at"))
             collected, expiry = stamp(item.get("collected_at")), stamp(item.get("expiry"))
-            need(published <= available <= collected <= now and available <= cutoff < expiry, "SOURCE_CLOCK_OUT_OF_RANGE")
+            need(published <= available <= collected <= now < expiry and available <= cutoff < expiry, "SOURCE_CLOCK_OUT_OF_RANGE")
             need(item.get("purpose") == "US_MACRO_REPORT" and item.get("purpose_eligible") is True,
                  "PURPOSE_NOT_ELIGIBLE")
             need(item.get("rights") == "PRIVATE_RESEARCH_ALLOWED" and item.get("identity_verified") is True,
@@ -218,6 +259,8 @@ def clock_check(records, metrics, cutoff, now, input_kind):
             entry = indexed.get(row.source_sha256)
             need(isinstance(entry, tuple), "SOURCE_CLOCK_MISSING")
             item, available = entry
+            if input_kind == "ACTUAL":
+                expected_units(row, item, row.source_sha256, expectations, context_fields)
             # Original clocks govern each historical decision, never latest_date.
             need(available <= stamp(str(row.decision_time_utc)) <= cutoff, "HISTORICAL_AVAILABILITY_VIOLATION")
             need(stamp(str(row.available_from)) >= available, "FABRICATED_METRIC_AVAILABILITY")
@@ -226,10 +269,65 @@ def clock_check(records, metrics, cutoff, now, input_kind):
                      and item.get("breadth_denominator_verified") is True, "BREADTH_DENOMINATOR_UNVERIFIED")
         except (Blocked, AttributeError) as exc:
             issues.append(str(exc) if isinstance(exc, Blocked) else "METRIC_CLOCK_COLUMNS")
-    return facts, sorted(set(issues))
+    used_sources = set(metrics.source_sha256)
+    return [fact for fact in facts if fact["source_sha256"] in used_sources], sorted(set(issues))
 
 
-def load_source(path, expected_sha, source_root, cutoff, now):
+def frame_bytes(frame):
+    output = frame.copy()
+    for column in output:
+        if pd.api.types.is_datetime64_any_dtype(output[column]):
+            output[column] = output[column].map(lambda v: v.isoformat() if not pd.isna(v) else "")
+    return output.to_csv(index=False, lineterminator="\n").encode()
+
+
+@lru_cache(maxsize=2)
+def verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw, producer, verifier_code_sha):
+    """Bounded process-local verification cache; no canonical calculation/write."""
+    contract = decode(contract_raw)
+    calendar = risk.validate_calendar(table(calendar_raw), digest(calendar_raw))
+    raw_metrics = table(metrics_raw)
+    as_of = pd.Timestamp(raw_metrics.decision_date.max())
+    metrics = risk.validate_metrics(raw_metrics, contract, as_of, calendar)
+    decisions = {date:g.decision_time_utc.iloc[0] for date,g in metrics.groupby("decision_date")}
+    sessions = {date:(int(g.nyse_session_ordinal.iloc[0]),str(g.calendar_source_sha256.iloc[0]))
+                for date,g in metrics.groupby("decision_date")}
+    context = risk.validate_context(table(context_raw) if context_raw else None,
+                                    contract, as_of, decisions, sessions, calendar)
+    components = risk.compute_component_percentiles(metrics, contract)
+    axes = risk.aggregate_axes(components, contract)
+    history = risk.build_daily_risk(axes, context, contract)
+    return frame_bytes(axes), frame_bytes(history)
+
+
+def prefix_digest(source, through):
+    values = []
+    for name in ("metrics", "context", "axes_frame", "history"):
+        frame = source[name].copy()
+        frame["decision_date"] = pd.to_datetime(frame.decision_date).dt.strftime("%Y-%m-%d")
+        frame = frame[frame.decision_date <= through].drop(columns=["calendar_source_sha256"], errors="ignore")
+        frame = frame.sort_values([c for c in ("decision_date", "axis", "component") if c in frame])
+        values.append((name, digest(frame_bytes(frame))))
+    if source["expectations"] is not None:
+        cfg = source["expectations"]
+        # Bind the already-consumed Source/unit contracts; appending new source
+        # identities to the separately approved config must not rewrite them.
+        used = []
+        for scope, frame in (("components", source["metrics"]), ("context_fields", source["context"])):
+            if frame.empty:
+                continue
+            frame = frame[frame.decision_date.dt.date.astype(str) <= through]
+            for row in frame.itertuples(index=False):
+                fields = [row.component] if scope == "components" else [f for f in source["context_fields"]
+                    if hasattr(row,f) and not pd.isna(getattr(row,f))]
+                for field in fields:
+                    used.append(canonical([scope,field,row.source_sha256,cfg["sources"][row.source_sha256],cfg[scope][field]]).decode())
+        values.append(("expectations", digest(canonical(sorted(set(used))))))
+    return digest(canonical(values))
+
+
+def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, slot=None,
+                expectations_path=None, expected_expectations_sha=None):
     raw = bounded(path, 4*1024**2)
     need(digest(raw) == sha(expected_sha), "SOURCE_VIEW_PIN_MISMATCH")
     view = decode(raw)
@@ -258,15 +356,20 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     metrics = table(metrics_raw)
     need(set(("source_sha256", "decision_time_utc", "available_from", "axis")) <= set(metrics), "METRIC_CLOCK_COLUMNS")
     contract = decode(contract_raw)
+    for key, wanted in risk._safety_payload(contract).items():
+        need(manifest.get(key) == wanted, "UPSTREAM_SAFETY_ENVELOPE")
+    need(manifest.get("network_requests_executed") == 0, "UPSTREAM_SAFETY_ENVELOPE")
     as_of = pd.Timestamp(manifest["decision_date"])
     validated = risk.validate_metrics(metrics, contract, as_of, calendar)
     decisions = {date: group.decision_time_utc.iloc[0] for date, group in validated.groupby("decision_date")}
     sessions = {date: (int(group.nyse_session_ordinal.iloc[0]), str(group.calendar_source_sha256.iloc[0]))
                 for date, group in validated.groupby("decision_date")}
-    context = None
+    context, context_raw = None, b""
     if "context" in manifest["inputs"]:
-        context = table(read_ref(root, manifest["inputs"]["context"]))
+        context_raw = read_ref(root, manifest["inputs"]["context"])
+        context = table(context_raw)
     validated_context = risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
+    expectations, expectations_sha = None, None
     if view["input_kind"] == "ACTUAL":
         for frame in (metrics, context):
             if frame is not None:
@@ -274,6 +377,13 @@ def load_source(path, expected_sha, source_root, cutoff, now):
                 need(not kinds.str.contains("SYNTHETIC|FIXTURE|TEST", regex=True).any(), "FIXTURE_ACTUAL_MIX")
                 need(not kinds.str.contains("CURRENT_VINTAGE|LATEST_SNAPSHOT", regex=True).any(),
                      "AS_KNOWN_SOURCE_REQUIRED")
+        execution = trusted_now()
+        need(abs((now-execution).total_seconds()) <= 60, "ACTUAL_CLOCK_NOT_CURRENT")
+        need(execution.astimezone(NY).date().isoformat() == session, "LATE_SESSION_NOT_RETROACTIVE")
+        times = session_times(session)
+        need(execution >= cutoff and (slot != "INTRADAY" or execution < times["close"]), "ACTUAL_SLOT_NOT_CURRENT")
+        now = execution
+        expectations, expectations_sha = load_expectations(expectations_path, expected_expectations_sha, producer)
     snapshot_raw = read_ref(root, manifest["outputs"]["macro_risk_snapshot"], 128*1024)
     snapshot = decode(snapshot_raw)
     history_raw = read_ref(root, manifest["outputs"]["market_state_history"])
@@ -308,9 +418,11 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     latest = history.iloc[-1]
     need(snapshot.get("schema_version") == "MacroRiskSnapshot-v1" and snapshot.get("report_only") is True
          and snapshot.get("decision_date") == latest.decision_date == manifest.get("decision_date"), "SNAPSHOT_HISTORY_MISMATCH")
-    facts, issues = clock_check(view.get("source_clocks"), metrics, cutoff, now, view["input_kind"])
+    context_fields = contract["context_columns"].get("optional_numeric", []) + contract["context_columns"].get("optional_boolean", [])
+    facts, issues = clock_check(view.get("source_clocks"), metrics, cutoff, now, view["input_kind"], expectations)
     if context is not None:
-        _, context_issues = clock_check(view.get("source_clocks"), context, cutoff, now, view["input_kind"])
+        context_facts, context_issues = clock_check(view.get("source_clocks"), context, cutoff, now, view["input_kind"], expectations, context_fields)
+        facts = list({f["source_sha256"]:f for f in facts+context_facts}.values())
         issues = sorted(set(issues + context_issues))
     axes = snapshot.get("axes")
     need(isinstance(axes, list) and len(axes) == 10 and {a.get("axis") for a in axes} == set(contract["axes"]), "TEN_AXIS_IDENTITY")
@@ -329,7 +441,8 @@ def load_source(path, expected_sha, source_root, cutoff, now):
         need(len(historically_ready) >= spec["minimum_ready_components"], "READY_AXIS_HISTORY_INSUFFICIENT")
     # Consume the producer's pinned axis artifact, rather than recalculate risk
     # for a second report in the same session.
-    axes_frame = table(read_ref(root, manifest["outputs"]["macro_risk_axes"]))
+    axes_raw = read_ref(root, manifest["outputs"]["macro_risk_axes"])
+    axes_frame = table(axes_raw)
     latest_axes = axes_frame[axes_frame.decision_date.str[:10] == latest.decision_date]
     need(len(latest_axes) == 10 and not latest_axes.axis.duplicated().any(), "AXIS_ARTIFACT_IDENTITY")
     for axis in axes:
@@ -371,10 +484,17 @@ def load_source(path, expected_sha, source_root, cutoff, now):
              and abs(float(checked.risk_score)-value) < 1e-8, "SCORE_HISTORY_MISMATCH")
     else:
         need(snapshot.get("risk_score") is None, "INSUFFICIENT_SCORE_NOT_NULL")
+    if not issues:
+        expected_axes, expected_history = verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw,
+            producer, digest(bounded(Path(__file__), 256*1024)))
+        need(digest(axes_raw) == digest(expected_axes) and digest(history_raw) == digest(expected_history),
+             "FULL_DERIVED_HISTORY_MISMATCH")
     return dict(input_kind=view["input_kind"], manifest_sha256=digest(manifest_raw),
                 source_view_sha256=digest(raw), snapshot=snapshot, history=history,
                 facts=facts, issues=issues, ready=ready_ok, latest=latest,
-                history_sha256=digest(history_raw), producer_sha256=producer)
+                history_sha256=digest(history_raw), producer_sha256=producer, expectations=expectations,
+                expectations_sha256=expectations_sha, metrics=validated, context=validated_context,
+                axes_frame=axes_frame, context_fields=context_fields, execution_time_utc=now.isoformat())
 
 
 def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
@@ -396,12 +516,16 @@ def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
     need((last is None and value["completed_session_count"] == 0) or
          (isinstance(last, str) and session_times(last) is not None and
           value["completed_session_count"] > 0), "PREVIOUS_HISTORY_COUNT")
+    if value["slots"]:
+        sha(value.get("source_prefix_sha256"))
+        need(isinstance(value.get("source_prefix_date"), str), "SOURCE_HISTORY_PREFIX_REQUIRED")
     return value
 
 
 def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None,
                  session, slot, recipient, now, previous_raw=None,
-                 expected_previous_sha=None, expected_parent_sha=None, code_sha):
+                 expected_previous_sha=None, expected_parent_sha=None, code_sha,
+                 expectations_path=None, expected_expectations_sha=None):
     need(slot in SLOTS and isinstance(recipient, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", recipient), "REPORT_SCOPE")
     sha(code_sha)
     now = stamp(now)
@@ -429,18 +553,27 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         return result
     try:
         need(source_view is not None, "REAL_INPUT_WAIT")
-        source = load_source(source_view, expected_source_sha, source_root, cutoff, now)
+        source = load_source(source_view, expected_source_sha, source_root, cutoff, now,
+                             session=session, slot=slot, expectations_path=expectations_path,
+                             expected_expectations_sha=expected_expectations_sha)
         result.update(input_kind=source["input_kind"], source_facts=source["facts"],
                       source_manifest_sha256=source["manifest_sha256"],
                       source_history_sha256=source["history_sha256"],
                       producer_sha256=source["producer_sha256"],
+                      execution_time_utc=source["execution_time_utc"],
+                      expectations_sha256=source["expectations_sha256"],
                       risk_as_of_session=source["snapshot"]["decision_date"])
         result["analysis_artifact_key"] = digest(canonical(dict(source=source["source_view_sha256"],
-            cutoff=cutoff.isoformat(), code_sha256=code_sha, contract=risk.CANONICAL_CONTRACT_SEMANTIC_SHA256)))
+            cutoff=cutoff.isoformat(), code_sha256=code_sha, expectations=source["expectations_sha256"],
+            contract=risk.CANONICAL_CONTRACT_SEMANTIC_SHA256)))
         if source["issues"]:
             result["blockers"].extend(source["issues"])
             raise Blocked("SOURCE_PROOF_INCOMPLETE")
         prior = load_previous(previous_raw, expected_previous_sha, expected_parent_sha, recipient, source["input_kind"])
+        if prior["slots"]:
+            through = prior["source_prefix_date"]
+            need(through <= source["snapshot"]["decision_date"] and
+                 prefix_digest(source, through) == prior["source_prefix_sha256"], "SOURCE_HISTORY_PREFIX_CHANGED")
         result["history_status"] = "VERIFIED_RESTORED"
         if source["input_kind"] == "ACTUAL":
             need(now.astimezone(NY).date().isoformat() == session, "LATE_SESSION_NOT_RETROACTIVE")
@@ -458,13 +591,14 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         need(last is None or (isinstance(last, str) and last <= session), "HISTORY_TIME_REGRESSION")
         candidate = delivery_key not in prior["slots"]
         slots = (prior["slots"] + ([delivery_key] if candidate else []))[-512:]
-        increment = int(slot == "AFTER_CLOSE" and source["ready"] and last != session)
+        increment = int(candidate and slot == "AFTER_CLOSE" and source["ready"] and last != session)
         history = dict(schema="daily-crisis-report-history-v1", recipient=recipient,
                        input_kind=source["input_kind"], parent_sha256=expected_previous_sha,
                        last_counted_completed_session=session if increment else last,
                        completed_session_count=prior["completed_session_count"]+increment,
                        slots=slots, source_history_sha256=source["history_sha256"],
-                       source_manifest_sha256=source["manifest_sha256"])
+                       source_manifest_sha256=source["manifest_sha256"],
+                       source_prefix_date=latest_date, source_prefix_sha256=prefix_digest(source, latest_date))
         history["content_sha256"] = digest(canonical(history))
         result.update(next_history=history, delivery_candidate=candidate,
                       completed_session_increment=increment,
@@ -485,7 +619,7 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
                       current_report_status="BLOCKED", risk_score=None, market_state=None)
         result["blockers"].append(str(exc))
         result["data_health"] = "DATA_PARTIAL" if result["source_facts"] else "DATA_BLOCKED"
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, csv.Error):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, csv.Error, RecursionError):
         result.update(next_history=None, delivery_candidate=False, completed_session_increment=0,
                       current_report_status="BLOCKED", risk_score=None, market_state=None)
         result["blockers"].append("INPUT_UNREADABLE_OR_INVALID")

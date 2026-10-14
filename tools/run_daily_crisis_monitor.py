@@ -280,6 +280,9 @@ def build_clock_report(args: argparse.Namespace) -> dict[str, Any]:
     inputs = [history_path.resolve(), Path(clock.__file__).resolve(), Path(__file__).resolve()]
     source_view = getattr(args, "report_source_view", None)
     source_root = getattr(args, "report_source_root", None)
+    expectations_path = getattr(args, "report_expectations", None)
+    if expectations_path:
+        inputs.append(repo_path(expectations_path).resolve())
     if source_view:
         inputs.append(repo_path(source_view).resolve())
         clock.need(source_root is not None, "SOURCE_ROOT_REQUIRED")
@@ -294,10 +297,12 @@ def build_clock_report(args: argparse.Namespace) -> dict[str, Any]:
         source_root=repo_path(source_root) if source_root else None,
         expected_source_sha=getattr(args, "expected_source_view_sha256", None),
         session=args.report_session, slot=args.report_slot, recipient=args.report_recipient,
-        now=args.report_now, previous_raw=previous_raw,
+        now=args.report_now or datetime.now(timezone.utc).isoformat(), previous_raw=previous_raw,
         expected_previous_sha=getattr(args, "expected_history_sha256", None),
         expected_parent_sha=getattr(args, "expected_history_parent_sha256", None),
         code_sha=clock.digest(clock.canonical(code_before)),
+        expectations_path=repo_path(expectations_path) if expectations_path else None,
+        expected_expectations_sha=getattr(args, "expected_report_expectations_sha256", None),
     )
     clock.need(code_before == {p.name: clock.digest(clock.bounded(p, 256*1024)) for p in code_paths}, "CODE_CHANGED")
     payload["native_code_hashes"] = code_before
@@ -385,6 +390,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report-now")
     parser.add_argument("--report-source-view")
     parser.add_argument("--report-source-root")
+    parser.add_argument("--report-expectations")
+    parser.add_argument("--expected-report-expectations-sha256")
     parser.add_argument("--expected-source-view-sha256")
     parser.add_argument("--expected-history-sha256")
     parser.add_argument("--expected-history-parent-sha256")

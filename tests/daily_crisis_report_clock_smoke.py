@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -103,6 +104,47 @@ class ReportClockTests(unittest.TestCase):
         path = self.root / "changed-view.json"
         path.write_bytes(clock.canonical(value))
         return path
+
+    def rebound(self, name, change, view_path=None):
+        view = json.loads((view_path or self.current).read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        change(manifest, view)
+        path = self.root / (name+"-manifest.json")
+        path.write_bytes(clock.canonical(manifest))
+        view["chameleon_manifest"] = clock.risk.fingerprint(path)
+        path = self.root / (name+"-view.json")
+        path.write_bytes(clock.canonical(view))
+        return path
+
+    def actual_shape_fixture(self):
+        """Attack simulation only: no real source or accepted A0 proof."""
+        def change(manifest, view):
+            for name in ("metrics", "context"):
+                frame = pd.read_csv(manifest["inputs"][name]["path"])
+                frame["source_kind"] = "ARCHIVE"
+                path = self.root / ("actual-shape-"+name+".csv")
+                frame.to_csv(path, index=False)
+                manifest["inputs"][name] = clock.risk.fingerprint(path)
+            view["input_kind"] = "ACTUAL"
+            fields = list(clock.risk.load_contract()["context_columns"]["optional_numeric"])
+            fields += list(clock.risk.load_contract()["context_columns"]["optional_boolean"])
+            names = [c for s in clock.risk.load_contract()["axes"].values() for c in s["components"]]+fields
+            for item in view["source_clocks"]:
+                item.update(input_kind="ACTUAL", source_id="ALFRED",
+                            units={n:dict(unit="fixture-unit",seasonal_basis="fixture") for n in names})
+        path = self.rebound("actual-shape", change)
+        manifest = json.loads(Path(json.loads(path.read_bytes())["chameleon_manifest"]["path"]).read_bytes())
+        contract = clock.risk.load_contract()
+        spec = dict(unit="fixture-unit",seasonal_basis="fixture",source_ids=["ALFRED"])
+        cfg = dict(schema="daily-crisis-expectations-v1",purpose="US_MACRO_REPORT",
+            producer_sha256=manifest["code"]["builder"]["sha256"],
+            risk_contract_semantic_sha256=clock.risk.CANONICAL_CONTRACT_SEMANTIC_SHA256,
+            sources={s:dict(source_id="ALFRED",source_kind="ARCHIVE") for s in ("a"*64,"b"*64)},
+            components={c:dict(spec,axis=a) for a,s in contract["axes"].items() for c in s["components"]},
+            context_fields={f:dict(spec) for f in contract["context_columns"]["optional_numeric"]+contract["context_columns"]["optional_boolean"]})
+        cfg_path = self.root / "actual-shape-expectations.json"
+        cfg_path.write_bytes(clock.canonical(cfg))
+        return path, cfg_path
 
     def test_completed_session_once_across_two_slots_and_changed_hash(self):
         intraday = self.run_cycle(view=self.previous, slot="INTRADAY")
@@ -256,6 +298,124 @@ class ReportClockTests(unittest.TestCase):
             with self.assertRaises(clock.Blocked): clock.table(raw)
         result = self.run_cycle(expected_source_sha="0"*64)
         self.assertIn("SOURCE_VIEW_PIN_MISMATCH", result["blockers"])
+
+    def test_deep_decoder_error_is_a_structured_blocker(self):
+        path = self.root / "deep-source-view.json"
+        path.write_bytes(b'{"x":'+b'['*10000+b'0'+b']'*10000+b'}')
+        result = self.run_cycle(view=path)
+        self.assertEqual(result["current_report_status"], "BLOCKED")
+        self.assertIn("INVALID_JSON", result["blockers"])
+
+    def test_full_producer_safety_envelope_is_required_even_with_warm_cache(self):
+        self.assertEqual(self.run_cycle()["current_report_status"], "READY_DRY_RUN")
+        flags = {"research_only":False,"stock_alpha_allowed":True,"trade_intents_written":True,
+                 "production_activation_allowed":True,"live_trading_enabled":True,
+                 "automatic_promotion_allowed":True,"backtest_executed":True}
+        for name, value in flags.items():
+            path = self.rebound("unsafe", lambda m,v: m.update({name:value}))
+            self.assertIn("UPSTREAM_SAFETY_ENVELOPE", self.run_cycle(view=path)["blockers"])
+
+    def test_expiry_must_cover_collection_and_evaluation(self):
+        cutoff = clock.session_times(self.session)["AFTER_CLOSE"]
+        from datetime import timedelta
+        view = self.changed_view(lambda v: v["source_clocks"][0].update(
+            expiry=(cutoff+timedelta(seconds=1)).isoformat(),
+            collected_at=(cutoff+timedelta(seconds=2)).isoformat()))
+        result = self.run_cycle(view=view, now=(cutoff+timedelta(seconds=3)).isoformat())
+        self.assertIn("SOURCE_CLOCK_OUT_OF_RANGE", result["blockers"])
+
+    def test_actual_clock_uses_runtime_not_caller_date(self):
+        view, _ = self.actual_shape_fixture()
+        result = self.run_cycle(view=view)
+        self.assertIn("ACTUAL_CLOCK_NOT_CURRENT", result["blockers"])
+
+    def test_actual_units_need_separately_pinned_component_and_context_expectations(self):
+        view, cfg = self.actual_shape_fixture()
+        now = clock.session_times(self.session)["AFTER_CLOSE"]
+        args = dict(session=self.session,slot="AFTER_CLOSE",expectations_path=cfg,
+                    expected_expectations_sha=clock.digest(cfg.read_bytes()))
+        with patch.object(clock,"trusted_now",return_value=now):
+            source = clock.load_source(view,clock.digest(view.read_bytes()),self.root,now,now,**args)
+            self.assertEqual(source["issues"], [])
+            with self.assertRaisesRegex(clock.Blocked,"ACTUAL_EXPECTATIONS_REQUIRED"):
+                clock.load_source(view,clock.digest(view.read_bytes()),self.root,now,now,
+                                  session=self.session,slot="AFTER_CLOSE")
+            for field in ("vix_level", "spy_close"):
+                value = json.loads(view.read_bytes())
+                for item in value["source_clocks"]:
+                    item["unit"] = item["expected_unit"] = "RATIO"
+                    item["units"][field]["unit"] = "RATIO"
+                changed = self.root / "coordinated-units.json"
+                changed.write_bytes(clock.canonical(value))
+                source = clock.load_source(changed,clock.digest(changed.read_bytes()),self.root,now,now,**args)
+                self.assertIn("COMPONENT_UNIT_CONTRACT_MISMATCH", source["issues"])
+
+    def test_duplicate_slot_cannot_complete_previously_uncounted_session(self):
+        good = self.run_cycle()
+        value = good["next_history"]
+        value.update(parent_sha256=None,completed_session_count=0,last_counted_completed_session=None)
+        value.pop("content_sha256")
+        value["content_sha256"] = clock.digest(clock.canonical(value))
+        raw = clock.canonical(value)
+        result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw))
+        self.assertEqual(result["current_report_status"], "ALREADY_PREPARED_SAME_SLOT", result)
+        self.assertEqual(result["completed_session_increment"], 0)
+
+    def test_partial_correction_cannot_silently_complete(self):
+        partial = self.run_cycle(view=self.partial)
+        raw = clock.canonical(partial["next_history"])
+        result = self.run_cycle(previous=raw,parent=clock.digest(self.anchor))
+        self.assertIn("SOURCE_HISTORY_PREFIX_CHANGED", result["blockers"])
+        self.assertEqual(result["completed_session_increment"],0)
+
+    def test_rebound_earlier_observation_cannot_change_effective_state(self):
+        def change(manifest, view):
+            frame = pd.read_csv(manifest["outputs"]["market_state_history"]["path"])
+            frame.loc[frame.index[-5:-3], "observed_state"] = "RISK_DEFENSE"
+            frame = clock.risk.apply_state_hysteresis(frame, clock.risk.load_contract())
+            path = self.root / "forged-earlier-history.csv"
+            path.write_bytes(clock.frame_bytes(frame))
+            manifest["outputs"]["market_state_history"] = clock.risk.fingerprint(path)
+        path = self.rebound("earlier-state", change)
+        self.assertIn("FULL_DERIVED_HISTORY_MISMATCH", self.run_cycle(view=path)["blockers"])
+
+    def test_coordinated_axes_snapshot_history_cannot_invent_metric_scores(self):
+        self.assertEqual(self.run_cycle()["current_report_status"], "READY_DRY_RUN")
+        def change(manifest, view):
+            axes = pd.read_csv(manifest["outputs"]["macro_risk_axes"]["path"])
+            selected = axes.decision_date.str[:10] == self.session
+            axes.loc[selected,"axis_score"] = 99.0
+            axes.loc[selected,"red_axis"] = True
+            domains = axes.loc[selected,"red_domain"].nunique()
+            path = self.root / "invented-axes.csv"; path.write_bytes(clock.frame_bytes(axes))
+            manifest["outputs"]["macro_risk_axes"] = clock.risk.fingerprint(path)
+            history = pd.read_csv(manifest["outputs"]["market_state_history"]["path"])
+            history.loc[history.index[-1],"risk_score"] = 99.0
+            history.loc[history.index[-1],"observed_state"] = clock.risk.classify_market_state(99,10,domains,clock.risk.load_contract())
+            history = clock.risk.apply_state_hysteresis(history,clock.risk.load_contract())
+            path = self.root / "invented-history.csv"; path.write_bytes(clock.frame_bytes(history))
+            manifest["outputs"]["market_state_history"] = clock.risk.fingerprint(path)
+            snapshot = json.loads(Path(manifest["outputs"]["macro_risk_snapshot"]["path"]).read_bytes())
+            snapshot.update(risk_score=99.0,red_axis_count=10,red_domain_count=int(domains))
+            for axis in snapshot["axes"]: axis.update(axis_score=99.0,red_axis=True)
+            path = self.root / "invented-snapshot.json"; path.write_bytes(clock.canonical(snapshot))
+            manifest["outputs"]["macro_risk_snapshot"] = clock.risk.fingerprint(path)
+        path = self.rebound("invented-scores",change)
+        self.assertIn("FULL_DERIVED_HISTORY_MISMATCH",self.run_cycle(view=path)["blockers"])
+
+    def test_rewritten_raw_source_prefix_is_refused_even_if_scores_unchanged(self):
+        prior = self.run_cycle(view=self.previous,slot="INTRADAY")
+        def change(manifest, view):
+            frame = pd.read_csv(manifest["inputs"]["metrics"]["path"])
+            frame.loc[frame.decision_date == frame.decision_date.min(),"source_sha256"] = "c"*64
+            path = self.root / "rewritten-prefix-metrics.csv"
+            frame.to_csv(path,index=False)
+            manifest["inputs"]["metrics"] = clock.risk.fingerprint(path)
+            item = dict(view["source_clocks"][0]); item["source_sha256"] = "c"*64
+            view["source_clocks"].append(item)
+        path = self.rebound("rewritten-prefix",change)
+        result = self.run_cycle(view=path,previous=clock.canonical(prior["next_history"]),parent=clock.digest(self.anchor))
+        self.assertIn("SOURCE_HISTORY_PREFIX_CHANGED",result["blockers"])
 
     def test_monitor_integration_candidate_only_and_no_overwrite(self):
         output = self.root / "monitor-dry-run"

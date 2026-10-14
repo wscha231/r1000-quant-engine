@@ -48,6 +48,16 @@ Every consumed metric and context row must resolve to a clock, available by its
 historical decision and the report cutoff. A date-only FRED/ALFRED vintage never
 becomes an invented release time. Provider acquisition and verification of these
 records remain upstream responsibilities; setting booleans is not new evidence.
+ACTUAL additionally requires `--report-expectations` and a separately accepted
+`--expected-report-expectations-sha256`. This is A0/Source configuration supplied
+outside the source view; B1 neither invents financial units nor writes the registry.
+Schema `daily-crisis-expectations-v1` binds purpose US_MACRO_REPORT, producer hash,
+canonical risk-contract semantic hash, `sources` keyed by exact source SHA with
+source_id/source_kind, `components` keyed by canonical metric name with axis/unit/
+seasonal_basis/explicit source_ids, and separate `context_fields` specifications.
+Each ACTUAL clock carries observed `units` keyed by the consumed component or
+context field. All consumed identities/fields must match; no wildcard or fallback.
+Missing registry, coverage or independent acceptance keeps ACTUAL blocked.
 Market breadth needs a verified denominator of at least 500 eligible symbols.
 Source-view hashes must be accepted through independent QA before ACTUAL use.
 
@@ -72,10 +82,23 @@ calendar-bound, cover exactly the validated metric dates, and reproduce existing
 minimum actual metric components and match the pinned producer axis artifact.
 Claimed-ready components also need the canonical 252 observations in the
 5-year/1,260-session window. The existing engine's latest-session reducer checks
-consumed score/observed-state consistency; historical percentiles are not rerun.
+consumed score/observed-state consistency. Full metrics→percentiles→axes→history
+are also verified with the existing deterministic engine, including every past
+observation/counter. A two-entry process-local cache stores only pure derivations
+bound to immutable inputs, producer/contract and verifier code. Claimed outputs,
+source clocks, safety flags, registry and runtime validity are checked each call.
+This verification does not publish or advance a canonical risk calculation.
 ACTUAL mode refuses explicitly synthetic/fixture and current-vintage source kinds.
+ACTUAL time is the independent host UTC clock; a supplied time must be within
+60 seconds and the slot/date must be current. Expiry covers collection and actual
+evaluation, not only the logical report cutoff. Decoder recursion fails structured.
 The report anchor separately pins recipient/mode, parent and content hashes,
-slot keys, completed count and `last_counted_completed_session`.
+slot keys, completed count and `last_counted_completed_session`. Each successor
+must preserve its accepted source-history prefix (metrics, context, axes, states
+and consumed expectations); append-only calendar hash changes are normalized.
+A correction/truncation/revision requires a separate explicit A0 anchor decision,
+otherwise SOURCE_HISTORY_PREFIX_CHANGED blocks. Duplicate or previously partial
+slots cannot silently increment completion when no new candidate is produced.
 
 The delivery key is recipient/session/logical slot. Source/code/config changes
 affect the analysis artifact key, never this delivery key. Advancing the verified
