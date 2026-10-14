@@ -98,7 +98,17 @@ def get_public(url, conditional=None):
                 _LAST = time.monotonic()
         try:
             with build_opener(NoRedirect()).open(Request(url,headers=headers),timeout=30) as response:
+                declared=response.headers.get('Content-Length')
+                if declared is not None:
+                    require(isinstance(declared,str) and re.fullmatch(r'[0-9]{1,10}',declared),
+                            'source_content_length')
+                    declared=int(declared)
+                    require(0<declared<=32*1024*1024,'source_size')
                 raw = response.read(32*1024*1024+1)
+                # HTTPResponse.read(amt) may return a short Content-Length body
+                # without raising. Even syntactically valid JSON must not pass.
+                if declared is not None and len(raw)!=declared:
+                    raise IncompleteRead(b'',max(0,declared-len(raw)))
                 metadata = {'etag':response.headers.get('ETag'),
                     'last_modified':response.headers.get('Last-Modified')}
             require(0 < len(raw) <= 32*1024*1024, 'source_size')

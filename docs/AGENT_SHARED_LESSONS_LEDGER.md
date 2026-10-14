@@ -6964,7 +6964,10 @@ Expected contract:
   the independent consumer restore. Fault-inject deletion/corruption after new
   uploads; an SEC 304 must not conceal missing archived bytes.
 - Retry an SEC IncompleteRead within the existing three-attempt limit and
-  discard every partial body. Keep code-push validation separate from producer
+  discard every partial body. Independent A6 showed HTTPResponse.read(amt) can
+  return a short yet valid JSON body without raising; compare Content-Length
+  with received bytes and test actual HTTPResponse framing as well as exceptions.
+  Keep code-push validation separate from producer
   activation; preserve existing manual/scheduled operation and require review.
 - Native Reader tests need the pinned exchange-calendar dependencies. Missing
   calendar libraries are an environment failure, not evidence of a code bypass.

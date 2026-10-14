@@ -842,6 +842,7 @@ class HistoryTest(unittest.TestCase):
         from tools.long_history_lake import get_public
         response=unittest.mock.MagicMock()
         response.__enter__.return_value=response
+        response.headers={}
         response.read.side_effect=[IncompleteRead(b'partial',8),b'complete']
         opener=unittest.mock.Mock()
         opener.open.return_value=response
@@ -854,6 +855,30 @@ class HistoryTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'^TRANSPORT_ERROR$'):
                 get_public('https://data.sec.gov/test')
             self.assertEqual(opener.open.call_count,3)
+
+    def test_sec_content_length_truncation_refuses_real_http_response(self):
+        from http.client import HTTPResponse
+        import io
+        from tools.long_history_lake import get_public
+        body=b'{"valid":"json"}'
+        class Socket:
+            def __init__(self,extra): self.extra=extra
+            def makefile(self,*_):
+                return io.BytesIO(b'HTTP/1.1 200 OK\r\nContent-Length: '+
+                    str(len(body)+self.extra).encode()+b'\r\n\r\n'+body)
+        def response(extra):
+            result=HTTPResponse(Socket(extra)); result.begin(); return result
+        opener=unittest.mock.Mock()
+        opener.open.side_effect=lambda *_args,**_kwargs: response(17)
+        with patch('tools.long_history_lake.build_opener',return_value=opener), \
+             patch('tools.long_history_lake.time.sleep'):
+            with self.assertRaisesRegex(ValueError,'^TRANSPORT_ERROR$'):
+                get_public('https://data.sec.gov/test')
+            self.assertEqual(opener.open.call_count,3)
+            opener.open.reset_mock()
+            opener.open.side_effect=[response(17),response(0)]
+            self.assertEqual(get_public('https://data.sec.gov/test')[0],body)
+            self.assertEqual(opener.open.call_count,2)
 
     def test_push_filters_cover_all_consumed_source_paths(self):
         import re
