@@ -277,6 +277,49 @@ MISSING = object()
 
 
 class CorrectionTests(unittest.TestCase):
+    def test_rehashed_repeated_pagination_tokens_are_refused(self):
+        # Each adjustment can legitimately reuse the other's token values.
+        for repeated_basis in (None, "raw", "split"):
+            with self.subTest(repeated_basis=repeated_basis):
+                drive = FakePrivateDrive()
+                original = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
+                prior_bytes = dict(drive.objects)
+                state = cap.decode(drive.read(original["file_id"]))
+                receipt = cap.decode(drive.read(state["last_objects"][2]["file_id"]))
+                with zipfile.ZipFile(io.BytesIO(drive.read(state["last_objects"][0]["file_id"]))) as archive:
+                    manifest = cap.decode(archive.read("capture.json"))
+                members, pages = {}, []
+                for basis in ("raw", "split"):
+                    tokens = ["next-1", "next-2", None]
+                    if basis == repeated_basis:
+                        tokens[1] = tokens[0]
+                    for index, token in enumerate(tokens):
+                        payload = cap.encoded({
+                            "bars": {"AAPL": [bar()]} if index == 0 else {},
+                            "next_page_token": token,
+                        })
+                        member = cap.digest(payload) + ".json"
+                        members[member] = payload
+                        pages.append({"member": member, "sha256": cap.digest(payload),
+                                      "bytes": len(payload), "page": index,
+                                      "symbols": ["AAPL"], "adjustment": basis})
+                manifest["pages"] = pages
+                members["capture.json"] = cap.encoded(manifest)
+                raw_ref = cap.persist_object(drive, drive.folder, cap.zip_bytes(members), ".zip")
+                state["last_objects"][0] = receipt["raw_object"] = raw_ref
+                receipt["pages"] = len(pages)
+                state["last_objects"][2] = cap.persist_object(
+                    drive, drive.folder, cap.encoded(receipt), ".json")
+                rebound = cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
+                args = (drive, drive.folder, rebound["file_id"], rebound["sha256"],
+                        "a" * 64, cap.MIN_START, "2026-10-10")
+                if repeated_basis is None:
+                    self.assertEqual(resume_clean(*args)[0], ["AAPL"])
+                else:
+                    with self.assertRaises(Refused):
+                        cap.resume_state(*args)
+                self.assertTrue(all(drive.objects[k] == v for k, v in prior_bytes.items()))
+
     def test_fully_rehashed_unsupported_authority_is_refused(self):
         flags = ("pit_verified", "historical_identity_verified",
                  "commercial_use_authorized", "source_admission")

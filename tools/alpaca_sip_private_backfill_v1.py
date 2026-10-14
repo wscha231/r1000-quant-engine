@@ -329,7 +329,8 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
             require(set(members) == expected_members, "RESUME_MEMBER_SET")
             for tokens in visited.values():
                 require(tokens and tokens[-1] is None
-                        and all(token is not None for token in tokens[:-1]),
+                        and all(token is not None for token in tokens[:-1])
+                        and len(tokens[:-1]) == len(set(tokens[:-1])),
                         "RESUME_PAGINATION")
     except (zipfile.BadZipFile, OSError, EOFError, RuntimeError,
             ValueError, OverflowError):
