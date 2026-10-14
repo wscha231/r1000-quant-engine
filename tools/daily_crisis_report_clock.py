@@ -274,7 +274,8 @@ def clock_check(records, metrics, cutoff, now, input_kind, expectations=None, co
             basis = item["seasonal_basis"] if item["seasonal_basis"] in {"SA", "NSA", "SAAR", "NOT_APPLICABLE", "fixture"} else "UNREGISTERED"
             facts.append(dict(source_sha256=key, source_id=source_id, unit=unit,
                               seasonal_basis=basis, available_at=available.isoformat(),
-                              collected_at=collected.isoformat(), source_ref_sha256=digest(str(item.get("source_ref", "")).encode())))
+                              collected_at=collected.isoformat(), expiry=expiry.isoformat(),
+                              source_ref_sha256=digest(str(item.get("source_ref", "")).encode())))
         except (Blocked, TypeError, AttributeError) as exc:
             issues.append(str(exc) if isinstance(exc, Blocked) else "CLOCK_MANIFEST")
     for row in metrics.itertuples(index=False):
@@ -380,7 +381,7 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     need(set(("source_sha256", "decision_time_utc", "available_from", "axis")) <= set(metrics), "METRIC_CLOCK_COLUMNS")
     contract = decode(contract_raw)
     for key, wanted in risk._safety_payload(contract).items():
-        need(manifest.get(key) == wanted, "UPSTREAM_SAFETY_ENVELOPE")
+        need(key in manifest and canonical(manifest[key]) == canonical(wanted), "UPSTREAM_SAFETY_ENVELOPE")
     need(manifest.get("network_requests_executed") == 0, "UPSTREAM_SAFETY_ENVELOPE")
     as_of = pd.Timestamp(manifest["decision_date"])
     validated = risk.validate_metrics(metrics, contract, as_of, calendar)
@@ -519,7 +520,8 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
                 facts=facts, issues=issues, ready=ready_ok, latest=latest,
                 history_sha256=digest(history_raw), producer_sha256=producer, expectations=expectations,
                 expectations_sha256=expectations_sha, metrics=validated, context=validated_context,
-                axes_frame=axes_frame, context_fields=context_fields, execution_time_utc=now.isoformat())
+                axes_frame=axes_frame, context_fields=context_fields, execution_time_utc=now.isoformat(),
+                expiry_min=min((stamp(c["expiry"]) for c in view["source_clocks"]), default=now) if not issues else None)
 
 
 def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
@@ -617,13 +619,20 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         candidate = delivery_key not in prior["slots"]
         slots = (prior["slots"] + ([delivery_key] if candidate else []))[-512:]
         increment = int(candidate and slot == "AFTER_CLOSE" and source["ready"] and last != session)
+        next_prefix = prefix_digest(source, latest_date)
+        if source["input_kind"] == "ACTUAL":
+            execution = trusted_now()
+            need(execution.astimezone(NY).date().isoformat() == session and execution >= cutoff and
+                 (slot != "INTRADAY" or execution < times["close"]), "ACTUAL_SLOT_NOT_CURRENT")
+            need(execution < source["expiry_min"], "SOURCE_EXPIRED_DURING_VERIFICATION")
+            result["execution_time_utc"] = execution.isoformat()
         history = dict(schema="daily-crisis-report-history-v1", recipient=recipient,
                        input_kind=source["input_kind"], parent_sha256=expected_previous_sha,
                        last_counted_completed_session=session if increment else last,
                        completed_session_count=prior["completed_session_count"]+increment,
                        slots=slots, source_history_sha256=source["history_sha256"],
                        source_manifest_sha256=source["manifest_sha256"],
-                       source_prefix_date=latest_date, source_prefix_sha256=prefix_digest(source, latest_date))
+                       source_prefix_date=latest_date, source_prefix_sha256=next_prefix)
         history["content_sha256"] = digest(canonical(history))
         result.update(next_history=history, delivery_candidate=candidate,
                       completed_session_increment=increment,
