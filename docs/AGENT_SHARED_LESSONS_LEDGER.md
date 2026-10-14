@@ -6941,6 +6941,16 @@ Expected contract:
 - Preserve FCF amount and yield independently. A missing amount must not erase
   an observed zero, negative or positive yield; keep both metrics unverified.
 
+## 2026-10-14 — Keep historical reuse positives separate from current-code refusals
+
+- A valid code change may deliberately invalidate a historical reuse catalog.
+  Preserve that refusal; do not silently rehash/re-certify the historical row.
+- Positive preflight tests use exact reviewed dependency bytes only in isolated
+  fixtures. Independently check current/changed bytes through API and CLI,
+  including a freshly rebound task that retains the old catalog pins.
+- Bind any new archived fixture in A6 proof inputs. Canonical Git LF hashes
+  and Native CRLF hashes are different contexts, never interchangeable proof.
+
 ## 2026-10-14 — Executable proof closure and untrusted CSV inputs need hard bounds
 
 - A load_tests hook adds transitive executable files and fixtures to A6 proof
