@@ -55,6 +55,9 @@ Schema `daily-crisis-expectations-v1` binds purpose US_MACRO_REPORT, producer ha
 canonical risk-contract semantic hash, `sources` keyed by exact source SHA with
 source_id/source_kind, `components` keyed by canonical metric name with axis/unit/
 seasonal_basis/explicit source_ids, and separate `context_fields` specifications.
+The independently accepted config also pins metrics/context/calendar input bytes
+and each original source-clock record hash. Nontext/empty/unknown identities or
+units are refused; equality of two unknown values never verifies a source.
 Each ACTUAL clock carries observed `units` keyed by the consumed component or
 context field. All consumed identities/fields must match; no wildcard or fallback.
 Missing registry, coverage or independent acceptance keeps ACTUAL blocked.

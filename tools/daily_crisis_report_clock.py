@@ -197,11 +197,16 @@ def load_expectations(path, expected_sha, producer):
          value.get("purpose") == "US_MACRO_REPORT" and value.get("producer_sha256") == producer and
          value.get("risk_contract_semantic_sha256") == risk.CANONICAL_CONTRACT_SEMANTIC_SHA256 and
          isinstance(value.get("sources"), dict) and isinstance(value.get("components"), dict) and
-         isinstance(value.get("context_fields"), dict), "EXPECTATIONS_CONTRACT")
+         isinstance(value.get("context_fields"), dict) and isinstance(value.get("inputs"),dict), "EXPECTATIONS_CONTRACT")
+    for name in ("metrics","calendar"):
+        sha(value["inputs"].get(name))
+    if value["inputs"].get("context") is not None:
+        sha(value["inputs"]["context"])
     for key, source in value["sources"].items():
         sha(key)
         need(isinstance(source,dict) and known_label(source.get("source_id")) and
              known_label(source.get("source_kind")), "EXPECTATIONS_IDENTITY_REQUIRED")
+        sha(source.get("clock_sha256"))
     for scope in ("components","context_fields"):
         for name, spec in value[scope].items():
             need(known_label(name) and isinstance(spec,dict) and known_label(spec.get("unit")) and
@@ -242,6 +247,7 @@ def clock_check(records, metrics, cutoff, now, input_kind, expectations=None, co
                 approved_source = expectations["sources"].get(key)
                 need(isinstance(approved_source, dict) and approved_source.get("source_id") == item.get("source_id"),
                      "EXPECTED_SOURCE_IDENTITY_MISMATCH")
+                need(approved_source.get("clock_sha256") == digest(canonical(item)), "EXPECTED_SOURCE_CLOCK_MISMATCH")
             indexed[key] = item
             need(item.get("precision") in ("SECOND", "MICROSECOND"), "DATE_ONLY_PUBLICATION_UNKNOWN")
             published, available = stamp(item.get("published_at")), stamp(item.get("available_at"))
@@ -401,6 +407,8 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
         need(execution >= cutoff and (slot != "INTRADAY" or execution < times["close"]), "ACTUAL_SLOT_NOT_CURRENT")
         now = execution
         expectations, expectations_sha = load_expectations(expectations_path, expected_expectations_sha, producer)
+        for name, raw_input in (("metrics",metrics_raw),("calendar",calendar_raw),("context",context_raw)):
+            need(expectations["inputs"].get(name) == (digest(raw_input) if raw_input else None), "EXPECTED_INPUT_PIN_MISMATCH")
     snapshot_raw = read_ref(root, manifest["outputs"]["macro_risk_snapshot"], 128*1024)
     snapshot = decode(snapshot_raw)
     history_raw = read_ref(root, manifest["outputs"]["market_state_history"])

@@ -133,13 +133,16 @@ class ReportClockTests(unittest.TestCase):
                 item.update(input_kind="ACTUAL", source_id="ALFRED",
                             units={n:dict(unit="fixture-unit",seasonal_basis="fixture") for n in names})
         path = self.rebound("actual-shape", change)
-        manifest = json.loads(Path(json.loads(path.read_bytes())["chameleon_manifest"]["path"]).read_bytes())
+        view = json.loads(path.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
         contract = clock.risk.load_contract()
         spec = dict(unit="fixture-unit",seasonal_basis="fixture",source_ids=["ALFRED"])
         cfg = dict(schema="daily-crisis-expectations-v1",purpose="US_MACRO_REPORT",
             producer_sha256=manifest["code"]["builder"]["sha256"],
             risk_contract_semantic_sha256=clock.risk.CANONICAL_CONTRACT_SEMANTIC_SHA256,
-            sources={s:dict(source_id="ALFRED",source_kind="ARCHIVE") for s in ("a"*64,"b"*64)},
+            inputs={n:r["sha256"] for n,r in manifest["inputs"].items() if n in ("metrics","context","calendar")},
+            sources={r["source_sha256"]:dict(source_id="ALFRED",source_kind="ARCHIVE",clock_sha256=clock.digest(clock.canonical(r)))
+                     for r in view["source_clocks"]},
             components={c:dict(spec,axis=a) for a,s in contract["axes"].items() for c in s["components"]},
             context_fields={f:dict(spec) for f in contract["context_columns"]["optional_numeric"]+contract["context_columns"]["optional_boolean"]})
         cfg_path = self.root / "actual-shape-expectations.json"
@@ -347,6 +350,11 @@ class ReportClockTests(unittest.TestCase):
                     item["units"][field]["unit"] = "RATIO"
                 changed = self.root / "coordinated-units.json"
                 changed.write_bytes(clock.canonical(value))
+                cfg_value = json.loads(cfg.read_bytes())
+                for item in value["source_clocks"]:
+                    cfg_value["sources"][item["source_sha256"]]["clock_sha256"] = clock.digest(clock.canonical(item))
+                cfg.write_bytes(clock.canonical(cfg_value))
+                args["expected_expectations_sha"] = clock.digest(cfg.read_bytes())
                 source = clock.load_source(changed,clock.digest(changed.read_bytes()),self.root,now,now,**args)
                 self.assertIn("COMPONENT_UNIT_CONTRACT_MISMATCH", source["issues"])
 
