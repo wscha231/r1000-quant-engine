@@ -351,6 +351,9 @@ def load_tests(loader, suite, pattern):
     # #516 reference adapter stays on the existing registered A3 smoke route.
     from candidate_registry_v1_smoke import RegistryTests
     suite.addTests(loader.loadTestsFromTestCase(RegistryTests))
+    # Archive diagnostics stay on the registered A3 route with authority closed.
+    from valuation_provenance_shadow_smoke import AuditTests
+    suite.addTests(loader.loadTestsFromTestCase(AuditTests))
     return suite
 
 

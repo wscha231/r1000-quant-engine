@@ -3236,6 +3236,56 @@ class ManualTests(unittest.TestCase):
                 finally:
                     target.write_bytes(original)
 
+    def test_a6_valuation_audit_transitive_inputs_reject_stale_and_omitted_pins(self):
+        cases = {
+            'tests/valuation_provenance_shadow_smoke.py': 'test_actual_main_archive_subset',
+            'tools/audit_valuation_provenance_shadow.py': 'test_actual_main_archive_subset',
+            'tests/fixtures/valuation_provenance/main_19rows_extracted.csv': 'test_actual_main_archive_subset',
+            'tests/fixtures/valuation_provenance/concentrated_4rows_extracted.csv': 'test_actual_concentrated_archive_subset',
+        }
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        runner = ('import importlib.util,sys,unittest; '
+                  's=importlib.util.spec_from_file_location("actual_valuation_proof",sys.argv[1]); '
+                  'm=importlib.util.module_from_spec(s); s.loader.exec_module(m); '
+                  'r=unittest.TextTestRunner().run(unittest.TestSuite([m.AuditTests(sys.argv[2])])); '
+                  'sys.exit(not r.wasSuccessful())')
+        for name, method in cases.items():
+            with self.subTest(name=name):
+                self.assertIn(name, packet['dependencies'])
+                target = self.root / name
+                original = target.read_bytes()
+                command = prefix + ['-c', runner,
+                    str(self.root / 'tests/valuation_provenance_shadow_smoke.py'), method]
+                try:
+                    valid = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+                    suffix = (b'\nraise RuntimeError("synthetic-unreviewed-valuation-proof")\n'
+                              if name.endswith('.py') else b'SYNTHETIC_BAD_ROW\n')
+                    target.write_bytes(original + suffix)
+                    changed = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                    self.assertNotEqual(changed.returncode, 0)
+                    self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+                    stale = self.cli_fixture(packet, scope)
+                    self.assertEqual(stale.returncode, 2, stale.stdout + stale.stderr)
+                    self.assertEqual(json.loads(stale.stdout)['reason'], 'dependency_bytes_changed:' + name)
+                    self.assertEqual(stale.stderr, '')
+                    omitted, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+                    del omitted['dependencies'][name]
+                    del verified['dependencies'][name]
+                    self.rebind_all(omitted, verified)
+                    self.rejected(omitted, verified, 'missing_dependency')
+                    missing = self.cli_fixture(omitted, verified)
+                    self.assertEqual(missing.returncode, 2, missing.stdout + missing.stderr)
+                    self.assertEqual(json.loads(missing.stdout)['reason'], 'missing_dependency')
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    result = self.validate(fresh, fresh_scope)
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertFalse(result['completed_task'])
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                finally:
+                    target.write_bytes(original)
+
     def test_each_fixed_a6_program_pin_cannot_be_omitted_and_rehashed(self):
         packet, scope = self.packet('A6_INDEPENDENT_QA')
         for name in manual.A6_FIXED_PROOF_PROGRAMS:

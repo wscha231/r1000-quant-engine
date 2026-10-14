@@ -6900,3 +6900,55 @@ Expected contract:
   authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
   preserve unrelated paths and publish only the validated explicit-path diff.
   This is code recovery, not recovery or admission of vendor source bytes.
+
+
+## 2026-10-14 — Keep archived valuation diagnostics closed and reuse A3 test routing
+
+- A legacy CSV may contain PEG or provider P/E without fiscal/accounting/PIT
+  proof. Keep current comparison and ranking authority false; preserve the
+  observed value and its uncertainty rather than manufacturing a current input.
+- Reuse the existing A3 unittest load_tests hook and retain RegistryTests. The
+  current smoke_test CLI has no --only option; scoped PR-runner filtering uses
+  tools/run_pr_validation.py --only smoke_test. Preserve runner/workflow pins.
+- CSV parsing can fail while DictReader obtains headers, before row iteration.
+  Apply the same structured refusal to headers and rows; probe API and CLI in
+  normal and optimized Python with a valid control.
+- Local Native tests do not replace new-head CI and independent A6 review;
+  source-snapshot results alone remain preparation evidence.
+
+## 2026-10-14 — Final-review refusals must preserve provenance and bound reads
+
+- Missing-value source tokens are not provider names. Normalize them before
+  assigning P/E provenance; positive-growth estimates still need usable P/E
+  before reporting that all forward-PEG numeric inputs are present.
+- Validate supplied observation dates even without a cutoff. Use distinct
+  stable reasons for malformed observations and malformed cutoff arguments;
+  missing dates remain missing rather than becoming current or inferred dates.
+- A byte-budget check after read_bytes does not bound CLI allocation. Check the
+  opened file size, then limit the read to budget + 1 to detect concurrent growth.
+- Structured OS read refusals must not serialize private paths or raw errors.
+  Probe real CLI failures and bounded-reader controls, retaining valid controls.
+- An earlier A6 CLEAN is bounded evidence, not authority for later review fixes.
+  Revalidate the changed head and address actionable final-review threads before
+  the review-complete signal or expected-head merge.
+
+## 2026-10-14 — CSV budgets and diagnostics must cover the complete input
+
+- Apply row budgets to all parsed rows before exclusions; CASH rows still cost
+  parsing work. Test leading, interspersed and all-CASH overflow plus boundaries.
+- Read the producer behind legacy source labels. This repository's finnhub P/E
+  label denotes a TTM fallback and must be counted as trailing contamination.
+- Preserve FCF amount and yield independently. A missing amount must not erase
+  an observed zero, negative or positive yield; keep both metrics unverified.
+
+## 2026-10-14 — Executable proof closure and untrusted CSV inputs need hard bounds
+
+- A load_tests hook adds transitive executable files and fixtures to A6 proof
+  inputs. Bind all consumed paths; test real changed proof execution, stale
+  packet refusal and omitted-pin refusal even after packet/scope rehashing.
+- Bound logical CSV records before cell materialization, including multiline
+  headers/data. A byte budget alone does not bound the number of cell objects.
+- Open nonblocking and check the opened descriptor's regular-file type before
+  reading; FIFOs without writers must refuse promptly and descriptors must close.
+- Source-category fields must emit only bounded known labels. Redact unknown
+  values rather than persisting arbitrary credential-like input strings.
