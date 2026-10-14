@@ -7007,6 +7007,9 @@ Expected contract:
   of bypassing the meter with rclone or inventing another account/client.
 - Explicit LF fixtures may test the Linux seed contract on Native Windows;
   never relabel Native CRLF hashes as deployed Git-LF proof.
+- Exercise real HTTPResponse framing over an in-memory transport: read1 EOF
+  can leave Content-Length unsatisfied, while a complete response can close
+  its socket before another timeout update. Retain partial-response budgets.
 - Source test registration extends executable proof closure. Keep protected
   Main code unchanged here and hand any missing mandatory Main pins to its
   owner; Source-only A6 is not a whole-Main approval. See

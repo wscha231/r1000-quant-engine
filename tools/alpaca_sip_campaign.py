@@ -264,9 +264,16 @@ class RuntimeMeter:
                 sock = reply.fp.raw._sock
                 chunks, size = [], 0
                 while True:
+                    # HTTPResponse closes its file as soon as Content-Length
+                    # is satisfied. Do not touch that socket again. Conversely,
+                    # read1 returns EOF without raising on a truncated length.
+                    self.remaining_seconds()
+                    if getattr(reply, "length", None) == 0:
+                        break
                     sock.settimeout(min(25, self.remaining_seconds()))
                     chunk = reply.read1(min(65536, limit + 1 - size))
                     if not chunk:
+                        require(getattr(reply, "length", None) is None, "NETWORK")
                         break
                     chunks.append(chunk)
                     size += len(chunk)

@@ -3,6 +3,7 @@ import copy
 from datetime import timedelta
 from email import policy
 from email.parser import BytesParser
+from http.client import HTTPResponse
 import io
 import json
 import os
@@ -60,6 +61,32 @@ class Opener:
         if self.failure:
             raise self.failure
         return Reply(self.body)
+
+
+class WireOpener:
+    """Real stdlib framing over memory; no socket or network is opened."""
+    def __init__(self, wire):
+        self.wire, self.closed, self.calls = wire, False, 0
+    def settimeout(self, value):
+        if self.closed:
+            raise OSError("already closed socket")
+    def makefile(self, *_):
+        owner = self
+        class Raw(io.RawIOBase):
+            def __init__(self):
+                super().__init__()
+                self._sock, self.data = owner, io.BytesIO(owner.wire)
+            def readable(self): return True
+            def readinto(self, target): return self.data.readinto(target)
+            def close(self):
+                owner.closed = True
+                super().close()
+        return io.BufferedReader(Raw())
+    def open(self, *_args, **_kwargs):
+        self.calls += 1
+        reply = HTTPResponse(self)
+        reply.begin()
+        return reply
 
 
 def meter(directory, opener=None, allowance=None, clock=c.utc, seconds=60):
@@ -149,6 +176,44 @@ class BudgetTests(unittest.TestCase):
                     m.perform('https://www.googleapis.com/drive/v3/about', limit=4)
                 self.assertEqual(m.used['drive_bytes'], 65541)
                 self.assertNotIn('PRIVATE', m.journal.read_text())
+
+    def test_real_http_content_length_completion_and_truncation(self):
+        for url in ('https://www.googleapis.com/drive/v3/about', cap.URL):
+            for length in (2, 99):
+                with self.subTest(url=url, length=length), tempfile.TemporaryDirectory() as temp:
+                    opener = WireOpener(b'HTTP/1.1 200 OK\r\nContent-Length: ' +
+                                        str(length).encode() + b'\r\nConnection: close\r\n\r\n{}')
+                    m = meter(temp, opener)
+                    if length == 2:
+                        self.assertEqual(m.perform(url, limit=100), b'{}')
+                    else:
+                        with self.assertRaisesRegex(c.Refused, '^NETWORK$'):
+                            m.perform(url, limit=100)
+                    self.assertTrue(opener.closed)
+                    if url == cap.URL:
+                        self.assertEqual(m.used['provider_gets'], 1)
+                    else:
+                        self.assertEqual(m.used['drive_bytes'], 65538 if length == 2 else 65637)
+                        self.assertEqual(m.observed_google_body_bytes, 2 if length == 2 else 0)
+                        self.assertEqual(c.bounded_json(m.journal)['usage'], m.used)
+
+    def test_real_http_chunked_and_close_delimited_bodies(self):
+        for headers, body, complete in (
+                (b'Transfer-Encoding: chunked\r\n', b'2\r\n{}\r\n0\r\n\r\n', True),
+                (b'Transfer-Encoding: chunked\r\n', b'9\r\n{}', False),
+                (b'Transfer-Encoding: chunked\r\n', b'2\r\n{}\r\n', False),
+                (b'', b'{}', True)):
+            with self.subTest(headers=headers, body=body), tempfile.TemporaryDirectory() as temp:
+                opener = WireOpener(b'HTTP/1.1 200 OK\r\n' + headers +
+                                    b'Connection: close\r\n\r\n' + body)
+                m = meter(temp, opener)
+                if complete:
+                    self.assertEqual(m.perform('https://www.googleapis.com/drive/v3/about', limit=100), b'{}')
+                else:
+                    with self.assertRaisesRegex(c.Refused, '^NETWORK$'):
+                        m.perform('https://www.googleapis.com/drive/v3/about', limit=100)
+                self.assertTrue(opener.closed)
+                self.assertEqual(m.used['drive_bytes'], 65538 if complete else 65637)
 
     def test_auth_permission_quota_failures_are_charged(self):
         for status, code in [(401, 'AUTH'), (402, 'ENTITLEMENT'), (403, 'PERMISSION'), (429, 'RATE_LIMIT')]:
