@@ -87,10 +87,22 @@ python -B tools/run_pr_validation.py --include a3_candidate_packet_v1_smoke --on
 git diff --check
 ```
 
-The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 45
+The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 55
 valuation-audit tests. Counts represent unique cases, not reruns.
 These local tests and scoped PR-runner checks do not replace required GitHub CI
 or independently supplied exact-head A6 review. Shared tests and lessons use the
 user-approved single Main lane. The separate source-review shadow draft is not
 included in this H1 audit PR. No production score or investment-consumption path
 is changed by the diagnostic tool.
+
+Final-review input corrections normalize missing P/E source markers to unknown,
+validate every supplied observation date independently of an optional cutoff,
+and distinguish missing/nonpositive P/E from present forward-PEG inputs.
+Observation-date errors use `BAD_OBSERVATION_DATE`; invalid cutoff arguments
+retain `BAD_DECISION_CUTOFF_DATE`. Missing dates stay missing.
+
+The CLI checks the opened file size before allocating its payload, then reads at
+most 20,000,001 bytes to detect growth beyond the 20,000,000-byte budget.
+Empty/oversize inputs return `INPUT_BYTE_BUDGET_OR_EMPTY`; OS read failures return
+`INPUT_READ_FAILURE` without a private path or raw exception text. These remain
+diagnostic refusals with all economic authority closed.

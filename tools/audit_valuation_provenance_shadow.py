@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime, timezone
+from datetime import date, datetime
 import hashlib
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 from typing import Any
@@ -63,6 +64,16 @@ def _has(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() not in _INVALID_TOKENS
 
 
+def _parse_date(value: str, reason: str) -> date:
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").date()
+        if parsed.isoformat() != value:
+            raise ValueError("format")
+        return parsed
+    except ValueError as exc:
+        raise AuditInputError(reason) from exc
+
+
 def classify(row: dict[str, str]) -> dict[str, Any]:
     """Conservative assessment of supplied observations; no synthetic fallback."""
     ticker = str(row.get("ticker") or "").strip().upper()
@@ -73,7 +84,8 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
     peg_status = ("MISSING" if peg is None else
                   "NONPOSITIVE_UNUSABLE" if peg <= 0 else
                   "LEGACY_PRESENT_UNVERIFIED")
-    source = str(row.get("forward_pe_source") or "").strip().lower()
+    raw_source = row.get("forward_pe_source")
+    source = raw_source.strip().lower() if _has(raw_source) else ""
     pe_status = ("MISSING" if pe is None else "NONPOSITIVE_UNUSABLE" if pe <= 0 else
                  "TRAILING_MISLABELED_FORWARD" if source in ("ep_ttm", "ttm", "trailing") else
                  "PROVIDER_ONLY_UNVERIFIED" if source else
@@ -83,13 +95,20 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
         forward_status = "FY1_FY2_ESTIMATES_MISSING"
     elif fy1 <= 0 or fy2 <= fy1:
         forward_status = "FY1_FY2_NOT_POSITIVE_GROWTH"
+    elif pe is None:
+        forward_status = "FORWARD_PE_MISSING"
+    elif pe <= 0:
+        forward_status = "FORWARD_PE_NONPOSITIVE_UNUSABLE"
     else:
         # Floats alone cannot attest same identity, GAAP basis, vintage, ADR unit.
         forward_status = "VALUES_PRESENT_NATIVE_IDENTITY_AND_PIT_UNVERIFIED"
     roi_status = "MISSING" if roi is None else "PROXY_NOT_ACTUAL_ROIC"
+    observation_date = row.get("rebalance_date") or None
+    if observation_date is not None:
+        _parse_date(observation_date, "BAD_OBSERVATION_DATE")
     return {
         "ticker": ticker,
-        "observation_date": row.get("rebalance_date") or None,
+        "observation_date": observation_date,
         "legacy_peg": peg,
         "peg_status": peg_status,
         "forward_pe": pe,
@@ -129,12 +148,8 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
         raise AuditInputError("INVALID_OR_DUPLICATE_HEADERS")
     if "ticker" not in fields:
         raise AuditInputError("TICKER_COLUMN_REQUIRED")
-    if decision_cutoff is not None:
-        try:
-            if datetime.strptime(decision_cutoff, "%Y-%m-%d").date().isoformat() != decision_cutoff:
-                raise ValueError("format")
-        except ValueError as exc:
-            raise AuditInputError("BAD_DECISION_CUTOFF_DATE") from exc
+    cutoff = (_parse_date(decision_cutoff, "BAD_DECISION_CUTOFF_DATE")
+              if decision_cutoff is not None else None)
     observations = []
     excluded_non_equity = 0
     seen: set[tuple[str, str]] = set()
@@ -154,13 +169,8 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
             if key in seen:
                 raise AuditInputError("DUPLICATE_SECURITY_DATE")
             seen.add(key)
-            if decision_cutoff is not None and item["observation_date"]:
-                try:
-                    d = datetime.strptime(item["observation_date"], "%Y-%m-%d").date()
-                    cutoff = datetime.strptime(decision_cutoff, "%Y-%m-%d").date()
-                except ValueError as exc:
-                    raise AuditInputError("BAD_DECISION_CUTOFF_DATE") from exc
-                if d > cutoff:
+            if cutoff is not None and item["observation_date"]:
+                if _parse_date(item["observation_date"], "BAD_OBSERVATION_DATE") > cutoff:
                     raise AuditInputError("FUTURE_ARCHIVED_OBSERVATION")
             observations.append(item)
     except (csv.Error, UnicodeError) as exc:
@@ -191,6 +201,17 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
     }
 
 
+def _read_input(path: Path) -> bytes:
+    with path.open("rb") as stream:
+        if os.fstat(stream.fileno()).st_size > _MAX_BYTES:
+            raise AuditInputError("INPUT_BYTE_BUDGET_OR_EMPTY")
+        # Bound allocation even if the file grows or its size is unavailable.
+        raw = stream.read(_MAX_BYTES + 1)
+    if not raw or len(raw) > _MAX_BYTES:
+        raise AuditInputError("INPUT_BYTE_BUDGET_OR_EMPTY")
+    return raw
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-csv", required=True, type=Path)
@@ -198,11 +219,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cutoff-date")
     args = parser.parse_args(argv)
     try:
-        raw = args.input_csv.read_bytes()
+        raw = _read_input(args.input_csv)
         data = audit_bytes(raw, expected_sha256=args.expected_sha256,
                            source_name=args.input_csv.name, decision_cutoff=args.cutoff_date)
     except (OSError, AuditInputError) as exc:
-        print(json.dumps({"schema": SCHEMA, "status": "BLOCKED", "reason": str(exc),
+        reason = "INPUT_READ_FAILURE" if isinstance(exc, OSError) else str(exc)
+        print(json.dumps({"schema": SCHEMA, "status": "BLOCKED", "reason": reason,
                           "authority": SHADOW_AUTHORITY}, sort_keys=True))
         return 2
     print(json.dumps(data, sort_keys=True, allow_nan=False, separators=(",", ":")))

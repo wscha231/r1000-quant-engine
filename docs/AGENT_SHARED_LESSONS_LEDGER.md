@@ -6915,3 +6915,19 @@ Expected contract:
   normal and optimized Python with a valid control.
 - Local Native tests do not replace new-head CI and independent A6 review;
   source-snapshot results alone remain preparation evidence.
+
+## 2026-10-14 — Final-review refusals must preserve provenance and bound reads
+
+- Missing-value source tokens are not provider names. Normalize them before
+  assigning P/E provenance; positive-growth estimates still need usable P/E
+  before reporting that all forward-PEG numeric inputs are present.
+- Validate supplied observation dates even without a cutoff. Use distinct
+  stable reasons for malformed observations and malformed cutoff arguments;
+  missing dates remain missing rather than becoming current or inferred dates.
+- A byte-budget check after read_bytes does not bound CLI allocation. Check the
+  opened file size, then limit the read to budget + 1 to detect concurrent growth.
+- Structured OS read refusals must not serialize private paths or raw errors.
+  Probe real CLI failures and bounded-reader controls, retaining valid controls.
+- An earlier A6 CLEAN is bounded evidence, not authority for later review fixes.
+  Revalidate the changed head and address actionable final-review threads before
+  the review-complete signal or expected-head merge.
