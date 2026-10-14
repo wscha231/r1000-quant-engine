@@ -152,9 +152,9 @@ class FakePrivateDrive:
 
 def saved_checkpoint(drive, names, completed, previous,
                      bad_original=False, bad_normalized=False,
-                     seed_sha=None):
+                     seed_sha=None, source_sha="b" * 40):
     """Realistically shaped SHA-pinned two-basis archive for resume tests."""
-    seed_sha, source_sha = (seed_sha or "a" * 64), "fixture-code-revision"
+    seed_sha = seed_sha or "a" * 64
     start, end = cap.MIN_START, "2026-10-10"
     response = cap.encoded({
         "bars": {name: [bar()] for name in names},
@@ -174,6 +174,8 @@ def saved_checkpoint(drive, names, completed, previous,
         "start": start, "end": end, "asof": cap.mapping_asof(end),
         "pages": pages,
         "raw_adjustments": ["raw", "split"],
+        "pit_verified": False, "historical_identity_verified": False,
+        "commercial_use_authorized": False,
         "source_admission": False,
     }
     raw_archive = cap.zip_bytes({
@@ -197,6 +199,8 @@ def saved_checkpoint(drive, names, completed, previous,
         "source_sha": source_sha, "start": start, "end": end,
         "asof": cap.mapping_asof(end),
         "source_admission": False, "readback_verified": True,
+        "pit_verified": False, "historical_identity_verified": False,
+        "commercial_use_authorized": False,
         "raw_object": raw, "normalized_object": norm,
         "symbols": names, "collected": names, "no_bars": [],
         "pages": 2, "rows": len(rows),
@@ -205,6 +209,7 @@ def saved_checkpoint(drive, names, completed, previous,
     state = {
         "schema": cap.SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
         "source": cap.SOURCE, "seed_sha256": seed_sha,
+        "source_sha": source_sha,
         "start": start, "end": end, "asof": cap.mapping_asof(end),
         "examined": completed, "completed": completed, "held": [],
         "last_status": "VERIFIED_RAW_SPLIT", "last_held": [],
@@ -212,6 +217,7 @@ def saved_checkpoint(drive, names, completed, previous,
         "last_no_bars": [], "previous_checkpoint": previous,
         "historical_identity_verified": False, "pit_verified": False,
         "source_admission": False,
+        "commercial_use_authorized": False,
     }
     return cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
 
@@ -224,7 +230,143 @@ def resume_clean(*args):
     return completed, ref
 
 
+def held_checkpoint(drive, marker_source="b" * 40):
+    marker = {
+        "schema": cap.SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
+        "status": "HELD_BAR_VALUE", "reason": "BAR_VALUE",
+        "source": cap.SOURCE, "source_sha": marker_source,
+        "seed_sha256": "a" * 64, "symbols": ["AAPL"],
+        "start": cap.MIN_START, "end": "2026-10-10", "asof": "2026-10-09",
+        "original_price_bytes_retained": False,
+        "source_admission": False, "pit_verified": False,
+        "historical_identity_verified": False, "commercial_use_authorized": False,
+    }
+    marker_ref = cap.persist_object(drive, drive.folder, cap.encoded(marker), ".json")
+    state = dict(marker, state="PRIVATE_RESEARCH_ONLY", source_sha="b" * 40,
+                 examined=["AAPL"], completed=[], held=["AAPL"],
+                 last_status="HELD_BAR_VALUE", last_objects=[marker_ref],
+                 previous_checkpoint=None, last_collected=[], last_no_bars=[],
+                 last_held=["AAPL"])
+    return cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
+
+
+def rebind_verified(drive, ref, edits):
+    """Append forged objects with every dependent hash and byte count refreshed."""
+    state = cap.decode(drive.read(ref["file_id"]))
+    raw_ref, _, receipt_ref = state["last_objects"]
+    receipt = cap.decode(drive.read(receipt_ref["file_id"]))
+    with zipfile.ZipFile(io.BytesIO(drive.read(raw_ref["file_id"]))) as archive:
+        members = {name: archive.read(name) for name in archive.namelist()}
+    manifest = cap.decode(members["capture.json"])
+    for target, changes in edits.items():
+        obj = {"manifest": manifest, "receipt": receipt, "checkpoint": state}[target]
+        for key, value in changes.items():
+            if value is MISSING:
+                obj.pop(key, None)
+            else:
+                obj[key] = value
+    members["capture.json"] = cap.encoded(manifest)
+    raw_ref = cap.persist_object(drive, drive.folder, cap.zip_bytes(members), ".zip")
+    state["last_objects"][0] = receipt["raw_object"] = raw_ref
+    state["last_objects"][2] = cap.persist_object(
+        drive, drive.folder, cap.encoded(receipt), ".json")
+    return cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
+
+
+MISSING = object()
+
+
 class CorrectionTests(unittest.TestCase):
+    def test_fully_rehashed_unsupported_authority_is_refused(self):
+        flags = ("pit_verified", "historical_identity_verified",
+                 "commercial_use_authorized", "source_admission")
+        for target in ("manifest", "receipt", "checkpoint", "all", "held"):
+            for flag in flags:
+                for value in (True, 1, 0, None, "false", MISSING):
+                    with self.subTest(target=target, flag=flag, value=value):
+                        drive = FakePrivateDrive()
+                        original = (held_checkpoint(drive) if target == "held" else
+                                    saved_checkpoint(drive, ["AAPL"], ["AAPL"], None))
+                        prior_bytes = dict(drive.objects)
+                        # The untouched positive control must restore first.
+                        cap.resume_state(drive, drive.folder, original["file_id"],
+                                         original["sha256"], "a" * 64,
+                                         cap.MIN_START, "2026-10-10")
+                        if target == "held":
+                            state = cap.decode(drive.read(original["file_id"]))
+                            marker = cap.decode(drive.read(state["last_objects"][0]["file_id"]))
+                            if value is MISSING:
+                                marker.pop(flag)
+                            else:
+                                marker[flag] = value
+                            state["last_objects"] = [cap.persist_object(
+                                drive, drive.folder, cap.encoded(marker), ".json")]
+                            forged = cap.persist_object(drive, drive.folder,
+                                                        cap.encoded(state), ".json")
+                        else:
+                            targets = ("manifest", "receipt", "checkpoint") if target == "all" else (target,)
+                            forged = rebind_verified(drive, original,
+                                                     {t: {flag: value} for t in targets})
+                        with self.assertRaises(Refused):
+                            cap.resume_state(drive, drive.folder, forged["file_id"],
+                                             forged["sha256"], "a" * 64,
+                                             cap.MIN_START, "2026-10-10")
+                        self.assertTrue(all(drive.objects[k] == v for k, v in prior_bytes.items()))
+
+    def test_rehashed_receipt_revision_must_match_its_checkpoint(self):
+        for kind in ("held", "verified"):
+            for source in ("c" * 40, "", None, "z" * 40, MISSING):
+                with self.subTest(kind=kind, source=source):
+                    drive = FakePrivateDrive()
+                    if kind == "held":
+                        ref = held_checkpoint(drive)
+                        state = cap.decode(drive.read(ref["file_id"]))
+                        marker = cap.decode(drive.read(state["last_objects"][0]["file_id"]))
+                        if source is MISSING:
+                            marker.pop("source_sha")
+                        else:
+                            marker["source_sha"] = source
+                        state["last_objects"] = [cap.persist_object(
+                            drive, drive.folder, cap.encoded(marker), ".json")]
+                        forged = cap.persist_object(drive, drive.folder, cap.encoded(state), ".json")
+                    else:
+                        ref = saved_checkpoint(drive, ["AAPL"], ["AAPL"], None)
+                        forged = rebind_verified(drive, ref, {
+                            "manifest": {"source_sha": source},
+                            "receipt": {"source_sha": source},
+                        })
+                    with patch.dict("os.environ", {"GITHUB_SHA": "d" * 40}):
+                        cap.resume_state(drive, drive.folder, ref["file_id"],
+                                         ref["sha256"], "a" * 64,
+                                         cap.MIN_START, "2026-10-10")
+                    with self.assertRaises(Refused):
+                        cap.resume_state(drive, drive.folder, forged["file_id"],
+                                         forged["sha256"], "a" * 64,
+                                         cap.MIN_START, "2026-10-10")
+
+    def test_missing_or_invalid_execution_sha_refuses_before_io(self):
+        env = {
+            "A1_PRIVATE_RESEARCH_AUTHORIZED": "true",
+            "ALPACA_NONCOMMERCIAL_ACKNOWLEDGED": "true",
+            "GITHUB_REPOSITORY": cap.REPOSITORY, "GITHUB_REF": "refs/heads/master",
+            "ALPACA_API_KEY": "dummy-key", "ALPACA_API_SECRET": "dummy-secret",
+        }
+        for source in (MISSING, "", "short", "z" * 40, "a" * 39,
+                       "a" * 41, "A" * 40, "a" * 40 + "\n"):
+            with self.subTest(source=source):
+                current = dict(env)
+                if source is not MISSING:
+                    current["GITHUB_SHA"] = source
+                with patch.dict("os.environ", current, clear=True), \
+                     patch.object(Path, "read_bytes") as seed_read, \
+                     patch.object(cap, "OwnerDrive") as drive, \
+                     patch.object(cap, "request_pages") as provider:
+                    with self.assertRaisesRegex(Refused, "^SOURCE_SHA$"):
+                        cap.run(object())
+                    seed_read.assert_not_called()
+                    drive.assert_not_called()
+                    provider.assert_not_called()
+
     def test_shell_inputs_protected_and_rclone_exported(self):
         yml = (Path(__file__).resolve().parents[1] /
                ".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text()
@@ -332,7 +474,7 @@ class CorrectionTests(unittest.TestCase):
             if len(calls) == 1:
                 raise Refused("BAR_VALUE")
             cp = saved_checkpoint(drive_arg, group, group, None,
-                                  seed_sha=seed_sha)
+                                  seed_sha=seed_sha, source_sha=source_sha)
             state = cap.decode(drive_arg.read(cp["file_id"]))
             return state["last_objects"], group, [], 2 * len(group)
         env = {
@@ -340,7 +482,7 @@ class CorrectionTests(unittest.TestCase):
             "ALPACA_NONCOMMERCIAL_ACKNOWLEDGED": "true",
             "GITHUB_REPOSITORY": cap.REPOSITORY,
             "GITHUB_REF": "refs/heads/master",
-            "GITHUB_SHA": "offline-code-sha",
+            "GITHUB_SHA": "b" * 40,
             "ALPACA_API_KEY": "dummy-key",
             "ALPACA_API_SECRET": "dummy-secret",
         }
@@ -374,15 +516,23 @@ class CorrectionTests(unittest.TestCase):
             group = params[2]
             next_calls.append(tuple(group))
             cp = saved_checkpoint(drive, group, group, None,
-                                  seed_sha=params[7])
+                                  seed_sha=params[7], source_sha=params[8])
             st = cap.decode(drive.read(cp["file_id"]))
             return st["last_objects"], group, [], 2 * len(group)
-        with patch.dict("os.environ", env, clear=True), \
+        resumed_output = io.StringIO()
+        with patch.dict("os.environ", dict(env, GITHUB_SHA="c" * 40), clear=True), \
              patch.object(cap, "OwnerDrive", return_value=drive), \
              patch.object(cap, "capture_one_group", side_effect=resumed_capture), \
-             contextlib.redirect_stdout(io.StringIO()):
+             contextlib.redirect_stdout(resumed_output):
             cap.run(args)
         self.assertEqual(next_calls, [tuple(names[8:12])])
+        next_ref = json.loads(resumed_output.getvalue().splitlines()[-1])["checkpoint"]
+        state = cap.decode(drive.read(next_ref["file_id"]))
+        self.assertEqual(state["source_sha"], "c" * 40)
+        self.assertEqual(cap.resume_state(
+            drive, drive.folder, next_ref["file_id"], next_ref["sha256"],
+            cap.digest(cap.SEED.read_bytes()), cap.MIN_START, "2026-10-10",
+        )[:3], (names[:12], names[4:12], names[:4]))
 
     def test_quota_refusal_still_fails_without_hold(self):
         drive = FakePrivateDrive()
@@ -397,6 +547,7 @@ class CorrectionTests(unittest.TestCase):
             "ALPACA_NONCOMMERCIAL_ACKNOWLEDGED": "true",
             "GITHUB_REPOSITORY": cap.REPOSITORY,
             "GITHUB_REF": "refs/heads/master",
+            "GITHUB_SHA": "b" * 40,
             "ALPACA_API_KEY": "dummy-key",
             "ALPACA_API_SECRET": "dummy-secret",
         }
@@ -452,7 +603,7 @@ class CorrectionTests(unittest.TestCase):
                 with patch.dict("os.environ", {"GITHUB_RUN_ID": run_id}):
                     objects, accepted, missing, rows = cap.capture_one_group(
                         drive, drive.folder, ["AAPL"], cap.MIN_START,
-                        "2026-10-10", "key", "secret", "a" * 64, "code-sha")
+                        "2026-10-10", "key", "secret", "a" * 64, "b" * 40)
                     refs.append(objects)
         self.assertEqual(refs[0], refs[1])
         self.assertEqual(drive.write_count, 3)
@@ -491,11 +642,12 @@ class CorrectionTests(unittest.TestCase):
         with patch.object(cap, "request_pages", side_effect=only_missing):
             objects, collected, absent, rows = cap.capture_one_group(
                 drive, drive.folder, ["IPO"], "2016-01-04", "2026-10-10",
-                "key", "secret", "a" * 64, "source-sha")
+                "key", "secret", "a" * 64, "b" * 40)
         self.assertEqual((collected, absent, rows), ([], ["IPO"], 0))
         state = {
             "schema": cap.SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
             "source": cap.SOURCE, "seed_sha256": "a" * 64,
+            "source_sha": "b" * 40,
             "start": "2016-01-04", "end": "2026-10-10",
             "asof": "2026-10-09",
             "examined": ["IPO"], "completed": ["IPO"], "held": [],
@@ -505,6 +657,7 @@ class CorrectionTests(unittest.TestCase):
             "previous_checkpoint": None,
             "historical_identity_verified": False,
             "pit_verified": False, "source_admission": False,
+            "commercial_use_authorized": False,
         }
         checkpoint = cap.persist_object(
             drive, drive.folder, cap.encoded(state), ".json")

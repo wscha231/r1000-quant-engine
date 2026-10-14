@@ -283,6 +283,9 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
                     and manifest.get("asof") == receipt.get("asof")
                     and manifest.get("asof") == mapping_asof(receipt.get("end"))
                     and manifest.get("raw_adjustments") == ["raw", "split"]
+                    and manifest.get("pit_verified") is False
+                    and manifest.get("historical_identity_verified") is False
+                    and manifest.get("commercial_use_authorized") is False
                     and manifest.get("source_admission") is False,
                     "RESUME_MANIFEST")
             evidence = manifest.get("pages")
@@ -399,7 +402,10 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                 and state.get("asof") == asof
                 and state.get("source") == SOURCE
                 and state.get("state") == "PRIVATE_RESEARCH_ONLY"
+                and isinstance(state.get("source_sha"), str)
+                and re.fullmatch(r"[0-9a-f]{40}", state["source_sha"])
                 and state.get("source_admission") is False
+                and state.get("commercial_use_authorized") is False
                 and state.get("historical_identity_verified") is False
                 and state.get("pit_verified") is False,
                 "RESUME_CONTEXT")
@@ -439,6 +445,10 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and receipt.get("start") == start
                     and receipt.get("end") == end
                     and receipt.get("asof") == asof
+                    and receipt.get("source_sha") == state["source_sha"]
+                    and receipt.get("pit_verified") is False
+                    and receipt.get("historical_identity_verified") is False
+                    and receipt.get("commercial_use_authorized") is False
                     and receipt.get("source_admission") is False
                     and receipt.get("readback_verified") is True
                     and receipt.get("raw_object") == refs[0]
@@ -477,7 +487,9 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and marker.get("start") == start
                     and marker.get("end") == end
                     and marker.get("asof") == asof
+                    and marker.get("source_sha") == state["source_sha"]
                     and marker.get("source_admission") is False
+                    and marker.get("commercial_use_authorized") is False
                     and marker.get("pit_verified") is False
                     and marker.get("historical_identity_verified") is False
                     and marker.get("original_price_bytes_retained") is False,
@@ -593,6 +605,8 @@ def run(args):
     require(os.environ.get("GITHUB_REPOSITORY") == REPOSITORY
             and os.environ.get("GITHUB_REF") == "refs/heads/master",
             "REPOSITORY_SCOPE")
+    source_sha = os.environ.get("GITHUB_SHA", "")
+    require(re.fullmatch(r"[0-9a-f]{40}", source_sha), "SOURCE_SHA")
     key = os.getenv("ALPACA_API_KEY", "").strip()
     secret = os.getenv("ALPACA_API_SECRET", "").strip()
     require(key and secret, "CREDENTIALS_MISSING")
@@ -627,7 +641,7 @@ def run(args):
                 objs, accepted, missing, rows = capture_one_group(
                     drive, args.private_data_folder_id, group,
                     args.start, args.end, key, secret, seed_sha,
-                    os.environ.get("GITHUB_SHA", ""),
+                    source_sha,
                 )
             except Refused as exc:
                 # A single invalid numerical bar gives no eligible data
@@ -643,11 +657,13 @@ def run(args):
                     "status": "HELD_BAR_VALUE", "reason": "BAR_VALUE",
                     "symbols": group, "source": SOURCE,
                     "seed_sha256": seed_sha,
+                    "source_sha": source_sha,
                     "start": args.start, "end": args.end,
                     "asof": mapping_asof(args.end),
                     "original_price_bytes_retained": False,
                     "source_admission": False, "pit_verified": False,
                     "historical_identity_verified": False,
+                    "commercial_use_authorized": False,
                 }
                 objs = [persist_object(
                     drive, args.private_data_folder_id,
@@ -668,6 +684,7 @@ def run(args):
             state = {
                 "schema": SCHEMA, "state": "PRIVATE_RESEARCH_ONLY",
                 "source": SOURCE, "seed_sha256": seed_sha,
+                "source_sha": source_sha,
                 "start": args.start, "end": args.end,
                 "asof": mapping_asof(args.end),
                 "examined": examined, "completed": completed,
