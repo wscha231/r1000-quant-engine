@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stderr
+import io
 import json
 from pathlib import Path
 import sys
@@ -537,8 +539,28 @@ class ReportClockTests(unittest.TestCase):
             with self.assertRaises(clock.Blocked): build_monitor(args)
 
 
+class ReportCliTests(unittest.TestCase):
+    def test_report_mode_requires_session_with_normal_argument_error(self):
+        from tools.run_daily_crisis_monitor import parse_args
+        for slot in clock.SLOTS:
+            with patch.object(sys,"argv",["monitor","--report-slot",slot]), redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as caught:
+                    parse_args()
+            self.assertEqual(caught.exception.code,2)
+            self.assertIn("--report-session is required",errors.getvalue())
+            self.assertNotIn("Traceback",errors.getvalue())
+
+    def test_legacy_and_complete_report_arguments_still_parse(self):
+        from tools.run_daily_crisis_monitor import parse_args
+        for arguments in ([],["--report-slot","AFTER_CLOSE","--report-session","2026-10-14"]):
+            with patch.object(sys,"argv",["monitor",*arguments]):
+                args = parse_args()
+            self.assertEqual(args.report_session,"2026-10-14" if arguments else None)
+
+
 def run_tests():
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ReportClockTests))
+    suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in (ReportClockTests,ReportCliTests))
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
     if not result.wasSuccessful(): raise SystemExit(1)
 
 

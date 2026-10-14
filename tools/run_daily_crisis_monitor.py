@@ -396,7 +396,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-source-view-sha256")
     parser.add_argument("--expected-history-sha256")
     parser.add_argument("--expected-history-parent-sha256")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.report_slot and not args.report_session:
+        parser.error("--report-session is required with --report-slot")
+    return args
 
 
 def main() -> int:
