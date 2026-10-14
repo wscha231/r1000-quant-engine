@@ -220,6 +220,20 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    "docs/DAILY_CRISIS_REPORT_CLOCK_HISTORY_V1.md",
+    "tests/fixtures/theme_memory_20260510.csv",
+    "tests/fixtures/theme_memory_members_20260510.csv",
+    "docs/theme_memory_fix_evidence_20261015/manifest.json",
+    "docs/theme_memory_fix_evidence_20261015/20260510_membership_changes.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260510_score_comparison.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260510_themes_after.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260510_themes_before.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260512_membership_changes.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260512_score_comparison.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260512_themes_after.csv",
+    "docs/theme_memory_fix_evidence_20261015/20260512_themes_before.csv",
+    "docs/theme_memory_fix_evidence_20261015/performance_correction.json",
+    "docs/theme_memory_fix_evidence_20261015/recalculation.json",
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
     "tests/fixtures/valuation_provenance/main_19rows_extracted.csv",
     "tests/fixtures/valuation_provenance/concentrated_4rows_extracted.csv",
@@ -387,6 +401,11 @@ A6_FIXED_PROOF_INPUTS = (
     "tools/run_alphaops_replay_sidecars.sh",
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tests/daily_crisis_report_clock_smoke.py',
+    'tools/daily_crisis_report_clock.py',
+    'tests/theme_classification_smoke.py',
+    'tests/alpaca_sip_private_backfill_v1_smoke.py',
+    'tools/alpaca_sip_private_backfill_v1.py',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',
     '.github/workflows/api_credentials_check.yml',

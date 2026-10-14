@@ -199,6 +199,8 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
 
 
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "report_slot", None):
+        return build_clock_report(args)
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -265,6 +267,47 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if args.update_history:
         history_path.parent.mkdir(parents=True, exist_ok=True)
         history_path.write_text(json.dumps(next_history, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def build_clock_report(args: argparse.Namespace) -> dict[str, Any]:
+    """Explicit dry-run route; never overwrite a canonical receipt or send."""
+    from tools import daily_crisis_report_clock as clock
+
+    clock.need(not args.update_history, "CANONICAL_HISTORY_WRITE_NOT_ALLOWED")
+    output = repo_path(args.output_dir).resolve()
+    history_path = repo_path(args.history)
+    inputs = [history_path.resolve(), Path(clock.__file__).resolve(), Path(__file__).resolve()]
+    source_view = getattr(args, "report_source_view", None)
+    source_root = getattr(args, "report_source_root", None)
+    if source_view:
+        inputs.append(repo_path(source_view).resolve())
+        clock.need(source_root is not None, "SOURCE_ROOT_REQUIRED")
+        root = repo_path(source_root).resolve()
+        clock.need(not output.is_relative_to(root) and not root.is_relative_to(output), "INPUT_OUTPUT_OVERLAP")
+    clock.need(not any(p.is_relative_to(output) for p in inputs), "INPUT_OUTPUT_OVERLAP")
+    code_paths = [Path(__file__), Path(clock.__file__), Path(clock.risk.__file__)]
+    code_before = {p.name: clock.digest(clock.bounded(p, 256*1024)) for p in code_paths}
+    previous_raw = clock.bounded(history_path, 65536) if history_path.exists() else None
+    payload = clock.report_cycle(
+        source_view=repo_path(source_view) if source_view else None,
+        source_root=repo_path(source_root) if source_root else None,
+        expected_source_sha=getattr(args, "expected_source_view_sha256", None),
+        session=args.report_session, slot=args.report_slot, recipient=args.report_recipient,
+        now=args.report_now, previous_raw=previous_raw,
+        expected_previous_sha=getattr(args, "expected_history_sha256", None),
+        expected_parent_sha=getattr(args, "expected_history_parent_sha256", None),
+        code_sha=clock.digest(clock.canonical(code_before)),
+    )
+    clock.need(code_before == {p.name: clock.digest(clock.bounded(p, 256*1024)) for p in code_paths}, "CODE_CHANGED")
+    payload["native_code_hashes"] = code_before
+    # Exclusive directory creation prevents an old successful report surviving
+    # a failed rerun under the same output path.
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "summary.json").write_bytes(clock.canonical(payload)+b"\n")
+    (output / "crisis_action_status.md").write_text(clock.render_report(payload), encoding="utf-8")
+    if payload["next_history"] is not None:
+        (output / "report_history.candidate.json").write_bytes(clock.canonical(payload["next_history"])+b"\n")
     return payload
 
 
@@ -336,13 +379,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--long-crisis-features", default="data_pit/macro/long_crisis_daily_features.parquet")
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     parser.add_argument("--update-history", action="store_true")
+    parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
+    parser.add_argument("--report-session")
+    parser.add_argument("--report-recipient", default="research-owner")
+    parser.add_argument("--report-now")
+    parser.add_argument("--report-source-view")
+    parser.add_argument("--report-source-root")
+    parser.add_argument("--expected-source-view-sha256")
+    parser.add_argument("--expected-history-sha256")
+    parser.add_argument("--expected-history-parent-sha256")
     return parser.parse_args()
 
 
 def main() -> int:
     payload = build_monitor(parse_args())
-    print(json.dumps({"state": payload["state"], "raw_state": payload["raw_state"]}, indent=2))
-    return 0
+    print(json.dumps({key: payload.get(key) for key in
+                      ("current_report_status", "data_health", "blockers")}
+                     if "current_report_status" in payload else
+                     {"state": payload["state"], "raw_state": payload["raw_state"]}, indent=2))
+    return 2 if payload.get("current_report_status") == "BLOCKED" else 0
 
 
 if __name__ == "__main__":

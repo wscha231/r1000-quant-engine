@@ -6994,3 +6994,19 @@ Expected contract:
   routing and memory evidence; pin inspectable diagnostic files by manifest hashes.
 - Singular/plural business labels (REIT/REITs) must resolve to the same canonical
   theme; verify missing-sector industry-only inputs as well as full metadata rows.
+
+## 2026-10-15 — Separate report clocks, session counting and delivery authority
+
+- Observation/latest-date is not a publication timestamp. Restore pinned source
+  and state history; date-only vintages, unknown clocks and old successful
+  artifacts cannot authorize a current report. Missing data is not market risk.
+- Intraday and after-close are distinct report slots, but only one completed
+  session may advance history. Keep delivery recipient/session/slot keys separate
+  from source/code analysis keys. Candidate receipts do not establish delivery or
+  canonical history acceptance; scheduled cutover needs a real-input gate.
+- Validate actual Chameleon output fixtures through its canonical contract and
+  preserve the 8-of-10 plus breadth/volatility/credit gate and 2/5 hysteresis.
+  Report-only authority never substitutes for book/ER/downside/cost evidence.
+- Native dependencies must satisfy repository constraints: bundled pandas 3 is
+  outside pandas<3 and can change datetime equality. Validate with scoped pandas
+  2.3, without changing the operating model to accommodate an unsupported runtime.

@@ -110,4 +110,6 @@ def test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise() -> None:
 if __name__ == "__main__":
     test_daily_crisis_monitor_uses_learned_long_crisis_gate()
     test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise()
+    from daily_crisis_report_clock_smoke import run_tests
+    run_tests()
     print("daily_crisis_monitor_long_crisis_smoke: PASS")
