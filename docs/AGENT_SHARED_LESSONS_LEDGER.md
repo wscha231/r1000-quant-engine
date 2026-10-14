@@ -7010,6 +7010,11 @@ Expected contract:
 - Exercise real HTTPResponse framing over an in-memory transport: read1 EOF
   can leave Content-Length unsatisfied, while a complete response can close
   its socket before another timeout update. Retain partial-response budgets.
+- Account permission must cover the whole worker deadline and bind the exact
+  verified comment contents/author identity, not just its mutable URL. A
+  future workflow floor cannot hide an existing campaign; its first dispatch
+  must start at that floor. Normalize short recovery batches to full-batch
+  byte/time equivalents before forecasting the remaining campaign.
 - Source test registration extends executable proof closure. Keep protected
   Main code unchanged here and hand any missing mandatory Main pins to its
   owner; Source-only A6 is not a whole-Main approval. See

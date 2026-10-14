@@ -328,14 +328,24 @@ def campaign_runs(floor=None):
     require(type(payload.get("total_count")) is int and payload["total_count"] <= 100
             and isinstance(payload.get("workflow_runs"), list)
             and len(payload["workflow_runs"]) == payload["total_count"], "CAMPAIGN_HISTORY_INCOMPLETE")
+    runs = [r for r in payload["workflow_runs"] if
+            isinstance(r.get("display_title"), str) and r["display_title"].startswith("a1-sip " + PREFIX)]
     if floor is not None:
-        numbers = {r.get("run_number") for r in payload["workflow_runs"]
-                   if type(r.get("run_number")) is int and r["run_number"] >= floor}
+        require(type(floor) is int and floor > 0
+                and all(type(r.get("run_number")) is int and r["run_number"] > 0
+                        for r in payload["workflow_runs"]), "CAMPAIGN_HISTORY_FLOOR")
+        all_numbers = {r["run_number"] for r in payload["workflow_runs"]}
+        numbers = {number for number in all_numbers if number >= floor}
         require(not numbers or (max(numbers) - floor < 100
                 and numbers == set(range(floor, max(numbers) + 1))),
                 "CAMPAIGN_HISTORY_GAP")
-    runs = [r for r in payload["workflow_runs"] if
-            isinstance(r.get("display_title"), str) and r["display_title"].startswith("a1-sip " + PREFIX)]
+        if runs:
+            # A future floor must never hide an already observed dispatch.
+            require(min(r["run_number"] for r in runs) == floor,
+                    "CAMPAIGN_HISTORY_FLOOR")
+        else:
+            require(floor == max(all_numbers, default=0) + 1,
+                    "CAMPAIGN_HISTORY_FLOOR")
     require(len(runs) <= 40 and len({r["display_title"] for r in runs}) == len(runs),
             "CAMPAIGN_NONCE_REPLAY")
     return sorted(runs, key=lambda r: (r["created_at"], r["id"]))
@@ -393,9 +403,11 @@ def receipt_for_run(run, auth_hash, expected_master):
         require(value["examined_after"] == value["examined_before"]
                 and value["rows_verified"] == value["usage"]["provider_gets"] == value["usage"]["storage_bytes"] == 0,
                 "CAMPAIGN_RECEIPT_PREFLIGHT")
-    elif value["examined_after"] > value["examined_before"]:
+    elif value["examined_after"] > value["examined_before"] or value["usage"]["provider_gets"]:
         require(isinstance(value.get("account_permission_reference_sha256"), str)
                 and re.fullmatch(r"[0-9a-f]{64}", value["account_permission_reference_sha256"])
+                and isinstance(value.get("account_permission_record_sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", value["account_permission_record_sha256"])
                 and value.get("bindings") is not None, "CAMPAIGN_RECEIPT_ACCOUNT")
     return value
 
@@ -429,6 +441,7 @@ def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expir
         previous = runs
     used = {k: 0 for k in LIMITS}
     parent, examined, active, bindings, permission_hash = INITIAL_SHA, 16, 0, None, None
+    permission_record_hash = None
     receipts = []
     durations = []
     values = [receipt_for_run(run, auth_hash, auth["expected_master"]) for run in previous]
@@ -442,11 +455,19 @@ def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expir
             require(bindings is None or bindings == current_bindings, "CAMPAIGN_ACCOUNT_DRIFT")
             bindings = current_bindings
         current_permission = value.get("account_permission_reference_sha256")
+        current_record = value.get("account_permission_record_sha256")
         if current_permission is not None:
             require(isinstance(current_permission, str) and re.fullmatch(r"[0-9a-f]{64}", current_permission),
                     "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
+            require(isinstance(current_record, str) and re.fullmatch(r"[0-9a-f]{64}", current_record),
+                    "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
             require(permission_hash is None or permission_hash == current_permission, "CAMPAIGN_RIGHTS_DRIFT")
+            require(permission_record_hash is None or permission_record_hash == current_record,
+                    "CAMPAIGN_RIGHTS_DRIFT")
             permission_hash = current_permission
+            permission_record_hash = current_record
+        else:
+            require(current_record is None, "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
         require(value.get("parent_checkpoint_sha256") == parent
                 and value.get("examined_before") == examined, "CAMPAIGN_LEDGER_CHAIN")
         after = integer(value.get("examined_after"), 1009)
@@ -472,7 +493,7 @@ def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expir
     if first is not None and enforce_expiry:
         require(utc() < first + timedelta(hours=48), "CAMPAIGN_EXPIRED")
     return dict(runs=runs, receipts=receipts, used=used, active_seconds=active, bindings=bindings,
-                permission_hash=permission_hash,
+                permission_hash=permission_hash, permission_record_hash=permission_record_hash,
                 durations=durations,
                 parent_sha=parent, examined=examined, first=first,
                 remaining={k: LIMITS[k] - used[k] for k in LIMITS})
@@ -488,6 +509,17 @@ def forecast_remaining(observed):
              if r["examined_after"] > r["examined_before"]]
     require(pairs, "CAMPAIGN_CALIBRATION_INPUT")
     captures = [r for r, _ in pairs]
+    # A recovery batch may process only1-4 names. Its total bytes/time cannot
+    # stand in for a future32-name batch. Retain the largest full-batch
+    # equivalent, and measure positive growth per32 names of prefix advance.
+    def full_batch_forecast(values):
+        normalized = [value * 32 / (r["examined_after"] - r["examined_before"])
+                      for r, value in zip(captures, values)]
+        slope = max([0] + [max(0, b - a) * 32 /
+                          (right["examined_before"] - left["examined_before"])
+                          for a, b, left, right in zip(normalized, normalized[1:],
+                                                       captures, captures[1:])])
+        return jobs * max(normalized) + slope * jobs * (jobs + 1) / 2
     estimates = {}
     for key in LIMITS:
         deltas = [r["usage"][key] for r in captures]
@@ -505,12 +537,10 @@ def forecast_remaining(observed):
                 estimate += 8 * math.ceil(prefix / 4) + 28 * math.ceil(size / 4) + overhead
                 prefix += size
         else:
-            slope = max([0] + [b - a for a, b in zip(deltas, deltas[1:])])
-            estimate = jobs * deltas[-1] + slope * jobs * (jobs + 1) / 2
+            estimate = full_batch_forecast(deltas)
         estimates[key] = math.ceil(estimate * 1.25)
     durations = [seconds for _, seconds in pairs]
-    slope = max([0] + [b - a for a, b in zip(durations, durations[1:])])
-    seconds = math.ceil((jobs * durations[-1] + slope * jobs * (jobs + 1) / 2) * 1.25)
+    seconds = math.ceil(full_batch_forecast(durations) * 1.25)
     fits = all(estimates[k] <= observed["remaining"][k] for k in LIMITS)
     fits = fits and seconds <= 28800 - observed["active_seconds"]
     return dict(new_processed=processed, remaining_candidates=remaining_names,
@@ -663,15 +693,19 @@ def worker_deadline(run_id, first):
     return min(start + timedelta(seconds=7100), first + timedelta(hours=48))
 
 
-def verify_account_permission(reference, auth_hash, bindings):
+def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
     # Account rights are an actual owner-attested record, not arbitrary text or
     # an HTTP200 data response. The agent must not manufacture this attestation.
     match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)", reference or "")
     require(match is not None, "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
     comment = gh_json(f"repos/{REPO}/issues/comments/{match[1]}")
+    author = comment.get("user", {})
     require(comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
             and comment.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR")
-            and comment.get("user", {}).get("type") == "User", "CAMPAIGN_ACCOUNT_ATTESTOR")
+            and author.get("type") == "User"
+            and type(comment.get("id")) is int and comment["id"] == int(match[1])
+            and type(author.get("id")) is int and author["id"] > 0,
+            "CAMPAIGN_ACCOUNT_ATTESTOR")
     lines = [line[len("A1_SIP_ACCOUNT_PERMISSION "):] for line in comment.get("body", "").splitlines()
              if line.startswith("A1_SIP_ACCOUNT_PERMISSION ")]
     require(len(lines) == 1 and len(lines[0]) <= 4096, "CAMPAIGN_ACCOUNT_RECORD")
@@ -685,8 +719,19 @@ def verify_account_permission(reference, auth_hash, bindings):
                     "historical_sip_allowed", "private_retention_allowed", "private_noncommercial"))
             and isinstance(record["evidence_reference"], str) and 0 < len(record["evidence_reference"]) <= 512,
             "CAMPAIGN_ACCOUNT_RECORD")
-    require(utc(comment.get("created_at")) <= utc() < utc(record["expires_at_utc"]),
+    now = utc()
+    created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])
+    require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
+            "CAMPAIGN_CLOCK")
+    require(created <= now < valid_through <= expiry,
             "CAMPAIGN_ACCOUNT_EXPIRED")
+    # URL identity alone cannot bind a mutable comment. Record the verified
+    # assertions and immutable issue/comment/author identity, never raw rights
+    # text in the public meter. A later edit must stop the next worker.
+    return digest(encoded(dict(reference=reference, comment_id=comment["id"],
+                               issue_url=comment["issue_url"], author_id=author["id"],
+                               created_at_utc=created.isoformat(),
+                               body_sha256=digest(comment["body"].encode()), record=record)))
 
 
 def worker(args, control, journal):
@@ -713,7 +758,7 @@ def worker(args, control, journal):
     permission = auth.get("account_permission_reference") or control.get("account_permission_reference")
     require(preflight or (isinstance(permission, str) and 0 < len(permission) <= 512),
             "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
-    require(observed.get("permission_hash") is None or
+    require(preflight or observed.get("permission_hash") is None or
             (permission is not None and digest(permission.encode()) == observed["permission_hash"]),
             "CAMPAIGN_RIGHTS_DRIFT")
     if observed["examined"] > 16 and (observed["examined"] - 16) % 128 == 0:
@@ -734,18 +779,23 @@ def worker(args, control, journal):
     expected_key = auth.get("credential_binding") or (prior_bindings or {}).get("credential_binding")
     require(key and secret and (expected_key == actual_key or (preflight and expected_key is None)),
             "CAMPAIGN_CREDENTIAL_BINDING")
+    first = observed["first"] or utc()
+    deadline = worker_deadline(current_id, first)
+    record_hash = None
     if not preflight:
         expected_bindings = prior_bindings or (dict(owner_sha256=digest(auth["owner_permission_id"].encode()),
                                                    credential_binding=actual_key) if auth.get("owner_permission_id") else None)
         require(expected_bindings is not None, "CAMPAIGN_OWNER_BINDING")
-        verify_account_permission(permission, auth_hash, expected_bindings)
-    first = observed["first"] or utc()
-    deadline = worker_deadline(current_id, first)
+        record_hash = verify_account_permission(permission, auth_hash, expected_bindings,
+                                                valid_through=deadline)
+        require(observed.get("permission_record_hash") is None or
+                record_hash == observed["permission_record_hash"], "CAMPAIGN_RIGHTS_DRIFT")
     identity = dict(task_key=TASK, auth_sha256=auth_hash, source_sha=auth["expected_master"],
                     nonce=nonce, run_id=current_id, run_attempt=1,
                     recovery_run=recovered,
                     preflight_only=preflight, bindings=prior_bindings,
-                    account_permission_reference_sha256=digest(permission.encode()) if permission else None,
+                    account_permission_reference_sha256=digest(permission.encode()) if not preflight else None,
+                    account_permission_record_sha256=record_hash,
                     parent_checkpoint_sha256=args.resume_sha256,
                     examined_before=observed["examined"])
     meter = RuntimeMeter(observed["remaining"], journal, deadline.isoformat(), identity)

@@ -317,21 +317,37 @@ class HistoryTests(unittest.TestCase):
         record=dict(task_key=c.TASK,auth_sha256='c'*64,bindings=bindings,
                     agreement_reviewed=True,account_eligible=True,historical_sip_allowed=True,
                     private_retention_allowed=True,private_noncommercial=True,
-                    evidence_reference='SYNTHETIC_OWNER_RECORD',expires_at_utc=(c.utc()+timedelta(hours=1)).isoformat())
-        comment=dict(issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
-                     user=dict(type='User'),created_at=c.utc().isoformat(),
+                    evidence_reference='SYNTHETIC_OWNER_RECORD',expires_at_utc=(c.utc()+timedelta(hours=3)).isoformat())
+        deadline=c.utc()+timedelta(seconds=7100)
+        comment=dict(id=1,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
+                     user=dict(type='User',id=123),created_at=c.utc().isoformat(),
                      body='A1_SIP_ACCOUNT_PERMISSION '+json.dumps(record))
         reference=f'https://github.com/{c.REPO}/issues/448#issuecomment-1'
         with patch.object(c,'gh_json',return_value=comment):
-            c.verify_account_permission(reference,'c'*64,bindings)
+            original_hash=c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline)
+            self.assertRegex(original_hash,r'^[a-f0-9]{64}$')
             for key,value in [('historical_sip_allowed',False),('private_retention_allowed',None),('auth_sha256','d'*64)]:
                 bad=dict(record);bad[key]=value
                 with self.subTest(key=key),patch.object(c,'gh_json',return_value=dict(comment,body='A1_SIP_ACCOUNT_PERMISSION '+json.dumps(bad))),self.assertRaises(c.Refused):
-                    c.verify_account_permission(reference,'c'*64,bindings)
+                    c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline)
             with patch.object(c,'gh_json',return_value=dict(comment,user=dict(type='Bot'))),self.assertRaises(c.Refused):
-                c.verify_account_permission(reference,'c'*64,bindings)
+                c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline)
+            expired_soon=dict(record,expires_at_utc=(c.utc()+timedelta(seconds=30)).isoformat())
+            with patch.object(c,'gh_json',return_value=dict(comment,body='A1_SIP_ACCOUNT_PERMISSION '+json.dumps(expired_soon))),self.assertRaisesRegex(c.Refused,'^CAMPAIGN_ACCOUNT_EXPIRED$'):
+                c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline)
+            for changed in (dict(record,evidence_reference='EDITED_EVIDENCE'),
+                            dict(record,expires_at_utc=(c.utc()+timedelta(hours=4)).isoformat())):
+                with patch.object(c,'gh_json',return_value=dict(comment,body='A1_SIP_ACCOUNT_PERMISSION '+json.dumps(changed))):
+                    self.assertNotEqual(c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline),original_hash)
+            with patch.object(c,'gh_json',return_value=dict(comment,user=dict(type='User',id=124))):
+                self.assertNotEqual(c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline),original_hash)
+            with patch.object(c,'gh_json',return_value=dict(comment,body=comment['body']+'\nChanged owner context')):
+                self.assertNotEqual(c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline),original_hash)
+            exact=dict(record,expires_at_utc=deadline.isoformat())
+            with patch.object(c,'gh_json',return_value=dict(comment,body='A1_SIP_ACCOUNT_PERMISSION '+json.dumps(exact))):
+                self.assertRegex(c.verify_account_permission(reference,'c'*64,bindings,valid_through=deadline),r'^[a-f0-9]{64}$')
         with patch.object(c,'gh_json',side_effect=AssertionError),self.assertRaises(c.Refused):
-            c.verify_account_permission('HTTP200_IS_NOT_LICENSE','c'*64,bindings)
+            c.verify_account_permission('HTTP200_IS_NOT_LICENSE','c'*64,bindings,valid_through=deadline)
     def test_batch_shape_and_partial_recovery_hits128(self):
         sizes=[]; prefix=16
         while prefix<1009:
@@ -356,6 +372,20 @@ class HistoryTests(unittest.TestCase):
         observed['remaining']['provider_gets']=1
         self.assertFalse(c.forecast_remaining(observed)['fits_current_budgets'])
 
+    def test_short_recovery_cannot_replace_full_batch_byte_or_time_forecast(self):
+        receipts=[];prefix=16
+        for size,cost in ((32,100_000_000),(32,100_000_000),(32,100_000_000),
+                          (28,90_000_000),(4,1_000_000)):
+            receipts.append(dict(examined_before=prefix,examined_after=prefix+size,
+                                 usage=dict(provider_gets=0,drive_requests=0,drive_bytes=cost,storage_bytes=0)))
+            prefix+=size
+        observed=dict(examined=144,receipts=receipts,durations=[100,100,100,90,1],
+                      active_seconds=391,remaining=dict(c.LIMITS,drive_bytes=500_000_000))
+        forecast=c.forecast_remaining(observed)
+        self.assertFalse(forecast['fits_current_budgets'])
+        self.assertGreaterEqual(forecast['estimated_remaining']['drive_bytes'],28*100_000_000*1.25)
+        self.assertGreaterEqual(forecast['estimated_remaining_active_seconds'],28*100*1.25)
+
     def test_summary_separates_processing_fields_and_eligibility(self):
         observed=dict(examined=48,used={k:1 for k in c.LIMITS},active_seconds=10,
                       runs=[{}],parent_sha='a'*64,first=None,
@@ -377,6 +407,28 @@ class HistoryTests(unittest.TestCase):
         payload = dict(total_count=2, workflow_runs=[dict(display_title='offline', run_number=1), dict(display_title='offline2', run_number=3)])
         with patch.object(c, 'gh_json', return_value=payload), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_HISTORY_GAP$'):
             c.campaign_runs(1)
+
+    def test_floor_must_bind_the_next_first_dispatch_and_observed_sequence(self):
+        offline=dict(display_title='offline',run_number=10,id=10,created_at=c.utc().isoformat())
+        first=dict(display_title='a1-sip '+c.PREFIX+'a'*24,run_number=11,id=11,created_at=c.utc().isoformat())
+        for runs,floor in (([offline],99),([offline,first],99),([offline,first],10)):
+            with self.subTest(floor=floor,runs=len(runs)),patch.object(c,'gh_json',return_value=dict(total_count=len(runs),workflow_runs=runs)),self.assertRaisesRegex(c.Refused,'^CAMPAIGN_HISTORY_FLOOR$'):
+                c.campaign_runs(floor)
+        with patch.object(c,'gh_json',return_value=dict(total_count=1,workflow_runs=[offline])):
+            self.assertEqual(c.campaign_runs(11),[])
+        with patch.object(c,'gh_json',return_value=dict(total_count=2,workflow_runs=[offline,first])):
+            self.assertEqual(c.campaign_runs(11),[first])
+
+    def test_same_permission_url_with_changed_record_breaks_history(self):
+        a=auth();runs=[dict(id=i,display_title='a1-sip '+c.PREFIX+str(i)*24,
+                          created_at=c.utc().isoformat(),conclusion='success') for i in (1,2)]
+        first=dict(parent_checkpoint_sha256=c.INITIAL_SHA,examined_before=16,examined_after=48,
+                   checkpoint_sha256='b'*64,usage={k:1 for k in c.LIMITS},allowance=dict(c.LIMITS),status='COMPLETE',
+                   account_permission_reference_sha256='c'*64,account_permission_record_sha256='d'*64)
+        second=dict(first,parent_checkpoint_sha256='b'*64,examined_before=48,examined_after=80,
+                    allowance={k:c.LIMITS[k]-1 for k in c.LIMITS},account_permission_record_sha256='e'*64)
+        with patch.object(c,'campaign_runs',return_value=runs),patch.object(c,'receipt_for_run',side_effect=[first,second]),patch.object(c,'job_seconds',return_value=1),self.assertRaisesRegex(c.Refused,'^CAMPAIGN_RIGHTS_DRIFT$'):
+            c.history(a)
 
     def test_rerun_or_wrong_current_nonce_refuses_before_io(self):
         a = auth(); nonce = c.PREFIX + 'a' * 24
@@ -471,7 +523,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ,env,clear=True), \
                 patch.object(c,'history',return_value=observed), patch.object(c,'RuntimeMeter',side_effect=instrument), \
                 patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=7100)), \
-                patch.object(c,'verify_account_permission'), \
+                patch.object(c,'verify_account_permission',return_value='f'*64), \
                 patch.object(cap,'request_pages',side_effect=pages), \
                 patch.object(cap,'resume_state',return_value=(names[:16],names[:16].copy(),[],prior)), \
                 patch.object(cap,'time') as clock, patch.object(drive_module.subprocess,'run',side_effect=AssertionError), \
@@ -502,6 +554,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(receipt['new_states'],dict(VALID_COLLECTED=32,VERIFIED_NO_DATA=0,QUARANTINED=0))
         self.assertEqual(receipt['usage']['storage_bytes'],receipt['confirmed_storage_bytes'])
         self.assertFalse(receipt['source_admission']); self.assertFalse(receipt['pit_verified'])
+        self.assertEqual(receipt['account_permission_record_sha256'],'f'*64)
         self.assertEqual(receipt['status'],'COMPLETE')
 
     def test_unknown_bindings_preflight_reads_only_actual_private_metadata(self):
@@ -513,6 +566,7 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertEqual(receipt['bindings']['credential_binding'],c.digest(b'fixture-key\0fixture-secret'))
         self.assertEqual(receipt['free_bytes_at_start'],5*1024**3)
         self.assertIsNone(receipt['account_permission_reference_sha256'])
+        self.assertIsNone(receipt['account_permission_record_sha256'])
 
     def test_unknown_account_proof_cannot_capture_or_bootstrap(self):
         server=Server();failure,receipt,_=self.execute(server,unknown=True,expected_precondition=True)

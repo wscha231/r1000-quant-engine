@@ -135,6 +135,18 @@ forecast retains full-prefix resume costs and a25% margin. It stops if remaining
 work no longer fits current budgets. Forecasts never override per-request caps
 or certify future completion. Clean batches need no new Work, PR or AI review.
 
+Short recovery batches are normalized to32-name byte/time equivalents; the
+largest observed equivalent and positive prefix-growth rate bound the forecast.
+A small final recovery total cannot replace the cost of a future full batch.
+The first campaign dispatch must equal the authorized workflow run floor;
+before any dispatch the floor must be the next observed workflow number.
+
+Account permission must remain valid through the worker's fixed deadline.
+The meter binds both its comment URL and a canonical record/immutable author
+identity hash, including the exact full comment-body hash. Editing the same
+comment stops subsequent capture; do not edit an active campaign's attestation.
+Metadata-only preflight carries no verified account-permission hash.
+
 The only Actions artifact is typed `campaign_meter.json`, retained7days: hashes,
 counts, conservative charges, observed body/storage totals and bindings. It
 contains no raw prices, private file IDs, credentials or arbitrary error text.
