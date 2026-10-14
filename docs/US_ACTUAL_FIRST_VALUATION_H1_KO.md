@@ -25,8 +25,8 @@
 
 Input GitHub source files at exact master:
 
-- Main: `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`, blob SHA1 `21432762b0016b1c098fe671ebce444a17451df3`. 19 displayed rows including 1 `CASH`; 18 equity rows. PEG 14/18, forward PE 18/18, ROIC proxy 0/18. **No FY1/FY2 estimates in this reduced source format**, no forward P/E origin or full fundamental lineage columns. `fcf_ttm` not in this 149-field output; no claim FCF absent upstream.
-- Concentrated: `cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_portfolio_latest.csv`, blob SHA1 `43871a003aa09645d059ea747fbb9c87e12c6f28`, `rebalance_date=2026-06-24`. Four securities (TKR, AMD, AMAT, WDC), PEG and forward PE 4/4, FY1/FY2 observations 0/4, `roic_approx` 0/4, FCF field 4/4. `forward_pe_source`: one `ep_ttm`, three `finnhub`; provider-only is not equivalent to verified earnings basis. Some high/low PEG figures should **not** be interpreted as cheap/expensive without source identity.
+- Main: `cloud_results/full_rebuild/latest_global_alpha_universe/portfolio_latest.csv`, blob SHA1 `21432762b0016b1c098fe671ebce444a17451df3`. 19 displayed rows including 1 `CASH`; 18 equity rows. PEG 14/18, forward PE 18/18, ROIC proxy 0/18. **No FY1/FY2 estimates in this reduced source format**, no forward P/E origin or full fundamental lineage columns. `fcf_ttm` not in this 149-field output; `fcfy_ttm` observations exist for 15/18 equity rows and are preserved separately as unverified yields. No claim FCF absent upstream.
+- Concentrated: `cloud_results/full_rebuild/latest_global_alpha_universe/concentrated_portfolio_latest.csv`, blob SHA1 `43871a003aa09645d059ea747fbb9c87e12c6f28`, `rebalance_date=2026-06-24`. Four securities (TKR, AMD, AMAT, WDC), PEG and forward PE 4/4, FY1/FY2 observations 0/4, `roic_approx` 0/4, FCF amount/yield fields 4/4. `forward_pe_source`: one `ep_ttm`, three `finnhub`; this repository's producer assigns `finnhub` to the TTM fallback, so all four are labeled trailing P/E masquerading as forward. Some high/low PEG figures should **not** be interpreted as cheap/expensive without source identity.
 
 Derived subsets in `evidence/` and frozen smoke fixtures are **reduced-column extracts**, not original repository Git blobs. Their SHA-256 values cover those derived CSVs only; upstream original Git blob SHA1 is recorded separately. Source authenticity/PIT not proven by this script.
 
@@ -87,7 +87,7 @@ python -B tools/run_pr_validation.py --include a3_candidate_packet_v1_smoke --on
 git diff --check
 ```
 
-The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 55
+The integrated A3 entrypoint contains 92 existing A3/Registry tests plus 60
 valuation-audit tests. Counts represent unique cases, not reruns.
 These local tests and scoped PR-runner checks do not replace required GitHub CI
 or independently supplied exact-head A6 review. Shared tests and lessons use the
@@ -106,3 +106,9 @@ most 20,000,001 bytes to detect growth beyond the 20,000,000-byte budget.
 Empty/oversize inputs return `INPUT_BYTE_BUDGET_OR_EMPTY`; OS read failures return
 `INPUT_READ_FAILURE` without a private path or raw exception text. These remain
 diagnostic refusals with all economic authority closed.
+
+The 5,000-row budget covers all parsed data rows, including excluded CASH rows.
+P/E source labels follow this repository's legacy producer: `finnhub` denotes
+the known TTM fallback, not an unspecified provider basis. `fcf_ttm` amount and
+`fcfy_ttm` yield retain separate numeric observations, statuses and presence
+counts; yield presence does not manufacture a cash-flow amount or source proof.

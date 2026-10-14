@@ -79,15 +79,15 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
     ticker = str(row.get("ticker") or "").strip().upper()
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9.\-]{0,15}", ticker):
         raise AuditInputError("INVALID_TICKER")
-    peg, pe, roi, fcf = (number(row.get(field)) for field in
-                           ("peg_final", "forward_pe_final", "roic_approx", "fcf_ttm"))
+    peg, pe, roi, fcf, fcfy = (number(row.get(field)) for field in
+                           ("peg_final", "forward_pe_final", "roic_approx", "fcf_ttm", "fcfy_ttm"))
     peg_status = ("MISSING" if peg is None else
                   "NONPOSITIVE_UNUSABLE" if peg <= 0 else
                   "LEGACY_PRESENT_UNVERIFIED")
     raw_source = row.get("forward_pe_source")
     source = raw_source.strip().lower() if _has(raw_source) else ""
     pe_status = ("MISSING" if pe is None else "NONPOSITIVE_UNUSABLE" if pe <= 0 else
-                 "TRAILING_MISLABELED_FORWARD" if source in ("ep_ttm", "ttm", "trailing") else
+                 "TRAILING_MISLABELED_FORWARD" if source in ("ep_ttm", "ttm", "trailing", "finnhub") else
                  "PROVIDER_ONLY_UNVERIFIED" if source else
                  "ORIGIN_UNKNOWN_UNVERIFIED")
     fy1, fy2 = number(row.get("eps_est_fy1")), number(row.get("eps_est_fy2"))
@@ -120,6 +120,8 @@ def classify(row: dict[str, str]) -> dict[str, Any]:
         "roic_status": roi_status,
         "fcf_ttm": fcf,
         "fcf_status": "PRESENT_SOURCE_PROOF_UNVERIFIED" if fcf is not None else "MISSING",
+        "fcfy_ttm": fcfy,
+        "fcfy_status": "PRESENT_SOURCE_PROOF_UNVERIFIED" if fcfy is not None else "MISSING",
         "fundamental_source": row.get("fund_source") or None,
         "fundamental_publication_proof": "NOT_ESTABLISHED_BY_SCORE_CSV",
         "current_valuation_comparison_allowed": False,
@@ -154,8 +156,8 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
     excluded_non_equity = 0
     seen: set[tuple[str, str]] = set()
     try:
-        for row in reader:
-            if len(observations) >= _MAX_ROWS:
+        for parsed_rows, row in enumerate(reader, start=1):
+            if parsed_rows > _MAX_ROWS:
                 raise AuditInputError("ROW_BUDGET_EXCEEDED")
             if None in row:
                 raise AuditInputError("MALFORMED_CSV_EXTRA_FIELD")
@@ -178,7 +180,7 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
     if not observations:
         raise AuditInputError("NO_CANDIDATES")
     summary: dict[str, int] = {}
-    for key in ("peg_status", "pe_status", "forward_peg_v2_status", "roic_status", "fcf_status"):
+    for key in ("peg_status", "pe_status", "forward_peg_v2_status", "roic_status", "fcf_status", "fcfy_status"):
         for row in observations:
             k = f"{key}:{row[key]}"
             summary[k] = summary.get(k, 0) + 1
@@ -192,7 +194,7 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
         "observation_dates": sorted({r["observation_date"] for r in observations if r["observation_date"]}),
         "observed_field_presence": {
             k: sum(r[k] is not None for r in observations)
-            for k in ("legacy_peg", "forward_pe", "roic_approx", "fcf_ttm")
+            for k in ("legacy_peg", "forward_pe", "roic_approx", "fcf_ttm", "fcfy_ttm")
         },
         "status_counts": dict(sorted(summary.items())),
         "results": observations,

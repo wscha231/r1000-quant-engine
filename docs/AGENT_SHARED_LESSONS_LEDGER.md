@@ -6931,3 +6931,12 @@ Expected contract:
 - An earlier A6 CLEAN is bounded evidence, not authority for later review fixes.
   Revalidate the changed head and address actionable final-review threads before
   the review-complete signal or expected-head merge.
+
+## 2026-10-14 — CSV budgets and diagnostics must cover the complete input
+
+- Apply row budgets to all parsed rows before exclusions; CASH rows still cost
+  parsing work. Test leading, interspersed and all-CASH overflow plus boundaries.
+- Read the producer behind legacy source labels. This repository's finnhub P/E
+  label denotes a TTM fallback and must be counted as trailing contamination.
+- Preserve FCF amount and yield independently. A missing amount must not erase
+  an observed zero, negative or positive yield; keep both metrics unverified.

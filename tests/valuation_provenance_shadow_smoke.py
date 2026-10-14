@@ -38,9 +38,10 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(out['observed_field_presence']['forward_pe'], 4)
         self.assertEqual(out['observed_field_presence']['roic_approx'], 0)
         self.assertEqual(out['observed_field_presence']['fcf_ttm'], 4)
+        self.assertEqual(out['observed_field_presence']['fcfy_ttm'], 4)
         self.assertEqual(out['status_counts']['forward_peg_v2_status:FY1_FY2_ESTIMATES_MISSING'], 4)
-        self.assertEqual(out['status_counts']['pe_status:TRAILING_MISLABELED_FORWARD'], 1)
-        self.assertEqual(out['status_counts']['pe_status:PROVIDER_ONLY_UNVERIFIED'], 3)
+        self.assertEqual(out['status_counts']['pe_status:TRAILING_MISLABELED_FORWARD'], 4)
+        self.assertNotIn('pe_status:PROVIDER_ONLY_UNVERIFIED', out['status_counts'])
         self.assertEqual({x['ticker'] for x in out['results']}, {'TKR','AMD','AMAT','WDC'})
         self.assertTrue(all(x['forward_peg_v2'] is None for x in out['results']))
 
@@ -53,6 +54,10 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(out['observed_field_presence']['forward_pe'], 18)
         self.assertEqual(out['observed_field_presence']['roic_approx'], 0)
         self.assertEqual(out['observed_field_presence']['fcf_ttm'], 0)
+        self.assertEqual(out['observed_field_presence']['fcfy_ttm'], 15)
+        self.assertEqual(out['status_counts']['fcfy_status:PRESENT_SOURCE_PROOF_UNVERIFIED'], 15)
+        self.assertEqual(out['status_counts']['fcfy_status:MISSING'], 3)
+        self.assertLess(next(x['fcfy_ttm'] for x in out['results'] if x['ticker']=='NUE'), 0)
         self.assertTrue(all(x['pe_status'] == 'ORIGIN_UNKNOWN_UNVERIFIED' for x in out['results']))
         self.assertGreater(next(x['legacy_peg'] for x in out['results'] if x['ticker']=='BE'), 70)
 
@@ -89,7 +94,7 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(row['forward_peg_v2_status'],'FY1_FY2_NOT_POSITIVE_GROWTH')
 
     def test_non_gaap_not_inferred_from_pe(self):
-        row = mod.classify({'ticker':'AAA','forward_pe_final':'30','forward_pe_source':'finnhub','peg_final':'0.25'})
+        row = mod.classify({'ticker':'AAA','forward_pe_final':'30','forward_pe_source':'alpha_vantage','peg_final':'0.25'})
         self.assertEqual(row['peg_status'],'LEGACY_PRESENT_UNVERIFIED')
         self.assertEqual(row['pe_status'],'PROVIDER_ONLY_UNVERIFIED')
         self.assertIsNone(row['forward_peg_v2'])
@@ -105,11 +110,11 @@ class AuditTests(unittest.TestCase):
                                     'forward_pe_source': source})
                 self.assertEqual(row['pe_status'], 'ORIGIN_UNKNOWN_UNVERIFIED')
                 self.assertIsNone(row['forward_pe_source'])
-        for source in (' FINNHUB ', 'ep_ttm', 'TTM', 'trailing'):
+        for source in (' alpha_vantage ', ' FINNHUB ', 'ep_ttm', 'TTM', 'trailing'):
             with self.subTest(source=source):
                 row = mod.classify({'ticker': 'AAA', 'forward_pe_final': '20',
                                     'forward_pe_source': source})
-                expected = ('PROVIDER_ONLY_UNVERIFIED' if source.strip() == 'FINNHUB'
+                expected = ('PROVIDER_ONLY_UNVERIFIED' if source.strip() == 'alpha_vantage'
                             else 'TRAILING_MISLABELED_FORWARD')
                 self.assertEqual(row['pe_status'], expected)
                 self.assertEqual(row['forward_pe_source'], source.strip().lower())
@@ -186,6 +191,40 @@ class AuditTests(unittest.TestCase):
         row=mod.classify({'ticker':'AAA','fcf_ttm':'0'})
         self.assertEqual(row['fcf_status'],'PRESENT_SOURCE_PROOF_UNVERIFIED')
 
+    def test_fcf_yield_values_and_missing_inputs_preserved(self):
+        for value, expected in ((None, None), ('', None), ('nan', None), ('inf', None),
+                                ('0', 0.0), ('-0.01', -0.01), ('0.02', 0.02)):
+            with self.subTest(value=value):
+                row = mod.classify({'ticker': 'AAA', 'fcfy_ttm': value})
+                self.assertEqual(row['fcfy_ttm'], expected)
+                self.assertEqual(row['fcfy_status'], 'MISSING' if expected is None
+                                 else 'PRESENT_SOURCE_PROOF_UNVERIFIED')
+                self.assertIsNone(row['fcf_ttm'])
+                self.assertEqual(row['fcf_status'], 'MISSING')
+                self.assertFalse(row['current_valuation_comparison_allowed'])
+        row = mod.classify({'ticker': 'AAA', 'fcf_ttm': '100', 'fcfy_ttm': '0.02'})
+        self.assertEqual(row['fcf_ttm'], 100)
+        self.assertEqual(row['fcfy_ttm'], 0.02)
+
+    def test_yield_only_csv_api_and_cli_preserve_independent_metric(self):
+        raw = b'ticker,fcfy_ttm\nAAA,0.02\nBBB,-0.01\nCCC,\n'
+        out = mod.audit_bytes(raw)
+        self.assertEqual(out['observed_field_presence']['fcf_ttm'], 0)
+        self.assertEqual(out['observed_field_presence']['fcfy_ttm'], 2)
+        self.assertEqual(out['status_counts']['fcfy_status:PRESENT_SOURCE_PROOF_UNVERIFIED'], 2)
+        self.assertEqual(out['status_counts']['fcfy_status:MISSING'], 1)
+        self.assertEqual([r['fcfy_ttm'] for r in out['results']], [0.02, -0.01, None])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'yield-only.csv'
+            path.write_bytes(raw)
+            for flags in ([], ['-O']):
+                run = subprocess.run([sys.executable, '-B', *flags, str(FILE),
+                                      '--input-csv', str(path)], capture_output=True,
+                                     text=True, check=False)
+                self.assertEqual(run.returncode, 0)
+                self.assertEqual(json.loads(run.stdout), mod.audit_bytes(raw, source_name=path.name))
+                self.assertEqual(run.stderr, '')
+
     def test_no_issuer_source_claim(self):
         row=mod.classify({'ticker':'AAA','fund_source':'companyfacts','fcf_ttm':'10'})
         self.assertEqual(row['fundamental_publication_proof'],'NOT_ESTABLISHED_BY_SCORE_CSV')
@@ -201,6 +240,42 @@ class AuditTests(unittest.TestCase):
     def test_only_cash_fails(self):
         with self.assertRaisesRegex(mod.AuditInputError,'NO_CANDIDATES'):
             mod.audit_bytes(make_csv('CASH,2026-01-01,,,,,,,\n'))
+
+    def test_row_budget_counts_cash_and_equities(self):
+        limit = mod._MAX_ROWS
+        payloads = [b'ticker\n' + b'CASH\n' * (limit + 1),
+                    b'ticker\n' + b'CASH\n' * limit + b'AAA\n',
+                    ('ticker\n' + ''.join(f'CASH\nA{i}\n' for i in range(limit // 2))
+                     + 'CASH\n').encode(),
+                    ('ticker\n' + ''.join(f'A{i}\n' for i in range(limit + 1))).encode()]
+        for raw in payloads:
+            with self.subTest(size=len(raw)):
+                with self.assertRaisesRegex(mod.AuditInputError, '^ROW_BUDGET_EXCEEDED$'):
+                    mod.audit_bytes(raw)
+
+    def test_row_budget_boundary_preserves_candidate_and_cash_counts(self):
+        limit = mod._MAX_ROWS
+        out = mod.audit_bytes(b'ticker\n' + b'CASH\n' * (limit - 1) + b'AAA\n')
+        self.assertEqual(out['row_count'], 1)
+        self.assertEqual(out['excluded_non_equity_rows'], limit - 1)
+        raw = ('ticker\n' + ''.join(f'A{i}\n' for i in range(limit))).encode()
+        self.assertEqual(mod.audit_bytes(raw)['row_count'], limit)
+        with self.assertRaisesRegex(mod.AuditInputError, '^NO_CANDIDATES$'):
+            mod.audit_bytes(b'ticker\n' + b'CASH\n' * limit)
+
+    def test_cli_cash_rows_exceed_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'cash-over-budget.csv'
+            path.write_bytes(b'ticker\n' + b'CASH\n' * (mod._MAX_ROWS + 1))
+            for flags in ([], ['-O']):
+                run = subprocess.run([sys.executable, '-B', *flags, str(FILE),
+                                      '--input-csv', str(path)], capture_output=True,
+                                     text=True, check=False)
+                self.assertEqual(run.returncode, 2)
+                out = json.loads(run.stdout)
+                self.assertEqual(out['reason'], 'ROW_BUDGET_EXCEEDED')
+                self.assertFalse(out['authority']['ranking_allowed'])
+                self.assertEqual(run.stderr, '')
 
     def test_duplicate_header_fails(self):
         with self.assertRaisesRegex(mod.AuditInputError,'INVALID_OR_DUPLICATE_HEADERS'):
