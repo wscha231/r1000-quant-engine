@@ -6941,6 +6941,16 @@ Expected contract:
 - Preserve FCF amount and yield independently. A missing amount must not erase
   an observed zero, negative or positive yield; keep both metrics unverified.
 
+## 2026-10-14 — Keep historical reuse positives separate from current-code refusals
+
+- A valid code change may deliberately invalidate a historical reuse catalog.
+  Preserve that refusal; do not silently rehash/re-certify the historical row.
+- Positive preflight tests use exact reviewed dependency bytes only in isolated
+  fixtures. Independently check current/changed bytes through API and CLI,
+  including a freshly rebound task that retains the old catalog pins.
+- Bind any new archived fixture in A6 proof inputs. Canonical Git LF hashes
+  and Native CRLF hashes are different contexts, never interchangeable proof.
+
 ## 2026-10-14 — Executable proof closure and untrusted CSV inputs need hard bounds
 
 - A load_tests hook adds transitive executable files and fixtures to A6 proof
@@ -6952,3 +6962,17 @@ Expected contract:
   reading; FIFOs without writers must refuse promptly and descriptors must close.
 - Source-category fields must emit only bounded known labels. Redact unknown
   values rather than persisting arbitrary credential-like input strings.
+
+## 2026-10-14 — Bound archived Manual Foundation fixtures before allocation (#609 P2)
+
+- A post-read byte budget does not bound allocation, including generic setUp
+  dependency copies. Route every read of the archive through one bounded helper.
+- Open worktree files nonblocking, require a stable regular-file descriptor,
+  cap the read at 64 KiB+1, and refuse growth or replacement. For sparse inputs,
+  inspect the immutable Git blob size before reading the same OID with a cap.
+- Keep the historical decompression/hash pin, catalog classification and actual
+  current-source API/CLI refusals. Register regression methods in ManualTests,
+  which the existing proof entrypoint actually loads.
+- Reusing a clean, already merged Main worktree does not require creating a new
+  worktree; record the explicit lane handoff and scoped local lock separately
+  from any unobserved global or Windows lease. Linux QA is not Windows QA.

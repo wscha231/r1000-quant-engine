@@ -220,6 +220,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
     "tests/fixtures/valuation_provenance/main_19rows_extracted.csv",
     "tests/fixtures/valuation_provenance/concentrated_4rows_extracted.csv",
     "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import copy
 import contextlib
+import gzip
 import hashlib
 import io
 import json
@@ -12,6 +13,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -35,6 +37,8 @@ def independent_hash(value, excluded):
 
 
 def fixture_dependency_bytes(name, source_commit):
+    if name == HISTORICAL_LAKE_FIXTURE:
+        return _historical_lake_archive_bytes(source_commit)
     source = ROOT / name
     if source.is_symlink():
         raise FileNotFoundError(str(source))
@@ -50,6 +54,87 @@ def fixture_dependency_bytes(name, source_commit):
             raise
         return subprocess.check_output(['git', 'cat-file', 'blob', fields[2].decode()],
                                        cwd=ROOT, stderr=subprocess.PIPE)
+
+
+HISTORICAL_LAKE_FIXTURE = 'tests/fixtures/manual_foundation_long_history_lake_v1.py.gz'
+HISTORICAL_LAKE_SHA256 = 'fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4064bda3b8c'
+
+
+def _historical_lake_archive_bytes(source_commit):
+    """Bound every archive read, including the generic setUp dependency copy."""
+    limit = 64 * 1024
+    source = ROOT / HISTORICAL_LAKE_FIXTURE
+    try:
+        before = source.lstat()
+    except FileNotFoundError:
+        before = None
+    if before is not None:
+        def identity(info):
+            # Do not compare ctime: Native Windows stat/fstat differ there.
+            return (info.st_dev, info.st_ino, info.st_mode,
+                    info.st_size, info.st_mtime_ns)
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= limit:
+            raise ValueError('historical_fixture_size')
+        flags = (os.O_RDONLY | getattr(os, 'O_BINARY', 0) |
+                 getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0))
+        descriptor = os.open(source, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if identity(opened) != identity(before):
+                raise ValueError('historical_fixture_size')
+            with os.fdopen(descriptor, 'rb', closefd=False) as handle:
+                raw = handle.read(limit + 1)
+            if (len(raw) != opened.st_size or not 0 < len(raw) <= limit or
+                    identity(os.fstat(descriptor)) != identity(opened) or
+                    identity(source.lstat()) != identity(opened)):
+                raise ValueError('historical_fixture_size')
+            return raw
+        finally:
+            os.close(descriptor)
+    entry = subprocess.check_output(
+        ['git', 'ls-tree', '-z', source_commit, '--', HISTORICAL_LAKE_FIXTURE],
+        cwd=ROOT, stderr=subprocess.DEVNULL, timeout=15)
+    metadata, separator, path = entry.rstrip(b'\0').partition(b'\t')
+    fields = metadata.split()
+    if (not separator or path != HISTORICAL_LAKE_FIXTURE.encode() or len(fields) != 3 or
+            fields[0] not in (b'100644', b'100755') or fields[1] != b'blob' or
+            re.fullmatch(rb'[0-9a-f]{40}|[0-9a-f]{64}', fields[2]) is None):
+        raise ValueError('historical_fixture_size')
+    oid = fields[2].decode()
+    size_text = subprocess.check_output(['git', 'cat-file', '-s', oid],
+        cwd=ROOT, stderr=subprocess.DEVNULL, timeout=15).strip()
+    if not size_text.isdigit() or len(size_text) > 8:
+        raise ValueError('historical_fixture_size')
+    size = int(size_text)
+    if not 0 < size <= limit:
+        raise ValueError('historical_fixture_size')
+    # Read the same immutable OID only after its size passed. Cap stdout too.
+    process = subprocess.Popen(['git', 'cat-file', 'blob', oid],
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        raw = process.stdout.read(limit + 1)
+        if len(raw) != size or not 0 < len(raw) <= limit:
+            raise ValueError('historical_fixture_size')
+        if process.wait(timeout=15) != 0:
+            raise ValueError('historical_fixture_size')
+        return raw
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=15)
+        process.stdout.close()
+
+
+def historical_lake_fixture_bytes():
+    # This is an immutable positive test input, never current reuse evidence.
+    compressed = fixture_dependency_bytes(HISTORICAL_LAKE_FIXTURE, 'HEAD')
+    if not 0 < len(compressed) <= 64 * 1024:
+        raise ValueError('historical_fixture_size')
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as handle:
+        raw = handle.read(64 * 1024 + 1)
+    if len(raw) != 53726 or hashlib.sha256(raw).hexdigest() != HISTORICAL_LAKE_SHA256:
+        raise ValueError('historical_fixture_hash')
+    return raw
 
 
 class ManualTests(unittest.TestCase):
@@ -71,6 +156,14 @@ class ManualTests(unittest.TestCase):
             # Sparse CI omits some tracked proof inputs. Reconstruct only this
             # temporary fixture from one immutable checked-out Git snapshot.
             target.write_bytes(fixture_dependency_bytes(name, source_commit))
+        # Historical catalog positives must not silently follow later code.
+        # Restore only the exact reviewed Lake bytes inside this temporary root.
+        # Current-source refusal is tested separately; production lookup is intact.
+        catalog = manual.load_catalog(self.root)
+        if any(row['classification'] == 'REUSE_NOW' and
+               row['dependency_hashes'].get('tools/long_history_lake.py') == HISTORICAL_LAKE_SHA256
+               for row in catalog['entries']):
+            (self.root / 'tools/long_history_lake.py').write_bytes(historical_lake_fixture_bytes())
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
@@ -1498,6 +1591,114 @@ class ManualTests(unittest.TestCase):
             if row['source_kind'] == 'ISSUE':
                 self.assertEqual(row['source_heads'], {})
         self.assertEqual(catalog['do_not_repeat_registry'], manual.DNR)
+
+    def test_historical_archive_worktree_limit_before_allocation(self):
+        path = self.root / HISTORICAL_LAKE_FIXTURE
+        for size in (0, 64 * 1024 + 1):
+            with self.subTest(size=size):
+                path.write_bytes(b'x' * size)
+                with patch.dict(globals(), {'ROOT': self.root}):
+                    with patch('os.open', side_effect=AssertionError('archive opened')):
+                        with self.assertRaisesRegex(ValueError, 'historical_fixture_size'):
+                            fixture_dependency_bytes(HISTORICAL_LAKE_FIXTURE, 'HEAD')
+
+    def test_historical_archive_growth_stays_bounded(self):
+        path = self.root / HISTORICAL_LAKE_FIXTURE
+        path.write_bytes(b'x')
+        original = os.fdopen
+        requests = []
+        class Handle:
+            def __init__(self, handle): self.handle = handle
+            def __enter__(self): return self
+            def __exit__(self, *args): self.handle.close()
+            def read(self, size=-1):
+                requests.append(size)
+                with path.open('ab') as output:
+                    output.write(b'x' * (64 * 1024 + 10))
+                return self.handle.read(size)
+        def wrap(*args, **kwargs): return Handle(original(*args, **kwargs))
+        with patch.dict(globals(), {'ROOT': self.root}):
+            with patch('os.fdopen', side_effect=wrap):
+                with self.assertRaisesRegex(ValueError, 'historical_fixture_size'):
+                    fixture_dependency_bytes(HISTORICAL_LAKE_FIXTURE, 'HEAD')
+        self.assertEqual(requests, [64 * 1024 + 1])
+
+    def test_historical_archive_sparse_size_precedes_blob(self):
+        (self.root / HISTORICAL_LAKE_FIXTURE).unlink()
+        oid = 'a' * 40
+        entry = b'100644 blob ' + oid.encode() + b'\t' + HISTORICAL_LAKE_FIXTURE.encode() + b'\0'
+        def metadata(command, **kwargs):
+            if command[1] == 'ls-tree': return entry
+            self.assertEqual(command, ['git', 'cat-file', '-s', oid])
+            return b'65537\n'
+        with patch.dict(globals(), {'ROOT': self.root}):
+            with patch('subprocess.check_output', side_effect=metadata):
+                with patch('subprocess.Popen', side_effect=AssertionError('blob opened')):
+                    with self.assertRaisesRegex(ValueError, 'historical_fixture_size'):
+                        fixture_dependency_bytes(HISTORICAL_LAKE_FIXTURE, 'HEAD')
+
+    def test_historical_archive_sparse_valid_read_is_capped(self):
+        (self.root / HISTORICAL_LAKE_FIXTURE).unlink()
+        oid = 'a' * 40
+        entry = b'100644 blob ' + oid.encode() + b'\t' + HISTORICAL_LAKE_FIXTURE.encode() + b'\0'
+        def metadata(command, **kwargs):
+            if command[1] == 'ls-tree': return entry
+            self.assertEqual(command, ['git', 'cat-file', '-s', oid])
+            return b'7\n'
+        with patch.dict(globals(), {'ROOT': self.root}):
+            with patch('subprocess.check_output', side_effect=metadata):
+                with patch('subprocess.Popen') as popen:
+                    process = popen.return_value
+                    process.stdout.read.return_value = b'archive'
+                    process.wait.return_value = 0
+                    process.poll.return_value = 0
+                    self.assertEqual(fixture_dependency_bytes(HISTORICAL_LAKE_FIXTURE, 'HEAD'), b'archive')
+                    self.assertEqual(popen.call_args.args[0], ['git', 'cat-file', 'blob', oid])
+                    process.stdout.read.assert_called_once_with(64 * 1024 + 1)
+                    process.stdout.close.assert_called_once_with()
+
+    def test_historical_lake_positive_does_not_recertify_changed_source(self):
+        name = 'tools/long_history_lake.py'
+        frozen = historical_lake_fixture_bytes()
+        target = self.root / name
+        self.assertEqual(target.read_bytes(), frozen)
+        catalog_before = (self.root / manual.CATALOG).read_bytes()
+        current = fixture_dependency_bytes(name, 'HEAD')
+        for changed in (current, frozen + b'\n# SYNTHETIC_VALID_PYTHON_CHANGE\n'):
+            with self.subTest(current_source=changed == current):
+                target.write_bytes(changed)
+                differs = hashlib.sha256(changed).hexdigest() != HISTORICAL_LAKE_SHA256
+                for entry in ('group_423_574', 'group_591'):
+                    if differs:
+                        with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed:' + name):
+                            manual.lookup_reuse(entry, self.root)
+                    else:
+                        self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
+                if differs:
+                    packet, scope = self.packet('A1_SOURCE_ADMISSION_REFRESH')
+                    packet['reuse_entries'] = ['group_591']
+                    # Rebind the task's current bytes, never the historical catalog.
+                    self.rejected(self.rebind_all(packet, scope), scope,
+                                  'catalog_dependency_changed:' + name)
+                    cli = self.cli_fixture(packet, scope)
+                    self.assertEqual(cli.returncode, 2, cli.stdout + cli.stderr)
+                    self.assertEqual(json.loads(cli.stdout)['reason'], 'catalog_dependency_changed:' + name)
+                    self.assertEqual(cli.stderr, '')
+                self.assertEqual((self.root / manual.CATALOG).read_bytes(), catalog_before)
+        target.write_bytes(frozen)
+
+    def test_historical_fixture_is_bound_in_a6_proof_inputs(self):
+        name = HISTORICAL_LAKE_FIXTURE
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        path = self.root / name
+        original = path.read_bytes()
+        path.write_bytes(original + b'changed')
+        self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+        path.write_bytes(original)
+        packet['dependencies'].pop(name)
+        scope['dependencies'].pop(name)
+        self.rejected(self.rebind_all(packet, scope), scope, 'missing_dependency')
 
     def test_reuse_now_requires_actual_current_bytes(self):
         self.assertTrue(manual.lookup_reuse('group_591', self.root)['allowed'])
