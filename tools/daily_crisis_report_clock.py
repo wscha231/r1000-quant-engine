@@ -131,7 +131,7 @@ def table(raw):
                 fields += 1; need(fields <= 64, "CSV_COLUMN_LIMIT")
             else:
                 records += 1; total += fields
-                need(records <= 100001 and total <= 1_000_000, "CSV_CELL_LIMIT")
+                need(records <= 150001 and total <= 3_000_000, "CSV_CELL_LIMIT")
                 fields, length = 1, 0
             started, closed = False, False
         elif char == '\r':
@@ -141,14 +141,14 @@ def table(raw):
             started = True
         i += 1
     need(not quoted, "CSV_QUOTING")
-    need(records <= 100000 and total + fields <= 1_000_000, "CSV_CELL_LIMIT")
+    need(records <= 150000 and total + fields <= 3_000_000, "CSV_CELL_LIMIT")
     rows = list(csv.reader(io.StringIO(text), strict=True))
     need(rows and len(rows[0]) == len(set(rows[0])) and len(rows[0]) <= 64, "CSV_HEADER")
     need(all(len(row) == len(rows[0]) for row in rows), "CSV_SHAPE")
     return pd.DataFrame(rows[1:], columns=rows[0])
 
 
-def read_ref(root, reference, limit=8*1024**2):
+def read_ref(root, reference, limit=32*1024**2):
     need(isinstance(reference, dict), "ARTIFACT_REFERENCE")
     expected = sha(reference.get("sha256"))
     name = reference.get("path")
@@ -178,7 +178,7 @@ def session_times(session):
 
 
 def clock_check(records, metrics, cutoff, now, input_kind):
-    need(isinstance(records, list) and len(records) <= 1000, "CLOCK_MANIFEST")
+    need(isinstance(records, list) and len(records) <= 5000, "CLOCK_MANIFEST")
     indexed, facts, issues = {}, [], []
     for item in records:
         try:
@@ -230,7 +230,7 @@ def clock_check(records, metrics, cutoff, now, input_kind):
 
 
 def load_source(path, expected_sha, source_root, cutoff, now):
-    raw = bounded(path, 512*1024)
+    raw = bounded(path, 4*1024**2)
     need(digest(raw) == sha(expected_sha), "SOURCE_VIEW_PIN_MISMATCH")
     view = decode(raw)
     need(view.get("schema") == "daily-crisis-source-view-v1" and
