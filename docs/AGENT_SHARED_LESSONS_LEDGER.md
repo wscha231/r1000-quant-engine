@@ -6952,3 +6952,22 @@ Expected contract:
   reading; FIFOs without writers must refuse promptly and descriptors must close.
 - Source-category fields must emit only bounded known labels. Redact unknown
   values rather than persisting arbitrary credential-like input strings.
+
+## 2026-10-14 — Bound Lake recovery and keep the precommit integrity boundary
+
+- Reuse archived generations at an explicit commit/catalog. A consumer-only
+  path must avoid transport constructors that create remote directories; a
+  local Drive export's chain/pack/SQL proof is not a completed study receipt,
+  historical PIT admission, or remote publication proof.
+- Replace redundant early/postcommit pack restores with chain/head checks,
+  retaining the full remote pack/member check immediately before commit and
+  the independent consumer restore. Fault-inject deletion/corruption after new
+  uploads; an SEC 304 must not conceal missing archived bytes.
+- Retry an SEC IncompleteRead within the existing three-attempt limit and
+  discard every partial body. Independent A6 showed HTTPResponse.read(amt) can
+  return a short yet valid JSON body without raising; compare Content-Length
+  with received bytes and test actual HTTPResponse framing as well as exceptions.
+  Keep code-push validation separate from producer
+  activation; preserve existing manual/scheduled operation and require review.
+- Native Reader tests need the pinned exchange-calendar dependencies. Missing
+  calendar libraries are an environment failure, not evidence of a code bypass.
