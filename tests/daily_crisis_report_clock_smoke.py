@@ -350,6 +350,21 @@ class ReportClockTests(unittest.TestCase):
                 source = clock.load_source(changed,clock.digest(changed.read_bytes()),self.root,now,now,**args)
                 self.assertIn("COMPONENT_UNIT_CONTRACT_MISMATCH", source["issues"])
 
+    def test_expectations_unknown_identity_and_nontext_units_are_blocked(self):
+        view, cfg_path = self.actual_shape_fixture()
+        original = json.loads(cfg_path.read_bytes())
+        producer = original["producer_sha256"]
+        mutations = (lambda v:v["sources"]["a"*64].update(source_id=None),
+                     lambda v:v["components"]["vix_level"].update(source_ids=[None]),
+                     lambda v:v["sources"]["a"*64].update(source_kind="UNKNOWN"),
+                     lambda v:v["components"]["vix_level"].update(unit=1),
+                     lambda v:v["context_fields"]["spy_close"].update(seasonal_basis=""))
+        for mutate in mutations:
+            value = json.loads(clock.canonical(original))
+            mutate(value); cfg_path.write_bytes(clock.canonical(value))
+            with self.assertRaises(clock.Blocked):
+                clock.load_expectations(cfg_path,clock.digest(cfg_path.read_bytes()),producer)
+
     def test_duplicate_slot_cannot_complete_previously_uncounted_session(self):
         good = self.run_cycle()
         value = good["next_history"]

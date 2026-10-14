@@ -182,6 +182,12 @@ def trusted_now():
     return datetime.now(UTC)
 
 
+def known_label(value):
+    return (isinstance(value,str) and 0 < len(value) <= 96 and value == value.strip() and
+            re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/ -]*",value) is not None and
+            value.upper() not in {"UNKNOWN","NONE","NULL","UNVERIFIED","MISSING","UNDEFINED","N/A","NA","NOT_VERIFIED"})
+
+
 def load_expectations(path, expected_sha, producer):
     need(path is not None, "ACTUAL_EXPECTATIONS_REQUIRED")
     raw = bounded(path, 1024**2)
@@ -192,12 +198,23 @@ def load_expectations(path, expected_sha, producer):
          value.get("risk_contract_semantic_sha256") == risk.CANONICAL_CONTRACT_SEMANTIC_SHA256 and
          isinstance(value.get("sources"), dict) and isinstance(value.get("components"), dict) and
          isinstance(value.get("context_fields"), dict), "EXPECTATIONS_CONTRACT")
+    for key, source in value["sources"].items():
+        sha(key)
+        need(isinstance(source,dict) and known_label(source.get("source_id")) and
+             known_label(source.get("source_kind")), "EXPECTATIONS_IDENTITY_REQUIRED")
+    for scope in ("components","context_fields"):
+        for name, spec in value[scope].items():
+            need(known_label(name) and isinstance(spec,dict) and known_label(spec.get("unit")) and
+                 known_label(spec.get("seasonal_basis")) and isinstance(spec.get("source_ids"),list) and
+                 0 < len(spec["source_ids"]) <= 128 and all(known_label(s) for s in spec["source_ids"]),
+                 "EXPECTATIONS_UNIT_OR_IDENTITY_REQUIRED")
     return value, digest(raw)
 
 
 def expected_units(row, item, key, expectations, context_fields):
     source = expectations["sources"].get(key)
-    need(isinstance(source, dict) and source.get("source_id") == item.get("source_id") and
+    need(isinstance(source, dict) and known_label(source.get("source_id")) and
+         source.get("source_id") == item.get("source_id") and
          source.get("source_kind") == row.source_kind, "EXPECTED_SOURCE_IDENTITY_MISMATCH")
     component = getattr(row, "component", None)
     fields = [component] if component else [name for name in context_fields
