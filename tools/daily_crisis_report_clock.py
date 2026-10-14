@@ -266,7 +266,14 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     context = None
     if "context" in manifest["inputs"]:
         context = table(read_ref(root, manifest["inputs"]["context"]))
-    risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
+    validated_context = risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
+    if view["input_kind"] == "ACTUAL":
+        for frame in (metrics, context):
+            if frame is not None:
+                kinds = frame.source_kind.str.upper()
+                need(not kinds.str.contains("SYNTHETIC|FIXTURE|TEST", regex=True).any(), "FIXTURE_ACTUAL_MIX")
+                need(not kinds.str.contains("CURRENT_VINTAGE|LATEST_SNAPSHOT", regex=True).any(),
+                     "AS_KNOWN_SOURCE_REQUIRED")
     snapshot_raw = read_ref(root, manifest["outputs"]["macro_risk_snapshot"], 128*1024)
     snapshot = decode(snapshot_raw)
     history_raw = read_ref(root, manifest["outputs"]["market_state_history"])
@@ -309,11 +316,17 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     need(isinstance(axes, list) and len(axes) == 10 and {a.get("axis") for a in axes} == set(contract["axes"]), "TEN_AXIS_IDENTITY")
     ready = {a["axis"] for a in axes if a.get("axis_ready") is True}
     latest_metrics = validated[validated.decision_date == as_of]
+    percentile = contract["percentile"]
+    window = validated[validated.decision_date >= as_of-pd.DateOffset(years=percentile["window_years"])]
+    observations = window.groupby("component").size().clip(upper=percentile["maximum_sessions"])
     for axis in ready:
         present = set(latest_metrics.loc[latest_metrics.axis == axis, "component"])
         spec = contract["axes"][axis]
         need(len(present & set(spec["components"])) >= spec["minimum_ready_components"],
              "READY_AXIS_COMPONENTS_MISSING")
+        historically_ready = {component for component in present & set(spec["components"])
+                              if observations.get(component, 0) >= percentile["minimum_observations"]}
+        need(len(historically_ready) >= spec["minimum_ready_components"], "READY_AXIS_HISTORY_INSUFFICIENT")
     # Consume the producer's pinned axis artifact, rather than recalculate risk
     # for a second report in the same session.
     axes_frame = table(read_ref(root, manifest["outputs"]["macro_risk_axes"]))
@@ -324,6 +337,20 @@ def load_source(path, expected_sha, source_root, cutoff, now):
         need(len(match) == 1 and match.iloc[0].axis_ready in ("True", "False") and
              (match.iloc[0].axis_ready == "True") == axis["axis_ready"], "AXIS_ARTIFACT_READINESS")
         need(float(match.iloc[0].weight) == float(contract["axes"][axis["axis"]]["weight"]), "AXIS_WEIGHT_CHANGED")
+        need(match.iloc[0].red_domain == contract["axes"][axis["axis"]]["red_domain"], "AXIS_DOMAIN_CHANGED")
+    # Verify the latest consumed summary with the existing engine's one-session
+    # reducer. This does not rerun historical percentiles or advance history.
+    checked_axes = latest_axes.copy()
+    checked_axes["decision_date"] = pd.to_datetime(checked_axes.decision_date)
+    for column in ("axis_ready", "red_axis"):
+        need(set(checked_axes[column]) <= {"True", "False"}, "AXIS_BOOLEAN")
+        checked_axes[column] = checked_axes[column].eq("True")
+    for column in ("weight", "axis_score"):
+        checked_axes[column] = pd.to_numeric(checked_axes[column], errors="coerce")
+    red = checked_axes.axis_ready & checked_axes.axis_score.ge(contract["percentile"]["red_percentile"])
+    need(red.tolist() == checked_axes.red_axis.tolist(), "AXIS_RED_SCORE_MISMATCH")
+    checked = risk.build_daily_risk(checked_axes, validated_context, contract).iloc[-1]
+    need(checked.observed_state == latest.observed_state, "OBSERVED_STATE_AXIS_MISMATCH")
     minimum = contract["readiness"]["minimum_ready_axes"]
     required = set(contract["readiness"]["required_axes"])
     ready_ok = len(ready) >= minimum and required <= ready
@@ -332,7 +359,8 @@ def load_source(path, expected_sha, source_root, cutoff, now):
     if ready_ok:
         value = snapshot.get("risk_score")
         need(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 100
-             and abs(float(latest.risk_score)-value) < 1e-8, "SCORE_HISTORY_MISMATCH")
+             and abs(float(latest.risk_score)-value) < 1e-8
+             and abs(float(checked.risk_score)-value) < 1e-8, "SCORE_HISTORY_MISMATCH")
     else:
         need(snapshot.get("risk_score") is None, "INSUFFICIENT_SCORE_NOT_NULL")
     return dict(input_kind=view["input_kind"], manifest_sha256=digest(manifest_raw),

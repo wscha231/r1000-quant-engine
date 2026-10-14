@@ -186,6 +186,28 @@ class ReportClockTests(unittest.TestCase):
         view = self.changed_view(lambda v: v["source_clocks"].pop())
         self.assertIn("SOURCE_CLOCK_MISSING", self.run_cycle(view=view)["blockers"])
 
+    def test_actual_relabel_cannot_admit_explicit_fixture_sources(self):
+        def relabel(value):
+            value["input_kind"] = "ACTUAL"
+            for item in value["source_clocks"]: item["input_kind"] = "ACTUAL"
+        view = self.changed_view(relabel)
+        self.assertIn("FIXTURE_ACTUAL_MIX", self.run_cycle(view=view)["blockers"])
+
+    def test_claimed_axis_needs_real_historical_observations(self):
+        view = json.loads(self.current.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        frame = pd.read_csv(manifest["inputs"]["metrics"]["path"])
+        frame = frame[(frame.axis != "credit") | (frame.decision_date == self.session)]
+        path = self.root / "one-credit-session.csv"
+        frame.to_csv(path, index=False)
+        manifest["inputs"]["metrics"] = clock.risk.fingerprint(path)
+        path = self.root / "one-credit-manifest.json"
+        path.write_bytes(clock.canonical(manifest))
+        view["chameleon_manifest"] = clock.risk.fingerprint(path)
+        path = self.root / "one-credit-view.json"
+        path.write_bytes(clock.canonical(view))
+        self.assertIn("READY_AXIS_HISTORY_INSUFFICIENT", self.run_cycle(view=path)["blockers"])
+
     def test_partial_has_no_score_or_market_risk_upgrade(self):
         result = self.run_cycle(view=self.partial)
         self.assertEqual(result["data_health"], "DATA_PARTIAL", result)

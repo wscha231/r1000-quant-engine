@@ -70,6 +70,10 @@ be emitted as current success. Restored Chameleon history must be contiguous,
 calendar-bound, cover exactly the validated metric dates, and reproduce existing
 2-session entry/5-session release logic. Ready axes must have the canonical
 minimum actual metric components and match the pinned producer axis artifact.
+Claimed-ready components also need the canonical 252 observations in the
+5-year/1,260-session window. The existing engine's latest-session reducer checks
+consumed score/observed-state consistency; historical percentiles are not rerun.
+ACTUAL mode refuses explicitly synthetic/fixture and current-vintage source kinds.
 The report anchor separately pins recipient/mode, parent and content hashes,
 slot keys, completed count and `last_counted_completed_session`.
 
