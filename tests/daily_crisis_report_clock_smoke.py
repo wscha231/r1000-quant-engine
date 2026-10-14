@@ -459,6 +459,61 @@ class ReportClockTests(unittest.TestCase):
         result = self.run_cycle(view=path,previous=clock.canonical(prior["next_history"]),parent=clock.digest(self.anchor))
         self.assertIn("SOURCE_HISTORY_PREFIX_CHANGED",result["blockers"])
 
+    def test_completed_anchor_requires_next_nyse_session(self):
+        schedule = mcal.get_calendar("NYSE").schedule("2024-12-01",self.session)
+        last_two = [d.date().isoformat() for d in schedule.index[-3:-1]]
+        for last, expected in ((last_two[0],"BLOCKED"),(last_two[1],"READY_DRY_RUN")):
+            value = json.loads(self.anchor); value.pop("content_sha256")
+            value.update(last_counted_completed_session=last,completed_session_count=1)
+            value["content_sha256"] = clock.digest(clock.canonical(value))
+            raw = clock.canonical(value)
+            result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw))
+            self.assertEqual(result["current_report_status"],expected,result)
+            if expected == "BLOCKED":
+                self.assertIn("COMPLETED_SESSION_GAP",result["blockers"])
+                self.assertIsNone(result["next_history"])
+            else:
+                self.assertEqual(result["completed_session_increment"],1)
+
+    def test_consumed_clock_provenance_cannot_rewrite_accepted_prefix(self):
+        prior = self.run_cycle(view=self.previous,slot="INTRADAY")
+        view = self.changed_view(lambda v:v["source_clocks"][0].update(
+            availability_evidence_ref="replaced-fixture-provenance"))
+        result = self.run_cycle(view=view,previous=clock.canonical(prior["next_history"]),
+                                parent=clock.digest(self.anchor))
+        self.assertIn("SOURCE_HISTORY_PREFIX_CHANGED",result["blockers"])
+        self.assertEqual(result["completed_session_increment"],0)
+
+    def test_failed_producer_status_and_blockers_cannot_supply_report(self):
+        for fields in ({"status":"BLOCKED_CHAMELEON_MACRO_RISK_INPUT_CONTRACT","blockers":["failure"]},
+                       {"blockers":["upstream-failure"]}, {"status":"UNKNOWN"}):
+            view = self.rebound("failed-producer",lambda m,v:m.update(fields))
+            result = self.run_cycle(view=view)
+            self.assertIn("CHAMELEON_PRODUCER_NOT_READY",result["blockers"])
+            self.assertEqual(result["completed_session_increment"],0)
+
+    def test_null_optional_context_uses_existing_producer_contract(self):
+        view = json.loads(self.current.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        output = self.root / "without-context"
+        built = clock.risk.build(argparse.Namespace(contract=str(clock.risk.DEFAULT_CONTRACT),
+            calendar=manifest["inputs"]["calendar"]["path"],
+            input_metrics=manifest["inputs"]["metrics"]["path"],input_context="",as_of="",output_dir=str(output)))
+        self.assertIsNone(built["inputs"]["context"])
+        view["chameleon_manifest"] = clock.risk.fingerprint(output / "manifest.json")
+        path = self.root / "without-context-view.json"; path.write_bytes(clock.canonical(view))
+        result = self.run_cycle(view=path)
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+        self.assertEqual(result["completed_session_increment"],1)
+
+    def test_missing_view_cannot_write_diagnostics_inside_source_root(self):
+        output = self.root / "missing-view-diagnostic"
+        args = argparse.Namespace(output_dir=str(output),history=str(self.root / "unused-history.json"),
+            update_history=False,report_slot="AFTER_CLOSE",report_source_view=None,report_source_root=str(self.root))
+        with self.assertRaisesRegex(clock.Blocked,"INPUT_OUTPUT_OVERLAP"):
+            build_monitor(args)
+        self.assertFalse(output.exists())
+
     def test_monitor_integration_candidate_only_and_no_overwrite(self):
         output = self.root / "monitor-dry-run"
         history = self.root / "approved-history.json"

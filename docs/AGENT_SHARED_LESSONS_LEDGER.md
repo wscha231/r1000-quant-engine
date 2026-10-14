@@ -7019,3 +7019,6 @@ Expected contract:
   complete safety flags and separately pinned component/context unit expectations.
 - Caller timestamps cannot establish current ACTUAL execution. Use host time,
   require evaluation before expiry, and never complete a suppressed duplicate.
+- Preserve consumed clock provenance in accepted prefixes and reject gaps in
+  completed NYSE sessions. Check upstream readiness as well as hashes/safety;
+  enforce immutable input-root separation even on missing-input diagnostics.

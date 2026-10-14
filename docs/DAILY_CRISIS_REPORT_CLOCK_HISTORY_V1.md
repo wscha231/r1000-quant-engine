@@ -98,10 +98,15 @@ evaluation, not only the logical report cutoff. Decoder recursion fails structur
 The report anchor separately pins recipient/mode, parent and content hashes,
 slot keys, completed count and `last_counted_completed_session`. Each successor
 must preserve its accepted source-history prefix (metrics, context, axes, states
-and consumed expectations); append-only calendar hash changes are normalized.
+and consumed clocks/expectations); append-only calendar hash changes are normalized.
 A correction/truncation/revision requires a separate explicit A0 anchor decision,
 otherwise SOURCE_HISTORY_PREFIX_CHANGED blocks. Duplicate or previously partial
 slots cannot silently increment completion when no new candidate is produced.
+An existing completed anchor advances only to the next NYSE session. A missed
+completed session requires an explicit A0 recovery decision, not a silent skip.
+Blocked producer manifests cannot supply report prerequisites; optional null
+context remains supported. Immutable Source-root separation also applies when
+the source view is missing and only a diagnostic report could be generated.
 
 The delivery key is recipient/session/logical slot. Source/code/config changes
 affect the analysis artifact key, never this delivery key. Advancing the verified

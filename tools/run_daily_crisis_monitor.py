@@ -286,6 +286,7 @@ def build_clock_report(args: argparse.Namespace) -> dict[str, Any]:
     if source_view:
         inputs.append(repo_path(source_view).resolve())
         clock.need(source_root is not None, "SOURCE_ROOT_REQUIRED")
+    if source_root is not None:
         root = repo_path(source_root).resolve()
         clock.need(not output.is_relative_to(root) and not root.is_relative_to(output), "INPUT_OUTPUT_OVERLAP")
     clock.need(not any(p.is_relative_to(output) for p in inputs), "INPUT_OUTPUT_OVERLAP")

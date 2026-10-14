@@ -326,12 +326,18 @@ def verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw, pr
 
 def prefix_digest(source, through):
     values = []
+    consumed = set()
     for name in ("metrics", "context", "axes_frame", "history"):
         frame = source[name].copy()
         frame["decision_date"] = pd.to_datetime(frame.decision_date).dt.strftime("%Y-%m-%d")
         frame = frame[frame.decision_date <= through].drop(columns=["calendar_source_sha256"], errors="ignore")
+        if name in ("metrics", "context") and "source_sha256" in frame:
+            consumed.update(frame.source_sha256)
         frame = frame.sort_values([c for c in ("decision_date", "axis", "component") if c in frame])
         values.append((name, digest(frame_bytes(frame))))
+    values.append(("source_clocks", digest(canonical(sorted(
+        (item for item in source["source_clocks"] if item["source_sha256"] in consumed),
+        key=lambda item: item["source_sha256"])))))
     if source["expectations"] is not None:
         cfg = source["expectations"]
         # Bind the already-consumed Source/unit contracts; appending new source
@@ -360,6 +366,9 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     root = Path(source_root).resolve()
     manifest_raw = read_ref(root, view.get("chameleon_manifest"), 512*1024)
     manifest = decode(manifest_raw)
+    need(manifest.get("status") in ("READY_CHAMELEON_MACRO_RISK_REPORT_ONLY",
+         "READY_CHAMELEON_MACRO_RISK_REPORT_ONLY_DATA_INSUFFICIENT") and
+         manifest.get("blockers") == [], "CHAMELEON_PRODUCER_NOT_READY")
     need(manifest.get("schema_version") == risk.SCHEMA_VERSION and
          manifest.get("source_inputs_unchanged") is True and manifest.get("report_only") is True,
          "CHAMELEON_MANIFEST")
@@ -389,7 +398,7 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     sessions = {date: (int(group.nyse_session_ordinal.iloc[0]), str(group.calendar_source_sha256.iloc[0]))
                 for date, group in validated.groupby("decision_date")}
     context, context_raw = None, b""
-    if "context" in manifest["inputs"]:
+    if manifest["inputs"].get("context") is not None:
         context_raw = read_ref(root, manifest["inputs"]["context"])
         context = table(context_raw)
     validated_context = risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
@@ -521,6 +530,7 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
                 history_sha256=digest(history_raw), producer_sha256=producer, expectations=expectations,
                 expectations_sha256=expectations_sha, metrics=validated, context=validated_context,
                 axes_frame=axes_frame, context_fields=context_fields, execution_time_utc=now.isoformat(),
+                source_clocks=view["source_clocks"],
                 expiry_min=min((stamp(c["expiry"]) for c in view["source_clocks"]), default=now) if not issues else None)
 
 
@@ -619,6 +629,11 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         candidate = delivery_key not in prior["slots"]
         slots = (prior["slots"] + ([delivery_key] if candidate else []))[-512:]
         increment = int(candidate and slot == "AFTER_CLOSE" and source["ready"] and last != session)
+        if increment and last is not None:
+            start = datetime.fromisoformat(last)+timedelta(days=1)
+            following = mcal.get_calendar("NYSE").schedule(start_date=start, end_date=session)
+            need(not following.empty and following.index[0].date().isoformat() == session,
+                 "COMPLETED_SESSION_GAP")
         next_prefix = prefix_digest(source, latest_date)
         if source["input_kind"] == "ACTUAL":
             execution = trusted_now()
