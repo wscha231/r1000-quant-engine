@@ -1,0 +1,7 @@
+ticker,Name,industry,sector,sage_sector,theme_horizon_primary,theme_holding_profile_primary,portfolio_sleeve_label,leadership_theme
+MU,MICRON TECHNOLOGY INC,Semiconductors,Information Technology,Semiconductor,structural_growth,long_duration,core_compounder,memory_semiconductors
+SNDK,SANDISK CORP,Computer Hardware,Information Technology,Software,structural_growth,long_duration,unassigned,memory_semiconductors
+STX,Seagate Technology,Computer Hardware,Information Technology,Software,structural_growth,long_duration,future_winner,memory_semiconductors
+WDC,WESTERN DIGITAL CORP,Computer Hardware,Information Technology,Software,structural_growth,long_duration,future_winner,memory_semiconductors
+PSA,PUBLIC STORAGE REIT,REIT - Industrial,Real Estate,Industrial,unknown,neutral,unassigned,memory_semiconductors
+EXR,EXTRA SPACE STORAGE REIT INC,REIT - Industrial,Real Estate,Industrial,unknown,neutral,unassigned,memory_semiconductors

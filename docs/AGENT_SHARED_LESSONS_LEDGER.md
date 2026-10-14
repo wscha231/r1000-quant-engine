@@ -6976,3 +6976,15 @@ Expected contract:
 - Reusing a clean, already merged Main worktree does not require creating a new
   worktree; record the explicit lane handoff and scoped local lock separately
   from any unobserved global or Windows lease. Linux QA is not Windows QA.
+
+## 2026-10-15 — Distinguish digital storage from physical storage in theme research
+
+- A generic storage substring placed PSA/EXR self-storage REITs in the archived
+  memory theme. Require direct business metadata and qualified digital-hardware
+  evidence; inherited theme/portfolio labels cannot certify business membership.
+- Preserve the existing curated memory/storage issuer set and the shared infer_theme
+  consumer boundary. Use token/phrase boundaries and physical/energy exclusions.
+- Frozen report composition can prove contamination, but aggregate scores alone
+  cannot reconstruct corrected ranks. Recompute from exact row-level metrics into
+  separately labeled outputs; preserve original reports and distinguish preparation
+  QA from Native/exact-head A6, CI, final review and completed merge.

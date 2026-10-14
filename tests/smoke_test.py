@@ -4155,6 +4155,16 @@ def test_security_basis_registry_contract() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("theme.theme_classification_contract")
+def test_theme_classification_contract() -> None:
+    """Run memory/storage classification regressions through registered smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "theme_classification_smoke.py")],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 # ======================================================================
 # main
 # ======================================================================
