@@ -1,6 +1,8 @@
 """Offline regression for archived PSA/EXR contamination and both consumers."""
 import sys
 import csv
+import json
+import hashlib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -39,6 +41,33 @@ class ThemeTests(unittest.TestCase):
                          {ticker: "memory_semiconductors" for ticker in expected})
         self.assertEqual(dict(zip(rows["ticker"], rows.apply(tape.infer_theme, axis=1))), expected)
         self.assertEqual(dict(zip(rows["ticker"], challenger.add_theme_and_scores(rows)["leadership_theme"])), expected)
+
+    def test_real_estate_separator_normalization(self):
+        for sector in ("Real Estate", "Real-Estate", "Real_Estate", "real/estate"):
+            for name in ("Public Storage", "Extra Space Storage"):
+                self.assertEqual(self.theme(ticker="TEST", Name=name, sector=sector), "real_estate")
+        for industry in ("REIT-Industrial", "REIT_Industrial", "REIT / Industrial"):
+            self.assertEqual(self.theme(ticker="TEST", Name="Storage", industry=industry), "real_estate")
+
+    def test_hot_path_reuses_compiled_patterns(self):
+        with patch.object(tape.re, "compile", side_effect=AssertionError("per-row compile")), \
+             patch.object(tape.re, "search", side_effect=AssertionError("per-row pattern construction")), \
+             patch.object(tape.re, "sub", side_effect=AssertionError("per-row normalization pattern")):
+            self.assertEqual(self.theme(ticker="TEST", Name="Flash Memory", industry="Semiconductors"),
+                             "memory_semiconductors")
+            self.assertEqual(self.theme(ticker="EXR", Name="Extra Space Storage", sector="Real-Estate"),
+                             "real_estate")
+
+    def test_recorded_diagnostic_evidence_hashes(self):
+        evidence = ROOT / "docs/theme_memory_fix_evidence_20261015"
+        manifest = json.loads((evidence / "manifest.json").read_text())
+        required = {f"{date}_{kind}.csv" for date in ("20260510", "20260512")
+                    for kind in ("themes_before", "themes_after", "score_comparison", "membership_changes")}
+        self.assertTrue(required.issubset({entry["path"] for entry in manifest["files"]}))
+        for entry in manifest["files"]:
+            data = (evidence / entry["path"]).read_bytes()
+            self.assertEqual(len(data), entry["size_bytes"])
+            self.assertEqual(hashlib.sha256(data).hexdigest(), entry["sha256"])
 
     def test_all_curated_memory_issuers_preserved(self):
         for ticker in tape.THEME_TAXONOMY["memory_semiconductors"]["tickers"]:

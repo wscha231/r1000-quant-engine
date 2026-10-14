@@ -6988,3 +6988,7 @@ Expected contract:
   cannot reconstruct corrected ranks. Recompute from exact row-level metrics into
   separately labeled outputs; preserve original reports and distinguish preparation
   QA from Native/exact-head A6, CI, final review and completed merge.
+
+- Final review: precompile static business matchers rather than rebuilding regex
+  alternatives per replay row. Normalize punctuation once for both storage/REIT
+  routing and memory evidence; pin inspectable diagnostic files by manifest hashes.

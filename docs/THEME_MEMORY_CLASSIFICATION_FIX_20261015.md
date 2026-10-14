@@ -34,16 +34,33 @@ Exactly two rows change in each complete archived input: PSA and EXR move from
 memory_semiconductors to real_estate. MU/SNDK/STX/WDC remain memory members;
 the other 729/728 row classifications are unchanged. Larger memory scores after
 removing weaker real-estate constituents do not imply better strategy returns.
-Other theme scores/ranks change through cross-section normalization.
+Other theme scores/ranks change through cross-section normalization. May10 memory
+state changes emerging_leader→climax_hot; May12 remains emerging_leader.
 
 Input ticker CSV SHA256:
 
 - 20260510: b70f658a1552ee684072846a59e68fb70868f556f12bfe9445b6097ac70eb0e8
 - 20260512: 6e39d0bbf018afb2e3e2a2c5f75de87d7b8f567a0bd650824dd518d9dde0691a
 
-Separate evidence files contain before/after aggregate CSVs, all-theme score/rank
-deltas, membership deltas and input hashes. Original historical reports and
+Versioned [evidence manifest](theme_memory_fix_evidence_20261015/manifest.json)
+identifies all before/after aggregate CSVs, all-theme score/rank deltas, membership
+deltas and input hashes with exact sizes/SHA256. Files are checked in under
+[the separate diagnostic directory](theme_memory_fix_evidence_20261015/). Original historical reports and
 metrics are unchanged. This is a reclassification diagnostic on frozen archived
 metrics, not a fullrun, historical PIT certification, alpha/OOS validation or a
 measurement of October 2026 latest theme ranks. Uncurated ambiguous names without
 industry/business evidence can now be conservatively excluded.
+
+## Final-review performance correction
+
+Static business normalization and all memory/real-estate matchers are compiled
+once. Each row's business fields are normalized once and shared by both checks.
+Real-Estate, Real_Estate and Real Estate therefore use the same real_estate label.
+The hot-path regression refuses per-row regex construction.
+
+On the exact existing latest candidate replay book, classification-only apply on
+46,772 rows took2.027s(parent),11.359s(initial correction),2.642s(precompiled
+correction) in one local run per implementation. Initial/corrected labels agree
+on all rows. [Timing evidence](theme_memory_fix_evidence_20261015/performance_correction.json)
+pins the input Git blob. These are illustrative elapsed times, not a universal
+performance guarantee or a CI timing threshold; no replay/fullrun was executed.

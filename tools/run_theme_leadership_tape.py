@@ -376,51 +376,56 @@ def build_etf_lookthrough_watchlist(ticker_tape: pd.DataFrame, etf_attention_fra
     return out.sort_values(["combined_watch_score", "etf_attention_score"], ascending=False, na_position="last").reset_index(drop=True)
 
 
-def _memory_business_match(row: pd.Series, spec: dict[str, tuple[str, ...]]) -> bool:
-    """Require business metadata; inherited theme labels cannot certify membership.
+_BUSINESS_FIELDS = ("Name", "name", "industry", "yf_industry", "sector", "yf_sector")
+_BUSINESS_NORMALIZE = re.compile(r"[^a-z0-9]+")
+_MISSING_BUSINESS = frozenset({"nan", "none", "null", "unknown", "n a", "na"})
+_THEME_TICKERS = {label: frozenset(spec.get("tickers", ()))
+                  for label, spec in THEME_TAXONOMY.items()}
+_CURATED_TICKERS = frozenset().union(*_THEME_TICKERS.values())
 
-    The existing theme includes memory chips and digital storage hardware.
-    Generic storage, memory or flash branding alone is insufficient.
-    Curated issuer tickers remain the caller's first membership evidence.
-    """
-    def normalized(value: Any) -> str:
-        if value is None or pd.isna(value):
-            return ""
-        text = re.sub(r"[^a-z0-9]+", " ", str(value).lower()).strip()
-        return "" if text in {"nan", "none", "null", "unknown", "n a", "na"} else text
 
-    fields = [normalized(row.get(key)) for key in
-              ("Name", "name", "industry", "yf_industry", "sector", "yf_sector")]
-    business = " ".join(fields)
-    # Reject physical/energy storage even if an inherited label says memory.
-    exclusions = ("real estate", "reit", "self storage", "warehouse", "warehousing",
-                  "cold storage", "energy storage", "battery storage", "oil storage",
-                  "gas storage", "logistics")
-    if any(re.search(r"\b" + re.escape(term) + r"\b", business) for term in exclusions):
+def _business_text(value: Any) -> str:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return ""
+    text = _BUSINESS_NORMALIZE.sub(" ", str(value).lower()).strip()
+    return "" if text in _MISSING_BUSINESS else text
+
+
+def _business_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
+    return re.compile(r"\b(?:" + "|".join(re.escape(_business_text(t)) for t in terms) + r")\b")
+
+
+_MEMORY_EXCLUDED = _business_pattern((
+    "real estate", "reit", "self storage", "warehouse", "warehousing", "cold storage",
+    "energy storage", "battery storage", "oil storage", "gas storage", "logistics",
+))
+_MEMORY_HARDWARE = _business_pattern((
+    "semiconductor", "semiconductors", "computer hardware", "electronic components",
+    "electronic equipment parts", "electronic storage", "data storage devices",
+))
+_MEMORY_PRECISE = _business_pattern((
+    "flash memory", "memory chip", "memory chips", "memory semiconductor",
+    "memory semiconductors", "dynamic random access memory", "static random access memory",
+    "high bandwidth memory", "non volatile memory", "disk drive", "disk drives", "hard disk",
+    "solid state drive", "solid state drives", "data storage device", "data storage devices",
+    "computer storage",
+))
+_MEMORY_HINT = _business_pattern((*THEME_TAXONOMY["memory_semiconductors"]["keywords"], "storage"))
+_STORAGE = re.compile(r"\bstorage\b")
+_REAL_ESTATE = re.compile(r"\b(?:reit|real estate)\b")
+
+
+def _memory_business_match(fields: tuple[str, ...]) -> bool:
+    """Direct business evidence only; include memory chips and digital hardware."""
+    if _MEMORY_EXCLUDED.search(" ".join(fields)):
         return False
-    industry = " ".join(normalized(row.get(key)) for key in ("industry", "yf_industry"))
-    hardware = ("semiconductor", "semiconductors", "computer hardware",
-                "electronic components", "electronic equipment parts",
-                "electronic storage", "data storage devices")
-    has_hardware_context = any(re.search(r"\b" + re.escape(term) + r"\b", industry)
-                               for term in hardware)
-    precise = ("flash memory", "memory chip", "memory chips", "memory semiconductor",
-               "memory semiconductors", "dynamic random access memory",
-               "static random access memory", "high bandwidth memory",
-               "non volatile memory", "disk drive", "disk drives", "hard disk",
-               "solid state drive", "solid state drives", "data storage device",
-               "data storage devices", "computer storage")
-    # An explicit nonhardware industry contradicts a name-only hardware phrase.
-    if industry.strip() and not has_hardware_context:
+    industry_fields = fields[2:4]
+    hardware = any(_MEMORY_HARDWARE.search(field) for field in industry_fields)
+    if any(industry_fields) and not hardware:
         return False
-    # Evaluate each field separately so adjacent metadata cannot form a phrase.
-    if any(re.search(r"\b" + re.escape(term) + r"\b", field)
-           for term in precise for field in fields):
+    if any(_MEMORY_PRECISE.search(field) for field in fields):
         return True
-    return has_hardware_context and any(
-        re.search(r"\b" + re.escape(normalized(keyword)) + r"\b", field)
-        for keyword in (*spec.get("keywords", ()), "storage") for field in fields
-    )
+    return hardware and any(_MEMORY_HINT.search(field) for field in fields)
 
 
 def infer_theme(row: pd.Series) -> str:
@@ -428,12 +433,9 @@ def infer_theme(row: pd.Series) -> str:
     ticker = "" if pd.isna(ticker_value) else str(ticker_value).upper().strip()
     # Self-storage REIT business metadata outranks ambiguous storage/space names.
     # Keep every curated issuer mapping intact, including digital-storage makers.
-    curated = any(ticker in spec.get("tickers", ()) for spec in THEME_TAXONOMY.values())
-    business = " ".join(str(row.get(key)).lower() for key in
-                        ("Name", "name", "industry", "yf_industry", "sector", "yf_sector")
-                        if row.get(key) is not None and not pd.isna(row.get(key)))
-    if (not curated and re.search(r"\b(?:storage|self[ -]?storage)\b", business)
-            and re.search(r"\b(?:reit|real estate)\b", business)):
+    fields = tuple(_business_text(row.get(key)) for key in _BUSINESS_FIELDS)
+    business = " ".join(fields)
+    if ticker not in _CURATED_TICKERS and _STORAGE.search(business) and _REAL_ESTATE.search(business):
         return "real_estate"
     text_fields = [
         row.get("Name"),
@@ -449,10 +451,10 @@ def infer_theme(row: pd.Series) -> str:
     ]
     text = " ".join(str(x).lower() for x in text_fields if x is not None and not pd.isna(x) and str(x).lower() != "nan")
     for label, spec in THEME_TAXONOMY.items():
-        if ticker in {x.upper() for x in spec.get("tickers", ())}:
+        if ticker in _THEME_TICKERS[label]:
             return label
         if label == "memory_semiconductors":
-            if _memory_business_match(row, spec):
+            if _memory_business_match(fields):
                 return label
         elif any(keyword.lower() in text for keyword in spec.get("keywords", ())):
             return label
