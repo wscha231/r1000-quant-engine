@@ -338,6 +338,14 @@ def load_source(path, expected_sha, source_root, cutoff, now):
              (match.iloc[0].axis_ready == "True") == axis["axis_ready"], "AXIS_ARTIFACT_READINESS")
         need(float(match.iloc[0].weight) == float(contract["axes"][axis["axis"]]["weight"]), "AXIS_WEIGHT_CHANGED")
         need(match.iloc[0].red_domain == contract["axes"][axis["axis"]]["red_domain"], "AXIS_DOMAIN_CHANGED")
+        if axis["axis_ready"]:
+            score = float(match.iloc[0].axis_score) if match.iloc[0].axis_score else math.nan
+            need(math.isfinite(score) and 0 <= score <= 100, "READY_AXIS_SCORE_INVALID")
+            value = axis.get("axis_score")
+            need(type(value) in (int, float) and math.isfinite(value) and abs(score-value) < 1e-8,
+                 "SNAPSHOT_AXIS_SCORE_MISMATCH")
+        else:
+            need(axis.get("axis_score") is None and match.iloc[0].axis_score == "", "UNREADY_AXIS_SCORE_NOT_NULL")
     # Verify the latest consumed summary with the existing engine's one-session
     # reducer. This does not rerun historical percentiles or advance history.
     checked_axes = latest_axes.copy()

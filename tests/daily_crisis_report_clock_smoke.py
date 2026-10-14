@@ -208,6 +208,23 @@ class ReportClockTests(unittest.TestCase):
         path.write_bytes(clock.canonical(view))
         self.assertIn("READY_AXIS_HISTORY_INSUFFICIENT", self.run_cycle(view=path)["blockers"])
 
+    def test_ready_axis_missing_score_cannot_reduce_to_zero_risk(self):
+        view = json.loads(self.current.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        frame = pd.read_csv(manifest["outputs"]["macro_risk_axes"]["path"])
+        frame.loc[frame.decision_date.str[:10] == self.session, "axis_score"] = float("nan")
+        path = self.root / "missing-axis-scores.csv"
+        frame.to_csv(path, index=False)
+        manifest["outputs"]["macro_risk_axes"] = clock.risk.fingerprint(path)
+        path = self.root / "missing-axis-scores-manifest.json"
+        path.write_bytes(clock.canonical(manifest))
+        view["chameleon_manifest"] = clock.risk.fingerprint(path)
+        path = self.root / "missing-axis-scores-view.json"
+        path.write_bytes(clock.canonical(view))
+        result = self.run_cycle(view=path)
+        self.assertIn("READY_AXIS_SCORE_INVALID", result["blockers"])
+        self.assertIsNone(result["risk_score"])
+
     def test_partial_has_no_score_or_market_risk_upgrade(self):
         result = self.run_cycle(view=self.partial)
         self.assertEqual(result["data_health"], "DATA_PARTIAL", result)

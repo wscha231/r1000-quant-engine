@@ -7010,3 +7010,6 @@ Expected contract:
 - Native dependencies must satisfy repository constraints: bundled pandas 3 is
   outside pandas<3 and can change datetime equality. Validate with scoped pandas
   2.3, without changing the operating model to accommodate an unsupported runtime.
+- A claimed-ready axis must have a finite 0..100 score matching the pinned
+  snapshot. pandas sums skip NaN and can otherwise turn absent scores into zero
+  risk. Validate missingness before the existing summary reducer.
