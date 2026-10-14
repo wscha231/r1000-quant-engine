@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 import copy
 from datetime import date, datetime, timedelta, timezone
 import gzip
+from http.client import IncompleteRead
 import io
 import inspect
 import json
@@ -109,7 +110,7 @@ def get_public(url, conditional=None):
                 time.sleep(2**attempt)
                 continue
             raise SourceHTTPError(exc.code) from None
-        except (URLError, TimeoutError, OSError):
+        except (IncompleteRead, URLError, TimeoutError, OSError):
             if attempt < 2:
                 time.sleep(2**attempt)
                 continue
@@ -453,7 +454,7 @@ class Lake:
         require(digest(raw)==sha,'remote_hash')
         return raw
 
-    def restore_catalog(self):
+    def restore_catalog(self, *, verify_packs=True):
         names=self.transport.names(f'{PREFIX}/commits')
         require(len(names)==len(set(names)) and len(names)<=20000,'commit_inventory')
         entries={n:json.loads(self.read_hash('commits',n)) for n in names}
@@ -480,7 +481,8 @@ class Lake:
             del entries[parent]
         if last is None:
             return None,dict(schema=SCHEMA,generation=0,datasets={},locations={},eligible_for_selector=False)
-        self.verify_pack_dependencies(pack_dependencies)
+        if verify_packs:
+            self.verify_pack_dependencies(pack_dependencies)
         return parent,catalog
 
     def verify_pack_dependencies(self,dependencies):
@@ -600,7 +602,10 @@ class Lake:
 
     def publish(self,run_id,config):
         require(re.fullmatch('[A-Za-z0-9_-]{1,100}',run_id),'run_id')
-        require(self.restore_catalog()[0]==self.parent,'stale_writer')
+        # The initial restore already checked every retained pack. This early
+        # check only avoids orphan uploads from a stale writer; the mandatory
+        # full remote dependency check remains immediately before commit.
+        require(self.restore_catalog(verify_packs=False)[0]==self.parent,'stale_writer')
         groups=[]; current=[]; size=0
         for sha,path in sorted(self.pending.items()):
             n=path.stat().st_size
@@ -639,7 +644,9 @@ class Lake:
             generation=self.catalog['generation'],run_id=run_id,created_at=utc_now())
         commit_raw=encoded(commit); commit_sha=digest(commit_raw)
         self.transport.write(f'{PREFIX}/commits/{commit_sha}',commit_raw)
-        require(self.restore_catalog()[0]==commit_sha,'publication_conflict')
+        # Old dependencies passed precommit and new packs passed readback.
+        # Recheck the chain/head here; a fresh consumer still restores all packs.
+        require(self.restore_catalog(verify_packs=False)[0]==commit_sha,'publication_conflict')
         return dict(commit_sha256=commit_sha,catalog_sha256=catalog_sha,
             new_packs=len(groups),verified_new_bytes=verified_bytes,
             remote_verified=self.transport.remote_verified,eligible_for_selector=False)

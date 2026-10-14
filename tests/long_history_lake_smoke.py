@@ -466,6 +466,8 @@ class HistoryTest(unittest.TestCase):
         workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
         self.assertIn("branches: ['master']",workflow)
         self.assertIn("&& github.ref == 'refs/heads/master'",workflow)
+        self.assertIn("&& github.event_name != 'push'",workflow)
+        self.assertIn("- cron: '37 6 * * 2-6'",workflow)
         self.assertNotIn('codex/durable-long-history-20260912',workflow)
 
     def test_transient_fred_retry_and_secret_safe_failure(self):
@@ -802,6 +804,57 @@ class HistoryTest(unittest.TestCase):
         counts=Counter(c.args[0].rsplit('/',1)[1] for c in read.call_args_list if '/packs/' in c.args[0])
         self.assertEqual(dict(counts),dict.fromkeys(expected,1))
 
+    def test_publish_old_packs_once_at_precommit_and_new_pack_readback(self):
+        from collections import Counter
+        self.put(); self.lake.publish('one',{})
+        writer=Lake(self.t,self.root/'next')
+        old=set(writer.catalog['locations'].values())
+        self.put(writer,90)
+        with patch.object(self.t,'read',wraps=self.t.read) as read:
+            writer.publish('two',{})
+        counts=Counter(c.args[0].rsplit('/',1)[1] for c in read.call_args_list if '/packs/' in c.args[0])
+        new=set(writer.catalog['locations'].values())-old
+        self.assertTrue(new)
+        self.assertEqual(dict(counts),dict.fromkeys(old|new,1))
+
+    def test_precommit_rechecks_old_pack_after_new_pack_upload(self):
+        self.put(); self.lake.publish('one',{})
+        for fault in ('corrupt','delete'):
+            with self.subTest(fault=fault):
+                writer=Lake(self.t,self.root/('writer-'+fault))
+                self.put(writer,90)
+                old_path=self.root/'remote'/PREFIX/'packs'/next(iter(writer.catalog['locations'].values()))
+                original=old_path.read_bytes()
+                before=self.t.names(PREFIX+'/commits')
+                original_write=self.t.write
+                def write(path,raw):
+                    original_write(path,raw)
+                    if '/packs/' in path:
+                        if fault=='corrupt': old_path.write_bytes(b'corrupt')
+                        else: old_path.unlink()
+                with patch.object(self.t,'write',side_effect=write):
+                    with self.assertRaises(ValueError): writer.publish('refused-'+fault,{})
+                self.assertEqual(self.t.names(PREFIX+'/commits'),before)
+                old_path.write_bytes(original)
+
+    def test_sec_incomplete_read_retries_bounded_without_partial_acceptance(self):
+        from http.client import IncompleteRead
+        from tools.long_history_lake import get_public
+        response=unittest.mock.MagicMock()
+        response.__enter__.return_value=response
+        response.read.side_effect=[IncompleteRead(b'partial',8),b'complete']
+        opener=unittest.mock.Mock()
+        opener.open.return_value=response
+        with patch('tools.long_history_lake.build_opener',return_value=opener), \
+             patch('tools.long_history_lake.time.sleep'):
+            self.assertEqual(get_public('https://data.sec.gov/test')[0],b'complete')
+            self.assertEqual(opener.open.call_count,2)
+            opener.open.reset_mock()
+            response.read.side_effect=IncompleteRead(b'partial',8)
+            with self.assertRaisesRegex(ValueError,'^TRANSPORT_ERROR$'):
+                get_public('https://data.sec.gov/test')
+            self.assertEqual(opener.open.call_count,3)
+
     def test_push_filters_cover_all_consumed_source_paths(self):
         import re
         workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
@@ -817,6 +870,8 @@ def load_tests(loader, tests, pattern):
     # Keep the existing registered Tier-1 entry; avoid the shared runner/P0 lane.
     from research_data_access_smoke import ReaderTest
     tests.addTests(loader.loadTestsFromTestCase(ReaderTest))
+    from long_history_consumer_restore_smoke import ConsumerRestoreTest
+    tests.addTests(loader.loadTestsFromTestCase(ConsumerRestoreTest))
     return tests
 
 
