@@ -7067,3 +7067,10 @@ Expected contract:
 - Check the last supported increment with an actual load_previous round trip.
   A larger history range requires a separately reviewed migration, never a
   silent counter reset or a weakened restore check.
+
+## 2026-10-15 - Reconcile proof composition without inventing upstream files
+
+- Preserve fixed workflow pins after deletion/rename; a dynamic glob alone
+  cannot prove closure. Keep current Main proof coverage separate from an
+  explicitly hashed Source-plus-Main composition. Never materialize absent
+  upstream programs as placeholders or reapply already-pinned path sets.
