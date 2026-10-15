@@ -358,6 +358,42 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(result['reference_index']['status'],'EMPTY_INPUT')
         self.assertFalse(result['reference_index']['economic_consumption_allowed'])
 
+    def test_registry_timestamp_refusals_are_intake_errors(self):
+        self.assertTrue(issubclass(h.registry.ReferenceIndexError, ValueError))
+        raw=h.canonical(delta())
+        for bad in ('malformed', '2026-10-15T00:00:00', None, 42, {}, []):
+            for invoke in (lambda: h.stamp(bad),
+                           lambda: h.plan_delta(raw, raw, cutoff=bad),
+                           lambda: h.er_preview(None, cutoff=bad, artifact_resolver=h.MemoryArtifacts(inventory()),
+                                                security_id='US:S0', issuer_id='CIK:0', benchmark_id='US:SPY')):
+                with self.subTest(bad=bad), self.assertRaisesRegex(h.IntakeError, '^TIMESTAMP$'):
+                    invoke()
+
+    def test_receipt_missing_with_known_expiry_remains_data_pending(self):
+        q=queue(); item=q['items'][0]
+        item['membership_reasons'][0]['valid_until']='2026-10-20T00:00:00Z'
+        item['required_channels'].append('fundamentals')
+        item['channel_status']['fundamentals']='DATA_PENDING'
+        self.assertEqual(self.check_queue(q)['items'][0]['state'], 'DATA_PENDING')
+        for state in ('DISCOVERED', 'REJECTED', 'STALE', 'QUARANTINED', 'RISK_WATCH'):
+            item['state']=state
+            with self.subTest(state=state), self.assertRaisesRegex(h.IntakeError, '^MISSING_RECEIPT_PENDING$'):
+                self.check_queue(q)
+
+    def test_outcome_artifact_cannot_predate_its_contained_returns(self):
+        for available in (T, '2026-10-14T00:00:00Z'):
+            c,m=cohort(True); c['rows'][-1]['outcome_available_at']=available
+            outcomes=h.decode(m['OUT']); outcomes['rows'][-1]['outcome_available_at']=available
+            m['OUT']=h.canonical(outcomes); sha=h.digest(m['OUT'])
+            c['outcome_ref']['sha256']=sha
+            for row in c['rows']: row['source_sha256']=sha
+            if available == T:
+                result=self.check_cohort(c,m)
+                self.assertTrue(result['maturity_candidate']); self.assertFalse(result['learning_eligible'])
+                c['outcome_ref']['available_at']='2026-10-12T23:59:59Z'
+            with self.subTest(available=available), self.assertRaisesRegex(h.IntakeError, '^OUTCOME_REFERENCE_CLOCK$'):
+                self.check_cohort(c,m)
+
     def test_P40_proof_schema_bytes_refused(self):
         for name,sha in h.SCHEMAS.values():
             memory=inventory(); memory['SCHEMA:'+name]+=b' '

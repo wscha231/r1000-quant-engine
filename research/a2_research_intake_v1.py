@@ -347,6 +347,8 @@ def validate_queue(raw, *, cutoff, artifact_resolver, identities):
         need(item['asset_id'] == sid and sid not in ids, 'DUPLICATE_OR_CONFLICTING_SECURITY'); ids.add(sid)
         need(stamp(item['first_seen_at']) <= stamp(item['last_checked_at']) <= as_of, 'QUEUE_CLOCK')
         need(set(item['required_channels']) == set(item['channel_status']), 'QUEUE_CHANNELS')
+        if 'CONSUMER_RECEIPT_MISSING' in item['channel_status'].values():
+            need(item['state'] == 'DATA_PENDING', 'MISSING_RECEIPT_PENDING')
         for reason in item['membership_reasons']:
             need(reason['security_id'] == sid and reason['ticker'] in subjects[sid][1], 'REASON_IDENTITY')
             need(stamp(reason['first_seen_at']) <= stamp(reason['last_observed_at']) <= as_of, 'REASON_CLOCK')
@@ -489,6 +491,7 @@ def validate_cohort(raw, *, cutoff, artifact_resolver, identities):
             need(all(canonical(outcome[k]) == canonical(row[k]) for k in outcome_fields), 'OUTCOME_BINDINGS')
             need(row['outcome_session'] == row['target_session'], 'LATE_SESSION_SUBSTITUTION')
             need(row['outcome_available_at'] is not None and decision < stamp(row['outcome_available_at']) <= generated, 'OUTCOME_AVAILABILITY')
+            need(stamp(row['outcome_available_at']) <= stamp(value['outcome_ref']['available_at']), 'OUTCOME_REFERENCE_CLOCK')
             need(stamp(row['outcome_available_at']).date() >= date.fromisoformat(row['target_session']), 'PRE_SESSION_OUTCOME')
             need(stamp(row['outcome_available_at']) >= stamp(target['close_at']), 'PRE_CLOSE_OUTCOME')
             vals = [row[k] for k in ('asset_return', 'benchmark_return', 'excess_return')]
