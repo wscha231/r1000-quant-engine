@@ -446,6 +446,80 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue())['reason'], 'INPUT_READ_FAILURE')
             self.assertNotIn('private-denied-marker', output.getvalue())
 
+    def test_failed_open_classifies_only_proven_directory_without_path_leak(self):
+        path = Path('synthetic-private-directory-marker')
+        failure = PermissionError('synthetic-private-open-marker')
+        with patch.object(mod.os, 'open', side_effect=failure), \
+             patch.object(mod.os, 'stat', return_value=SimpleNamespace(st_mode=mod.stat.S_IFDIR)) as probe, \
+             patch.object(mod.os, 'fstat') as fstat, patch.object(mod.os, 'close') as close:
+            with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_NOT_REGULAR_FILE$'):
+                mod._read_input(path)
+            probe.assert_called_once_with(path)
+            fstat.assert_not_called()
+            close.assert_not_called()
+            with patch('sys.stdout', new_callable=io.StringIO) as output:
+                self.assertEqual(mod.main(['--input-csv', str(path)]), 2)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result['reason'], 'INPUT_NOT_REGULAR_FILE')
+            self.assertFalse(result['authority']['orders_allowed'])
+            self.assertNotIn('synthetic-private', output.getvalue())
+
+    def test_non_directory_open_failures_preserve_original_error(self):
+        path = Path('synthetic-private-file-marker')
+        for failure in (FileNotFoundError('synthetic-private-missing'),
+                        PermissionError('synthetic-private-denied'), OSError('synthetic-private-io')):
+            for probe in (SimpleNamespace(st_mode=mod.stat.S_IFREG),
+                          SimpleNamespace(st_mode=mod.stat.S_IFLNK),
+                          SimpleNamespace(st_mode=mod.stat.S_IFIFO),
+                          FileNotFoundError('synthetic-private-probe-missing'),
+                          PermissionError('synthetic-private-probe-denied')):
+                with self.subTest(error=type(failure).__name__, probe=type(probe).__name__), \
+                     patch.object(mod.os, 'open', side_effect=failure), \
+                     patch.object(mod.os, 'stat', side_effect=probe if isinstance(probe, OSError) else None,
+                                  return_value=probe), \
+                     patch.object(mod.os, 'fstat') as fstat, patch.object(mod.os, 'close') as close:
+                    with self.assertRaises(type(failure)) as caught:
+                        mod._read_input(path)
+                    self.assertIs(caught.exception, failure)
+                    fstat.assert_not_called()
+                    close.assert_not_called()
+                    with patch('sys.stdout', new_callable=io.StringIO) as output:
+                        self.assertEqual(mod.main(['--input-csv', str(path)]), 2)
+                    self.assertEqual(json.loads(output.getvalue())['reason'], 'INPUT_READ_FAILURE')
+                    self.assertNotIn('synthetic-private', output.getvalue())
+
+    def test_successful_open_still_requires_regular_descriptor_and_closes(self):
+        for mode in (mod.stat.S_IFDIR, mod.stat.S_IFIFO, mod.stat.S_IFLNK):
+            with self.subTest(mode=mode), patch.object(mod.os, 'open', return_value=42), \
+                 patch.object(mod.os, 'stat') as probe, \
+                 patch.object(mod.os, 'fstat', return_value=SimpleNamespace(st_mode=mode, st_size=0)), \
+                 patch.object(mod.os, 'fdopen') as fdopen, patch.object(mod.os, 'close') as close:
+                with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_NOT_REGULAR_FILE$'):
+                    mod._read_input(Path('synthetic-private-special-marker'))
+                probe.assert_not_called()
+                fdopen.assert_not_called()
+                close.assert_called_once_with(42)
+
+    def test_real_symlinks_keep_regular_directory_and_missing_behavior(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regular = root / 'regular.csv'
+            regular.write_bytes(make_csv(SAMPLE))
+            link = root / 'regular-link.csv'
+            try:
+                link.symlink_to(regular)
+            except OSError:
+                self.skipTest('OS symlink creation unavailable')
+            self.assertEqual(mod._read_input(link), regular.read_bytes())
+            directory_link = root / 'directory-link'
+            directory_link.symlink_to(root, target_is_directory=True)
+            with self.assertRaisesRegex(mod.AuditInputError, '^INPUT_NOT_REGULAR_FILE$'):
+                mod._read_input(directory_link)
+            broken = root / 'broken-link'
+            broken.symlink_to(root / 'absent.csv')
+            with self.assertRaises(OSError):
+                mod._read_input(broken)
+
     def test_csv_record_and_column_budgets(self):
         for raw in (b'ticker,' + b',' * mod._MAX_RECORD_CHARS + b'\nAAA,1\n',
                     b'ticker,"' + b'a\n' * mod._MAX_RECORD_CHARS + b'"\nAAA,1\n',
