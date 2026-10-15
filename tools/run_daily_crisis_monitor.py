@@ -386,6 +386,18 @@ def parse_args() -> argparse.Namespace:
         except (ValueError, TypeError, OverflowError):
             raise argparse.ArgumentTypeError("report session must be a valid YYYY-MM-DD calendar date") from None
         return value
+    def report_now(value):
+        from tools import daily_crisis_report_clock as clock
+        try:
+            clock.stamp(value)
+        except (ValueError, TypeError, OverflowError):
+            raise argparse.ArgumentTypeError("report now must be an exact timestamp with UTC offset") from None
+        return value
+    def report_recipient(value):
+        from tools import daily_crisis_report_clock as clock
+        if not clock.re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+            raise argparse.ArgumentTypeError("report recipient must use 1..80 letters, digits, underscores or hyphens")
+        return value
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/daily_crisis_monitor")
     parser.add_argument("--history", default="outputs/daily_crisis_monitor/state_history.json")
@@ -394,8 +406,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
     parser.add_argument("--report-session", type=report_session)
-    parser.add_argument("--report-recipient", default="research-owner")
-    parser.add_argument("--report-now")
+    parser.add_argument("--report-recipient", type=report_recipient, default="research-owner")
+    parser.add_argument("--report-now", type=report_now)
     parser.add_argument("--report-source-view")
     parser.add_argument("--report-source-root")
     parser.add_argument("--report-expectations")

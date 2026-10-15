@@ -457,9 +457,16 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     need(snapshot.get("schema_version") == "MacroRiskSnapshot-v1" and snapshot.get("report_only") is True
          and snapshot.get("decision_date") == latest.decision_date == manifest.get("decision_date"), "SNAPSHOT_HISTORY_MISMATCH")
     context_fields = contract["context_columns"].get("optional_numeric", []) + contract["context_columns"].get("optional_boolean", [])
-    facts, issues = clock_check(view.get("source_clocks"), metrics, cutoff, now, view["input_kind"], expectations)
+    records = view.get("source_clocks")
+    need(isinstance(records, list) and 0 < len(records) <= 5000 and
+         all(isinstance(item, dict) for item in records), "CLOCK_MANIFEST")
+    consumed = set(metrics.source_sha256)
     if context is not None:
-        context_facts, context_issues = clock_check(view.get("source_clocks"), context, cutoff, now, view["input_kind"], expectations, context_fields)
+        consumed.update(context.source_sha256)
+    records = [item for item in records if item.get("source_sha256") in consumed]
+    facts, issues = clock_check(records, metrics, cutoff, now, view["input_kind"], expectations)
+    if context is not None:
+        context_facts, context_issues = clock_check(records, context, cutoff, now, view["input_kind"], expectations, context_fields)
         facts = list({f["source_sha256"]:f for f in facts+context_facts}.values())
         issues = sorted(set(issues + context_issues))
     axes = snapshot.get("axes")
@@ -533,8 +540,8 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
                 history_sha256=digest(history_raw), producer_sha256=producer, expectations=expectations,
                 expectations_sha256=expectations_sha, metrics=validated, context=validated_context,
                 axes_frame=axes_frame, context_fields=context_fields, execution_time_utc=now.isoformat(),
-                source_clocks=view["source_clocks"],
-                expiry_min=min((stamp(c["expiry"]) for c in view["source_clocks"]), default=now) if not issues else None)
+                source_clocks=records,
+                expiry_min=min((stamp(c["expiry"]) for c in records), default=now) if not issues else None)
 
 
 def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
@@ -556,9 +563,12 @@ def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
     need((last is None and value["completed_session_count"] == 0) or
          (isinstance(last, str) and session_times(last) is not None and
           value["completed_session_count"] > 0), "PREVIOUS_HISTORY_COUNT")
+    need(value["completed_session_count"] == 0 or bool(value["slots"]), "COMPLETED_HISTORY_SLOTS_REQUIRED")
     if value["slots"]:
         sha(value.get("source_prefix_sha256"))
         need(isinstance(value.get("source_prefix_date"), str), "SOURCE_HISTORY_PREFIX_REQUIRED")
+        need(session_times(value["source_prefix_date"]) is not None and
+             (last is None or value["source_prefix_date"] >= last), "SOURCE_PREFIX_DOES_NOT_COVER_COMPLETED_SESSION")
     return value
 
 
@@ -669,7 +679,7 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
     except (Blocked, risk.ContractError) as exc:
         result.update(next_history=None, delivery_candidate=False, completed_session_increment=0,
                       current_report_status="BLOCKED", risk_score=None, market_state=None)
-        result["blockers"].append(str(exc))
+        result["blockers"].append("CHAMELEON_INPUT_CONTRACT" if isinstance(exc, risk.ContractError) else str(exc))
         result["data_health"] = "DATA_PARTIAL" if result["source_facts"] else "DATA_BLOCKED"
     except (OSError, ValueError, TypeError, KeyError, AttributeError, csv.Error, RecursionError):
         result.update(next_history=None, delivery_candidate=False, completed_session_increment=0,

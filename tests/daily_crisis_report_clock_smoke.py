@@ -465,11 +465,13 @@ class ReportClockTests(unittest.TestCase):
         schedule = mcal.get_calendar("NYSE").schedule("2024-12-01",self.session)
         last_two = [d.date().isoformat() for d in schedule.index[-3:-1]]
         for last, expected in ((last_two[0],"BLOCKED"),(last_two[1],"READY_DRY_RUN")):
-            value = json.loads(self.anchor); value.pop("content_sha256")
-            value.update(last_counted_completed_session=last,completed_session_count=1)
+            prior = self.run_cycle(view=self.previous,session=self.previous_session,
+                                   now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
+            value = dict(prior["next_history"]); value.pop("content_sha256")
+            value.update(last_counted_completed_session=last)
             value["content_sha256"] = clock.digest(clock.canonical(value))
             raw = clock.canonical(value)
-            result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw))
+            result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw),expected_parent_sha=clock.digest(self.anchor))
             self.assertEqual(result["current_report_status"],expected,result)
             if expected == "BLOCKED":
                 self.assertIn("COMPLETED_SESSION_GAP",result["blockers"])
@@ -544,6 +546,56 @@ class ReportClockTests(unittest.TestCase):
         self.assertIn("Prior-session risk score: "+str(result["last_completed_risk_score"]),report)
         self.assertIn("Prior-session market state: "+result["last_completed_market_state"],report)
 
+    def test_completed_anchor_cannot_clear_slots_or_shorten_prefix(self):
+        prior = self.run_cycle(view=self.previous,session=self.previous_session,
+                               now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
+        changes = (({"slots":[]},"COMPLETED_HISTORY_SLOTS_REQUIRED"),
+                   ({"source_prefix_date":"2024-01-02"},"SOURCE_PREFIX_DOES_NOT_COVER_COMPLETED_SESSION"))
+        for change, reason in changes:
+            value = dict(prior["next_history"]); value.pop("content_sha256"); value.update(change)
+            value["content_sha256"] = clock.digest(clock.canonical(value)); raw = clock.canonical(value)
+            result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw),expected_parent_sha=clock.digest(self.anchor))
+            self.assertIn(reason,result["blockers"])
+            self.assertIsNone(result["next_history"])
+            self.assertEqual(result["completed_session_increment"],0)
+
+    def test_producer_raw_cell_errors_are_redacted(self):
+        sentinel = "PRIVATE_CREDENTIAL_SENTINEL_DO_NOT_PERSIST"
+        boolean = clock.risk.load_contract()["context_columns"]["optional_boolean"][0]
+        for name, column in (("metrics","component"),("context",boolean)):
+            def change(manifest, view):
+                frame = pd.read_csv(manifest["inputs"][name]["path"])
+                frame.loc[frame.index[-1],column] = sentinel
+                path = self.root / ("invalid-secret-"+name+".csv"); frame.to_csv(path,index=False)
+                manifest["inputs"][name] = clock.risk.fingerprint(path)
+            result = self.run_cycle(view=self.rebound("secret-"+name,change))
+            self.assertIn("CHAMELEON_INPUT_CONTRACT",result["blockers"])
+            self.assertNotIn(sentinel,json.dumps(result))
+            self.assertNotIn(sentinel,clock.render_report(result))
+
+    def test_post_asof_only_clocks_do_not_enter_validation_or_expiry_min(self):
+        view = json.loads(self.previous.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        current = json.loads(Path(json.loads(self.current.read_bytes())["chameleon_manifest"]["path"]).read_bytes())
+        for name, key in (("metrics","c"*64),("context","d"*64)):
+            frame = pd.read_csv(current["inputs"][name]["path"])
+            frame.loc[frame.decision_date == self.session,"source_sha256"] = key
+            path = self.root / ("later-hash-"+name+".csv"); frame.to_csv(path,index=False)
+            manifest["inputs"][name] = clock.risk.fingerprint(path)
+            item = dict(view["source_clocks"][0]); item.update(source_sha256=key,expiry="2000-01-01T00:00:00Z")
+            view["source_clocks"].append(item)
+        path = self.root / "later-hash-manifest.json"; path.write_bytes(clock.canonical(manifest))
+        view["chameleon_manifest"] = clock.risk.fingerprint(path)
+        path = self.root / "later-hash-view.json"; path.write_bytes(clock.canonical(view))
+        result = self.run_cycle(view=path,slot="INTRADAY")
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+        cutoff = clock.session_times(self.session)["INTRADAY"]
+        source = clock.load_source(path,clock.digest(path.read_bytes()),self.root,cutoff,cutoff)
+        self.assertGreater(source["expiry_min"],cutoff)
+        view["source_clocks"] += [{"source_sha256":"f"*64}]*5001
+        path.write_bytes(clock.canonical(view))
+        self.assertIn("CLOCK_MANIFEST",self.run_cycle(view=path,slot="INTRADAY")["blockers"])
+
     def test_monitor_integration_candidate_only_and_no_overwrite(self):
         output = self.root / "monitor-dry-run"
         history = self.root / "approved-history.json"
@@ -568,6 +620,16 @@ class ReportClockTests(unittest.TestCase):
 
 
 class ReportCliTests(unittest.TestCase):
+    def test_explicit_clock_and_recipient_values_are_validated(self):
+        from tools.run_daily_crisis_monitor import parse_args
+        for option,value in (("--report-now","not-a-time"),("--report-now","2026-10-14"),
+                             ("--report-recipient","bad name"),("--report-recipient","x"*81)):
+            with patch.object(sys,"argv",["monitor","--report-slot","AFTER_CLOSE","--report-session","2026-10-14",option,value]), redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as caught:
+                    parse_args()
+            self.assertEqual(caught.exception.code,2)
+            self.assertNotIn("Traceback",errors.getvalue())
+
     def test_present_invalid_report_session_has_normal_argument_error(self):
         from tools.run_daily_crisis_monitor import parse_args
         for value in ("not-a-date","2026-02-30","2026-2-3","0001-01-01"):
