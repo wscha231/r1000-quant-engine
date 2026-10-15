@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 UTC, NY = timezone.utc, ZoneInfo("America/New_York")
 HASH = re.compile(r"[0-9a-f]{64}")
 SLOTS = ("INTRADAY", "AFTER_CLOSE")
+MAX_COMPLETED_SESSIONS = 10000
 SAFETY = dict(report_only=True, notification_enabled=False,
               order_generation_allowed=False, ledger_mutation_allowed=False,
               source_promotion_allowed=False, pit_promotion_allowed=False,
@@ -563,7 +564,7 @@ def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
     need(actual == digest(canonical(content)), "PREVIOUS_HISTORY_HASH_MISMATCH")
     need(value.get("parent_sha256") == expected_parent, "PREVIOUS_HISTORY_PARENT_MISMATCH")
     if expected_parent is not None: sha(expected_parent)
-    need(type(value.get("completed_session_count")) is int and 0 <= value["completed_session_count"] <= 10000,
+    need(type(value.get("completed_session_count")) is int and 0 <= value["completed_session_count"] <= MAX_COMPLETED_SESSIONS,
          "PREVIOUS_HISTORY_COUNT")
     need(isinstance(value.get("slots"), list) and len(value["slots"]) <= 512
          and all(isinstance(s, str) and HASH.fullmatch(s) for s in value["slots"])
@@ -653,6 +654,8 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         candidate = delivery_key not in prior["slots"]
         slots = (prior["slots"] + ([delivery_key] if candidate else []))[-512:]
         increment = int(candidate and slot == "AFTER_CLOSE" and source["ready"] and last != session)
+        next_count = prior["completed_session_count"] + increment
+        need(next_count <= MAX_COMPLETED_SESSIONS, "COMPLETED_SESSION_LIMIT_REACHED")
         if increment and last is None:
             # Opaque prior keys cannot prove that earlier partial sessions were
             # completed. Only this session's provisional slot may precede genesis.
@@ -679,7 +682,7 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         history = dict(schema="daily-crisis-report-history-v1", recipient=recipient,
                        input_kind=source["input_kind"], parent_sha256=expected_previous_sha,
                        last_counted_completed_session=session if increment else last,
-                       completed_session_count=prior["completed_session_count"]+increment,
+                       completed_session_count=next_count,
                        slots=slots, source_history_sha256=source["history_sha256"],
                        source_manifest_sha256=source["manifest_sha256"],
                        source_prefix_date=latest_date, source_prefix_sha256=next_prefix)

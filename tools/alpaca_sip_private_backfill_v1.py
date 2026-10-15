@@ -533,11 +533,12 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
 
 def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
                       start: str, end: str, key: str, secret: str,
-                      seed_sha: str, source_sha: str):
+                      seed_sha: str, source_sha: str, *, get=None):
     raw_members, evidence, results = {}, [], {}
     for adjustment in ("raw", "split"):
         members, grouped, pages = request_pages(
             symbols, adjustment, start, end, key, secret,
+            **({"get": get} if get is not None else {}),
         )
         for member, raw in members.items():
             # Different response bodies must not share the same hash.
@@ -598,7 +599,7 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
     return [raw_obj, norm_obj, rec_obj], collected, missing, len(normalized)
 
 
-def run(args):
+def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=None):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true",
             "USER_AUTHORIZATION_MISSING")
     require(os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
@@ -618,7 +619,7 @@ def run(args):
     names = cohort(seed)
     seed_sha = digest(seed)
     with tempfile.TemporaryDirectory(prefix="a1-alpaca-private-") as tmp:
-        drive = OwnerDrive(args.private_root_folder_id, tmp)
+        drive = drive_factory(args.private_root_folder_id, tmp)
         drive.check(args.private_data_folder_id, drive.root_id)
         examined, completed, held_invalid, prior = resume_state(
             drive, args.private_data_folder_id,
@@ -628,6 +629,8 @@ def run(args):
         # The discovery queue is immutable; held groups do not become
         # completed data and cannot silently create holes in the worklist.
         require(examined == names[:len(examined)], "RESUME_UNIVERSE")
+        require(expected_examined is None or len(examined) == expected_examined,
+                "CAMPAIGN_EXAMINED_PARENT")
         require(set(completed).isdisjoint(set(held_invalid))
                 and set(examined) == set(completed) | set(held_invalid),
                 "RESUME_UNIVERSE")
@@ -643,6 +646,7 @@ def run(args):
                     drive, args.private_data_folder_id, group,
                     args.start, args.end, key, secret, seed_sha,
                     source_sha,
+                    **({"get": get} if get is not None else {}),
                 )
             except Refused as exc:
                 # A single invalid numerical bar gives no eligible data
@@ -700,6 +704,8 @@ def run(args):
             checkpoint = persist_object(
                 drive, args.private_data_folder_id, encoded(state), ".json",
             )
+            if on_group is not None:
+                on_group(drive, state, checkpoint)
             print(json.dumps({
                 "status": "PRIVATE_CHECKPOINT_SAVED",
                 "last_group_status": status,
@@ -709,7 +715,7 @@ def run(args):
                 "checkpoint": checkpoint,
                 "source_admission": False,
             }, sort_keys=True))
-        print(json.dumps({
+        result = {
             "status": ("PRIVATE_HISTORY_PARTIAL_HELD" if held_this_batch
                        else "PRIVATE_HISTORY_BATCH_RESTORED"),
             "seed_count": len(names), "attempted_new": len(selected),
@@ -721,7 +727,19 @@ def run(args):
             "rows_new": row_count, "checkpoint": checkpoint,
             "public_provider_bytes_uploaded": False,
             "source_admission": False, "economic_authority": False,
-        }, sort_keys=True))
+        }
+        print(json.dumps(result, sort_keys=True))
+        return result
+
+
+def run(args):
+    # The public API/CLI cannot silently fall back to unbudgeted collection.
+    from tools.alpaca_sip_campaign import bounded_json, worker
+    path = getattr(args, "campaign_control_file", None)
+    require(path, "CAMPAIGN_CONTROL_REQUIRED")
+    temp = os.environ.get("RUNNER_TEMP")
+    require(temp and Path(temp).is_dir(), "CAMPAIGN_JOURNAL_PATH")
+    return worker(args, bounded_json(path, 16384), Path(temp) / "campaign_meter.json")
 
 
 def main():
@@ -733,6 +751,7 @@ def main():
     parser.add_argument("--start", default=MIN_START)
     parser.add_argument("--end", required=True)
     parser.add_argument("--max-new-symbols", type=int, default=16)
+    parser.add_argument("--campaign-control-file")
     args = parser.parse_args()
     try:
         run(args)

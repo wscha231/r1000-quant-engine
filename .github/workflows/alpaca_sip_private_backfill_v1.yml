@@ -1,9 +1,12 @@
 # A1 private historical research only: no broker or public original artifacts.
 name: A1 Alpaca SIP Historical Private Backfill
+run-name: a1-sip ${{ inputs.campaign_nonce || github.run_id }}
 on:
   pull_request:
     paths:
       - 'tools/alpaca_sip_private_backfill_v1.py'
+      - 'tools/alpaca_sip_campaign.py'
+      - 'tests/alpaca_sip_campaign_smoke.py'
       - 'tests/alpaca_sip_private_backfill_v1_smoke.py'
       - '.github/workflows/alpaca_sip_private_backfill_v1.yml'
       - 'data_static/iwb_holdings_seed.csv'
@@ -49,8 +52,18 @@ on:
         description: Matching checkpoint SHA256
         type: string
         default: ''
+      campaign_control:
+        description: Immutable authorized campaign control JSON; no credentials
+        required: true
+        type: string
+      campaign_nonce:
+        description: Single-use Work controller nonce
+        required: true
+        type: string
 permissions:
   contents: read
+  actions: read
+  issues: read
 concurrency:
   group: a1-private-research-single-writer
   cancel-in-progress: false
@@ -66,6 +79,8 @@ jobs:
           sparse-checkout: |
             /data_static/iwb_holdings_seed.csv
             /tools/alpaca_sip_private_backfill_v1.py
+            /tools/alpaca_sip_campaign.py
+            /tests/alpaca_sip_campaign_smoke.py
             /tools/twelve_private_capture.py
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
@@ -95,6 +110,8 @@ jobs:
       INPUT_MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
       INPUT_RESUME_FILE_ID: ${{ inputs.resume_file_id }}
       INPUT_RESUME_SHA256: ${{ inputs.resume_sha256 }}
+      INPUT_CAMPAIGN_CONTROL: ${{ inputs.campaign_control }}
+      INPUT_CAMPAIGN_NONCE: ${{ inputs.campaign_nonce }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,6 +120,8 @@ jobs:
           sparse-checkout: |
             /data_static/iwb_holdings_seed.csv
             /tools/alpaca_sip_private_backfill_v1.py
+            /tools/alpaca_sip_campaign.py
+            /tests/alpaca_sip_campaign_smoke.py
             /tools/twelve_private_capture.py
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
@@ -114,23 +133,23 @@ jobs:
           python-version: '3.12'
       - name: Validate bounded collector before data capture
         run: python -m unittest discover -s tests -p alpaca_sip_private_backfill_v1_smoke.py -v
-      - name: Install reviewed rclone 1.75 transport
-        env:
-          MACRO_RCLONE_RELEASE: '1.75.0'
-          MACRO_RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+      - name: Prepare bounded control metadata before credentials
         run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --location \
-            "https://downloads.rclone.org/v${MACRO_RCLONE_RELEASE}/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64.zip" \
-            -o "$RUNNER_TEMP/alpaca-rclone.zip"
-          printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/alpaca-rclone.zip" | sha256sum --check --strict
-          unzip -q "$RUNNER_TEMP/alpaca-rclone.zip" -d "$RUNNER_TEMP/rclone-bin"
-          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from tools.twelve_private_capture import decode, require
+          from tools.alpaca_sip_campaign import atomic_json
+          raw = os.environ['INPUT_CAMPAIGN_CONTROL'].encode()
+          require(0 < len(raw) <= 16384, 'CAMPAIGN_CONTROL_SIZE')
+          atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', decode(raw))
+          PY
       - name: Collect immutable owner-only Alpaca history
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
           MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python -m tools.alpaca_sip_private_backfill_v1 \
             --private-root-folder-id "$INPUT_PRIVATE_ROOT_FOLDER_ID" \
@@ -138,5 +157,14 @@ jobs:
             --end "$INPUT_END_DATE" \
             --max-new-symbols "$INPUT_MAX_NEW_SYMBOLS" \
             --resume-file-id "$INPUT_RESUME_FILE_ID" \
-            --resume-sha256 "$INPUT_RESUME_SHA256"
-      # No raw provider bytes in logs, Actions artifacts or public GitHub.
+            --resume-sha256 "$INPUT_RESUME_SHA256" \
+            --campaign-control-file "$RUNNER_TEMP/campaign_control.json"
+      # Only typed counters/hash bindings, never provider bytes or private refs.
+      - name: Preserve conservative meter even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a1-campaign-meter
+          path: ${{ runner.temp }}/campaign_meter.json
+          if-no-files-found: warn
+          retention-days: 7

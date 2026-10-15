@@ -298,5 +298,51 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
+class MeteredOAuthTests(unittest.TestCase):
+    def exercise(self, expired, custom, echo=False):
+        import tempfile
+        token = dict(access_token='old-access-canary', refresh_token='refresh-canary',
+                     expiry=('2020' if expired else '2099')+'-01-01T00:00:00Z')
+        config='[gdrive]\ntype=drive\ntoken='+json.dumps(token)+'\n'
+        if custom:
+            config+='client_id=fixture.apps.googleusercontent.com\nclient_secret=private-client-canary\n'
+        calls=[]
+        class Meter:
+            def perform(self, url, **kwargs):
+                calls.append((url,kwargs))
+                if url=='https://oauth2.googleapis.com/token':
+                    if echo:
+                        return b'{"access_token":"fresh-token","expires_in":3600,"token_type":"Bearer","echo":"private-client-\\u0063anary"}'
+                    return m.encoded(dict(access_token='fresh-token',expires_in=3600,token_type='Bearer'))
+                if '/about?' in url:
+                    return m.encoded(dict(user=dict(permissionId='owner'),storageQuota=dict(limit='5000000000',usage='0')))
+                return m.encoded(dict(id='private-root-123',mimeType='application/vnd.google-apps.folder',
+                                     trashed=False,shared=False,parents=[],permissions=[dict(id='owner',type='user',role='owner')]))
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ,dict(MACRO_DRIVE_CONFIG=config),clear=True), \
+                patch.object(m.subprocess,'run',side_effect=AssertionError('opaque bootstrap')):
+            try: result=m.OwnerDrive('private-root-123',temp,meter=Meter())
+            except m.Refused as exc: return str(exc),calls,None
+            return None,calls,result
+
+    def test_expired_builtin_token_refuses_before_opaque_bootstrap(self):
+        reason,calls,_=self.exercise(True,False)
+        self.assertEqual(reason,'CAMPAIGN_OAUTH_CLIENT_REQUIRED'); self.assertEqual(calls,[])
+
+    def test_fresh_original_token_uses_only_metered_metadata(self):
+        reason,calls,result=self.exercise(False,False)
+        self.assertIsNone(reason); self.assertEqual(len(calls),2)
+        self.assertEqual(result.owner,'owner'); self.assertEqual(result.free,5_000_000_000)
+
+    def test_existing_custom_client_refresh_is_metered_and_fixed_endpoint(self):
+        reason,calls,result=self.exercise(True,True)
+        self.assertIsNone(reason); self.assertEqual(len(calls),3)
+        self.assertEqual(calls[0][0],'https://oauth2.googleapis.com/token')
+        self.assertEqual(calls[0][1]['method'],'POST'); self.assertEqual(result.token,'fresh-token')
+
+    def test_escaped_refresh_credential_echo_refuses_before_drive(self):
+        reason,calls,_=self.exercise(True,True,True)
+        self.assertEqual(reason,'CREDENTIAL_ECHO'); self.assertEqual(len(calls),1)
+
+
 if __name__ == '__main__':
     unittest.main()
