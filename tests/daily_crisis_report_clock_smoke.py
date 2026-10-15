@@ -634,6 +634,57 @@ class ReportClockTests(unittest.TestCase):
         path.write_bytes(clock.canonical(view))
         self.assertIn("CLOCK_MANIFEST",self.run_cycle(view=path,slot="INTRADAY")["blockers"])
 
+    def completed_count_anchor(self, count):
+        prior = self.run_cycle(view=self.previous, session=self.previous_session,
+                               now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
+        self.assertEqual(prior["current_report_status"], "READY_DRY_RUN", prior)
+        value = dict(prior["next_history"]); value.pop("content_sha256")
+        value["completed_session_count"] = count
+        value["content_sha256"] = clock.digest(clock.canonical(value))
+        raw = clock.canonical(value)
+        restored = clock.load_previous(raw, clock.digest(raw), clock.digest(self.anchor), "owner", "FIXTURE")
+        self.assertEqual(restored["completed_session_count"], count)
+        return raw
+
+    def test_completed_session_limit_blocks_next_ready_history(self):
+        raw = self.completed_count_anchor(10000)
+        before = bytes(raw)
+        result = self.run_cycle(previous=raw, parent=clock.digest(self.anchor))
+        self.assertEqual(result["current_report_status"], "BLOCKED", result)
+        self.assertIn("COMPLETED_SESSION_LIMIT_REACHED", result["blockers"])
+        self.assertIsNone(result["next_history"])
+        self.assertFalse(result["delivery_candidate"])
+        self.assertEqual(result["completed_session_increment"], 0)
+        self.assertIsNone(result["risk_score"])
+        self.assertEqual(raw, before)
+
+    def test_completed_session_last_increment_and_duplicate_restore(self):
+        raw = self.completed_count_anchor(9999)
+        result = self.run_cycle(previous=raw, parent=clock.digest(self.anchor))
+        self.assertEqual(result["current_report_status"], "READY_DRY_RUN", result)
+        self.assertEqual(result["completed_session_increment"], 1)
+        self.assertEqual(result["next_history"]["completed_session_count"], 10000)
+        emitted = clock.canonical(result["next_history"])
+        restored = clock.load_previous(emitted, clock.digest(emitted), clock.digest(raw), "owner", "FIXTURE")
+        self.assertEqual(restored["completed_session_count"], 10000)
+        duplicate = self.run_cycle(previous=emitted, parent=clock.digest(raw), code="f"*64)
+        self.assertEqual(duplicate["current_report_status"], "ALREADY_PREPARED_SAME_SLOT", duplicate)
+        self.assertEqual(duplicate["completed_session_increment"], 0)
+        self.assertEqual(duplicate["next_history"]["completed_session_count"], 10000)
+
+    def test_completed_session_limit_retains_nonincrementing_reports(self):
+        raw = self.completed_count_anchor(10000)
+        for view, slot, status in ((self.previous, "INTRADAY", "READY_DRY_RUN"),
+                                   (self.partial, "AFTER_CLOSE", "PARTIAL_DRY_RUN")):
+            with self.subTest(slot=slot):
+                result = self.run_cycle(view=view, slot=slot, previous=raw, parent=clock.digest(self.anchor))
+                self.assertEqual(result["current_report_status"], status, result)
+                self.assertEqual(result["completed_session_increment"], 0)
+                self.assertEqual(result["next_history"]["completed_session_count"], 10000)
+                emitted = clock.canonical(result["next_history"])
+                self.assertEqual(clock.load_previous(emitted, clock.digest(emitted), clock.digest(raw),
+                                                    "owner", "FIXTURE")["completed_session_count"], 10000)
+
     def test_completed_key_is_retained_when_slot_window_rolls(self):
         prior = self.run_cycle(view=self.previous,session=self.previous_session,
                                now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())

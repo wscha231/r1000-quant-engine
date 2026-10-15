@@ -7058,3 +7058,12 @@ Expected contract:
   retain partial slot keys; only the current session's provisional key may
   precede genesis. Earlier or opaque unresolved slots require explicit A0
   recovery, never silent skipping, key deletion or a fabricated first completion.
+
+## 2026-10-15 - Keep report-history production within its restore bound
+
+- Producer and loader share the completed-session limit. Refuse a new ready
+  completion before emitting an out-of-range history candidate; preserve
+  duplicate, intraday and partial reports that do not increment the count.
+- Check the last supported increment with an actual load_previous round trip.
+  A larger history range requires a separately reviewed migration, never a
+  silent counter reset or a weakened restore check.
