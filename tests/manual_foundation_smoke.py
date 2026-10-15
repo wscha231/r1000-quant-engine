@@ -208,8 +208,13 @@ class ManualTests(unittest.TestCase):
         self.assertEqual(len(manifest['files']), 10)
         for row in manifest['files']:
             raw = (folder / row['path']).read_bytes()
-            self.assertEqual(len(raw), row['size_bytes'])
-            self.assertEqual(hashlib.sha256(raw).hexdigest(), row['sha256'])
+            # The archived manifest binds Git-LF bytes, not a Native CRLF
+            # checkout. Verify that context explicitly without changing pins.
+            name = 'docs/theme_memory_fix_evidence_20261015/' + row['path']
+            committed = subprocess.check_output(['git', 'show', 'HEAD:' + name], cwd=ROOT)
+            self.assertEqual(raw.replace(b'\r\n', b'\n'), committed)
+            self.assertEqual(len(committed), row['size_bytes'])
+            self.assertEqual(hashlib.sha256(committed).hexdigest(), row['sha256'])
 
     def test_reconciled_main_proof_inputs_refuse_tamper_omission_and_loss(self):
         programs, inputs, _ = self.reconciled_main_proof_paths()
