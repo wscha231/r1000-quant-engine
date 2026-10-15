@@ -469,6 +469,7 @@ class ReportClockTests(unittest.TestCase):
                                    now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
             value = dict(prior["next_history"]); value.pop("content_sha256")
             value.update(last_counted_completed_session=last)
+            value["slots"] = [clock.digest(clock.canonical(["owner",last,"AFTER_CLOSE"]))]
             value["content_sha256"] = clock.digest(clock.canonical(value))
             raw = clock.canonical(value)
             result = self.run_cycle(previous_raw=raw,expected_previous_sha=clock.digest(raw),expected_parent_sha=clock.digest(self.anchor))
@@ -550,6 +551,7 @@ class ReportClockTests(unittest.TestCase):
         prior = self.run_cycle(view=self.previous,session=self.previous_session,
                                now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
         changes = (({"slots":[]},"COMPLETED_HISTORY_SLOTS_REQUIRED"),
+                   ({"slots":["f"*64]},"COMPLETED_SLOT_KEY_REQUIRED"),
                    ({"source_prefix_date":"2024-01-02"},"SOURCE_PREFIX_DOES_NOT_COVER_COMPLETED_SESSION"))
         for change, reason in changes:
             value = dict(prior["next_history"]); value.pop("content_sha256"); value.update(change)
@@ -596,6 +598,42 @@ class ReportClockTests(unittest.TestCase):
         path.write_bytes(clock.canonical(view))
         self.assertIn("CLOCK_MANIFEST",self.run_cycle(view=path,slot="INTRADAY")["blockers"])
 
+    def test_completed_key_is_retained_when_slot_window_rolls(self):
+        prior = self.run_cycle(view=self.previous,session=self.previous_session,
+                               now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
+        value = dict(prior["next_history"]); value.pop("content_sha256")
+        completed = clock.digest(clock.canonical(["owner",self.previous_session,"AFTER_CLOSE"]))
+        value["slots"] = [completed]+[f"{i:064x}" for i in range(511)]
+        value["content_sha256"] = clock.digest(clock.canonical(value)); raw = clock.canonical(value)
+        result = self.run_cycle(view=self.previous,slot="INTRADAY",previous_raw=raw,
+                               expected_previous_sha=clock.digest(raw),expected_parent_sha=clock.digest(self.anchor))
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+        self.assertIn(completed,result["next_history"]["slots"])
+        self.assertEqual(len(result["next_history"]["slots"]),512)
+
+    def test_context_optional_missing_values_match_producer_csv_semantics(self):
+        manifest = json.loads(Path(json.loads(self.current.read_bytes())["chameleon_manifest"]["path"]).read_bytes())
+        metrics = pd.read_csv(manifest["inputs"]["metrics"]["path"])
+        context = pd.read_csv(manifest["inputs"]["context"]["path"])
+        spec = clock.risk.load_contract()["context_columns"]
+        for field in (spec["optional_numeric"][0],spec["optional_boolean"][0]):
+            context[field] = context[field].astype(object)
+            context.loc[context.index[-1],field] = pd.NA
+        view = self.build_bundle("missing-optional-context",metrics,context,Path(manifest["inputs"]["calendar"]["path"]))
+        result = self.run_cycle(view=view)
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+
+    def test_source_hash_clock_lookup_uses_producer_normalization(self):
+        def change(manifest, view):
+            for name in ("metrics","context"):
+                frame = pd.read_csv(manifest["inputs"][name]["path"])
+                frame["source_sha256"] = frame.source_sha256.map(lambda value:" "+value.upper()+" ")
+                path = self.root / ("normalized-"+name+".csv"); frame.to_csv(path,index=False)
+                manifest["inputs"][name] = clock.risk.fingerprint(path)
+        result = self.run_cycle(view=self.rebound("normalized-hashes",change))
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+        self.assertEqual({f["source_sha256"] for f in result["source_facts"]},{"a"*64,"b"*64})
+
     def test_monitor_integration_candidate_only_and_no_overwrite(self):
         output = self.root / "monitor-dry-run"
         history = self.root / "approved-history.json"
@@ -622,7 +660,7 @@ class ReportClockTests(unittest.TestCase):
 class ReportCliTests(unittest.TestCase):
     def test_report_main_preflight_errors_are_bounded_and_redacted(self):
         from tools import run_daily_crisis_monitor as monitor
-        for error in (clock.Blocked("PRIVATE_CREDENTIAL_SENTINEL"),FileExistsError("PRIVATE_PATH_SENTINEL")):
+        for error in (clock.Blocked("PRIVATE_CREDENTIAL_SENTINEL"),FileExistsError("PRIVATE_PATH_SENTINEL"),RuntimeError("PRIVATE_LOOP_SENTINEL")):
             with patch.object(sys,"argv",["monitor","--report-slot","AFTER_CLOSE","--report-session","2026-10-14"]), patch.object(monitor,"build_monitor",side_effect=error), redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(monitor.main(),2)
             payload = json.loads(output.getvalue())

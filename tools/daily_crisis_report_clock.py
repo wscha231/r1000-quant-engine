@@ -165,6 +165,11 @@ def read_ref(root, reference, limit=32*1024**2):
     return raw
 
 
+def context_table(raw):
+    table(raw)  # Bound bytes/records/shape before using the producer's parser.
+    return pd.read_csv(io.BytesIO(raw))
+
+
 def session_times(session):
     need(isinstance(session, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", session), "SESSION_DATE")
     schedule = mcal.get_calendar("NYSE").schedule(start_date=session, end_date=session)
@@ -286,8 +291,12 @@ def clock_check(records, metrics, cutoff, now, input_kind, expectations=None, co
             if input_kind == "ACTUAL":
                 expected_units(row, item, row.source_sha256, expectations, context_fields)
             # Original clocks govern each historical decision, never latest_date.
-            need(available <= stamp(str(row.decision_time_utc)) <= cutoff, "HISTORICAL_AVAILABILITY_VIOLATION")
-            need(stamp(str(row.available_from)) >= available, "FABRICATED_METRIC_AVAILABILITY")
+            decision = row.decision_time_utc
+            available_from = row.available_from
+            decision = decision.isoformat() if isinstance(decision, (pd.Timestamp,datetime)) else str(decision)
+            available_from = available_from.isoformat() if isinstance(available_from, (pd.Timestamp,datetime)) else str(available_from)
+            need(available <= stamp(decision) <= cutoff, "HISTORICAL_AVAILABILITY_VIOLATION")
+            need(stamp(available_from) >= available, "FABRICATED_METRIC_AVAILABILITY")
             if getattr(row, "axis", None) == "market_breadth":
                 need(type(item.get("eligible_breadth_symbols")) is int and item["eligible_breadth_symbols"] >= 500
                      and item.get("breadth_denominator_verified") is True, "BREADTH_DENOMINATOR_UNVERIFIED")
@@ -316,7 +325,7 @@ def verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw, pr
     decisions = {date:g.decision_time_utc.iloc[0] for date,g in metrics.groupby("decision_date")}
     sessions = {date:(int(g.nyse_session_ordinal.iloc[0]),str(g.calendar_source_sha256.iloc[0]))
                 for date,g in metrics.groupby("decision_date")}
-    context = risk.validate_context(table(context_raw) if context_raw else None,
+    context = risk.validate_context(context_table(context_raw) if context_raw else None,
                                     contract, as_of, decisions, sessions, calendar)
     components = risk.compute_component_percentiles(metrics, contract)
     axes = risk.aggregate_axes(components, contract)
@@ -394,17 +403,17 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     need(manifest.get("network_requests_executed") == 0, "UPSTREAM_SAFETY_ENVELOPE")
     as_of = pd.Timestamp(manifest["decision_date"])
     validated = risk.validate_metrics(metrics, contract, as_of, calendar)
-    metrics = metrics[risk.parse_date_only(metrics.decision_date, "decision_date") <= as_of].copy()
+    metrics = validated
     decisions = {date: group.decision_time_utc.iloc[0] for date, group in validated.groupby("decision_date")}
     sessions = {date: (int(group.nyse_session_ordinal.iloc[0]), str(group.calendar_source_sha256.iloc[0]))
                 for date, group in validated.groupby("decision_date")}
     context, context_raw = None, b""
     if manifest["inputs"].get("context") is not None:
         context_raw = read_ref(root, manifest["inputs"]["context"])
-        context = table(context_raw)
+        context = context_table(context_raw)
     validated_context = risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
     if context is not None:
-        context = context[risk.parse_date_only(context.decision_date, "decision_date") <= as_of].copy()
+        context = validated_context
     expectations, expectations_sha = None, None
     if view["input_kind"] == "ACTUAL":
         for frame in (metrics, context):
@@ -564,6 +573,8 @@ def load_previous(raw, expected_sha, expected_parent, recipient, input_kind):
          (isinstance(last, str) and session_times(last) is not None and
           value["completed_session_count"] > 0), "PREVIOUS_HISTORY_COUNT")
     need(value["completed_session_count"] == 0 or bool(value["slots"]), "COMPLETED_HISTORY_SLOTS_REQUIRED")
+    if last is not None:
+        need(digest(canonical([recipient,last,"AFTER_CLOSE"])) in value["slots"], "COMPLETED_SLOT_KEY_REQUIRED")
     if value["slots"]:
         sha(value.get("source_prefix_sha256"))
         need(isinstance(value.get("source_prefix_date"), str), "SOURCE_HISTORY_PREFIX_REQUIRED")
@@ -647,6 +658,11 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
             following = mcal.get_calendar("NYSE").schedule(start_date=start, end_date=session)
             need(not following.empty and following.index[0].date().isoformat() == session,
                  "COMPLETED_SESSION_GAP")
+        next_completed = session if increment else last
+        if next_completed is not None:
+            completed_key = digest(canonical([recipient,next_completed,"AFTER_CLOSE"]))
+            if completed_key not in slots:
+                slots = [completed_key]+slots[-511:]
         next_prefix = prefix_digest(source, latest_date)
         if source["input_kind"] == "ACTUAL":
             execution = trusted_now()

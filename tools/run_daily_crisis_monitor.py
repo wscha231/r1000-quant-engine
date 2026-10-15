@@ -394,8 +394,8 @@ def parse_args() -> argparse.Namespace:
             raise argparse.ArgumentTypeError("report now must be an exact timestamp with UTC offset") from None
         return value
     def report_recipient(value):
-        from tools import daily_crisis_report_clock as clock
-        if not clock.re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
             raise argparse.ArgumentTypeError("report recipient must use 1..80 letters, digits, underscores or hyphens")
         return value
     parser.add_argument("--latest-run", default="outputs")
@@ -427,7 +427,7 @@ def main() -> int:
         from tools import daily_crisis_report_clock as clock
         try:
             payload = build_monitor(args)
-        except (clock.Blocked, OSError):
+        except (clock.Blocked, OSError, RuntimeError):
             print(json.dumps(dict(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
                 blockers=["REPORT_PREFLIGHT_OR_OUTPUT_REFUSED"], notification_enabled=False,
                 order_generation_allowed=False, ledger_mutation_allowed=False), indent=2))
