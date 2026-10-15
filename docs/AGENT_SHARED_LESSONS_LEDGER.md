@@ -7026,3 +7026,35 @@ Expected contract:
   retain partial slot keys; only the current session's provisional key may
   precede genesis. Earlier or opaque unresolved slots require explicit A0
   recovery, never silent skipping, key deletion or a fabricated first completion.
+
+## 2026-10-15 — Bound finite Source campaigns before side effects
+
+- Successful page/receipt totals omit failed attempts, partial responses,
+  orphan uploads, repeated restores and OAuth bootstrap. Reserve before I/O;
+  retain uncertain charges and report confirmed data separately.
+- A correct local hash-chain prefix can still be an old rollback. Reconcile
+  canonical run/nonce history and require a complete exact-run meter before
+  releasing a cross-job reservation. Never replay a transactional job blindly.
+- An expired built-in OAuth token is not a metered bootstrap. Refuse instead
+  of bypassing the meter with rclone or inventing another account/client.
+- Explicit LF fixtures may test the Linux seed contract on Native Windows;
+  never relabel Native CRLF hashes as deployed Git-LF proof.
+- Exercise real HTTPResponse framing over an in-memory transport: read1 EOF
+  can leave Content-Length unsatisfied, while a complete response can close
+  its socket before another timeout update. Retain partial-response budgets.
+- Account permission must cover the whole worker deadline and bind the exact
+  verified comment contents/author identity, not just its mutable URL. A
+  future workflow floor cannot hide an existing campaign; its first dispatch
+  must start at that floor. Normalize short recovery batches to full-batch
+  byte/time equivalents before forecasting the remaining campaign.
+- Source test registration extends executable proof closure. Keep protected
+  Main code unchanged here and hand any missing mandatory Main pins to its
+  owner; Source-only A6 is not a whole-Main approval. See
+  `docs/ALPACA_SIP_CAMPAIGN_CONTROL_V1.md` for scope and remaining gates.
+
+## 2026-10-15 - Reconcile proof composition without inventing upstream files
+
+- Preserve fixed workflow pins after deletion/rename; a dynamic glob alone
+  cannot prove closure. Keep current Main proof coverage separate from an
+  explicitly hashed Source-plus-Main composition. Never materialize absent
+  upstream programs as placeholders or reapply already-pinned path sets.
