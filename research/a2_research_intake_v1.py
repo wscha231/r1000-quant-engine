@@ -78,15 +78,17 @@ def _fields(value, fields):
     need(type(value) is dict and set(value) == set(fields), 'FIELDS')
 
 
-def decode(raw):
+def decode(raw, *, max_entries=1000):
     """Bound bytes and lexical structure before allocating the JSON tree.
 
     Tokens include object keys and containers: intentionally stricter than
     A3's post-decode value-node budget. Escaped quotes do not add depth/tokens.
     """
     need(type(raw) is bytes and 0 < len(raw) <= MAX_BYTES, 'BYTE_BUDGET')
+    need(type(max_entries) is int and 0 < max_entries <= 10000, 'ENTRY_BUDGET')
     depth = tokens = 0
     string = escaped = scalar = False
+    containers = []
     for ch in raw:
         if string:
             if escaped:
@@ -96,6 +98,11 @@ def decode(raw):
             elif ch == 34:
                 string = False
             continue
+        starts_value = ch in (34, 123, 91) or (ch not in (125, 93, 44, 58, 9, 10, 13, 32) and not scalar)
+        if starts_value and containers and containers[-1][0] == 91 and containers[-1][2]:
+            containers[-1][1] += 1
+            need(containers[-1][1] <= max_entries, 'ENTRY_BUDGET')
+            containers[-1][2] = False
         if ch == 34:
             string = True
             scalar = False
@@ -104,12 +111,18 @@ def decode(raw):
             depth += 1
             tokens += 1
             scalar = False
+            need(depth <= MAX_DEPTH, 'DEPTH_BUDGET')
+            containers.append([ch, 0, True])
         elif ch in (125, 93):
             depth -= 1
             scalar = False
             need(depth >= 0, 'JSON_STRUCTURE')
+            need(containers and containers[-1][0] == (123 if ch == 125 else 91), 'JSON_STRUCTURE')
+            containers.pop()
         elif ch in (44, 58, 9, 10, 13, 32):
             scalar = False
+            if ch == 44 and containers and containers[-1][0] == 91:
+                containers[-1][2] = True
         elif not scalar:
             tokens += 1
             scalar = True
@@ -182,7 +195,7 @@ def _typed(kind, raw, memory):
 
 
 def _identities(raw):
-    value = decode(raw)
+    value = decode(raw, max_entries=10000)
     _fields(value, ('scope', 'rows'))
     need(value['scope'] == 'SUPPLIED_US_IDENTITY_ASSERTIONS', 'IDENTITY_SCOPE')
     need(type(value['rows']) is list and len(value['rows']) <= 10000, 'IDENTITY_COUNT')
@@ -246,6 +259,15 @@ def _graph(event, memory):
         _fields(row, ('source_id', 'claim_id', 'source_type', 'source_affiliation', 'verification_tier',
                       'independence_group', 'published_at', 'available_at', 'raw_artifact_id', 'raw_sha256',
                       'claim', 'supports_pillars', 'used_for_assessment', 'investment_score_contribution_allowed'))
+        for field in ('source_id', 'claim_id', 'source_type', 'source_affiliation', 'verification_tier',
+                      'independence_group', 'raw_artifact_id'):
+            identifier(row[field])
+        need(type(row['raw_sha256']) is str and _HASH.fullmatch(row['raw_sha256']) is not None, 'GRAPH_RAW_HASH')
+        need(type(row['claim']) is str and 0 < len(row['claim']) <= 1800, 'GRAPH_CLAIM')
+        need(type(row['supports_pillars']) is list and bool(row['supports_pillars'])
+             and all(type(p) is str and p in a3.CANONICAL_PILLARS for p in row['supports_pillars']), 'GRAPH_PILLARS')
+        need(type(row['used_for_assessment']) is bool and type(row['investment_score_contribution_allowed']) is bool, 'GRAPH_BOOLEAN')
+        stamp(row['published_at']); stamp(row['available_at'])
         if row['used_for_assessment'] is True:
             family = 'ISSUER' if row['source_affiliation'] == 'ISSUER' else row['source_type']
             need(family not in families and row['raw_sha256'] not in raw_hashes, 'MIRROR_NOT_INDEPENDENT')
@@ -365,7 +387,8 @@ def plan_delta(previous_raw, current_raw, *, cutoff):
             need(type(sha) is str and _HASH.fullmatch(sha) is not None, 'HASH')
         _fields(value['exceptions'], EXCEPTIONS)
         need(all(type(v) is bool for v in value['exceptions'].values()) and type(value['research_reuse_ready']) is bool, 'BOOLEAN')
-        need(type(value['affected_pillars']) is list and set(value['affected_pillars']) <= a3.CANONICAL_PILLARS, 'PILLARS')
+        need(type(value['affected_pillars']) is list
+             and all(type(p) is str and p in a3.CANONICAL_PILLARS for p in value['affected_pillars']), 'PILLARS')
         stamp(value['expires_at'])
         return value
     current = read(current_raw)
@@ -377,6 +400,7 @@ def plan_delta(previous_raw, current_raw, *, cutoff):
     integrity = (prior['security_id'], prior['issuer_id']) != (current['security_id'], current['issuer_id']) or bool(changed & {'source', 'accounting'})
     exceptions = {k for k in EXCEPTIONS if current['exceptions'][k] or current['exceptions'][k] != prior['exceptions'][k]}
     if stamp(current['expires_at']) <= limit: exceptions.add('expiry')
+    if current['expires_at'] != prior['expires_at']: exceptions.add('expiry')
     refresh = set()
     if integrity:
         plan, refresh = 'BLOCKED_FULL_A3_REVIEW', {'full_a3_review'}

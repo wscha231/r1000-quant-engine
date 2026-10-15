@@ -23,7 +23,16 @@ def identities(n=1):
         {'security_id':f'US:S{i}','issuer_id':f'CIK:{i}','tickers':[f'S{i}',f'OLD{i}'],'country':'US','currency':'USD'} for i in range(n)]})
 
 def inventory():
-    return {'SCHEMA:'+name:(ROOT/'research/control_plane'/name).read_bytes() for name,sha in h.SCHEMAS.values()}
+    result={}
+    for name,sha in h.SCHEMAS.values():
+        raw=(ROOT/'research/control_plane'/name).read_bytes()
+        if h.digest(raw)!=sha:
+            # Test corpus conversion only, never runtime source normalization.
+            lf=raw.replace(b'\r\n',b'\n')
+            if h.digest(lf)!=sha: raise ValueError('schema_fixture_git_lf_hash')
+            raw=lf
+        result['SCHEMA:'+name]=raw
+    return result
 
 def event(i=0, **kw):
     out=dict(event_id=f'E:{i}',cohort_id=f'C:{i}',event_family='EARNINGS',observed_at=T,published_at=T,
@@ -149,6 +158,11 @@ class IntakeTests(unittest.TestCase):
         with patch.object(h,'MAX_TOTAL_BYTES',2):
             h.MemoryArtifacts({'A':b'{}'}); self.rejects(h.MemoryArtifacts,{'A':b'{}','B':b'1'})
         self.rejects(h.MemoryArtifacts,lambda aid,sha:b'{}')
+        self.assertEqual(h.decode(b'{"x":[0,1,2]}',max_entries=3)['x'],[0,1,2])
+        with patch.object(h.json,'loads',side_effect=RuntimeError('tree allocation forbidden')):
+            self.rejects(h.decode,b'{"x":[0,1,2,3]}',max_entries=3)
+        self.assertEqual(len(h.decode(h.canonical({'rows':[0]*1001}),max_entries=10000)['rows']),1001)
+        self.rejects(h.decode,h.canonical({'rows':[0]*1001}))
 
     def test_P07_future_available(self):
         self.rejects(self.check_events,[event(available_at='2026-10-16T00:00:00Z')])
@@ -178,6 +192,10 @@ class IntakeTests(unittest.TestCase):
         row,graph,memory=graph_event(); memory['RAW:IR']=b'tampered'; self.rejects(self.check_events,[row],memory)
         row,graph,memory=graph_event(); graph['sources'][1]['raw_artifact_id']='RAW:IR'; memory['GRAPH']=h.canonical(graph)
         row['source_graph_sha256']=h.digest(memory['GRAPH']); self.rejects(self.check_events,[row],memory)
+        for field in ('source_type','raw_sha256','independence_group','source_affiliation','supports_pillars'):
+            row,graph,memory=graph_event(); graph['sources'][0][field]=[['bad']]
+            memory['GRAPH']=h.canonical(graph); row['source_graph_sha256']=h.digest(memory['GRAPH'])
+            self.rejects(self.check_events,[row],memory)
 
     def test_P14_graph_required_not_canonical(self):
         for tier in ('V1','V2'):
@@ -248,6 +266,10 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(h.plan_delta(h.canonical(prior),h.canonical(now),cutoff=CUTOFF)['plan'],'REFRESH_REQUIRED')
         now=delta(); now['expires_at']=CUTOFF
         self.assertEqual(h.plan_delta(h.canonical(prior),h.canonical(now),cutoff=CUTOFF)['plan'],'REFRESH_REQUIRED')
+        now=delta(); now['expires_at']='2026-10-21T00:00:00Z'
+        self.assertEqual(h.plan_delta(h.canonical(prior),h.canonical(now),cutoff=CUTOFF)['plan'],'REFRESH_REQUIRED')
+        now=delta(); now['affected_pillars']=[['bad']]
+        self.rejects(h.plan_delta,h.canonical(prior),h.canonical(now),cutoff=CUTOFF)
 
     def test_P26_price_and_earnings(self):
         for name,expected in (('market_price',{'market','valuation','ER'}),('earnings_consensus',{'earnings','valuation','ER'})):

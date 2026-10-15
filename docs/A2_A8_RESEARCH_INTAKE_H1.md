@@ -31,7 +31,11 @@ All inputs use strict duplicate-key decoding. Byte, lexical depth and token
 limits are checked before allocating the JSON tree. Unknown fields, nonfinite
 numbers, number/boolean confusion and naive clocks are rejected. No guard uses
 Python `assert`. Default bounds: 4MiB/object, depth32, 50,000 lexical tokens,
-10,000 in-memory artifacts and 32MiB total artifact bytes; document arrays1000.
+10,000 in-memory artifacts and 32MiB total artifact bytes; lexical array
+entries1000 (identity-assertion decoding explicitly allows10000). The byte/token
+bounds still apply to identity assertions. Native test corpora may restore
+CRLF schema checkout bytes to LF only when the result matches the exact static
+schema hash; the runtime API never normalizes evidence.
 
 - `validate_events(raw, cutoff=..., artifact_resolver=..., identities=...)`:
   validates the event schema, publication <= availability <= collection <=

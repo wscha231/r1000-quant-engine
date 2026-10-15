@@ -7004,3 +7004,8 @@ Expected contract:
 - Bound strict JSON before tree allocation and accept only sealed in-memory
   artifact bytes. Compare source families and immutable security identities;
   first-event24h clustering must not chain or multiply ticker aliases.
+- Validate nested string/hash/pillar types before set operations; malformed
+  lists must yield bounded refusals. Expiry changes require review even when
+  both timestamps are future. Native Windows directory-open error categories
+  can differ before fstat; preserve baseline failures instead of claiming a
+  complete registered-suite pass or silently skipping the failing case.
