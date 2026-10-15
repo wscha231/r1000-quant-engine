@@ -104,6 +104,10 @@ otherwise SOURCE_HISTORY_PREFIX_CHANGED blocks. Duplicate or previously partial
 slots cannot silently increment completion when no new candidate is produced.
 An existing completed anchor advances only to the next NYSE session. A missed
 completed session requires an explicit A0 recovery decision, not a silent skip.
+Before the first completion, only an empty anchor or this same session's
+INTRADAY key can precede a ready AFTER_CLOSE increment. An earlier partial or
+unresolved opaque slot requires an explicit A0 recovery decision and returns
+INITIAL_COMPLETION_REQUIRES_A0_RECOVERY; B1 never clears or resets those slots.
 Blocked producer manifests cannot supply report prerequisites; optional null
 context remains supported. Immutable Source-root separation also applies when
 the source view is missing and only a diagnostic report could be generated.

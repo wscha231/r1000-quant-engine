@@ -7022,3 +7022,7 @@ Expected contract:
 - Preserve consumed clock provenance in accepted prefixes and reject gaps in
   completed NYSE sessions. Check upstream readiness as well as hashes/safety;
   enforce immutable input-root separation even on missing-input diagnostics.
+- Chronology also applies before the first completion. A zero-count anchor can
+  retain partial slot keys; only the current session's provisional key may
+  precede genesis. Earlier or opaque unresolved slots require explicit A0
+  recovery, never silent skipping, key deletion or a fabricated first completion.

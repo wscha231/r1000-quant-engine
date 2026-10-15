@@ -653,6 +653,12 @@ def report_cycle(*, source_view=None, expected_source_sha=None, source_root=None
         candidate = delivery_key not in prior["slots"]
         slots = (prior["slots"] + ([delivery_key] if candidate else []))[-512:]
         increment = int(candidate and slot == "AFTER_CLOSE" and source["ready"] and last != session)
+        if increment and last is None:
+            # Opaque prior keys cannot prove that earlier partial sessions were
+            # completed. Only this session's provisional slot may precede genesis.
+            intraday_key = digest(canonical([recipient, session, "INTRADAY"]))
+            need(all(key == intraday_key for key in prior["slots"]),
+                 "INITIAL_COMPLETION_REQUIRES_A0_RECOVERY")
         if increment and last is not None:
             start = datetime.fromisoformat(last)+timedelta(days=1)
             following = mcal.get_calendar("NYSE").schedule(start_date=start, end_date=session)

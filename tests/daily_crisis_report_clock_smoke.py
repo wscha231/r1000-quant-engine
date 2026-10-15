@@ -51,6 +51,14 @@ class ReportClockTests(unittest.TestCase):
         # handcrafted snapshot that merely claims readiness is false.
         missing = metrics[~((metrics.decision_date == cls.session) & (metrics.axis == "credit"))]
         cls.partial = cls.build_bundle("partial", missing, context, calendar_path)
+        # Keep Monday's missing credit rows unchanged in Tuesday's source so
+        # prefix integrity cannot mask the initial partial-session gap.
+        initial_missing = metrics[~((metrics.decision_date == cls.previous_session) &
+                                    (metrics.axis == "credit"))]
+        cls.initial_partial = cls.build_bundle("initial-partial",
+            initial_missing[initial_missing.decision_date != cls.session],
+            context[context.decision_date != cls.session], calendar_path)
+        cls.following_ready = cls.build_bundle("following-ready", initial_missing, context, calendar_path)
         anchor = dict(schema="daily-crisis-report-history-v1", recipient="owner", input_kind="FIXTURE",
                       parent_sha256=None, last_counted_completed_session=None,
                       completed_session_count=0, slots=[])
@@ -411,6 +419,34 @@ class ReportClockTests(unittest.TestCase):
         result = self.run_cycle(previous=raw,parent=clock.digest(self.anchor))
         self.assertIn("SOURCE_HISTORY_PREFIX_CHANGED", result["blockers"])
         self.assertEqual(result["completed_session_increment"],0)
+
+    def test_initial_partial_after_close_requires_explicit_recovery(self):
+        partial = self.run_cycle(view=self.initial_partial, session=self.previous_session,
+            now=clock.session_times(self.previous_session)["AFTER_CLOSE"].isoformat())
+        self.assertEqual(partial["current_report_status"], "PARTIAL_DRY_RUN", partial)
+        self.assertEqual(partial["next_history"]["completed_session_count"], 0)
+        self.assertIsNone(partial["next_history"]["last_counted_completed_session"])
+        raw = clock.canonical(partial["next_history"])
+        result = self.run_cycle(view=self.following_ready, previous=raw, parent=clock.digest(self.anchor))
+        self.assertEqual(result["current_report_status"], "BLOCKED", result)
+        self.assertIn("INITIAL_COMPLETION_REQUIRES_A0_RECOVERY", result["blockers"])
+        self.assertIsNone(result["next_history"])
+        self.assertFalse(result["delivery_candidate"])
+        self.assertEqual(result["completed_session_increment"], 0)
+        self.assertEqual(raw, clock.canonical(partial["next_history"]))
+
+    def test_initial_ambiguous_or_earlier_intraday_slots_require_recovery(self):
+        prior = self.run_cycle(view=self.previous, slot="INTRADAY")
+        for key in ("f" * 64, clock.digest(clock.canonical(["owner", self.previous_session, "INTRADAY"]))):
+            value = dict(prior["next_history"])
+            value.update(slots=[key])
+            value.pop("content_sha256")
+            value["content_sha256"] = clock.digest(clock.canonical(value))
+            raw = clock.canonical(value)
+            result = self.run_cycle(previous=raw, parent=clock.digest(self.anchor))
+            self.assertIn("INITIAL_COMPLETION_REQUIRES_A0_RECOVERY", result["blockers"], result)
+            self.assertIsNone(result["next_history"])
+            self.assertEqual(result["completed_session_increment"], 0)
 
     def test_rebound_earlier_observation_cannot_change_effective_state(self):
         def change(manifest, view):
