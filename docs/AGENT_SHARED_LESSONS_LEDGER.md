@@ -7100,3 +7100,12 @@ Expected contract:
 - Reproduce review claims before changing guards. ReferenceIndexError already
   inherits ValueError, so the intake timestamp adapter translates it correctly.
   Keep its refusal contract covered without adding a redundant exception arm.
+
+## 2026-10-15 - Bound numeric tokens and every research preview clock
+
+- Check integer JSON tokens against the finite numeric range before building
+  an arbitrary-precision integer; retain exact integers instead of rounding
+  them to float. Large ER/outcome inputs must refuse with IntakeError.
+- A null-reference reconciliation preview still needs a valid aware cutoff.
+  A containing queue check must be at or after every included reason's last
+  observation, even if both clocks separately precede the envelope cutoff.

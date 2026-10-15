@@ -138,8 +138,11 @@ def decode(raw, *, max_entries=1000):
         out = float(value)
         need(math.isfinite(out), 'FINITE_NUMBER')
         return out
+    def integer(value):
+        number(value)
+        return int(value)
     try:
-        value = json.loads(raw, object_pairs_hook=pairs, parse_float=number,
+        value = json.loads(raw, object_pairs_hook=pairs, parse_float=number, parse_int=integer,
                            parse_constant=lambda x: (_ for _ in ()).throw(IntakeError('FINITE_NUMBER')))
     except (ValueError, UnicodeError, RecursionError) as exc:
         if isinstance(exc, IntakeError):
@@ -351,7 +354,7 @@ def validate_queue(raw, *, cutoff, artifact_resolver, identities):
             need(item['state'] == 'DATA_PENDING', 'MISSING_RECEIPT_PENDING')
         for reason in item['membership_reasons']:
             need(reason['security_id'] == sid and reason['ticker'] in subjects[sid][1], 'REASON_IDENTITY')
-            need(stamp(reason['first_seen_at']) <= stamp(reason['last_observed_at']) <= as_of, 'REASON_CLOCK')
+            need(stamp(reason['first_seen_at']) <= stamp(reason['last_observed_at']) <= stamp(item['last_checked_at']), 'REASON_CLOCK')
             if reason['valid_until']:
                 expiry = stamp(reason['valid_until'])
                 need(expiry >= stamp(reason['last_observed_at']), 'REASON_EXPIRY')
@@ -364,6 +367,7 @@ def validate_queue(raw, *, cutoff, artifact_resolver, identities):
 
 def reference_preview(raw, *, cutoff, artifact_resolver):
     memory = _memory(artifact_resolver)
+    stamp(cutoff)
     value = decode(raw); _fields(value, ('entries',))
     if value['entries'] is None:
         return _proposal('references', raw, reference_status='RECONCILE_PENDING', records=[])

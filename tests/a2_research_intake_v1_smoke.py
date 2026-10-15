@@ -394,6 +394,40 @@ class IntakeTests(unittest.TestCase):
             with self.subTest(available=available), self.assertRaisesRegex(h.IntakeError, '^OUTCOME_REFERENCE_CLOCK$'):
                 self.check_cohort(c,m)
 
+    def test_integer_numeric_range_refuses_without_rounding_exact_ints(self):
+        exact=2**53+1
+        self.assertEqual(h.decode(h.canonical({'value': exact}))['value'], exact)
+        fixture=self.er_fixture()
+        for huge in (10**400, -(10**400)):
+            with self.subTest(huge_sign=huge > 0), self.assertRaisesRegex(h.IntakeError, '^FINITE_NUMBER$'):
+                h.decode(h.canonical({'value': huge}))
+            value,ref,memory=copy.deepcopy(fixture); value['expected_return_1m']=huge
+            memory['ER']=h.canonical(value); ref['sha256']=h.digest(memory['ER'])
+            self.rejects(self.check_er,ref,memory)
+        c,m=cohort(True); c['rows'][0]['excess_return']=10**400
+        outcomes=h.decode(m['OUT']); outcomes['rows'][0]['excess_return']=10**400
+        m['OUT']=h.canonical(outcomes); sha=h.digest(m['OUT']); c['outcome_ref']['sha256']=sha
+        for row in c['rows']: row['source_sha256']=sha
+        self.rejects(self.check_cohort,c,m)
+
+    def test_reason_observation_cannot_postdate_containing_check(self):
+        for expiry in ('', '2026-10-20T00:00:00Z'):
+            q=queue(); item=q['items'][0]; reason=item['membership_reasons'][0]
+            reason['valid_until']=expiry; reason['last_observed_at']='2026-10-14T00:00:00Z'
+            with self.subTest(expiry=expiry), self.assertRaisesRegex(h.IntakeError, '^REASON_CLOCK$'):
+                self.check_queue(q)
+            item['last_checked_at']=reason['last_observed_at']
+            self.assertEqual(self.check_queue(q)['items'][0]['last_checked_at'], reason['last_observed_at'])
+
+    def test_null_reference_preview_still_requires_valid_cutoff(self):
+        memory=h.MemoryArtifacts(inventory())
+        for bad in ('malformed', '2026-10-15T00:00:00', None, 42, {}, []):
+            with self.subTest(bad=bad), self.assertRaisesRegex(h.IntakeError, '^TIMESTAMP$'):
+                h.reference_preview(b'{"entries":null}',cutoff=bad,artifact_resolver=memory)
+        result=h.reference_preview(b'{"entries":null}',cutoff=CUTOFF,artifact_resolver=memory)
+        self.assertEqual(result['reference_status'], 'RECONCILE_PENDING')
+        self.assertFalse(any(result['authority'].values()))
+
     def test_P40_proof_schema_bytes_refused(self):
         for name,sha in h.SCHEMAS.values():
             memory=inventory(); memory['SCHEMA:'+name]+=b' '
