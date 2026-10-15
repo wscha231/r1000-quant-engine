@@ -7109,3 +7109,15 @@ Expected contract:
 - A null-reference reconciliation preview still needs a valid aware cutoff.
   A containing queue check must be at or after every included reason's last
   observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-16 - Keep technical feature arithmetic separate from admission
+
+- Reuse fixed-window and aggressive indicator primitives, but require complete
+  consecutive sessions before accepting their partial-window helpers. A same-
+  horizon RS change needs 2n+1 matched observations; Composite is never QQQ.
+- Split-adjusted OHLC labels alone do not establish volume comparability.
+  Bind an original raw generation and check the price-factor/inverse-share
+  relation before RVOL/OBV; raw close-times-raw-shares stays a separate proxy.
+- Reused actual previews and independent arithmetic fixtures have different
+  evidence roles. Missing source/halt/availability/benchmark proof remains
+  NULL/BLOCKED; no receipt, green test or source metadata grants admission.
