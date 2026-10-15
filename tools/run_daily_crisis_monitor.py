@@ -422,7 +422,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    payload = build_monitor(parse_args())
+    args = parse_args()
+    if args.report_slot:
+        from tools import daily_crisis_report_clock as clock
+        try:
+            payload = build_monitor(args)
+        except (clock.Blocked, OSError):
+            print(json.dumps(dict(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                blockers=["REPORT_PREFLIGHT_OR_OUTPUT_REFUSED"], notification_enabled=False,
+                order_generation_allowed=False, ledger_mutation_allowed=False), indent=2))
+            return 2
+    else:
+        payload = build_monitor(args)
     print(json.dumps({key: payload.get(key) for key in
                       ("current_report_status", "data_health", "blockers")}
                      if "current_report_status" in payload else

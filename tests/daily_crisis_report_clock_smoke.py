@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -620,6 +620,16 @@ class ReportClockTests(unittest.TestCase):
 
 
 class ReportCliTests(unittest.TestCase):
+    def test_report_main_preflight_errors_are_bounded_and_redacted(self):
+        from tools import run_daily_crisis_monitor as monitor
+        for error in (clock.Blocked("PRIVATE_CREDENTIAL_SENTINEL"),FileExistsError("PRIVATE_PATH_SENTINEL")):
+            with patch.object(sys,"argv",["monitor","--report-slot","AFTER_CLOSE","--report-session","2026-10-14"]), patch.object(monitor,"build_monitor",side_effect=error), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(monitor.main(),2)
+            payload = json.loads(output.getvalue())
+            self.assertEqual(payload["blockers"],["REPORT_PREFLIGHT_OR_OUTPUT_REFUSED"])
+            self.assertFalse(payload["notification_enabled"])
+            self.assertNotIn("PRIVATE_",output.getvalue())
+
     def test_explicit_clock_and_recipient_values_are_validated(self):
         from tools.run_daily_crisis_monitor import parse_args
         for option,value in (("--report-now","not-a-time"),("--report-now","2026-10-14"),
