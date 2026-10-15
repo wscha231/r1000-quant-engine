@@ -6995,6 +6995,86 @@ Expected contract:
 - Singular/plural business labels (REIT/REITs) must resolve to the same canonical
   theme; verify missing-sector industry-only inputs as well as full metadata rows.
 
+## 2026-10-15 - Classify refused Native directory inputs without weakening reads
+
+- Windows may refuse os.open on a directory before fstat can classify it.
+  After an open failure, only a successful directory stat may map the refusal
+  to INPUT_NOT_REGULAR_FILE. Preserve original non-directory/probe errors,
+  successful-open fstat, bounded reads, descriptor cleanup and path redaction.
+
+## 2026-10-15 — Bound finite Source campaigns before side effects
+
+- Successful page/receipt totals omit failed attempts, partial responses,
+  orphan uploads, repeated restores and OAuth bootstrap. Reserve before I/O;
+  retain uncertain charges and report confirmed data separately.
+- A correct local hash-chain prefix can still be an old rollback. Reconcile
+  canonical run/nonce history and require a complete exact-run meter before
+  releasing a cross-job reservation. Never replay a transactional job blindly.
+- An expired built-in OAuth token is not a metered bootstrap. Refuse instead
+  of bypassing the meter with rclone or inventing another account/client.
+- Explicit LF fixtures may test the Linux seed contract on Native Windows;
+  never relabel Native CRLF hashes as deployed Git-LF proof.
+- Exercise real HTTPResponse framing over an in-memory transport: read1 EOF
+  can leave Content-Length unsatisfied, while a complete response can close
+  its socket before another timeout update. Retain partial-response budgets.
+- Account permission must cover the whole worker deadline and bind the exact
+  verified comment contents/author identity, not just its mutable URL. A
+  future workflow floor cannot hide an existing campaign; its first dispatch
+  must start at that floor. Normalize short recovery batches to full-batch
+  byte/time equivalents before forecasting the remaining campaign.
+- Source test registration extends executable proof closure. Keep protected
+  Main code unchanged here and hand any missing mandatory Main pins to its
+  owner; Source-only A6 is not a whole-Main approval. See
+  `docs/ALPACA_SIP_CAMPAIGN_CONTROL_V1.md` for scope and remaining gates.
+
+## 2026-10-15 — Separate report clocks, session counting and delivery authority
+
+- Observation/latest-date is not a publication timestamp. Restore pinned source
+  and state history; date-only vintages, unknown clocks and old successful
+  artifacts cannot authorize a current report. Missing data is not market risk.
+- Intraday and after-close are distinct report slots, but only one completed
+  session may advance history. Keep delivery recipient/session/slot keys separate
+  from source/code analysis keys. Candidate receipts do not establish delivery or
+  canonical history acceptance; scheduled cutover needs a real-input gate.
+- Validate actual Chameleon output fixtures through its canonical contract and
+  preserve the 8-of-10 plus breadth/volatility/credit gate and 2/5 hysteresis.
+  Report-only authority never substitutes for book/ER/downside/cost evidence.
+- Native dependencies must satisfy repository constraints: bundled pandas 3 is
+  outside pandas<3 and can change datetime equality. Validate with scoped pandas
+  2.3, without changing the operating model to accommodate an unsupported runtime.
+- A claimed-ready axis must have a finite 0..100 score matching the pinned
+  snapshot. pandas sums skip NaN and can otherwise turn absent scores into zero
+  risk. Validate missingness before the existing summary reducer.
+- Hash agreement is insufficient when all outputs can be rebound together.
+  Verify full derivation from inputs and preserve the accepted source-history
+  prefix. Cache pure calculations, never admission decisions. Recheck clocks,
+  complete safety flags and separately pinned component/context unit expectations.
+- Caller timestamps cannot establish current ACTUAL execution. Use host time,
+  require evaluation before expiry, and never complete a suppressed duplicate.
+- Preserve consumed clock provenance in accepted prefixes and reject gaps in
+  completed NYSE sessions. Check upstream readiness as well as hashes/safety;
+  enforce immutable input-root separation even on missing-input diagnostics.
+- Chronology also applies before the first completion. A zero-count anchor can
+  retain partial slot keys; only the current session's provisional key may
+  precede genesis. Earlier or opaque unresolved slots require explicit A0
+  recovery, never silent skipping, key deletion or a fabricated first completion.
+
+## 2026-10-15 - Keep report-history production within its restore bound
+
+- Producer and loader share the completed-session limit. Refuse a new ready
+  completion before emitting an out-of-range history candidate; preserve
+  duplicate, intraday and partial reports that do not increment the count.
+- Check the last supported increment with an actual load_previous round trip.
+  A larger history range requires a separately reviewed migration, never a
+  silent counter reset or a weakened restore check.
+
+## 2026-10-15 - Reconcile proof composition without inventing upstream files
+
+- Preserve fixed workflow pins after deletion/rename; a dynamic glob alone
+  cannot prove closure. Keep current Main proof coverage separate from an
+  explicitly hashed Source-plus-Main composition. Never materialize absent
+  upstream programs as placeholders or reapply already-pinned path sets.
+
 ## 2026-10-15 - Keep research intake and admitted evidence separate
 
 - Supplied identity, graph hash, REVIEWED labels and exact target calendars

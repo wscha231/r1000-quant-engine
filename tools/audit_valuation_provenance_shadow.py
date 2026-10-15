@@ -243,7 +243,19 @@ def audit_bytes(raw: bytes, *, expected_sha256: str | None = None,
 
 
 def _read_input(path: Path) -> bytes:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        # Windows can refuse directory opens before descriptor validation.
+        # This secondary probe only classifies an already refused input;
+        # it never authorizes a read or replaces the successful-open fstat.
+        try:
+            is_directory = stat.S_ISDIR(os.stat(path).st_mode)
+        except OSError:
+            is_directory = False
+        if is_directory:
+            raise AuditInputError("INPUT_NOT_REGULAR_FILE") from None
+        raise
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode):

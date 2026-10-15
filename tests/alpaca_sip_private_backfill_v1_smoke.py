@@ -14,6 +14,12 @@ from tools import alpaca_sip_private_backfill_v1 as cap
 from tools.twelve_private_capture import Refused
 
 
+def fixture_collect(args):
+    # Exercise the original parser/storage invariants with explicitly injected
+    # fixture transport. The public run/CLI now requires campaign control.
+    return cap._collect(args, drive_factory=cap.OwnerDrive)
+
+
 def bar(t="2016-01-04T05:00:00Z", c=10.5):
     return {"t": t, "o": 10.0, "h": 11.0, "l": 9.0, "c": c, "v": 100}
 
@@ -108,7 +114,7 @@ class PrivateHistoryTests(unittest.TestCase):
         ))()
         with patch.dict("os.environ", {"A1_PRIVATE_RESEARCH_AUTHORIZED": "false"}, clear=True):
             with self.assertRaisesRegex(Refused, "^USER_AUTHORIZATION_MISSING$"):
-                cap.run(args)
+                fixture_collect(args)
 
     def test_source_identity_and_admission_separate(self):
         self.assertEqual(cap.SOURCE, "ALPACA_STOCK_BARS_V2_HISTORICAL_SIP")
@@ -410,15 +416,16 @@ class CorrectionTests(unittest.TestCase):
                      patch.object(cap, "OwnerDrive") as drive, \
                      patch.object(cap, "request_pages") as provider:
                     with self.assertRaisesRegex(Refused, "^SOURCE_SHA$"):
-                        cap.run(object())
+                        fixture_collect(object())
                     seed_read.assert_not_called()
                     drive.assert_not_called()
                     provider.assert_not_called()
 
-    def test_shell_inputs_protected_and_rclone_exported(self):
+    def test_shell_inputs_protected_and_no_opaque_campaign_bootstrap(self):
         yml = (Path(__file__).resolve().parents[1] /
                ".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text()
-        self.assertIn('>> "$GITHUB_ENV"', yml)
+        self.assertNotIn('Install reviewed rclone', yml)
+        self.assertIn('--campaign-control-file "$RUNNER_TEMP/campaign_control.json"', yml)
         self.assertIn('--private-root-folder-id "$INPUT_PRIVATE_ROOT_FOLDER_ID"', yml)
         self.assertIn('--resume-sha256 "$INPUT_RESUME_SHA256"', yml)
         capture = yml.rsplit("      - name: Collect immutable owner-only Alpaca history", 1)[1]
@@ -539,7 +546,7 @@ class CorrectionTests(unittest.TestCase):
              patch.object(cap, "OwnerDrive", return_value=drive), \
              patch.object(cap, "capture_one_group", side_effect=fake_capture), \
              contextlib.redirect_stdout(output):
-            cap.run(args)
+            fixture_collect(args)
         report = json.loads(output.getvalue().splitlines()[-1])
         self.assertEqual(report["status"], "PRIVATE_HISTORY_PARTIAL_HELD")
         self.assertEqual(report["total_examined"], 8)
@@ -572,7 +579,7 @@ class CorrectionTests(unittest.TestCase):
              patch.object(cap, "OwnerDrive", return_value=drive), \
              patch.object(cap, "capture_one_group", side_effect=resumed_capture), \
              contextlib.redirect_stdout(resumed_output):
-            cap.run(args)
+            fixture_collect(args)
         self.assertEqual(next_calls, [tuple(names[8:12])])
         next_ref = json.loads(resumed_output.getvalue().splitlines()[-1])["checkpoint"]
         state = cap.decode(drive.read(next_ref["file_id"]))
@@ -604,7 +611,7 @@ class CorrectionTests(unittest.TestCase):
              patch.object(cap, "capture_one_group",
                           side_effect=Refused("RATE_LIMIT")):
             with self.assertRaisesRegex(Refused, "^RATE_LIMIT$"):
-                cap.run(args)
+                fixture_collect(args)
         self.assertEqual(drive.write_count, 0)
 
     def test_archive_bytes_deterministic(self):
@@ -715,6 +722,16 @@ class CorrectionTests(unittest.TestCase):
         self.assertEqual(completed, ["IPO"])
         self.assertEqual(ref, checkpoint)
 
+
+
+def load_tests(loader, standard_tests, pattern):
+    import importlib.util
+    path = Path(__file__).with_name('alpaca_sip_campaign_smoke.py')
+    spec = importlib.util.spec_from_file_location('a1_campaign_registered', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    standard_tests.addTests(loader.loadTestsFromModule(module))
+    return standard_tests
 
 
 if __name__ == "__main__":

@@ -168,6 +168,92 @@ class ManualTests(unittest.TestCase):
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
 
+    def reconciled_main_proof_paths(self):
+        programs = {
+            '.github/workflows/alpaca_sip_private_backfill_v1.yml',
+            'tests/alpaca_sip_private_backfill_v1_smoke.py',
+            'tests/daily_crisis_report_clock_smoke.py',
+            'tests/theme_classification_smoke.py',
+            'tools/alpaca_sip_private_backfill_v1.py',
+            'tools/daily_crisis_report_clock.py',
+        }
+        folder = 'docs/theme_memory_fix_evidence_20261015/'
+        members = {f'{day}_{kind}.csv' for day in ('20260510', '20260512')
+                   for kind in ('membership_changes', 'score_comparison', 'themes_after', 'themes_before')}
+        members.update({'performance_correction.json', 'recalculation.json'})
+        inputs = {folder + name for name in members} | {
+            folder + 'manifest.json', 'docs/DAILY_CRISIS_REPORT_CLOCK_HISTORY_V1.md',
+            'tests/fixtures/theme_memory_20260510.csv',
+            'tests/fixtures/theme_memory_members_20260510.csv',
+        }
+        return programs, inputs, members
+
+    def test_reconciled_source_theme_b1_main_paths_are_fixed_and_present(self):
+        programs, inputs, _ = self.reconciled_main_proof_paths()
+        self.assertEqual((len(programs), len(inputs)), (6, 14))
+        self.assertTrue(programs.issubset(manual.A6_FIXED_PROOF_PROGRAMS))
+        self.assertTrue(inputs.issubset(manual.A6_FIXED_PROOF_INPUTS))
+        self.assertEqual(len(manual.A6_FIXED_PROOF_PROGRAMS), len(set(manual.A6_FIXED_PROOF_PROGRAMS)))
+        self.assertEqual(len(manual.A6_FIXED_PROOF_INPUTS), len(set(manual.A6_FIXED_PROOF_INPUTS)))
+        required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        self.assertTrue((programs | inputs).issubset(required))
+        for path in programs | inputs:
+            self.assertTrue((self.root / path).is_file(), path)
+
+    def test_reconciled_theme_manifest_members_match_actual_bytes(self):
+        _, _, members = self.reconciled_main_proof_paths()
+        folder = self.root / 'docs/theme_memory_fix_evidence_20261015'
+        manifest = json.loads((folder / 'manifest.json').read_bytes())
+        self.assertEqual({row['path'] for row in manifest['files']}, members)
+        self.assertEqual(len(manifest['files']), 10)
+        for row in manifest['files']:
+            raw = (folder / row['path']).read_bytes()
+            # The archived manifest binds Git-LF bytes, not a Native CRLF
+            # checkout. Verify that context explicitly without changing pins.
+            name = 'docs/theme_memory_fix_evidence_20261015/' + row['path']
+            committed = subprocess.check_output(['git', 'show', 'HEAD:' + name], cwd=ROOT)
+            self.assertEqual(raw.replace(b'\r\n', b'\n'), committed)
+            self.assertEqual(len(committed), row['size_bytes'])
+            self.assertEqual(hashlib.sha256(committed).hexdigest(), row['sha256'])
+
+    def test_reconciled_main_proof_inputs_refuse_tamper_omission_and_loss(self):
+        programs, inputs, _ = self.reconciled_main_proof_paths()
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+        for name in sorted(programs | inputs):
+            with self.subTest(path=name):
+                target = self.root / name
+                original = target.read_bytes()
+                renamed = target.with_name(target.name + '.renamed')
+                omitted, omitted_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                omitted['dependencies'].pop(name)
+                omitted_scope['dependencies'].pop(name)
+                self.bind(omitted)
+                try:
+                    for changed in (original + b'\n# changed proof bytes\n', b''):
+                        target.write_bytes(changed)
+                        self.rejected(packet, scope, 'dependency_bytes_changed')
+                    target.write_bytes(original)
+                    self.rejected(omitted, omitted_scope, 'missing_dependency')
+                    target.unlink()
+                    self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+                    self.rejected(omitted, omitted_scope, 'missing_dependency')
+                    with self.assertRaises((OSError, manual.ContractError)):
+                        self.validate(packet, scope)
+                    target.write_bytes(original)
+                    target.rename(renamed)
+                    self.rejected(omitted, omitted_scope, 'missing_dependency')
+                    if name == '.github/workflows/alpaca_sip_private_backfill_v1.yml':
+                        result = self.cli_fixture(omitted, omitted_scope)
+                        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                        self.assertEqual(json.loads(result.stdout)['reason'], 'missing_dependency')
+                        self.assertEqual(result.stderr, '')
+                finally:
+                    if renamed.exists():
+                        renamed.unlink()
+                    target.write_bytes(original)
+        self.assertEqual(self.validate(packet, scope)['status'], 'VALIDATED_PREPARE_ONLY')
+
     def test_a6_private_capture_local_tool_imports_are_pinned(self):
         # Derive the consumer's local imports independently of the fixed inventory.
         consumed = {'tools/twelve_private_capture.py', 'tools/twelve_private_cohort.py'}

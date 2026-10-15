@@ -199,6 +199,8 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
 
 
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "report_slot", None):
+        return build_clock_report(args)
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -268,6 +270,53 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     return payload
 
 
+def build_clock_report(args: argparse.Namespace) -> dict[str, Any]:
+    """Explicit dry-run route; never overwrite a canonical receipt or send."""
+    from tools import daily_crisis_report_clock as clock
+
+    clock.need(not args.update_history, "CANONICAL_HISTORY_WRITE_NOT_ALLOWED")
+    output = repo_path(args.output_dir).resolve()
+    history_path = repo_path(args.history)
+    inputs = [history_path.resolve(), Path(clock.__file__).resolve(), Path(__file__).resolve()]
+    source_view = getattr(args, "report_source_view", None)
+    source_root = getattr(args, "report_source_root", None)
+    expectations_path = getattr(args, "report_expectations", None)
+    if expectations_path:
+        inputs.append(repo_path(expectations_path).resolve())
+    if source_view:
+        inputs.append(repo_path(source_view).resolve())
+        clock.need(source_root is not None, "SOURCE_ROOT_REQUIRED")
+    if source_root is not None:
+        root = repo_path(source_root).resolve()
+        clock.need(not output.is_relative_to(root) and not root.is_relative_to(output), "INPUT_OUTPUT_OVERLAP")
+    clock.need(not any(p.is_relative_to(output) for p in inputs), "INPUT_OUTPUT_OVERLAP")
+    code_paths = [Path(__file__), Path(clock.__file__), Path(clock.risk.__file__)]
+    code_before = {p.name: clock.digest(clock.bounded(p, 256*1024)) for p in code_paths}
+    previous_raw = clock.bounded(history_path, 65536) if history_path.exists() else None
+    payload = clock.report_cycle(
+        source_view=repo_path(source_view) if source_view else None,
+        source_root=repo_path(source_root) if source_root else None,
+        expected_source_sha=getattr(args, "expected_source_view_sha256", None),
+        session=args.report_session, slot=args.report_slot, recipient=args.report_recipient,
+        now=args.report_now or datetime.now(timezone.utc).isoformat(), previous_raw=previous_raw,
+        expected_previous_sha=getattr(args, "expected_history_sha256", None),
+        expected_parent_sha=getattr(args, "expected_history_parent_sha256", None),
+        code_sha=clock.digest(clock.canonical(code_before)),
+        expectations_path=repo_path(expectations_path) if expectations_path else None,
+        expected_expectations_sha=getattr(args, "expected_report_expectations_sha256", None),
+    )
+    clock.need(code_before == {p.name: clock.digest(clock.bounded(p, 256*1024)) for p in code_paths}, "CODE_CHANGED")
+    payload["native_code_hashes"] = code_before
+    # Exclusive directory creation prevents an old successful report surviving
+    # a failed rerun under the same output path.
+    output.mkdir(parents=True, exist_ok=False)
+    (output / "summary.json").write_bytes(clock.canonical(payload)+b"\n")
+    (output / "crisis_action_status.md").write_text(clock.render_report(payload), encoding="utf-8")
+    if payload["next_history"] is not None:
+        (output / "report_history.candidate.json").write_bytes(clock.canonical(payload["next_history"])+b"\n")
+    return payload
+
+
 def render_report(payload: dict[str, Any]) -> str:
     long_crisis = payload.get("long_crisis") if isinstance(payload.get("long_crisis"), dict) else {}
     lines = [
@@ -330,19 +379,66 @@ def render_report(payload: dict[str, Any]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    def report_session(value):
+        from tools import daily_crisis_report_clock as clock
+        try:
+            clock.session_times(value)
+        except (ValueError, TypeError, OverflowError):
+            raise argparse.ArgumentTypeError("report session must be a valid YYYY-MM-DD calendar date") from None
+        return value
+    def report_now(value):
+        from tools import daily_crisis_report_clock as clock
+        try:
+            clock.stamp(value)
+        except (ValueError, TypeError, OverflowError):
+            raise argparse.ArgumentTypeError("report now must be an exact timestamp with UTC offset") from None
+        return value
+    def report_recipient(value):
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+            raise argparse.ArgumentTypeError("report recipient must use 1..80 letters, digits, underscores or hyphens")
+        return value
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/daily_crisis_monitor")
     parser.add_argument("--history", default="outputs/daily_crisis_monitor/state_history.json")
     parser.add_argument("--long-crisis-features", default="data_pit/macro/long_crisis_daily_features.parquet")
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     parser.add_argument("--update-history", action="store_true")
-    return parser.parse_args()
+    parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
+    parser.add_argument("--report-session", type=report_session)
+    parser.add_argument("--report-recipient", type=report_recipient, default="research-owner")
+    parser.add_argument("--report-now", type=report_now)
+    parser.add_argument("--report-source-view")
+    parser.add_argument("--report-source-root")
+    parser.add_argument("--report-expectations")
+    parser.add_argument("--expected-report-expectations-sha256")
+    parser.add_argument("--expected-source-view-sha256")
+    parser.add_argument("--expected-history-sha256")
+    parser.add_argument("--expected-history-parent-sha256")
+    args = parser.parse_args()
+    if args.report_slot and not args.report_session:
+        parser.error("--report-session is required with --report-slot")
+    return args
 
 
 def main() -> int:
-    payload = build_monitor(parse_args())
-    print(json.dumps({"state": payload["state"], "raw_state": payload["raw_state"]}, indent=2))
-    return 0
+    args = parse_args()
+    if args.report_slot:
+        from tools import daily_crisis_report_clock as clock
+        try:
+            payload = build_monitor(args)
+        except (clock.Blocked, OSError, RuntimeError):
+            print(json.dumps(dict(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                blockers=["REPORT_PREFLIGHT_OR_OUTPUT_REFUSED"], notification_enabled=False,
+                order_generation_allowed=False, ledger_mutation_allowed=False), indent=2))
+            return 2
+    else:
+        payload = build_monitor(args)
+    print(json.dumps({key: payload.get(key) for key in
+                      ("current_report_status", "data_health", "blockers")}
+                     if "current_report_status" in payload else
+                     {"state": payload["state"], "raw_state": payload["raw_state"]}, indent=2))
+    return 2 if payload.get("current_report_status") == "BLOCKED" else 0
 
 
 if __name__ == "__main__":
