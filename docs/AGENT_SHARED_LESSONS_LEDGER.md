@@ -6994,3 +6994,13 @@ Expected contract:
   routing and memory evidence; pin inspectable diagnostic files by manifest hashes.
 - Singular/plural business labels (REIT/REITs) must resolve to the same canonical
   theme; verify missing-sector industry-only inputs as well as full metadata rows.
+
+## 2026-10-15 - Keep research intake and admitted evidence separate
+
+- Supplied identity, graph hash, REVIEWED labels and exact target calendars
+  establish internal research consistency, not independent review, historical
+  PIT/rights, canonical CURRENT or economic admission. Keep every authority
+  closed, missing ER null, and all unresolved outcomes in the denominator.
+- Bound strict JSON before tree allocation and accept only sealed in-memory
+  artifact bytes. Compare source families and immutable security identities;
+  first-event24h clustering must not chain or multiply ticker aliases.

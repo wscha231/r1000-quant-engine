@@ -220,6 +220,9 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    'research/control_plane/a2_event_handoff_v1.schema.json',
+    'research/control_plane/candidate_data_queue_v1.schema.json',
+    'research/control_plane/matured_outcome_cohort_v1.schema.json',
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
     "tests/fixtures/valuation_provenance/main_19rows_extracted.csv",
     "tests/fixtures/valuation_provenance/concentrated_4rows_extracted.csv",
@@ -387,6 +390,8 @@ A6_FIXED_PROOF_INPUTS = (
     "tools/run_alphaops_replay_sidecars.sh",
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'research/a2_research_intake_v1.py',
+    'tests/a2_research_intake_v1_smoke.py',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',
     '.github/workflows/api_credentials_check.yml',

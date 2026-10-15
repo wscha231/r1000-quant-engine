@@ -1,0 +1,549 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "as_of": {
+      "format": "date-time",
+      "maxLength": 40,
+      "type": "string"
+    },
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "const": false,
+          "type": "boolean"
+        },
+        "broker": {
+          "const": false,
+          "type": "boolean"
+        },
+        "canonical_write": {
+          "const": false,
+          "type": "boolean"
+        },
+        "dispatch": {
+          "const": false,
+          "type": "boolean"
+        },
+        "er": {
+          "const": false,
+          "type": "boolean"
+        },
+        "execute": {
+          "const": false,
+          "type": "boolean"
+        },
+        "learning": {
+          "const": false,
+          "type": "boolean"
+        },
+        "ledger": {
+          "const": false,
+          "type": "boolean"
+        },
+        "orders": {
+          "const": false,
+          "type": "boolean"
+        },
+        "paper": {
+          "const": false,
+          "type": "boolean"
+        },
+        "portfolio": {
+          "const": false,
+          "type": "boolean"
+        },
+        "production": {
+          "const": false,
+          "type": "boolean"
+        },
+        "promotion": {
+          "const": false,
+          "type": "boolean"
+        },
+        "selector": {
+          "const": false,
+          "type": "boolean"
+        },
+        "target": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "selector",
+        "er",
+        "target",
+        "portfolio",
+        "paper",
+        "broker",
+        "orders",
+        "promotion",
+        "execute",
+        "production",
+        "dispatch",
+        "admission",
+        "ledger",
+        "canonical_write",
+        "learning"
+      ],
+      "type": "object"
+    },
+    "direct_score_contribution": {
+      "const": 0,
+      "type": "number"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "authority": {
+            "additionalProperties": false,
+            "properties": {
+              "admission": {
+                "const": false,
+                "type": "boolean"
+              },
+              "broker": {
+                "const": false,
+                "type": "boolean"
+              },
+              "canonical_write": {
+                "const": false,
+                "type": "boolean"
+              },
+              "dispatch": {
+                "const": false,
+                "type": "boolean"
+              },
+              "er": {
+                "const": false,
+                "type": "boolean"
+              },
+              "execute": {
+                "const": false,
+                "type": "boolean"
+              },
+              "learning": {
+                "const": false,
+                "type": "boolean"
+              },
+              "ledger": {
+                "const": false,
+                "type": "boolean"
+              },
+              "orders": {
+                "const": false,
+                "type": "boolean"
+              },
+              "paper": {
+                "const": false,
+                "type": "boolean"
+              },
+              "portfolio": {
+                "const": false,
+                "type": "boolean"
+              },
+              "production": {
+                "const": false,
+                "type": "boolean"
+              },
+              "promotion": {
+                "const": false,
+                "type": "boolean"
+              },
+              "selector": {
+                "const": false,
+                "type": "boolean"
+              },
+              "target": {
+                "const": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "selector",
+              "er",
+              "target",
+              "portfolio",
+              "paper",
+              "broker",
+              "orders",
+              "promotion",
+              "execute",
+              "production",
+              "dispatch",
+              "admission",
+              "ledger",
+              "canonical_write",
+              "learning"
+            ],
+            "type": "object"
+          },
+          "channel_status": {
+            "additionalProperties": false,
+            "properties": {
+              "consensus": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "corporate_actions": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "expected_return": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "filings": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "fundamentals": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "guidance": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "identity": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "liquidity": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "listing_history": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "macro": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "news": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "outcomes": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "price": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "rights": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "thesis": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              },
+              "valuation": {
+                "enum": [
+                  "DATA_PENDING",
+                  "CONSUMER_RECEIPT_MISSING",
+                  "MISSING",
+                  "STALE",
+                  "BLOCKED",
+                  "QUARANTINED"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "identity_kind": {
+            "const": "LISTED_SECURITY"
+          },
+          "issuer_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "last_checked_at": {
+            "format": "date-time",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "membership_reasons": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "first_seen_at": {
+                  "format": "date-time",
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                "last_observed_at": {
+                  "format": "date-time",
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                "notes": {
+                  "maxLength": 1800,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "polarity": {
+                  "enum": [
+                    "CANDIDATE",
+                    "RISK_WATCH"
+                  ]
+                },
+                "reason_type": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "security_id": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "security_type": {
+                  "const": "EQUITY"
+                },
+                "source_event_id": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "source_hash": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "source_kind": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "source_quality": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "ACTIVE",
+                    "EXPIRED"
+                  ]
+                },
+                "ticker": {
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+                  "type": "string"
+                },
+                "valid_until": {
+                  "maxLength": 40,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "security_id",
+                "ticker",
+                "reason_type",
+                "source_kind",
+                "polarity",
+                "status",
+                "first_seen_at",
+                "last_observed_at",
+                "valid_until",
+                "source_event_id",
+                "source_hash",
+                "source_quality",
+                "security_type",
+                "notes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "next_action": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "required_channels": {
+            "items": {
+              "enum": [
+                "price",
+                "fundamentals",
+                "thesis",
+                "valuation",
+                "expected_return",
+                "identity",
+                "corporate_actions",
+                "listing_history",
+                "filings",
+                "guidance",
+                "consensus",
+                "news",
+                "macro",
+                "rights",
+                "liquidity",
+                "outcomes"
+              ]
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "security_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "DISCOVERED",
+              "DATA_PENDING",
+              "REJECTED",
+              "STALE",
+              "QUARANTINED",
+              "RISK_WATCH"
+            ]
+          },
+          "ticker": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "identity_kind",
+          "security_id",
+          "issuer_id",
+          "ticker",
+          "state",
+          "membership_reasons",
+          "required_channels",
+          "channel_status",
+          "next_action",
+          "first_seen_at",
+          "last_checked_at",
+          "authority"
+        ],
+        "type": "object"
+      },
+      "maxItems": 1000,
+      "minItems": 0,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "research_only": {
+      "const": true,
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "candidate-data-queue-v1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "as_of",
+    "research_only",
+    "direct_score_contribution",
+    "authority",
+    "items"
+  ],
+  "type": "object"
+}
