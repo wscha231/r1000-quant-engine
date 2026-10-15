@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import gzip
 import io
@@ -185,9 +185,10 @@ def rows(data, symbol, mic, adjustment):
 
 class OwnerDrive:
     """Reuse reviewed rclone OAuth validation/refresh, then narrow Drive REST scope."""
-    def __init__(self, root_id, temp):
+    def __init__(self, root_id, temp, *, meter=None):
         require(re.fullmatch(r'[A-Za-z0-9_-]{10,100}', root_id or ''), 'PRIVATE_ROOT_MISSING')
         self.root_id = root_id
+        self.meter = meter
         supplied = configparser.ConfigParser(interpolation=None)
         try:
             supplied.read_string(os.environ.get('MACRO_DRIVE_CONFIG', ''))
@@ -198,24 +199,32 @@ class OwnerDrive:
                             ('service_account_file', 'service_account_credentials', 'team_drive')),
                     'OWNER_OAUTH_REQUIRED')
             validate_drive_config(source)
-            conf = configparser.ConfigParser(interpolation=None)
-            conf['gdrive'] = {k: source[k] for k in ('type', 'scope', 'token', 'client_id', 'client_secret')
-                              if k in source}
-            conf['gdrive']['root_folder_id'] = root_id
-            path = Path(temp) / 'private-rclone.conf'
-            with path.open('x') as handle:
-                conf.write(handle)
-            path.chmod(0o600)
-            env = {k: os.environ[k] for k in ('PATH', 'HOME', 'SSL_CERT_FILE', 'TMPDIR') if k in os.environ}
-            env['RCLONE_CONFIG'] = str(path)
-            reply = subprocess.run([os.environ.get('MACRO_RCLONE_BIN', 'rclone'), 'about', 'gdrive:',
-                                    '--json', '--retries', '1', '--low-level-retries', '1'],
-                                   env=env, capture_output=True, timeout=45)
-            require(reply.returncode == 0, 'DRIVE_AUTH_OR_QUOTA_PROBE_FAILED')
-            refreshed = configparser.ConfigParser(interpolation=None)
-            refreshed.read(path)
-            token = decode(refreshed['gdrive']['token'])
-            self.token = token.get('access_token', token.get('AccessToken'))
+            if meter is not None:
+                self.oauth_source = dict(source)
+                token = decode(source['token'])
+                self.token = token.get('access_token', token.get('AccessToken'))
+                expiry = token.get('expiry', token.get('Expiry'))
+                self.token_expiry = datetime.fromisoformat(expiry.replace('Z', '+00:00'))
+                self.ensure_metered_token()
+            else:
+                conf = configparser.ConfigParser(interpolation=None)
+                conf['gdrive'] = {k: source[k] for k in ('type', 'scope', 'token', 'client_id', 'client_secret')
+                                  if k in source}
+                conf['gdrive']['root_folder_id'] = root_id
+                path = Path(temp) / 'private-rclone.conf'
+                with path.open('x') as handle:
+                    conf.write(handle)
+                path.chmod(0o600)
+                env = {k: os.environ[k] for k in ('PATH', 'HOME', 'SSL_CERT_FILE', 'TMPDIR') if k in os.environ}
+                env['RCLONE_CONFIG'] = str(path)
+                reply = subprocess.run([os.environ.get('MACRO_RCLONE_BIN', 'rclone'), 'about', 'gdrive:',
+                                        '--json', '--retries', '1', '--low-level-retries', '1'],
+                                       env=env, capture_output=True, timeout=45)
+                require(reply.returncode == 0, 'DRIVE_AUTH_OR_QUOTA_PROBE_FAILED')
+                refreshed = configparser.ConfigParser(interpolation=None)
+                refreshed.read(path)
+                token = decode(refreshed['gdrive']['token'])
+                self.token = token.get('access_token', token.get('AccessToken'))
             require(isinstance(self.token, str) and bool(self.token), 'DRIVE_AUTH')
         except Refused:
             raise
@@ -231,10 +240,36 @@ class OwnerDrive:
         require(self.free >= 32_000_000, 'DRIVE_SPACE')
         self.check(root_id)
 
+    def ensure_metered_token(self):
+        if datetime.now(timezone.utc) + timedelta(seconds=60) < self.token_expiry:
+            return
+        source = self.oauth_source
+        require(source.get('client_id') and source.get('client_secret'),
+                'CAMPAIGN_OAUTH_CLIENT_REQUIRED')
+        old = decode(source['token'])
+        refresh = old.get('refresh_token', old.get('RefreshToken'))
+        credentials = (self.token, refresh, source['client_secret'])
+        body = urlencode(dict(grant_type='refresh_token', refresh_token=refresh,
+                              client_id=source['client_id'], client_secret=source['client_secret'])).encode()
+        raw = self.meter.perform('https://oauth2.googleapis.com/token', method='POST', body=body,
+                                 headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                                 limit=65536, credentials=credentials)
+        result = credential_safe_json(raw, credentials)
+        require(isinstance(result, dict) and isinstance(result.get('access_token'), str)
+                and bool(result['access_token']) and result.get('token_type') == 'Bearer'
+                and type(result.get('expires_in')) is int
+                and 60 < result['expires_in'] <= 86400, 'DRIVE_AUTH')
+        self.token = result['access_token']
+        self.token_expiry = datetime.now(timezone.utc) + timedelta(seconds=result['expires_in'])
+
     def request(self, url, **kwargs):
+        meter = getattr(self, 'meter', None)
+        if meter is not None:
+            self.ensure_metered_token()
         headers = kwargs.pop('headers', {})
         headers['Authorization'] = 'Bearer ' + self.token
-        return http(url, headers=headers, credentials=(self.token,), **kwargs)
+        get = http if meter is None else meter.perform
+        return get(url, headers=headers, credentials=(self.token,), **kwargs)
 
     def get(self, path, query):
         require(re.fullmatch(r'about|files/[A-Za-z0-9_-]+', path), 'DRIVE_ENDPOINT')
@@ -260,6 +295,9 @@ class OwnerDrive:
     def write(self, folder_id, raw, extension):
         require(0 < len(raw) <= MAX_PACK and extension in ('.json', '.zip', '.jsonl.gz'), 'PACK_SIZE')
         require(self.free >= len(raw), 'DRIVE_SPACE')
+        meter = getattr(self, 'meter', None)
+        if meter is not None:
+            meter.reserve_storage(len(raw))
         self.check(folder_id, self.root_id)
         boundary = 'r1000-' + digest(raw)
         metadata = encoded(dict(name=digest(raw) + extension, parents=[folder_id]))
@@ -274,6 +312,9 @@ class OwnerDrive:
         require(isinstance(file_id, str), 'DRIVE_UPLOAD')
         self.check(file_id, folder_id, folder=False)
         require(self.read(file_id) == raw, 'DRIVE_READBACK')
+        if meter is not None:
+            meter.confirmed_storage_bytes += len(raw)
+            meter.save()
         self.free -= len(raw)
         return dict(file_id=file_id, sha256=digest(raw), bytes=len(raw))
 
