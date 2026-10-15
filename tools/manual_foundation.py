@@ -387,6 +387,7 @@ A6_FIXED_PROOF_INPUTS = (
     "tools/run_alphaops_replay_sidecars.sh",
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    '.github/workflows/alpaca_sip_private_backfill_v1.yml',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',
     '.github/workflows/api_credentials_check.yml',
