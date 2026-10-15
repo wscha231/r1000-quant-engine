@@ -387,6 +387,7 @@ A6_FIXED_PROOF_INPUTS = (
     "tools/run_alphaops_replay_sidecars.sh",
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    '.github/workflows/alpaca_sip_private_backfill_v1.yml',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',
     '.github/workflows/api_credentials_check.yml',
@@ -478,6 +479,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/alpha_beta_attribution_smoke.py',
     'tests/alpha_selector_broker_grid_smoke.py',
     'tests/alphaops_vnext_policy_replay_smoke.py',
+    'tests/alpaca_sip_campaign_smoke.py',
+    'tests/alpaca_sip_private_backfill_v1_smoke.py',
     'tests/api_credentials_check_smoke.py',
     'tests/twelve_data_credential_preflight_smoke.py',
     'tests/twelve_private_capture_smoke.py',
@@ -1031,6 +1034,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/theme_etf_upstream_admission.py',
     'tools/trade_insights.py',
     'tools/train_explosion_classifier.py',
+    'tools/alpaca_sip_campaign.py',
+    'tools/alpaca_sip_private_backfill_v1.py',
     'tools/twelve_private_capture.py',
     'tools/twelve_private_cohort.py',
     'tools/validate_daily_close_prices.py',
