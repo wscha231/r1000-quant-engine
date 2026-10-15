@@ -385,6 +385,20 @@ A6_FIXED_PROOF_INPUTS = (
     "strategic_global_hardware_universe.yaml",
     "themes.yaml",
     "tools/run_alphaops_replay_sidecars.sh",
+    'docs/DAILY_CRISIS_REPORT_CLOCK_HISTORY_V1.md',
+    'tests/fixtures/theme_memory_20260510.csv',
+    'tests/fixtures/theme_memory_members_20260510.csv',
+    'docs/theme_memory_fix_evidence_20261015/manifest.json',
+    'docs/theme_memory_fix_evidence_20261015/20260510_membership_changes.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260510_score_comparison.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260510_themes_after.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260510_themes_before.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260512_membership_changes.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260512_score_comparison.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260512_themes_after.csv',
+    'docs/theme_memory_fix_evidence_20261015/20260512_themes_before.csv',
+    'docs/theme_memory_fix_evidence_20261015/performance_correction.json',
+    'docs/theme_memory_fix_evidence_20261015/recalculation.json',
 )
 A6_FIXED_PROOF_PROGRAMS = (
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
@@ -1046,6 +1060,9 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/verify_run287_complete_current_cross_section.py',
     'tools/verify_sec_13f_publication.py',
     'tools/write_run287_price_refresh_attempt.py',
+    'tests/daily_crisis_report_clock_smoke.py',
+    'tools/daily_crisis_report_clock.py',
+    'tests/theme_classification_smoke.py',
 )
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
 TIERS = ('T0_READ', 'T1_COMPUTE', 'T2_PREPARE')
