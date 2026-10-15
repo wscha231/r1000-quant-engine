@@ -7074,3 +7074,38 @@ Expected contract:
   cannot prove closure. Keep current Main proof coverage separate from an
   explicitly hashed Source-plus-Main composition. Never materialize absent
   upstream programs as placeholders or reapply already-pinned path sets.
+
+## 2026-10-15 - Keep research intake and admitted evidence separate
+
+- Supplied identity, graph hash, REVIEWED labels and exact target calendars
+  establish internal research consistency, not independent review, historical
+  PIT/rights, canonical CURRENT or economic admission. Keep every authority
+  closed, missing ER null, and all unresolved outcomes in the denominator.
+- Bound strict JSON before tree allocation and accept only sealed in-memory
+  artifact bytes. Compare source families and immutable security identities;
+  first-event24h clustering must not chain or multiply ticker aliases.
+- Validate nested string/hash/pillar types before set operations; malformed
+  lists must yield bounded refusals. Expiry changes require review even when
+  both timestamps are future. Native Windows directory-open error categories
+  can differ before fstat; preserve baseline failures instead of claiming a
+  complete registered-suite pass or silently skipping the failing case.
+
+## 2026-10-15 - Enforce pending receipts and immutable outcome clocks
+
+- Known membership expiry never substitutes for a missing required consumer
+  receipt: preserve DATA_PENDING regardless of the supplied queue state.
+- A matched matured outcome cannot become available after its immutable source
+  artifact. Bind the row's availability to the reference's availability;
+  the existing reference check also orders availability, collection and cutoff.
+- Reproduce review claims before changing guards. ReferenceIndexError already
+  inherits ValueError, so the intake timestamp adapter translates it correctly.
+  Keep its refusal contract covered without adding a redundant exception arm.
+
+## 2026-10-15 - Bound numeric tokens and every research preview clock
+
+- Check integer JSON tokens against the finite numeric range before building
+  an arbitrary-precision integer; retain exact integers instead of rounding
+  them to float. Large ER/outcome inputs must refuse with IntakeError.
+- A null-reference reconciliation preview still needs a valid aware cutoff.
+  A containing queue check must be at or after every included reason's last
+  observation, even if both clocks separately precede the envelope cutoff.

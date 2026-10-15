@@ -399,6 +399,9 @@ A6_FIXED_PROOF_INPUTS = (
     'docs/theme_memory_fix_evidence_20261015/20260512_themes_before.csv',
     'docs/theme_memory_fix_evidence_20261015/performance_correction.json',
     'docs/theme_memory_fix_evidence_20261015/recalculation.json',
+    'research/control_plane/a2_event_handoff_v1.schema.json',
+    'research/control_plane/candidate_data_queue_v1.schema.json',
+    'research/control_plane/matured_outcome_cohort_v1.schema.json',
 )
 A6_FIXED_PROOF_PROGRAMS = (
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
@@ -1063,6 +1066,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',
     'tests/theme_classification_smoke.py',
+    'research/a2_research_intake_v1.py',
+    'tests/a2_research_intake_v1_smoke.py',
 )
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}
 TIERS = ('T0_READ', 'T1_COMPUTE', 'T2_PREPARE')
