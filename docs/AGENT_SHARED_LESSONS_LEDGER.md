@@ -6995,6 +6995,13 @@ Expected contract:
 - Singular/plural business labels (REIT/REITs) must resolve to the same canonical
   theme; verify missing-sector industry-only inputs as well as full metadata rows.
 
+## 2026-10-15 - Classify refused Native directory inputs without weakening reads
+
+- Windows may refuse os.open on a directory before fstat can classify it.
+  After an open failure, only a successful directory stat may map the refusal
+  to INPUT_NOT_REGULAR_FILE. Preserve original non-directory/probe errors,
+  successful-open fstat, bounded reads, descriptor cleanup and path redaction.
+
 ## 2026-10-15 — Bound finite Source campaigns before side effects
 
 - Successful page/receipt totals omit failed attempts, partial responses,
