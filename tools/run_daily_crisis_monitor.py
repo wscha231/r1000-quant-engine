@@ -379,6 +379,13 @@ def render_report(payload: dict[str, Any]) -> str:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    def report_session(value):
+        from tools import daily_crisis_report_clock as clock
+        try:
+            clock.session_times(value)
+        except (ValueError, TypeError, OverflowError):
+            raise argparse.ArgumentTypeError("report session must be a valid YYYY-MM-DD calendar date") from None
+        return value
     parser.add_argument("--latest-run", default="outputs")
     parser.add_argument("--output-dir", default="outputs/daily_crisis_monitor")
     parser.add_argument("--history", default="outputs/daily_crisis_monitor/state_history.json")
@@ -386,7 +393,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
-    parser.add_argument("--report-session")
+    parser.add_argument("--report-session", type=report_session)
     parser.add_argument("--report-recipient", default="research-owner")
     parser.add_argument("--report-now")
     parser.add_argument("--report-source-view")

@@ -516,6 +516,34 @@ class ReportClockTests(unittest.TestCase):
             build_monitor(args)
         self.assertFalse(output.exists())
 
+    def test_explicit_producer_asof_ignores_later_input_rows_only(self):
+        view = json.loads(self.current.read_bytes())
+        manifest = json.loads(Path(view["chameleon_manifest"]["path"]).read_bytes())
+        output = self.root / "explicit-earlier-asof"
+        built = clock.risk.build(argparse.Namespace(contract=str(clock.risk.DEFAULT_CONTRACT),
+            calendar=manifest["inputs"]["calendar"]["path"],input_metrics=manifest["inputs"]["metrics"]["path"],
+            input_context=manifest["inputs"]["context"]["path"],as_of=self.previous_session,output_dir=str(output)))
+        self.assertEqual(built["decision_date"],self.previous_session)
+        view["chameleon_manifest"] = clock.risk.fingerprint(output / "manifest.json")
+        path = self.root / "explicit-asof-view.json"; path.write_bytes(clock.canonical(view))
+        result = self.run_cycle(view=path,slot="INTRADAY")
+        self.assertEqual(result["current_report_status"],"READY_DRY_RUN",result)
+        self.assertEqual(result["risk_as_of_session"],self.previous_session)
+        view["source_clocks"][0].update(available_at=self.previous_session+"T22:01:00Z",
+                                      collected_at=self.previous_session+"T22:02:00Z")
+        path.write_bytes(clock.canonical(view))
+        result = self.run_cycle(view=path,slot="INTRADAY")
+        self.assertIn("HISTORICAL_AVAILABILITY_VIOLATION",result["blockers"])
+
+    def test_intraday_markdown_displays_verified_prior_session_state(self):
+        result = self.run_cycle(view=self.previous,slot="INTRADAY")
+        report = clock.render_report(result)
+        self.assertIsNone(result["risk_score"])
+        self.assertIsNone(result["market_state"])
+        self.assertIn("Prior session: "+self.previous_session,report)
+        self.assertIn("Prior-session risk score: "+str(result["last_completed_risk_score"]),report)
+        self.assertIn("Prior-session market state: "+result["last_completed_market_state"],report)
+
     def test_monitor_integration_candidate_only_and_no_overwrite(self):
         output = self.root / "monitor-dry-run"
         history = self.root / "approved-history.json"
@@ -540,6 +568,16 @@ class ReportClockTests(unittest.TestCase):
 
 
 class ReportCliTests(unittest.TestCase):
+    def test_present_invalid_report_session_has_normal_argument_error(self):
+        from tools.run_daily_crisis_monitor import parse_args
+        for value in ("not-a-date","2026-02-30","2026-2-3","0001-01-01"):
+            with patch.object(sys,"argv",["monitor","--report-slot","AFTER_CLOSE","--report-session",value]), redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as caught:
+                    parse_args()
+            self.assertEqual(caught.exception.code,2)
+            self.assertIn("valid YYYY-MM-DD calendar date",errors.getvalue())
+            self.assertNotIn("Traceback",errors.getvalue())
+
     def test_report_mode_requires_session_with_normal_argument_error(self):
         from tools.run_daily_crisis_monitor import parse_args
         for slot in clock.SLOTS:

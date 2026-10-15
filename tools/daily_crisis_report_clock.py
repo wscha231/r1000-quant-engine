@@ -306,12 +306,12 @@ def frame_bytes(frame):
 
 
 @lru_cache(maxsize=2)
-def verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw, producer, verifier_code_sha):
+def verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw, producer, verifier_code_sha, as_of_session):
     """Bounded process-local verification cache; no canonical calculation/write."""
     contract = decode(contract_raw)
     calendar = risk.validate_calendar(table(calendar_raw), digest(calendar_raw))
     raw_metrics = table(metrics_raw)
-    as_of = pd.Timestamp(raw_metrics.decision_date.max())
+    as_of = pd.Timestamp(as_of_session)
     metrics = risk.validate_metrics(raw_metrics, contract, as_of, calendar)
     decisions = {date:g.decision_time_utc.iloc[0] for date,g in metrics.groupby("decision_date")}
     sessions = {date:(int(g.nyse_session_ordinal.iloc[0]),str(g.calendar_source_sha256.iloc[0]))
@@ -394,6 +394,7 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
     need(manifest.get("network_requests_executed") == 0, "UPSTREAM_SAFETY_ENVELOPE")
     as_of = pd.Timestamp(manifest["decision_date"])
     validated = risk.validate_metrics(metrics, contract, as_of, calendar)
+    metrics = metrics[risk.parse_date_only(metrics.decision_date, "decision_date") <= as_of].copy()
     decisions = {date: group.decision_time_utc.iloc[0] for date, group in validated.groupby("decision_date")}
     sessions = {date: (int(group.nyse_session_ordinal.iloc[0]), str(group.calendar_source_sha256.iloc[0]))
                 for date, group in validated.groupby("decision_date")}
@@ -402,6 +403,8 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
         context_raw = read_ref(root, manifest["inputs"]["context"])
         context = table(context_raw)
     validated_context = risk.validate_context(context, contract, as_of, decisions, sessions, calendar)
+    if context is not None:
+        context = context[risk.parse_date_only(context.decision_date, "decision_date") <= as_of].copy()
     expectations, expectations_sha = None, None
     if view["input_kind"] == "ACTUAL":
         for frame in (metrics, context):
@@ -521,7 +524,7 @@ def load_source(path, expected_sha, source_root, cutoff, now, *, session=None, s
         need(snapshot.get("risk_score") is None, "INSUFFICIENT_SCORE_NOT_NULL")
     if not issues:
         expected_axes, expected_history = verified_derivation(metrics_raw, context_raw, calendar_raw, contract_raw,
-            producer, digest(bounded(Path(__file__), 256*1024)))
+            producer, digest(bounded(Path(__file__), 256*1024)), as_of.date().isoformat())
         need(digest(axes_raw) == digest(expected_axes) and digest(history_raw) == digest(expected_history),
              "FULL_DERIVED_HISTORY_MISMATCH")
     return dict(input_kind=view["input_kind"], manifest_sha256=digest(manifest_raw),
@@ -683,6 +686,11 @@ def render_report(payload):
              "- Notification / orders / book writes: OFF", "", "## Confirmed source facts"]
     lines += [f"- {item.get('source_id')}: {item['available_at']} ({item['unit']}, {item['seasonal_basis']})"
               for item in payload["source_facts"]]
+    if payload["logical_slot"] == "INTRADAY" and "last_completed_risk_score" in payload:
+        lines += ["", "## Verified prior completed session (provisional intraday report)",
+                  f"- Prior session: {payload['risk_as_of_session']}",
+                  f"- Prior-session risk score: {payload['last_completed_risk_score']}",
+                  f"- Prior-session market state: {payload['last_completed_market_state']}"]
     lines += ["", "## Missing evidence"] + ["- "+item for item in payload["blockers"]]
     lines += ["", "## Action review", "- Verify thesis and independent risk evidence before considering a change.",
               "- Preserve healthy winners; assess costs, reentry risk and superior alternatives.",
