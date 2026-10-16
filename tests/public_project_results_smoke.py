@@ -30,6 +30,26 @@ def fixture():
     return report,sources
 
 
+def history_run(run_id, event='schedule', status='completed', conclusion='success', **changes):
+    from datetime import timedelta
+    run=dict(id=run_id,event=event,status=status,conclusion=conclusion,
+             created_at=(NOW+timedelta(minutes=run_id)).isoformat(),
+             path='.github/workflows/long_history_research.yml',head_branch='master',
+             head_repository={'full_name':'wscha231/r1000-quant-engine'})
+    run.update(changes)
+    return run
+
+
+class HistoryRunsClient:
+    def __init__(self,runs):self.runs=runs;self.requests=[]
+    def json(self,path):
+        from urllib.parse import parse_qs,urlsplit
+        self.requests.append(path)
+        query=parse_qs(urlsplit(path).query)
+        event=query.get('event',[None])[0]
+        return {'workflow_runs':[r for r in self.runs if event is None or r['event']==event][:30]}
+
+
 class Tests(unittest.TestCase):
     def run_build(self, report=None, sources=None):
         r,s=fixture()
@@ -66,6 +86,49 @@ class Tests(unittest.TestCase):
         class NoCalls:
             def json(self, path):raise AssertionError('uninstalled workflow queried')
         self.assertIsNone(collect_history(NoCalls(),ROOT/'tests/uninstalled-history-workflow.yml'))
+
+    def test_history_code_push_cannot_replace_scheduled_evidence(self):
+        runs=[history_run(100+i,event='push') for i in range(40)]
+        runs+=[history_run(10),history_run(8,event='workflow_dispatch')]
+        client=HistoryRunsClient(runs)
+        result=collect_history(client)
+        self.assertEqual(result['run']['id'],10)
+        self.assertEqual(result['status'],'WORKFLOW_SUCCESS_DATA_UNVERIFIED')
+        self.assertEqual(set(client.requests),{
+            '/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30&event=schedule',
+            '/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30&event=workflow_dispatch'})
+
+    def test_history_push_only_is_not_producer_evidence(self):
+        result=collect_history(HistoryRunsClient([history_run(3,event='push')]))
+        self.assertEqual(result,{'status':'MISSING_RUN'})
+
+    def test_history_explicit_skipped_producer_run_is_ignored(self):
+        result=collect_history(HistoryRunsClient([
+            history_run(20,conclusion='skipped'),history_run(10,event='workflow_dispatch')]))
+        self.assertEqual(result['run']['id'],10)
+
+    def test_history_latest_actual_failure_and_cancel_remain_visible(self):
+        for conclusion in ('failure','cancelled','timed_out'):
+            with self.subTest(conclusion=conclusion):
+                result=collect_history(HistoryRunsClient([
+                    history_run(40,event='push'),history_run(30,event='workflow_dispatch',conclusion=conclusion),
+                    history_run(10)]))
+                self.assertEqual(result['run']['id'],30)
+                self.assertEqual(result['status'],'UPSTREAM_FAILED')
+
+    def test_history_current_actual_run_is_not_hidden_by_old_success(self):
+        for status in ('queued','in_progress'):
+            with self.subTest(status=status):
+                result=collect_history(HistoryRunsClient([
+                    history_run(40,event='push'),history_run(30,status=status,conclusion=None),history_run(10)]))
+                self.assertEqual(result['run']['id'],30)
+                self.assertEqual(result['status'],'UPSTREAM_IN_PROGRESS')
+
+    def test_history_trusted_repository_branch_and_path_filters_remain(self):
+        runs=[history_run(40,head_repository={'full_name':'fork/repo'}),
+              history_run(30,head_branch='feature'),history_run(20,path='.github/workflows/other.yml'),history_run(10)]
+        result=collect_history(HistoryRunsClient(runs))
+        self.assertEqual(result['run']['id'],10)
 
     def test_failed_producer_cannot_supply_diagnostics(self):
         r,s=fixture();s['tactical']['status']='UPSTREAM_FAILED'
