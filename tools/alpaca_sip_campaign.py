@@ -717,6 +717,7 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
     require(isinstance(record, dict) and record.get("task_key") == TASK
             and record.get("auth_sha256") == auth_hash
             and record.get("bindings") == bindings, "CAMPAIGN_ACCOUNT_RECORD")
+    approval_binding = None
     if tag == tags[0]:
         required = {"task_key", "auth_sha256", "bindings", "agreement_reviewed", "account_eligible",
                     "historical_sip_allowed", "private_retention_allowed", "private_noncommercial",
@@ -741,6 +742,40 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
                 and re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
                                  record["approval_reference"]) is not None,
                 "CAMPAIGN_CAPTURE_DIRECTIVE")
+        approval_reference = record["approval_reference"]
+        approval_id = int(approval_reference.rsplit("-", 1)[1])
+        approval = comment if approval_reference == reference else gh_json(
+            f"repos/{REPO}/issues/comments/{approval_id}")
+        approval_author = approval.get("user", {})
+        require(approval.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+                and approval.get("author_association") == "OWNER"
+                and approval_author.get("type") == "User"
+                and type(approval.get("id")) is int and approval["id"] == approval_id
+                and type(approval_author.get("id")) is int and approval_author["id"] > 0
+                and isinstance(approval.get("body"), str), "CAMPAIGN_CAPTURE_APPROVER")
+        approval_lines = [line[len("A1_SIP_CAPTURE_APPROVAL "):]
+                          for line in approval["body"].splitlines()
+                          if line.startswith("A1_SIP_CAPTURE_APPROVAL ")]
+        require(len(approval_lines) == 1 and len(approval_lines[0]) <= 4096,
+                "CAMPAIGN_CAPTURE_APPROVAL")
+        scope = decode(approval_lines[0])
+        approval_fields = {"task_key", "plan", "personal_historical_capture_requested",
+                           "private_noncommercial", "evidence_procedure_waived",
+                           "supplier_rights_verified", "start", "end", "seed_sha256",
+                           "initial_checkpoint_sha256"}
+        require(isinstance(scope, dict) and set(scope) == approval_fields
+                and scope["task_key"] == TASK and scope["plan"] == "Trading Basic"
+                and scope["start"] == "2016-01-04" and scope["end"] == "2026-10-14"
+                and scope["seed_sha256"] == SEED_SHA and scope["initial_checkpoint_sha256"] == INITIAL_SHA
+                and scope["supplier_rights_verified"] is False
+                and all(scope[k] is True for k in ("personal_historical_capture_requested",
+                        "private_noncommercial", "evidence_procedure_waived")),
+                "CAMPAIGN_CAPTURE_APPROVAL")
+        approval_created = utc(approval.get("created_at"))
+        require(approval_created <= utc(comment.get("created_at")), "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
+        approval_binding = dict(reference=approval_reference, comment_id=approval["id"],
+                                author_id=approval_author["id"], created_at_utc=approval_created.isoformat(),
+                                body_sha256=digest(approval["body"].encode()), scope=scope)
     now = utc()
     created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])
     require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
@@ -750,10 +785,13 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
     # URL identity alone cannot bind a mutable comment. Record the verified
     # assertions and immutable issue/comment/author identity, never raw rights
     # text in the public meter. A later edit must stop the next worker.
-    return digest(encoded(dict(reference=reference, comment_id=comment["id"],
-                               issue_url=comment["issue_url"], author_id=author["id"],
-                               created_at_utc=created.isoformat(),
-                               body_sha256=digest(comment["body"].encode()), record=record)))
+    verified = dict(reference=reference, comment_id=comment["id"],
+                    issue_url=comment["issue_url"], author_id=author["id"],
+                    created_at_utc=created.isoformat(),
+                    body_sha256=digest(comment["body"].encode()), record=record)
+    if approval_binding is not None:
+        verified["capture_approval"] = approval_binding
+    return digest(encoded(verified))
 
 
 def worker(args, control, journal):

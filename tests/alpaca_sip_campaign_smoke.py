@@ -751,9 +751,15 @@ class DirectCaptureDirectiveTests(unittest.TestCase):
                       personal_historical_capture_requested=True, private_noncommercial=True,
                       evidence_procedure_waived=True, supplier_rights_verified=False,
                       approval_reference=reference, expires_at_utc=(now + timedelta(hours=3)).isoformat())
+        approval = dict(task_key=c.TASK, plan='Trading Basic',
+                        personal_historical_capture_requested=True, private_noncommercial=True,
+                        evidence_procedure_waived=True, supplier_rights_verified=False,
+                        start='2016-01-04', end='2026-10-14', seed_sha256=c.SEED_SHA,
+                        initial_checkpoint_sha256=c.INITIAL_SHA)
         comment = dict(id=1, issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
                        author_association='OWNER', user=dict(type='User', id=123),
-                       created_at=now.isoformat(), body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record))
+                       created_at=now.isoformat(), body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record)
+                       + '\nA1_SIP_CAPTURE_APPROVAL ' + json.dumps(approval))
         return bindings, reference, record, comment, now + timedelta(seconds=7100)
 
     def test_direct_request_is_distinct_from_supplier_certification(self):
@@ -786,15 +792,51 @@ class DirectCaptureDirectiveTests(unittest.TestCase):
                 c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
         for seconds in [30, -1]:
             changed = dict(record, expires_at_utc=(c.utc() + timedelta(seconds=seconds)).isoformat())
-            with patch.object(c, 'gh_json', return_value=dict(comment, body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(changed))), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_ACCOUNT_EXPIRED$'):
+            body = 'A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(changed) + '\n' + comment['body'].splitlines()[1]
+            with patch.object(c, 'gh_json', return_value=dict(comment, body=body)), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_ACCOUNT_EXPIRED$'):
                 c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
         for changed in [dict(comment, body=comment['body'] + '\nChanged execution context'),
                         dict(comment, user=dict(type='User', id=124))]:
             with patch.object(c, 'gh_json', return_value=changed):
                 self.assertNotEqual(c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline), original)
         exact = dict(record, expires_at_utc=deadline.isoformat())
-        with patch.object(c, 'gh_json', return_value=dict(comment, body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(exact))):
+        body = 'A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(exact) + '\n' + comment['body'].splitlines()[1]
+        with patch.object(c, 'gh_json', return_value=dict(comment, body=body)):
             self.assertRegex(c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline), r'^[a-f0-9]{64}$')
+
+    def test_cited_approval_is_fetched_checked_and_hash_bound(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        record['approval_reference'] = reference[:-1] + '2'
+        directive = dict(comment, body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record))
+        approval = dict(comment, id=2, body=comment['body'].splitlines()[1])
+        def verify(candidate):
+            def fetch(endpoint):
+                return directive if endpoint.endswith('/1') else candidate
+            with patch.object(c, 'gh_json', side_effect=fetch) as get:
+                result = c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+                self.assertEqual(get.call_count, 2)
+                return result
+        original = verify(approval)
+        missing = c.Refused('CAMPAIGN_GITHUB_READ')
+        with patch.object(c, 'gh_json', side_effect=[directive, missing]), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_GITHUB_READ$'):
+            c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for changed in [dict(approval, body='unrelated owner comment'),
+                        dict(approval, author_association='COLLABORATOR'),
+                        dict(approval, user=dict(type='Bot', id=123)), dict(approval, id=99),
+                        dict(approval, created_at=(c.utc()+timedelta(minutes=1)).isoformat()),
+                        dict(approval, body=approval['body']+'\n'+approval['body'])]:
+            with self.subTest(changed=changed.get('id')), self.assertRaises(c.Refused):
+                verify(changed)
+        scope = json.loads(approval['body'].split(' ',1)[1])
+        for key,value in [('task_key','OTHER'),('plan','OTHER'),('supplier_rights_verified',True),
+                          ('private_noncommercial',False),('evidence_procedure_waived',1),
+                          ('seed_sha256','f'*64),('initial_checkpoint_sha256','f'*64),
+                          ('start','2000-01-01'),('end','2027-01-01')]:
+            bad=dict(scope);bad[key]=value
+            with self.subTest(key=key), self.assertRaises(c.Refused):
+                verify(dict(approval, body='A1_SIP_CAPTURE_APPROVAL '+json.dumps(bad)))
+        self.assertNotEqual(verify(dict(approval, body=approval['body']+'\nEdited owner context')), original)
+        self.assertNotEqual(verify(dict(approval, user=dict(type='User',id=124))), original)
 
 
 if __name__=='__main__': unittest.main()

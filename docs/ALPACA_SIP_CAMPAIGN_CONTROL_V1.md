@@ -203,6 +203,20 @@ Mixed/duplicate records refuse. All existing counters, authorization bytes,
 canonical history, reservation/settlement, checkpoint, seed, provider/OAuth errors,
 Drive privacy/quota, deadlines and fail-closed outcomes remain unchanged.
 
+The cited approval URL is fetched and must resolve to an actual Issue448 OWNER
+User comment containing one bounded `A1_SIP_CAPTURE_APPROVAL ` JSON line. Its
+exact fields are `task_key`, `plan`, `personal_historical_capture_requested`,
+`private_noncommercial`, `evidence_procedure_waived`, `supplier_rights_verified`,
+`start`, `end`, `seed_sha256`, `initial_checkpoint_sha256`. The values preserve
+the same Trading Basic/personal/noncommercial/direct-request/false-supplier
+semantics and exact original campaign scope. It records the already-given human
+request, not new supplier evidence or a repeated approval question. The owner
+approval must precede the bound directive; its actual author, creation time and
+entire body hash enter the execution record digest. Missing, unrelated, altered
+or synthetic provenance cannot authorize capture. Do not edit either comment
+after activation. A directive may reference its own verified OWNER comment if
+that same comment contains the exact approval line.
+
 If no canonical campaign has started, finalize and approve deployed source
 before creating the first immutable activation authorization and metadata-only
 run. Compute the actual next workflow floor at activation; never hardcode an
