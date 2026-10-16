@@ -229,11 +229,11 @@ class RuntimeMeter:
             self.alarm_active = True
             yield
         finally:
+            # A failed disarm may leave SIGALRM pending: retain its safe handler
+            # and active state until the timer is confirmed cleared.
+            signal.setitimer(signal.ITIMER_REAL, 0)
             self.alarm_active = False
-            try:
-                signal.setitimer(signal.ITIMER_REAL, 0)
-            finally:
-                signal.signal(signal.SIGALRM, old)
+            signal.signal(signal.SIGALRM, old)
 
     def perform(self, url, *, method="GET", headers=None, body=None,
                 limit=2_000_000, credentials=()):

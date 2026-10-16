@@ -286,15 +286,66 @@ class BudgetTests(unittest.TestCase):
                 self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
                 self.assertEqual(m.journal.read_bytes(), original)
 
-    def test_alarm_disarm_failure_still_restores_handler(self):
+    def test_alarm_disarm_failure_retains_deadline_handler(self):
         with tempfile.TemporaryDirectory() as temp:
             now = c.utc()
             m = meter(temp, clock=lambda: now, seconds=0.03)
+            original = m.journal.read_bytes()
             signals = AlarmSignal(fail='disarm')
             with patch.object(c, 'signal', signals), self.assertRaisesRegex(OSError, '^fixture_disarm$'):
                 with m.process_deadline(): self.assertTrue(m.alarm_active)
-            self.assertIs(signals.handler, signals.original)
-            self.assertFalse(m.alarm_active)
+            self.assertIsNot(signals.handler, signals.original)
+            self.assertEqual(signals.timer, (0.03, 0))
+            self.assertTrue(m.alarm_active)
+            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
+                signals.handler()
+            self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+            self.assertEqual(m.journal.read_bytes(), original)
+
+    @unittest.skipUnless(hasattr(c.signal, 'setitimer'), 'POSIX failed disarm;Windows host remains supported')
+    def test_failed_posix_disarm_keeps_pending_signal_safe(self):
+        import subprocess
+        import sys
+        script = '''
+import runpy, tempfile, unittest
+from unittest.mock import patch
+from tools import alpaca_sip_campaign as c
+check = unittest.TestCase()
+make_meter = runpy.run_path('tests/alpaca_sip_campaign_smoke.py')['meter']
+real_setitimer = c.signal.setitimer
+old = c.signal.getsignal(c.signal.SIGALRM)
+def fail_disarm(which, seconds):
+    if seconds == 0:
+        raise OSError('fixture_disarm')
+    return real_setitimer(which, seconds)
+try:
+    c.signal.signal(c.signal.SIGALRM, c.signal.SIG_DFL)
+    with tempfile.TemporaryDirectory() as temp:
+        now = c.utc()
+        m = make_meter(temp, clock=lambda: now, seconds=60)
+        original = m.journal.read_bytes()
+        with patch.object(c.signal, 'setitimer', fail_disarm):
+            with check.assertRaisesRegex(OSError, '^fixture_disarm$'):
+                with m.process_deadline(): pass
+        check.assertTrue(m.alarm_active)
+        check.assertTrue(callable(c.signal.getsignal(c.signal.SIGALRM)))
+        check.assertGreater(c.signal.getitimer(c.signal.ITIMER_REAL)[0], 0)
+        # Defuse the wall timer, then deliver a real SIGALRM deterministically.
+        # This isolates retained-handler safety from scheduler timing.
+        real_setitimer(c.signal.ITIMER_REAL, 0)
+        with check.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
+            c.signal.raise_signal(c.signal.SIGALRM)
+        check.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+        check.assertEqual(m.journal.read_bytes(), original)
+finally:
+    real_setitimer(c.signal.ITIMER_REAL, 0)
+    c.signal.signal(c.signal.SIGALRM, old)
+print('POSIX_FAILED_DISARM_RETAINED_HANDLER_PASS')
+'''
+        command = [sys.executable] + ([] if __debug__ else ['-O']) + ['-c', script]
+        result = subprocess.run(command, cwd=c.ROOT, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('POSIX_FAILED_DISARM_RETAINED_HANDLER_PASS', result.stdout)
 
     @unittest.skipUnless(hasattr(c.signal, 'setitimer'), 'POSIX alarm setup;Windows host remains supported')
     def test_expired_posix_alarm_setup_restores_handler(self):
