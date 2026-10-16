@@ -174,3 +174,41 @@ missing/unfinalized/mismatched receipts, every budget boundary, failed/partial
 HTTP and POST, stale/expired authority, bootstrap/OAuth, slow header/body/CPU,
 checkpoint loss, mixed basis, held/no-data status, privacy/rights drift and
 128 calibration. CI/hash/A6 are code evidence, not data or investment approval.
+
+
+## Explicit human capture request without supplier-rights attestation
+
+The original account-attestation record remains accepted unchanged. An actual
+owner/member/collaborator User may instead record one `A1_SIP_CAPTURE_DIRECTIVE `
+JSON line for the existing private noncommercial historical campaign after an
+explicit human request to waive the internal evidence-document procedure.
+It is execution consent, not certification of supplier licensing or eligibility.
+
+Required exact fields: `task_key`, `auth_sha256`, actual `bindings`,
+`mode: DIRECT_HUMAN_CAPTURE_REQUEST`, `plan: Trading Basic`,
+`personal_historical_capture_requested: true`, `private_noncommercial: true`,
+`evidence_procedure_waived: true`, `supplier_rights_verified: false`,
+`approval_reference` (the actual Issue448 human-directive coordination reference),
+and `expires_at_utc`. Expiry is the finite operational approval limit, not an
+invented license expiry. Do not add agreement-reviewed/account-eligible or
+retention-rights assertions to this record. Record only actual human consent;
+never manufacture supplier assertions or actual owner/key bindings.
+
+The same verifier checks real comment/author identity, exact campaign/auth and
+metadata-observed bindings, the entire fixed worker deadline and immutable
+comment-body/author hash. Existing account_permission_* meter fields retain
+compatibility as execution-authority reference/record hashes; the referenced
+record's explicit mode determines whether it is account attestation or consent.
+Mixed/duplicate records refuse. All existing counters, authorization bytes,
+canonical history, reservation/settlement, checkpoint, seed, provider/OAuth errors,
+Drive privacy/quota, deadlines and fail-closed outcomes remain unchanged.
+
+If no canonical campaign has started, finalize and approve deployed source
+before creating the first immutable activation authorization and metadata-only
+run. Compute the actual next workflow floor at activation; never hardcode an
+old observed floor or reset an existing authorization/journal. The metadata-only
+run measures actual credentials/OAuth/private owner/free>=2GiB, debits its costs
+and starts the existing48h clock. Bind the direct request to those actual hashes,
+then resume the same authorization/journal at the original16 checkpoint.
+Provider403 or another entitlement failure remains terminal; do not switch feed,
+account or subscription to evade it. Source/PIT/commercial flags remain false.

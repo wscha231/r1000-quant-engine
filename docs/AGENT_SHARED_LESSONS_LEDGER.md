@@ -7109,3 +7109,10 @@ Expected contract:
 - A null-reference reconciliation preview still needs a valid aware cutoff.
   A containing queue check must be at or after every included reason's last
   observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-17 — Separate capture consent and supplier-rights assertions
+
+- A direct request for finite private historical capture is execution consent; do not manufacture account eligibility or supplier retention certifications.
+- When the owner waives an internal evidence-document procedure, represent that consent explicitly with supplier_rights_verified=false rather than require unsupported perpetual or post-termination claims.
+- Preserve actual owner/key bindings, comment identity and body hash, authorization, seed/checkpoint, cumulative reservations and all existing deadlines; provider entitlement failures remain terminal.
+- Finalize deployed code before the first immutable activation/preflight, so a later source change cannot strand an already-started campaign on incompatible pins.

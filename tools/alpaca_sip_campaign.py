@@ -696,8 +696,8 @@ def worker_deadline(run_id, first):
 
 
 def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
-    # Account rights are an actual owner-attested record, not arbitrary text or
-    # an HTTP200 data response. The agent must not manufacture this attestation.
+    # Preserve actual account attestations. A separate direct human capture
+    # request is execution consent, explicitly not supplier-rights certification.
     match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)", reference or "")
     require(match is not None, "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
     comment = gh_json(f"repos/{REPO}/issues/comments/{match[1]}")
@@ -708,19 +708,39 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
             and type(comment.get("id")) is int and comment["id"] == int(match[1])
             and type(author.get("id")) is int and author["id"] > 0,
             "CAMPAIGN_ACCOUNT_ATTESTOR")
-    lines = [line[len("A1_SIP_ACCOUNT_PERMISSION "):] for line in comment.get("body", "").splitlines()
-             if line.startswith("A1_SIP_ACCOUNT_PERMISSION ")]
-    require(len(lines) == 1 and len(lines[0]) <= 4096, "CAMPAIGN_ACCOUNT_RECORD")
-    record = decode(lines[0])
-    required = {"task_key", "auth_sha256", "bindings", "agreement_reviewed", "account_eligible",
-                "historical_sip_allowed", "private_retention_allowed", "private_noncommercial",
-                "evidence_reference", "expires_at_utc"}
-    require(isinstance(record, dict) and set(record) == required and record["task_key"] == TASK
-            and record["auth_sha256"] == auth_hash and record["bindings"] == bindings
-            and all(record[k] is True for k in ("agreement_reviewed", "account_eligible",
-                    "historical_sip_allowed", "private_retention_allowed", "private_noncommercial"))
-            and isinstance(record["evidence_reference"], str) and 0 < len(record["evidence_reference"]) <= 512,
-            "CAMPAIGN_ACCOUNT_RECORD")
+    tags = ("A1_SIP_ACCOUNT_PERMISSION ", "A1_SIP_CAPTURE_DIRECTIVE ")
+    lines = [(tag, line[len(tag):]) for line in comment.get("body", "").splitlines()
+             for tag in tags if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0][1]) <= 4096, "CAMPAIGN_ACCOUNT_RECORD")
+    tag, raw = lines[0]
+    record = decode(raw)
+    require(isinstance(record, dict) and record.get("task_key") == TASK
+            and record.get("auth_sha256") == auth_hash
+            and record.get("bindings") == bindings, "CAMPAIGN_ACCOUNT_RECORD")
+    if tag == tags[0]:
+        required = {"task_key", "auth_sha256", "bindings", "agreement_reviewed", "account_eligible",
+                    "historical_sip_allowed", "private_retention_allowed", "private_noncommercial",
+                    "evidence_reference", "expires_at_utc"}
+        require(set(record) == required
+                and all(record[k] is True for k in ("agreement_reviewed", "account_eligible",
+                        "historical_sip_allowed", "private_retention_allowed", "private_noncommercial"))
+                and isinstance(record["evidence_reference"], str)
+                and 0 < len(record["evidence_reference"]) <= 512, "CAMPAIGN_ACCOUNT_RECORD")
+    else:
+        required = {"task_key", "auth_sha256", "bindings", "mode", "plan",
+                    "personal_historical_capture_requested", "private_noncommercial",
+                    "evidence_procedure_waived", "supplier_rights_verified",
+                    "approval_reference", "expires_at_utc"}
+        require(set(record) == required
+                and record["mode"] == "DIRECT_HUMAN_CAPTURE_REQUEST"
+                and record["plan"] == "Trading Basic"
+                and record["supplier_rights_verified"] is False
+                and all(record[k] is True for k in ("personal_historical_capture_requested",
+                        "private_noncommercial", "evidence_procedure_waived"))
+                and isinstance(record["approval_reference"], str)
+                and re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+                                 record["approval_reference"]) is not None,
+                "CAMPAIGN_CAPTURE_DIRECTIVE")
     now = utc()
     created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])
     require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
