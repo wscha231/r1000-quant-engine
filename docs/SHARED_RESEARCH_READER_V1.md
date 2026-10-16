@@ -279,11 +279,19 @@ All optional components failing produces `NO_VERIFIED_COMPONENTS`, never a
 successful whole-generation receipt. Economic/selector/calendar-source authority
 stays false. A transport byte cache alone cannot produce these results.
 
-Sixteen additive synthetic regressions cover heterogeneous starts, once-only
+Nineteen additive synthetic regressions cover heterogeneous starts, once-only
 reads/decodes, optional benchmark absence, required failure, global tampering and
 clocks, unrequested metadata/byte scope, immutable receipts, call lifetime,
-cumulative resources and shared Lake provenance. The original 64 Reader methods
+cumulative resources, later-partition hash/clock/identity/resource/Lake guards after a local refusal, and
+shared Lake provenance. The original 64 Reader methods
 are retained. Native normal/-O receipts must distinguish actual Parquet/Linux
 execution from dependency/platform refusals and skips. Existing Main #625 still
 needs its separate public-API integration and exact-head verification; these
 Source capabilities alone do not close a Main consumer finding.
+
+Publication needs a separately approved Source PR/integration path. Existing
+PR Validation runs the registered Reader suite; the current
+`long_history_research.yml` is a master-push/scheduled durable workflow with
+source/Drive steps, not a PR-only test job. Its Reader-path push trigger must be
+assessed by A0 before a future merge. This preparation does not dispatch that
+workflow or authorize its durable execution, and does not change its controls.

@@ -1008,6 +1008,53 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(set(result.refusals.values()), {'ARCHIVE_UNAVAILABLE'})
         self.assertFalse(result.receipt['whole_generation_verified'])
 
+    def test_components_local_failure_cannot_skip_later_partition_global_guards(self):
+        for code in ('HASH_MISMATCH', 'FUTURE_AVAILABLE_FROM', 'ROW_IDENTITY'):
+            with self.subTest(code=code):
+                self.spec['files'] = []
+                first = prices()[:1]; first[0]['close'] = None
+                self.add_file(first)
+                self.add_file(prices('QQQ'))
+                later = prices()[1:]
+                if code == 'FUTURE_AVAILABLE_FROM':
+                    later[0]['available_from'] = '2026-10-08T21:00:00Z'
+                if code == 'ROW_IDENTITY':
+                    later[0]['instrument_id'] = 'FIXTURE:OTHER'
+                item = self.add_file(later, identity=instrument('SPY'))
+                generation = self.generation()
+                if code == 'HASH_MISMATCH':
+                    (self.root / 'archive' / PREFIX_V1 / 'objects' / item['sha256']).write_bytes(b'corrupted')
+                with self.assertRaisesRegex(ContractError, code):
+                    self.components(self.component_requests(spy_optional=True), generation)
+
+    def test_components_local_failure_cannot_skip_later_partition_budget(self):
+        self.spec['files'] = []
+        first = prices()[:1]; first[0]['close'] = None
+        self.add_file(first)
+        self.add_file(prices('QQQ'))
+        self.add_file(prices()[1:])
+        requests = self.component_requests(spy_optional=True)
+        baseline = self.components(requests)
+        self.assertEqual(baseline.refusals['spy'], 'INVALID_PRICE_VALUE')
+        self.assertEqual(baseline.receipt['validated_rows'], 6)
+        limit = baseline.receipt['decoded_retained_bytes_charged'] - 1
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', limit):
+            with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+                self.components(requests)
+
+    def test_components_local_failure_cannot_skip_later_partition_lake_proof(self):
+        _, binding, raw = self.lake_fixture()
+        self.spec['files'] = []
+        first = prices()[:1]; first[0]['close'] = None
+        self.add_file(first)
+        self.add_file(prices('QQQ'))
+        item = self.add_file(prices(), raw=packed(raw), format_name='gzip_jsonl')
+        item.update(storage='lake', lake_key='prices/SPY')
+        self.spec['lake_binding'] = binding
+        (self.root / 'archive' / PREFIX / 'executions' / binding['execution_receipt_sha256']).unlink()
+        with self.assertRaisesRegex(ContractError, 'LAKE_VERIFICATION_FAILED'):
+            self.components(self.component_requests(spy_optional=True))
+
 
 if __name__ == '__main__':
     unittest.main()

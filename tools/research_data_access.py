@@ -584,7 +584,7 @@ class ResearchDataReader:
         local_refusals = {'ARCHIVE_UNAVAILABLE', 'ROW_COUNT', 'INVALID_PRICE_VALUE',
                           'OHLC_INCONSISTENT', 'DUPLICATE_SESSION', 'UNSORTED_SESSIONS', 'FILE_PERIOD'}
         for item, identity, scheduled, iid, file_sha in inventory:
-            if component_requests is not None and (iid not in requested or iid in failures):
+            if component_requests is not None and iid not in requested:
                 continue
             try:
                 if item.get('storage') == 'archive':
@@ -668,7 +668,9 @@ class ResearchDataReader:
                         and str(exc) in local_refusals):
                     # Failed decode/resource/hash/identity/clock checks are not
                     # local refusals. Parsed work remains charged on semantic failure.
-                    failures[iid] = str(exc)
+                    # The component stays refused, but every later requested
+                    # partition must still pass global guards and be charged.
+                    failures.setdefault(iid, str(exc))
                     continue
                 raise
 
