@@ -696,8 +696,8 @@ def worker_deadline(run_id, first):
 
 
 def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
-    # Account rights are an actual owner-attested record, not arbitrary text or
-    # an HTTP200 data response. The agent must not manufacture this attestation.
+    # Preserve actual account attestations. A separate direct human capture
+    # request is execution consent, explicitly not supplier-rights certification.
     match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)", reference or "")
     require(match is not None, "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
     comment = gh_json(f"repos/{REPO}/issues/comments/{match[1]}")
@@ -708,19 +708,79 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
             and type(comment.get("id")) is int and comment["id"] == int(match[1])
             and type(author.get("id")) is int and author["id"] > 0,
             "CAMPAIGN_ACCOUNT_ATTESTOR")
-    lines = [line[len("A1_SIP_ACCOUNT_PERMISSION "):] for line in comment.get("body", "").splitlines()
-             if line.startswith("A1_SIP_ACCOUNT_PERMISSION ")]
-    require(len(lines) == 1 and len(lines[0]) <= 4096, "CAMPAIGN_ACCOUNT_RECORD")
-    record = decode(lines[0])
-    required = {"task_key", "auth_sha256", "bindings", "agreement_reviewed", "account_eligible",
-                "historical_sip_allowed", "private_retention_allowed", "private_noncommercial",
-                "evidence_reference", "expires_at_utc"}
-    require(isinstance(record, dict) and set(record) == required and record["task_key"] == TASK
-            and record["auth_sha256"] == auth_hash and record["bindings"] == bindings
-            and all(record[k] is True for k in ("agreement_reviewed", "account_eligible",
-                    "historical_sip_allowed", "private_retention_allowed", "private_noncommercial"))
-            and isinstance(record["evidence_reference"], str) and 0 < len(record["evidence_reference"]) <= 512,
-            "CAMPAIGN_ACCOUNT_RECORD")
+    tags = ("A1_SIP_ACCOUNT_PERMISSION ", "A1_SIP_CAPTURE_DIRECTIVE ")
+    lines = [(tag, line[len(tag):]) for line in comment.get("body", "").splitlines()
+             for tag in tags if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0][1]) <= 4096, "CAMPAIGN_ACCOUNT_RECORD")
+    tag, raw = lines[0]
+    record = decode(raw)
+    require(isinstance(record, dict) and record.get("task_key") == TASK
+            and record.get("auth_sha256") == auth_hash
+            and record.get("bindings") == bindings, "CAMPAIGN_ACCOUNT_RECORD")
+    approval_binding = None
+    if tag == tags[0]:
+        required = {"task_key", "auth_sha256", "bindings", "agreement_reviewed", "account_eligible",
+                    "historical_sip_allowed", "private_retention_allowed", "private_noncommercial",
+                    "evidence_reference", "expires_at_utc"}
+        require(set(record) == required
+                and all(record[k] is True for k in ("agreement_reviewed", "account_eligible",
+                        "historical_sip_allowed", "private_retention_allowed", "private_noncommercial"))
+                and isinstance(record["evidence_reference"], str)
+                and 0 < len(record["evidence_reference"]) <= 512, "CAMPAIGN_ACCOUNT_RECORD")
+    else:
+        required = {"task_key", "auth_sha256", "bindings", "mode", "plan",
+                    "personal_historical_capture_requested", "private_noncommercial",
+                    "evidence_procedure_waived", "supplier_rights_verified",
+                    "approval_reference", "expires_at_utc"}
+        require(set(record) == required
+                and record["mode"] == "DIRECT_HUMAN_CAPTURE_REQUEST"
+                and record["plan"] == "Trading Basic"
+                and record["supplier_rights_verified"] is False
+                and all(record[k] is True for k in ("personal_historical_capture_requested",
+                        "private_noncommercial", "evidence_procedure_waived"))
+                and isinstance(record["approval_reference"], str)
+                and re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+                                 record["approval_reference"]) is not None,
+                "CAMPAIGN_CAPTURE_DIRECTIVE")
+        approval_reference = record["approval_reference"]
+        approval_id = int(approval_reference.rsplit("-", 1)[1])
+        approval = comment if approval_reference == reference else gh_json(
+            f"repos/{REPO}/issues/comments/{approval_id}")
+        approval_author = approval.get("user", {})
+        require(approval.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+                and approval.get("author_association") == "OWNER"
+                and approval_author.get("type") == "User"
+                and type(approval.get("id")) is int and approval["id"] == approval_id
+                and type(approval_author.get("id")) is int and approval_author["id"] > 0
+                and isinstance(approval.get("body"), str), "CAMPAIGN_CAPTURE_APPROVER")
+        approval_lines = [line[len("A1_SIP_CAPTURE_APPROVAL "):]
+                          for line in approval["body"].splitlines()
+                          if line.startswith("A1_SIP_CAPTURE_APPROVAL ")]
+        require(len(approval_lines) == 1 and len(approval_lines[0]) <= 4096,
+                "CAMPAIGN_CAPTURE_APPROVAL")
+        scope = decode(approval_lines[0])
+        approval_fields = {"task_key", "plan", "personal_historical_capture_requested",
+                           "private_noncommercial", "evidence_procedure_waived",
+                           "supplier_rights_verified", "start", "end", "seed_sha256",
+                           "initial_checkpoint_sha256"}
+        require(isinstance(scope, dict) and set(scope) == approval_fields
+                and scope["task_key"] == TASK and scope["plan"] == "Trading Basic"
+                and scope["start"] == "2016-01-04" and scope["end"] == "2026-10-14"
+                and scope["seed_sha256"] == SEED_SHA and scope["initial_checkpoint_sha256"] == INITIAL_SHA
+                and scope["supplier_rights_verified"] is False
+                and all(scope[k] is True for k in ("personal_historical_capture_requested",
+                        "private_noncommercial", "evidence_procedure_waived")),
+                "CAMPAIGN_CAPTURE_APPROVAL")
+        require(isinstance(approval.get("created_at"), str)
+                and isinstance(approval.get("updated_at"), str), "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
+        approval_created = utc(approval["created_at"])
+        approval_updated = utc(approval["updated_at"])
+        require(approval_created <= approval_updated <= utc(comment.get("created_at")),
+                "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
+        approval_binding = dict(reference=approval_reference, comment_id=approval["id"],
+                                author_id=approval_author["id"], created_at_utc=approval_created.isoformat(),
+                                updated_at_utc=approval_updated.isoformat(),
+                                body_sha256=digest(approval["body"].encode()), scope=scope)
     now = utc()
     created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])
     require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
@@ -730,10 +790,13 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
     # URL identity alone cannot bind a mutable comment. Record the verified
     # assertions and immutable issue/comment/author identity, never raw rights
     # text in the public meter. A later edit must stop the next worker.
-    return digest(encoded(dict(reference=reference, comment_id=comment["id"],
-                               issue_url=comment["issue_url"], author_id=author["id"],
-                               created_at_utc=created.isoformat(),
-                               body_sha256=digest(comment["body"].encode()), record=record)))
+    verified = dict(reference=reference, comment_id=comment["id"],
+                    issue_url=comment["issue_url"], author_id=author["id"],
+                    created_at_utc=created.isoformat(),
+                    body_sha256=digest(comment["body"].encode()), record=record)
+    if approval_binding is not None:
+        verified["capture_approval"] = approval_binding
+    return digest(encoded(verified))
 
 
 def worker(args, control, journal):

@@ -7138,3 +7138,13 @@ Expected contract:
   workflow success still does not certify data or durable Drive completion.
 - Parse real YAML and retain the original regression/helper ASTs. Offline queue
   and metadata fixtures do not prove live Actions skip/queue behavior or deploy.
+
+## 2026-10-17 — Separate capture consent and supplier-rights assertions
+
+- A direct request for finite private historical capture is execution consent; do not manufacture account eligibility or supplier retention certifications.
+- When the owner waives an internal evidence-document procedure, represent that consent explicitly with supplier_rights_verified=false rather than require unsupported perpetual or post-termination claims.
+- Preserve actual owner/key bindings, comment identity and body hash, authorization, seed/checkpoint, cumulative reservations and all existing deadlines; provider entitlement failures remain terminal.
+- Finalize deployed code before the first immutable activation/preflight, so a later source change cannot strand an already-started campaign on incompatible pins.
+- An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
+- Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.
+- Preserve failed Native QA logs; use the actual repository for relative seed fixtures and a controlled local temporary folder. Temporary-file access errors do not justify relaxing atomic journal writes or recertifying Linux/runtime readiness.
