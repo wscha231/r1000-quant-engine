@@ -7109,3 +7109,19 @@ Expected contract:
 - A null-reference reconciliation preview still needs a valid aware cutoff.
   A containing queue check must be at or after every included reason's last
   observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-17 - Code publication is not collection approval
+
+- A Reader or test merge can match a collector workflow's master-push paths.
+  Treat that deployment as source/Drive capable until the producer job explicitly
+  excludes code-push events; a research-only code review does not authorize capture.
+- Preserve the existing repository/master checks, schedule/manual entry points,
+  single-writer concurrency, non-cancellation and source admission contracts.
+  Keep the full consumed-path push filter: a skipped producer job does not prove
+  the workflow-level concurrency queue disappeared or a real collection ran.
+- Cover the guard in the existing registered Lake smoke entry. Parse workflow
+  syntax with a loader that preserves the `on` key and compare unchanged fields.
+  Validate offline rather than accessing providers or Drive to test a trigger.
+- Keep the isolated workflow change separate from the approved Source Reader
+  paths. Reuse unchanged exact-head evidence; protected deployment and account
+  rights remain separate from local tests and a Draft PR.

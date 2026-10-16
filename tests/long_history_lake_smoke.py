@@ -468,6 +468,19 @@ class HistoryTest(unittest.TestCase):
         self.assertIn("&& github.ref == 'refs/heads/master'",workflow)
         self.assertNotIn('codex/durable-long-history-20260912',workflow)
 
+    def test_code_push_does_not_launch_history_producer(self):
+        import re
+        workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
+        guards=re.findall(r'^    if: (.+)$',workflow,re.MULTILINE)
+        self.assertEqual(guards,[
+            "github.repository == 'wscha231/r1000-quant-engine' && "
+            "github.ref == 'refs/heads/master' && github.event_name != 'push'"])
+        self.assertIn('  workflow_dispatch:',workflow)
+        self.assertIn('  schedule:',workflow)
+        self.assertIn('    - cron: \'37 6 * * 2-6\'',workflow)
+        self.assertIn('  group: durable-long-history-single-writer',workflow)
+        self.assertIn('  cancel-in-progress: false',workflow)
+
     def test_transient_fred_retry_and_secret_safe_failure(self):
         from urllib.error import URLError,HTTPError
         from tools.long_history_lake import fetch_fred_retry,safe_error

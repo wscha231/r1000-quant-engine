@@ -32,7 +32,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   history:
-    if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master'
+    # A code merge must not implicitly launch a provider collection. Existing
+    # manual and scheduled producer runs keep their original execution boundary.
+    if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master' && github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:

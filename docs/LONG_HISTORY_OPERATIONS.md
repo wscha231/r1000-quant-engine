@@ -115,8 +115,8 @@ provider response is required before the reconstructed dataset is `COLLECTED`.
 
 `long_history_research.yml` has one global writer lock and no cancel-in-progress.
 The initial pilot used a temporary feature-branch trigger. The final workflow
-runs with secrets only on master; a merge touching collector paths starts the
-next verified-code cycle. After merge, scheduled runs
+runs with secrets only on master through schedule or workflow_dispatch. A
+code push does not start provider collection or access Drive. Scheduled runs
 are configured for 06:37 UTC Tuesday–Saturday (after US Monday–Friday closes).
 A workflow_dispatch follows the same restore/compare/append path. It never reruns
 paper-account processing. A schedule in an unmerged PR is not active operation.
