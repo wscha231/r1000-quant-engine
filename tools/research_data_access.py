@@ -583,34 +583,62 @@ class ResearchDataReader:
         required_iids = {r['instrument_id'] for r in component_requests or [] if not r['optional']}
         local_refusals = {'ARCHIVE_UNAVAILABLE', 'ROW_COUNT', 'INVALID_PRICE_VALUE',
                           'OHLC_INCONSISTENT', 'DUPLICATE_SESSION', 'UNSORTED_SESSIONS', 'FILE_PERIOD'}
+
+        def ensure_lake():
+            nonlocal lake
+            if lake is not None:
+                return
+            binding = spec.get('lake_binding')
+            check(isinstance(binding, dict), 'LAKE_BINDING')
+            if restore_to is not None:
+                workspace = Path(restore_to) / generation / 'lake-cache'
+            else:
+                try:
+                    workspace = resources.enter_context(
+                        tempfile.TemporaryDirectory(prefix='research-reader-'))
+                except OSError:
+                    raise ContractError('LAKE_WORKSPACE_UNAVAILABLE') from None
+            lake = pinned_lake(self.transport, workspace,
+                commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
+                execution_receipt_sha256=binding.get('execution_receipt_sha256'))
+            check(lake._reader_execution_receipt['study_recomputed_from_drive'] is True,
+                  'LAKE_STUDY_INCOMPLETE')
+            try:
+                lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
+                    for p in set(lake.catalog['locations'].values())})
+            except (OSError, ValueError, KeyError, TypeError):
+                raise ContractError('LAKE_VERIFICATION_FAILED') from None
+
+        request_by_iid = {r['instrument_id']: r for r in component_requests or []}
+        if component_requests is not None and any(item['storage'] == 'lake' for item in files):
+            # Shared provenance is a call prerequisite, even when every selected
+            # object is archive-backed. Keep setup outside optional object handling.
+            try:
+                ensure_lake()
+                for item in files:
+                    if item['storage'] == 'lake':
+                        entry = lake.catalog['datasets'][item['lake_key']]
+                        status = entry['status']
+                        check(type(status) is str and status in {'COLLECTED', 'UNCHANGED'} and
+                              entry['normalized'] == item['sha256'] and item['format'] == 'gzip_jsonl',
+                              'LAKE_DATASET_BINDING')
+            except ContractError as exc:
+                if str(exc) == 'ARCHIVE_UNAVAILABLE':
+                    raise ContractError('LAKE_VERIFICATION_FAILED') from None
+                raise
+            except (OSError, ValueError, KeyError, TypeError):
+                raise ContractError('LAKE_DATASET_BINDING') from None
         for item, identity, scheduled, iid, file_sha in inventory:
-            if component_requests is not None and iid not in requested:
-                continue
+            if component_requests is not None:
+                request = request_by_iid.get(iid)
+                if (request is None or item['end'] < request['required_start']
+                        or item['start'] > request['required_end']):
+                    continue
             try:
                 if item.get('storage') == 'archive':
                     raw = read_object(self.transport, f'{PREFIX_V1}/objects/{file_sha}', file_sha)
                 elif item.get('storage') == 'lake':
-                    binding = spec.get('lake_binding')
-                    check(isinstance(binding, dict), 'LAKE_BINDING')
-                    if lake is None:
-                        if restore_to is not None:
-                            workspace = Path(restore_to) / generation / 'lake-cache'
-                        else:
-                            try:
-                                workspace = resources.enter_context(
-                                    tempfile.TemporaryDirectory(prefix='research-reader-'))
-                            except OSError:
-                                raise ContractError('LAKE_WORKSPACE_UNAVAILABLE') from None
-                        lake = pinned_lake(self.transport, workspace,
-                            commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
-                            execution_receipt_sha256=binding.get('execution_receipt_sha256'))
-                        check(lake._reader_execution_receipt['study_recomputed_from_drive'] is True,
-                              'LAKE_STUDY_INCOMPLETE')
-                        try:
-                            lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
-                                for p in set(lake.catalog['locations'].values())})
-                        except (OSError, ValueError, KeyError, TypeError):
-                            raise ContractError('LAKE_VERIFICATION_FAILED') from None
+                    ensure_lake()
                     try:
                         entry = lake.catalog['datasets'][item.get('lake_key')]
                         status = entry['status']
@@ -659,13 +687,14 @@ class ResearchDataReader:
                     row_key = (iid, session)
                     check(row_key not in seen, 'DUPLICATE_SESSION')
                     seen.add(row_key)
-                    rows.append(row)
                 check(dates == sorted(dates), 'UNSORTED_SESSIONS')
                 check(min(dates) == day(item.get('start')) and max(dates) == day(item.get('end')), 'FILE_PERIOD')
+                rows.extend(parsed)  # publish rows only after the entire partition validates.
                 verified.append((file_sha, raw))
             except ContractError as exc:
                 if (component_requests is not None and iid not in required_iids
-                        and str(exc) in local_refusals):
+                        and str(exc) in local_refusals
+                        and (str(exc) != 'ARCHIVE_UNAVAILABLE' or item['storage'] == 'archive')):
                     # Failed decode/resource/hash/identity/clock checks are not
                     # local refusals. Parsed work remains charged on semantic failure.
                     # The component stays refused, but every later requested
@@ -791,7 +820,9 @@ class ResearchDataReader:
                 for k, v in results.items()}, refusals=refusals,
             declared_file_sha256=declared_hashes, verified_file_sha256=verified_hashes,
             unverified_file_sha256=[h for h in declared_hashes if h not in set(verified_hashes)],
-            validated_rows=row_total, decoded_retained_bytes_charged=charged_bytes,
+            validated_rows=len(rows), decoded_rows_charged=row_total,
+            failed_partition_decoded_rows=row_total - len(rows),
+            decoded_retained_bytes_charged=charged_bytes,
             source_receipt_sha256=source['source_receipt_sha256'],
             registry_sha256=self.registry_sha256, reader_code_sha256=reader_sha,
             source_available_from=source['available_from'], source_collected_at=source['collected_at'],

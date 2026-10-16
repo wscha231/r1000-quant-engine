@@ -942,7 +942,9 @@ class ReaderTest(unittest.TestCase):
         self.replace_spy(rows)
         result = self.components(self.component_requests(spy_optional=True))
         self.assertEqual(result.refusals['spy'], 'INVALID_PRICE_VALUE')
-        self.assertEqual(result.receipt['validated_rows'], 6)
+        self.assertEqual(result.receipt['validated_rows'], 3)
+        self.assertEqual(result.receipt['decoded_rows_charged'], 6)
+        self.assertEqual(result.receipt['failed_partition_decoded_rows'], 3)
         self.assertGreater(result.receipt['decoded_retained_bytes_charged'], 0)
         self.assertEqual(set(result.results), {'qqq'})
 
@@ -1036,7 +1038,9 @@ class ReaderTest(unittest.TestCase):
         requests = self.component_requests(spy_optional=True)
         baseline = self.components(requests)
         self.assertEqual(baseline.refusals['spy'], 'INVALID_PRICE_VALUE')
-        self.assertEqual(baseline.receipt['validated_rows'], 6)
+        self.assertEqual(baseline.receipt['validated_rows'], 5)
+        self.assertEqual(baseline.receipt['decoded_rows_charged'], 6)
+        self.assertEqual(baseline.receipt['failed_partition_decoded_rows'], 1)
         limit = baseline.receipt['decoded_retained_bytes_charged'] - 1
         with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', limit):
             with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
@@ -1054,6 +1058,99 @@ class ReaderTest(unittest.TestCase):
         (self.root / 'archive' / PREFIX / 'executions' / binding['execution_receipt_sha256']).unlink()
         with self.assertRaisesRegex(ContractError, 'LAKE_VERIFICATION_FAILED'):
             self.components(self.component_requests(spy_optional=True))
+
+    def component_lake_fixture(self):
+        lake, binding, raw = self.lake_fixture()
+        item = self.replace_spy(prices(), raw=packed(raw), format_name='gzip_jsonl')
+        item.update(storage='lake', lake_key='prices/SPY')
+        self.spec['lake_binding'] = binding
+        return lake, binding, item
+
+    def test_components_unrequested_lake_lineage_is_global(self):
+        lake, binding, item = self.component_lake_fixture()
+        generation = self.generation()
+        targets = [('commits', binding['commit_sha256']),
+                   ('catalogs', binding['catalog_sha256']),
+                   ('executions', binding['execution_receipt_sha256']),
+                   ('packs', next(iter(lake.catalog['locations'].values())))]
+        for directory, h in targets:
+            path = self.root / 'archive' / PREFIX / directory / h
+            original = path.read_bytes()
+            for corrupt in (False, True):
+                with self.subTest(directory=directory, corrupt=corrupt):
+                    if corrupt:
+                        path.write_bytes(b'corrupt pinned provenance')
+                    else:
+                        path.unlink()
+                    try:
+                        with self.assertRaises(ContractError):
+                            self.components(self.component_requests()[1:], generation)
+                    finally:
+                        path.write_bytes(original)
+        item['lake_key'] = 'prices/NOT_IN_CATALOG'
+        with self.assertRaisesRegex(ContractError, 'LAKE_DATASET_BINDING'):
+            self.components(self.component_requests()[1:])
+
+    def test_components_optional_missing_lake_commit_is_not_archive_loss(self):
+        _, binding, _ = self.component_lake_fixture()
+        generation = self.generation()
+        path = self.root / 'archive' / PREFIX / 'commits' / binding['commit_sha256']
+        path.unlink()
+        with self.assertRaisesRegex(ContractError, 'LAKE_VERIFICATION_FAILED'):
+            self.components(self.component_requests(spy_optional=True), generation)
+
+    def test_components_window_skips_unavailable_nonoverlapping_partitions(self):
+        self.spec['files'] = []
+        old = self.add_file(prices()[:1])
+        current = self.add_file(prices()[1:])
+        self.add_file(prices('QQQ'))
+        request = self.component_requests()[0]
+        request.update(required_start=SESSIONS[1], minimum_rows=2,
+                       required_sessions=SESSIONS[1:])
+        generation = self.generation()
+        (self.root / 'archive' / PREFIX_V1 / 'objects' / old['sha256']).unlink()
+        with patch.object(self.transport, 'read', wraps=self.transport.read) as reads, \
+             patch.object(ResearchDataReader, '_rows', wraps=ResearchDataReader._rows) as decodes:
+            result = self.components([request], generation)
+        self.assertEqual(reads.call_count, 2)
+        self.assertEqual(decodes.call_count, 1)
+        self.assertEqual(result.results['spy'].receipt['file_sha256'], (current['sha256'],))
+        self.assertIn(old['sha256'], result.receipt['unverified_file_sha256'])
+        self.assertEqual(result.receipt['decoded_rows_charged'], 2)
+        self.assertEqual(result.receipt['validated_rows'], 2)
+
+    def test_components_window_boundary_and_overlapping_row_clocks(self):
+        self.spec['files'] = []
+        items = [self.add_file([row]) for row in prices()]
+        request = self.component_requests()[0]
+        request.update(required_start=SESSIONS[1], required_end=SESSIONS[1],
+                       minimum_rows=1, required_sessions=[SESSIONS[1]])
+        result = self.components([request])
+        self.assertEqual(result.results['spy'].receipt['file_sha256'], (items[1]['sha256'],))
+        self.assertEqual(result.receipt['validated_rows'], 1)
+        self.spec['files'] = []
+        overlapping = prices()
+        overlapping[0]['available_from'] = '2026-10-08T21:00:00Z'
+        self.add_file(overlapping)
+        with self.assertRaisesRegex(ContractError, 'FUTURE_AVAILABLE_FROM'):
+            self.components([request])
+
+    def test_components_receipt_counts_only_fully_validated_partitions(self):
+        for code in ('INVALID_PRICE_VALUE', 'OHLC_INCONSISTENT', 'ROW_COUNT'):
+            with self.subTest(code=code):
+                self.spec['files'] = []
+                self.add_file(prices('QQQ'))
+                rows = prices()
+                if code == 'INVALID_PRICE_VALUE': rows[-1]['close'] = None
+                if code == 'OHLC_INCONSISTENT': rows[-1]['high'] = 100.0
+                bad = self.add_file(rows)
+                if code == 'ROW_COUNT': bad['rows'] = 2
+                result = self.components(self.component_requests(spy_optional=True))
+                self.assertEqual(result.refusals['spy'], code)
+                self.assertEqual(result.receipt['validated_rows'], 3)
+                self.assertEqual(result.receipt['decoded_rows_charged'], 6)
+                self.assertEqual(result.receipt['failed_partition_decoded_rows'], 3)
+                self.assertNotIn(bad['sha256'], result.receipt['verified_file_sha256'])
 
 
 if __name__ == '__main__':

@@ -228,7 +228,10 @@ multiple calculations for one instrument requests one sufficient window and
 reuses its verified result. Different instruments may have different listing
 starts, minimum counts and exact session lists. The Reader does not infer or
 authenticate listing/lifecycle/calendar evidence, extend a window implicitly,
-or request prices before a caller's declared first required session.
+or fetch an archive partition wholly outside a caller's declared window.
+Partitions overlapping either inclusive window boundary are read as immutable
+objects; their out-of-window rows still pass global row guards, but only the
+declared window's rows are returned. Objects are never rewritten to trim bytes.
 
 The context lasts exactly one call. There is no persistent decoded cache,
 cross-consumer reuse, context reopen, `latest` lookup or restore option. A later
@@ -255,8 +258,13 @@ was already validated. Decoder, memory, row-budget, hash, clock and identity
 errors are never optional refusals. Lake commit/catalog/pack/receipt/study
 verification remains a global prerequisite through the existing pinned helpers;
 failure of that shared lineage cannot be relabeled as an optional benchmark loss.
+Whenever any inventory entry is Lake-backed, shared provenance and every Lake
+entry's catalog binding are checked before instrument/window selection, even
+when only archive-backed prices are requested. A missing pinned commit or
+ancestor is a global Lake failure, never an optional missing archive object.
 
-Requested partitions are fetched, decoded and validated once per call. Global
+Only requested instruments' window-overlapping price partitions are fetched,
+decoded and validated once per call. Global
 inventory metadata is checked once; a single Lake verification boundary is
 shared. Distinct instrument requests prevent multiplying retained row views.
 The same 256-file/128 MiB declared-byte, per-object, 1,000,000-row and 256 MiB
@@ -272,18 +280,27 @@ instrument identity, window, minimum, exact-session hash and component file
 hashes. The batch receipt records requests, per-component receipt hashes and
 refusals, full declared inventory, verified and unverified file hashes, decoded
 work charges, original manifest/source references and as-of/purpose/consumer.
+`decoded_rows_charged` includes failed semantic work without a budget refund;
+`validated_rows` counts only fully validated partitions, including a valid
+partition whose component later fails a coverage requirement.
+`failed_partition_decoded_rows` is their difference. A partly valid prefix of
+a refused partition contributes no validated rows or verified file hash.
 Both layers explicitly state `validation_scope=REQUESTED_COMPONENTS_ONLY` and
-`whole_generation_verified=false`. Unrequested bytes and failed partitions are
-unverified; their row clocks or complete generation coverage are not claimed.
+`whole_generation_verified=false`. Unrequested and failed partitions have no
+completed price validation; their row clocks or complete generation coverage
+are not claimed. Shared Lake pack/object-hash provenance may nevertheless have
+been checked by the global Lake prerequisite; that does not decode or admit an
+unrequested price partition. File-hash lists describe completed price validation.
 All optional components failing produces `NO_VERIFIED_COMPONENTS`, never a
 successful whole-generation receipt. Economic/selector/calendar-source authority
 stays false. A transport byte cache alone cannot produce these results.
 
-Nineteen additive synthetic regressions cover heterogeneous starts, once-only
+Twenty-four additive synthetic regressions cover heterogeneous starts, once-only
 reads/decodes, optional benchmark absence, required failure, global tampering and
 clocks, unrequested metadata/byte scope, immutable receipts, call lifetime,
 cumulative resources, later-partition hash/clock/identity/resource/Lake guards after a local refusal, and
-shared Lake provenance. The original 64 Reader methods
+shared Lake provenance, unrequested/missing-chain Lake failures, window overlap
+and fully validated versus failed-work row counters. The original 64 Reader methods
 are retained. Native normal/-O receipts must distinguish actual Parquet/Linux
 execution from dependency/platform refusals and skips. Existing Main #625 still
 needs its separate public-API integration and exact-head verification; these
