@@ -7109,3 +7109,44 @@ Expected contract:
 - A null-reference reconciliation preview still needs a valid aware cutoff.
   A containing queue check must be at or after every included reason's last
   observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-16 - Keep technical feature arithmetic separate from admission
+
+- Reuse fixed-window and aggressive indicator primitives, but require complete
+  consecutive sessions before accepting their partial-window helpers. A same-
+  horizon RS change needs 2n+1 matched observations; Composite is never QQQ.
+- Split-adjusted OHLC labels alone do not establish volume comparability.
+  Bind an original raw generation and check the price-factor/inverse-share
+  relation before RVOL/OBV; raw close-times-raw-shares stays a separate proxy.
+- Reused actual previews and independent arithmetic fixtures have different
+  evidence roles. Missing source/halt/availability/benchmark proof remains
+  NULL/BLOCKED; no receipt, green test or source metadata grants admission.
+
+## 2026-10-16 - Bind technical benchmark roles to immutable identity evidence
+
+- A research Reader receipt and ticker do not certify ETF/index type or MIC.
+  Bind the time-effective provider security ID, role and venue/calendar to an
+  original hash-verified source identity object; fail closed when it is absent.
+- SPY is not an INDEX and its venue is not inferred as XNYS. Preserve valid
+  stock-only observations when benchmark proof fails, and keep Composite/QQQ
+  distinct. Raw/split companions must preserve the same identity evidence.
+- Verify the completed regular-close availability in the consumer for supported
+  venues outside the unchanged Reader's scheduled branch. Fixture hashes prove
+  consistency, never actual Source/PIT/rights or economic admission.
+- A legacy raw-CRLF immutable-contract failure can stop the registered caller
+  before H1. Preserve that failure and verify the actual registered unittest
+  suite separately; do not weaken the pin or claim a whole-Native caller PASS.
+
+## 2026-10-16 - Preserve safe alarm state when timer cleanup fails
+
+- Cover handler installation, deadline evaluation and timer arming with cleanup.
+  Restore the previous handler and clear alarm_active only after successful
+  disarm. If disarm fails, propagate the error while retaining the safe deadline
+  handler and active state; restoring SIG_DFL can leave a fatal timer armed.
+- Separate pre-I/O expiry with zero calls from expiry at fake-header entry after
+  exactly one durable debit. Windows skips and controlled signal adapters are
+  not actual POSIX evidence; retain the isolated real-signal negative control.
+- Withdraw an earlier A6 acceptance when a new counterexample disproves it.
+  Preserve approved upstream blobs during Main integration and bind validation
+  to the new HEAD/tree. Source code integration does not establish account rights
+  or admit an actual Source/PIT generation.
