@@ -7121,3 +7121,18 @@ Expected contract:
 - Reused actual previews and independent arithmetic fixtures have different
   evidence roles. Missing source/halt/availability/benchmark proof remains
   NULL/BLOCKED; no receipt, green test or source metadata grants admission.
+
+## 2026-10-16 - Bind technical benchmark roles to immutable identity evidence
+
+- A research Reader receipt and ticker do not certify ETF/index type or MIC.
+  Bind the time-effective provider security ID, role and venue/calendar to an
+  original hash-verified source identity object; fail closed when it is absent.
+- SPY is not an INDEX and its venue is not inferred as XNYS. Preserve valid
+  stock-only observations when benchmark proof fails, and keep Composite/QQQ
+  distinct. Raw/split companions must preserve the same identity evidence.
+- Verify the completed regular-close availability in the consumer for supported
+  venues outside the unchanged Reader's scheduled branch. Fixture hashes prove
+  consistency, never actual Source/PIT/rights or economic admission.
+- A legacy raw-CRLF immutable-contract failure can stop the registered caller
+  before H1. Preserve that failure and verify the actual registered unittest
+  suite separately; do not weaken the pin or claim a whole-Native caller PASS.

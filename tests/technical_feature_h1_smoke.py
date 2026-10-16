@@ -94,9 +94,14 @@ class FeatureTests(unittest.TestCase):
         raw = b''.join(encoded(r) for r in rows)
         h = digest(raw)
         ident = identity or dict(instrument_id=iid, ticker=rows[0]['ticker'],
-            market='US', mic='XNYS', timezone='America/New_York', calendar='XNYS',
+            provider_security_id='SYNTHETIC_PROVIDER:'+iid,
+            asset_class='ETF' if iid==IDS['SPY'] else 'INDEX' if iid==IDS['^IXIC'] else 'EQUITY',
+            market='US', mic='ARCX' if iid==IDS['SPY'] else 'XNAS' if iid==IDS['^IXIC'] else 'XNYS',
+            timezone='America/New_York', calendar='XNYS',
             currency='USD', adjustment_basis='SPLIT_ADJUSTED',
             volume_basis='SPLIT_ADJUSTED', halted_sessions=[])
+        if identity is None:
+            self.bind_identity_evidence(ident)
         self.data_spec['files'] = [f for f in self.data_spec['files'] if f['instrument']['instrument_id'] != iid]
         self.data_spec['files'].append(dict(storage='archive', format='jsonl', sha256=h,
             bytes=len(raw), rows=len(rows), start=rows[0]['session_date'],
@@ -105,6 +110,20 @@ class FeatureTests(unittest.TestCase):
 
     def identity(self, iid=IDS['TEST']):
         return next(f['instrument'] for f in self.data_spec['files'] if f['instrument']['instrument_id']==iid)
+
+    def bind_identity_evidence(self, ident, **overrides):
+        evidence={key:ident[key] for key in ('instrument_id','provider_security_id','ticker',
+            'asset_class','market','mic','calendar','timezone','currency')}
+        evidence.update(schema='ohlcv-security-identity-evidence-v1', provider='SYNTHETIC_FIXTURE',
+            valid_from=DAYS[0], valid_through=SESSION, available_from='2026-10-13T21:00:00Z',
+            collected_at='2026-10-13T22:00:00Z', expires_at='2026-10-20T00:00:00Z')
+        evidence.update(overrides)
+        raw=encoded(evidence); h=digest(raw)
+        self.transport.objects[f'{access.PREFIX_V1}/objects/{h}']=raw
+        if h not in self.data_spec['source']['raw_source_sha256']:
+            self.data_spec['source']['raw_source_sha256'].append(h)
+        ident['identity_evidence_sha256']=h
+        return evidence
 
     def generation(self):
         raw = encoded(self.manifest)
@@ -397,6 +416,102 @@ class FeatureTests(unittest.TestCase):
         self.assertIsNone(o['features']['obv_anchored'])
         self.assertEqual(o['blocker']['rvol_20s_prior_only'],'RAW_SPLIT_OHLCV_BASIS_MISMATCH')
         self.assertIsNotNone(o['features']['raw_close_x_raw_volume'])
+
+    def test_spy_wrong_mic_refuses_rs_and_preserves_stock_features(self):
+        ident=self.identity(IDS['SPY']); ident['mic']='OTCM'
+        self.bind_identity_evidence(ident)
+        o=self.call()
+        self.assertIsNone(o['features']['rs_log_spy_20s'])
+        self.assertEqual(o['blocker']['rs_log_spy_20s'],'FEATURE_MIC_CALENDAR_UNSUPPORTED')
+        self.assertIsNotNone(o['features']['ret_20s'])
+
+    def test_spy_index_is_not_an_etf_even_with_rebound_source(self):
+        ident=self.identity(IDS['SPY']); ident['asset_class']='INDEX'
+        self.bind_identity_evidence(ident)
+        o=self.call()
+        self.assertIsNone(o['features']['rs_log_spy_20s'])
+        self.assertEqual(o['blocker']['rs_log_spy_20s'],'BENCHMARK_SECURITY_TYPE_MISMATCH')
+        self.assertIsNotNone(o['features']['ret_20s'])
+
+    def test_subject_mic_calendar_conflict_refuses_all(self):
+        ident=self.identity(); ident['mic']='OTCM'
+        self.bind_identity_evidence(ident)
+        self.assert_blocked(self.call(),'FEATURE_MIC_CALENDAR_UNSUPPORTED')
+
+    def test_ticker_and_asset_class_cannot_replace_source_identity(self):
+        ident=self.identity(); h=ident.pop('identity_evidence_sha256')
+        self.assert_blocked(self.call(),'INVALID_SHA256')
+        ident['identity_evidence_sha256']=h
+        self.data_spec['source']['raw_source_sha256'].remove(h)
+        self.assert_blocked(self.call(),'FEATURE_IDENTITY_NOT_SOURCE_BOUND')
+
+    def test_source_identity_hash_provider_id_and_role_must_match(self):
+        ident=self.identity(); h=ident['identity_evidence_sha256']
+        raw=self.transport.objects[f'{access.PREFIX_V1}/objects/{h}']
+        self.transport.objects[f'{access.PREFIX_V1}/objects/{h}']=raw+b' '
+        self.assert_blocked(self.call(),'HASH_MISMATCH')
+        self.transport.objects[f'{access.PREFIX_V1}/objects/{h}']=raw
+        for field,bad in (('provider_security_id','OTHER'),('asset_class','ETF'),('mic','XNAS')):
+            old=ident[field]; ident[field]=bad
+            self.assert_blocked(self.call(),'FEATURE_IDENTITY_SOURCE_MISMATCH'); ident[field]=old
+        self.bind_identity_evidence(ident,provider='OTHER_PROVIDER')
+        self.assert_blocked(self.call(),'FEATURE_IDENTITY_PROVIDER')
+
+    def test_identity_effective_window_and_original_clocks(self):
+        ident=self.identity()
+        for fields,code in ((dict(valid_from=DAYS[1]),'FEATURE_IDENTITY_EFFECTIVE_WINDOW'),
+            (dict(valid_through=DAYS[-2]),'FEATURE_IDENTITY_EFFECTIVE_WINDOW'),
+            (dict(collected_at='2026-10-14T01:00:00Z'),'FEATURE_IDENTITY_CLOCK'),
+            (dict(expires_at='2026-10-13T23:59:59Z'),'FEATURE_IDENTITY_CLOCK')):
+            self.bind_identity_evidence(ident,**fields)
+            self.assert_blocked(self.call(),code)
+
+    def test_spy_arcx_and_composite_xnas_fixture_roles_are_source_bound(self):
+        o=self.call()
+        self.assertIsNotNone(o['features']['rs_log_spy_20s'])
+        self.assertIsNotNone(o['features']['nasdaq_composite_price_relative_20s'])
+        spy=o['benchmark_ref']['SPY']; comp=o['benchmark_ref']['NASDAQ_COMPOSITE']
+        self.assertEqual((spy['mic'],spy['asset_class']),('ARCX','ETF'))
+        self.assertEqual((comp['mic'],comp['asset_class']),('XNAS','INDEX'))
+        self.assertIn(spy['identity_evidence_sha256'],o['source_sha'])
+        self.assertEqual(spy['provider_security_id'],self.identity(IDS['SPY'])['provider_security_id'])
+        self.assertFalse(o['source_admitted']); self.assertFalse(o['historical_pit_certified'])
+
+    def test_composite_etf_and_qqq_cannot_masquerade_as_index(self):
+        ident=self.identity(IDS['^IXIC']); ident['asset_class']='ETF'
+        self.bind_identity_evidence(ident)
+        o=self.call(); self.assertIsNone(o['features']['nasdaq_composite_price_relative_20s'])
+        self.assertEqual(o['blocker']['nasdaq_composite_price_relative_20s'],'BENCHMARK_SECURITY_TYPE_MISMATCH')
+        ident['ticker']='QQQ'
+        for row in self.rows[IDS['^IXIC']]:row['ticker']='QQQ'
+        self.bind_identity_evidence(ident); self.add_file(IDS['^IXIC'],identity=ident)
+        o=self.call(); self.assertIsNone(o['features']['nasdaq_composite_price_relative_20s'])
+        self.assertEqual(o['blocker']['nasdaq_composite_price_relative_20s'],'BENCHMARK_IDENTITY_MISMATCH')
+
+    def test_arcx_original_bar_clock_must_follow_completed_close(self):
+        self.rows[IDS['SPY']][-1]['available_from']=SESSION+'T19:59:59Z'
+        self.add_file(IDS['SPY'])
+        o=self.call(); self.assertIsNone(o['features']['rs_log_spy_20s'])
+        self.assertEqual(o['blocker']['rs_log_spy_20s'],'FEATURE_BEFORE_SESSION_CLOSE')
+        self.assertIsNotNone(o['features']['ret_20s'])
+
+    def test_raw_split_provider_identity_must_remain_identical(self):
+        original=copy.deepcopy(self.manifest); ident=self.identity()
+        ident['provider_security_id']='DIFFERENT_PROVIDER_SECURITY'
+        self.bind_identity_evidence(ident)
+        raw=copy.deepcopy(self.manifest)
+        original['datasets'][0]['source']['raw_source_sha256']=copy.deepcopy(raw['datasets'][0]['source']['raw_source_sha256'])
+        data=encoded(original); adjusted=digest(data)
+        self.transport.objects[f'{access.PREFIX_V1}/generations/{adjusted}']=data
+        for file in raw['datasets'][0]['files']:
+            file['instrument']['adjustment_basis']='RAW'; file['instrument']['volume_basis']='RAW'
+        data=encoded(raw); rawgen=digest(data)
+        self.transport.objects[f'{access.PREFIX_V1}/generations/{rawgen}']=data
+        o=target.research_feature_snapshot(self.reader,adjusted,security_id=IDS['TEST'],
+            session=SESSION,as_of=ASOF,raw_generation=rawgen)
+        self.assertIsNone(o['features']['raw_close_x_raw_volume'])
+        self.assertIsNotNone(o['features']['ret_20s'])
+        self.assertEqual(o['blocker']['raw_close_x_raw_volume'],'RAW_SOURCE_LINEAGE_MISMATCH')
 
     def test_every_output_is_provenance_bound_and_non_authoritative(self):
         o=self.call()

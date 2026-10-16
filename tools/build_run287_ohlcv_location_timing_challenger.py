@@ -770,7 +770,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     from aggressive.signals_technical import obv, slope_pct, sma
     from tools.research_data_access import (
         ContractError, PREFIX_V1, ResearchDataReader, clock, day, decode,
-        read_object, sha, check,
+        read_object, sha, text, check, _session_close,
     )
     from tools.macro_history_sources import digest, encoded
 
@@ -840,6 +840,34 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         check(identity.get("calendar") in {"NYSE", "XNYS"} and
               identity.get("timezone") == "America/New_York" and
               identity.get("currency") == "USD", "FEATURE_CALENDAR_OR_CURRENCY")
+        # Consumer-only identity closure. The Shared Reader's research purpose
+        # verifies bytes, not a security-master role or venue/calendar proof.
+        source = spec["source"]
+        identity_sha = sha(identity.get("identity_evidence_sha256"))
+        check(identity_sha in source["raw_source_sha256"], "FEATURE_IDENTITY_NOT_SOURCE_BOUND")
+        evidence = decode(read_object(reader.transport,
+            f"{PREFIX_V1}/objects/{identity_sha}", identity_sha, 64 * 1024))
+        check(type(evidence) is dict and
+              evidence.get("schema") == "ohlcv-security-identity-evidence-v1",
+              "FEATURE_IDENTITY_EVIDENCE")
+        for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
+                    "market", "mic", "calendar", "timezone", "currency"):
+            text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
+            check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
+        check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
+        check(identity["asset_class"] in {"EQUITY", "ETF", "INDEX"}, "FEATURE_SECURITY_TYPE")
+        # These venues share the supported US regular-session grid. The
+        # source record must bind the actual MIC; ticker never supplies it.
+        check(identity["mic"] in {"XNYS", "XNAS", "ARCX"}, "FEATURE_MIC_CALENDAR_UNSUPPORTED")
+        check(day(evidence.get("valid_from")) <= day(start) <= day(session) <=
+              day(evidence.get("valid_through")), "FEATURE_IDENTITY_EFFECTIVE_WINDOW")
+        check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
+              clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
+              "FEATURE_IDENTITY_CLOCK")
+        # ARCX is not scheduled by the unchanged Reader research branch.
+        # Keep the same completed regular-close rule in this consumer.
+        check(all(clock(r["available_from"]) >= _session_close(day(r["session_date"]))
+                  for r in read.rows), "FEATURE_BEFORE_SESSION_CLOSE")
         # Require explicit status coverage, rather than treating a zero volume
         # bar or an absent halt record as proof that the security was trading.
         halts = identity.get("halted_sessions")
@@ -860,11 +888,19 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             source_collected_at=source["collected_at"],
             classification=source["classification"], pit_status=source["pit_status"],
             adjustment_basis=identity["adjustment_basis"],
-            security_id=iid, ticker=identity["ticker"])
+            security_id=iid, ticker=identity["ticker"],
+            provider_security_id=identity["provider_security_id"],
+            asset_class=identity["asset_class"], mic=identity["mic"], calendar=identity["calendar"],
+            identity_evidence_sha256=identity_sha,
+            identity_valid_from=evidence["valid_from"],
+            identity_valid_through=evidence["valid_through"],
+            identity_available_from=evidence["available_from"],
+            identity_collected_at=evidence["collected_at"])
         return frame, identity, ref
 
     try:
         px, identity, stock_ref = read_one(generation, security_id)
+        check(identity["asset_class"] in {"EQUITY", "ETF"}, "FEATURE_SUBJECT_TYPE")
     except ContractError as exc:
         return refuse_all(str(exc))
     result.update(ticker=stock_ref["ticker"], source_sha=stock_ref["source_sha"],
@@ -938,7 +974,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             check(raw_id["adjustment_basis"] == raw_id.get("volume_basis") == "RAW",
                   "RAW_TURNOVER_BASIS")
             for key in ("source_receipt_sha256", "source_run_id", "source_sha", "ticker",
-                        "source_available_from", "source_collected_at", "classification"):
+                        "source_available_from", "source_collected_at", "classification",
+                        "identity_evidence_sha256", "provider_security_id", "asset_class", "mic", "calendar"):
                 check(raw_ref[key] == stock_ref[key], "RAW_SOURCE_LINEAGE_MISMATCH")
             # Raw shares are integral; split-adjusted shares may be fractional.
             check((raw["volume"] == np.floor(raw["volume"])).all(), "RAW_SHARE_VOLUME_NOT_INTEGER")
@@ -997,6 +1034,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                 check(bm_identity["ticker"] == "SPY" if label == "SPY" else
                       bm_identity["ticker"] in {"^IXIC", "IXIC", "COMP", "^COMP"},
                       "BENCHMARK_IDENTITY_MISMATCH")
+                check(bm_identity["asset_class"] == ("ETF" if label == "SPY" else "INDEX"),
+                      "BENCHMARK_SECURITY_TYPE_MISMATCH")
                 check(bm_ref["adjustment_basis"] == stock_ref["adjustment_basis"],
                       "BENCHMARK_ADJUSTMENT_MISMATCH")
                 check(bm_ref["pit_status"] == stock_ref["pit_status"] == "VERIFIED",

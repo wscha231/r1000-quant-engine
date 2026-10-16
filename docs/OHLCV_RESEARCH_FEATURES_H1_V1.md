@@ -101,7 +101,39 @@ atol 0). No missing paired session is filled. An OHLC factor mismatch blocks the
 blocks RVOL/Z/OBV/accumulation/distribution. The independently valid raw current turnover proxy
 may remain available. A metadata label alone cannot unlock volume features.
 
-SPY is the primary benchmark. A requested SPY ID must resolve to ticker SPY.
+The H1 consumer additionally requires `asset_class`, immutable
+`provider_security_id` and `identity_evidence_sha256` on each instrument.
+The evidence hash must belong to the generation's original `raw_source_sha256`
+inventory and resolve through the existing bounded archive-object reader
+(maximum 64 KiB). No Shared Reader, registry, generation schema or Source
+producer is changed. This is a consumer-specific requirement on the existing
+extensible instrument metadata; absent evidence keeps the output NULL/BLOCKED.
+
+The object is an `ohlcv-security-identity-evidence-v1` source record containing
+`provider`, `instrument_id`, `provider_security_id`, `ticker`, `asset_class`,
+`market`, `mic`, `calendar`, `timezone`, `currency`, `valid_from`,
+`valid_through`, `available_from`, `collected_at` and `expires_at`.
+Its identity fields must match the instrument and source provider. The inclusive
+effective interval covers the entire consumed price history; original aware
+availability <= collection <= generation creation <= consumption <= expiry.
+Unknown or conflicting records are refused, never inferred from ticker/class.
+The supported regular-session MIC family is XNYS/XNAS/ARCX with NYSE/XNYS and
+America/New_York; every consumed bar must be available after its completed
+NYSE close, including ARCX where the unchanged research Reader does not make
+that scheduled check. Unsupported MIC/calendar combinations stay blocked.
+Subject type must be EQUITY or ETF. Raw/split reads bind the same identity
+evidence and provider security ID as well as their existing price lineage.
+
+Hash binding verifies source-record consistency, not the truth or authenticity
+of an upstream assertion. Actual records still need A1 identity/rights/PIT
+admission; all Source/economic authority remains false. Synthetic fixtures
+explicitly use CONTRACT_FIXTURE and prove only the calculation/refusal contract.
+
+SPY is the primary benchmark. A requested SPY ID must resolve to ticker SPY
+and source-bound type ETF; Nasdaq Composite must resolve to source-bound INDEX.
+SPY's MIC comes from its time-effective source evidence, not a hardcoded XNYS
+assumption. The positive ARCX/XNAS examples are synthetic contract fixtures,
+not recovered or admitted SPY/Composite data.
 Nasdaq Composite requires an explicit ID resolving to ^IXIC/IXIC/COMP/^COMP;
 QQQ is never a substitute. Stock and benchmark must share the exact frozen
 generation, adjustment basis, currency/calendar, verified source PIT status,
@@ -127,6 +159,13 @@ the registered caller and the unchanged Shared Reader have separate logs.
 Independent QA reuses the exact offline oracle from the existing kickoff ZIP,
 plus scalar arithmetic for RS changes, MA slopes, OBV and prior-high windows.
 No author test is represented as independent A6.
+
+The Windows worktree's unchanged legacy pattern-memory contract has raw CRLF
+bytes differing from its canonical Git-LF immutable pin. The whole legacy
+caller stops before the H1 suite in that context; it is not a full Native PASS.
+Run the registered H1 `run_contract_suite` directly to verify its 38 original
+and 10 new unittest methods in both modes, and report this separately from
+fresh hosted CI of the complete caller. No historical contract hash is rebound.
 
 Existing 16-name preview ZIP SHA256:
 `a9f670d213a51965b0cd9151ff4fe758e3f2fa59bbbbbdab1e0ba0cb44523252`.
