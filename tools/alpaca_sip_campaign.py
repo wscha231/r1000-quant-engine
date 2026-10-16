@@ -771,10 +771,15 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
                 and all(scope[k] is True for k in ("personal_historical_capture_requested",
                         "private_noncommercial", "evidence_procedure_waived")),
                 "CAMPAIGN_CAPTURE_APPROVAL")
-        approval_created = utc(approval.get("created_at"))
-        require(approval_created <= utc(comment.get("created_at")), "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
+        require(isinstance(approval.get("created_at"), str)
+                and isinstance(approval.get("updated_at"), str), "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
+        approval_created = utc(approval["created_at"])
+        approval_updated = utc(approval["updated_at"])
+        require(approval_created <= approval_updated <= utc(comment.get("created_at")),
+                "CAMPAIGN_CAPTURE_APPROVAL_CLOCK")
         approval_binding = dict(reference=approval_reference, comment_id=approval["id"],
                                 author_id=approval_author["id"], created_at_utc=approval_created.isoformat(),
+                                updated_at_utc=approval_updated.isoformat(),
                                 body_sha256=digest(approval["body"].encode()), scope=scope)
     now = utc()
     created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])

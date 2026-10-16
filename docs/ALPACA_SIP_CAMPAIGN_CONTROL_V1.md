@@ -211,8 +211,10 @@ exact fields are `task_key`, `plan`, `personal_historical_capture_requested`,
 the same Trading Basic/personal/noncommercial/direct-request/false-supplier
 semantics and exact original campaign scope. It records the already-given human
 request, not new supplier evidence or a repeated approval question. The owner
-approval must precede the bound directive; its actual author, creation time and
-entire body hash enter the execution record digest. Missing, unrelated, altered
+approval's creation AND last-update clocks must precede the bound directive's
+creation; both clocks, its actual author and entire body hash enter the execution
+record digest. A previously created comment edited after the directive refuses.
+Missing, unrelated, altered
 or synthetic provenance cannot authorize capture. Do not edit either comment
 after activation. A directive may reference its own verified OWNER comment if
 that same comment contains the exact approval line.

@@ -7117,3 +7117,4 @@ Expected contract:
 - Preserve actual owner/key bindings, comment identity and body hash, authorization, seed/checkpoint, cumulative reservations and all existing deadlines; provider entitlement failures remain terminal.
 - Finalize deployed code before the first immutable activation/preflight, so a later source change cannot strand an already-started campaign on incompatible pins.
 - An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
+- Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.

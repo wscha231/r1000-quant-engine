@@ -758,7 +758,8 @@ class DirectCaptureDirectiveTests(unittest.TestCase):
                         initial_checkpoint_sha256=c.INITIAL_SHA)
         comment = dict(id=1, issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
                        author_association='OWNER', user=dict(type='User', id=123),
-                       created_at=now.isoformat(), body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record)
+                       created_at=now.isoformat(), updated_at=now.isoformat(),
+                       body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record)
                        + '\nA1_SIP_CAPTURE_APPROVAL ' + json.dumps(approval))
         return bindings, reference, record, comment, now + timedelta(seconds=7100)
 
@@ -837,6 +838,17 @@ class DirectCaptureDirectiveTests(unittest.TestCase):
                 verify(dict(approval, body='A1_SIP_CAPTURE_APPROVAL '+json.dumps(bad)))
         self.assertNotEqual(verify(dict(approval, body=approval['body']+'\nEdited owner context')), original)
         self.assertNotEqual(verify(dict(approval, user=dict(type='User',id=124))), original)
+
+    def test_approval_last_update_cannot_postdate_directive(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        created = c.utc() - timedelta(minutes=2)
+        comment = dict(comment, created_at=created.isoformat(), updated_at=created.isoformat())
+        with patch.object(c, 'gh_json', return_value=comment):
+            self.assertRegex(c.verify_account_permission(reference, 'c'*64, bindings, valid_through=deadline), r'^[a-f0-9]{64}$')
+        for updated in [(created+timedelta(seconds=1)).isoformat(),
+                        (created-timedelta(seconds=1)).isoformat(), None]:
+            with self.subTest(updated=updated), patch.object(c, 'gh_json', return_value=dict(comment, updated_at=updated)), self.assertRaises(c.Refused):
+                c.verify_account_permission(reference, 'c'*64, bindings, valid_through=deadline)
 
 
 if __name__=='__main__': unittest.main()
