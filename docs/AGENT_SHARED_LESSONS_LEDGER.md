@@ -7125,3 +7125,16 @@ Expected contract:
 - Keep the isolated workflow change separate from the approved Source Reader
   paths. Reuse unchanged exact-head evidence; protected deployment and account
   rights remain separate from local tests and a Draft PR.
+
+## 2026-10-17 - Isolate producer queues and select actual history evidence
+
+- A skipped job alone cannot isolate workflow-level concurrency: a code push
+  can replace a pending real producer even with cancel-in-progress false. Bind
+  the unchanged writer group to the guarded producer job only; preserve its
+  master/repository checks and scheduled/manual entry points.
+- Public history evidence must exclude push and explicit skipped runs. Query
+  schedule/manual streams separately so no-op pushes cannot crowd out real
+  producers. Keep the newest real failure, cancellation or pending run visible;
+  workflow success still does not certify data or durable Drive completion.
+- Parse real YAML and retain the original regression/helper ASTs. Offline queue
+  and metadata fixtures do not prove live Actions skip/queue behavior or deploy.

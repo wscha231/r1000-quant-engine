@@ -481,6 +481,22 @@ class HistoryTest(unittest.TestCase):
         self.assertIn('  group: durable-long-history-single-writer',workflow)
         self.assertIn('  cancel-in-progress: false',workflow)
 
+    def test_skipped_code_push_never_joins_history_writer_queue(self):
+        import yaml
+        workflow=yaml.load((ROOT/'.github/workflows/long_history_research.yml').read_text(),Loader=yaml.BaseLoader)
+        self.assertNotIn('concurrency',workflow)
+        self.assertEqual(set(workflow['jobs']),{'history'})
+        producer=workflow['jobs']['history']
+        self.assertEqual(producer['concurrency'],{
+            'group':'durable-long-history-single-writer','cancel-in-progress':'false'})
+        self.assertEqual(producer['if'],
+            "github.repository == 'wscha231/r1000-quant-engine' && "
+            "github.ref == 'refs/heads/master' && github.event_name != 'push'")
+        self.assertEqual(workflow['on']['push']['branches'],['master'])
+        self.assertEqual(workflow['on']['schedule'],[{'cron':'37 6 * * 2-6'}])
+        self.assertIn('workflow_dispatch',workflow['on'])
+        self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read'})
+
     def test_transient_fred_retry_and_secret_safe_failure(self):
         from urllib.error import URLError,HTTPError
         from tools.long_history_lake import fetch_fred_retry,safe_error

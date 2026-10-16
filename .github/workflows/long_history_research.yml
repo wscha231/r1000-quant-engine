@@ -27,14 +27,14 @@ on:
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: durable-long-history-single-writer
-  cancel-in-progress: false
 jobs:
   history:
     # A code merge must not implicitly launch a provider collection. Existing
     # manual and scheduled producer runs keep their original execution boundary.
     if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master' && github.event_name != 'push'
+    concurrency:
+      group: durable-long-history-single-writer
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
