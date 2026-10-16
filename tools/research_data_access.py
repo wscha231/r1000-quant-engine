@@ -372,6 +372,14 @@ class ReadResult:
     receipt_bytes: bytes  # Canonical JSON for serialization, with immutable public views.
 
 
+@dataclass(frozen=True)
+class ComponentReadResult:
+    results: Mapping  # component_id -> immutable ReadResult; no partial required result.
+    refusals: Mapping  # explicitly optional component_id -> finite refusal code.
+    receipt: Mapping
+    receipt_bytes: bytes
+
+
 class ResearchDataReader:
     def __init__(self, transport, *, registry_path=REGISTRY):
         self.transport = transport
@@ -402,9 +410,59 @@ class ResearchDataReader:
                 required_sessions=required_sessions, consumer_id=consumer_id,
                 restore_to=restore_to, resources=resources)
 
+    def read_components(self, dataset_id, data_generation_id, *, decision_time,
+                        purpose, components, consumer_id):
+        """One bounded research read, with one window per distinct instrument.
+
+        No persistent context/cache, restore authority or training/backtest mode.
+        Every invocation revalidates the original manifest and global inventory.
+        Only explicitly optional local refusals may return alongside results.
+        """
+        check(type(purpose) is str and purpose == 'research', 'COMPONENT_PURPOSE_RESEARCH_ONLY')
+        decision = clock(decision_time)
+        check(isinstance(components, (list, tuple)) and 0 < len(components) <= 256,
+              'COMPONENT_REQUESTS')
+        requests, names, instruments, session_count = [], set(), set(), 0
+        fields = {'component_id', 'instrument_id', 'required_start', 'required_end',
+                  'minimum_rows', 'required_sessions', 'optional'}
+        for item in components:
+            check(type(item) is dict and set(item) <= fields, 'COMPONENT_REQUESTS')
+            name = text(item.get('component_id'), 'COMPONENT_REQUESTS')
+            iid = text(item.get('instrument_id'), 'INVALID_INSTRUMENT_SET')
+            check(name not in names and iid not in instruments, 'DUPLICATE_COMPONENT')
+            names.add(name); instruments.add(iid)
+            start, end = day(item.get('required_start')), day(item.get('required_end'))
+            check(start <= end <= decision.date(), 'REQUEST_WINDOW')
+            minimum = item.get('minimum_rows', 1)
+            check(type(minimum) is int and 1 <= minimum <= MAX_GENERATION_ROWS, 'MINIMUM_ROWS')
+            optional = item.get('optional', False)
+            check(type(optional) is bool, 'COMPONENT_REQUESTS')
+            sessions = item.get('required_sessions')
+            if sessions is not None:
+                check(isinstance(sessions, (list, tuple)) and bool(sessions), 'CALENDAR_WINDOW')
+                session_count += len(sessions)
+                check(session_count <= MAX_GENERATION_ROWS, 'BLOCKED_GENERATION_ROWS')
+                parsed = [day(s) for s in sessions]
+                check(parsed == sorted(set(parsed)) and
+                      all(start <= s <= end for s in parsed), 'CALENDAR_WINDOW')
+                sessions = list(sessions)  # detach the caller's mutable request.
+            requests.append(dict(component_id=name, instrument_id=iid,
+                required_start=start.isoformat(), required_end=end.isoformat(),
+                minimum_rows=minimum, required_sessions=sessions, optional=optional))
+        request_bytes = _json_retained_bytes(requests, MAX_GENERATION_DECOMPRESSED_BYTES)
+        with ExitStack() as resources:
+            return self._read(dataset_id, data_generation_id, decision_time=decision_time,
+                purpose=purpose, instrument_ids=sorted(instruments),
+                required_start=min(r['required_start'] for r in requests),
+                required_end=max(r['required_end'] for r in requests), minimum_rows=1,
+                required_sessions=None, consumer_id=consumer_id, restore_to=None,
+                resources=resources, component_requests=requests,
+                component_request_bytes=request_bytes)
+
     def _read(self, dataset_id, data_generation_id, *, decision_time, purpose,
               instrument_ids, required_start, required_end, minimum_rows,
-              required_sessions, consumer_id, restore_to, resources):
+              required_sessions, consumer_id, restore_to, resources,
+              component_requests=None, component_request_bytes=0):
         check(type(dataset_id) is str and dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
         generation = sha(data_generation_id)
         decision = clock(decision_time)
@@ -484,10 +542,9 @@ class ResearchDataReader:
         check(len({sha(x.get('sha256')) for x in files}) == len(files), 'DUPLICATE_FILE')
         check(all(type(x.get('rows')) is int and x['rows'] > 0 for x in files), 'ROW_COUNT')
         check(sum(x['rows'] for x in files) <= MAX_GENERATION_ROWS, 'BLOCKED_GENERATION_ROWS')
-        decompressed_total, row_total = 0, 0
-        lake = None
-        session_closes = {}
-        rows, verified, identity_map, symbol_map, seen = [], [], {}, {}, set()
+        # Inventory metadata is global even for the explicitly scoped API.
+        # Never select a subset manifest or silently drop invalid identities.
+        identity_map, symbol_map, inventory = {}, {}, []
         for item in files:
             check(item.get('columns') == PRICE_COLUMNS, 'FILE_SCHEMA')
             identity = item.get('instrument')
@@ -509,79 +566,116 @@ class ResearchDataReader:
             check(symbol not in symbol_map or symbol_map[symbol] == iid, 'SYMBOL_COLLISION')
             identity_map[iid], symbol_map[symbol] = identity, iid
             file_sha = item['sha256']
-            if item.get('storage') == 'archive':
-                raw = read_object(self.transport, f'{PREFIX_V1}/objects/{file_sha}', file_sha)
-            elif item.get('storage') == 'lake':
+            check(type(item.get('format')) is str and
+                  item['format'] in {'jsonl', 'gzip_jsonl', 'parquet'}, 'UNSUPPORTED_FORMAT')
+            check(item.get('storage') in ('archive', 'lake'), 'UNTRUSTED_STORAGE')
+            check(day(item.get('start')) <= day(item.get('end')), 'FILE_PERIOD')
+            if item['storage'] == 'lake':
                 binding = spec.get('lake_binding')
                 check(isinstance(binding, dict), 'LAKE_BINDING')
-                if lake is None:
-                    if restore_to is not None:
-                        workspace = Path(restore_to) / generation / 'lake-cache'
-                    else:
+                for key in ('commit_sha256', 'catalog_sha256', 'execution_receipt_sha256'):
+                    sha(binding.get(key))
+                text(item.get('lake_key'), 'LAKE_DATASET_BINDING')
+            inventory.append((item, identity, scheduled, iid, file_sha))
+        decompressed_total, row_total = component_request_bytes, 0
+        lake, session_closes = None, {}
+        rows, verified, seen, failures = [], [], set(), {}
+        required_iids = {r['instrument_id'] for r in component_requests or [] if not r['optional']}
+        local_refusals = {'ARCHIVE_UNAVAILABLE', 'ROW_COUNT', 'INVALID_PRICE_VALUE',
+                          'OHLC_INCONSISTENT', 'DUPLICATE_SESSION', 'UNSORTED_SESSIONS', 'FILE_PERIOD'}
+        for item, identity, scheduled, iid, file_sha in inventory:
+            if component_requests is not None and (iid not in requested or iid in failures):
+                continue
+            try:
+                if item.get('storage') == 'archive':
+                    raw = read_object(self.transport, f'{PREFIX_V1}/objects/{file_sha}', file_sha)
+                elif item.get('storage') == 'lake':
+                    binding = spec.get('lake_binding')
+                    check(isinstance(binding, dict), 'LAKE_BINDING')
+                    if lake is None:
+                        if restore_to is not None:
+                            workspace = Path(restore_to) / generation / 'lake-cache'
+                        else:
+                            try:
+                                workspace = resources.enter_context(
+                                    tempfile.TemporaryDirectory(prefix='research-reader-'))
+                            except OSError:
+                                raise ContractError('LAKE_WORKSPACE_UNAVAILABLE') from None
+                        lake = pinned_lake(self.transport, workspace,
+                            commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
+                            execution_receipt_sha256=binding.get('execution_receipt_sha256'))
+                        check(lake._reader_execution_receipt['study_recomputed_from_drive'] is True,
+                              'LAKE_STUDY_INCOMPLETE')
                         try:
-                            workspace = resources.enter_context(
-                                tempfile.TemporaryDirectory(prefix='research-reader-'))
-                        except OSError:
-                            raise ContractError('LAKE_WORKSPACE_UNAVAILABLE') from None
-                    lake = pinned_lake(self.transport, workspace,
-                        commit_sha256=binding.get('commit_sha256'), catalog_sha256=binding.get('catalog_sha256'),
-                        execution_receipt_sha256=binding.get('execution_receipt_sha256'))
-                    check(lake._reader_execution_receipt['study_recomputed_from_drive'] is True,
-                          'LAKE_STUDY_INCOMPLETE')
+                            lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
+                                for p in set(lake.catalog['locations'].values())})
+                        except (OSError, ValueError, KeyError, TypeError):
+                            raise ContractError('LAKE_VERIFICATION_FAILED') from None
                     try:
-                        lake.verify_pack_dependencies({p: {s for s, loc in lake.catalog['locations'].items() if loc == p}
-                            for p in set(lake.catalog['locations'].values())})
+                        entry = lake.catalog['datasets'][item.get('lake_key')]
+                        status = entry['status']
+                        check(type(status) is str and status in {'COLLECTED', 'UNCHANGED'} and
+                              entry['normalized'] == file_sha and item.get('format') == 'gzip_jsonl',
+                              'LAKE_DATASET_BINDING')
+                        raw = lake.get_bytes(file_sha)
                     except (OSError, ValueError, KeyError, TypeError):
                         raise ContractError('LAKE_VERIFICATION_FAILED') from None
-                try:
-                    entry = lake.catalog['datasets'][item.get('lake_key')]
-                    status = entry['status']
-                    check(type(status) is str and status in {'COLLECTED', 'UNCHANGED'} and
-                          entry['normalized'] == file_sha and item.get('format') == 'gzip_jsonl',
-                          'LAKE_DATASET_BINDING')
-                    raw = lake.get_bytes(file_sha)
-                except (OSError, ValueError, KeyError, TypeError):
-                    raise ContractError('LAKE_VERIFICATION_FAILED') from None
-            else:
-                raise ContractError('UNTRUSTED_STORAGE')
-            check(len(raw) == item['bytes'] and digest(raw) == file_sha, 'FILE_BYTES')
-            parsed, expanded_bytes = self._rows(
-                raw, item.get('format'),
-                remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - decompressed_total,
-                remaining_rows=MAX_GENERATION_ROWS - row_total)
-            decompressed_total += expanded_bytes
-            row_total += len(parsed)
-            check(len(parsed) == item['rows'], 'ROW_COUNT')
-            dates = []
-            for row in parsed:
-                check(isinstance(row, dict) and set(row) == set(PRICE_COLUMNS), 'ROW_SCHEMA')
-                check(row['instrument_id'] == iid and row['ticker'] == identity['ticker'], 'ROW_IDENTITY')
-                session = day(row['session_date'])
-                row_available = clock(row['available_from'])
-                check(session <= row_available.date() and row_available <= available and
-                      row_available <= decision, 'FUTURE_AVAILABLE_FROM')
-                if scheduled:
-                    if session not in session_closes:
-                        session_closes[session] = _session_close(session)
-                    check(session_closes[session] <= row_available, 'PRE_CLOSE_AVAILABLE_FROM')
-                for key, kind in PRICE_COLUMNS.items():
-                    if kind.endswith('number'):
-                        value = row[key]
-                        try:
-                            check(type(value) in (int, float) and math.isfinite(value) and
-                                  (value > 0 if kind == 'positive_number' else value >= 0), 'INVALID_PRICE_VALUE')
-                        except OverflowError:
-                            raise ContractError('INVALID_PRICE_VALUE') from None
-                check(row['low'] <= min(row['open'], row['close']) <=
-                      max(row['open'], row['close']) <= row['high'], 'OHLC_INCONSISTENT')
-                row_key = (iid, session)
-                check(row_key not in seen, 'DUPLICATE_SESSION')
-                seen.add(row_key)
-                dates.append(session)
-                rows.append(row)
-            check(dates == sorted(dates), 'UNSORTED_SESSIONS')
-            check(min(dates) == day(item.get('start')) and max(dates) == day(item.get('end')), 'FILE_PERIOD')
-            verified.append((file_sha, raw))
+                else:
+                    raise ContractError('UNTRUSTED_STORAGE')
+                check(len(raw) == item['bytes'] and digest(raw) == file_sha, 'FILE_BYTES')
+                parsed, expanded_bytes = self._rows(
+                    raw, item.get('format'),
+                    remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - decompressed_total,
+                    remaining_rows=MAX_GENERATION_ROWS - row_total)
+                decompressed_total += expanded_bytes
+                row_total += len(parsed)
+                dates = []
+                # Validate every decoded row's global schema/identity/clock before
+                # any optional local data failure can short-circuit this file.
+                for row in parsed:
+                    check(isinstance(row, dict) and set(row) == set(PRICE_COLUMNS), 'ROW_SCHEMA')
+                    check(row['instrument_id'] == iid and row['ticker'] == identity['ticker'], 'ROW_IDENTITY')
+                    session = day(row['session_date'])
+                    row_available = clock(row['available_from'])
+                    check(session <= row_available.date() and row_available <= available and
+                          row_available <= decision, 'FUTURE_AVAILABLE_FROM')
+                    if scheduled:
+                        if session not in session_closes:
+                            session_closes[session] = _session_close(session)
+                        check(session_closes[session] <= row_available, 'PRE_CLOSE_AVAILABLE_FROM')
+                    dates.append(session)
+                check(len(parsed) == item['rows'], 'ROW_COUNT')
+                for row, session in zip(parsed, dates):
+                    for key, kind in PRICE_COLUMNS.items():
+                        if kind.endswith('number'):
+                            value = row[key]
+                            try:
+                                check(type(value) in (int, float) and math.isfinite(value) and
+                                      (value > 0 if kind == 'positive_number' else value >= 0), 'INVALID_PRICE_VALUE')
+                            except OverflowError:
+                                raise ContractError('INVALID_PRICE_VALUE') from None
+                    check(row['low'] <= min(row['open'], row['close']) <=
+                          max(row['open'], row['close']) <= row['high'], 'OHLC_INCONSISTENT')
+                    row_key = (iid, session)
+                    check(row_key not in seen, 'DUPLICATE_SESSION')
+                    seen.add(row_key)
+                    rows.append(row)
+                check(dates == sorted(dates), 'UNSORTED_SESSIONS')
+                check(min(dates) == day(item.get('start')) and max(dates) == day(item.get('end')), 'FILE_PERIOD')
+                verified.append((file_sha, raw))
+            except ContractError as exc:
+                if (component_requests is not None and iid not in required_iids
+                        and str(exc) in local_refusals):
+                    # Failed decode/resource/hash/identity/clock checks are not
+                    # local refusals. Parsed work remains charged on semantic failure.
+                    failures[iid] = str(exc)
+                    continue
+                raise
+
+        if component_requests is not None:
+            return self._components_result(dataset_id, generation, manifest, source,
+                decision_time, purpose, consumer_id, component_requests, identity_map,
+                rows, verified, failures, lake, files, decompressed_total, row_total)
 
         check(requested <= set(identity_map), 'MISSING_INSTRUMENT')
         selected = [r for r in rows if r['instrument_id'] in requested and
@@ -600,6 +694,14 @@ class ResearchDataReader:
                 exclusive(path, raw)
                 check(sha256_file(path, max_bytes=MAX_OBJECT) == file_sha, 'RESTORE_HASH_MISMATCH')
             exclusive(destination / 'manifest.json', manifest_raw)
+        return self._result(dataset_id, generation, manifest, source, decision_time,
+            purpose, consumer_id, required_start, required_end, minimum_rows,
+            required_sessions, requested, selected, verified, lake)
+
+    def _result(self, dataset_id, generation, manifest, source, decision_time, purpose,
+                consumer_id, required_start, required_end, minimum_rows, required_sessions,
+                requested, selected, verified, lake, *, component_request=None,
+                component_identity=None, reader_code_sha256=None):
         receipt = dict(schema='research-data-read-receipt-v1', status='VERIFIED_RESEARCH_BYTES',
             dataset_id=dataset_id, data_generation_id=generation, manifest_sha256=generation,
             source_run_id=manifest['source_run_id'], consumer_id=consumer_id, purpose=purpose,
@@ -609,12 +711,12 @@ class ResearchDataReader:
             pit_status=source['pit_status'], admission_state=source['admission_state'],
             source_receipt_sha256=source['source_receipt_sha256'],
             producer_code_sha=source['producer_code_sha'], producer_config_sha256=source['producer_config_sha256'],
-            requested_session_coverage_verified=sessions is not None, calendar_source_verified=False,
+            requested_session_coverage_verified=required_sessions is not None, calendar_source_verified=False,
             instrument_ids=sorted(requested), minimum_rows=minimum_rows,
-            required_sessions_sha256=digest(encoded(required_sessions)) if sessions is not None else None,
+            required_sessions_sha256=digest(encoded(required_sessions)) if required_sessions is not None else None,
             raw_source_sha256=list(source['raw_source_sha256']),
             source_available_from=source['available_from'], source_collected_at=source['collected_at'],
-            source_expires_at=source['expires_at'], reader_code_sha256=sha256_file(Path(__file__)),
+            source_expires_at=source['expires_at'], reader_code_sha256=reader_code_sha256 or sha256_file(Path(__file__)),
             registry_sha256=self.registry_sha256, provider_refresh_count=0,
             cache_prices_authority=False, eligible_for_economics=False, eligible_for_selector=False,
             freshness_contract_source=next(x['path'] for x in DATA_SOURCES if x['name'] == 'prices'))
@@ -624,9 +726,79 @@ class ResearchDataReader:
                 ('commit_sha256', 'catalog_sha256', 'execution_receipt_sha256',
                  'quality_status', 'study_recomputed_from_drive', 'consumer_rows', 'run_id')}
             receipt['lake_evidence']['reports'] = dict(evidence['reports'])
+        if component_request is not None:
+            receipt.update(validation_scope='REQUESTED_COMPONENTS_ONLY',
+                whole_generation_verified=False, component_id=component_request['component_id'],
+                optional=component_request['optional'], instrument_identity=dict(component_identity))
         receipt['receipt_sha256'] = digest(encoded(receipt))
         return ReadResult(tuple(MappingProxyType(row) for row in selected),
                           tuple(verified), _freeze(receipt), encoded(receipt))
+
+    def _components_result(self, dataset_id, generation, manifest, source, decision_time,
+                           purpose, consumer_id, requests, identities, rows, verified,
+                           failures, lake, files, charged_bytes, row_total):
+        results, refusals = {}, {}
+        reader_sha = sha256_file(Path(__file__))
+        rows_by_instrument, hashes_by_instrument = {}, {}
+        for row in rows:
+            rows_by_instrument.setdefault(row['instrument_id'], []).append(row)
+        for item in files:
+            hashes_by_instrument.setdefault(item['instrument']['instrument_id'], set()).add(item['sha256'])
+        verified_by_hash = dict(verified)
+        for request in requests:
+            name, iid = request['component_id'], request['instrument_id']
+            try:
+                check(iid in identities, 'MISSING_INSTRUMENT')
+                if iid in failures:
+                    raise ContractError(failures[iid])
+                selected = [r for r in rows_by_instrument.get(iid, ()) if
+                            request['required_start'] <= r['session_date'] <= request['required_end']]
+                selected.sort(key=lambda r: r['session_date'])
+                dates = [r['session_date'] for r in selected]
+                check(len(dates) >= request['minimum_rows'], 'SHORT_HISTORY')
+                check(dates[0] == request['required_start'] and dates[-1] == request['required_end'],
+                      'MISSING_PERIOD')
+                if request['required_sessions'] is not None:
+                    check(dates == request['required_sessions'], 'MISSING_SESSION')
+            except ContractError as exc:
+                if not request['optional']:
+                    raise
+                refusals[name] = str(exc)
+                continue
+            component_files = [(h, verified_by_hash[h]) for h in sorted(hashes_by_instrument[iid])
+                               if h in verified_by_hash]
+            results[name] = self._result(dataset_id, generation, manifest, source,
+                decision_time, purpose, consumer_id, request['required_start'], request['required_end'],
+                request['minimum_rows'], request['required_sessions'], {iid}, selected,
+                component_files, lake, component_request=request,
+                component_identity=identities[iid], reader_code_sha256=reader_sha)
+        verified_hashes = [h for h, _ in verified]
+        declared_hashes = [f['sha256'] for f in files]
+        request_receipts = [{k: v for k, v in r.items() if k != 'required_sessions'} |
+            {'required_sessions_sha256': digest(encoded(r['required_sessions']))
+                if r['required_sessions'] is not None else None} for r in requests]
+        receipt = dict(schema='research-data-component-read-receipt-v1',
+            status=('NO_VERIFIED_COMPONENTS' if not results else
+                    'VERIFIED_REQUESTED_COMPONENTS_WITH_REFUSALS' if refusals else
+                    'VERIFIED_REQUESTED_COMPONENTS'),
+            validation_scope='REQUESTED_COMPONENTS_ONLY', generation_envelope_verified=True,
+            whole_generation_verified=False, dataset_id=dataset_id, data_generation_id=generation,
+            manifest_sha256=generation, source_run_id=manifest['source_run_id'],
+            decision_time=decision_time, purpose=purpose, consumer_id=consumer_id,
+            requests=request_receipts, component_receipts={k: v.receipt['receipt_sha256']
+                for k, v in results.items()}, refusals=refusals,
+            declared_file_sha256=declared_hashes, verified_file_sha256=verified_hashes,
+            unverified_file_sha256=[h for h in declared_hashes if h not in set(verified_hashes)],
+            validated_rows=row_total, decoded_retained_bytes_charged=charged_bytes,
+            source_receipt_sha256=source['source_receipt_sha256'],
+            registry_sha256=self.registry_sha256, reader_code_sha256=reader_sha,
+            source_available_from=source['available_from'], source_collected_at=source['collected_at'],
+            source_expires_at=source['expires_at'], provider_refresh_count=0,
+            calendar_source_verified=False, cache_prices_authority=False,
+            eligible_for_economics=False, eligible_for_selector=False)
+        receipt['receipt_sha256'] = digest(encoded(receipt))
+        return ComponentReadResult(MappingProxyType(results), _freeze(refusals),
+                                   _freeze(receipt), encoded(receipt))
 
     @staticmethod
     def _rows(raw, format_name, *, remaining_bytes, remaining_rows):

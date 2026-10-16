@@ -806,5 +806,208 @@ class ReaderTest(unittest.TestCase):
         self.assertEqual(pinned.parent, binding['commit_sha256'])
 
 
+    def component_requests(self, *, spy_optional=False):
+        return [dict(component_id=ticker.lower(), instrument_id=instrument(ticker)['instrument_id'],
+                     required_start=SESSIONS[0], required_end=SESSIONS[-1], minimum_rows=3,
+                     required_sessions=list(SESSIONS), optional=(spy_optional and ticker == 'SPY'))
+                for ticker in ('SPY', 'QQQ')]
+
+    def components(self, requests=None, generation=None, **options):
+        arguments = dict(decision_time=DECISION, purpose='research', consumer_id='component_features',
+                         components=requests if requests is not None else self.component_requests())
+        arguments.update(options)
+        return self.reader.read_components('ds.us.prices.daily', generation or self.generation(), **arguments)
+
+    def test_components_heterogeneous_windows_read_and_decode_each_object_once(self):
+        requests = self.component_requests()
+        requests[1].update(required_start=SESSIONS[1], minimum_rows=2, required_sessions=SESSIONS[1:])
+        generation = self.generation()
+        with patch.object(self.transport, 'read', wraps=self.transport.read) as reads, \
+             patch.object(ResearchDataReader, '_rows', wraps=ResearchDataReader._rows) as decodes:
+            result = self.components(requests, generation)
+        self.assertEqual(len(reads.call_args_list), 3)  # original manifest once, each object once.
+        self.assertEqual(decodes.call_count, 2)
+        self.assertEqual([len(result.results[k].rows) for k in ('spy', 'qqq')], [3, 2])
+        self.assertEqual(result.results['qqq'].receipt['required_start'], SESSIONS[1])
+        self.assertEqual(result.results['qqq'].receipt['required_sessions_sha256'], digest(encoded(SESSIONS[1:])))
+        self.assertEqual(result.receipt['data_generation_id'], generation)
+        self.assertFalse(result.receipt['whole_generation_verified'])
+        self.assertEqual(len(result.receipt['verified_file_sha256']), 2)
+
+    def test_components_missing_optional_archive_preserves_required_subject(self):
+        generation = self.generation()
+        spy = self.spec['files'][0]['sha256']
+        (self.root / 'archive' / PREFIX_V1 / 'objects' / spy).unlink()
+        with self.assertRaisesRegex(ContractError, 'ARCHIVE_UNAVAILABLE'):
+            self.read(generation, instrument_ids=[instrument('QQQ')['instrument_id']])
+        with patch.object(self.transport, 'write', side_effect=AssertionError('SOURCE_WRITE')):
+            result = self.components(self.component_requests(spy_optional=True), generation)
+        self.assertEqual(set(result.results), {'qqq'})
+        self.assertEqual(result.refusals['spy'], 'ARCHIVE_UNAVAILABLE')
+        self.assertEqual(len(result.results['qqq'].rows), 3)
+        self.assertIn(spy, result.receipt['unverified_file_sha256'])
+        self.assertNotIn(spy, result.results['qqq'].receipt['file_sha256'])
+        self.assertEqual(result.receipt['manifest_sha256'], generation)
+        self.assertFalse(result.results['qqq'].receipt['whole_generation_verified'])
+
+    def test_components_required_missing_archive_returns_no_batch(self):
+        generation = self.generation()
+        missing = self.spec['files'][1]['sha256']
+        (self.root / 'archive' / PREFIX_V1 / 'objects' / missing).unlink()
+        with self.assertRaisesRegex(ContractError, 'ARCHIVE_UNAVAILABLE'):
+            self.components(self.component_requests(spy_optional=True), generation)
+
+    def test_components_optional_hash_mismatch_is_global_refusal(self):
+        generation = self.generation()
+        path = self.root / 'archive' / PREFIX_V1 / 'objects' / self.spec['files'][0]['sha256']
+        path.write_bytes(b'corrupted bytes')
+        with self.assertRaisesRegex(ContractError, 'HASH_MISMATCH'):
+            self.components(self.component_requests(spy_optional=True), generation)
+
+    def test_components_optional_row_clock_cannot_hide_behind_local_bad_price(self):
+        rows = prices(); rows[0]['close'] = None; rows[1]['available_from'] = '2026-10-08T21:00:00Z'
+        self.replace_spy(rows)
+        with self.assertRaisesRegex(ContractError, 'FUTURE_AVAILABLE_FROM'):
+            self.components(self.component_requests(spy_optional=True))
+
+    def test_components_unrequested_metadata_remains_global(self):
+        self.spec['files'][0]['instrument'].pop('mic')
+        generation = self.generation()
+        with patch.object(self.transport, 'read', wraps=self.transport.read) as reads:
+            with self.assertRaisesRegex(ContractError, 'INSTRUMENT_IDENTITY'):
+                self.components(self.component_requests()[1:], generation)
+        self.assertEqual(reads.call_count, 1)
+
+    def test_components_unrequested_bytes_are_explicitly_unverified(self):
+        generation = self.generation()
+        spy = self.spec['files'][0]['sha256']
+        (self.root / 'archive' / PREFIX_V1 / 'objects' / spy).unlink()
+        with patch.object(self.transport, 'read', wraps=self.transport.read) as reads:
+            result = self.components(self.component_requests()[1:], generation)
+        self.assertEqual(reads.call_count, 2)
+        self.assertEqual(result.receipt['unverified_file_sha256'], (spy,))
+        self.assertFalse(result.receipt['whole_generation_verified'])
+        self.assertEqual(len(result.receipt['declared_file_sha256']), 2)
+
+    def test_components_optional_window_refusal_does_not_erase_subject(self):
+        requests = self.component_requests(spy_optional=True)
+        requests[0]['minimum_rows'] = 4
+        result = self.components(requests)
+        self.assertEqual(result.refusals['spy'], 'SHORT_HISTORY')
+        self.assertEqual(set(result.results), {'qqq'})
+        requests[0]['optional'] = False
+        with self.assertRaisesRegex(ContractError, 'SHORT_HISTORY'):
+            self.components(requests)
+
+    def test_components_global_source_rights_clock_and_manifest_fail_closed(self):
+        for key, value, code in [('expires_at', '2026-10-07T23:00:00Z', 'STALE_GENERATION'),
+                                 ('eligible_purposes', ['discovery'], 'PURPOSE_NOT_LICENSED'),
+                                 ('lifecycle_status', 'UNKNOWN', 'IDENTITY_OR_ADJUSTMENT_UNKNOWN')]:
+            original = self.spec['source'][key]
+            self.spec['source'][key] = value
+            with self.subTest(key=key), self.assertRaisesRegex(ContractError, code):
+                self.components(self.component_requests(spy_optional=True))
+            self.spec['source'][key] = original
+        generation = self.generation()
+        (self.root / 'archive' / PREFIX_V1 / 'generations' / generation).write_bytes(b'changed manifest')
+        with self.assertRaisesRegex(ContractError, 'HASH_MISMATCH'):
+            self.components(generation=generation)
+
+    def test_components_requests_reject_duplicate_scope_and_training_before_io(self):
+        requests = self.component_requests()
+        with patch.object(self.transport, 'read', side_effect=AssertionError('EARLY_IO')):
+            for changed in [requests + [dict(requests[0], component_id='other')],
+                            [dict(requests[0], optional=1)],
+                            [dict(requests[0], unexpected=True)], requests * 129]:
+                with self.subTest(requests=len(changed)), self.assertRaises(ContractError):
+                    self.components(changed, 'a' * 64)
+            for purpose in ('training', 'backtest', 'discovery'):
+                with self.assertRaisesRegex(ContractError, 'COMPONENT_PURPOSE_RESEARCH_ONLY'):
+                    self.components(requests, 'a' * 64, purpose=purpose)
+
+    def test_components_cumulative_budget_cannot_reset_per_optional_component(self):
+        requests = self.component_requests(spy_optional=True)
+        requests[1]['optional'] = True
+        baseline = self.components(requests)
+        limit = baseline.receipt['decoded_retained_bytes_charged'] - 1
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES', limit):
+            with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES'):
+                self.components(requests)
+        with patch('tools.research_data_access.MAX_GENERATION_ROWS', 5):
+            with self.assertRaisesRegex(ContractError, 'BLOCKED_GENERATION_ROWS'):
+                self.components(requests)
+
+    def test_components_failed_semantics_keep_decoded_work_charged(self):
+        rows = prices(); rows[-1]['close'] = None
+        self.replace_spy(rows)
+        result = self.components(self.component_requests(spy_optional=True))
+        self.assertEqual(result.refusals['spy'], 'INVALID_PRICE_VALUE')
+        self.assertEqual(result.receipt['validated_rows'], 6)
+        self.assertGreater(result.receipt['decoded_retained_bytes_charged'], 0)
+        self.assertEqual(set(result.results), {'qqq'})
+
+    def test_components_call_lifetime_revalidates_archive_generation_and_asof(self):
+        generation = self.generation()
+        requests = self.component_requests(spy_optional=True)
+        first = self.components(requests, generation)
+        self.assertEqual(set(first.results), {'spy', 'qqq'})
+        missing = self.spec['files'][0]['sha256']
+        (self.root / 'archive' / PREFIX_V1 / 'objects' / missing).unlink()
+        second = self.components(requests, generation)
+        self.assertEqual(second.refusals['spy'], 'ARCHIVE_UNAVAILABLE')
+        with self.assertRaisesRegex(ContractError, 'STALE_GENERATION'):
+            self.components(requests, generation, decision_time='2026-10-10T00:00:00Z')
+        with self.assertRaisesRegex(ContractError, 'ARCHIVE_UNAVAILABLE'):
+            self.components(requests, 'f' * 64)
+
+    def test_components_receipts_and_results_are_immutable_and_scoped(self):
+        result = self.components()
+        wire = json.loads(result.receipt_bytes)
+        hashed = wire.pop('receipt_sha256')
+        self.assertEqual(digest(encoded(wire)), hashed)
+        for key, part in result.results.items():
+            self.assertEqual(part.receipt['component_id'], key)
+            self.assertEqual(len(part.files), 1)
+            self.assertFalse(part.receipt['eligible_for_economics'])
+            with self.assertRaises(TypeError): part.receipt['instrument_identity']['mic'] = 'FAKE'
+            with self.assertRaises(TypeError): part.rows[0]['close'] = 0
+        with self.assertRaises(TypeError): result.results['new'] = result.results['spy']
+        with self.assertRaises(TypeError): result.refusals['new'] = 'FAKE'
+        with self.assertRaises(TypeError): result.receipt['requests'][0]['optional'] = True
+
+    def test_components_lake_provenance_is_global_and_verified_once(self):
+        _, binding, _ = self.lake_fixture(('SPY', 'QQQ'))
+        self.spec['files'] = []
+        for ticker in ('SPY', 'QQQ'):
+            raw = b''.join(encoded(r) for r in prices(ticker))
+            item = self.add_file(prices(ticker), raw=packed(raw), format_name='gzip_jsonl')
+            item.update(storage='lake', lake_key='prices/' + ticker)
+        self.spec['lake_binding'] = binding
+        original = Lake.verify_pack_dependencies
+        with patch.object(Lake, 'verify_pack_dependencies', autospec=True,
+                          side_effect=original) as verify:
+            result = self.components()
+        self.assertEqual(verify.call_count, 2)  # unchanged Lake restore + one batch boundary.
+        self.assertEqual(set(result.results), {'spy', 'qqq'})
+        for part in result.results.values():
+            self.assertEqual(part.receipt['lake_evidence']['commit_sha256'], binding['commit_sha256'])
+        missing = self.root / 'archive' / PREFIX / 'executions' / binding['execution_receipt_sha256']
+        missing.unlink()
+        with self.assertRaisesRegex(ContractError, 'LAKE_VERIFICATION_FAILED'):
+            self.components(self.component_requests(spy_optional=True))
+
+    def test_components_all_optional_missing_is_not_a_verified_batch(self):
+        generation = self.generation()
+        for item in self.spec['files']:
+            (self.root / 'archive' / PREFIX_V1 / 'objects' / item['sha256']).unlink()
+        requests = self.component_requests(spy_optional=True)
+        requests[1]['optional'] = True
+        result = self.components(requests, generation)
+        self.assertFalse(result.results)
+        self.assertEqual(result.receipt['status'], 'NO_VERIFIED_COMPONENTS')
+        self.assertEqual(set(result.refusals.values()), {'ARCHIVE_UNAVAILABLE'})
+        self.assertFalse(result.receipt['whole_generation_verified'])
+
+
 if __name__ == '__main__':
     unittest.main()

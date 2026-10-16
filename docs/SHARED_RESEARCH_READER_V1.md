@@ -193,3 +193,97 @@ source approval and endpoint coverage from complete exchange-session coverage.
 
 G0 PASS, Source Manifest COMPLETE, 7Y economic validation, portfolio/paper/broker
 changes and production/publication approval are not claimed or enabled.
+
+## Research-only component bulk read (2026-10-16)
+
+Approved preparation scope: A0 #448 comment6217295643, three Reader/test/contract
+paths only. This additive API does not change the public `read()` signature or
+its full-inventory, training/backtest, restore and independent-consumer contract.
+It does not authorize a new PR, publication, Source/PIT admission or collection.
+
+```python
+batch = reader.read_components(
+    "ds.us.prices.daily", exact_generation_sha256,
+    decision_time=original_aware_decision_time, purpose="research",
+    consumer_id="research_features",
+    components=[
+        dict(component_id="subject", instrument_id=subject_id,
+             required_start=subject_first_required_session,
+             required_end=last_required_session, minimum_rows=subject_minimum,
+             required_sessions=subject_frozen_sessions, optional=False),
+        dict(component_id="spy", instrument_id=spy_id,
+             required_start=benchmark_first_required_session,
+             required_end=last_required_session, minimum_rows=benchmark_minimum,
+             required_sessions=benchmark_frozen_sessions, optional=True),
+    ],
+)
+subject = batch.results["subject"]  # ordinary immutable ReadResult
+spy = batch.results.get("spy")
+spy_refusal = batch.refusals.get("spy")
+```
+
+Each component names one distinct instrument and an explicit window. Duplicate
+component names or instrument IDs refuse before archive I/O. A caller that needs
+multiple calculations for one instrument requests one sufficient window and
+reuses its verified result. Different instruments may have different listing
+starts, minimum counts and exact session lists. The Reader does not infer or
+authenticate listing/lifecycle/calendar evidence, extend a window implicitly,
+or request prices before a caller's declared first required session.
+
+The context lasts exactly one call. There is no persistent decoded cache,
+cross-consumer reuse, context reopen, `latest` lookup or restore option. A later
+call re-reads the archive and rechecks its explicit generation, as-of and purpose.
+Training, backtest and discovery are refused by this new API; their existing
+`read()` paths remain available under their original contracts.
+
+The original manifest bytes and generation SHA are never cut, rewritten or
+rehashed into a subset generation. Every inventory entry is checked globally for
+schema, identity, symbol collision, format/storage, date metadata and declared
+file/row limits, even when its rows are not requested. Manifest hash, source
+rights/purpose/classification, source/generation clocks, row identity/schema and
+availability clocks of decoded files, object hash and resource failures remain
+global refusals. Every decoded row's identity/schema/clock is checked before a
+local semantic failure can short-circuit that file.
+
+Only explicitly optional component failures may be isolated: missing archive
+object (`ARCHIVE_UNAVAILABLE`), already-charged decoded semantic errors
+(`ROW_COUNT`, `INVALID_PRICE_VALUE`, `OHLC_INCONSISTENT`, `DUPLICATE_SESSION`,
+`UNSORTED_SESSIONS`, `FILE_PERIOD`), or requested coverage failures
+(`MISSING_INSTRUMENT`, `SHORT_HISTORY`, `MISSING_PERIOD`, `MISSING_SESSION`).
+A required subject failure returns no batch, including when another component
+was already validated. Decoder, memory, row-budget, hash, clock and identity
+errors are never optional refusals. Lake commit/catalog/pack/receipt/study
+verification remains a global prerequisite through the existing pinned helpers;
+failure of that shared lineage cannot be relabeled as an optional benchmark loss.
+
+Requested partitions are fetched, decoded and validated once per call. Global
+inventory metadata is checked once; a single Lake verification boundary is
+shared. Distinct instrument requests prevent multiplying retained row views.
+The same 256-file/128 MiB declared-byte, per-object, 1,000,000-row and 256 MiB
+decoded/retained ceilings apply cumulatively, including optional failed work.
+The new API also charges its detached request structures and bounds the total
+requested session entries by the row ceiling. It never resets a budget per
+component. JSON/gzip and isolated native Parquet use the unchanged `_rows()` and
+decoder guards. Failed decode work cannot be refunded because that error ends
+the entire call. These are Reader resource limits, not provider/campaign quotas.
+
+Each successful component has a canonical immutable receipt naming its actual
+instrument identity, window, minimum, exact-session hash and component file
+hashes. The batch receipt records requests, per-component receipt hashes and
+refusals, full declared inventory, verified and unverified file hashes, decoded
+work charges, original manifest/source references and as-of/purpose/consumer.
+Both layers explicitly state `validation_scope=REQUESTED_COMPONENTS_ONLY` and
+`whole_generation_verified=false`. Unrequested bytes and failed partitions are
+unverified; their row clocks or complete generation coverage are not claimed.
+All optional components failing produces `NO_VERIFIED_COMPONENTS`, never a
+successful whole-generation receipt. Economic/selector/calendar-source authority
+stays false. A transport byte cache alone cannot produce these results.
+
+Sixteen additive synthetic regressions cover heterogeneous starts, once-only
+reads/decodes, optional benchmark absence, required failure, global tampering and
+clocks, unrequested metadata/byte scope, immutable receipts, call lifetime,
+cumulative resources and shared Lake provenance. The original 64 Reader methods
+are retained. Native normal/-O receipts must distinguish actual Parquet/Linux
+execution from dependency/platform refusals and skips. Existing Main #625 still
+needs its separate public-API integration and exact-head verification; these
+Source capabilities alone do not close a Main consumer finding.
