@@ -223,14 +223,16 @@ class RuntimeMeter:
         old = signal.getsignal(signal.SIGALRM)
         def expired(*_):
             raise Refused("CAMPAIGN_DEADLINE")
-        signal.signal(signal.SIGALRM, expired)
-        signal.setitimer(signal.ITIMER_REAL, self.remaining_seconds())
-        self.alarm_active = True
         try:
+            signal.signal(signal.SIGALRM, expired)
+            signal.setitimer(signal.ITIMER_REAL, self.remaining_seconds())
+            self.alarm_active = True
             yield
         finally:
-            self.alarm_active = False
+            # A failed disarm may leave SIGALRM pending: retain its safe handler
+            # and active state until the timer is confirmed cleared.
             signal.setitimer(signal.ITIMER_REAL, 0)
+            self.alarm_active = False
             signal.signal(signal.SIGALRM, old)
 
     def perform(self, url, *, method="GET", headers=None, body=None,

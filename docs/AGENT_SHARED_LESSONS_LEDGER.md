@@ -7136,3 +7136,17 @@ Expected contract:
 - A legacy raw-CRLF immutable-contract failure can stop the registered caller
   before H1. Preserve that failure and verify the actual registered unittest
   suite separately; do not weaken the pin or claim a whole-Native caller PASS.
+
+## 2026-10-16 - Preserve safe alarm state when timer cleanup fails
+
+- Cover handler installation, deadline evaluation and timer arming with cleanup.
+  Restore the previous handler and clear alarm_active only after successful
+  disarm. If disarm fails, propagate the error while retaining the safe deadline
+  handler and active state; restoring SIG_DFL can leave a fatal timer armed.
+- Separate pre-I/O expiry with zero calls from expiry at fake-header entry after
+  exactly one durable debit. Windows skips and controlled signal adapters are
+  not actual POSIX evidence; retain the isolated real-signal negative control.
+- Withdraw an earlier A6 acceptance when a new counterexample disproves it.
+  Preserve approved upstream blobs during Main integration and bind validation
+  to the new HEAD/tree. Source code integration does not establish account rights
+  or admit an actual Source/PIT generation.

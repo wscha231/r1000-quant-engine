@@ -95,6 +95,31 @@ def meter(directory, opener=None, allowance=None, clock=c.utc, seconds=60):
                           opener=opener or Opener(), clock=clock)
 
 
+class AlarmSignal:
+    """Controlled setup failures; this fixture never sends an OS signal."""
+    SIGALRM, ITIMER_REAL = 14, 0
+
+    def __init__(self, on_install=lambda: None, fail=None):
+        self.original = self.handler = object()
+        self.timer, self.on_install, self.fail = (0, 0), on_install, fail
+
+    def getitimer(self, _): return self.timer
+    def getsignal(self, _): return self.handler
+
+    def signal(self, _, handler):
+        previous, self.handler = self.handler, handler
+        if handler is not self.original:
+            self.on_install()
+        return previous
+
+    def setitimer(self, _, seconds):
+        phase = 'arm' if seconds else 'disarm'
+        if self.fail == phase:
+            raise OSError('fixture_' + phase)
+        previous, self.timer = self.timer, (seconds, 0)
+        return previous
+
+
 class BudgetTests(unittest.TestCase):
     def test_authorization_missing_drift_types_and_rights(self):
         original = auth()
@@ -235,20 +260,141 @@ class BudgetTests(unittest.TestCase):
         now = [c.utc()]
         with tempfile.TemporaryDirectory() as temp:
             opener = Opener(); m = meter(temp, opener, clock=lambda: now[0], seconds=1)
+            original = m.journal.read_bytes()
             now[0] += timedelta(seconds=1)
             with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'): m.perform(cap.URL, limit=4)
             self.assertEqual(opener.calls, 0)
+            self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+            self.assertEqual(m.journal.read_bytes(), original)
+
+    def test_alarm_setup_failures_restore_handler(self):
+        for failure in ('expired', 'arm'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp:
+                now = [c.utc()]
+                opener = Opener(); m = meter(temp, opener, clock=lambda: now[0], seconds=0.03)
+                original = m.journal.read_bytes()
+                def expire(): now[0] = m.deadline
+                signals = AlarmSignal(on_install=expire if failure == 'expired' else lambda: None,
+                                      fail='arm' if failure == 'arm' else None)
+                error, message = (c.Refused, '^CAMPAIGN_DEADLINE$') if failure == 'expired' else (OSError, '^fixture_arm$')
+                with patch.object(c, 'signal', signals), self.assertRaisesRegex(error, message):
+                    with m.process_deadline(): self.fail('setup failure entered the body')
+                self.assertIs(signals.handler, signals.original)
+                self.assertEqual(signals.timer, (0, 0))
+                self.assertFalse(m.alarm_active)
+                self.assertEqual(opener.calls, 0)
+                self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+                self.assertEqual(m.journal.read_bytes(), original)
+
+    def test_alarm_disarm_failure_retains_deadline_handler(self):
+        with tempfile.TemporaryDirectory() as temp:
+            now = c.utc()
+            m = meter(temp, clock=lambda: now, seconds=0.03)
+            original = m.journal.read_bytes()
+            signals = AlarmSignal(fail='disarm')
+            with patch.object(c, 'signal', signals), self.assertRaisesRegex(OSError, '^fixture_disarm$'):
+                with m.process_deadline(): self.assertTrue(m.alarm_active)
+            self.assertIsNot(signals.handler, signals.original)
+            self.assertEqual(signals.timer, (0.03, 0))
+            self.assertTrue(m.alarm_active)
+            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
+                signals.handler()
+            self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+            self.assertEqual(m.journal.read_bytes(), original)
+
+    @unittest.skipUnless(hasattr(c.signal, 'setitimer'), 'POSIX failed disarm;Windows host remains supported')
+    def test_failed_posix_disarm_keeps_pending_signal_safe(self):
+        import subprocess
+        import sys
+        script = '''
+import runpy, tempfile, unittest
+from unittest.mock import patch
+from tools import alpaca_sip_campaign as c
+check = unittest.TestCase()
+make_meter = runpy.run_path('tests/alpaca_sip_campaign_smoke.py')['meter']
+real_setitimer = c.signal.setitimer
+old = c.signal.getsignal(c.signal.SIGALRM)
+def fail_disarm(which, seconds):
+    if seconds == 0:
+        raise OSError('fixture_disarm')
+    return real_setitimer(which, seconds)
+try:
+    c.signal.signal(c.signal.SIGALRM, c.signal.SIG_DFL)
+    with tempfile.TemporaryDirectory() as temp:
+        now = c.utc()
+        m = make_meter(temp, clock=lambda: now, seconds=60)
+        original = m.journal.read_bytes()
+        with patch.object(c.signal, 'setitimer', fail_disarm):
+            with check.assertRaisesRegex(OSError, '^fixture_disarm$'):
+                with m.process_deadline(): pass
+        check.assertTrue(m.alarm_active)
+        check.assertTrue(callable(c.signal.getsignal(c.signal.SIGALRM)))
+        check.assertGreater(c.signal.getitimer(c.signal.ITIMER_REAL)[0], 0)
+        # Defuse the wall timer, then deliver a real SIGALRM deterministically.
+        # This isolates retained-handler safety from scheduler timing.
+        real_setitimer(c.signal.ITIMER_REAL, 0)
+        with check.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
+            c.signal.raise_signal(c.signal.SIGALRM)
+        check.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+        check.assertEqual(m.journal.read_bytes(), original)
+finally:
+    real_setitimer(c.signal.ITIMER_REAL, 0)
+    c.signal.signal(c.signal.SIGALRM, old)
+print('POSIX_FAILED_DISARM_RETAINED_HANDLER_PASS')
+'''
+        command = [sys.executable] + ([] if __debug__ else ['-O']) + ['-c', script]
+        result = subprocess.run(command, cwd=c.ROOT, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('POSIX_FAILED_DISARM_RETAINED_HANDLER_PASS', result.stdout)
+
+    @unittest.skipUnless(hasattr(c.signal, 'setitimer'), 'POSIX alarm setup;Windows host remains supported')
+    def test_expired_posix_alarm_setup_restores_handler(self):
+        now = [c.utc()]
+        with tempfile.TemporaryDirectory() as temp:
+            opener = Opener(); m = meter(temp, opener, clock=lambda: now[0], seconds=0.03)
+            original = m.journal.read_bytes()
+            handler = c.signal.getsignal(c.signal.SIGALRM)
+            now[0] = m.deadline
+            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
+                with m.process_deadline(): self.fail('expired setup entered the body')
+            self.assertIs(c.signal.getsignal(c.signal.SIGALRM), handler)
+            self.assertEqual(c.signal.getitimer(c.signal.ITIMER_REAL), (0, 0))
+            self.assertFalse(m.alarm_active)
+            self.assertEqual(opener.calls, 0)
+            self.assertEqual(m.used, {key: 0 for key in c.LIMITS})
+            self.assertEqual(m.journal.read_bytes(), original)
 
     @unittest.skipUnless(hasattr(c.signal, 'setitimer'), 'POSIX live worker alarm;Windows host remains supported')
     def test_alarm_interrupts_slow_header_open(self):
         import time
+        test, now, entered = self, [c.utc()], []
         class Slow(Opener):
-            def open(self, request, **kwargs): time.sleep(2); return Reply(b'a')
+            def open(self, request, **kwargs):
+                self.calls += 1
+                test.assertEqual(c.bounded_json(m.journal)['usage']['provider_gets'], 1)
+                entered.append('header')
+                # Start the real 30ms alarm at the intended phase, after the
+                # durable debit. Journal latency cannot consume this fixture's
+                # header interval; pre-I/O expiry is tested independently.
+                with m.process_deadline(): time.sleep(2)
+                test.fail('blocking header open escaped the POSIX alarm')
         with tempfile.TemporaryDirectory() as temp:
-            m = meter(temp, Slow(), seconds=0.03)
-            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'), m.process_deadline():
+            opener = Slow(); m = meter(temp, opener, clock=lambda: now[0], seconds=0.03)
+            handler = c.signal.getsignal(c.signal.SIGALRM)
+            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'):
                 m.perform(cap.URL, limit=4)
+            self.assertEqual(entered, ['header'])
+            self.assertEqual(opener.calls, 1)
             self.assertEqual(m.used['provider_gets'], 1)
+            self.assertEqual(c.bounded_json(m.journal)['usage'], m.used)
+            self.assertIs(c.signal.getsignal(c.signal.SIGALRM), handler)
+            self.assertEqual(c.signal.getitimer(c.signal.ITIMER_REAL), (0, 0))
+            self.assertFalse(m.alarm_active)
+            now[0] = m.deadline
+            with self.assertRaisesRegex(c.Refused, '^CAMPAIGN_DEADLINE$'): m.perform(cap.URL, limit=4)
+            self.assertEqual(opener.calls, 1)
+            self.assertEqual(m.used['provider_gets'], 1)
+            self.assertEqual(c.bounded_json(m.journal)['usage'], m.used)
 
     def test_endpoint_no_broker_or_paid_mutation(self):
         for url in ('https://paper-api.alpaca.markets/v2/orders', 'https://www.googleapis.com.evil/drive/v3/about',
