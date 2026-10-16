@@ -127,8 +127,15 @@ def collect_history(client, workflow_path=ROOT/'.github/workflows/long_history_r
         return None
     history = {'status': 'MISSING_RUN'}
     try:
-        runs = client.json('/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30')
-        run = latest_run(runs.get('workflow_runs', []), 'long_history_research.yml', REPO, ['push','schedule','workflow_dispatch'])
+        # Query producer events separately so a burst of no-op code pushes
+        # cannot fill the first page and conceal actual producer evidence.
+        events = ['schedule', 'workflow_dispatch']
+        runs = []
+        for event in events:
+            page = client.json('/actions/workflows/long_history_research.yml/runs?branch=master&per_page=30&event=' + event)
+            runs.extend(run for run in page.get('workflow_runs', []) if run.get('conclusion') != 'skipped')
+        # Keep actual failures, cancellations and queued/running producers.
+        run = latest_run(runs, 'long_history_research.yml', REPO, events)
         if run:
             history = {'run': run, 'status': 'UPSTREAM_IN_PROGRESS' if run.get('status') != 'completed' else
                        'WORKFLOW_SUCCESS_DATA_UNVERIFIED' if run.get('conclusion') == 'success' else 'UPSTREAM_FAILED'}
