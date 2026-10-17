@@ -1741,6 +1741,35 @@ class ExternalCohortTests(unittest.TestCase):
             c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
         self.assertFalse((self.state/'writer.lock').exists());self.assertEqual(lock.read_text(),'other-owner')
 
+    def test_copied_or_renamed_budget_tree_cannot_relocate_its_registry(self):
+        import shutil
+        proof=self.proof()
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        directory=family.directory;family.close()
+        before=(directory/'000001.json').read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            copied=Path(temporary)/'copied'
+            shutil.copytree(self.root,copied)
+            for target in (copied,Path(temporary)/'renamed'):
+                if target != copied:
+                    copied.rename(target)  # Isolated synthetic tree only.
+                budget=target/self.state.relative_to(self.root)
+                cohort=target/self.cohort_state.relative_to(self.root)
+                with self.subTest(target=target.name),patch.object(c,'external_proof',return_value=proof), \
+                     patch.object(c.subprocess,'run',side_effect=AssertionError('Relocation cannot dispatch')), \
+                     self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_DRIFT'):
+                    relocated=c.external_family_registry(budget,self.new,cohort)
+                    relocated.close()
+                registry=target/directory.relative_to(self.root)
+                self.assertEqual((registry/'000001.json').read_bytes(),before)
+                self.assertFalse((registry/'writer.lock').exists())
+                self.assertFalse((registry/'000002.json').exists())
+        with patch.object(c,'external_proof',return_value=proof):
+            original=c.external_family_registry(self.state,self.new,self.cohort_state)
+        original.close()
+        self.assertEqual((directory/'000001.json').read_bytes(),before)
+
     def test_expired_new_namespace_never_appends_its_binding(self):
         original=c.utc;proof=self.proof()
         future=original(proof['expires_at_utc'])+timedelta(seconds=1)

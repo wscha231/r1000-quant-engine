@@ -48,6 +48,11 @@ The shared append-only reservation registry is fixed beneath that same parent
 as `external-budget-<first16hex of original auth SHA>`; an authorization cannot
 move it. Lock order is original global journal, shared registry, then cohort
 journal; release is reversed even when a later acquisition fails. The original
+resolved budget root and first cohort root are persisted in the family binding
+and rechecked on every open. A copied or renamed complete tree cannot acquire
+an independent set of locks and reuse the original settled history to dispatch.
+The current cohort path must also equal its namespace under that same root.
+The original
 17 events, progress and recovery receipt are read-only: no continuation event,
 receipt regeneration or progress write occurs there. Missing/conflicting original
 evidence refuses. External checkpoints/progress use their own chain. Every

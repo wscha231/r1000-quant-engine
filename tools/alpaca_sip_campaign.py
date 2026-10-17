@@ -1920,6 +1920,9 @@ def external_forecast(auth, observed):
 
 def external_family_registry(budget_path, auth, state_path, *, first_proof=None):
     """One deterministic shared reservation authority, outside the frozen17."""
+    budget_path, state_path = Path(budget_path).resolve(), Path(state_path).resolve()
+    require(state_path == budget_path.parent / (
+        "external-cohort-"+auth["external_cohort"]["scope"]["namespace"]), "EXTERNAL_NAMESPACE")
     first_auth = (auth["external_cohort"]["prior_epochs"] or [auth])[0]
     first_hash = validate_authorization(first_auth)
     proof = external_proof(first_auth) if first_proof is None else first_proof
@@ -1931,7 +1934,10 @@ def external_family_registry(budget_path, auth, state_path, *, first_proof=None)
     registry = WorkJournal(directory, genesis)
     try:
         binding = dict(genesis_sha256=genesis, capture_auth_sha256=first_hash,
-                       scope=first_auth["external_cohort"]["scope"], **proof)
+                       scope=first_auth["external_cohort"]["scope"],
+                       budget_state_root=os.path.normcase(str(budget_path)),
+                       first_cohort_state_root=os.path.normcase(str(budget_path.parent / (
+                           "external-cohort-"+first_auth["external_cohort"]["scope"]["namespace"]))), **proof)
         if registry.entries:
             first = registry.entries[0]
             require(first.get("kind") == "EXTERNAL_FAMILY_BOUND"

@@ -7236,3 +7236,11 @@ Hosted review found a first-registration proof race too: fetch one consent
 snapshot for both the first family binding and its cohort binding. If an OWNER
 comment changes between reads, the next canonical proof comparison must stop
 before reserving, never combine an old family proof with a newer cohort proof.
+
+The post-Ready hosted review found a relocation race: deterministic names alone
+do not bind a registry to the original resolved budget root. Copying or renaming
+the complete settled tree can create independent lock files while Actions history
+is still unchanged. Persist and verify the normalized resolved original budget
+and first cohort roots in the family binding; verify each current namespace path
+too. An unchanged original tree remains resumable; relocated copies fail before
+another reservation or POST. Preserve the pre-fix two-case failing fixture log.
