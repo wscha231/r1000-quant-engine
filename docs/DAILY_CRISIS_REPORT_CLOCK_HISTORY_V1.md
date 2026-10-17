@@ -10,9 +10,11 @@ portfolio sizing, accepted-state write, policy promotion or scheduler change.
 the adapter. Supply `--report-session YYYY-MM-DD`, `--report-now` (explicit
 offset timestamp), `--report-recipient`, an unused `--output-dir`, and
 `--history` pointing to an independently approved report-history anchor.
-The legacy invocation remains available for compatibility; its date-derived
-availability and per-invocation hysteresis are **not certified by B1**. A0 must
-authorize any scheduled cutover separately after real-input validation.
+The legacy invocation remains available for compatibility. Its current-report
+boundary now uses the independent host clock and completed XNYS session rather
+than the source's own date. Its declared availability and per-invocation
+hysteresis are still **not certified by B1**. A0 must authorize any scheduled
+cutover separately after real-input validation.
 
 Add `--report-source-view`, `--expected-source-view-sha256`,
 `--report-source-root`, `--expected-history-sha256` and, for a non-root anchor,
@@ -147,3 +149,28 @@ Independent B2 read-only audit found Paper Bridge selective-trim drift and
 unconditional numeric output with missing economic evidence. B2 implementation
 requires B1 terminal evidence and a separate A0 file scope. No B2 code changes
 are included here.
+
+## Legacy currentness integrity — 2026-10-17
+
+The existing calendar determines the last completed session and its unchanged
+AFTER_CLOSE cutoff (one hour after the actual close, including early closes).
+The legacy current report uses the host UTC clock; caller report-now does not
+backdate it. Old/missing/malformed/future source sessions, unavailable calendar,
+future or malformed declared component clocks and missing critical components
+return BLOCKED/DATA_BLOCKED with current state NULL and no paper-action candidates.
+STALE_SUCCESS_NOT_CURRENT_REPORT retains the explicit B1 stale-success meaning.
+No blocked observation calls current hysteresis or rewrites its history bytes.
+
+Historical raw state, original long-crisis metadata and declared source clocks
+remain visibly AS_OF_SOURCE_SESSION diagnostics. Fresh legacy output is only
+CURRENT_LEGACY_DIAGNOSTIC/DATE_CURRENT_DIAGNOSTIC, never authenticated Source/PIT,
+an approved A4 enum, canonical regime or economic approval. The explicit pinned
+report-slot route and historical risk inference remain separate and unchanged.
+Risk thresholds, selective defense/hold/reentry policies and the canonical ten
+axes, minimum eight and mandatory breadth/volatility/credit gates are unchanged.
+
+The registered monitor smoke preserves its two original model cases and B1 suite,
+and adds unittest clock refusals active in normal and -O. A hash-verified real
+artifact's March20 source/October17 execution can be replayed through this clock
+boundary without fetching providers or treating archived inference as a new model
+recomputation. No actual workflow, collector, history catch-up or book is invoked.

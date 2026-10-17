@@ -4,6 +4,10 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import copy
+from datetime import datetime, timedelta, timezone
+import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +18,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_daily_crisis_monitor import build_monitor  # noqa: E402
+from tools import run_daily_crisis_monitor as monitor
+from tools import daily_crisis_report_clock as clock
+from tools.run287_crisis_policy import availability_records, component_availability
 
 
 def test_daily_crisis_monitor_uses_learned_long_crisis_gate() -> None:
@@ -107,9 +114,134 @@ def test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise() -> None:
         assert payload["long_crisis"]["cash_gate_reason"] == "blocked_no_liquidity_or_trend_confirmation"
 
 
+class LegacyCurrentnessTests(unittest.TestCase):
+    """Clock fixtures only; no current Source/PIT or economic admission."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None):
+        observed = datetime.fromisoformat(now)
+        values = dict(market_trend_damage_score=0.1, qqq_below_ma200=0.0, qqq_ma200=100.0,
+                      hy_oas_zscore_252d=0.1, vix_zscore_252d=0.1, liquidity_confirmation_score=0.1,
+                      rate_shock_score=0.1)
+        try:
+            times = clock.session_times(session)
+            available = (times["close"]+timedelta(minutes=15)).isoformat() if times else now
+        except (clock.Blocked, ValueError, TypeError):
+            available = now
+        meta = dict(available=True, latest_date=session, canonical_state_inputs=values,
+                    component_availability=availability_records(component_availability(
+                        values, decision_time=available, available_from=available)),
+                    missing_critical_components=[], future_labels_excluded=True)
+        if mutate:
+            mutate(meta)
+        prior = dict(state="GREEN", raw_state="GREEN", raw_state_streak=3, updated_at_utc="2026-03-20T22:00:00Z")
+        history_path = self.root/"history.json"
+        before = json.dumps(prior, indent=2).encode()
+        history_path.write_bytes(before)
+        args = SimpleNamespace(latest_run=str(self.root/"inputs"), output_dir=str(self.root/"report"),
+            history=str(history_path), update_history=update, long_crisis_features="not-read.parquet",
+            long_crisis_thresholds="not-read.json", report_now=report_now)
+        with patch.object(clock, "trusted_now", return_value=observed), \
+             patch.object(monitor, "infer_raw_state", return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
+             patch.object(monitor, "apply_hysteresis", wraps=monitor.apply_hysteresis) as hysteresis:
+            out = build_monitor(args)
+        stored = json.loads((self.root/"report/summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(stored, out)
+        return out, before, history_path.read_bytes(), hysteresis.call_count
+
+    def assert_current_blocked(self, result, code=None):
+        out, before, after, calls = result
+        self.assertIsNone(out["state"])
+        self.assertEqual(out["current_report_status"], "BLOCKED")
+        self.assertEqual(out["data_health"], "DATA_BLOCKED")
+        self.assertEqual(out["paper_action_candidates"], [])
+        self.assertEqual(before, after)
+        self.assertEqual(calls, 0)
+        self.assertFalse(out["history_update_allowed"])
+        self.assertEqual(out["raw_state"], "GREEN")
+        self.assertEqual(out["raw_state_scope"], "AS_OF_SOURCE_SESSION_DIAGNOSTIC")
+        if code:
+            self.assertIn(code, out["blockers"])
+
+    def test_stale_source_cannot_be_current_green_or_advance_history(self):
+        result = self.run_case(session="2026-03-20")
+        self.assert_current_blocked(result, "STALE_SUCCESS_NOT_CURRENT_REPORT")
+        self.assertEqual(result[0]["expected_session"], "2026-10-16")
+        self.assertTrue(all(not r["fresh"] for r in result[0]["component_availability"]))
+
+    def test_current_source_keeps_review_behavior_without_promotion(self):
+        out, before, after, calls = self.run_case()
+        self.assertEqual(out["state"], "GREEN")
+        self.assertEqual(out["current_report_status"], "CURRENT_LEGACY_DIAGNOSTIC")
+        self.assertEqual([a["action_type"] for a in out["paper_action_candidates"]], ["no_op"])
+        self.assertEqual(calls, 1)
+        self.assertNotEqual(before, after)
+        for name in ("auto_trade_allowed", "source_clock_authenticated", "canonical_regime_authorized",
+                     "source_promotion_allowed", "pit_promotion_allowed"):
+            self.assertIs(out[name], False)
+
+    def test_missing_or_malformed_source_date_is_not_execution_date(self):
+        for session in (None, "", "2026-99-99", "2026-10-16T00:00:00Z"):
+            with self.subTest(session=session):
+                self.assert_current_blocked(self.run_case(session=session))
+
+    def test_future_source_session_is_not_clamped(self):
+        self.assert_current_blocked(self.run_case(session="2026-10-19"), "FUTURE_SOURCE_SESSION")
+
+    def test_future_or_malformed_original_availability_blocks(self):
+        for available in ("2026-10-18T00:00:00Z", "2026-10-16T22:00:00Z", "2026-10-16"):
+            with self.subTest(available=available):
+                def change(meta):meta["component_availability"][0]["available_from"] = available
+                self.assert_current_blocked(self.run_case(mutate=change))
+
+    def test_weekend_and_holiday_resolve_last_completed_xnys_session(self):
+        for session, now in (("2026-10-16", "2026-10-18T15:00:00+00:00"),
+                             ("2026-07-02", "2026-07-03T15:00:00+00:00")):
+            with self.subTest(now=now):
+                out, _, _, _ = self.run_case(session=session, now=now)
+                self.assertEqual(out["expected_session"], session)
+                self.assertEqual(out["state"], "GREEN")
+
+    def test_early_close_uses_existing_one_hour_report_cutoff(self):
+        self.assert_current_blocked(self.run_case(session="2026-11-27", now="2026-11-27T18:30:00+00:00"), "SLOT_NOT_DUE")
+        out, _, _, _ = self.run_case(session="2026-11-27", now="2026-11-27T19:05:00+00:00")
+        self.assertEqual(out["expected_session"], "2026-11-27")
+        self.assertEqual(out["session_close_utc"], "2026-11-27T18:00:00+00:00")
+        self.assertEqual(out["state"], "GREEN")
+
+    def test_caller_time_cannot_backdate_legacy_current_report(self):
+        self.assert_current_blocked(self.run_case(session="2026-03-20", report_now="2026-03-20T23:00:00Z"),
+                                    "STALE_SUCCESS_NOT_CURRENT_REPORT")
+
+    def test_missing_critical_inputs_are_data_health_not_market_risk(self):
+        def change(meta):meta["missing_critical_components"] = ["hy_oas"]
+        self.assert_current_blocked(self.run_case(mutate=change), "MISSING_CRITICAL_COMPONENTS")
+
+    def test_missing_or_invalid_component_clock_records_refuse(self):
+        for records in (None, [], 3, [None]):
+            with self.subTest(records=records):
+                self.assert_current_blocked(self.run_case(mutate=lambda meta:meta.update(component_availability=records)))
+
+    def test_explicit_historical_report_route_remains_separate(self):
+        marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}
+        with patch.object(monitor, "build_clock_report", return_value=marker) as route:
+            self.assertIs(build_monitor(SimpleNamespace(report_slot="AFTER_CLOSE", report_session="2025-01-02")), marker)
+        route.assert_called_once()
+
+
+def run_currentness_tests():
+    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(LegacyCurrentnessTests))
+    if not result.wasSuccessful():
+        raise RuntimeError("LEGACY_CURRENT_REPORT_CLOCK_FAILED")
+
+
 if __name__ == "__main__":
     test_daily_crisis_monitor_uses_learned_long_crisis_gate()
     test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise()
+    run_currentness_tests()
     from daily_crisis_report_clock_smoke import run_tests
     run_tests()
     print("daily_crisis_monitor_long_crisis_smoke: PASS")

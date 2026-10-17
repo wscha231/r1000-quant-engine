@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from tools.crisis_state_engine import (  # noqa: E402
 )
 from tools.run287_crisis_policy import (  # noqa: E402
     apply_selective_defense,
+    availability_records,
     component_availability,
     exposure_policy,
 )
@@ -198,9 +200,46 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
     return "GREEN", reasons or ["no confirmed crisis signal"], long_meta
 
 
+def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[str, Any]:
+    """Session currentness only; legacy clocks do not authenticate Source/PIT."""
+    from tools import daily_crisis_report_clock as clock
+
+    result = dict(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                  blockers=[], source_clock_authenticated=False,
+                  canonical_regime_authorized=False, source_promotion_allowed=False,
+                  pit_promotion_allowed=False, history_update_allowed=False)
+    try:
+        result.update(clock.completed_session_clock(now))
+        cutoff = clock.stamp(result["decision_cutoff_utc"])
+        clock.need(clock.stamp(now) >= cutoff, "SLOT_NOT_DUE")
+        clock.need(long_crisis.get("available") is True, "REAL_INPUT_WAIT")
+        source_session = long_crisis.get("latest_date")
+        clock.need(clock.session_times(source_session) is not None, "SOURCE_SESSION_NOT_TRADING")
+        result["risk_as_of_session"] = source_session
+        clock.need(source_session <= result["expected_session"], "FUTURE_SOURCE_SESSION")
+        clock.need(source_session == result["expected_session"], "STALE_SUCCESS_NOT_CURRENT_REPORT")
+        records = long_crisis.get("component_availability")
+        clock.need(isinstance(records, list) and bool(records), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
+        for record in records:
+            clock.need(isinstance(record, dict), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
+            original_clock = record.get("available_from")
+            if original_clock or record.get("available") is True:
+                available = clock.stamp(original_clock)
+                clock.need(available <= cutoff, "SOURCE_AVAILABLE_AFTER_DECISION")
+        clock.need(not long_crisis.get("missing_critical_components"), "MISSING_CRITICAL_COMPONENTS")
+        result.update(current_report_status="CURRENT_LEGACY_DIAGNOSTIC", data_health="DATE_CURRENT_DIAGNOSTIC",
+                      history_update_allowed=True)
+    except (clock.Blocked, ValueError, TypeError, OverflowError, IndexError, KeyError, RuntimeError, OSError) as error:
+        # Calendar/clock failure is data health, never a market-risk signal.
+        result["blockers"] = [str(error) if isinstance(error, clock.Blocked) else "CURRENT_REPORT_CLOCK_UNAVAILABLE"]
+    return result
+
+
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "report_slot", None):
         return build_clock_report(args)
+    from tools import daily_crisis_report_clock as clock
+    now = clock.trusted_now().isoformat()
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -211,29 +250,44 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         repo_path(args.long_crisis_features),
         repo_path(args.long_crisis_thresholds),
     )
+    health = legacy_current_report_health(long_crisis, now)
+    long_crisis = dict(long_crisis)
+    long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
+    long_crisis["current_report_eligible"] = health["current_report_status"] != "BLOCKED"
     state_values = dict(long_crisis.get("canonical_state_inputs") or {})
+    records = long_crisis.get("component_availability")
+    for record in records if isinstance(records, list) else []:
+        if isinstance(record, dict) and isinstance(record.get("component"), str):
+            component = record["component"]
+            if record.get("available_from"):
+                state_values[f"{component}_available_from"] = record["available_from"]
+            state_values[f"{component}_stale"] = not record.get("fresh", False) or health["current_report_status"] == "BLOCKED"
     state_availability = component_availability(
         state_values,
-        decision_time=long_crisis.get("latest_date"),
-        available_from=long_crisis.get("latest_date"),
+        decision_time=now,
     )
-    state, next_history = apply_hysteresis(
-        raw_state,
-        history,
-        values=state_values,
-        availability=state_availability,
-    )
+    if health["current_report_status"] == "BLOCKED":
+        state_availability = [replace(item, fresh=False, caveat=item.caveat or "current_report_blocked")
+                              for item in state_availability]
+    if health["current_report_status"] == "BLOCKED":
+        state, next_history = None, history
+        reasons = reasons + ["current report blocked: " + ", ".join(health["blockers"])]
+    else:
+        state, next_history = apply_hysteresis(
+            raw_state, history, values=state_values, availability=state_availability)
 
     holdings = read_csv(latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv")
     leader_rows = 0
     if not holdings.empty:
         text = holdings.astype(str).agg(" ".join, axis=1).str.lower()
         leader_rows = int(text.str.contains("leader|monster|future_winner", regex=True).sum())
-    paper_actions = build_paper_action_candidates(state=state, raw_state=raw_state, reasons=reasons, holdings=holdings)
+    paper_actions = (build_paper_action_candidates(state=state, raw_state=raw_state, reasons=reasons, holdings=holdings)
+                     if health["current_report_status"] != "BLOCKED" else [])
 
     payload = {
         "schema_version": "daily-crisis-monitor-v2",
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": now,
+        **health,
         "research_only": True,
         "auto_trade_allowed": False,
         "paper_actions_only": True,
@@ -241,9 +295,11 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "paper_action_candidates": paper_actions,
         "state": state,
         "raw_state": raw_state,
+        "raw_state_scope": "AS_OF_SOURCE_SESSION_DIAGNOSTIC",
         "long_crisis": long_crisis,
         "hysteresis": next_history,
-        "component_availability": long_crisis.get("component_availability") or [],
+        "component_availability": availability_records(state_availability),
+        "component_clock_scope": "LEGACY_DECLARED_NOT_AUTHENTICATED",
         "reasons": reasons,
         "shakeout_guard": {
             "vix_only_cash_raise_forbidden": True,
@@ -264,7 +320,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     }
     (output_dir / "crisis_action_status.md").write_text(render_report(payload), encoding="utf-8")
     (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    if args.update_history:
+    if args.update_history and health["current_report_status"] != "BLOCKED":
         history_path.parent.mkdir(parents=True, exist_ok=True)
         history_path.write_text(json.dumps(next_history, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
@@ -324,6 +380,10 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
         f"- state: `{payload.get('state')}`",
         f"- raw_state: `{payload.get('raw_state')}`",
+        f"- raw_state scope: `{payload.get('raw_state_scope', 'AS_OF_SOURCE_SESSION_DIAGNOSTIC')}`",
+        f"- current report: `{payload.get('current_report_status')}` / `{payload.get('data_health')}`",
+        f"- expected session: `{payload.get('expected_session')}`",
+        f"- blockers: `{', '.join(payload.get('blockers') or [])}`",
         "- auto_trade_allowed: `false`",
         "",
         "## Reasons",

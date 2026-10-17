@@ -188,6 +188,21 @@ def trusted_now():
     return datetime.now(UTC)
 
 
+def completed_session_clock(now):
+    """Current report context from the existing XNYS calendar, never source age."""
+    observed = stamp(now)
+    end = observed.astimezone(NY).date()
+    schedule = mcal.get_calendar("NYSE").schedule(
+        start_date=end-timedelta(days=35), end_date=end)
+    completed = schedule[schedule.market_close <= observed]
+    need(not completed.empty, "COMPLETED_SESSION_UNAVAILABLE")
+    session = completed.index[-1].date().isoformat()
+    times = session_times(session)
+    need(times is not None, "COMPLETED_SESSION_UNAVAILABLE")
+    return dict(expected_session=session, session_close_utc=times["close"].isoformat(),
+                decision_cutoff_utc=times["AFTER_CLOSE"].isoformat())
+
+
 def known_label(value):
     return (isinstance(value,str) and 0 < len(value) <= 96 and value == value.strip() and
             re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/ -]*",value) is not None and
