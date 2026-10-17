@@ -588,3 +588,66 @@ existing32-name batches,128 calibration and fail-closed provider/Drive policies.
 New source must pass exact-head Native/Linux/A6/review/protected deployment
 before any actual continuation. This contract change alone is not capture,
 PIT admission, historical universe certification or investment approval.
+
+## Sealed orphan evidence and normalized-only successor
+
+Run39058081878 on protected master35b36d28 stopped at CP160 with
+`EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS`. Its meter7a2eff65 charged Provider0,
+Drive4, transfer263644B, storage0 and88active seconds. That reason does not
+identify a missing normalized object: the old test also rejected an unexpected
+object count, duplicate role or raw-size mismatch. Preserve all13 canonical
+runs, the original17-event journal, cohort27/family25 prefixes, CPf07693bd,
+owner/key bindings and first2026-10-17T02:08:51Z / expiry2026-10-19T02:08:51Z.
+No uncertainty refunds, extra epochs, new seed or counter reset are allowed.
+
+The v4 external authorization adds only `materialization_recovery`, a typed
+source/proof delta reconstructing the exact old v3 authorization83da6be1.
+It seals this one failed run/meter, parent and approved scope packetb42f7e70.
+The v2/v3 revisions and their original OWNER comments remain immutable.
+Append only event28 `EXTERNAL_MATERIALIZATION_BOUND` under a separately frozen
+v4 OWNER record, reviewed code pins and protected deployment. All host,
+settlement and later prior-cohort guards select the active v4 proof while
+retaining every older proof. The last local guard consumes the already verified
+proof snapshot; it must not fetch fresh remote evidence after canonical reads.
+The same unchanged15KB authorization /16KiB worker-control limits apply,
+including the future417-name wrapper. No dispatch is enabled merely by this
+contract or its code/CI results.
+
+Before any provider request or new storage, inspect at most8 objects in the
+original sealed failed-capture window. Persist only bounded count, kind,
+content-name SHA, byte count and actual server-created/observation times.
+Do not persist object IDs, arbitrary names, raw responses or credentials in
+these diagnostics. Pagination, malformed metadata, duplicate IDs or multiple
+raw/normalized roles refuse. Unrelated valid content-addressed JSONs may be
+counted without becoming price evidence. Exactly one original505475-byte ZIP
+must pass owner/parent/hash, original ff85c823 source/input/date/symbol and
+complete archived-page/asset-clock/raw-split semantics. The complete CP160
+chain must independently restore before a new object may be written.
+
+Existing normalized gzip bytes are usable only when their decoded rows equal
+the verified ZIP reconstruction. Retain both the compressed-object SHA and
+the canonical JSONL-row SHA; gzip wrapper/OS-header differences are not row
+differences. Check an existing window candidate by exact content name across
+the same folder. When absent from that window, perform only indexed exact-name
+lookups for the deterministic encoding/current-runtime encoding and OS3-header
+variant. Duplicate matches, pagination or semantic mismatches refuse.
+Zero matches is a time-specific lookup observation, not proof that the old
+uncertain POST stored nothing.
+
+The v4 OWNER record must explicitly authorize one normalized-only derivation
+from these verified original bytes. Use the existing content-addressed
+`persist_object` primitive, with gzip filename empty, mtime0, compression9;
+the primitive reuses exact bytes or creates once. An unknown CREATE outcome is
+terminal, with its full reservation retained. Never upload another raw ZIP or
+request the first4 symbols again. Separately retain original capture source,
+asset clocks and failed run, plus actual normalized creation/lookup time,
+row/object hashes, codec, existing-versus-new status, new derivation source,
+authorization/proof/run/time and inventory hash. Never manufacture original
+publication clocks or claim the old CREATE outcome is known.
+
+Only independent receipt and CP164 readback permits the existing collector to
+request VCYT/VICR/VIR/VSTM/WULF, closing exactly160→169. First recovery max1
+includes an imported or repaired settlement; a new failure cannot authorize
+another POST. All earlier costs, shared accounting, original48h and existing
+9GiB/12h/40 caps remain. Source/PIT, supplier-rights and economic flags stay
+false; Work B/Main and the fixed993 campaign remain separate.
