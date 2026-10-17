@@ -345,6 +345,14 @@ def paired_comparison(short, long, block=253):
     return result
 
 
+def feature_views(close, benchmark, macro, comparison_start):
+    features, kinds = technical_features(close, benchmark)
+    short, _ = technical_features(close.where(close.index >= pd.Timestamp(comparison_start)),
+                                  benchmark.where(benchmark.index >= pd.Timestamp(comparison_start)))
+    features.update(macro); short.update(macro)
+    return features, kinds, short
+
+
 def study(manifest, config, budget):
     prices, macros, schedule, coverage, bindings = load_inputs(manifest, config); budget.check()
     macro, events = macro_features(macros, schedule); budget.check()
@@ -356,7 +364,7 @@ def study(manifest, config, budget):
     dd = coverage['SP500']['full_history_descriptive'].pop('episodes')
     for sid, close in prices.items():
         reference = 'NASDAQCOM' if sid == 'SP500' else 'SP500'
-        features, kinds = technical_features(close, prices[reference]); features.update(macro)
+        features, kinds, short_features = feature_views(close, prices[reference], macro, config['comparison_start'])
         need(len(features) == 24, 'FIXED_FEATURE_COUNT')
         dd.extend(drawdowns(close, sid))
         for name, feature in features.items():
@@ -369,12 +377,14 @@ def study(manifest, config, budget):
                 results.append(row)
                 append_predictions(predictions, pred, asset=sid, feature=name, horizon=horizon, view='1996_EXTENSION')
                 if sid == 'SP500':
-                    original, old_pred = evaluate_pinned(feature, target, horizon, config, first_test, short_start, kind)
-                    original.update(asset=sid, feature=name, benchmark=reference, training_view='2016_ORIGINAL',
+                    original, old_pred = evaluate_pinned(short_features[name], target, horizon, config, first_test, short_start, kind)
+                    original.update(asset=sid, feature=name, benchmark=reference, training_view='2016_TRUNCATED_REFERENCE',
                                     historically_exposed_family=True, eligible_for_selector=False)
                     results.append(original)
-                    append_predictions(predictions, old_pred, asset=sid, feature=name, horizon=horizon, view='2016_ORIGINAL')
-                    comparison = (dict(status='INDETERMINATE_SPARSE_MONTHLY_RELEASES', matched_rows=len(set(p['date'] for p in old_pred) & set(p['date'] for p in pred)),
+                    append_predictions(predictions, old_pred, asset=sid, feature=name, horizon=horizon, view='2016_TRUNCATED_REFERENCE')
+                    short_dates, long_dates = set(p['date'] for p in old_pred), set(p['date'] for p in pred)
+                    comparison = (dict(status='INDETERMINATE_SPARSE_MONTHLY_RELEASES', matched_rows=len(short_dates & long_dates),
+                                       short_only_rows=len(short_dates-long_dates), long_only_rows=len(long_dates-short_dates),
                                        block_sessions=253, bootstrap_draws=0) if kind == 'release' else paired_comparison(old_pred, pred))
                     comparisons.append(dict(asset=sid, feature=name, horizon=horizon, **comparison))
                 budget.check()
@@ -399,6 +409,7 @@ def study(manifest, config, budget):
         fixed_feature_count=24, metrics=results, comparisons=comparisons,
         increment_1996_2015=increment, macro_event_count=len(events),
         multiple_testing='Existing BY adjustment over all384 declared comparisons including insufficient families; exploratory prior-exposed holdout',
+        short_arm_scope='2016-01-01 truncated local reference with fresh technical warmup; not exact reproduction of old FRED2016-09-12 study or its336 results',
         univariate_hypotheses_not_a_strategy=True), b''.join(predictions), events, dd, relative
 
 

@@ -136,6 +136,15 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(macro['min_train_samples'],60);self.assertGreater(macro['oos_rows'],0)
         self.assertEqual(daily['oos_rows'],0)
 
+    def test_short_technical_arm_has_its_own_warmup(self):
+        idx=pd.bdate_range('2015-01-01',periods=1000)
+        close=pd.Series(np.arange(1000)+100.,index=idx)
+        full,_,short=engine.feature_views(close,close*2,{},'2016-01-01')
+        first=idx.searchsorted(pd.Timestamp('2016-01-01'))
+        self.assertTrue(short['distance_sma200'].iloc[first:first+199].isna().all())
+        self.assertTrue(full['distance_sma200'].iloc[first:first+199].notna().all())
+        self.assertTrue(short['momentum_240'].iloc[first:first+240].isna().all())
+
     def test_drawdown_recovery_censoring_and_gap_disclosure(self):
         x=pd.Series([100.,80.,np.nan,100.,110.,88.],index=pd.bdate_range('2020-01-01',periods=6))
         rows=engine.drawdowns(x,'SP500')

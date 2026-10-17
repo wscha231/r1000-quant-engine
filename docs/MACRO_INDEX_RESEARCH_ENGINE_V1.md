@@ -37,7 +37,11 @@ release-only features use the existing study's60-release minimum, frozen before
 actual results; technical features retain504. No daily macro replication is used.
 
 The shared OOS grid begins756 XNYS sessions after2016-01-01. SP500's1996
-and2016 training arms use identical test boundaries and labels. The1996-2015
+and2016 training arms use identical test boundaries and labels. The2016 arm
+separately masks pre2016 prices and benchmark before computing technical warmup.
+It is a2016-01-01 truncated reference, not exact reproduction of the prior
+FRED2016-09-12 input or its336 results. Sparse macro sample shortfalls retain
+missing predictions and explicit unmatched-date counts. The1996-2015
 increment is separately descriptive/training coverage, not an additional
 optimized scoring run. Per-date loss improvements compare each model with
 its training-only mean baseline. A paired circular253-session block bootstrap
