@@ -85,6 +85,13 @@ def strict_number(value: Any) -> float:
     return number
 
 
+def strict_ticker(value: Any) -> str:
+    if type(value) is not str or value != value.upper().strip() or value in {"NAN", "NONE", "NULL"} or \
+            re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,20}", value) is None:
+        raise ValueError("EXACT_BOOK_IDENTITY_REQUIRED")
+    return value
+
+
 PREVIEW_FILES = ("orders_preview.csv", "positions_current.csv", "target_weights.csv",
                  "projected_positions_after_orders.csv", "order_batch_manifest.json",
                  "preview_metrics.json", "preview_report.md")
@@ -156,6 +163,7 @@ def checked_inputs(args: argparse.Namespace, latest: Path, monitor_raw: bytes) -
         target_frame = pd.read_csv(io.BytesIO(target))
         if target_frame.empty or "ticker" not in target_frame or target_frame.ticker.duplicated().any():
             raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+        target_names = [strict_ticker(ticker) for ticker in target_frame.ticker]
         account_json = json.loads(account)
         if account_json.get("as_of_date") != session or strict_number(account_json.get("cash_usd")) < 0:
             raise ValueError("ACCEPTED_BOOK_SESSION_REQUIRED")
@@ -166,10 +174,10 @@ def checked_inputs(args: argparse.Namespace, latest: Path, monitor_raw: bytes) -
         for row in held:
             if not isinstance(row, dict) or not isinstance(row.get("ticker"), str) or strict_number(row.get("shares")) < 0:
                 raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
-            held_names.append(row["ticker"].upper().strip())
+            held_names.append(strict_ticker(row["ticker"]))
         if len(held_names) != len(set(held_names)) or not all(held_names):
             raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
-        for ticker in set(target_frame.ticker.astype(str).str.upper().str.strip()) | set(held_names):
+        for ticker in set(target_names) | set(held_names):
             if str(ticker).upper() == "CASH":
                 continue
             facts = entry["economics"][str(ticker).upper()]
@@ -194,7 +202,7 @@ def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
     for action in actions:
         if action.get("action_type") != "trim_position":
             continue
-        ticker = str(action.get("ticker") or "").upper().strip()
+        ticker = strict_ticker(action.get("ticker"))
         if not ticker or ticker == "CASH" or ticker in trim_tickers:
             raise ValueError("TRIM_IDENTITY_OR_DUPLICATE")
         current, trim = strict_number(action.get("current_weight")), strict_number(action.get("trim_weight"))
@@ -220,8 +228,10 @@ def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
 
 def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any]) -> pd.DataFrame:
     """Pure fixture-capable parity calculation, not an accepted target write."""
-    if "ticker" not in source or source.ticker.astype(str).str.upper().str.strip().duplicated().any():
+    if "ticker" not in source or source.ticker.duplicated().any():
         raise ValueError("TARGET_IDENTITY_REQUIRED")
+    for ticker in source.ticker:
+        strict_ticker(ticker)
     weight_col = "target_weight" if "target_weight" in source else "weight"
     if weight_col not in source or not all(0 <= strict_number(x) <= 1 for x in source[weight_col]):
         raise ValueError("TARGET_WEIGHT_REQUIRED")
@@ -361,6 +371,8 @@ def render_report(payload: dict[str, Any]) -> str:
     lines = [
         "# Crisis Paper Order Bridge",
         "",
+        f"- status: `{payload.get('status')}`",
+        f"- data health: `{payload.get('data_health', 'FIXTURE_OR_SEPARATELY_APPROVED_INPUT')}`",
         "- auto_trade_allowed: `false`",
         "- paper_only: `true`",
         "- approval_required: `true`",

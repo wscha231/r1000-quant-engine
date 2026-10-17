@@ -72,6 +72,7 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(result['status'],'blocked');self.assertEqual(result['data_health'],'REAL_INPUT_WAIT')
         self.assertEqual(result['portfolios'],[]);self.assertIsNone(result['monitor_state']);preview.assert_not_called()
         self.assertFalse(old.exists());self.assertEqual(keep.read_text(),'preserve')
+        self.assertIn('REAL_INPUT_WAIT',(self.output/'summary.md').read_text())
         self.assertEqual(before,{str(p):sha(p.read_bytes()) for p in self.latest.rglob('*') if p.is_file()})
         return result
 
@@ -175,6 +176,17 @@ class BridgeTests(unittest.TestCase):
     def test_actual_activation_stays_off_even_with_synthetic_complete_pins(self):
         self.assertIs(bridge.ACTUAL_PREVIEW_ACTIVATED,False)
         self.run_blocked()
+
+    def test_empty_sentinel_alias_or_unnormalized_identity_never_becomes_cash(self):
+        plan=bridge.action_plan(dict(self.monitor,paper_action_candidates=[dict(action_type='no_op')]))
+        for invalid in ('',None,float('nan'),'NAN','NONE','NULL','__CASH__',' aaa','AAA '):
+            with self.subTest(value=invalid):
+                target=self.target.copy();target.loc[0,'ticker']=invalid
+                with self.assertRaises(ValueError):bridge.derive_target_book(target,'main',plan)
+                target_path=self.latest/'reports/operating_main_target_book.csv';target.to_csv(target_path,index=False)
+                self.proof['portfolios']['main']['target_sha256']=sha(target_path.read_bytes());self.bind()
+                with patch.object(clock,'trusted_now',return_value=self.now):
+                    with self.assertRaises(ValueError):bridge.checked_inputs(self.args,self.latest,self.monitor_path.read_bytes())
 
     def test_cli_blocked_exit_status(self):
         with patch.object(bridge,'run',return_value=dict(status='blocked')):
