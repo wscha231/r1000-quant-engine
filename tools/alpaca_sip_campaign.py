@@ -1918,11 +1918,11 @@ def external_forecast(auth, observed):
                      and len(observed["runs"])+jobs <= 40)
 
 
-def external_family_registry(budget_path, auth, state_path):
+def external_family_registry(budget_path, auth, state_path, *, first_proof=None):
     """One deterministic shared reservation authority, outside the frozen17."""
     first_auth = (auth["external_cohort"]["prior_epochs"] or [auth])[0]
     first_hash = validate_authorization(first_auth)
-    proof = external_proof(first_auth)
+    proof = external_proof(first_auth) if first_proof is None else first_proof
     genesis = digest(encoded(dict(schema="a1-external-budget-genesis-v1", task_key=TASK,
         prior_auth_sha256=CONTINUATION["auth"], prior_event_sha256=CONTINUATION["event"],
         first=CONTINUATION["first"], limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
@@ -2026,9 +2026,10 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
     last_observed = None
     try:
         verify_external_budget_journal(global_journal, auth, recovery)
-        family = external_family_registry(budget_path, auth, state_path)
-        journal = WorkJournal(state_path, h)
         frozen = external_proof(auth)
+        family = external_family_registry(budget_path, auth, state_path,
+            first_proof=frozen if not ex["prior_epochs"] else None)
+        journal = WorkJournal(state_path, h)
         binding = dict(scope=ex["scope"], genesis_sha256=external_genesis(ex["scope"]), **frozen)
         if journal.entries:
             first = journal.entries[0]

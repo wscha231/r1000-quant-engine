@@ -7231,3 +7231,8 @@ preserving an uncertain cohort, then tried a different namespace. First registry
 creation must check every deterministic `external-cohort-*` sibling under the
 original budget parent, not only the incoming namespace. Any existing path is
 a conservative blocker; loss of one prefix cannot authorize a fresh budget.
+
+Hosted review found a first-registration proof race too: fetch one consent
+snapshot for both the first family binding and its cohort binding. If an OWNER
+comment changes between reads, the next canonical proof comparison must stop
+before reserving, never combine an old family proof with a newer cohort proof.

@@ -1862,6 +1862,21 @@ class ExternalCohortTests(unittest.TestCase):
         self.assertEqual((self.cohort_state/'000002.json').read_bytes(),original)
         self.assertTrue((preserved/'000002.json').exists())
 
+    def test_first_family_and_cohort_use_one_consent_snapshot_before_dispatch(self):
+        original=self.proof()
+        changed=self.proof(changed=dict(body='A1_SIP_EXTERNAL_COHORT_CONSENT '+
+                            json.dumps(c.external_proof_record(self.new))+'\nOWNER comment edited'))
+        observed=self.observed();observed['external_proof']=changed
+        with self.host_patches(observed),patch.object(c,'external_proof',side_effect=[original,changed]) as proof_read, \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Cannot POST across consent drift')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_PROOF_DRIFT'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(proof_read.call_count,1)
+        family_dir=next(self.root.glob('external-budget-*'))
+        self.assertEqual(c.bounded_json(family_dir/'000001.json')['proof_sha256'],original['proof_sha256'])
+        self.assertEqual(c.bounded_json(self.cohort_state/'000001.json')['proof_sha256'],original['proof_sha256'])
+        self.assertFalse((self.cohort_state/'000002.json').exists())
+
     def test_actual_cli_empty_physical_parent_and_unchanged_old17(self):
         class Boundary(BaseException):pass
         before={p.name:p.read_bytes() for p in self.state.iterdir()}
