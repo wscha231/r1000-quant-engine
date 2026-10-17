@@ -1170,6 +1170,53 @@ class LocalRejectRecoveryTests(unittest.TestCase):
                 self.assertNotIn("SETTLED",kinds)
                 self.assertEqual((state/"000001.json").read_bytes(),self.original)
 
+    def test_live_progress_cannot_be_the_immutable_snapshot(self):
+        bundle=json.loads(self.bundle_path.read_bytes())
+        self.bundle_path.write_bytes(c.encoded(dict(bundle,prior_progress_snapshot=str(self.state/"progress"))))
+        with self.assertRaises(c.Refused):self.proof()
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_original_appearing_during_deployed_pin_reads_prevents_closure(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        try:
+            with patch.object(c,"campaign_runs",side_effect=[[],[dict(display_title="a1-sip "+self.nonce)]]), \
+                    patch.object(c,"gh_json",side_effect=self.deployed),self.assertRaises(c.Refused):
+                c.apply_local_reject_recovery(journal,self.new,recovery)
+            self.assertEqual(len(journal.entries),1)
+            self.assertFalse(self.receipt.exists())
+        finally:journal.close()
+
+    def test_expired_proof_cannot_create_closure_but_applied_closure_can_reopen(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        original_event=(self.state/"000002.json").read_bytes();original_receipt=self.receipt.read_bytes()
+        real_utc=c.utc;future=real_utc(self.record["expires_at_utc"])+timedelta(seconds=1)
+        def later(value=None):return future if value is None else real_utc(value)
+        with patch.object(c,"utc",side_effect=later):
+            expired=self.proof()
+            journal=c.WorkJournal(self.state,c.validate_authorization(self.new),expired)
+            try:self.apply(journal,expired)
+            finally:journal.close()
+            fresh=self.root/"expired-fresh";fresh.mkdir()
+            (fresh/"000001.json").write_bytes(self.original)
+            (fresh/"progress").write_bytes(self.snapshot.read_bytes())
+            journal=c.WorkJournal(fresh,c.validate_authorization(self.new),expired)
+            try:
+                with self.assertRaises(c.Refused):self.apply(journal,expired)
+                self.assertEqual(len(journal.entries),1)
+            finally:journal.close()
+        self.assertEqual((self.state/"000002.json").read_bytes(),original_event)
+        self.assertEqual(self.receipt.read_bytes(),original_receipt)
+
+    def test_recovery_event_reserialization_cannot_change_anchored_bytes(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        event=self.state/"000002.json";event.write_text(json.dumps(json.loads(event.read_bytes()),indent=2))
+        with self.assertRaises(c.Refused):
+            reopened=c.WorkJournal(self.state,c.validate_authorization(self.new),self.proof())
+            reopened.close()
+        self.assertFalse((self.state/"writer.lock").exists())
+
     def test_all_outer_cli_values_are_strings_nested_authority_unchanged(self):
         path = self.root / "new-auth.json";path.write_bytes(c.encoded(self.new))
         observed = dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),

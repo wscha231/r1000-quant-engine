@@ -574,6 +574,10 @@ def local_reject_recovery(bundle_path, auth, directory):
             {"prior_authorization", "prior_progress_snapshot", "proof_reference", "receipt_path"}
             and all(isinstance(v, str) and 0 < len(v) <= 4096 for v in bundle.values()),
             "CAMPAIGN_LOCAL_REJECT_BUNDLE")
+    snapshot = Path(bundle["prior_progress_snapshot"])
+    resolved_snapshot, resolved_state = snapshot.resolve(), Path(directory).resolve()
+    require(not snapshot.is_symlink() and resolved_snapshot != resolved_state
+            and resolved_state not in resolved_snapshot.parents, "CAMPAIGN_LOCAL_REJECT_SNAPSHOT_PATH")
     receipt = Path(bundle["receipt_path"])
     resolved_receipt, resolved_directory = receipt.resolve(), Path(directory).resolve()
     inputs = {Path(v).resolve() for v in (bundle_path, bundle["prior_authorization"],
@@ -636,7 +640,8 @@ def local_reject_recovery(bundle_path, auth, directory):
     require(isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
             and isinstance(record.get("expires_at_utc"), str), "CAMPAIGN_LOCAL_REJECT_CLOCK")
     created, updated, now = utc(comment["created_at"]), utc(comment["updated_at"]), utc()
-    require(utc(reserved["recorded_utc"]) <= created <= updated <= now < utc(record["expires_at_utc"]),
+    require(utc(reserved["recorded_utc"]) <= created <= updated <= now
+            and updated < utc(record["expires_at_utc"]),
             "CAMPAIGN_LOCAL_REJECT_CLOCK")
     proof_hash = digest(encoded(dict(reference=reference, comment_id=comment["id"],
                                     author_id=author["id"], created_at=created.isoformat(),
@@ -651,6 +656,7 @@ def local_reject_recovery(bundle_path, auth, directory):
                    prior_code_pins_sha256=digest(encoded(prior["code_pins"])),
                    code_pins_sha256=expected["code_pins_sha256"],
                    proof_created_utc=created.isoformat(),
+                   proof_expires_utc=utc(record["expires_at_utc"]).isoformat(),
                    expected_master=auth["expected_master"],
                    prior_workflow_run_floor=prior["workflow_run_floor"],
                    workflow_run_floor=auth["workflow_run_floor"])
@@ -661,6 +667,7 @@ def apply_local_reject_recovery(journal, auth, recovery):
     """Append a typed zero-use closure and immutable receipt, preserving entry1."""
     binding = recovery["binding"]
     if len(journal.entries) == 1:
+        require(utc() < utc(binding["proof_expires_utc"]), "CAMPAIGN_LOCAL_REJECT_CLOCK")
         require(not Path(recovery["receipt_path"]).exists(), "CAMPAIGN_LOCAL_REJECT_RECEIPT_PATH")
         require(digest(bounded_bytes(journal.directory / "progress")) == LOCAL_REJECT["progress"],
                 "CAMPAIGN_LOCAL_REJECT_PREFIX")
@@ -673,10 +680,13 @@ def apply_local_reject_recovery(journal, auth, recovery):
                     and digest(base64.b64decode(deployed["content"])) == auth["code_pins"][path]
                     and digest(bounded_bytes(ROOT / path, 262144).replace(b"\r\n", b"\n")) == auth["code_pins"][path],
                     "CAMPAIGN_DEPLOYED_CODE")
+        require(not campaign_runs(auth["workflow_run_floor"]), "CAMPAIGN_LOCAL_REJECT_REMOTE")
         journal.append("LOCAL_REJECT_RECOVERED", **binding)
     event = journal.entries[1]
+    event_raw = bounded_bytes(journal.directory / "000002.json")
+    require(event_raw == encoded(event), "CAMPAIGN_LOCAL_REJECT_EVENT_BYTES")
     receipt = dict(schema="a1-sip-local-reject-recovery-receipt-v1",
-                   auth_sha256=journal.auth_hash, journal_event_sha256=digest(encoded(event)),
+                   auth_sha256=journal.auth_hash, journal_event_sha256=digest(event_raw),
                    recorded_utc=event["recorded_utc"], **binding)
     raw, path = encoded(receipt), Path(recovery["receipt_path"])
     if path.exists():
@@ -725,6 +735,8 @@ class WorkJournal:
                 if recovery is not None and index == 1:
                     require(digest(raw) == recovery["binding"]["prior_reservation_sha256"],
                             "CAMPAIGN_LOCAL_REJECT_PREFIX")
+                if recovery is not None and index == 2:
+                    require(raw == encoded(entry), "CAMPAIGN_LOCAL_REJECT_EVENT_BYTES")
                 self.parent = digest(raw)
                 self.entries.append(entry)
             if recovery is not None:
@@ -735,7 +747,10 @@ class WorkJournal:
                             and set(event) == {"sequence", "kind", "auth_sha256", "previous_sha256", "recorded_utc"}
                                              | set(recovery["binding"])
                             and all(event.get(k) == v for k, v in recovery["binding"].items())
-                            and utc(recovery["binding"]["proof_created_utc"]) <= utc(event.get("recorded_utc")) <= utc(),
+                            and isinstance(event.get("recorded_utc"), str)
+                            and utc(recovery["binding"]["proof_created_utc"]) <= utc(event["recorded_utc"])
+                                < utc(recovery["binding"]["proof_expires_utc"])
+                            and utc(event["recorded_utc"]) <= utc(),
                             "CAMPAIGN_LOCAL_REJECT_DRIFT")
         except BaseException:
             self.close()
@@ -745,6 +760,10 @@ class WorkJournal:
         entry = dict(sequence=len(self.entries) + 1, kind=kind,
                      auth_sha256=self.auth_hash, previous_sha256=self.parent,
                      recorded_utc=utc().isoformat(), **data)
+        if kind == "LOCAL_REJECT_RECOVERED":
+            require(self.recovery is not None and data == self.recovery["binding"]
+                    and utc(data["proof_created_utc"]) <= utc(entry["recorded_utc"])
+                        < utc(data["proof_expires_utc"]), "CAMPAIGN_LOCAL_REJECT_CLOCK")
         raw = encoded(entry)
         require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
         path = self.directory / f"{entry['sequence']:06d}.json"

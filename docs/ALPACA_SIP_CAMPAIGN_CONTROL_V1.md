@@ -303,3 +303,13 @@ cannot manufacture a relationship.
 
 Both pending-run resume and postwatch settlement recheck the full canonical set
 after receipt/checkpoint-log reads, immediately before the common SETTLED append.
+
+The immutable prior-progress snapshot must resolve outside the entire state
+folder and cannot be a symlink to live progress. Recheck canonical emptiness
+after all deployed-pin reads immediately before closure. Proof expiry permits
+only the initial closure: bind its expiry and require the actual event timestamp
+to be inside its approval window before append. Later resumes verify that same
+canonical event, body/author hash and immutable receipt even after proof expiry;
+this never extends the actual campaign48h/8h clock or permits expired dispatch.
+Event2 must retain its canonical raw bytes, and the receipt anchors the actual
+stored event bytes rather than reserializing an unanchored equivalent object.
