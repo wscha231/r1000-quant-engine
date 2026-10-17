@@ -649,6 +649,9 @@ When the inventory already contains normalized bytes, successful reuse must
 retain existing mode and that row's actual creation clock. New derivation
 requires no normalized inventory candidate; indexed existing objects outside
 the sealed window retain their separately verified actual creation clocks.
+For both modes, inventory observation must precede or equal exact-name lookup,
+which must precede or equal reuse derivation. Historical object creation may
+predate inventory observation; the lookup evidence itself may not.
 
 The v4 OWNER record must explicitly authorize one normalized-only derivation
 from these verified original bytes. Use the existing content-addressed

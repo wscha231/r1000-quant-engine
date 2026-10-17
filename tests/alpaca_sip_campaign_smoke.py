@@ -3026,6 +3026,14 @@ class MaterializationRevisionTests(unittest.TestCase):
                 with self.subTest(mutation=mutation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
                     self.history([(run,value)])
 
+    def test_existing_lookup_cannot_predate_inventory_observation(self):
+        for earlier_derivation in (False,True):
+            run,value=self.completion();reuse=value['drive_orphan_reuse']
+            reuse['materialization']['lookup_observed_at_utc']=c.DRIVE_RECOVERY['window_end']
+            if earlier_derivation:reuse['derived_at_utc']=c.DRIVE_RECOVERY['window_end']
+            with self.subTest(earlier_derivation=earlier_derivation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                self.history([(run,value)])
+
     def test_successful_receipts_must_close_the_same_bounded_inventory(self):
         for mutation in ('pagination','count','missing_raw','two_norm','raw_hash','raw_bytes','norm_hash','clock'):
             run,value=self.completion();inventory=value['orphan_inventory'];entries=inventory['entries']

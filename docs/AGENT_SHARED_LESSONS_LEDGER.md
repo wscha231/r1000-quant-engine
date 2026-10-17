@@ -7357,3 +7357,7 @@ never fill missing provenance with the verifier's current time.
 The exact-head hosted review also required mode/clock binding to any normalized
 inventory row: existing bytes cannot become a new derivation or acquire a
 different server-created time during canonical reconciliation.
+Canonical reconciliation must preserve live observation order too: inventory
+observation precedes lookup in both existing and derived modes, and lookup
+precedes derivation. An older object's creation clock is not an exemption for
+chronologically conflicting new lookup evidence.

@@ -1255,6 +1255,7 @@ def verify_drive_reuse(reuse, identity):
                 and data["original_create_outcome"] == "UNKNOWN"
                 and data["inventory_sha256"] == digest(encoded(evidence))
                 and isinstance(data["created_at_utc"], str) and isinstance(data["lookup_observed_at_utc"], str)
+                and utc(evidence["observed_at_utc"]) <= utc(data["lookup_observed_at_utc"])
                 and utc(data["created_at_utc"]) <= utc(data["lookup_observed_at_utc"])
                     <= utc(reuse["derived_at_utc"])
                 and (not normalized or data["mode"] == "EXISTING_VERIFIED"
