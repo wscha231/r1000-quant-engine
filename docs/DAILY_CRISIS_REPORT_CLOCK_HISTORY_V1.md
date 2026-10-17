@@ -162,12 +162,19 @@ Declared availability requires complete, unique known component names, strict
 boolean flags and parseable clocks for available values. Critical availability
 is recomputed from canonical inputs and cross-checked against those declarations;
 an empty or incomplete metadata record cannot authorize current history updates.
+Every available state-driving component must be fresh, including optional inputs
+such as liquidity. Explicit canonical component clocks must match the consumed
+availability declarations. Malformed inputs stay on the blocked-output path;
+blocked health never reprocesses their invalid clocks outside that boundary.
 STALE_SUCCESS_NOT_CURRENT_REPORT retains the explicit B1 stale-success meaning.
 No blocked observation calls current hysteresis or rewrites its history bytes.
 Current legacy diagnostics additionally require a typed history from the
 immediately preceding XNYS session, valid state/streak and an aware update clock.
 Missing/legacy untyped, malformed, gapped or same-session history requires explicit
 recovery; this patch never initializes, catches up or restores history.
+Current updates and prior history are each bounded to their own XNYS-session
+New York calendar date, after the existing after-close cutoff. A weekend/holiday
+can identify the last completed session but cannot retroactively advance it.
 The existing bounded history counter may reach its cap but cannot increment
 beyond it; a changed raw state still resets the streak normally.
 
@@ -183,8 +190,16 @@ The existing pinned B1 report route remains available under its own strict contr
 
 The existing cadence consumer treats explicit BLOCKED as a data boundary: it
 does not fall back to diagnostic raw state or integrated historical GREEN/reentry
-state, and its build entry point refuses before decision computation or output
-creation. This is a Main read guard, not a new portfolio policy or trading action.
+state, and its build entry point refuses before decision computation. Before
+failing it invalidates only the six known cadence outputs, writes blocked JSON/
+Markdown markers and empty CSVs, so a wrapper that continues after failure cannot
+publish surviving BUY/reentry decisions. Unrelated files are preserved. This is
+a Main data boundary, not a new portfolio policy or trading action.
+Missing, malformed, untyped or aged monitor summaries also block: the consumer
+rechecks the generated clock and source session against its own host/XNYS clock.
+The old cadence smoke uses an explicit pinned historical clock fixture, not
+implicit current eligibility. An inference/input exception similarly writes a
+blocked monitor summary without exposing private exception text.
 
 Combined raw state remains an UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC; individual
 long-crisis metadata and source clocks retain their source-session scope.

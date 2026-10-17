@@ -121,7 +121,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None):
+    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None, inference_error=None):
         observed = datetime.fromisoformat(now)
         values = dict(market_trend_damage_score=0.1, qqq_below_ma200=0.0, qqq_ma200=100.0,
                       hy_oas_zscore_252d=0.1, vix_zscore_252d=0.1, liquidity_confirmation_score=0.1,
@@ -154,7 +154,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
             history=str(history_path), update_history=update, long_crisis_features="not-read.parquet",
             long_crisis_thresholds="not-read.json", report_now=report_now)
         with patch.object(clock, "trusted_now", return_value=observed), \
-             patch.object(monitor, "infer_raw_state", return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
+             patch.object(monitor, "infer_raw_state", side_effect=inference_error, return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
              patch.object(monitor, "apply_hysteresis", wraps=monitor.apply_hysteresis) as hysteresis:
             out = build_monitor(args)
         stored = json.loads((self.root/"report/summary.json").read_text(encoding="utf-8"))
@@ -210,9 +210,10 @@ class LegacyCurrentnessTests(unittest.TestCase):
         for session, now in (("2026-10-16", "2026-10-18T15:00:00+00:00"),
                              ("2026-07-02", "2026-07-03T15:00:00+00:00")):
             with self.subTest(now=now):
-                out, _, _, _ = self.run_case(session=session, now=now)
+                result = self.run_case(session=session, now=now)
+                out = result[0]
                 self.assertEqual(out["expected_session"], session)
-                self.assertEqual(out["state"], "GREEN")
+                self.assert_current_blocked(result, "LATE_SESSION_NOT_RETROACTIVE")
 
     def test_early_close_uses_existing_one_hour_report_cutoff(self):
         self.assert_current_blocked(self.run_case(session="2026-11-27", now="2026-11-27T18:30:00+00:00"), "SLOT_NOT_DUE")
@@ -252,6 +253,40 @@ class LegacyCurrentnessTests(unittest.TestCase):
         for change in (missing, stale, unavailable, hidden_stale):
             with self.subTest(change=change.__name__):
                 self.assert_current_blocked(self.run_case(mutate=change))
+
+    def test_available_noncritical_state_inputs_cannot_be_stale(self):
+        for name in ("liquidity", "rate_shock"):
+            with self.subTest(name=name):
+                def change(meta):
+                    next(r for r in meta["component_availability"] if r["component"] == name)["fresh"] = False
+                self.assert_current_blocked(self.run_case(mutate=change), "STALE_STATE_INPUT")
+                self.assert_current_blocked(self.run_case(mutate=lambda m:m["canonical_state_inputs"].update({name+"_stale":True})),
+                                            "STALE_STATE_INPUT")
+
+    def test_malformed_availability_still_writes_blocked_summary(self):
+        for value in ({"bad":"clock"}, ["2026-10-16"], 3, True):
+            with self.subTest(value=value):
+                self.assert_current_blocked(self.run_case(mutate=lambda m:m["component_availability"][0].update(available_from=value)))
+                self.assert_current_blocked(self.run_case(mutate=lambda m:m["canonical_state_inputs"].update(hy_oas_available_from=value)))
+
+    def test_history_clock_is_bound_to_prior_new_york_report_window(self):
+        for value in ("2026-10-16T21:30:00Z", "2026-10-16T04:00:00Z", "2026-10-15T20:59:59Z"):
+            with self.subTest(value=value):
+                self.assert_current_blocked(self.run_case(history_mutate=lambda h:h.update(updated_at_utc=value)),
+                                            "HISTORY_CLOCK_INVALID")
+        out = self.run_case(history_mutate=lambda h:h.update(updated_at_utc="2026-10-16T03:59:59Z"))[0]
+        self.assertEqual(out["current_report_status"], "CURRENT_LEGACY_DIAGNOSTIC")
+
+    def test_inference_failure_replaces_current_summary_with_blocked(self):
+        out, before, after, calls = self.run_case(inference_error=ValueError("PRIVATE_INPUT_SENTINEL"))
+        self.assertIsNone(out["state"])
+        self.assertIsNone(out["raw_state"])
+        self.assertEqual(out["current_report_status"], "BLOCKED")
+        self.assertEqual(out["data_health"], "DATA_BLOCKED")
+        self.assertEqual(out["paper_action_candidates"], [])
+        self.assertEqual(before, after)
+        self.assertEqual(calls, 0)
+        self.assertNotIn("PRIVATE_INPUT_SENTINEL", json.dumps(out))
 
     def test_missing_stale_duplicate_or_malformed_history_requires_recovery(self):
         def absent(h):h.clear()
@@ -316,10 +351,52 @@ class LegacyCurrentnessTests(unittest.TestCase):
                 self.assertEqual(context["reentry_stage"], "")
                 args = SimpleNamespace(latest_run=str(latest), price_cache=str(self.root/"unused"),
                                        output_dir=str(self.root/"cadence_output"), max_watchlist_candidates=1)
+                old_output = Path(args.output_dir)
+                old_output.mkdir(exist_ok=True)
+                names = ("daily_holdings_review.csv", "weekly_watchlist_refresh.csv", "monthly_event_rerank_plan.json",
+                         "decision_cadence_summary.json", "abcd_cadence_preregistration.json", "decision_cadence_report.md")
+                for name in names:
+                    (old_output/name).write_text("STALE_BUY_REENTRY")
                 with patch.object(cadence, "current_holdings", side_effect=AssertionError("decision computation reached")):
                     with self.assertRaisesRegex(ValueError, "CURRENT_CRISIS_REPORT_BLOCKED"):
                         cadence.build_review(args)
-                self.assertFalse((self.root/"cadence_output").exists())
+                for name in names:
+                    self.assertNotIn("STALE_BUY_REENTRY", (old_output/name).read_text())
+                summary = json.loads((old_output/"decision_cadence_summary.json").read_text())
+                self.assertEqual(summary["current_report_status"], "BLOCKED")
+                self.assertFalse(summary["available"])
+                self.assertFalse(summary["new_buy_allowed"])
+                self.assertFalse(summary["mid_month_reentry_allowed"])
+                self.assertEqual(summary["event_triggers_active"], [])
+                self.assertTrue(pd.read_csv(old_output/"daily_holdings_review.csv").empty)
+                self.assertTrue(pd.read_csv(old_output/"weekly_watchlist_refresh.csv").empty)
+
+    def test_cadence_requires_current_monitor_without_missing_or_old_fallback(self):
+        from tools import run_decision_cadence_review as cadence
+        valid = self.run_case()[0]
+        latest = self.root/"current_cadence"
+        monitor_dir = latest/"daily_crisis_monitor"
+        monitor_dir.mkdir(parents=True)
+        integrated = latest/"integrated_theme_leader_crisis_replay"
+        integrated.mkdir()
+        (integrated/"daily_crisis_state.csv").write_text("crisis_state,reentry_stage\nGREEN,REENTRY_STAGE_1\n")
+        cases = (None, {"state":"GREEN", "raw_state":"GREEN"},
+                 dict(valid, generated_at_utc="2026-03-20T22:00:00Z"),
+                 dict(valid, risk_as_of_session="2026-03-20"),
+                 dict(valid, generated_at_utc="2026-10-18T00:00:00Z"))
+        with patch.object(clock, "trusted_now", return_value=datetime.fromisoformat("2026-10-17T00:45:00+00:00")):
+            for payload in cases:
+                with self.subTest(payload=payload):
+                    path = monitor_dir/"summary.json"
+                    if payload is None:path.unlink(missing_ok=True)
+                    else:path.write_text(json.dumps(payload))
+                    context = cadence.crisis_context(latest)
+                    self.assertEqual(context["current_report_status"], "BLOCKED")
+                    self.assertIsNone(context["daily_monitor_state"])
+                    self.assertIsNone(context["daily_crisis_state_latest"])
+                    self.assertEqual(context["reentry_stage"], "")
+            (monitor_dir/"summary.json").write_text(json.dumps(valid))
+            self.assertEqual(cadence.crisis_context(latest)["daily_monitor_state"], "GREEN")
 
     def test_explicit_historical_report_route_remains_separate(self):
         marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}

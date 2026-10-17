@@ -290,7 +290,22 @@ def watchlist_candidates(latest_run: Path, max_candidates: int) -> pd.DataFrame:
 def crisis_context(latest_run: Path) -> dict[str, Any]:
     integrated_states = read_csv(latest_run / "integrated_theme_leader_crisis_replay" / "daily_crisis_state.csv")
     daily = read_json(latest_run / "daily_crisis_monitor" / "summary.json")
-    if daily.get("current_report_status") == "BLOCKED":
+    try:
+        from tools import daily_crisis_report_clock as clock
+        clock.need(daily.get("schema_version") == "daily-crisis-monitor-v2"
+                   and daily.get("current_report_status") == "CURRENT_LEGACY_DIAGNOSTIC"
+                   and daily.get("data_health") == "DATE_CURRENT_DIAGNOSTIC", "CURRENT_MONITOR_UNVERIFIED")
+        now = clock.trusted_now().isoformat()
+        expected = clock.completed_session_clock(now)
+        observed = clock.stamp(now)
+        generated = clock.stamp(daily.get("generated_at_utc"))
+        session = expected["expected_session"]
+        clock.need(daily.get("risk_as_of_session") == session and daily.get("expected_session") == session
+                   and observed.astimezone(clock.NY).date().isoformat() == session
+                   and generated.astimezone(clock.NY).date().isoformat() == session
+                   and clock.stamp(expected["decision_cutoff_utc"]) <= generated <= observed,
+                   "CURRENT_MONITOR_UNVERIFIED")
+    except Exception:
         return dict(daily_monitor_state=None, daily_monitor_raw_state=None,
                     integrated_daily_state_available=False, daily_crisis_state_latest=None,
                     reentry_stage="", reentry_trigger="", current_report_status="BLOCKED",
@@ -551,6 +566,28 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     output_dir = repo_path(args.output_dir)
     crisis = crisis_context(latest_run)
     if crisis.get("current_report_status") == "BLOCKED":
+        # The existing wrapper may continue after failure. Invalidate every
+        # known prior cadence output before returning, never reuse old decisions.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        names = ("daily_holdings_review.csv", "weekly_watchlist_refresh.csv", "monthly_event_rerank_plan.json",
+                 "decision_cadence_summary.json", "abcd_cadence_preregistration.json", "decision_cadence_report.md")
+        for name in names:
+            (output_dir/name).unlink(missing_ok=True)
+        blocked = dict(status="BLOCKED", current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                       available=False, blockers=["CURRENT_CRISIS_REPORT_BLOCKED"], crisis_state=None,
+                       reentry_stage="", reentry_trigger="", event_triggers_active=[],
+                       mid_month_reentry_allowed=False, new_buy_allowed=False,
+                       automatic_promotion_allowed=False, daily_full_universe_rerank=False,
+                       weekly_full_universe_rerank=False, daily_exit_review_count=0,
+                       daily_warning_or_no_add_count=0, weekly_add_candidate_count=0)
+        for name in names:
+            if name.endswith(".json"):
+                write_json(output_dir/name, blocked)
+        pd.DataFrame(columns=["ticker", "new_buy_allowed", "daily_review_action", "daily_review_reason", "crisis_state"]).to_csv(
+            output_dir/"daily_holdings_review.csv", index=False)
+        pd.DataFrame(columns=["ticker", "weekly_review_action", "weekly_review_reason"]).to_csv(
+            output_dir/"weekly_watchlist_refresh.csv", index=False)
+        (output_dir/"decision_cadence_report.md").write_text("# Decision Cadence Review\n\nBLOCKED: CURRENT_CRISIS_REPORT_BLOCKED\n", encoding="utf-8")
         raise ValueError("CURRENT_CRISIS_REPORT_BLOCKED")
     output_dir.mkdir(parents=True, exist_ok=True)
     current = current_holdings(latest_run)

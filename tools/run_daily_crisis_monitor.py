@@ -219,6 +219,8 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
         result.update(clock.completed_session_clock(now))
         cutoff = clock.stamp(result["decision_cutoff_utc"])
         clock.need(clock.stamp(now) >= cutoff, "SLOT_NOT_DUE")
+        clock.need(clock.stamp(now).astimezone(clock.NY).date().isoformat() == result["expected_session"],
+                   "LATE_SESSION_NOT_RETROACTIVE")
         clock.need(long_crisis.get("available") is True, "REAL_INPUT_WAIT")
         source_session = long_crisis.get("latest_date")
         clock.need(clock.session_times(source_session) is not None, "SOURCE_SESSION_NOT_TRADING")
@@ -229,6 +231,10 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
         clock.need(isinstance(records, list) and bool(records), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
         values = long_crisis.get("canonical_state_inputs")
         clock.need(isinstance(values, dict), "SOURCE_AVAILABILITY_METADATA")
+        for spec in component_availability({}):
+            key = spec.component + "_available_from"
+            if key in values and values[key] not in (None, ""):
+                clock.stamp(values[key])
         expected = {row.component: row for row in component_availability(values, decision_time=now)}
         declared = {}
         for record in records:
@@ -245,9 +251,16 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
             if original_clock or record.get("available") is True:
                 available = clock.stamp(original_clock)
                 clock.need(available <= cutoff, "SOURCE_AVAILABLE_AFTER_DECISION")
+            key = name + "_available_from"
+            if key in values and (record["available"] or values[key] not in (None, "")):
+                canonical_clock = clock.stamp(values[key])
+                clock.need(original_clock and clock.stamp(original_clock) == canonical_clock,
+                           "SOURCE_AVAILABILITY_METADATA")
         clock.need(set(declared) == set(expected), "SOURCE_AVAILABILITY_METADATA")
         clock.need(all(row.available and row.fresh and declared[name]["available"] and declared[name]["fresh"]
                        for name, row in expected.items() if row.critical), "MISSING_CRITICAL_COMPONENTS")
+        clock.need(all(row.fresh and declared[name]["fresh"] for name, row in expected.items() if row.available),
+                   "STALE_STATE_INPUT")
         clock.need(not long_crisis.get("missing_critical_components"), "MISSING_CRITICAL_COMPONENTS")
         result.update(current_report_status="CURRENT_LEGACY_DIAGNOSTIC", data_health="DATE_CURRENT_DIAGNOSTIC",
                       history_update_allowed=True)
@@ -277,7 +290,9 @@ def legacy_context_health(health: dict[str, Any], long_crisis: dict[str, Any],
                    "HISTORY_STREAK_LIMIT")
         prior = clock.session_times(health["previous_session"])
         clock.need(prior is not None, "HISTORY_RECOVERY_REQUIRED")
-        clock.need(prior["AFTER_CLOSE"] <= clock.stamp(history.get("updated_at_utc")) <= clock.stamp(now),
+        history_clock = clock.stamp(history.get("updated_at_utc"))
+        clock.need(prior["AFTER_CLOSE"] <= history_clock <= clock.stamp(now)
+                   and history_clock.astimezone(clock.NY).date().isoformat() == health["previous_session"],
                    "HISTORY_CLOCK_INVALID")
         sidecars = long_crisis.get("raw_state_sidecar_clocks")
         names = {"risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot"}
@@ -306,19 +321,25 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     history_path = repo_path(args.history)
     history = read_json(history_path)
-    raw_state, reasons, long_crisis = infer_raw_state(
-        latest_run,
-        repo_path(args.long_crisis_features),
-        repo_path(args.long_crisis_thresholds),
-    )
+    try:
+        raw_state, reasons, long_crisis = infer_raw_state(
+            latest_run,
+            repo_path(args.long_crisis_features),
+            repo_path(args.long_crisis_thresholds),
+        )
+    except Exception:
+        # A wrapper may ignore exit status; input/inference failure must still
+        # replace the current summary with data-health BLOCKED, never old GREEN.
+        raw_state, reasons, long_crisis = None, ["INFERENCE_INPUT_UNAVAILABLE"], {"available":False}
     health = legacy_current_report_health(long_crisis, now)
     health = legacy_context_health(health, long_crisis, history, now, raw_state)
     long_crisis = dict(long_crisis)
     long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
     long_crisis["current_report_eligible"] = health["current_report_status"] != "BLOCKED"
-    state_values = dict(long_crisis.get("canonical_state_inputs") or {})
+    inputs = long_crisis.get("canonical_state_inputs")
+    state_values = dict(inputs) if isinstance(inputs, dict) and health["current_report_status"] != "BLOCKED" else {}
     records = long_crisis.get("component_availability")
-    for record in records if isinstance(records, list) else []:
+    for record in records if isinstance(records, list) and health["current_report_status"] != "BLOCKED" else []:
         if isinstance(record, dict) and isinstance(record.get("component"), str):
             component = record["component"]
             if record.get("available_from"):

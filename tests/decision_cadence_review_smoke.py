@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from datetime import datetime
+from unittest.mock import patch
 from argparse import Namespace
 from pathlib import Path
 
@@ -14,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.run_decision_cadence_review import build_review  # noqa: E402
+from tools import daily_crisis_report_clock as clock
 from tools.run_weekly_evaluation import px_cache_name  # noqa: E402
 
 
@@ -77,7 +80,10 @@ def test_decision_cadence_outputs_mid_month_reentry_review() -> None:
             ]
         ).to_csv(latest / "reports" / "candidate_replay_book.csv", index=False)
         (latest / "daily_crisis_monitor" / "summary.json").write_text(
-            json.dumps({"state": "REENTRY_READY", "raw_state": "REENTRY_READY"}),
+            json.dumps({"state": "REENTRY_READY", "raw_state": "REENTRY_READY",
+                        "schema_version":"daily-crisis-monitor-v2", "current_report_status":"CURRENT_LEGACY_DIAGNOSTIC",
+                        "data_health":"DATE_CURRENT_DIAGNOSTIC", "risk_as_of_session":"2025-11-19",
+                        "expected_session":"2025-11-19", "generated_at_utc":"2025-11-19T23:00:00Z"}),
             encoding="utf-8",
         )
 
@@ -86,14 +92,16 @@ def test_decision_cadence_outputs_mid_month_reentry_review() -> None:
         write_price(cache, "SPY", 400.0, 0.0002)
         write_price(cache, "QQQ", 350.0, 0.0003)
 
-        summary = build_review(
-            Namespace(
-                latest_run=str(latest),
-                price_cache=str(cache),
-                output_dir=str(out),
-                max_watchlist_candidates=10,
+        # Pinned historical clock fixture, never current Source/PIT admission.
+        with patch.object(clock, "trusted_now", return_value=datetime.fromisoformat("2025-11-19T23:05:00+00:00")):
+            summary = build_review(
+                Namespace(
+                    latest_run=str(latest),
+                    price_cache=str(cache),
+                    output_dir=str(out),
+                    max_watchlist_candidates=10,
+                )
             )
-        )
         assert summary["daily_full_universe_rerank"] is False
         assert summary["weekly_full_universe_rerank"] is False
         assert summary["mid_month_reentry_allowed"] is True
