@@ -2505,4 +2505,316 @@ class NamedExternalRecoveryTests(unittest.TestCase):
         prefix.write_bytes(before)
 
 
+class DriveRevisionTests(unittest.TestCase):
+    """A second *named* transition; all evidence here is offline synthetic."""
+    def setUp(self):
+        n=NamedExternalRecoveryTests(); n.setUp(); self.addCleanup(n.doCleanups)
+        self.n=n; self.b=n.base; self.pairs=[]
+        j=c.external_journal(self.b.cohort_state,n.new,n.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision)
+        with patch.object(c,'external_proof',return_value=n.old_proof):
+            family=c.external_family_registry(self.b.state,n.new,self.b.cohort_state)
+        for before,end,index in [(120,128,10),(128,160,11),(160,169,12)]:
+            run,value=n.next_pair(before,end,index,self.pairs)
+            if index==12:
+                run['conclusion']='failure'
+                value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=160,
+                    checkpoint_sha256=value['parent_checkpoint_sha256'],rows_verified=0,
+                    new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                    last_transport_failure=dict(http_status=502,method='POST',phase='HEADER_OPEN',request_category='DRIVE_CREATE',request_ordinal=343))
+            n.append_pair(j,family,run,value,n.new_proof); self.pairs.append((run,value))
+        j.close();family.close()
+        spec=dict(c.DRIVE_RECOVERY,prior_auth=n.new_hash,master=n.new['expected_master'],run_id=12,
+            receipt_sha256=c.digest(c.encoded(self.pairs[-1][1])),checkpoint_sha256=self.pairs[-1][1]['checkpoint_sha256'],
+            cohort_event_sha256=c.digest((self.b.cohort_state/'000023.json').read_bytes()),
+            family_event_sha256=c.digest((n.family_path/'000022.json').read_bytes()))
+        patcher=patch.dict(c.DRIVE_RECOVERY,spec,clear=True);patcher.start();self.addCleanup(patcher.stop)
+        self.new=copy.deepcopy(n.new); self.new.update(schema='r1000-sip-external-cohort-authorization-v3',expected_master='5'*40)
+        ex=self.new['external_cohort'];old_ref=ex['proof_reference'];ex['proof_reference']=self.b.reference+'9999'
+        self.new['account_permission_reference']=ex['proof_reference']
+        ex['drive_recovery']=dict(prior_capture_source=dict(expected_master=n.new['expected_master'],
+            code_pins=n.new['code_pins'],proof_reference=old_ref),failed_run_id=12,
+            failed_receipt_sha256=spec['receipt_sha256'],checkpoint_sha256=spec['checkpoint_sha256'],examined=160)
+        self.h=c.validate_authorization(self.new);self.proof=self.b.proof(self.new);n.proofs[self.h]=self.proof
+
+    def history(self,extra=(),**kwargs):
+        return self.n.history(self.pairs+list(extra),auth_value=self.new,**kwargs)
+
+    def completion(self,end=169):
+        run,value=self.n.next_pair(160,end,13,self.pairs)
+        run['head_sha']=self.new['expected_master']
+        value.update(auth_sha256=self.h,source_sha=self.new['expected_master'],recovery_run=12,
+            external_proof_sha256=self.proof['proof_sha256'],account_permission_record_sha256=self.proof['proof_sha256'],
+            account_permission_reference_sha256=c.digest(self.new['external_cohort']['proof_reference'].encode()))
+        value['drive_orphan_reuse']=dict(failed_run_id=12,capture_source_sha=c.DRIVE_RECOVERY['master'],
+            derivation_source_sha=self.new['expected_master'],raw_sha256='b'*64,normalized_sha256='c'*64,
+            external_proof_sha256=self.proof['proof_sha256'],derivation_run_id=run['id'],
+            derivation_auth_sha256=self.h,parent_checkpoint_sha256=c.DRIVE_RECOVERY['checkpoint_sha256'],
+            derived_at_utc=c.utc().isoformat(),failed_run_observation_window=[c.DRIVE_RECOVERY['window_start'],c.DRIVE_RECOVERY['window_end']])
+        return run,value
+
+    def test_exact_three_versions_and_all_spent_costs_preserved(self):
+        self.assertEqual(c.external_previous(self.new),self.n.new)
+        self.assertEqual(c.external_variants(self.new),[self.n.old,self.n.new,self.new])
+        observed=self.history(recovery_run=12)
+        self.assertEqual(observed['examined'],160);self.assertEqual(len(observed['runs']),12)
+        self.assertEqual(observed['recovery_required'],12)
+        expected=c.CONTINUATION['used']['provider_gets']+sum(v['usage']['provider_gets'] for v in self.n.values+[p[1] for p in self.pairs])
+        self.assertEqual(observed['used']['provider_gets'],expected)
+        self.assertEqual(self.history([self.completion()])['examined'],169)
+        for flag in (9,13):
+            with self.subTest(flag=flag),self.assertRaises(c.Refused):self.history(recovery_run=flag)
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_CLOSURE'):self.history([self.completion(164)])
+
+    def test_sealed_old23_and_binding24_reject_proof_or_prefix_drift(self):
+        before={p.name:p.read_bytes() for p in self.b.cohort_state.glob('*.json')}
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof)
+            j.append('EXTERNAL_DRIVE_RECOVERY_BOUND',**j.drive_revision);j.close()
+            self.assertEqual(before,{p.name:p.read_bytes() for p in self.b.cohort_state.glob('*.json') if p.name in before})
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof);j.close()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_DRIVE_BINDING'):
+                c.external_journal(self.b.cohort_state,self.new,dict(self.proof,proof_sha256='0'*64))
+            (self.b.cohort_state/'000023.json').write_bytes(before['000023.json']+b' ')
+            with self.assertRaises(c.Refused):c.external_journal(self.b.cohort_state,self.new,self.proof)
+
+    def test_new_failure_is_terminal_and_wrong_target_cannot_bind(self):
+        run,value=self.completion();run['conclusion']='failure'
+        value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=160,checkpoint_sha256=value['parent_checkpoint_sha256'])
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.history([(run,value)])
+        self.assertEqual(self.history([(run,value)],allow_stopped=True)['examined'],160)
+        for field in ('failed_run_id','failed_receipt_sha256','checkpoint_sha256','examined'):
+            bad=copy.deepcopy(self.new);old=bad['external_cohort']['drive_recovery'][field]
+            bad['external_cohort']['drive_recovery'][field]=old+1 if type(old)is int else '0'*64
+            with self.subTest(field=field),self.assertRaises(c.Refused):c.validate_authorization(bad)
+
+    def test_max1_unknown_post_and_family22_prefix_guard(self):
+        observed=self.history(recovery_run=12);posted=[]
+        def operation(args,**kwargs):
+            data=json.loads(kwargs['input']);self.assertEqual(data['max_new_symbols'],'9')
+            self.assertEqual(json.loads(data['campaign_control'])['recovery_run'],12);posted.append(data)
+            return SimpleNamespace(returncode=1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No POST')):
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,2)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=operation),self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+        self.assertEqual(len(posted),1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')),self.assertRaises(c.Refused):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+
+    def test_prior500_wrapper_checks_both_revision_events_and_control_size(self):
+        pair=self.completion()
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof)
+            j.append('EXTERNAL_DRIVE_RECOVERY_BOUND',**j.drive_revision)
+            family=c.external_family_registry(self.b.state,self.new,self.b.cohort_state)
+            self.n.append_pair(j,family,*pair,self.proof);j.close();family.close()
+        later=copy.deepcopy(self.n.old);ex=later['external_cohort']
+        raw='ticker\n'+''.join('Q%03d\n'%i for i in range(500))
+        ex.update(input_csv=raw,prior_epochs=[self.new],proof_reference=self.b.reference+'99999')
+        ex['scope']=dict(ex['scope'],namespace='fixture-marketcap-500',input_sha256=c.digest(raw.encode()))
+        later.update(expected_master=self.new['expected_master'],code_pins=self.new['code_pins'],account_permission_reference=ex['proof_reference'])
+        h=c.validate_authorization(later);self.n.proofs[h]=self.b.proof(later)
+        observed=self.n.history(self.pairs+[pair],auth_value=later)
+        with patch.object(c,'external_proof',return_value=self.n.old_proof):
+            family=c.external_family_registry(self.b.state,later,self.b.root/'external-cohort-fixture-marketcap-500')
+        try:
+            with patch.object(c,'external_proof',side_effect=AssertionError('No remote I/O in final local guard')):
+                c.verify_external_prior_journals(family,later,observed)
+                missing=dict(observed,epoch_proofs={k:v for k,v in observed['epoch_proofs'].items() if k!=self.n.new_hash})
+                with self.assertRaisesRegex(c.Refused,'EXTERNAL_PRIOR_JOURNAL_DRIFT'):
+                    c.verify_external_prior_journals(family,later,missing)
+        finally:family.close()
+        self.assertLessEqual(len(c.encoded(dict(authorization=later,nonce=c.PREFIX+'a'*24,
+            recovery_run=None,preflight_only=False,external_binding=self.n.proofs[h]))),16384)
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000024.json')['kind'],'EXTERNAL_DRIVE_RECOVERY_BOUND')
+
+    def test_worker_reconciles_before_provider_then_only_remaining_five(self):
+        from contextlib import ExitStack
+        observed=self.history(recovery_run=12);run,_=self.completion();run.update(status='in_progress',conclusion=None)
+        observed['runs']=observed['runs']+[run]
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],private_data_folder_id=self.new['private_data_folder_id'],
+            start=self.new['start'],end=self.new['end'],max_new_symbols=9,resume_sha256=c.DRIVE_RECOVERY['checkpoint_sha256'],resume_file_id='fixture-parent-160')
+        control=dict(authorization=self.new,nonce=run['display_title'][7:],recovery_run=12,preflight_only=False,external_binding=self.proof)
+        env=dict(GITHUB_SHA=self.new['expected_master'],GITHUB_RUN_ID=str(run['id']),INPUT_CAMPAIGN_NONCE=control['nonce'],ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')
+        original=c.RuntimeMeter;opener=Opener(body=b'{}');meters=[];reconciled=[]
+        def create(*a,**k):
+            value=original(*a,opener=opener,**k);meters.append(value);return value
+        def recover(drive,a,auth_value,meter):
+            self.assertEqual(meter.used['provider_gets'],0);reconciled.append(1)
+            meter.examined=164;meter.checkpoint_sha='b'*64;return dict(file_id='fixture-parent-164',sha256='b'*64)
+        def collect(a,**k):
+            k['drive_factory'](a.private_root_folder_id,str(self.b.root))
+            self.assertEqual(reconciled,[1]);self.assertEqual(a.max_new_symbols,5);self.assertEqual(a.resume_sha256,'b'*64)
+            self.assertEqual(k['expected_examined'],164)
+            for symbol in cap.external_cohort(self.new['external_cohort']['input_csv'].encode())[164:169]:
+                k['get']('https://paper-api.alpaca.markets/v2/assets/'+symbol)
+            meter=meters[-1];meter.examined=169;meter.checkpoint_sha='c'*64
+            return dict(checkpoint=dict(sha256='c'*64))
+        def context():
+            stack=ExitStack();stack.enter_context(patch.dict(os.environ,env))
+            stack.enter_context(patch.object(c,'verify_worker_source',return_value=None))
+            stack.enter_context(patch.object(c,'external_history',return_value=observed))
+            stack.enter_context(patch.object(c,'external_proof',return_value=self.proof))
+            stack.enter_context(patch.object(c,'campaign_runs',return_value=observed['runs']))
+            stack.enter_context(patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=60)))
+            stack.enter_context(patch.object(c,'RuntimeMeter',side_effect=create))
+            stack.enter_context(patch.object(drive_module,'OwnerDrive',return_value=SimpleNamespace(owner=self.new['owner_permission_id'],free=3*1024**3)))
+            stack.enter_context(patch.object(cap,'_collect',side_effect=collect));return stack
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=c.Refused('EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS')),self.assertRaises(c.Refused):
+            c.external_worker(args,control,self.b.root/'worker-missing-meter')
+        self.assertEqual(opener.calls,0);self.assertEqual(meters[-1].examined,160)
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=recover):
+            c.external_worker(args,control,self.b.root/'worker-five-meter')
+        self.assertEqual(opener.calls,5);self.assertEqual(args.max_new_symbols,9)
+        self.assertEqual(c.bounded_json(self.b.root/'worker-five-meter')['examined_after'],169)
+
+    def test_expiry_missing_failure_and_changed_provenance_refuse(self):
+        original=c.utc;future=original(self.proof['expires_at_utc'])+timedelta(seconds=1)
+        with patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)),self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):
+            self.history(recovery_run=12)
+        removed=self.pairs.pop()
+        try:
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):self.history(recovery_run=12)
+        finally:self.pairs.append(removed)
+        run,value=self.completion();value['drive_orphan_reuse']['capture_source_sha']='0'*40
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_PROVENANCE'):self.history([(run,value)])
+
+    def close_host_once(self):
+        before=self.history(recovery_run=12);pair=self.completion();after=self.history([pair]);posted=[]
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:posted.append(json.loads(kwargs['input']))
+            else:self.assertEqual(args[1:3],['run','watch'])
+            return SimpleNamespace(returncode=0)
+        ref=dict(file_id='fixture-new-checkpoint-169',sha256=pair[1]['checkpoint_sha256'],bytes=100)
+        with self.n.host_context(before), \
+             patch.object(c,'external_history',side_effect=lambda *a,**k:after if posted else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if posted else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('d'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation),patch.object(c,'checkpoint_from_log',return_value=ref):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+        self.assertEqual(result['status'],'COHORT_PROCESSED');self.assertEqual(result['examined'],169)
+        self.assertEqual(len(posted),1);self.assertEqual(posted[0]['max_new_symbols'],'9')
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000027.json')['receipt'],pair[1])
+        self.assertEqual(c.bounded_json(self.n.family_path/'000025.json')['kind'],'SETTLED')
+        return after,ref
+
+    def test_complete9_host_selects_active_proof_and_restart_never_reposts(self):
+        after,ref=self.close_host_once()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)
+        self.assertEqual(result['examined'],169);self.assertEqual(len(list(self.b.cohort_state.glob('*.json'))),27)
+
+    def test_completed9_import_and_family_repair_consume_one_batch(self):
+        after,ref=self.close_host_once()
+        (self.b.cohort_state/'000027.json').unlink();(self.n.family_path/'000025.json').unlink()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')), \
+             patch.object(c,'checkpoint_from_log',return_value=ref):
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+            (self.n.family_path/'000025.json').unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+
+
+class DriveOrphanReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        self.group=['TWST','UBS','UL','UPST'];self.names=['ZZZ%03d'%n for n in range(160)]+self.group+['VCYT','VICR','VIR','VSTM','WULF']
+        raw=('ticker\n'+'\n'.join(self.names)+'\n').encode();scope=dict(task_key='R1000-DISCOVERY-EXPANSION-INTAKE-20261017',namespace='discovery169-20261017',input_sha256=c.digest(raw))
+        self.auth=dict(expected_master='5'*40,start='2016-01-04',end='2026-10-14',external_cohort=dict(input_csv=raw.decode(),scope=scope))
+        self.args=SimpleNamespace(private_data_folder_id='fixture-folder-123',resume_file_id='fixture-checkpoint-160',resume_sha256='a'*64)
+        assets=[]
+        for symbol in self.group:
+            asset=c.encoded(dict(symbol=symbol,**{'class':'us_equity'},id='00000000-0000-0000-0000-000000000001',exchange='NASDAQ',status='active'))
+            assets.append(dict(symbol=symbol,url='https://paper-api.alpaca.markets/v2/assets/'+symbol,collected_at_utc='2026-10-17T12:24:00Z',http_status=200,response_utf8=asset.decode(),sha256=c.digest(asset)))
+        bar=dict(t='2026-10-01T00:00:00Z',o=1,h=2,l=1,c=2,v=4)
+        payload=c.encoded(dict(bars={s:[bar] for s in self.group},next_page_token=None));member=c.digest(payload)+'.json'
+        pages=[dict(sha256=c.digest(payload),bytes=len(payload),member=member,page=0,symbols=self.group,adjustment=b) for b in ('raw','split')]
+        self.manifest=dict(schema=cap.SCHEMA,source=cap.SOURCE,symbols=self.group,collected=self.group,no_bars=[],start=self.auth['start'],end=self.auth['end'],asof='2026-10-13',
+            seed_sha256=scope['input_sha256'],source_sha='4'*40,pages=pages,raw_adjustments=['raw','split'],historical_identity_verified=False,pit_verified=False,source_admission=False,commercial_use_authorized=False,cohort_scope=scope,asset_precheck=assets)
+        self.members={member:payload};self.raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(self.manifest)}))
+        rows=[r for s in self.group for b in ('raw','split') for r in cap.normalize([bar],s,b,self.auth['start'],self.auth['end'])]
+        self.norm=cap.gzip.compress(b''.join(c.encoded(r) for r in rows),mtime=0)
+        self.store={'fixture-raw-123':self.raw,'fixture-norm-123':self.norm};self.suffix={'fixture-raw-123':'.zip','fixture-norm-123':'.jsonl.gz'};self.writes=[]
+        self.listing=[dict(id=k,name=c.digest(v)+self.suffix[k],size=str(len(v)),parents=[self.args.private_data_folder_id],createdTime='2026-10-17T12:25:00Z') for k,v in self.store.items()]
+        test=self
+        class Drive:
+            token='OFFLINE_ONLY'; owner='fixture-owner'
+            def request(self,url,**kwargs):
+                q=parse_qs(urlsplit(url).query)['q'][0]
+                if 'createdTime' in q:return c.encoded(test.reply)
+                name=q.split("name = '")[1].split("'")[0]
+                return c.encoded(dict(files=[dict(id=k,name=name) for k,v in test.store.items() if c.digest(v)+test.suffix[k]==name]))
+            def check(self,fid,parent=None,folder=False):
+                c.require(fid in test.store and parent==test.args.private_data_folder_id,'OFFLINE_OWNER_REFUSAL')
+            def read(self,fid,limit=16_000_000):return test.store[fid]
+            def write(self,folder,raw,extension):
+                test.assertEqual(extension,'.json');test.writes.append(extension)
+                fid='fixture-new-'+str(len(test.writes));test.store[fid]=raw;test.suffix[fid]=extension
+                return dict(file_id=fid,sha256=c.digest(raw),bytes=len(raw))
+        self.drive=Drive();self.reply=dict(files=self.listing)
+        patcher=patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,master='4'*40,checkpoint_sha256='a'*64,raw_bytes=len(self.raw)),clear=True)
+        patcher.start();self.addCleanup(patcher.stop)
+        meter_identity=dict(identity(),source_sha=self.auth['expected_master'],examined_before=160,parent_checkpoint_sha256='a'*64,recovery_run=c.DRIVE_RECOVERY['run_id'],cohort_scope=scope,external_proof_sha256='e'*64)
+        self.meter=c.RuntimeMeter(dict(c.CONTINUED_LIMITS),self.root/'meter',(c.utc()+timedelta(minutes=10)).isoformat(),meter_identity,limits=c.CONTINUED_LIMITS)
+        self.parent=dict(file_id=self.args.resume_file_id,sha256='a'*64,bytes=100)
+
+    def recover(self):
+        with patch.dict(os.environ,{'GITHUB_SHA':self.auth['expected_master']}), \
+             patch.object(cap,'resume_state',return_value=(self.names[:160],self.names[:160],[],self.parent)):
+            return c.recover_drive_orphan(self.drive,self.args,self.auth,self.meter)
+
+    def test_exact_existing_originals_admit_four_with_no_provider_or_pack_write(self):
+        before=dict(self.store);ref=self.recover();self.assertEqual(self.writes,['.json','.json'])
+        self.assertEqual(self.meter.examined,164);self.assertEqual(self.meter.rows,8)
+        self.assertEqual(self.meter.used['provider_gets'],0)
+        self.assertEqual(before,{k:self.store[k] for k in before})
+        state=c.decode(self.store[ref['file_id']]);receipt=c.decode(self.store[state['last_objects'][2]['file_id']])
+        self.assertEqual(receipt['source_sha'],'4'*40)
+        self.assertEqual(receipt['recovered_from']['derivation_source_sha'],'5'*40)
+        self.assertEqual(receipt['asset_precheck'],self.manifest['asset_precheck'])
+
+    def test_missing_duplicate_or_paginated_listing_never_writes(self):
+        for files,token in [([],None),(self.listing[:1],None),(self.listing*2,None),(self.listing,'more')]:
+            self.reply=dict(files=files,nextPageToken=token)
+            with self.subTest(count=len(files),token=token),self.assertRaises(c.Refused):self.recover()
+            self.assertEqual(self.writes,[]);self.assertEqual(self.meter.used['provider_gets'],0)
+
+    def test_hash_false_normalization_or_owner_failure_refuses_before_json(self):
+        self.store['fixture-norm-123']=self.norm+b'corrupt'
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_HASH'):self.recover()
+        self.store['fixture-norm-123']=cap.gzip.compress(b'{}\n',mtime=0)
+        self.listing[1].update(name=c.digest(self.store['fixture-norm-123'])+'.jsonl.gz',size=str(len(self.store['fixture-norm-123'])))
+        with self.assertRaisesRegex(c.Refused,'RESUME_NORMALIZED_MISMATCH'):self.recover()
+        self.assertEqual(self.writes,[])
+
+    def test_wrong_original_source_scope_or_clock_never_becomes_reusable(self):
+        for field,value in [('source_sha','8'*40),('symbols',['VCYT']),('start','2017-01-01')]:
+            manifest=dict(self.manifest,**{field:value})
+            raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(manifest)}));self.store['fixture-raw-123']=raw
+            self.listing[0].update(name=c.digest(raw)+'.zip',size=str(len(raw)))
+            with patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,raw_bytes=len(raw))),self.subTest(field=field),self.assertRaises(c.Refused):self.recover()
+            self.assertEqual(self.writes,[])
+
+    def test_parent_or_permission_refusal_and_json_failure_stop_before_provider(self):
+        with patch.object(self.drive,'check',side_effect=c.Refused('OFFLINE_OWNER_REFUSAL')),self.assertRaisesRegex(c.Refused,'OFFLINE_OWNER_REFUSAL'):
+            self.recover()
+        self.assertEqual(self.writes,[])
+        with patch.object(self.drive,'write',side_effect=c.Refused('HTTP_ERROR')),self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):
+            self.recover()
+        self.assertEqual(self.meter.examined,160);self.assertEqual(self.meter.used['provider_gets'],0)
+
+    def test_original_asset_clock_and_parent_mismatch_stop_before_json(self):
+        manifest=copy.deepcopy(self.manifest);manifest['asset_precheck'][0]['collected_at_utc']='2030-01-01T00:00:00Z'
+        raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(manifest)}));self.store['fixture-raw-123']=raw
+        self.listing[0].update(name=c.digest(raw)+'.zip',size=str(len(raw)))
+        with patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,raw_bytes=len(raw))),self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_CLOCK'):
+            self.recover()
+        self.assertEqual(self.writes,[])
+
+
 if __name__=='__main__': unittest.main()

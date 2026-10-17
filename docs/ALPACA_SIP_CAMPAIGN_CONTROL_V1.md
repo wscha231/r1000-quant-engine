@@ -165,6 +165,54 @@ and the already-debited per-run request ordinal. It stores no URL, ticker query,
 headers, response body, credential or exception message. Existing meters are
 validated without inserting defaults or changing their canonical hashes.
 
+## Named Drive CREATE502 recovery of the final9 discovery names
+
+The owner's follow-up `계속진행하고` approves preparation of the concrete
+named9 intake `9e7391293df9fca33e799f7e2ac893bd6c125fbb03d1f15a93651f240831c7da`.
+Protected exact-head deployment and immutable activation are separate gates.
+The only new v3 transition is failed run39032304843/attempt1, exact meter
+`36fb77e3dbc24b379b4b601bf692babe5e996251b92e2424220dfb74265baeeb`,
+at160, CP `f07693bdb23abeabf9540413c3db5ac4c474a13d443d3f5c5dae0fd49d87b89b`.
+It records DRIVE_CREATE/POST/HEADER_OPEN502, ordinal343. Its outcome is unknown;
+this is neither an Alpaca entitlement verdict nor proof of a transient failure.
+
+The v3 `drive_recovery` is one closed source/proof delta reconstructing the
+unchanged78bc78ae v2 authorization, which still reconstructs ca08ac2f v1.
+The original120 failure and its first8 recovery remain checked independently.
+Seal the original23 cohort/22 family events; append only cohort24's typed
+`EXTERNAL_DRIVE_RECOVERY_BOUND` under the new immutable OWNER consent. Preserve
+the original family proof/root, every original17 event, all failed costs,
+key/owner/date/seed,9GiB/12h/40/first48h and the unchanged control-size limits.
+This is not general retry authority, account rotation or a new epoch.
+
+Before any provider request or storage POST, one metered owner-only Drive
+listing inspects only capture job117395177592's recorded12:23:43Z..12:26:22Z window in
+the original folder. Refuse pagination, missing/extra/duplicate/ambiguous files.
+Both original ZIP and normalized gzip must actually exist, with exact filename
+hashes, sizes, owner/parent and complete archive/asset/raw-split/row semantics.
+An absent normalized object remains BLOCKED: no absence inference, raw/gzip
+upload or automatic retry is permitted. Neither a name nor current bytes alone
+certifies historical identity, supplier rights or public availability.
+
+Restore the accepted160 semantically before writing a new derivation receipt
+and CP164 for TWST,UBS,UL,UPST. Reuse their original byte objects and asset clocks;
+request their price data zero times. The receipt's source_sha remains the ff85
+capture generation; typed `recovered_from` separately records actual new
+derivation code/auth/proof/run/time, old CP160, raw/gzip hashes and the failed-run
+observation window. It invents no original bar-request or public-release clock.
+Only this exact named source/group/checkpoint exception is accepted by new-group
+readback; ordinary new groups still require the deployed GITHUB_SHA.
+
+After CP164 independent semantic readback, use the unchanged collector for only
+VCYT,VICR,VIR,VSTM,WULF. The new meter covers160→169, including all reconciliation
+and actual I/O costs. Use the same namespace with `--recovery-run 39032304843`,
+exactly9/max1. A COMPLETE receipt must close169;
+every new failure or uncertain dispatch remains terminal and charged. Later
+top500 verification must check both revision events14 and24 and full169 closure.
+Postwatch/import settlement selects the active v3 Drive proof before the
+preserved v2 revision or genesis proof; completing a recovery or repairing its
+family settlement still consumes its one batch and never grants another POST.
+
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,
 historical Russell membership certificate, scheduler, broker or portfolio path.
