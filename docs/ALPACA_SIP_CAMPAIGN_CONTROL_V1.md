@@ -313,3 +313,65 @@ canonical event, body/author hash and immutable receipt even after proof expiry;
 this never extends the actual campaign48h/8h clock or permits expired dispatch.
 Event2 must retain its canonical raw bytes, and the receipt anchors the actual
 stored event bytes rather than reserializing an unanchored equivalent object.
+
+## Approved continuation of the measured128-name stop
+
+The owner approved the concrete continuation request
+`e602411e37b3e6e544a46e7fc78b1a320acfbde891ead7b7268efe79ebca8eec`;
+coordination: Issue448 comment6229153314. This authorizes only cumulative
+transfer9GiB and active12h for this existing campaign. Provider2000, Drive50000,
+storage1GiB, dispatch40, fixed seed/date/adjustments, original16 and the original
+first canonical48h window do not change. An account switch cannot reset any
+counter and is outside this continuation. Supplier-rights flags stay false.
+
+The default v1 authorization remains exactly8GiB/8h. A v2 authorization adds
+one portable `continuation` object with `prior_authorization` (the full unchanged
+b5f25d1b v1 authorization) and `proof_reference` (an actual Issue448 OWNER User
+comment). All other authorization fields except schema, transfer cap, deployed
+master and code pins remain identical, including the original workflow floor.
+The only accepted prior boundary is hard-pinned: five exact runs/meters,
+128new names,144examined,872active seconds, checkpoint032dac34,17journal events,
+and first canonical2026-10-17T02:08:51Z. The validity still ends
+2026-10-19T02:08:51Z. A late/missing/rerun/altered old run refuses.
+
+The OWNER comment contains exactly one `A1_SIP_BOUNDED_CONTINUATION ` JSON line,
+with the closed schema/fields checked by `continuation_proof`: old/new auth,
+spent prefix/checkpoint/progress, all prior usage/time/run IDs, unchanged first
+clock, concrete request hash, exact9GiB/12h/40 limits, preserved seed, no account
+rotation, actual deployed master/pin digest and the original48h expiry. The same
+completed comment carries the new auth-bound capture directive, retaining the
+actual metadata-observed owner/key hashes and the original human capture
+approval reference. Compute proof and permission digests only after the full
+comment is frozen: do not put its own body-derived hash back inside that body.
+The bridge binds old and new permission-record hashes; no general RIGHTS_DRIFT
+exception or supplier attestation is added. Do not edit activated comments.
+The host supplies the frozen portable `continuation_binding` with each worker
+control. Workers compare it to freshly verified evidence before any external
+data I/O, and every new meter carries its `continuation_proof_sha256`.
+History and common settlement require the same hash, including the first new
+dispatch; an edited comment cannot become a silent new first-suffix authority.
+
+Keep all three authorization eras: entry1=f67185f7, entries2..17=b5f25d1b on
+master5a762256 with8GiB/8h, and entry18/new suffix=new auth/source with9GiB/12h.
+Each original meter allowance is checked against its original cap minus all
+earlier spent usage; new meters use the new cumulative cap minus that SAME
+usage. Active time, dispatch count and first creation time include all five old
+runs. Preserve the old local-reject event/receipt rather than reissue them.
+
+Use the SAME journal and old pre-dispatch recovery bundle, plus
+`--continuation-receipt <external-private-path>`. The host selects the embedded
+proof URL as capture permission. No redundant
+`--account-permission-reference` is needed; a conflicting explicit URL refuses
+before taking the campaign writer lock or writing the bridge.
+Before the initial append,
+verify native/deployed code pins, actual master, unchanged progress bytes and
+fresh full canonical history. Append only typed entry18 `BUDGET_CONTINUED`, then
+exclusively create/fsync its immutable receipt outside the journal and disjoint
+from inputs. This is no fake price run, settlement or refund. A receipt-create
+interruption may finish that same receipt; changed/partial bytes refuse.
+On restart, revalidate the exact bridge body/author/time/hash and old prefix.
+Resume only at the existing checkpoint032dac34, seed145 onward, with the
+existing32-name batches,128 calibration and fail-closed provider/Drive policies.
+New source must pass exact-head Native/Linux/A6/review/protected deployment
+before any actual continuation. This contract change alone is not capture,
+PIT admission, historical universe certification or investment approval.

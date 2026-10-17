@@ -1237,4 +1237,321 @@ class LocalRejectRecoveryTests(unittest.TestCase):
         self.assertEqual(calls[0]["max_new_symbols"],"32")
         self.assertEqual(calls[0]["private_research_authorized"],"true")
 
+class BoundedContinuationTests(unittest.TestCase):
+    """Synthetic spent ledger; neither real prices nor supplier attestations."""
+    def setUp(self):
+        self.local = LocalRejectRecoveryTests()
+        self.local.setUp()
+        self.addCleanup(self.local.doCleanups)
+        self.prior = copy.deepcopy(self.local.new)
+        self.recovery = self.local.proof()
+        self.state, self.root = self.local.state, self.local.root
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.prior), self.recovery)
+        self.local.apply(journal, self.recovery)
+        first = (c.utc()-timedelta(seconds=1)).isoformat()
+        self.runs, self.receipts = [], []
+        used = {k:0 for k in c.LIMITS}
+        before, parent = 16, c.INITIAL_SHA
+        self.bindings = dict(owner_sha256=c.digest(b'fixture-owner'), credential_binding=c.digest(b'fixture-key\0fixture-secret'))
+        for index in range(5):
+            nonce = c.PREFIX + str(index+1)*24
+            run = dict(id=index+1, display_title='a1-sip '+nonce, created_at=first,
+                       head_sha=self.prior['expected_master'], head_branch='master',
+                       status='completed', conclusion='success', run_attempt=1)
+            usage = dict(provider_gets=0 if index==0 else 22, drive_requests=4 if index==0 else 260+64*(index-1),
+                         drive_bytes=1000+index*100000, storage_bytes=0 if index==0 else 1000)
+            after = before + (0 if index==0 else 32)
+            checkpoint = parent if index==0 else str(index+2)*64
+            receipt = dict(schema='a1-sip-campaign-meter-v1', task_key=c.TASK,
+                           auth_sha256=c.validate_authorization(self.prior), source_sha=self.prior['expected_master'],
+                           nonce=nonce, run_id=index+1, run_attempt=1, finalized=True,
+                           status='COMPLETE', preflight_only=index==0, bindings=self.bindings,
+                           parent_checkpoint_sha256=parent, checkpoint_sha256=checkpoint,
+                           examined_before=before, examined_after=after, rows_verified=0 if index==0 else 64,
+                           new_states=dict(VALID_COLLECTED=0 if index==0 else 32,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                           allowance={k:c.LIMITS[k]-used[k] for k in c.LIMITS}, usage=usage,
+                           account_permission_reference_sha256=None if index==0 else 'c'*64,
+                           account_permission_record_sha256=None if index==0 else 'd'*64,
+                           confirmed_storage_bytes=usage['storage_bytes'], observed_google_body_bytes=0,
+                           source_admission=False,pit_verified=False,economic_authority=False,transfer_definition=c.METRIC)
+            journal.append('RESERVED',nonce=nonce,remaining=receipt['allowance'],active_seconds_remaining=28800,
+                           parent_checkpoint_sha256=parent)
+            journal.append('RUN_ASSIGNED',nonce=nonce,run_id=index+1)
+            journal.append('SETTLED',nonce=nonce,run_id=index+1,usage=usage,
+                           checkpoint=dict(file_id='fixture-checkpoint-'+str(index),sha256=checkpoint,bytes=1375),
+                           receipt=receipt,receipt_sha256=c.digest(c.encoded(receipt)),examined_after=after)
+            self.runs.append(run);self.receipts.append(receipt)
+            used={k:used[k]+usage[k] for k in used}
+            before,parent=after,checkpoint
+        self.prefix = {p.name:p.read_bytes() for p in self.state.glob('*.json')}
+        event_hash = journal.parent
+        journal.close()
+        progress=c.encoded(dict(status='BLOCKED',new_processed=128,charged_usage=used,active_seconds=872,
+                                first_workflow_created_utc=first,last_checkpoint_sha256=parent))
+        (self.state/'progress').write_bytes(progress)
+        constants=dict(c.CONTINUATION,auth=c.validate_authorization(self.prior),master=self.prior['expected_master'],
+                       checkpoint=parent,event=event_hash,progress=c.digest(progress),runs=[r['id'] for r in self.runs],
+                       receipts=[c.digest(c.encoded(r)) for r in self.receipts],used=used,bindings=self.bindings,
+                       permission_record='d'*64,first=first)
+        patcher=patch.object(c,'CONTINUATION',constants);patcher.start();self.addCleanup(patcher.stop)
+        self.new=copy.deepcopy(self.prior)
+        self.reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-27'
+        self.new.update(schema='r1000-sip-campaign-authorization-v2',limits=dict(c.CONTINUED_LIMITS),
+                        expected_master='3'*40,continuation=dict(prior_authorization=self.prior,proof_reference=self.reference))
+        self.record=dict(schema='a1-sip-bounded-continuation-v1',task_key=c.TASK,
+                         prior_auth_sha256=constants['auth'],auth_sha256=c.validate_authorization(self.new),
+                         prior_journal_event_sha256=constants['event'],prior_progress_sha256=constants['progress'],
+                         checkpoint_sha256=parent,prior_run_ids=constants['runs'],prior_usage=used,
+                         prior_active_seconds=872,prior_examined=144,first_canonical_utc=first,
+                         expires_at_utc=(c.utc(first)+timedelta(hours=48)).isoformat(),request_sha256=constants['request'],
+                         limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
+                         preserve_seed_order=True,account_rotation=False,expected_master=self.new['expected_master'],
+                         code_pins_sha256=c.digest(c.encoded(self.new['code_pins'])))
+        now=c.utc().isoformat()
+        self.comment=dict(id=27,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
+                          user=dict(type='User',id=123),created_at=now,updated_at=now)
+
+    def proof(self, record=None, changed=None):
+        comment=dict(self.comment,body='A1_SIP_BOUNDED_CONTINUATION '+json.dumps(self.record if record is None else record))
+        if changed:comment.update(changed)
+        evidence=dict(body_sha256=c.digest(comment['body'].encode()),record=dict(expires_at_utc=self.record['expires_at_utc']))
+        with patch.object(c,'gh_json',return_value=comment),patch.object(c,'account_permission_evidence',return_value=evidence):
+            return c.continuation_proof(self.new)
+
+    def observed(self, runs=None, receipts=None, durations=None):
+        proof=self.proof()
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'campaign_runs',return_value=self.runs if runs is None else runs), \
+             patch.object(c,'receipt_for_run',side_effect=self.receipts if receipts is None else receipts) as read, \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265] if durations is None else durations):
+            observed=c.history(self.new)
+            self.receipt_calls=read.call_args_list
+            return observed
+
+    def test_spent_prefix_stays_old_and_all_remaining_allowances_are_cumulative(self):
+        observed=self.observed()
+        self.assertEqual(observed['active_seconds'],872)
+        self.assertEqual(observed['active_limit'],43200)
+        self.assertEqual(observed['examined'],144)
+        self.assertEqual(observed['parent_sha'],c.CONTINUATION['checkpoint'])
+        self.assertEqual(observed['first'],c.utc(c.CONTINUATION['first']))
+        self.assertEqual(observed['remaining'],{k:c.CONTINUED_LIMITS[k]-c.CONTINUATION['used'][k] for k in c.LIMITS})
+        self.assertTrue(all(call.args[1:]==(c.CONTINUATION['auth'],self.prior['expected_master']) for call in self.receipt_calls))
+        self.assertEqual(len(observed['runs']),5)
+
+    def test_no_nested_continuation_scope_account_seed_floor_or_cap_change(self):
+        mutations=[dict(workflow_run_floor=self.prior['workflow_run_floor']+1),dict(seed_sha256='0'*64),dict(owner_permission_id='OTHER'),
+                   dict(private_data_folder_id='another-private-folder'),dict(credential_binding='0'*64),
+                   dict(limits=dict(c.CONTINUED_LIMITS,provider_gets=2001)),dict(limits=dict(c.LIMITS))]
+        for change in mutations:
+            with self.subTest(change=change),self.assertRaises(c.Refused):c.validate_authorization(dict(self.new,**change))
+        prior=copy.deepcopy(self.prior);prior['continuation']={}
+        with self.assertRaises(c.Refused):c.validate_authorization(dict(self.new,continuation=dict(self.new['continuation'],prior_authorization=prior)))
+        with self.assertRaises(c.Refused):c.validate_authorization(dict(self.prior,limits=dict(c.CONTINUED_LIMITS)))
+
+    def test_real_owner_typed_exact_budget_and_unchanged_scope_are_mandatory(self):
+        for change in [dict(active_seconds_limit=43201),dict(prior_active_seconds=0),dict(prior_run_ids=[]),
+                       dict(account_rotation=True),dict(preserve_seed_order=False),dict(dispatch_limit=41),
+                       dict(prior_usage=dict(c.CONTINUATION['used'],provider_gets=False)),
+                       dict(expires_at_utc=(c.utc()+timedelta(hours=49)).isoformat())]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.proof(dict(self.record,**change))
+        for change in [dict(author_association='COLLABORATOR'),dict(user=dict(type='Bot',id=123)),
+                       dict(updated_at=(c.utc()+timedelta(minutes=1)).isoformat())]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.proof(changed=change)
+
+    def test_missing_reordered_or_changed_old_receipt_refuses_without_refund(self):
+        for runs in [self.runs[1:],list(reversed(self.runs))]:
+            with self.subTest(runs=runs),self.assertRaises(c.Refused):self.observed(runs=runs)
+        receipts=copy.deepcopy(self.receipts);receipts[-1]['usage']['provider_gets']-=1
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):self.observed(receipts=receipts)
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):self.observed(durations=[27,159,215,206,264])
+
+    def test_suffix_uses_new_auth_but_cannot_reset_cost_clock_or_permission(self):
+        observed=self.observed();proof=observed['continuation']
+        run=dict(self.runs[-1],id=6,created_at=c.utc().isoformat(),head_sha=self.new['expected_master'],
+                 display_title='a1-sip '+c.PREFIX+'6'*24)
+        receipt=dict(self.receipts[-1],parent_checkpoint_sha256=c.CONTINUATION['checkpoint'],
+                     examined_before=144,examined_after=176,checkpoint_sha256='7'*64,
+                     allowance=dict(observed['remaining']),usage={k:1 for k in c.LIMITS},
+                     account_permission_reference_sha256=proof['permission_reference_sha256'],
+                     account_permission_record_sha256=proof['permission_record_sha256'],
+                     continuation_proof_sha256=proof['proof_sha256'])
+        result=self.observed(runs=self.runs+[run],receipts=self.receipts+[receipt],durations=[27,159,215,206,265,300])
+        self.assertEqual(result['active_seconds'],1172)
+        self.assertEqual(result['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+1)
+        self.assertEqual(self.receipt_calls[-1].args[1:],(c.validate_authorization(self.new),self.new['expected_master'],self.new['limits']))
+        for change in [dict(allowance=dict(c.CONTINUED_LIMITS)),dict(account_permission_record_sha256='0'*64),
+                       dict(account_permission_reference_sha256='0'*64),dict(bindings=dict(self.bindings,owner_sha256='0'*64)),
+                       dict(continuation_proof_sha256='0'*64)]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):
+                self.observed(runs=self.runs+[run],receipts=self.receipts+[dict(receipt,**change)],durations=[27,159,215,206,265,300])
+
+    def test_bridge_is_single_immutable_event_preserving_all17_and_original_recovery_receipt(self):
+        proof=self.proof();observed=self.observed()
+        old_receipt=self.local.receipt.read_bytes()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        path=self.root/'continuation-receipt.json'
+        def deployed(route):
+            import base64
+            if route.endswith('/branches/master'):return dict(commit=dict(sha=self.new['expected_master']))
+            for name in c.PINS:
+                if '/contents/'+name+'?ref=' in route:return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+            self.fail('Unexpected offline route')
+        try:
+            c.apply_local_reject_recovery(journal,self.new,self.recovery)
+            with patch.object(c,'gh_json',side_effect=deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs):
+                c.apply_continuation(journal,self.new,path,[])
+            first=path.read_bytes();event=(self.state/'000018.json').read_bytes()
+            c.apply_continuation(journal,self.new,path,[])
+            self.assertEqual(len(journal.entries),18)
+            self.assertEqual(journal.entries[-1]['kind'],'BUDGET_CONTINUED')
+            self.assertEqual(path.read_bytes(),first)
+            self.assertEqual((self.state/'000018.json').read_bytes(),event)
+            self.assertEqual(self.local.receipt.read_bytes(),old_receipt)
+            self.assertTrue(all((self.state/name).read_bytes()==raw for name,raw in self.prefix.items()))
+        finally:journal.close()
+        changed=dict(proof,proof_sha256='0'*64)
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_DRIFT'):
+            c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,changed)
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_bridge_rejects_receipt_alias_and_changed_progress_before_any_append(self):
+        proof=self.proof()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        try:
+            for path,inputs in [(self.state/'000018.json',[]),(self.root/'auth.json',[self.root/'auth.json'])]:
+                with self.subTest(path=path),self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_RECEIPT_PATH'):
+                    c.apply_continuation(journal,self.new,path,inputs)
+            (self.state/'progress').write_bytes(b'{}')
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):
+                c.apply_continuation(journal,self.new,self.root/'continuation.json',[])
+            self.assertEqual(len(journal.entries),17)
+        finally:journal.close()
+
+    def test_old_meter_stays8gib_and_new_meter_obeys_only_passed_cumulative_allowance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            remaining=dict(c.CONTINUED_LIMITS,drive_bytes=8*1024**3+1)
+            with self.assertRaises(c.Refused):meter(temp,allowance=remaining)
+            m=c.RuntimeMeter(remaining,Path(temp)/'continued.json',(c.utc()+timedelta(seconds=60)).isoformat(),
+                             identity(),opener=Opener(),limits=c.CONTINUED_LIMITS)
+            m.debit(dict(provider_gets=1))
+            self.assertEqual(m.used['provider_gets'],1)
+            with self.assertRaises(c.Refused):m.debit(dict(provider_gets=2000))
+            self.assertEqual(m.used['provider_gets'],1)
+
+    def test_worker_requires_frozen_portable_bridge_before_any_provider_or_drive(self):
+        observed=self.observed()
+        nonce=c.PREFIX+'6'*24
+        env=dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+                 GITHUB_RUN_ID='6',INPUT_CAMPAIGN_NONCE=nonce)
+        base=dict(authorization=self.new,nonce=nonce,account_permission_reference=self.reference)
+        for binding in [None,{},dict(observed['continuation'],proof_sha256='0'*64)]:
+            control=dict(base)
+            if binding is not None:control['continuation_binding']=binding
+            with self.subTest(binding=binding),patch.dict(os.environ,env,clear=True), \
+                 patch.object(c,'verify_worker_source'),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O allowed')), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_DRIFT'):
+                c.worker(SimpleNamespace(),control,self.root/'unused-meter.json')
+
+    def deployed(self, route):
+        import base64
+        if route.endswith('/branches/master'):return dict(commit=dict(sha=self.new['expected_master']))
+        for name in c.PINS:
+            if '/contents/'+name+'?ref=' in route:return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+        self.fail('Unexpected offline deployed route')
+
+    def test_unknown_run_appearing_during_old_meter_reads_stops_before_bridge_append(self):
+        proof=self.proof();observed=self.observed()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        unknown=dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24)
+        try:
+            with patch.object(c,'gh_json',side_effect=self.deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs+[unknown]), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):
+                c.apply_continuation(journal,self.new,self.root/'late-bridge.json',[])
+            self.assertEqual(len(journal.entries),17)
+            self.assertFalse((self.root/'late-bridge.json').exists())
+        finally:journal.close()
+
+    def test_unknown_run_during_proof_query_stops_common_settlement(self):
+        from unittest.mock import Mock
+        proof=self.proof();remote=list(self.runs)
+        receipt=dict(parent_checkpoint_sha256=c.CONTINUATION['checkpoint'],nonce=c.PREFIX+'6'*24,
+                     usage={k:0 for k in c.LIMITS},examined_after=176,continuation_proof_sha256=proof['proof_sha256'])
+        def reconcile(runs):
+            if len(runs)!=5:raise c.Refused('CAMPAIGN_JOURNAL_REMOTE_CONFLICT')
+        journal=SimpleNamespace(recovery=self.recovery,continuation=proof,reconcile=reconcile,append=Mock())
+        def changing_proof(_):
+            remote.append(dict(self.runs[-1],id=99))
+            return proof
+        with patch.object(c,'settled_parent',return_value=dict(sha256=c.CONTINUATION['checkpoint'])), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(sha256='7'*64)), \
+             patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.settle_run(journal,self.new,dict(id=6),receipt)
+        journal.append.assert_not_called()
+
+    def test_unknown_run_during_final_host_proof_query_stops_before_reservation_and_dispatch(self):
+        proof=self.proof();observed=self.observed();remote=list(self.runs)
+        path=self.root/'new-auth.json';path.write_bytes(c.encoded(self.new))
+        proof_calls=[]
+        def changing_proof(_):
+            proof_calls.append(1)
+            if len(proof_calls)==2:remote.append(dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24))
+            return proof
+        with patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'apply_local_reject_recovery'),patch.object(c,'apply_continuation'), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Dispatch forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.host(path,self.state,permission_reference=self.reference,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'host-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_documented_host_arguments_use_embedded_permission_at_actual_cli_boundary(self):
+        proof=self.proof();observed=self.observed();calls=[]
+        path=self.root/'documented-auth.json';path.write_bytes(c.encoded(self.new))
+        class BoundaryReached(BaseException):pass
+        def strict_cli(command,**kwargs):
+            self.assertEqual(command[:3],['gh','workflow','run'])
+            payload=json.loads(kwargs['input'])
+            self.assertTrue(all(type(value) is str for value in payload.values()))
+            control=json.loads(payload['campaign_control'])
+            self.assertEqual(control['account_permission_reference'],self.reference)
+            self.assertEqual(control['continuation_binding'],proof)
+            self.assertFalse(control['preflight_only'])
+            self.assertEqual(payload['resume_sha256'],c.CONTINUATION['checkpoint'])
+            self.assertEqual(payload['max_new_symbols'],'32')
+            self.assertLessEqual(len(payload['campaign_control']),16384)
+            calls.append(payload)
+            raise BoundaryReached()
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',return_value=self.runs), \
+             patch.object(c.subprocess,'run',side_effect=strict_cli),self.assertRaises(BoundaryReached):
+            c.host(path,self.state,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'documented-continuation-receipt.json')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(c.decode((self.state/'000018.json').read_bytes())['kind'],'BUDGET_CONTINUED')
+        self.assertEqual(c.decode((self.state/'000019.json').read_bytes())['kind'],'RESERVED')
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_explicit_conflicting_permission_refuses_before_writer_or_bridge(self):
+        proof=self.proof()
+        path=self.root/'conflict-auth.json';path.write_bytes(c.encoded(self.new))
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'WorkJournal',side_effect=AssertionError('Writer forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PERMISSION'):
+            c.host(path,self.state,permission_reference=self.reference+'0',predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'unused-conflict-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+
+
 if __name__=='__main__': unittest.main()

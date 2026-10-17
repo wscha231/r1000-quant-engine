@@ -7162,3 +7162,29 @@ Expected contract:
 - Put the final canonical-history guard in the common settlement boundary after receipt/checkpoint reads; a watch-only guard misses interrupted-host resume and delayed visibility during those reads.
 - An immutable snapshot cannot alias mutable progress. Guard closure after remote pin reads, bind the stored event's actual bytes, and distinguish initial proof acceptance expiry from later reconciliation of an already accepted event; campaign clocks still govern new dispatch.
 - On Windows, set TMPDIR as well as TEMP/TMP for controlled Native fixtures; an inherited application-managed temp path can deny atomic replacement. Preserve that failed log and rerun unchanged bytes in the controlled folder rather than weakening exclusive/fsync writes.
+
+## 2026-10-17 — Extend a finite campaign without reinterpreting spent receipts
+
+- Provider rate limits and a project's cumulative transfer/active-time budget
+  are separate. A second account cannot replenish the same campaign or erase
+  its first canonical48h clock; keep actual owner/key binding unchanged.
+- Retain old authorization/source/caps for old meter allowances and journal
+  bytes. Apply a narrowly approved cumulative extension only through one typed,
+  hash-bound bridge, carrying all earlier usage, time, dispatch and checkpoint.
+- Keep the original workflow history floor; raising it to the next dispatch
+  hides prior costs. A portable prior authorization lets Linux workers verify
+  the same prefix as the Windows host without local-only evidence paths.
+- Bind the single new consent-record transition explicitly. Freeze a combined
+  budget/capture comment before deriving hashes; embedding a body-derived hash
+  inside that same body would create an unsatisfiable cycle.
+- Keep failed fixture logs. Metadata preflight leaves authorization bindings
+  null while receipts establish real binding hashes; synthetic continuation
+  fixtures must model that distinction and actually mutate the prior floor.
+- A proof fetch added after a canonical-history guard reopens the same race.
+  After all meter/job/proof/pin reads, reconcile fresh canonical runs immediately
+  before bridge, reservation and settlement appends; stale observed.runs is
+  insufficient even when its five receipts and old ledger hashes are valid.
+- Exercise the documented host command through the real serialization
+  boundary. When prior authorization bindings intentionally stay null, select
+  the verified embedded continuation URL by default; reject a conflicting
+  optional CLI reference before locking or appending any campaign event.
