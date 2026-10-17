@@ -90,7 +90,7 @@ def asset_record(raw, symbol):
     require(isinstance(value, dict) and value.get("symbol") == symbol
             and value.get("class") == "us_equity"
             and isinstance(value.get("id"), str)
-            and re.fullmatch(r"[0-9a-fA-F-]{36}", value["id"])
+            and re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value["id"])
             and isinstance(value.get("exchange"), str) and 1 <= len(value["exchange"]) <= 32
             and value.get("status") in ("active", "inactive"), "EXTERNAL_ASSET_IDENTITY")
     return value

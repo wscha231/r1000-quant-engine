@@ -744,6 +744,9 @@ class ExternalDiscoveryTests(unittest.TestCase):
             row=dict(evidence[0]);row[key]=value
             with self.subTest(key=key),self.assertRaises(Refused):cap.verify_asset_evidence([row],names)
         with self.assertRaises(Refused):cap.asset_record(raw,'TSM')
+        value=cap.decode(raw);value['id']='-'*36
+        with self.assertRaisesRegex(Refused,'EXTERNAL_ASSET_IDENTITY'):
+            cap.asset_record(cap.encoded(value),'UMAC')
 
     def test_external_resume_namespace_and_held_prefix_do_not_recollect(self):
         from types import SimpleNamespace

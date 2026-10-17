@@ -1573,7 +1573,7 @@ class ExternalCohortTests(unittest.TestCase):
                 intake_manifest_sha256='e'*64, receipt_dedupe_sha256='f'*64, prior_authorization=self.prior,
                 prior_epochs=[], proof_reference=self.reference))
         self.input = self.root/'cohort.csv'; self.input.write_bytes(raw)
-        self.cohort_state = self.root/'fixture-discovery-169'
+        self.cohort_state = self.root/'external-cohort-fixture-discovery-169'
 
     def proof(self, auth_value=None, changed=None):
         a = auth_value or self.new
@@ -1671,7 +1671,7 @@ class ExternalCohortTests(unittest.TestCase):
     def test_closed_terminal_failure_can_be_accounted_but_never_recovered_as_auth_error(self):
         run,value=self.suffix();run['conclusion']='failure'
         value.update(status='BLOCKED',reason='AUTH')
-        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_FAILED_RUN_REQUIRES_RECOVERY'):self.observed((run,value))
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.observed((run,value))
         with patch.object(c,'external_proof',return_value=self.proof()), \
              patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
              patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
@@ -1681,8 +1681,23 @@ class ExternalCohortTests(unittest.TestCase):
         with patch.object(c,'external_proof',return_value=self.proof()), \
              patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
              patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
-             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]),self.assertRaisesRegex(c.Refused,'CAMPAIGN_RECOVERY'):
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_NOT_AUTHORIZED'):
             c.external_history(self.new,recovery_run=run['id'],allow_stopped=True)
+
+    def test_network_and_price_http_failure_do_not_authorize_another_external_attempt(self):
+        for reason in ('NETWORK','HTTP_ERROR'):
+            run,value=self.suffix();run['conclusion']='failure';value.update(status='BLOCKED',reason=reason)
+            with self.subTest(reason=reason),self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):
+                self.observed((run,value))
+            with patch.object(c,'external_proof',return_value=self.proof()), \
+                 patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
+                 patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
+                 patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]):
+                observed=c.external_history(self.new,allow_stopped=True)
+            self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+            with patch.object(c,'WorkJournal',side_effect=AssertionError('No writer for unauthorized recovery')), \
+                 self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_NOT_AUTHORIZED'):
+                c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,run['id'],1)
 
     def test_owner_consent_is_exact_input_and_no_supplier_certification(self):
         self.assertTrue(self.proof()['proof_sha256'])
@@ -1722,6 +1737,109 @@ class ExternalCohortTests(unittest.TestCase):
         with self.host_patches(self.observed()),self.assertRaisesRegex(c.Refused,'CAMPAIGN_WRITER_LOCK'):
             c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
         self.assertFalse((self.state/'writer.lock').exists());self.assertEqual(lock.read_text(),'other-owner')
+
+    def test_expired_new_namespace_never_appends_its_binding(self):
+        original=c.utc;proof=self.proof()
+        future=original(proof['expires_at_utc'])+timedelta(seconds=1)
+        with self.host_patches(self.observed()), \
+             patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Dispatch after expiry')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_BINDING_CLOCK'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.cohort_state/'000001.json').exists())
+        self.assertFalse((self.state/'writer.lock').exists());self.assertFalse((self.cohort_state/'writer.lock').exists())
+
+    def test_completed_reserved_run_still_settles_and_accounts_after_expiry(self):
+        proof=self.proof();scope=self.new['external_cohort']['scope'];run,value=self.suffix()
+        observed=self.observed((run,value))
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        family.append('RESERVED',nonce=value['nonce'],capture_auth_sha256=c.validate_authorization(self.new),scope=scope,
+                      remaining=value['allowance'],parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+        family.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'],
+                      capture_auth_sha256=c.validate_authorization(self.new),scope=scope)
+        family.close()
+        journal=c.WorkJournal(self.cohort_state,c.validate_authorization(self.new))
+        journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+        journal.append('RESERVED',nonce=value['nonce'],remaining=value['allowance'],
+                       parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+        journal.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id']);journal.close()
+        original=c.utc;future=original(proof['expires_at_utc'])+timedelta(seconds=1)
+        with self.host_patches(observed),patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('No new dispatch after expiry')):
+            result=c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(result['status'],'COHORT_PROCESSED');self.assertEqual(result['examined'],4)
+        self.assertEqual(result['charged_usage']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+        self.assertEqual(c.bounded_json(self.cohort_state/'000004.json')['kind'],'SETTLED')
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_uncertain_invisible_post_blocks_another_namespace_without_refund(self):
+        calls=[]
+        def rejected(command,**kwargs):
+            calls.append(json.loads(kwargs['input']))
+            return SimpleNamespace(returncode=1)
+        with self.host_patches(self.observed()),patch.object(c.subprocess,'run',side_effect=rejected), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(len(calls),1)
+        original_global=list(self.root.glob('external-budget-*'))
+        self.assertEqual(len(original_global),1)
+        global_reserved=c.bounded_json(original_global[0]/'000002.json')
+        self.assertEqual(global_reserved['remaining'],self.observed()['remaining'])
+        self.assertEqual(c.bounded_json(self.cohort_state/'000002.json')['kind'],'RESERVED')
+        # A separately consented first epoch cannot bypass an unobserved A.
+        b=copy.deepcopy(self.new);b['external_cohort']['scope']['namespace']='fixture-another-cohort'
+        frozen=self.proof(b)
+        with self.host_patches(self.observed()),patch.object(c,'external_proof',return_value=frozen), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Second dispatch forbidden')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_DRIFT'):
+            c.external_host(b,self.root/'external-cohort-fixture-another-cohort',self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(c.bounded_json(original_global[0]/'000002.json'),global_reserved)
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_registry_only_or_cohort_only_orphan_never_proves_zero_post(self):
+        observed=self.observed();proof=self.proof();h=c.validate_authorization(self.new);scope=self.new['external_cohort']['scope']
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        journal=c.WorkJournal(self.cohort_state,h)
+        journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+        # Reserve globally first, then simulate a crash before cohort reserve.
+        family.append('RESERVED',nonce=c.PREFIX+'8'*24,scope=scope,capture_auth_sha256=h,
+                      remaining=observed['remaining'],parent_checkpoint_sha256=observed['parent_sha'])
+        before=family.parent
+        try:
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+                c.reconcile_external_family(family,journal,self.new,observed)
+            self.assertEqual(family.parent,before)
+        finally:journal.close();family.close()
+
+    def test_single_side_registry_or_cohort_prefix_rollback_cannot_refund_unknown_post(self):
+        # Two independent synthetic namespaces/campaign roots per subcase.
+        for target in ('registry','cohort'):
+            with self.subTest(target=target):
+                fixture=ExternalCohortTests();fixture.setUp()
+                try:
+                    observed=fixture.observed()
+                    with fixture.host_patches(observed),patch.object(c.subprocess,'run',return_value=SimpleNamespace(returncode=1)), \
+                         self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+                        c.external_host(fixture.new,fixture.cohort_state,fixture.input,fixture.state,
+                                        fixture.old.local.bundle_path,None,1)
+                    family_dir=next(fixture.root.glob('external-budget-*'))
+                    truncated=family_dir if target=='registry' else fixture.cohort_state
+                    (truncated/'000002.json').unlink()  # Synthetic rollback, never actual journal.
+                    with fixture.host_patches(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No replacement POST')), \
+                         self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+                        c.external_host(fixture.new,fixture.cohort_state,fixture.input,fixture.state,
+                                        fixture.old.local.bundle_path,None,1)
+                finally:fixture.doCleanups()
+
+    def test_visible_canonical_run_without_shared_registration_refuses(self):
+        observed=self.observed(self.suffix())
+        with self.host_patches(observed),patch.object(c.subprocess,'run',side_effect=AssertionError), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_MISSING'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.state/'writer.lock').exists())
 
     def test_actual_cli_empty_physical_parent_and_unchanged_old17(self):
         class Boundary(BaseException):pass
@@ -1823,6 +1941,13 @@ class ExternalCohortTests(unittest.TestCase):
             manifest=c.decode(z.read('capture.json'))
             self.assertEqual(manifest['asset_precheck'][0]['symbol'],self.names[0])
             self.assertFalse(manifest['historical_identity_verified'])
+
+    def test_original_observed_owner_hash_needs_no_invented_raw_owner_id(self):
+        self.new['owner_permission_id']=None
+        failure,m,server,_=self.execute_external_worker()
+        self.assertIsNone(failure)
+        self.assertEqual(m['bindings'],c.CONTINUATION['bindings'])
+        self.assertTrue(server.symbols)
 
     def test_asset_auth_or_quota_failure_never_becomes_held_or_price_capture(self):
         for code,reason in [(401,'AUTH'),(403,'PERMISSION'),(429,'RATE_LIMIT')]:

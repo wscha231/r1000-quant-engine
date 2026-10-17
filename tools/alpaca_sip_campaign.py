@@ -988,6 +988,9 @@ class WorkJournal:
                     and len(self.entries) == CONTINUATION["events"] and self.parent == CONTINUATION["event"]
                     and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"]) < utc(data["expires_at_utc"]),
                     "CAMPAIGN_CONTINUATION_CLOCK")
+        if kind in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_FAMILY_BOUND"):
+            require(not self.entries and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"])
+                    < utc(data["expires_at_utc"]), "EXTERNAL_BINDING_CLOCK")
         raw = encoded(entry)
         require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
         path = self.directory / f"{entry['sequence']:06d}.json"
@@ -1603,8 +1606,8 @@ def validate_external_authorization(auth):
                            "owner_permission_id", "credential_binding"}
     require(all(auth[k] == prior[k] for k in fixed)
             and auth["expected_master"] != prior["expected_master"]
-            and isinstance(auth["owner_permission_id"], str)
-            and digest(auth["owner_permission_id"].encode()) == CONTINUATION["bindings"]["owner_sha256"]
+            and (auth["owner_permission_id"] is None or
+                 digest(auth["owner_permission_id"].encode()) == CONTINUATION["bindings"]["owner_sha256"])
             and auth["credential_binding"] == CONTINUATION["bindings"]["credential_binding"]
             and prior["owner_permission_id"] in (None, auth["owner_permission_id"])
             and prior["credential_binding"] in (None, auth["credential_binding"]), "EXTERNAL_BUDGET_ORIGIN")
@@ -1688,6 +1691,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
     ex = auth["external_cohort"]
+    require(recovery_run is None, "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     epochs = ex["prior_epochs"] + [auth]
     hashes = [validate_authorization(a) for a in epochs]
     require(len(set(hashes)) == len(hashes), "EXTERNAL_EPOCH_LIMIT")
@@ -1727,6 +1731,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
             a, proof, state = epochs[position], proofs[position], local[h]
             scope = a["external_cohort"]["scope"]
             require(value.get("source_sha") == a["expected_master"] and value.get("cohort_scope") == scope
+                    and value.get("recovery_run") is None
                     and value.get("external_proof_sha256") == proof["proof_sha256"]
                     and value.get("preflight_only") is False
                     and value.get("bindings") == CONTINUATION["bindings"]
@@ -1765,20 +1770,9 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 require(isinstance(value.get("reason"), str) and re.fullmatch(r"[A-Z_]{1,80}", value["reason"]),
                         "CAMPAIGN_REASON")
                 continue
-            next_run = previous[index+1] if index+1 < len(previous) else None
-            next_receipt = (receipt_for_run(next_run, tuple(hashes), next_run["head_sha"], CONTINUED_LIMITS)
-                            if next_run is not None and index >= 5 else None)
-            require(value["status"] == "BLOCKED" and value.get("reason") in ("NETWORK", "HTTP_ERROR")
-                    and ((run["id"] == recovery_run and run == previous[-1])
-                         or (next_receipt is not None and next_receipt.get("recovery_run") == run["id"]
-                             and next_receipt.get("auth_sha256") == value.get("auth_sha256"))),
-                    "CAMPAIGN_FAILED_RUN_REQUIRES_RECOVERY")
+            raise Refused("CAMPAIGN_EXTERNAL_FAILURE_STOP")
     require(active <= active_limit(auth) and utc(runs[0]["created_at"]) == utc(CONTINUATION["first"]),
             "CAMPAIGN_ACTIVE_TIME")
-    if recovery_run is not None:
-        require(type(recovery_run) is int and previous and previous[-1]["id"] == recovery_run
-                and receipts[-1]["status"] == "BLOCKED" and receipts[-1].get("reason") in ("NETWORK", "HTTP_ERROR")
-                and receipts[-1].get("auth_sha256") == auth_hash, "CAMPAIGN_RECOVERY")
     first = utc(CONTINUATION["first"])
     if enforce_expiry:
         require(utc() < first+timedelta(hours=48), "CAMPAIGN_EXPIRED")
@@ -1804,7 +1798,7 @@ def external_worker(args, control, journal):
     nonce, recovered = control["nonce"], control["recovery_run"]
     require(isinstance(nonce, str) and re.fullmatch(PREFIX+r"[0-9a-f]{24}", nonce)
             and nonce == os.getenv("INPUT_CAMPAIGN_NONCE")
-            and (recovered is None or type(recovered) is int), "CAMPAIGN_NONCE")
+            and recovered is None, "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     run_id = int(os.environ["GITHUB_RUN_ID"])
     observed = external_history(auth, run_id, nonce, recovered)
     proof, ex = observed["external_proof"], auth["external_cohort"]
@@ -1839,7 +1833,9 @@ def external_worker(args, control, journal):
                          asset_symbols=names[n:n+args.max_new_symbols])
     def factory(root, temp):
         drive = OwnerDrive(root, temp, meter=meter)
-        require(drive.owner == auth["owner_permission_id"] and drive.free >= 2*1024**3,
+        require((auth["owner_permission_id"] is None or drive.owner == auth["owner_permission_id"])
+                and digest(drive.owner.encode()) == CONTINUATION["bindings"]["owner_sha256"]
+                and drive.free >= 2*1024**3,
                 "CAMPAIGN_OWNER_OR_SPACE")
         meter.identity["free_bytes_at_start"] = drive.free
         meter.save()
@@ -1922,41 +1918,135 @@ def external_forecast(auth, observed):
                      and len(observed["runs"])+jobs <= 40)
 
 
+def external_family_registry(budget_path, auth, state_path):
+    """One deterministic shared reservation authority, outside the frozen17."""
+    first_auth = (auth["external_cohort"]["prior_epochs"] or [auth])[0]
+    first_hash = validate_authorization(first_auth)
+    proof = external_proof(first_auth)
+    genesis = digest(encoded(dict(schema="a1-external-budget-genesis-v1", task_key=TASK,
+        prior_auth_sha256=CONTINUATION["auth"], prior_event_sha256=CONTINUATION["event"],
+        first=CONTINUATION["first"], limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
+    directory = budget_path.parent / ("external-budget-"+CONTINUATION["auth"][:16])
+    existed = directory.exists()
+    registry = WorkJournal(directory, genesis)
+    try:
+        binding = dict(genesis_sha256=genesis, capture_auth_sha256=first_hash,
+                       scope=first_auth["external_cohort"]["scope"], **proof)
+        if registry.entries:
+            first = registry.entries[0]
+            require(first.get("kind") == "EXTERNAL_FAMILY_BOUND"
+                    and {k:first.get(k) for k in binding} == binding
+                    and utc(proof["proof_updated_utc"]) <= utc(first.get("recorded_utc"))
+                        < utc(proof["expires_at_utc"]), "EXTERNAL_FAMILY_DRIFT")
+        else:
+            # Absence of local registration is not evidence of zero POSTs.
+            require(not existed and not auth["external_cohort"]["prior_epochs"]
+                    and not list(state_path.glob("*.json"))
+                    and [r["id"] for r in campaign_runs(auth["workflow_run_floor"])] == CONTINUATION["runs"],
+                    "EXTERNAL_FAMILY_MISSING")
+            registry.append("EXTERNAL_FAMILY_BOUND", **binding)
+        return registry
+    except BaseException:
+        registry.close()
+        raise
+
+
+def reconcile_external_family(registry, journal, auth, observed):
+    """No later namespace can ignore an unobserved or partially logged POST."""
+    h, scope = validate_authorization(auth), auth["external_cohort"]["scope"]
+    suffix = list(zip(observed["runs"][5:], observed["receipts"][5:]))
+    remote = {v["nonce"]:(r,v) for r,v in suffix}
+    registry.reconcile(observed["runs"][5:])
+    pending, settled, reserved = None, {}, {}
+    for entry in registry.entries[1:]:
+        kind, nonce = entry.get("kind"), entry.get("nonce")
+        require(kind in ("RESERVED", "RUN_ASSIGNED", "SETTLED") and nonce in remote, "EXTERNAL_FAMILY_CONFLICT")
+        run, value = remote[nonce]
+        require(entry.get("capture_auth_sha256") == value["auth_sha256"]
+                and entry.get("scope") == value.get("cohort_scope"), "EXTERNAL_FAMILY_CONFLICT")
+        if kind == "RESERVED":
+            require(pending is None and nonce not in reserved
+                    and entry.get("remaining") == value["allowance"]
+                    and entry.get("parent_checkpoint_sha256") == value["parent_checkpoint_sha256"],
+                    "EXTERNAL_FAMILY_RESERVATION")
+            reserved[nonce] = entry
+            pending = nonce
+        else:
+            require(pending == nonce and entry.get("run_id") == run["id"], "EXTERNAL_FAMILY_RESERVATION")
+            if kind == "SETTLED":
+                require(entry.get("receipt_sha256") == digest(encoded(value))
+                        and entry.get("usage") == value["usage"]
+                        and entry.get("checkpoint_sha256") == value["checkpoint_sha256"], "EXTERNAL_FAMILY_SETTLEMENT")
+                settled[nonce] = entry
+                pending = None
+    own_reserved = {e["nonce"] for e in journal.entries if e["kind"] == "RESERVED"}
+    own_global = {nonce for nonce,e in reserved.items() if e["capture_auth_sha256"] == h}
+    require(own_reserved == own_global, "EXTERNAL_FAMILY_ORPHAN")
+    own_settled = {e["nonce"]:e for e in journal.entries if e["kind"] == "SETTLED"}
+    for nonce in own_global:
+        run, value = remote[nonce]
+        if nonce in settled:
+            require(nonce in own_settled, "EXTERNAL_FAMILY_ORPHAN")
+        if nonce in own_settled:
+            entry = own_settled[nonce]
+            require(entry.get("run_id") == run["id"] and entry.get("receipt") == value
+                    and entry.get("receipt_sha256") == digest(encoded(value))
+                    and entry.get("usage") == value["usage"]
+                    and entry.get("checkpoint", {}).get("sha256") == value["checkpoint_sha256"],
+                    "EXTERNAL_FAMILY_SETTLEMENT")
+            if nonce not in settled:
+                require(pending == nonce and registry.entries[-1]["nonce"] == nonce,
+                        "EXTERNAL_FAMILY_ORPHAN")
+                # Cohort SETTLED first; a crash here resumes only with this
+                # exact canonical receipt, never a refund or another nonce.
+                registry.append("SETTLED", nonce=nonce, run_id=run["id"], capture_auth_sha256=h, scope=scope,
+                    receipt_sha256=digest(encoded(value)), usage=value["usage"], checkpoint_sha256=value["checkpoint_sha256"])
+                pending = None
+    require(pending is None or reserved[pending]["capture_auth_sha256"] == h, "EXTERNAL_FAMILY_PENDING")
+    return pending
+
+
 def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery, recovery_run, max_batches):
     from tools.alpaca_sip_private_backfill_v1 import external_cohort
     ex, h = auth["external_cohort"], validate_authorization(auth)
+    require(recovery_run is None, "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     require(cohort_input is not None and budget_state_dir is not None and predispatch_recovery is not None,
             "EXTERNAL_HOST_INPUTS")
     require(max_batches is None or type(max_batches) is int and 1 <= max_batches <= 16, "EXTERNAL_BATCH_LIMIT")
     require(bounded_bytes(cohort_input, 8192) == ex["input_csv"].encode(), "EXTERNAL_COHORT_HASH")
     budget_path, state_path = Path(budget_state_dir).resolve(), Path(state_dir).resolve()
     require(budget_path.is_dir() and state_path != budget_path and budget_path not in state_path.parents
-            and state_path not in budget_path.parents and state_path.name == ex["scope"]["namespace"],
+            and state_path not in budget_path.parents
+            and state_path == budget_path.parent / ("external-cohort-"+ex["scope"]["namespace"]),
             "EXTERNAL_NAMESPACE")
     base = ex["prior_authorization"]
     recovery = local_reject_recovery(predispatch_recovery, base, budget_path)
     global_journal = WorkJournal(budget_path, CONTINUATION["auth"], recovery=recovery)
-    journal = None
+    journal = family = None
     last_observed = None
     try:
         verify_external_budget_journal(global_journal, auth, recovery)
+        family = external_family_registry(budget_path, auth, state_path)
         journal = WorkJournal(state_path, h)
         frozen = external_proof(auth)
         binding = dict(scope=ex["scope"], genesis_sha256=external_genesis(ex["scope"]), **frozen)
         if journal.entries:
             first = journal.entries[0]
             require(first.get("kind") == "EXTERNAL_COHORT_BOUND"
-                    and {k: first.get(k) for k in binding} == binding, "EXTERNAL_PROOF_DRIFT")
+                    and {k: first.get(k) for k in binding} == binding
+                    and utc(frozen["proof_updated_utc"]) <= utc(first.get("recorded_utc"))
+                        < utc(frozen["expires_at_utc"]), "EXTERNAL_PROOF_DRIFT")
         else:
             # No provider/Drive I/O or dispatch; binding is this new namespace only.
             journal.append("EXTERNAL_COHORT_BOUND", **binding)
         completed = 0
         while True:
-            observed = external_history(auth, recovery_run=recovery_run, allow_stopped=True)
+            observed = external_history(auth, recovery_run=recovery_run, enforce_expiry=False, allow_stopped=True)
             last_observed = observed
             require(observed["external_proof"] == frozen, "EXTERNAL_PROOF_DRIFT")
             global_journal.reconcile(observed["runs"][:5])
             journal.reconcile(observed["cohort_runs"])
+            reconcile_external_family(family, journal, auth, observed)
             if journal.entries[-1]["kind"] in ("RESERVED", "RUN_ASSIGNED"):
                 matches = [(r,v) for r,v in zip(observed["cohort_runs"], observed["cohort_receipts"])
                            if v["nonce"] == journal.entries[-1]["nonce"]]
@@ -1964,12 +2054,12 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                 run, value = matches[0]
                 require(external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
                 settle_run(journal, auth, run, value)
+                reconcile_external_family(family, journal, auth, observed)
             atomic_json(journal.directory/"progress", external_progress(auth, observed, "VERIFIED"))
             latest = observed["cohort_receipts"][-1] if observed["cohort_receipts"] else None
             if latest is not None and latest["status"] == "BLOCKED":
                 atomic_json(journal.directory/"progress", external_progress(auth, observed, "BLOCKED"))
-                require(recovery_run == latest["run_id"] and latest.get("reason") in ("NETWORK", "HTTP_ERROR"),
-                        "CAMPAIGN_WORKER_BLOCKED")
+                raise Refused("CAMPAIGN_WORKER_BLOCKED")
             count = len(external_cohort(ex["input_csv"].encode()))
             if observed["examined"] == count or max_batches is not None and completed >= max_batches:
                 return external_progress(auth, observed, "COHORT_PROCESSED" if observed["examined"] == count else "BATCH_BOUNDARY")
@@ -1984,6 +2074,8 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             require(fresh == observed and fresh["external_proof"] == frozen, "EXTERNAL_CANONICAL_DRIFT")
             require(external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
             require(campaign_runs(auth["workflow_run_floor"]) == observed["runs"], "EXTERNAL_CANONICAL_DRIFT")
+            require(reconcile_external_family(family, journal, auth, observed) is None,
+                    "EXTERNAL_FAMILY_PENDING")
             parent = settled_parent(journal, auth)
             require(parent["sha256"] == observed["parent_sha"]
                     and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
@@ -1992,6 +2084,9 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                            preflight_only=False, external_binding=frozen)
             raw = encoded(control)
             require(len(raw) <= 16384, "CAMPAIGN_CONTROL_SIZE")
+            family.append("RESERVED", nonce=nonce, remaining=observed["remaining"], capture_auth_sha256=h, scope=ex["scope"],
+                          active_seconds_remaining=active_limit(auth)-observed["active_seconds"],
+                          parent_checkpoint_sha256=parent["sha256"])
             journal.append("RESERVED", nonce=nonce, remaining=observed["remaining"],
                            active_seconds_remaining=active_limit(auth)-observed["active_seconds"],
                            parent_checkpoint_sha256=parent["sha256"], external_proof_sha256=frozen["proof_sha256"])
@@ -2012,6 +2107,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                     run = matches[0]; break
                 time.sleep(2)
             require(run is not None, "CAMPAIGN_DISPATCH_UNCERTAIN")
+            family.append("RUN_ASSIGNED", nonce=nonce, run_id=run["id"], capture_auth_sha256=h, scope=ex["scope"])
             journal.append("RUN_ASSIGNED", nonce=nonce, run_id=run["id"])
             subprocess.run(["gh", "run", "watch", str(run["id"]), "--repo", REPO, "--exit-status", "--interval", "30"],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=9000)
@@ -2035,7 +2131,11 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             if journal is not None:
                 journal.close()
         finally:
-            global_journal.close()
+            try:
+                if family is not None:
+                    family.close()
+            finally:
+                global_journal.close()
 
 
 def main():

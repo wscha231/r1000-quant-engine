@@ -42,13 +42,29 @@ new records and refuse auth/source drift rather than silently ignoring spending.
 Each new allowance subtracts **all** prior family usage, not just its namespace.
 
 The external host requires `--cohort-input`, `--budget-state-dir` and the existing
-`--predispatch-recovery` bundle in addition to its own `--state-dir`. The latter's
-basename must equal the declared namespace and be disjoint from the original
-budget journal. Lock order is original global journal first, external journal
-second; both are released in reverse order even if the second fails. The original
+`--predispatch-recovery` bundle in addition to its own `--state-dir`. The latter
+is fixed to `budget-state-dir`'s parent plus `external-cohort-<namespace>`.
+The shared append-only reservation registry is fixed beneath that same parent
+as `external-budget-<first16hex of original auth SHA>`; an authorization cannot
+move it. Lock order is original global journal, shared registry, then cohort
+journal; release is reversed even when a later acquisition fails. The original
 17 events, progress and recovery receipt are read-only: no continuation event,
 receipt regeneration or progress write occurs there. Missing/conflicting original
-evidence refuses. External reservations/checkpoints/progress use their own chain.
+evidence refuses. External checkpoints/progress use their own chain. Every
+reservation is written to the shared registry FIRST, then the cohort journal,
+then dispatch; assignment is shared-first too. The entire family canonical
+suffix must match the shared reservation set. An invisible/uncertain POST,
+missing/partial registration, orphan or single-sided prefix rollback blocks
+every later namespace without refund or a replacement nonce. Cohort SETTLED is
+written FIRST, shared SETTLED second. A crash between those writes can finish
+the latter only from the exact canonical auth/namespace/nonce/run/usage/receipt
+hash. Registry costs are never added twice to the canonical meter sum. Missing
+registration is not zero-POST proof and cannot create a fresh budget.
+
+The original authorization's raw owner ID may remain null: the actual owner SHA
+already established in the verified five-run prefix is mandatory in the consent
+and meter, checked against every metered OAuth/Drive owner observation. No raw
+owner ID, account binding, credential validity or supplier right is invented.
 
 An empty external chain has local examined=0 and a logical genesis commitment
 derived from task/namespace/input SHA/date/feed/bases. This is not the original
@@ -72,6 +88,14 @@ from verified empty bars or numerical `HELD_BAR_VALUE`. Supported names around
 an unsupported name still advance in contiguous groups. Asset401/403/429, network,
 price404 and every unapproved error remain terminal and retain the debit.
 No credential-bearing or vendor original bytes enter public GitHub reports.
+
+All external-cohort runtime failures stop that epoch, including asset-network
+and generic price HTTP failures. This minimal path accepts no `--recovery-run`
+and never turns NETWORK/HTTP_ERROR into permission for another dispatch. A
+finalized failed receipt can still be read, accounted and settled after expiry;
+new reservations remain forbidden. Any later recovery needs a distinct A0
+reviewed contract and explicit authorization preserving all spent bytes/counters.
+Legacy fixed-seed recovery behavior is unchanged.
 
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,

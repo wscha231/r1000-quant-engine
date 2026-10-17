@@ -7202,3 +7202,26 @@ receipt rather than recreate it. Current asset metadata/404 can support a
 sanitized held state only on the narrow metered asset endpoint; auth/quota/network
 failures cannot be converted into no-data or eligible history. Freeze a dated
 market-cap input and reconcile actual source receipts before its later dispatch.
+
+Independent A6 found three pre-deployment counterexamples: expiry must be
+checked against the binding event's actual recorded clock before appending it;
+a known completed run must still be imported/settled after expiry (while new
+dispatch remains forbidden); and UUID syntax needs exact8-4-4-4-12 hexadecimal
+positions rather than a permissive36-character hex/hyphen class. Keep expired
+read-only accounting separate from renewed execution authorization.
+
+A6 also reproduced a cross-namespace unknown-POST hole: releasing the original
+global lock does not expose a pending cohort reservation to the next namespace
+before Actions visibility. Keep a deterministic family reservation journal
+under that same lock, outside the immutable17-event prefix. Write shared
+RESERVED first, cohort RESERVED second, then POST. Reconcile all family nonces;
+missing/orphan/partial or rolled-back registration cannot prove zero POST.
+Settle cohort first, shared second, and close an interrupted shared settlement
+only with the exact canonical receipt and already settled cohort record.
+
+Hosted review also caught a terminal/recovery mismatch: generic HTTP_ERROR can
+include a price404, and NETWORK can occur during asset identity precheck. The
+minimal external path stops its entire epoch on every runtime failure and
+accepts no legacy recovery flag. Known failed receipts still settle/account;
+another attempt requires a separately reviewed A0 recovery contract. Do not
+inherit legacy retry authority merely because it shares the same meter.
