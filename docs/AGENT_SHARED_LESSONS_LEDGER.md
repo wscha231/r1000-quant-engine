@@ -7288,3 +7288,20 @@ may otherwise leak a sensitive URL/reason through an unrelated journal error.
 Codex also required max1 across restarts until the first recovery is fully
 settled in both journals: importing or repairing that settlement consumes the
 one batch, rather than allowing a second ordinary POST in the same invocation.
+
+### 2026-10-17 — A Drive CREATE502 does not prove zero storage side effects
+
+Actual run39032304843 failed at160/169 during DRIVE_CREATE/POST/HEADER_OPEN502.
+Keep CP160 and all160/682614 accepted rows; settle its Provider11/Drive332 and
+all transfer/storage/time, including the unconfirmed upload reservation.
+Do not call it an Alpaca entitlement error or refund unknown storage.
+
+A separately reviewed named9 revision must retain the old120→128 transition,
+both old23/22 prefixes, all costs and original48h. Before provider or storage
+writes, find both exact existing raw and normalized objects in only the failed
+run's bounded owner-only window and verify complete semantics. Missing or
+ambiguous normalized storage remains blocked, even after a long wait. Reuse
+the original4 symbols' bytes/clocks and separately record new derivation code,
+proof, run and time; do not relabel historical bytes as newly collected. Only
+after CP164 readback may the original collector request the remaining5 names.
+Ordinary source guards, no second retry, max1 and private/PIT limits remain.
