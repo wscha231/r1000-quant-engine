@@ -7361,3 +7361,8 @@ Canonical reconciliation must preserve live observation order too: inventory
 observation precedes lookup in both existing and derived modes, and lookup
 precedes derivation. An older object's creation clock is not an exemption for
 chronologically conflicting new lookup evidence.
+Exact-name fallback is not an escape from a complete inclusive-window inventory:
+an existing object created in that window must appear in it. Anchor new inventory
+observations to the actual canonical recovery run, rather than accepting a
+self-consistent set of receipt clocks that all predate execution. Keep old object
+creation separate; synthetic successful fixtures must model the same distinction.

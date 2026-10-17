@@ -2859,7 +2859,7 @@ class MaterializationRevisionTests(unittest.TestCase):
         reuse.update(failed_run_id=13,derivation_source_sha=self.new['expected_master'],derivation_run_id=14,
             derivation_auth_sha256=self.h,external_proof_sha256=self.proof['proof_sha256'],derived_at_utc=c.utc().isoformat())
         reuse['materialization']=dict(capture_failed_run_id=12,rows_sha256='d'*64,codec='EXISTING_GZIP_VERIFIED',
-            mode='EXISTING_VERIFIED',created_at_utc=c.DRIVE_RECOVERY['window_end'],lookup_observed_at_utc=c.utc().isoformat(),
+            mode='EXISTING_VERIFIED',created_at_utc='2026-10-16T00:00:00Z',lookup_observed_at_utc=c.utc().isoformat(),
             inventory_sha256=c.digest(c.encoded(value['orphan_inventory'])),original_create_outcome='UNKNOWN')
         reuse['derived_at_utc']=c.utc().isoformat();value['drive_orphan_reuse']=reuse
         return run,value
@@ -3016,6 +3016,7 @@ class MaterializationRevisionTests(unittest.TestCase):
             run,value=self.completion();reuse=value['drive_orphan_reuse'];material=reuse['materialization']
             inventory=value['orphan_inventory'];inventory['entries'].append(dict(inventory['entries'][0],
                 kind='NORMALIZED',sha256=reuse['normalized_sha256'],bytes=100))
+            material['created_at_utc']=inventory['entries'][1]['created_at_utc']
             inventory['files_count']=2;material['inventory_sha256']=c.digest(c.encoded(inventory))
             if mutation=='created':material['created_at_utc']=(c.utc(material['created_at_utc'])+timedelta(seconds=1)).isoformat()
             elif mutation=='derived':
@@ -3033,6 +3034,20 @@ class MaterializationRevisionTests(unittest.TestCase):
             if earlier_derivation:reuse['derived_at_utc']=c.DRIVE_RECOVERY['window_end']
             with self.subTest(earlier_derivation=earlier_derivation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
                 self.history([(run,value)])
+
+    def test_noninventoried_existing_object_cannot_have_an_in_window_creation(self):
+        for clock in (c.DRIVE_RECOVERY['window_start'],'2026-10-17T12:25:00Z',c.DRIVE_RECOVERY['window_end']):
+            run,value=self.completion();value['drive_orphan_reuse']['materialization']['created_at_utc']=clock
+            with self.subTest(clock=clock),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                self.history([(run,value)])
+
+    def test_recovery_observations_cannot_predate_the_canonical_run(self):
+        run,value=self.completion();run['created_at']=c.utc().isoformat()
+        value['orphan_inventory']['observed_at_utc']=c.DRIVE_RECOVERY['window_end']
+        reuse=value['drive_orphan_reuse'];reuse['derived_at_utc']=c.DRIVE_RECOVERY['window_end']
+        reuse['materialization'].update(lookup_observed_at_utc=c.DRIVE_RECOVERY['window_end'],
+            inventory_sha256=c.digest(c.encoded(value['orphan_inventory'])))
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_RUN_CLOCK'):self.history([(run,value)])
 
     def test_successful_receipts_must_close_the_same_bounded_inventory(self):
         for mutation in ('pagination','count','missing_raw','two_norm','raw_hash','raw_bytes','norm_hash','clock'):
@@ -3106,6 +3121,12 @@ class OrphanMaterializationTests(unittest.TestCase):
         self.assertEqual(f.writes,['.json','.json']);self.assertEqual(f.meter.examined,164)
         self.assertEqual(reuse['materialization']['mode'],'EXISTING_VERIFIED')
         self.assertEqual(reuse['materialization']['created_at_utc'],'2026-10-16T00:00:00Z')
+        self.assertEqual(f.meter.used['provider_gets'],0)
+
+    def test_exact_name_in_window_object_missing_from_inventory_refuses(self):
+        f=self.f;f.reply=dict(files=f.listing[:1])
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):self.recover()
+        self.assertEqual(f.writes,[]);self.assertEqual(f.meter.examined,160)
         self.assertEqual(f.meter.used['provider_gets'],0)
 
     def test_older_raw_is_still_outside_the_sealed_original_window(self):

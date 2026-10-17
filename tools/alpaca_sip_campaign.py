@@ -1260,6 +1260,8 @@ def verify_drive_reuse(reuse, identity):
                     <= utc(reuse["derived_at_utc"])
                 and (not normalized or data["mode"] == "EXISTING_VERIFIED"
                      and utc(data["created_at_utc"]) == utc(normalized[0]["created_at_utc"]))
+                and (normalized or data["mode"] != "EXISTING_VERIFIED" or not
+                     utc(DRIVE_RECOVERY["window_start"]) <= utc(data["created_at_utc"]) <= utc(DRIVE_RECOVERY["window_end"]))
                 and (data["mode"] != "DERIVED_NEW" or utc(evidence["observed_at_utc"]) <= utc(data["created_at_utc"])),
                 "EXTERNAL_MATERIAL_PROVENANCE")
 
@@ -2220,6 +2222,10 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                     verify_drive_reuse(value.get("drive_orphan_reuse"), value)
                     require(("materialization" in value["drive_orphan_reuse"]) ==
                             ("materialization_recovery" in a["external_cohort"]), "EXTERNAL_ORPHAN_PROVENANCE")
+                    if "materialization_recovery" in a["external_cohort"]:
+                        require(isinstance(run["created_at"], str)
+                                and utc(run["created_at"]) <= utc(value["orphan_inventory"]["observed_at_utc"]),
+                                "EXTERNAL_MATERIAL_RUN_CLOCK")
             state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
             state["runs"].append(run); state["receipts"].append(value)
             named_failure = named_failed_receipt(run, value, epoch)
