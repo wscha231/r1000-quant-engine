@@ -1191,6 +1191,7 @@ def verify_orphan_inventory(evidence):
                  and 0 <= evidence["files_count"] <= 1_000_000)
             and type(evidence["has_more"]) is bool and isinstance(evidence["entries"], list)
             and len(evidence["entries"]) <= 8
+            and isinstance(evidence["observed_at_utc"], str)
             and utc(DRIVE_RECOVERY["window_end"]) <= utc(evidence["observed_at_utc"]) <= utc(),
             "EXTERNAL_ORPHAN_DIAGNOSTIC")
     for row in evidence["entries"]:
@@ -1222,6 +1223,7 @@ def verify_drive_reuse(reuse, identity):
         and reuse["failed_run_observation_window"] == [DRIVE_RECOVERY["window_start"], DRIVE_RECOVERY["window_end"]]
         and all(isinstance(reuse[k], str) and re.fullmatch(r"[0-9a-f]{64}", reuse[k])
                 for k in ("raw_sha256", "normalized_sha256"))
+        and isinstance(reuse["derived_at_utc"], str)
         and utc(DRIVE_RECOVERY["window_end"]) <= utc(reuse["derived_at_utc"]) <= utc(), "EXTERNAL_ORPHAN_PROVENANCE")
     if material:
         data = reuse["materialization"]
@@ -1252,8 +1254,11 @@ def verify_drive_reuse(reuse, identity):
                                       "EXISTING_VERIFIED":"EXISTING_GZIP_VERIFIED"}[data["mode"]]
                 and data["original_create_outcome"] == "UNKNOWN"
                 and data["inventory_sha256"] == digest(encoded(evidence))
+                and isinstance(data["created_at_utc"], str) and isinstance(data["lookup_observed_at_utc"], str)
                 and utc(data["created_at_utc"]) <= utc(data["lookup_observed_at_utc"])
                     <= utc(reuse["derived_at_utc"])
+                and (not normalized or data["mode"] == "EXISTING_VERIFIED"
+                     and utc(data["created_at_utc"]) == utc(normalized[0]["created_at_utc"]))
                 and (data["mode"] != "DERIVED_NEW" or utc(evidence["observed_at_utc"]) <= utc(data["created_at_utc"])),
                 "EXTERNAL_MATERIAL_PROVENANCE")
 

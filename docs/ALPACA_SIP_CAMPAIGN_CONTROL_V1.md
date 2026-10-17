@@ -641,6 +641,14 @@ reuse receipts reapply inventory closure (count, no pagination, exactly one raw,
 at most one normalized, hashes/sizes/window) rather than only diagnostic shapes.
 Existing mode requires EXISTING_GZIP_VERIFIED; new mode requires the canonical
 encoder label. A failed diagnostic may retain incomplete inventory evidence.
+Inventory observation, reuse derivation and materialization creation/lookup
+clocks require actual UTC strings. Missing values must not invoke the runtime
+clock's current-time fallback; incomplete diagnostic row clocks stay distinct
+from successful reuse evidence.
+When the inventory already contains normalized bytes, successful reuse must
+retain existing mode and that row's actual creation clock. New derivation
+requires no normalized inventory candidate; indexed existing objects outside
+the sealed window retain their separately verified actual creation clocks.
 
 The v4 OWNER record must explicitly authorize one normalized-only derivation
 from these verified original bytes. Use the existing content-addressed

@@ -3001,6 +3001,31 @@ class MaterializationRevisionTests(unittest.TestCase):
         value['drive_orphan_reuse']['materialization']['codec']='GZIP_FILENAME_EMPTY_MTIME0_LEVEL9'
         with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):self.history([(run,value)])
 
+    def test_reuse_clocks_require_actual_values_without_now_fallback(self):
+        for missing in ('derived','observed','created','lookup','all'):
+            run,value=self.completion();reuse=value['drive_orphan_reuse'];material=reuse['materialization']
+            if missing in ('derived','all'):reuse['derived_at_utc']=None
+            if missing in ('observed','all'):value['orphan_inventory']['observed_at_utc']=None
+            if missing in ('created','all'):material['created_at_utc']=None
+            if missing in ('lookup','all'):material['lookup_observed_at_utc']=None
+            material['inventory_sha256']=c.digest(c.encoded(value['orphan_inventory']))
+            with self.subTest(missing=missing),self.assertRaises(c.Refused):self.history([(run,value)])
+
+    def test_normalized_inventory_binds_existing_mode_and_creation_clock(self):
+        for mutation in ('none','created','derived'):
+            run,value=self.completion();reuse=value['drive_orphan_reuse'];material=reuse['materialization']
+            inventory=value['orphan_inventory'];inventory['entries'].append(dict(inventory['entries'][0],
+                kind='NORMALIZED',sha256=reuse['normalized_sha256'],bytes=100))
+            inventory['files_count']=2;material['inventory_sha256']=c.digest(c.encoded(inventory))
+            if mutation=='created':material['created_at_utc']=(c.utc(material['created_at_utc'])+timedelta(seconds=1)).isoformat()
+            elif mutation=='derived':
+                material.update(mode='DERIVED_NEW',codec='GZIP_FILENAME_EMPTY_MTIME0_LEVEL9',
+                    created_at_utc=inventory['observed_at_utc'],lookup_observed_at_utc=reuse['derived_at_utc'])
+            if mutation=='none':self.assertEqual(self.history([(run,value)])['examined'],169)
+            else:
+                with self.subTest(mutation=mutation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                    self.history([(run,value)])
+
     def test_successful_receipts_must_close_the_same_bounded_inventory(self):
         for mutation in ('pagination','count','missing_raw','two_norm','raw_hash','raw_bytes','norm_hash','clock'):
             run,value=self.completion();inventory=value['orphan_inventory'];entries=inventory['entries']

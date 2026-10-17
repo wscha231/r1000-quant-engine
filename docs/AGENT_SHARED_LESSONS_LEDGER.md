@@ -7348,3 +7348,12 @@ existing/new mode and codec must agree in both directions; canonical reuse
 reconciliation must reapply successful inventory closure and object hashes,
 not accept a merely well-shaped diagnostic. Preserve actual older server times
 without inventing collection/PIT clocks. No runtime or budget policy changes.
+
+Independent A6 also reproduced null canonical evidence clocks being accepted
+through `utc(None)`'s runtime-now default. Require actual timestamp strings at
+inventory observation, reuse derivation and normalized creation/lookup before
+parsing. Preserve the runtime clock helper and incomplete diagnostic-row schema;
+never fill missing provenance with the verifier's current time.
+The exact-head hosted review also required mode/clock binding to any normalized
+inventory row: existing bytes cannot become a new derivation or acquire a
+different server-created time during canonical reconciliation.
