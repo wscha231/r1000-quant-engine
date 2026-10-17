@@ -135,8 +135,12 @@ def atomic_json(path, value):
 
 def validate_authorization(auth):
     continued = isinstance(auth, dict) and "continuation" in auth
-    require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | ({"continuation"} if continued else set())
-            and auth.get("schema") == ("r1000-sip-campaign-authorization-v2" if continued else
+    external = isinstance(auth, dict) and "external_cohort" in auth
+    require(not (continued and external), "CAMPAIGN_AUTHORIZATION")
+    require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | (
+            {"external_cohort"} if external else {"continuation"} if continued else set())
+            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v1" if external else
+                                       "r1000-sip-campaign-authorization-v2" if continued else
                                        "r1000-sip-campaign-authorization-v1") and auth.get("task_key") == TASK
             and auth.get("scope_approved") is True
             and auth.get("private_noncommercial") is True
@@ -148,7 +152,7 @@ def validate_authorization(auth):
             and auth.get("initial_checkpoint_sha256") == INITIAL_SHA
             and auth.get("transfer_definition") == METRIC,
             "CAMPAIGN_SCOPE")
-    require(auth.get("limits") == (CONTINUED_LIMITS if continued else LIMITS)
+    require(auth.get("limits") == (CONTINUED_LIMITS if continued or external else LIMITS)
             and all(type(auth["limits"][name]) is int for name in LIMITS),
             "CAMPAIGN_LIMITS")
     require(type(auth.get("workflow_run_floor")) is int
@@ -189,11 +193,13 @@ def validate_authorization(auth):
         require(isinstance(continuation["proof_reference"], str) and re.fullmatch(
             r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
             continuation["proof_reference"]), "CAMPAIGN_CONTINUATION_PROOF")
+    if external:
+        validate_external_authorization(auth)
     return digest(encoded(auth))
 
 
 def active_limit(auth):
-    return 43200 if "continuation" in auth else 28800
+    return 43200 if "continuation" in auth or "external_cohort" in auth else 28800
 
 
 def continuation_proof(auth):
@@ -263,7 +269,7 @@ class RuntimeMeter:
     This explicit metric must be accepted in the immutable authorization.
     """
     def __init__(self, allowance, journal, deadline, identity, clock=utc,
-                 opener=None, limits=None):
+                 opener=None, limits=None, asset_symbols=()):
         caps = LIMITS if limits is None else limits
         require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
         require(set(allowance) == set(LIMITS), "CAMPAIGN_COUNTER")
@@ -271,6 +277,11 @@ class RuntimeMeter:
         self.used = {k: 0 for k in LIMITS}
         self.journal, self.deadline = Path(journal), utc(deadline)
         self.identity, self.clock = dict(identity), clock
+        require(isinstance(asset_symbols, (list, tuple)) and len(asset_symbols) <= 32
+                and len(set(asset_symbols)) == len(asset_symbols)
+                and all(isinstance(s, str) and re.fullmatch(r"[A-Z][A-Z0-9.-]{0,13}", s)
+                        for s in asset_symbols), "CAMPAIGN_ASSET_SCOPE")
+        self.asset_symbols = tuple(asset_symbols)
         self.opener = opener or build_opener(NoRedirect())
         self.live_transport = opener is None
         self.alarm_active = False
@@ -346,6 +357,9 @@ class RuntimeMeter:
                 and endpoint.password is None and endpoint.port in (None, 443),
                 "CAMPAIGN_ENDPOINT")
         provider = endpoint.netloc == "data.alpaca.markets" and endpoint.path == "/v2/stocks/bars"
+        asset = (endpoint.netloc == "paper-api.alpaca.markets" and not endpoint.query
+                 and endpoint.path in {"/v2/assets/" + s for s in self.asset_symbols})
+        provider = provider or asset
         google = ((endpoint.netloc == "www.googleapis.com" and
                    (endpoint.path == "/drive/v3/about" or
                     endpoint.path == "/drive/v3/files" or
@@ -388,7 +402,8 @@ class RuntimeMeter:
                 require(raw, "RESPONSE_SIZE")
                 self.remaining_seconds()
         except HTTPError as exc:
-            code = {401: "AUTH", 402: "ENTITLEMENT", 403: "PERMISSION", 429: "RATE_LIMIT"}.get(exc.code, "HTTP_ERROR")
+            code = ("ASSET_NOT_FOUND" if asset and exc.code == 404 else
+                    {401: "AUTH", 402: "ENTITLEMENT", 403: "PERMISSION", 429: "RATE_LIMIT"}.get(exc.code, "HTTP_ERROR"))
             exc.close()
             raise Refused(code) from None
         except Refused:
@@ -480,7 +495,8 @@ def receipt_for_run(run, auth_hash, expected_master, limits=None):
                 and not files[0].is_symlink(), "CAMPAIGN_RECEIPT_FILES")
         value = bounded_json(files[0])
     require(value.get("schema") == "a1-sip-campaign-meter-v1"
-            and value.get("auth_sha256") == auth_hash
+            and (value.get("auth_sha256") in auth_hash if isinstance(auth_hash, tuple)
+                 else value.get("auth_sha256") == auth_hash)
             and value.get("run_id") == run["id"] and value.get("run_attempt") == 1
             and value.get("nonce") == run["display_title"][7:]
             and value.get("source_sha") == expected_master
@@ -537,6 +553,8 @@ def job_seconds(run):
 
 def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True):
     """Canonical Actions history prevents a valid old local ledger rollback."""
+    if isinstance(auth, dict) and "external_cohort" in auth:
+        return external_history(auth, current_run, nonce, recovery_run, enforce_expiry)
     auth_hash = validate_authorization(auth)
     continuation = continuation_proof(auth)
     prior = auth["continuation"]["prior_authorization"] if continuation else None
@@ -1010,7 +1028,12 @@ def verify_worker_source(auth):
 def verify_new_group(drive, folder, state, checkpoint, meter):
     from tools import alpaca_sip_private_backfill_v1 as cap
     stored = cap._private_object(drive, folder, checkpoint)
-    require(decode(stored) == state and state["previous_checkpoint"]["sha256"] == meter.checkpoint_sha,
+    scope = meter.identity.get("cohort_scope")
+    previous = state.get("previous_checkpoint")
+    first_external = scope is not None and meter.examined == 0
+    require(decode(stored) == state and state.get("cohort_scope") == scope
+            and ((previous is None and meter.checkpoint_sha == external_genesis(scope)) if first_external
+                 else isinstance(previous, dict) and previous.get("sha256") == meter.checkpoint_sha),
             "CAMPAIGN_CHECKPOINT_CHAIN")
     objects = state["last_objects"]
     if state["last_status"] == "VERIFIED_RAW_SPLIT":
@@ -1021,7 +1044,8 @@ def verify_new_group(drive, folder, state, checkpoint, meter):
         require(receipt.get("raw_object") == objects[0]
                 and receipt.get("normalized_object") == objects[1]
                 and receipt.get("source_sha") == os.environ["GITHUB_SHA"]
-                and receipt.get("seed_sha256") == SEED_SHA
+                and receipt.get("seed_sha256") == (scope["input_sha256"] if scope else SEED_SHA)
+                and receipt.get("cohort_scope") == scope
                 and receipt.get("start") == "2016-01-04"
                 and receipt.get("end") == "2026-10-14"
                 and receipt.get("collected") == state["last_collected"]
@@ -1034,16 +1058,24 @@ def verify_new_group(drive, folder, state, checkpoint, meter):
         meter.states["VALID_COLLECTED"] += len(receipt["collected"])
         meter.states["VERIFIED_NO_DATA"] += len(receipt["no_bars"])
     else:
-        require(state["last_status"] == "HELD_BAR_VALUE" and len(objects) == 1,
+        require(state["last_status"] in (("HELD_BAR_VALUE", "HELD_PROVIDER_ASSET") if scope else ("HELD_BAR_VALUE",))
+                and len(objects) == 1,
                 "CAMPAIGN_GROUP_STATUS")
         marker = decode(cap._private_object(drive, folder, objects[0]))
-        require(marker.get("status") == "HELD_BAR_VALUE" and marker.get("reason") == "BAR_VALUE"
+        asset_hold = state["last_status"] == "HELD_PROVIDER_ASSET"
+        require(marker.get("status") == state["last_status"]
+                and marker.get("reason") == ("PROVIDER_ASSET_UNAVAILABLE" if asset_hold else "BAR_VALUE")
                 and marker.get("symbols") == state["last_held"]
                 and marker.get("source_sha") == os.environ["GITHUB_SHA"]
-                and marker.get("seed_sha256") == SEED_SHA
+                and marker.get("seed_sha256") == (scope["input_sha256"] if scope else SEED_SHA)
+                and marker.get("cohort_scope") == scope
                 and marker.get("start") == "2016-01-04" and marker.get("end") == "2026-10-14"
                 and marker.get("original_price_bytes_retained") is False,
                 "CAMPAIGN_HELD_MARKER")
+        if asset_hold:
+            cap.verify_asset_evidence(marker.get("asset_precheck"), state["last_held"])
+            require(all(not cap.asset_supported(row) for row in marker["asset_precheck"]),
+                    "EXTERNAL_ASSET_EVIDENCE")
         require(all(marker.get(k) is False for k in
                     ("source_admission", "pit_verified", "historical_identity_verified",
                      "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
@@ -1184,6 +1216,8 @@ def worker(args, control, journal):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
+    if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "external_cohort" in control["authorization"]:
+        return external_worker(args, control, journal)
     require(isinstance(control, dict) and {"authorization", "nonce"} <= set(control)
             and set(control) <= {"authorization", "nonce", "recovery_run", "preflight_only",
                                  "account_permission_reference", "continuation_binding"}, "CAMPAIGN_CONTROL_REQUIRED")
@@ -1321,6 +1355,8 @@ def settled_parent(journal, auth):
     for entry in reversed(journal.entries):
         if entry["kind"] == "SETTLED":
             return entry["checkpoint"]
+    if "external_cohort" in auth:
+        return dict(file_id="", sha256=external_genesis(auth["external_cohort"]["scope"]), bytes=0)
     return dict(file_id=auth["initial_checkpoint_file_id"], sha256=INITIAL_SHA, bytes=1375)
 
 
@@ -1328,6 +1364,15 @@ def settle_run(journal, auth, run, receipt):
     parent = settled_parent(journal, auth)
     require(receipt["parent_checkpoint_sha256"] == parent["sha256"], "CAMPAIGN_LOCAL_PARENT")
     ref = checkpoint_from_log(run, receipt, parent)
+    if "external_cohort" in auth:
+        frozen = {k: journal.entries[0][k] for k in ("proof_sha256", "proof_updated_utc", "expires_at_utc")}
+        observed = external_history(auth, enforce_expiry=False, allow_stopped=True)
+        require(observed["external_proof"] == frozen
+                and any(r["id"] == run["id"] and v == receipt for r,v in
+                        zip(observed["cohort_runs"], observed["cohort_receipts"]))
+                and external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
+        require(campaign_runs(auth["workflow_run_floor"]) == observed["runs"], "EXTERNAL_CANONICAL_DRIFT")
+        journal.reconcile(observed["cohort_runs"])
     if getattr(journal, "continuation", None) is not None:
         require(continuation_proof(auth) == journal.continuation
                 and receipt.get("continuation_proof_sha256") == journal.continuation["proof_sha256"],
@@ -1365,10 +1410,15 @@ def progress_summary(observed, status):
 
 
 def host(auth_path, state_dir, recovery_run=None, permission_reference=None, predispatch_recovery=None,
-         continuation_receipt=None):
+         continuation_receipt=None, cohort_input=None, budget_state_dir=None, max_batches=None):
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
+    if "external_cohort" in auth:
+        require(permission_reference is None and continuation_receipt is None, "EXTERNAL_CONTROL")
+        return external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery,
+                             recovery_run, max_batches)
+    require(cohort_input is None and budget_state_dir is None and max_batches is None, "EXTERNAL_CONTROL")
     continuation = continuation_proof(auth)
     prior = auth["continuation"]["prior_authorization"] if continuation else auth
     if continuation is not None:
@@ -1528,6 +1578,466 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
         journal.close()
 
 
+def external_genesis(scope):
+    from tools.alpaca_sip_private_backfill_v1 import external_scope
+    return digest(encoded(dict(schema="a1-external-logical-genesis-v1", scope=external_scope(scope),
+                               start="2016-01-04", end="2026-10-14", feed="sip", adjustments=["raw", "split"])))
+
+
+def validate_external_authorization(auth):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    ex = auth["external_cohort"]
+    require(isinstance(ex, dict) and set(ex) == {"scope", "input_csv", "intake_manifest_sha256",
+            "receipt_dedupe_sha256", "prior_authorization", "prior_epochs", "proof_reference"}, "EXTERNAL_AUTHORIZATION")
+    scope = cap.external_scope(ex["scope"])
+    require(isinstance(ex["input_csv"], str), "EXTERNAL_COHORT_SCHEMA")
+    raw = ex["input_csv"].encode("utf-8")
+    names = cap.external_cohort(raw)
+    require(digest(raw) == scope["input_sha256"], "EXTERNAL_COHORT_HASH")
+    for key in ("intake_manifest_sha256", "receipt_dedupe_sha256"):
+        require(isinstance(ex[key], str) and re.fullmatch(r"[0-9a-f]{64}", ex[key]), "EXTERNAL_INPUT_PROOF")
+    prior = ex["prior_authorization"]
+    require(isinstance(prior, dict) and set(prior) == AUTH_FIELDS
+            and validate_authorization(prior) == CONTINUATION["auth"], "EXTERNAL_BUDGET_ORIGIN")
+    fixed = AUTH_FIELDS - {"schema", "limits", "expected_master", "code_pins", "account_permission_reference",
+                           "owner_permission_id", "credential_binding"}
+    require(all(auth[k] == prior[k] for k in fixed)
+            and auth["expected_master"] != prior["expected_master"]
+            and isinstance(auth["owner_permission_id"], str)
+            and digest(auth["owner_permission_id"].encode()) == CONTINUATION["bindings"]["owner_sha256"]
+            and auth["credential_binding"] == CONTINUATION["bindings"]["credential_binding"]
+            and prior["owner_permission_id"] in (None, auth["owner_permission_id"])
+            and prior["credential_binding"] in (None, auth["credential_binding"]), "EXTERNAL_BUDGET_ORIGIN")
+    require(isinstance(ex["proof_reference"], str) and re.fullmatch(
+        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+", ex["proof_reference"])
+        and auth["account_permission_reference"] == ex["proof_reference"], "EXTERNAL_PROOF_REFERENCE")
+    # Two bounded epochs: the explicit discovery input, then the deduplicated
+    # market-cap input. Refuse recursive cycles/extra epochs before recursing.
+    epochs = ex["prior_epochs"]
+    require(isinstance(epochs, list) and len(epochs) <= 1, "EXTERNAL_EPOCH_LIMIT")
+    for previous in epochs:
+        require(isinstance(previous, dict) and isinstance(previous.get("external_cohort"), dict)
+                and previous["external_cohort"].get("prior_epochs") == [], "EXTERNAL_EPOCH_LIMIT")
+        validate_authorization(previous)
+        old = previous["external_cohort"]
+        require(old["prior_authorization"] == prior and old["scope"]["namespace"] != scope["namespace"]
+                and all(auth[k] == previous[k] for k in fixed)
+                and set(names).isdisjoint(cap.external_cohort(old["input_csv"].encode())), "EXTERNAL_RECOLLECTION")
+    # These144 names have already been examined in the original immutable chain.
+    # Existing no-data observations remain retained rather than being retried.
+    require(digest(cap.SEED.read_bytes().replace(b"\r\n", b"\n")) == SEED_SHA, "CAMPAIGN_SEED")
+    require(set(names).isdisjoint(cap.cohort(cap.SEED.read_bytes())[:CONTINUATION["examined"]]),
+            "EXTERNAL_RECOLLECTION")
+    require(len(encoded(auth)) <= 15000, "CAMPAIGN_CONTROL_SIZE")
+
+
+def external_proof_record(auth):
+    ex = auth["external_cohort"]
+    return dict(schema="a1-sip-external-cohort-consent-v1", budget_task_key=TASK,
+                scope=ex["scope"], auth_sha256=validate_authorization(auth),
+                prior_auth_sha256=CONTINUATION["auth"],
+                prior_epoch_auth_sha256=[validate_authorization(a) for a in ex["prior_epochs"]],
+                intake_manifest_sha256=ex["intake_manifest_sha256"], receipt_dedupe_sha256=ex["receipt_dedupe_sha256"],
+                initial_checkpoint_sha256=external_genesis(ex["scope"]),
+                original_checkpoint_sha256=CONTINUATION["checkpoint"],
+                original_journal_event_sha256=CONTINUATION["event"], original_usage=CONTINUATION["used"],
+                first_canonical_utc=CONTINUATION["first"],
+                expires_at_utc=(utc(CONTINUATION["first"])+timedelta(hours=48)).isoformat(),
+                limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40,
+                expected_master=auth["expected_master"], code_pins_sha256=digest(encoded(auth["code_pins"])),
+                bindings=CONTINUATION["bindings"], personal_historical_capture_requested=True,
+                private_noncommercial=True, supplier_rights_verified=False, account_rotation=False,
+                original_seed_unchanged=True, budget_reset=False)
+
+
+def external_proof(auth):
+    """Execution consent for THIS input, explicitly no fabricated supplier rights."""
+    expected = external_proof_record(auth)
+    reference = auth["external_cohort"]["proof_reference"]
+    comment_id = int(reference.rsplit("-", 1)[1])
+    comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
+    author = comment.get("user", {})
+    require(comment.get("id") == comment_id and type(comment.get("id")) is int
+            and comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("author_association") == "OWNER" and author.get("type") == "User"
+            and type(author.get("id")) is int and author["id"] > 0
+            and isinstance(comment.get("body"), str), "EXTERNAL_ATTESTOR")
+    tag = "A1_SIP_EXTERNAL_COHORT_CONSENT "
+    lines = [line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096, "EXTERNAL_PROOF")
+    record = decode(lines[0])
+    require(isinstance(record, dict) and encoded(record) == encoded(expected), "EXTERNAL_PROOF")
+    created, updated = utc(comment.get("created_at")), utc(comment.get("updated_at"))
+    require(utc(CONTINUATION["first"]) <= created <= updated <= utc()
+            and updated < utc(expected["expires_at_utc"]), "EXTERNAL_PROOF_CLOCK")
+    proof = dict(reference=reference, comment_id=comment_id, author_id=author["id"],
+                 created_at=created.isoformat(), updated_at=updated.isoformat(),
+                 body_sha256=digest(comment["body"].encode()), record=record)
+    return dict(proof_sha256=digest(encoded(proof)), proof_updated_utc=updated.isoformat(),
+                expires_at_utc=expected["expires_at_utc"])
+
+
+def external_batch(examined, count):
+    integer(examined, count)
+    require(examined < count <= 500, "EXTERNAL_COHORT_COMPLETE")
+    return min(32, count-examined, 128-(examined % 128))
+
+
+def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False):
+    """All family costs, per-cohort progress, same first clock/dispatch budget."""
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    auth_hash = validate_authorization(auth)
+    ex = auth["external_cohort"]
+    epochs = ex["prior_epochs"] + [auth]
+    hashes = [validate_authorization(a) for a in epochs]
+    require(len(set(hashes)) == len(hashes), "EXTERNAL_EPOCH_LIMIT")
+    proofs = [external_proof(a) for a in epochs]
+    runs = campaign_runs(auth["workflow_run_floor"])
+    require([r["id"] for r in runs[:5]] == CONTINUATION["runs"], "EXTERNAL_BUDGET_PREFIX")
+    if current_run is not None:
+        require(len(runs) > 5 and runs[-1]["id"] == current_run
+                and runs[-1]["display_title"] == "a1-sip " + nonce and runs[-1].get("run_attempt") == 1
+                and runs[-1].get("head_sha") == auth["expected_master"], "CAMPAIGN_SINGLE_USE")
+    previous = runs[:-1] if current_run is not None else runs
+    used, active = {k: 0 for k in LIMITS}, 0
+    local = {h: dict(parent=external_genesis(a["external_cohort"]["scope"]), examined=0,
+                    receipts=[], runs=[], durations=[]) for h,a in zip(hashes,epochs)}
+    old_parent, old_examined = INITIAL_SHA, 16
+    receipts, durations, epoch_index = [], [], 0
+    for index, run in enumerate(previous):
+        if index < 5:
+            value = receipt_for_run(run, CONTINUATION["auth"], CONTINUATION["master"])
+            require(digest(encoded(value)) == CONTINUATION["receipts"][index]
+                    and value["parent_checkpoint_sha256"] == old_parent
+                    and value["examined_before"] == old_examined, "EXTERNAL_BUDGET_PREFIX")
+            old_parent, old_examined = value["checkpoint_sha256"], value["examined_after"]
+            caps = LIMITS
+        else:
+            require(run.get("head_sha") in {a["expected_master"] for a in epochs}, "CAMPAIGN_SOURCE")
+            value = receipt_for_run(run, tuple(hashes), run["head_sha"], CONTINUED_LIMITS)
+            h = value["auth_sha256"]
+            require(h in hashes, "EXTERNAL_RECEIPT_BINDING")
+            position = hashes.index(h)
+            require(position >= epoch_index, "EXTERNAL_EPOCH_ORDER")
+            if position > epoch_index:
+                require(all(local[hashes[j]]["examined"] == len(cap.external_cohort(
+                    epochs[j]["external_cohort"]["input_csv"].encode())) for j in range(position)),
+                    "EXTERNAL_EPOCH_INCOMPLETE")
+            epoch_index = position
+            a, proof, state = epochs[position], proofs[position], local[h]
+            scope = a["external_cohort"]["scope"]
+            require(value.get("source_sha") == a["expected_master"] and value.get("cohort_scope") == scope
+                    and value.get("external_proof_sha256") == proof["proof_sha256"]
+                    and value.get("preflight_only") is False
+                    and value.get("bindings") == CONTINUATION["bindings"]
+                    and value.get("account_permission_reference_sha256") == digest(a["external_cohort"]["proof_reference"].encode())
+                    and value.get("account_permission_record_sha256") == proof["proof_sha256"]
+                    and utc(run["created_at"]) >= utc(proof["proof_updated_utc"]), "EXTERNAL_RECEIPT_BINDING")
+            count = len(cap.external_cohort(a["external_cohort"]["input_csv"].encode()))
+            require(value["examined_before"] == state["examined"]
+                    and value["parent_checkpoint_sha256"] == state["parent"]
+                    and state["examined"] <= value["examined_after"] <= state["examined"] + external_batch(state["examined"], count)
+                    and isinstance(value.get("checkpoint_sha256"), str)
+                    and re.fullmatch(r"[0-9a-f]{64}", value["checkpoint_sha256"]), "EXTERNAL_CHECKPOINT_CHAIN")
+            require((value["examined_after"] > state["examined"]) == (value["checkpoint_sha256"] != state["parent"]),
+                    "EXTERNAL_CHECKPOINT_CHAIN")
+            state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
+            state["runs"].append(run); state["receipts"].append(value)
+            caps = CONTINUED_LIMITS
+        for k in LIMITS:
+            require(value["allowance"][k] == caps[k]-used[k], "CAMPAIGN_ALLOWANCE_RESET")
+            used[k] += value["usage"][k]
+            require(used[k] <= caps[k], "CAMPAIGN_LEDGER_BUDGET")
+        seconds = job_seconds(run)
+        active += seconds
+        if index < 5 and index == 4:
+            require(used == CONTINUATION["used"] and active == CONTINUATION["active_seconds"]
+                    and old_parent == CONTINUATION["checkpoint"] and old_examined == CONTINUATION["examined"],
+                    "EXTERNAL_BUDGET_PREFIX")
+        if index >= 5:
+            local[value["auth_sha256"]]["durations"].append(seconds)
+        receipts.append(value); durations.append(seconds)
+        failed = value["status"] != "COMPLETE" or run.get("conclusion") != "success"
+        if failed:
+            if allow_stopped and current_run is None and run == previous[-1] and value["status"] == "BLOCKED":
+                # Import/account a closed failure only. Host separately refuses
+                # another dispatch; this flag is never accepted by workers.
+                require(isinstance(value.get("reason"), str) and re.fullmatch(r"[A-Z_]{1,80}", value["reason"]),
+                        "CAMPAIGN_REASON")
+                continue
+            next_run = previous[index+1] if index+1 < len(previous) else None
+            next_receipt = (receipt_for_run(next_run, tuple(hashes), next_run["head_sha"], CONTINUED_LIMITS)
+                            if next_run is not None and index >= 5 else None)
+            require(value["status"] == "BLOCKED" and value.get("reason") in ("NETWORK", "HTTP_ERROR")
+                    and ((run["id"] == recovery_run and run == previous[-1])
+                         or (next_receipt is not None and next_receipt.get("recovery_run") == run["id"]
+                             and next_receipt.get("auth_sha256") == value.get("auth_sha256"))),
+                    "CAMPAIGN_FAILED_RUN_REQUIRES_RECOVERY")
+    require(active <= active_limit(auth) and utc(runs[0]["created_at"]) == utc(CONTINUATION["first"]),
+            "CAMPAIGN_ACTIVE_TIME")
+    if recovery_run is not None:
+        require(type(recovery_run) is int and previous and previous[-1]["id"] == recovery_run
+                and receipts[-1]["status"] == "BLOCKED" and receipts[-1].get("reason") in ("NETWORK", "HTTP_ERROR")
+                and receipts[-1].get("auth_sha256") == auth_hash, "CAMPAIGN_RECOVERY")
+    first = utc(CONTINUATION["first"])
+    if enforce_expiry:
+        require(utc() < first+timedelta(hours=48), "CAMPAIGN_EXPIRED")
+    state = local[auth_hash]
+    if len(epochs) > 1:
+        require(local[hashes[0]]["examined"] == len(cap.external_cohort(epochs[0]["external_cohort"]["input_csv"].encode())),
+                "EXTERNAL_EPOCH_INCOMPLETE")
+    return dict(runs=runs, receipts=receipts, used=used, active_seconds=active, first=first,
+                durations=durations, bindings=CONTINUATION["bindings"], external_proof=proofs[-1],
+                parent_sha=state["parent"], examined=state["examined"], cohort_runs=state["runs"],
+                cohort_receipts=state["receipts"], cohort_durations=state["durations"],
+                remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS})
+
+
+def external_worker(args, control, journal):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    from tools.twelve_private_capture import OwnerDrive
+    require(set(control) == {"authorization", "nonce", "recovery_run", "preflight_only", "external_binding"}
+            and control["preflight_only"] is False, "EXTERNAL_CONTROL")
+    auth = control["authorization"]
+    h = validate_authorization(auth)
+    verify_worker_source(auth)
+    nonce, recovered = control["nonce"], control["recovery_run"]
+    require(isinstance(nonce, str) and re.fullmatch(PREFIX+r"[0-9a-f]{24}", nonce)
+            and nonce == os.getenv("INPUT_CAMPAIGN_NONCE")
+            and (recovered is None or type(recovered) is int), "CAMPAIGN_NONCE")
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    observed = external_history(auth, run_id, nonce, recovered)
+    proof, ex = observed["external_proof"], auth["external_cohort"]
+    scope = ex["scope"]
+    names = cap.external_cohort(ex["input_csv"].encode())
+    n = observed["examined"]
+    require(control["external_binding"] == proof and len(observed["runs"]) <= 40
+            and observed["active_seconds"] + 7800 <= active_limit(auth), "EXTERNAL_PROOF_DRIFT")
+    require(args.private_root_folder_id == auth["private_root_folder_id"]
+            and args.private_data_folder_id == auth["private_data_folder_id"]
+            and args.start == auth["start"] and args.end == auth["end"]
+            and args.max_new_symbols == external_batch(n, len(names))
+            and (args.resume_sha256 == observed["parent_sha"] if n else
+                 args.resume_file_id == args.resume_sha256 == ""), "EXTERNAL_PARENT")
+    key, secret = os.getenv("ALPACA_API_KEY", "").strip(), os.getenv("ALPACA_API_SECRET", "").strip()
+    require(key and secret and digest((key+"\0"+secret).encode()) == auth["credential_binding"],
+            "CAMPAIGN_CREDENTIAL_BINDING")
+    deadline = worker_deadline(run_id, observed["first"])
+    require(deadline <= utc(proof["expires_at_utc"]), "CAMPAIGN_ACCOUNT_EXPIRED")
+    require(external_proof(auth) == proof, "EXTERNAL_PROOF_DRIFT")
+    require([(r["id"], r.get("run_attempt"), r.get("head_sha"), r.get("display_title"))
+             for r in campaign_runs(auth["workflow_run_floor"])] ==
+            [(r["id"], r.get("run_attempt"), r.get("head_sha"), r.get("display_title")) for r in observed["runs"]],
+            "EXTERNAL_CANONICAL_DRIFT")
+    identity = dict(task_key=TASK, auth_sha256=h, source_sha=auth["expected_master"], nonce=nonce,
+                    run_id=run_id, run_attempt=1, recovery_run=recovered, preflight_only=False,
+                    cohort_scope=scope, external_proof_sha256=proof["proof_sha256"],
+                    bindings=CONTINUATION["bindings"], parent_checkpoint_sha256=observed["parent_sha"],
+                    examined_before=n, account_permission_reference_sha256=digest(ex["proof_reference"].encode()),
+                    account_permission_record_sha256=proof["proof_sha256"])
+    meter = RuntimeMeter(observed["remaining"], journal, deadline.isoformat(), identity, limits=auth["limits"],
+                         asset_symbols=names[n:n+args.max_new_symbols])
+    def factory(root, temp):
+        drive = OwnerDrive(root, temp, meter=meter)
+        require(drive.owner == auth["owner_permission_id"] and drive.free >= 2*1024**3,
+                "CAMPAIGN_OWNER_OR_SPACE")
+        meter.identity["free_bytes_at_start"] = drive.free
+        meter.save()
+        return drive
+    try:
+        with meter.process_deadline():
+            result = cap._collect(args, drive_factory=factory, get=meter.perform,
+                on_group=lambda drive,state,ref: verify_new_group(drive, args.private_data_folder_id, state, ref, meter),
+                expected_examined=n, external=dict(input_csv=ex["input_csv"], scope=scope))
+        require(meter.examined == n+args.max_new_symbols and meter.checkpoint_sha == result["checkpoint"]["sha256"],
+                "CAMPAIGN_BATCH_CLOSURE")
+        meter.finish("COMPLETE")
+        return result
+    except Refused as exc:
+        meter.finish("BLOCKED", str(exc)); raise
+    except Exception:
+        meter.finish("BLOCKED", "CAMPAIGN_INTERNAL")
+        raise Refused("CAMPAIGN_INTERNAL") from None
+
+
+def external_progress(auth, observed, status):
+    from tools.alpaca_sip_private_backfill_v1 import external_cohort
+    receipts = observed["cohort_receipts"]
+    return dict(task_key=auth["external_cohort"]["scope"]["task_key"], budget_task_key=TASK, status=status,
+                cohort_scope=auth["external_cohort"]["scope"], examined=observed["examined"],
+                cohort_count=len(external_cohort(auth["external_cohort"]["input_csv"].encode())),
+                states={k: sum(r["new_states"][k] for r in receipts) for k in
+                        ("VALID_COLLECTED", "VERIFIED_NO_DATA", "QUARANTINED")},
+                rows_verified=sum(r["rows_verified"] for r in receipts), charged_usage=observed["used"],
+                remaining=observed["remaining"], active_seconds=observed["active_seconds"],
+                workflow_dispatches=len(observed["runs"]), checkpoint_sha256=observed["parent_sha"],
+                first_canonical_utc=observed["first"].isoformat(), source_admission=False,
+                pit_verified=False, economic_authority=False)
+
+
+def verify_external_budget_journal(journal, auth, recovery):
+    """Read only: a missing old receipt is a refusal, never regenerated here."""
+    require(len(journal.entries) == 17 and journal.parent == CONTINUATION["event"]
+            and digest(bounded_bytes(journal.directory/"progress")) == CONTINUATION["progress"],
+            "EXTERNAL_BUDGET_PREFIX")
+    event = journal.entries[1]
+    raw = bounded_bytes(journal.directory/"000002.json")
+    require(raw == encoded(event), "CAMPAIGN_LOCAL_REJECT_EVENT_BYTES")
+    receipt = encoded(dict(schema="a1-sip-local-reject-recovery-receipt-v1", auth_sha256=event["auth_sha256"],
+        journal_event_sha256=digest(raw), recorded_utc=event["recorded_utc"], **recovery["binding"]))
+    require(Path(recovery["receipt_path"]).is_file() and bounded_bytes(recovery["receipt_path"]) == receipt,
+            "CAMPAIGN_LOCAL_REJECT_RECEIPT")
+
+
+def external_deployed(auth):
+    require(gh_json(f"repos/{REPO}/branches/master")["commit"]["sha"] == auth["expected_master"],
+            "CAMPAIGN_MASTER_DRIFT")
+    for path in PINS:
+        value = gh_json(f"repos/{REPO}/contents/{path}?ref={auth['expected_master']}")
+        require(value.get("encoding") == "base64" and
+                digest(base64.b64decode(value["content"])) == auth["code_pins"][path]
+                and digest(bounded_bytes(ROOT/path, 262144).replace(b"\r\n", b"\n")) == auth["code_pins"][path],
+                "CAMPAIGN_DEPLOYED_CODE")
+
+
+def external_forecast(auth, observed):
+    # Includes assets, full-prefix readback, failed attempts and all global
+    # usage. A linear average would hide the growing restore/check cost.
+    from tools.alpaca_sip_private_backfill_v1 import external_cohort
+    count = len(external_cohort(auth["external_cohort"]["input_csv"].encode()))
+    if not observed["examined"] or observed["examined"] % 128:
+        return None
+    proxy = dict(observed, examined=observed["examined"]+16,
+                 receipts=observed["cohort_receipts"], durations=observed["cohort_durations"])
+    # The existing predictor assumes1009 names; project its conservative
+    # envelope to the smaller cohort without changing hard meter limits.
+    forecast = forecast_remaining(proxy)
+    scale = (count-observed["examined"])/(1009-proxy["examined"])
+    projected = {k: math.ceil(v*scale) for k,v in forecast["estimated_remaining"].items()}
+    seconds = math.ceil(forecast["estimated_remaining_active_seconds"]*scale)
+    jobs = math.ceil((count-observed["examined"])/32)
+    return dict(projected=projected, active_seconds=seconds, dispatches=jobs, estimate_only=True,
+                fits=all(projected[k] <= observed["remaining"][k] for k in LIMITS)
+                     and seconds <= active_limit(auth)-observed["active_seconds"]
+                     and len(observed["runs"])+jobs <= 40)
+
+
+def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery, recovery_run, max_batches):
+    from tools.alpaca_sip_private_backfill_v1 import external_cohort
+    ex, h = auth["external_cohort"], validate_authorization(auth)
+    require(cohort_input is not None and budget_state_dir is not None and predispatch_recovery is not None,
+            "EXTERNAL_HOST_INPUTS")
+    require(max_batches is None or type(max_batches) is int and 1 <= max_batches <= 16, "EXTERNAL_BATCH_LIMIT")
+    require(bounded_bytes(cohort_input, 8192) == ex["input_csv"].encode(), "EXTERNAL_COHORT_HASH")
+    budget_path, state_path = Path(budget_state_dir).resolve(), Path(state_dir).resolve()
+    require(budget_path.is_dir() and state_path != budget_path and budget_path not in state_path.parents
+            and state_path not in budget_path.parents and state_path.name == ex["scope"]["namespace"],
+            "EXTERNAL_NAMESPACE")
+    base = ex["prior_authorization"]
+    recovery = local_reject_recovery(predispatch_recovery, base, budget_path)
+    global_journal = WorkJournal(budget_path, CONTINUATION["auth"], recovery=recovery)
+    journal = None
+    last_observed = None
+    try:
+        verify_external_budget_journal(global_journal, auth, recovery)
+        journal = WorkJournal(state_path, h)
+        frozen = external_proof(auth)
+        binding = dict(scope=ex["scope"], genesis_sha256=external_genesis(ex["scope"]), **frozen)
+        if journal.entries:
+            first = journal.entries[0]
+            require(first.get("kind") == "EXTERNAL_COHORT_BOUND"
+                    and {k: first.get(k) for k in binding} == binding, "EXTERNAL_PROOF_DRIFT")
+        else:
+            # No provider/Drive I/O or dispatch; binding is this new namespace only.
+            journal.append("EXTERNAL_COHORT_BOUND", **binding)
+        completed = 0
+        while True:
+            observed = external_history(auth, recovery_run=recovery_run, allow_stopped=True)
+            last_observed = observed
+            require(observed["external_proof"] == frozen, "EXTERNAL_PROOF_DRIFT")
+            global_journal.reconcile(observed["runs"][:5])
+            journal.reconcile(observed["cohort_runs"])
+            if journal.entries[-1]["kind"] in ("RESERVED", "RUN_ASSIGNED"):
+                matches = [(r,v) for r,v in zip(observed["cohort_runs"], observed["cohort_receipts"])
+                           if v["nonce"] == journal.entries[-1]["nonce"]]
+                require(len(matches) == 1, "CAMPAIGN_ACTIVE_RESERVATION")
+                run, value = matches[0]
+                require(external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
+                settle_run(journal, auth, run, value)
+            atomic_json(journal.directory/"progress", external_progress(auth, observed, "VERIFIED"))
+            latest = observed["cohort_receipts"][-1] if observed["cohort_receipts"] else None
+            if latest is not None and latest["status"] == "BLOCKED":
+                atomic_json(journal.directory/"progress", external_progress(auth, observed, "BLOCKED"))
+                require(recovery_run == latest["run_id"] and latest.get("reason") in ("NETWORK", "HTTP_ERROR"),
+                        "CAMPAIGN_WORKER_BLOCKED")
+            count = len(external_cohort(ex["input_csv"].encode()))
+            if observed["examined"] == count or max_batches is not None and completed >= max_batches:
+                return external_progress(auth, observed, "COHORT_PROCESSED" if observed["examined"] == count else "BATCH_BOUNDARY")
+            forecast = external_forecast(auth, observed)
+            if forecast is not None:
+                print(json.dumps(dict(status="EXTERNAL_128_REVIEW", **forecast)), flush=True)
+                require(forecast["fits"], "CAMPAIGN_CALIBRATION_BUDGET")
+            require(len(observed["runs"]) < 40 and observed["active_seconds"]+7800 <= active_limit(auth),
+                    "CAMPAIGN_DISPATCH_BUDGET")
+            external_deployed(auth)
+            fresh = external_history(auth, recovery_run=recovery_run)
+            require(fresh == observed and fresh["external_proof"] == frozen, "EXTERNAL_CANONICAL_DRIFT")
+            require(external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
+            require(campaign_runs(auth["workflow_run_floor"]) == observed["runs"], "EXTERNAL_CANONICAL_DRIFT")
+            parent = settled_parent(journal, auth)
+            require(parent["sha256"] == observed["parent_sha"]
+                    and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+            nonce = PREFIX+os.urandom(12).hex()
+            control = dict(authorization=auth, nonce=nonce, recovery_run=recovery_run,
+                           preflight_only=False, external_binding=frozen)
+            raw = encoded(control)
+            require(len(raw) <= 16384, "CAMPAIGN_CONTROL_SIZE")
+            journal.append("RESERVED", nonce=nonce, remaining=observed["remaining"],
+                           active_seconds_remaining=active_limit(auth)-observed["active_seconds"],
+                           parent_checkpoint_sha256=parent["sha256"], external_proof_sha256=frozen["proof_sha256"])
+            inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
+                          private_data_folder_id=auth["private_data_folder_id"], private_research_authorized="true",
+                          noncommercial_terms_acknowledged="true", end_date=auth["end"],
+                          max_new_symbols=str(external_batch(observed["examined"], count)),
+                          resume_file_id=parent["file_id"], resume_sha256=parent["sha256"] if parent["file_id"] else "",
+                          campaign_control=raw.decode(), campaign_nonce=nonce)
+            result = subprocess.run(["gh", "workflow", "run", WORKFLOW, "--repo", REPO, "--ref", "master", "--json"],
+                input=json.dumps(inputs).encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+            require(result.returncode == 0, "CAMPAIGN_DISPATCH_UNCERTAIN")
+            run = None
+            for _ in range(30):
+                matches = [r for r in campaign_runs(auth["workflow_run_floor"]) if r["display_title"] == "a1-sip "+nonce]
+                require(len(matches) <= 1, "CAMPAIGN_NONCE_REPLAY")
+                if matches:
+                    run = matches[0]; break
+                time.sleep(2)
+            require(run is not None, "CAMPAIGN_DISPATCH_UNCERTAIN")
+            journal.append("RUN_ASSIGNED", nonce=nonce, run_id=run["id"])
+            subprocess.run(["gh", "run", "watch", str(run["id"]), "--repo", REPO, "--exit-status", "--interval", "30"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=9000)
+            # Loop revalidates all family meters/proof before importing or
+            # settling. Unknown outcomes leave the reservation intact.
+            completed += 1
+            recovery_run = None
+    except BaseException:
+        if journal is not None and last_observed is not None:
+            report = external_progress(auth, last_observed, "BLOCKED")
+            pending = journal.entries and journal.entries[-1]["kind"] in ("RESERVED", "RUN_ASSIGNED")
+            reservations = [e for e in journal.entries if e["kind"] == "RESERVED"]
+            report["unsettled_reservation"] = reservations[-1]["remaining"] if pending and reservations else None
+            try:
+                atomic_json(journal.directory/"progress", report)
+            except OSError:
+                pass  # Durable append-only reservation is still authoritative.
+        raise
+    finally:
+        try:
+            if journal is not None:
+                journal.close()
+        finally:
+            global_journal.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--authorization", required=True)
@@ -1536,10 +2046,14 @@ def main():
     parser.add_argument("--account-permission-reference")
     parser.add_argument("--predispatch-recovery", help="Bounded proof bundle for the named local CLI rejection only")
     parser.add_argument("--continuation-receipt", help="External immutable receipt for the approved128-stop continuation")
+    parser.add_argument("--cohort-input", help="Exact SHA-bound ticker CSV for a distinct discovery cohort")
+    parser.add_argument("--budget-state-dir", help="Existing spent campaign journal; shared lock, read-only prefix")
+    parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
         host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference,
-             args.predispatch_recovery, args.continuation_receipt)
+             args.predispatch_recovery, args.continuation_receipt, args.cohort_input,
+             args.budget_state_dir, args.max_batches)
         return 0
     except Refused as exc:
         print(json.dumps(dict(status="BLOCKED", code=str(exc), source_admission=False)))

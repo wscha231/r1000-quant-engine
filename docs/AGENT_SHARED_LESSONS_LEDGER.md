@@ -7188,3 +7188,17 @@ Expected contract:
   boundary. When prior authorization bindings intentionally stay null, select
   the verified embedded continuation URL by default; reject a conflicting
   optional CLI reference before locking or appending any campaign event.
+
+## 2026-10-17 — External discovery progress cannot reset finite capture costs
+
+When a verified discovery CSV is outside the fixed IWB seed, keep its input
+SHA/task/namespace and checkpoint chain separate, including local zero genesis.
+Keep the original workflow nonce family, history floor, first48h, global writer
+lock and **all** actual spent counters shared. A new prefix or per-cohort-only
+lock can hide earlier spending or permit overlapping reservations. A logical
+empty genesis is not a physical Drive checkpoint: the first resume ID/SHA must
+both be empty. Read-only validation must refuse a missing original recovery
+receipt rather than recreate it. Current asset metadata/404 can support a
+sanitized held state only on the narrow metered asset endpoint; auth/quota/network
+failures cannot be converted into no-data or eligible history. Freeze a dated
+market-cap input and reconcile actual source receipts before its later dispatch.

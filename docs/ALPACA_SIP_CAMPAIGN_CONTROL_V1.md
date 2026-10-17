@@ -1,5 +1,78 @@
 # Finite private SIP campaign control
 
+## Separate external discovery input (same finite resource family)
+
+`r1000-sip-external-cohort-authorization-v1` adds a bounded ticker-only CSV
+to the existing collector/controller and existing workflow. It does not replace
+`data_static/iwb_holdings_seed.csv`, weaken its900..1500 guard, append names to
+the original1009 queue, or turn another supplier's holdings count into Alpaca
+completion. The explicit CSV order is retained. Maximum500 names, maximum32
+new names per price batch, with a boundary at each128 examined names.
+
+The typed `external_cohort` contains `scope` (capture task, distinct namespace,
+exact input SHA256), original `input_csv` bytes as UTF-8, intake manifest SHA256,
+an actually verified owner-receipt dedupe report SHA256, the exact prior spent
+authorization, zero or one prior external epoch, and an immutable OWNER consent
+reference. A prior epoch must be complete and its input disjoint before the next
+epoch. The controller also refuses the original144 already examined names.
+Remaining same-window cache/receipt reconciliation is required before preparing
+that consent; ticker lists, metadata or a caller-supplied hash alone do not prove
+reusable prices. A later market-cap cohort requires actual dated ranking bytes,
+ADR/common-share identity reconciliation, ETF exclusion and receipt dedupe;
+there is no automatic universe discovery or ranking API call in this path.
+
+`A1_SIP_EXTERNAL_COHORT_CONSENT` binds the exact authorization/input/source pins,
+prior epoch identities, actual owner/key bindings, original checkpoint/event and
+spent usage, and existing9GiB/12h cumulative amendment. It records the human's
+personal historical capture request, **supplier_rights_verified:false** and
+**budget_reset:false**. This is execution consent, not invented account terms,
+historical SIP entitlement, PIT, commercial rights or investment admission.
+It must truthfully refer to the actual human-authorized input and verified
+dedupe report; agents may not fabricate owner evidence. Its entire comment body,
+author, creation/update clocks and typed record are hash-bound in all new meters.
+Editing it invalidates the next import/dispatch/worker. No legacy permission
+record is relabelled as consent for additional names.
+
+The SAME `r1000-993-20261015-` nonce prefix and workflow history floor are kept.
+Every canonical original, discovery, metadata, price, failed and future epoch
+run consumes the shared2000 provider GET /50000 Drive requests /9GiB transfer
+reservation /1GiB storage /12h active /40 dispatch budget. The original first
+canonical clock and48h expiry do not restart. Legacy v1/v2 controllers see the
+new records and refuse auth/source drift rather than silently ignoring spending.
+Each new allowance subtracts **all** prior family usage, not just its namespace.
+
+The external host requires `--cohort-input`, `--budget-state-dir` and the existing
+`--predispatch-recovery` bundle in addition to its own `--state-dir`. The latter's
+basename must equal the declared namespace and be disjoint from the original
+budget journal. Lock order is original global journal first, external journal
+second; both are released in reverse order even if the second fails. The original
+17 events, progress and recovery receipt are read-only: no continuation event,
+receipt regeneration or progress write occurs there. Missing/conflicting original
+evidence refuses. External reservations/checkpoints/progress use their own chain.
+
+An empty external chain has local examined=0 and a logical genesis commitment
+derived from task/namespace/input SHA/date/feed/bases. This is not the original
+16-name checkpoint or a physical Drive object. Its first workflow resume ID and
+SHA are **both empty**; its first physical checkpoint has previous=null. Later
+checkpoints require exact namespace/input/task and verified raw/split prefix.
+`--max-batches 1` can stop at the first verified boundary for an early metadata
+handoff without enabling a scheduler or discarding cumulative state.
+
+Before price requests, each selected name gets a separately metered, scoped
+`GET https://paper-api.alpaca.markets/v2/assets/{symbol}`. This is part of the
+price batch, **not** `preflight_only` (which still requires provider GET0).
+Only the selected32 names are allowed; no account/orders/positions or all-assets
+endpoint is admitted. Official reference:
+<https://docs.alpaca.markets/us/reference/get-v2-assets-symbol_or_asset_id>.
+Actual200 reference bytes/hash/collection time/current UUID/exchange are retained
+privately in the raw pack manifest. These establish current provider reference,
+not historical security identity, MIC certification or licensed historical access.
+404 and actual inactive asset references become `HELD_PROVIDER_ASSET`, distinct
+from verified empty bars or numerical `HELD_BAR_VALUE`. Supported names around
+an unsupported name still advance in contiguous groups. Asset401/403/429, network,
+price404 and every unapproved error remain terminal and retain the debit.
+No credential-bearing or vendor original bytes enter public GitHub reports.
+
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,
 historical Russell membership certificate, scheduler, broker or portfolio path.

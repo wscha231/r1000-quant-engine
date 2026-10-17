@@ -724,6 +724,75 @@ class CorrectionTests(unittest.TestCase):
 
 
 
+class ExternalDiscoveryTests(unittest.TestCase):
+    def test_ticker_only_bounded_input_preserves_priority_and_legacy_guard(self):
+        raw=b'ticker\nUMAC\nTSM\n'
+        self.assertEqual(cap.external_cohort(raw),['UMAC','TSM'])
+        with self.assertRaises(Refused):cap.cohort(raw)
+        for value in (b'ticker\n',b'ticker\nAAPL\nAAPL\n',b'ticker\naapl\n',b'ticker,rank\nAAPL,1\n',
+                      b'ticker\n../AAPL\n',b'ticker\nAAPL\n\n',b'\xff',
+                      ('ticker\n'+'\n'.join('ZZZ'+str(i) for i in range(501))+'\n').encode()):
+            with self.subTest(value=value[:40]),self.assertRaises(Refused):cap.external_cohort(value)
+
+    def test_asset_identity_hash_clock_and_supported_status_are_not_invented(self):
+        names=['UMAC'];raw=cap.encoded(dict(id='00000000-0000-0000-0000-000000000001',symbol='UMAC',
+                                           exchange='AMEX',status='active',**{'class':'us_equity'}))
+        evidence=cap.precheck_assets(names,'key','secret',lambda *a,**kw:raw)
+        self.assertTrue(cap.asset_supported(evidence[0]))
+        self.assertEqual(cap.asset_record(raw,'UMAC')['exchange'],'AMEX')
+        for key,value in [('sha256','0'*64),('symbol','VRTX'),('collected_at_utc','2026-10-17'),('http_status',True)]:
+            row=dict(evidence[0]);row[key]=value
+            with self.subTest(key=key),self.assertRaises(Refused):cap.verify_asset_evidence([row],names)
+        with self.assertRaises(Refused):cap.asset_record(raw,'TSM')
+
+    def test_external_resume_namespace_and_held_prefix_do_not_recollect(self):
+        from types import SimpleNamespace
+        drive=FakePrivateDrive();calls=[]
+        names=['ZZZAA','ZZZBB','ZZZCC'];raw=('ticker\n'+'\n'.join(names)+'\n').encode()
+        scope=dict(task_key='R1000-DISCOVERY-OFFLINE-20261017',namespace='fixture-discovery',input_sha256=cap.digest(raw))
+        args=SimpleNamespace(start=cap.MIN_START,end='2026-10-14',max_new_symbols=2,
+            private_root_folder_id=drive.root_id,private_data_folder_id=drive.folder,resume_file_id='',resume_sha256='')
+        env=dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+            GITHUB_REPOSITORY=cap.REPOSITORY,GITHUB_REF='refs/heads/master',GITHUB_SHA='b'*40,
+            ALPACA_API_KEY='dummy-key',ALPACA_API_SECRET='dummy-secret')
+        def get(url,**kw):
+            calls.append(url)
+            if '/v2/assets/' in url:
+                symbol=url.rsplit('/',1)[1]
+                if symbol=='ZZZBB':raise Refused('ASSET_NOT_FOUND')
+                return cap.encoded(dict(id='00000000-0000-0000-0000-000000000001',symbol=symbol,
+                    exchange='NASDAQ',status='active',**{'class':'us_equity'}))
+            symbols=parse_qs(urlparse(url).query)['symbols'][0].split(',')
+            return cap.encoded(dict(bars={s:[bar()] for s in symbols},next_page_token=None))
+        with patch.dict('os.environ',env,clear=True),patch.object(cap.time,'sleep'),contextlib.redirect_stdout(io.StringIO()):
+            result=cap._collect(args,drive_factory=lambda *a:drive,get=get,expected_examined=0,
+                                external=dict(input_csv=raw.decode(),scope=scope))
+            ref=result['checkpoint']
+            restored=cap.resume_state(drive,drive.folder,ref['file_id'],ref['sha256'],cap.digest(raw),args.start,args.end,scope=scope)
+            self.assertEqual(restored[:3],(names[:2],[names[0]],[names[1]]))
+            before=dict(drive.objects);calls.clear()
+            args.resume_file_id=ref['file_id'];args.resume_sha256=ref['sha256'];args.max_new_symbols=1
+            cap._collect(args,drive_factory=lambda *a:drive,get=get,expected_examined=2,
+                         external=dict(input_csv=raw.decode(),scope=scope))
+            self.assertTrue(all(drive.objects[k]==v for k,v in before.items()))
+            self.assertTrue(all('ZZZAA' not in url and 'ZZZBB' not in url for url in calls))
+            for wrong in (None,dict(scope,namespace='other-discovery')):
+                with self.assertRaisesRegex(Refused,'RESUME_CONTEXT'):
+                    cap.resume_state(drive,drive.folder,ref['file_id'],ref['sha256'],cap.digest(raw),args.start,args.end,scope=wrong)
+
+    def test_external_wrong_input_hash_refuses_before_any_transport(self):
+        from types import SimpleNamespace
+        env=dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+            GITHUB_REPOSITORY=cap.REPOSITORY,GITHUB_REF='refs/heads/master',GITHUB_SHA='b'*40,
+            ALPACA_API_KEY='dummy-key',ALPACA_API_SECRET='dummy-secret')
+        args=SimpleNamespace(start=cap.MIN_START,end='2026-10-14',max_new_symbols=1)
+        external=dict(input_csv='ticker\nUMAC\n',scope=dict(task_key='R1000-DISCOVERY-OFFLINE-20261017',
+                      namespace='fixture-discovery',input_sha256='0'*64))
+        with patch.dict('os.environ',env,clear=True),self.assertRaisesRegex(Refused,'EXTERNAL_COHORT_HASH'):
+            cap._collect(args,drive_factory=lambda *a:self.fail('Drive before validation'),
+                         get=lambda *a,**kw:self.fail('Provider before validation'),external=external)
+
+
 def load_tests(loader, standard_tests, pattern):
     import importlib.util
     path = Path(__file__).with_name('alpaca_sip_campaign_smoke.py')
