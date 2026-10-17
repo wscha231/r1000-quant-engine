@@ -273,6 +273,15 @@ class LegacyCurrentnessTests(unittest.TestCase):
                     self.assert_current_blocked(self.run_case(mutate=change))
         self.assert_current_blocked(self.run_case(mutate=lambda m:m.pop("raw_state_sidecar_clocks")))
 
+    def test_history_streak_bound_never_writes_an_unreadable_counter(self):
+        out, _, _, _ = self.run_case(history_mutate=lambda h:h.update(raw_state_streak=clock.MAX_COMPLETED_SESSIONS-1))
+        self.assertEqual(out["hysteresis"]["raw_state_streak"], clock.MAX_COMPLETED_SESSIONS)
+        self.assert_current_blocked(self.run_case(history_mutate=lambda h:h.update(raw_state_streak=clock.MAX_COMPLETED_SESSIONS)),
+                                    "HISTORY_STREAK_LIMIT")
+        out, _, _, _ = self.run_case(history_mutate=lambda h:h.update(raw_state="DEFENSE", raw_state_streak=clock.MAX_COMPLETED_SESSIONS))
+        self.assertEqual(out["current_report_status"], "CURRENT_LEGACY_DIAGNOSTIC")
+        self.assertEqual(out["hysteresis"]["raw_state_streak"], 1)
+
     def test_native_inference_captures_clocks_from_all_consumed_sidecars(self):
         names = ("live_trading_risk_controls/risk_controls_summary.json", "live_trading_safety/safety_audit_summary.json",
                  "macro_policy_engine/summary.json", "operating_snapshot/current_portfolio_snapshot_summary.json")

@@ -168,6 +168,8 @@ Current legacy diagnostics additionally require a typed history from the
 immediately preceding XNYS session, valid state/streak and an aware update clock.
 Missing/legacy untyped, malformed, gapped or same-session history requires explicit
 recovery; this patch never initializes, catches up or restores history.
+The existing bounded history counter may reach its cap but cannot increment
+beyond it; a changed raw state still resets the streak normally.
 
 All four decoded raw-state sidecars (risk controls, safety audit, macro policy,
 portfolio snapshot) must declare the same `report_session`, `available_from` and

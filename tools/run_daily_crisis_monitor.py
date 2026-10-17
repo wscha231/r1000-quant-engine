@@ -258,7 +258,7 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
 
 
 def legacy_context_health(health: dict[str, Any], long_crisis: dict[str, Any],
-                          history: dict[str, Any], now: str) -> dict[str, Any]:
+                          history: dict[str, Any], now: str, raw_state: str) -> dict[str, Any]:
     """Refuse gaps/duplicates and unclocked contributors; never initialize history."""
     from tools import daily_crisis_report_clock as clock
     if health["current_report_status"] == "BLOCKED":
@@ -273,6 +273,8 @@ def legacy_context_health(health: dict[str, Any], long_crisis: dict[str, Any],
                    "HISTORY_RECOVERY_REQUIRED")
         streak = history.get("raw_state_streak")
         clock.need(type(streak) is int and 0 < streak <= clock.MAX_COMPLETED_SESSIONS, "HISTORY_RECOVERY_REQUIRED")
+        clock.need(history["raw_state"] != raw_state or streak < clock.MAX_COMPLETED_SESSIONS,
+                   "HISTORY_STREAK_LIMIT")
         prior = clock.session_times(health["previous_session"])
         clock.need(prior is not None, "HISTORY_RECOVERY_REQUIRED")
         clock.need(prior["AFTER_CLOSE"] <= clock.stamp(history.get("updated_at_utc")) <= clock.stamp(now),
@@ -310,7 +312,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         repo_path(args.long_crisis_thresholds),
     )
     health = legacy_current_report_health(long_crisis, now)
-    health = legacy_context_health(health, long_crisis, history, now)
+    health = legacy_context_health(health, long_crisis, history, now, raw_state)
     long_crisis = dict(long_crisis)
     long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
     long_crisis["current_report_eligible"] = health["current_report_status"] != "BLOCKED"
