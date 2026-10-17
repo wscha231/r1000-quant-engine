@@ -7148,3 +7148,11 @@ Expected contract:
 - An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
 - Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.
 - Preserve failed Native QA logs; use the actual repository for relative seed fixtures and a controlled local temporary folder. Temporary-file access errors do not justify relaxing atomic journal writes or recertifying Linux/runtime readiness.
+
+
+## 2026-10-17 — Bind CLI transport and pre-dispatch recovery to original evidence
+
+- gh2.91 workflow run --json parses map[string]string before dispatch POST. YAML boolean/number inputs still need outer string values; retain the nested authorization's actual JSON types. Test the real CLI on loopback and the registered host boundary rather than treating every mocked subprocess as successful.
+- Preserve discarded-original-stderr uncertainty separately from independently reproduced pre-POST rejection. No observed remote run alone is not a generic zero-use refund.
+- Close only the named, hash-pinned local rejection after actual bounded-history and OWNER proof checks. Append a typed old-to-new authorization/pin event to the same journal; preserve original auth/reservation/progress snapshot and never fabricate a run, meter or SETTLED.
+- Idempotent receipt recovery must conserve scope, limits, counters and original checkpoint. A late original run, proof drift or any prior canonical use stops instead of starting a fresh budget/clock.

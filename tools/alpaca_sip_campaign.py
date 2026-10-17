@@ -557,13 +557,134 @@ def next_batch(examined):
     return min(32, 1009 - examined, 128 - (examined - 16) % 128)
 
 
+# One named, independently reproduced local CLI rejection; not a general refund.
+LOCAL_REJECT = dict(
+    auth="f67185f7cec535c3f9bce5b1585407ee47543aab9768a6c82fe66152f1b9aecd",
+    reservation="91f8f12d1f1687e7f7d448e35abc92fb1cf389736a7900c9c137f3c79363ecb1",
+    progress="af97dd8256eabeb0b5ee000f03881c4a12d8b581eaad6ff556eaad46e8afbec6",
+    cli_binary="619787d8ee760105ccf8a554d164c6e67196d1ec77a5fd31c39afe32cff640a9",
+    cli_evidence="8d5fedba10336bb5d4796c9196d8b5197f5a9ff04d79721031dabfc93520ec50",
+    independent_qa="d1651c00253e7164bfac49a5e82b4ff8d8df2bde753ce6e78976e81955306a9d")
+
+
+def local_reject_recovery(bundle_path, auth, directory):
+    """Read-only proof for the single pre-first-dispatch rejection. No I/O refund."""
+    bundle = bounded_json(bundle_path)
+    require(isinstance(bundle, dict) and set(bundle) ==
+            {"prior_authorization", "prior_progress_snapshot", "proof_reference", "receipt_path"}
+            and all(isinstance(v, str) and 0 < len(v) <= 4096 for v in bundle.values()),
+            "CAMPAIGN_LOCAL_REJECT_BUNDLE")
+    prior = bounded_json(bundle["prior_authorization"])
+    old_hash, new_hash = validate_authorization(prior), validate_authorization(auth)
+    require(old_hash == LOCAL_REJECT["auth"] and new_hash != old_hash,
+            "CAMPAIGN_LOCAL_REJECT_AUTH")
+    mutable = {"expected_master", "code_pins", "workflow_run_floor"}
+    scope = {k: v for k, v in prior.items() if k not in mutable}
+    require(scope == {k: v for k, v in auth.items() if k not in mutable}
+            and auth["expected_master"] != prior["expected_master"]
+            and auth["workflow_run_floor"] >= prior["workflow_run_floor"],
+            "CAMPAIGN_LOCAL_REJECT_SCOPE")
+    reserved_raw = bounded_bytes(Path(directory) / "000001.json")
+    require(digest(reserved_raw) == LOCAL_REJECT["reservation"]
+            and digest(bounded_bytes(bundle["prior_progress_snapshot"])) == LOCAL_REJECT["progress"],
+            "CAMPAIGN_LOCAL_REJECT_PREFIX")
+    reserved = decode(reserved_raw)
+    require(reserved.get("kind") == "RESERVED" and reserved.get("sequence") == 1
+            and reserved.get("previous_sha256") is None and reserved.get("auth_sha256") == old_hash
+            and reserved.get("remaining") == LIMITS and reserved.get("active_seconds_remaining") == 28800
+            and reserved.get("parent_checkpoint_sha256") == INITIAL_SHA,
+            "CAMPAIGN_LOCAL_REJECT_PREFIX")
+    reference = bundle["proof_reference"]
+    match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)", reference)
+    require(match is not None, "CAMPAIGN_LOCAL_REJECT_PROOF")
+    comment = gh_json(f"repos/{REPO}/issues/comments/{match[1]}")
+    author = comment.get("user", {})
+    require(comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("author_association") == "OWNER" and author.get("type") == "User"
+            and type(author.get("id")) is int and author["id"] > 0
+            and type(comment.get("id")) is int and comment["id"] == int(match[1])
+            and comment["id"] > 0 and isinstance(comment.get("body"), str),
+            "CAMPAIGN_LOCAL_REJECT_ATTESTOR")
+    tag = "A1_SIP_LOCAL_REJECT_RECOVERY "
+    lines = [v[len(tag):] for v in comment["body"].splitlines() if v.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096, "CAMPAIGN_LOCAL_REJECT_PROOF")
+    record = decode(lines[0])
+    expected = dict(schema="a1-sip-local-reject-recovery-v1", task_key=TASK,
+                    prior_auth_sha256=old_hash, auth_sha256=new_hash,
+                    prior_reservation_sha256=LOCAL_REJECT["reservation"],
+                    prior_progress_sha256=LOCAL_REJECT["progress"], prior_nonce=reserved["nonce"],
+                    expected_master=auth["expected_master"], scope_sha256=digest(encoded(scope)),
+                    code_pins_sha256=digest(encoded(auth["code_pins"])),
+                    cli_version="2.91.0", cli_binary_sha256=LOCAL_REJECT["cli_binary"],
+                    local_reject_evidence_sha256=LOCAL_REJECT["cli_evidence"],
+                    independent_qa_sha256=LOCAL_REJECT["independent_qa"],
+                    dispatch_post_sent=False, canonical_runs_before_recovery=0,
+                    actual_usage={k: 0 for k in LIMITS})
+    require(isinstance(record, dict) and set(record) == set(expected) | {"expires_at_utc"}
+            and all(record[k] == v and type(record[k]) is type(v) for k, v in expected.items())
+            and all(type(record["actual_usage"][k]) is int for k in LIMITS),
+            "CAMPAIGN_LOCAL_REJECT_PROOF")
+    require(isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
+            and isinstance(record.get("expires_at_utc"), str), "CAMPAIGN_LOCAL_REJECT_CLOCK")
+    created, updated, now = utc(comment["created_at"]), utc(comment["updated_at"]), utc()
+    require(utc(reserved["recorded_utc"]) <= created <= updated <= now < utc(record["expires_at_utc"]),
+            "CAMPAIGN_LOCAL_REJECT_CLOCK")
+    proof_hash = digest(encoded(dict(reference=reference, comment_id=comment["id"],
+                                    author_id=author["id"], created_at=created.isoformat(),
+                                    updated_at=updated.isoformat(), body_sha256=digest(comment["body"].encode()),
+                                    record=record)))
+    binding = dict(prior_nonce=reserved["nonce"], prior_auth_sha256=old_hash,
+                   prior_reservation_sha256=LOCAL_REJECT["reservation"],
+                   prior_progress_sha256=LOCAL_REJECT["progress"],
+                   proof_reference=reference, proof_sha256=proof_hash,
+                   scope_sha256=expected["scope_sha256"], actual_usage=expected["actual_usage"],
+                   prior_expected_master=prior["expected_master"],
+                   prior_code_pins_sha256=digest(encoded(prior["code_pins"])),
+                   code_pins_sha256=expected["code_pins_sha256"],
+                   proof_created_utc=created.isoformat(),
+                   expected_master=auth["expected_master"],
+                   prior_workflow_run_floor=prior["workflow_run_floor"],
+                   workflow_run_floor=auth["workflow_run_floor"])
+    return dict(binding=binding, receipt_path=bundle["receipt_path"])
+
+
+def apply_local_reject_recovery(journal, auth, recovery):
+    """Append a typed zero-use closure and immutable receipt, preserving entry1."""
+    binding = recovery["binding"]
+    if len(journal.entries) == 1:
+        require(digest(bounded_bytes(journal.directory / "progress")) == LOCAL_REJECT["progress"],
+                "CAMPAIGN_LOCAL_REJECT_PREFIX")
+        require(not campaign_runs(auth["workflow_run_floor"]), "CAMPAIGN_LOCAL_REJECT_REMOTE")
+        require(gh_json(f"repos/{REPO}/branches/master")["commit"]["sha"] == auth["expected_master"],
+                "CAMPAIGN_MASTER_DRIFT")
+        for path in PINS:
+            deployed = gh_json(f"repos/{REPO}/contents/{path}?ref={auth['expected_master']}")
+            require(deployed.get("encoding") == "base64"
+                    and digest(base64.b64decode(deployed["content"])) == auth["code_pins"][path]
+                    and digest(bounded_bytes(ROOT / path, 262144).replace(b"\r\n", b"\n")) == auth["code_pins"][path],
+                    "CAMPAIGN_DEPLOYED_CODE")
+        journal.append("LOCAL_REJECT_RECOVERED", **binding)
+    event = journal.entries[1]
+    receipt = dict(schema="a1-sip-local-reject-recovery-receipt-v1",
+                   auth_sha256=journal.auth_hash, journal_event_sha256=digest(encoded(event)),
+                   recorded_utc=event["recorded_utc"], **binding)
+    raw, path = encoded(receipt), Path(recovery["receipt_path"])
+    if path.exists():
+        require(bounded_bytes(path) == raw, "CAMPAIGN_LOCAL_REJECT_RECEIPT")
+    else:
+        with path.open("xb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
 class WorkJournal:
     """One existing Work directory; append and fsync before dispatch.
 
     Canonical Actions reconciliation, not the local hash chain alone, detects
     a complete rollback to an older valid prefix.
     """
-    def __init__(self, directory, auth_hash):
+    def __init__(self, directory, auth_hash, recovery=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -580,6 +701,7 @@ class WorkJournal:
             raise Refused("CAMPAIGN_WRITER_LOCK") from None
         self.lock_owned = True
         self.auth_hash, self.entries, self.parent = auth_hash, [], None
+        self.recovery = recovery
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -587,10 +709,24 @@ class WorkJournal:
                 raw = bounded_bytes(path)
                 entry = decode(raw)
                 require(entry.get("previous_sha256") == self.parent
-                        and entry.get("auth_sha256") == auth_hash
+                        and entry.get("auth_sha256") == (recovery["binding"]["prior_auth_sha256"]
+                            if recovery is not None and index == 1 else auth_hash)
                         and entry.get("sequence") == index, "CAMPAIGN_JOURNAL_CHAIN")
+                if recovery is not None and index == 1:
+                    require(digest(raw) == recovery["binding"]["prior_reservation_sha256"],
+                            "CAMPAIGN_LOCAL_REJECT_PREFIX")
                 self.parent = digest(raw)
                 self.entries.append(entry)
+            if recovery is not None:
+                require(self.entries, "CAMPAIGN_LOCAL_REJECT_PREFIX")
+                if len(self.entries) > 1:
+                    event = self.entries[1]
+                    require(event.get("kind") == "LOCAL_REJECT_RECOVERED"
+                            and set(event) == {"sequence", "kind", "auth_sha256", "previous_sha256", "recorded_utc"}
+                                             | set(recovery["binding"])
+                            and all(event.get(k) == v for k, v in recovery["binding"].items())
+                            and utc(recovery["binding"]["proof_created_utc"]) <= utc(event.get("recorded_utc")) <= utc(),
+                            "CAMPAIGN_LOCAL_REJECT_DRIFT")
         except BaseException:
             self.close()
             raise
@@ -612,7 +748,10 @@ class WorkJournal:
     def reconcile(self, runs):
         reserved = {e["nonce"] for e in self.entries if e["kind"] == "RESERVED"}
         remote = {r["display_title"][7:] for r in runs}
-        require(reserved == remote, "CAMPAIGN_JOURNAL_REMOTE_CONFLICT")
+        closed = ({self.recovery["binding"]["prior_nonce"]}
+                  if getattr(self, "recovery", None) and len(self.entries) > 1 else set())
+        require(not (closed & remote), "CAMPAIGN_LOCAL_REJECT_REMOTE")
+        require(reserved - closed == remote, "CAMPAIGN_JOURNAL_REMOTE_CONFLICT")
 
     def close(self):
         if getattr(self, "lock_owned", False) and self.lock.exists():
@@ -970,13 +1109,16 @@ def progress_summary(observed, status):
                 source_admission=False, pit_verified=False, economic_authority=False)
 
 
-def host(auth_path, state_dir, recovery_run=None, permission_reference=None):
+def host(auth_path, state_dir, recovery_run=None, permission_reference=None, predispatch_recovery=None):
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
-    journal = WorkJournal(state_dir, auth_hash)
+    recovery = local_reject_recovery(predispatch_recovery, auth, state_dir) if predispatch_recovery else None
+    journal = WorkJournal(state_dir, auth_hash, recovery=recovery)
     last_observed = None
     try:
+        if recovery is not None:
+            apply_local_reject_recovery(journal, auth, recovery)
         while True:
             observed = history(auth, recovery_run=recovery_run, enforce_expiry=False)
             last_observed = observed
@@ -1008,7 +1150,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None):
                         "CAMPAIGN_DEPLOYED_CODE")
             current_ref = settled_parent(journal, auth)
             require(current_ref and current_ref["sha256"] == observed["parent_sha"], "CAMPAIGN_LOCAL_PARENT")
-            require(not journal.entries or journal.entries[-1]["kind"] == "SETTLED",
+            require(not journal.entries or journal.entries[-1]["kind"] == "SETTLED"
+                    or (recovery is not None and journal.entries[-1]["kind"] == "LOCAL_REJECT_RECOVERED"),
                     "CAMPAIGN_ACTIVE_RESERVATION")
             nonce = PREFIX + os.urandom(12).hex()
             bindings_missing = (observed.get("bindings") is None and
@@ -1028,8 +1171,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None):
                            parent_checkpoint_sha256=observed["parent_sha"])
             inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
                           private_data_folder_id=auth["private_data_folder_id"],
-                          private_research_authorized=True, noncommercial_terms_acknowledged=True,
-                          end_date=auth["end"], max_new_symbols=next_batch(observed["examined"]),
+                          private_research_authorized="true", noncommercial_terms_acknowledged="true",
+                          end_date=auth["end"], max_new_symbols=str(next_batch(observed["examined"])),
                           resume_file_id=current_ref["file_id"], resume_sha256=current_ref["sha256"],
                           campaign_control=control_raw, campaign_nonce=nonce)
             result = subprocess.run(["gh", "workflow", "run", WORKFLOW, "--repo", REPO,
@@ -1091,9 +1234,10 @@ def main():
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
+    parser.add_argument("--predispatch-recovery", help="Bounded proof bundle for the named local CLI rejection only")
     args = parser.parse_args()
     try:
-        host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference)
+        host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference, args.predispatch_recovery)
         return 0
     except Refused as exc:
         print(json.dumps(dict(status="BLOCKED", code=str(exc), source_admission=False)))

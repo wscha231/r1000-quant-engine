@@ -228,3 +228,64 @@ and starts the existing48h clock. Bind the direct request to those actual hashes
 then resume the same authorization/journal at the original16 checkpoint.
 Provider403 or another entitlement failure remains terminal; do not switch feed,
 account or subscription to evade it. Source/PIT/commercial flags remain false.
+
+
+## Named pre-dispatch local rejection recovery
+
+The installed GitHub CLI 2.91 requires every outer `workflow run --json`
+input to be a string. Serialize consent inputs as `"true"` and the batch size
+as `str(...)`; the nested campaign-control/authorization JSON keeps its real
+boolean and integer types. This changes transport representation only.
+
+The only new recovery is the independently reproduced first local rejection
+whose original authorization, reservation and progress hashes are pinned in
+`LOCAL_REJECT`. It is not recovery for an arbitrary unknown dispatch, a
+provider/Drive failure, a completed/assigned run or a changed budget/scope.
+The original stdout status is known; its discarded gh stderr is not recovered.
+Root's separately executed installed-CLI loopback proof establishes the typed
+input parse failure before POST; synthetic POSTs are not actual Actions runs.
+
+Use the SAME existing state directory. Preserve the original authorization and
+entry1 byte-for-byte and copy the original progress bytes to an immutable
+snapshot. A new, separately saved authorization changes only actual deployed
+master/six code pins/next workflow floor. All other fields, private identities,
+original16 checkpoint, date/seed/limits and task key must be exactly equal.
+Do not replace the old authorization or create a fresh journal.
+
+`--predispatch-recovery <private-bundle.json>` accepts exactly four strings:
+`prior_authorization`, `prior_progress_snapshot`, `proof_reference`,
+`receipt_path`. The reference is a real Issue448 OWNER User comment with one
+bounded `A1_SIP_LOCAL_REJECT_RECOVERY ` JSON line. Its exact schema/fields are
+validated by `local_reject_recovery`: old/new auth and scope/code-pin hashes,
+the named old reservation/progress/nonce, the actually observed CLI binary and
+independent transport-proof hashes, POST=false, canonical_runs=0, actual usage
+strict integer zeros and a finite operational expiry. This is an agent-prepared
+record of the authorized recovery and observed evidence, not a supplier-rights
+attestation or a claim that a human read the code. Final Source exact-head CI,
+independent QA, hosted review and protected deployment remain mandatory.
+
+Before appending, canonical bounded history must contain no campaign run and
+the floor must be the actual next workflow number. Live master, deployed six
+pins and native Git-LF-equivalent code must agree. Any hidden/delayed original
+nonce or earlier canonical run fails closed; an existing first clock, active
+cost or dispatch can never be treated as zero through this named path.
+
+Append entry2 `LOCAL_REJECT_RECOVERED` under the new authorization, with entry1's
+hash as its predecessor, the actual proof author/body hash, old/new scope/pin
+bindings and verified zero usage. Never fabricate RUN_ASSIGNED, a meter or
+SETTLED. Preserve the original RESERVED bytes: the typed event closes only that
+one proved-untransmitted nonce. Every other reservation still reconciles exactly
+against canonical runs. The immutable recovery receipt links both auths and the
+journal event; it is exclusively created/fsynced and identical on restart.
+A crash before receipt creation can finish that same receipt without adding a
+second closure; partial/conflicting receipt bytes stop instead of overwriting.
+
+Supply the same recovery bundle on subsequent host resumes so the old/new
+journal prefix and immutable proof remain checked. Existing canonical history
+still governs all Provider/Drive/storage/transfer counters, 40 dispatches, 8h
+active time and the first actual canonical run's48h window. The original local
+rejection had no such run or active use; recovery does not reset an existing
+clock. Resume metadata-only, then bind the actual observed owner/key hashes to
+the existing direct capture-consent record and continue original seed17..48.
+Worker, provider/Drive behavior, deadline, entitlement, privacy and source/PIT
+fail-closed policies are unchanged.

@@ -851,4 +851,209 @@ class DirectCaptureDirectiveTests(unittest.TestCase):
                 c.verify_account_permission(reference, 'c'*64, bindings, valid_through=deadline)
 
 
+
+class LocalRejectRecoveryTests(unittest.TestCase):
+    """Synthetic local-reject lineage; no original vendor or private auth bytes."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="a1-local-reject-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.state = self.root / "journal"
+        self.old = auth()
+        self.old.update(account_permission_reference=None, owner_permission_id=None, credential_binding=None)
+        self.old["code_pins"] = {p: c.digest((c.ROOT / p).read_bytes().replace(b"\r\n", b"\n")) for p in c.PINS}
+        self.new = copy.deepcopy(self.old)
+        self.new.update(expected_master="2"*40, workflow_run_floor=2)
+        self.old_path, self.snapshot, self.receipt = (self.root / p for p in ("old-auth.json", "old-progress.json", "recovery-receipt.json"))
+        self.old_path.write_bytes(c.encoded(self.old))
+        self.nonce = c.PREFIX + "a"*24
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.old))
+        journal.append("RESERVED", nonce=self.nonce, remaining=dict(c.LIMITS),
+                       active_seconds_remaining=28800, parent_checkpoint_sha256=c.INITIAL_SHA)
+        journal.close()
+        self.original = (self.state / "000001.json").read_bytes()
+        progress = c.encoded(dict(status="BLOCKED", charged_usage={k: 0 for k in c.LIMITS},
+                                 first_workflow_created_utc=None, total_processed=16))
+        self.snapshot.write_bytes(progress)
+        (self.state / "progress").write_bytes(progress)
+        constants = dict(c.LOCAL_REJECT, auth=c.validate_authorization(self.old),
+                         reservation=c.digest(self.original), progress=c.digest(progress))
+        patcher = patch.object(c, "LOCAL_REJECT", constants)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        scope = {k: v for k, v in self.old.items() if k not in {"expected_master", "code_pins", "workflow_run_floor"}}
+        self.record = dict(schema="a1-sip-local-reject-recovery-v1", task_key=c.TASK,
+                           prior_auth_sha256=constants["auth"], auth_sha256=c.validate_authorization(self.new),
+                           prior_reservation_sha256=constants["reservation"], prior_progress_sha256=constants["progress"],
+                           prior_nonce=self.nonce, expected_master=self.new["expected_master"],
+                           scope_sha256=c.digest(c.encoded(scope)), code_pins_sha256=c.digest(c.encoded(self.new["code_pins"])),
+                           cli_version="2.91.0", cli_binary_sha256=constants["cli_binary"],
+                           local_reject_evidence_sha256=constants["cli_evidence"], independent_qa_sha256=constants["independent_qa"],
+                           dispatch_post_sent=False, canonical_runs_before_recovery=0, actual_usage={k: 0 for k in c.LIMITS},
+                           expires_at_utc=(c.utc()+timedelta(days=1)).isoformat())
+        created = c.utc().isoformat()
+        self.comment = dict(id=17, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+                            author_association="OWNER", user=dict(type="User", id=123),
+                            created_at=created, updated_at=created)
+        self.bundle_path = self.root / "bundle.json"
+        self.bundle_path.write_bytes(c.encoded(dict(prior_authorization=str(self.old_path),
+            prior_progress_snapshot=str(self.snapshot), receipt_path=str(self.receipt),
+            proof_reference="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-17")))
+
+    def proof(self, record=None, comment=None, new=None):
+        data = dict(self.comment if comment is None else comment)
+        data["body"] = "A1_SIP_LOCAL_REJECT_RECOVERY " + json.dumps(self.record if record is None else record)
+        with patch.object(c, "gh_json", return_value=data):
+            return c.local_reject_recovery(self.bundle_path, self.new if new is None else new, self.state)
+
+    def deployed(self, route):
+        if route.endswith("/branches/master"):
+            return dict(commit=dict(sha=self.new["expected_master"]))
+        for p in c.PINS:
+            if "/contents/"+p+"?ref=" in route:
+                import base64
+                return dict(encoding="base64", content=base64.b64encode((c.ROOT / p).read_bytes().replace(b"\r\n", b"\n")).decode())
+        self.fail("Unexpected GitHub route")
+
+    def apply(self, journal, recovery, runs=None):
+        with patch.object(c, "campaign_runs", return_value=[] if runs is None else runs), patch.object(c, "gh_json", side_effect=self.deployed):
+            c.apply_local_reject_recovery(journal, self.new, recovery)
+
+    def test_original_prefix_and_scope_are_conserved_without_fake_settlement(self):
+        recovery = self.proof()
+        old_auth, old_progress = self.old_path.read_bytes(), self.snapshot.read_bytes()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        try:
+            with self.assertRaises(c.Refused):
+                journal.reconcile([])
+            self.apply(journal, recovery)
+            journal.reconcile([])
+            self.assertEqual([v["kind"] for v in journal.entries], ["RESERVED", "LOCAL_REJECT_RECOVERED"])
+            self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+            self.assertEqual(self.old_path.read_bytes(), old_auth)
+            self.assertEqual(self.snapshot.read_bytes(), old_progress)
+            self.assertEqual((self.state/"progress").read_bytes(), old_progress)
+            receipt = c.bounded_json(self.receipt)
+            self.assertEqual(receipt["actual_usage"], {k:0 for k in c.LIMITS})
+            self.assertEqual(receipt["prior_auth_sha256"], c.validate_authorization(self.old))
+            self.assertEqual(receipt["auth_sha256"], c.validate_authorization(self.new))
+            self.assertEqual(receipt["code_pins_sha256"], c.digest(c.encoded(self.new["code_pins"])))
+        finally:
+            journal.close()
+
+    def test_reopen_is_idempotent_and_preserves_receipt_and_chain(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        self.apply(journal, recovery)
+        journal.close()
+        event, receipt = (self.state/"000002.json").read_bytes(), self.receipt.read_bytes()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), self.proof())
+        try:
+            self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+            self.assertEqual((self.state/"000002.json").read_bytes(), event)
+            self.assertEqual(self.receipt.read_bytes(), receipt)
+        finally:
+            journal.close()
+
+    def test_receipt_creation_crash_can_finish_without_duplicate_closure(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        original_open = Path.open
+        receipt_path = self.receipt
+        def fail_receipt(path, *args, **kwargs):
+            if path == receipt_path:
+                raise OSError("SYNTHETIC_BEFORE_RECEIPT_CREATE")
+            return original_open(path, *args, **kwargs)
+        try:
+            with patch.object(Path, "open", fail_receipt), self.assertRaises(OSError):
+                self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+        finally:
+            journal.close()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), self.proof())
+        try:
+            self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+            self.assertTrue(self.receipt.exists())
+        finally:
+            journal.close()
+
+    def test_missing_or_drifted_proof_cannot_relabel_old_auth(self):
+        with self.assertRaises(c.Refused):
+            c.WorkJournal(self.state, c.validate_authorization(self.new))
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        self.apply(journal, recovery)
+        journal.close()
+        data = dict(self.comment)
+        data["body"] = "A1_SIP_LOCAL_REJECT_RECOVERY "+json.dumps(self.record)+"\nEDITED"
+        with patch.object(c, "gh_json", return_value=data):
+            changed = c.local_reject_recovery(self.bundle_path, self.new, self.state)
+        with self.assertRaises(c.Refused):
+            c.WorkJournal(self.state, c.validate_authorization(self.new), changed)
+        self.assertFalse((self.state/"writer.lock").exists())
+
+    def test_fabricated_zero_or_unproven_request_is_rejected(self):
+        mutations = [dict(dispatch_post_sent=True), dict(canonical_runs_before_recovery=1),
+                     dict(prior_reservation_sha256="0"*64), dict(independent_qa_sha256="0"*64),
+                     dict(cli_version="unknown"), dict(actual_usage={k:False for k in c.LIMITS})]
+        for delta in mutations:
+            with self.subTest(delta=delta), self.assertRaises(c.Refused):
+                self.proof(dict(self.record, **delta))
+        for key in ("created_at", "updated_at"):
+            with self.subTest(clock=key), self.assertRaises(c.Refused):
+                self.proof(comment=dict(self.comment, **{key:None}))
+        with self.assertRaises(c.Refused):
+            self.proof(dict(self.record, expires_at_utc=None))
+        with self.assertRaises(c.Refused):
+            self.proof(comment=dict(self.comment, author_association="COLLABORATOR"))
+        self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_scope_and_bound_snapshot_cannot_change(self):
+        for key, value in [("private_data_folder_id","changed-folder-123"),
+                           ("approval_reference","NEW_SCOPE"), ("expected_master", self.old["expected_master"]),
+                           ("workflow_run_floor",0)]:
+            changed = copy.deepcopy(self.new);changed[key]=value
+            with self.subTest(key=key), self.assertRaises(c.Refused):
+                self.proof(new=changed)
+        self.snapshot.write_bytes(b"changed")
+        with self.assertRaises(c.Refused):
+            self.proof()
+        self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+
+    def test_late_original_run_fails_before_closure_or_new_dispatch(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        try:
+            with self.assertRaises(c.Refused):
+                self.apply(journal, recovery, runs=[dict(display_title="a1-sip "+self.nonce)])
+            self.assertEqual(len(journal.entries),1)
+            self.apply(journal,recovery)
+            with self.assertRaises(c.Refused):
+                journal.reconcile([dict(display_title="a1-sip "+self.nonce)])
+        finally:
+            journal.close()
+
+    def test_all_outer_cli_values_are_strings_nested_authority_unchanged(self):
+        path = self.root / "new-auth.json";path.write_bytes(c.encoded(self.new))
+        observed = dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),
+                        examined=16, parent_sha=c.INITIAL_SHA, active_seconds=0, first=None, bindings=None)
+        calls=[]
+        class BoundaryReached(BaseException): pass
+        def strict_cli(command, **kwargs):
+            self.assertEqual(command[:3],["gh","workflow","run"])
+            payload=json.loads(kwargs["input"])
+            self.assertTrue(all(type(v) is str for v in payload.values()))
+            self.assertEqual(json.loads(payload["campaign_control"])["authorization"],self.new)
+            calls.append(payload)
+            raise BoundaryReached()
+        with patch.object(c,"history",return_value=observed), patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.subprocess,"run",side_effect=strict_cli), self.assertRaises(BoundaryReached):
+            c.host(path,self.root/"fresh-journal")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0]["max_new_symbols"],"32")
+        self.assertEqual(calls[0]["private_research_authorized"],"true")
+
 if __name__=='__main__': unittest.main()
