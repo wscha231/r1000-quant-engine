@@ -7,6 +7,8 @@ or places orders.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import sys
 from dataclasses import replace
@@ -23,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.crisis_state_engine import (  # noqa: E402
     apply_hysteresis,
     infer_latest_long_crisis_state,
+    load_long_crisis_thresholds,
 )
 from tools.run287_crisis_policy import (  # noqa: E402
     apply_selective_defense,
@@ -153,10 +156,23 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
     risk = read_json(latest_run / "live_trading_risk_controls" / "risk_controls_summary.json")
     safety = read_json(latest_run / "live_trading_safety" / "safety_audit_summary.json")
     macro = read_json(latest_run / "macro_policy_engine" / "summary.json")
-    snapshot = read_json(latest_run / "operating_snapshot" / "current_portfolio_snapshot_summary.json")
+    snapshot_path = latest_run / "operating_snapshot" / "current_portfolio_snapshot_summary.json"
+    try:
+        snapshot_bytes = snapshot_path.read_bytes()
+        snapshot = json.loads(snapshot_bytes)
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+    except (OSError, ValueError):
+        snapshot_bytes, snapshot = b"", {}
     long_state, long_reasons, long_meta = infer_latest_long_crisis_state(long_crisis_features, long_crisis_thresholds)
     # Keep clocks from the exact decoded payloads used below, not a later reread.
     long_meta = dict(long_meta)
+    long_meta["portfolio_snapshot_binding"] = {
+        "summary_sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+        "holdings_sha256": snapshot.get("holdings_sha256"),
+        "report_session": snapshot.get("report_session"),
+        "book_session": snapshot.get("book_session"),
+    }
     long_meta["raw_state_sidecar_clocks"] = {
         name: {key: payload.get(key) for key in ("report_session", "available_from", "generated_at_utc")}
         for name, payload in (("risk_controls", risk), ("safety_audit", safety),
@@ -227,6 +243,28 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
         result["risk_as_of_session"] = source_session
         clock.need(source_session <= result["expected_session"], "FUTURE_SOURCE_SESSION")
         clock.need(source_session == result["expected_session"], "STALE_SUCCESS_NOT_CURRENT_REPORT")
+        clocks = long_crisis.get("source_clocks")
+        clock.need(isinstance(clocks, dict) and set(clocks) ==
+            {"market", "qqq", "vix", "hy_oas", "dgs10", "dxy", "m2", "fed_assets", "reverse_repo", "tga"},
+            "ORIGINAL_SOURCE_CLOCKS_REQUIRED")
+        import re
+        for item in clocks.values():
+            clock.need(isinstance(item, dict), "ORIGINAL_SOURCE_CLOCKS_REQUIRED")
+            observed = item.get("observation_date")
+            clock.need(isinstance(observed, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", observed) is not None
+                       and observed == item.get("value_observation_date") and observed <= source_session,
+                       "ORIGINAL_OBSERVATION_MISMATCH")
+            # Validate calendar syntax even for observations on nontrading days.
+            datetime.strptime(observed, "%Y-%m-%d")
+            available = clock.stamp(item.get("available_from"))
+            collected = clock.stamp(item.get("collected_at"))
+            expiry = clock.stamp(item.get("expiry"))
+            clock.need(observed <= available.date().isoformat() and available <= collected <= clock.stamp(now)
+                       and available <= cutoff < expiry and clock.stamp(now) < expiry,
+                       "ORIGINAL_SOURCE_CLOCK_INVALID_OR_EXPIRED")
+            clock.need(isinstance(item.get("source_sha256"), str) and
+                       re.fullmatch(r"[0-9a-f]{64}", item["source_sha256"]) is not None,
+                       "ORIGINAL_SOURCE_HASH_REQUIRED")
         records = long_crisis.get("component_availability")
         clock.need(isinstance(records, list) and bool(records), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
         values = long_crisis.get("canonical_state_inputs")
@@ -311,6 +349,31 @@ def legacy_context_health(health: dict[str, Any], long_crisis: dict[str, Any],
     return result
 
 
+def bound_current_holdings(latest_run: Path, meta: dict[str, Any], session: str | None,
+                           expected_snapshot_sha256: str | None) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Decode the exact CSV bytes bound by an externally accepted summary pin."""
+    import re
+    blocked = dict(status="BLOCKED_HOLDINGS_PROOF", action_candidates_allowed=False)
+    binding = meta.get("portfolio_snapshot_binding")
+    try:
+        if not isinstance(expected_snapshot_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_snapshot_sha256):
+            raise ValueError("accepted snapshot hash required")
+        if not isinstance(binding, dict) or binding.get("summary_sha256") != expected_snapshot_sha256 or \
+                binding.get("report_session") != session or binding.get("book_session") != session or not session:
+            raise ValueError("snapshot session/hash mismatch")
+        raw = (latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv").read_bytes()
+        actual = hashlib.sha256(raw).hexdigest()
+        if actual != binding.get("holdings_sha256"):
+            raise ValueError("holdings hash mismatch")
+        holdings = pd.read_csv(io.BytesIO(raw), low_memory=False)
+        if holdings.empty:
+            raise ValueError("empty holdings")
+        return holdings, dict(status="BOUND", action_candidates_allowed=True,
+            summary_sha256=expected_snapshot_sha256, holdings_sha256=actual, book_session=session)
+    except (ValueError, TypeError, OSError):
+        return pd.DataFrame(), blocked
+
+
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "report_slot", None):
         return build_clock_report(args)
@@ -332,6 +395,15 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         # replace the current summary with data-health BLOCKED, never old GREEN.
         raw_state, reasons, long_crisis = None, ["INFERENCE_INPUT_UNAVAILABLE"], {"available":False}
     health = legacy_current_report_health(long_crisis, now)
+    if health["current_report_status"] != "BLOCKED":
+        try:
+            current_config = load_long_crisis_thresholds(repo_path(args.long_crisis_thresholds),
+                expected_sha256=getattr(args, "expected_thresholds_sha256", None), require_complete=True)
+            # Inference must use the very same bytes/values as the pinned file.
+            clock.need(long_crisis.get("thresholds_sha256") == current_config["sha256"], "CURRENT_CONFIG_CHANGED")
+        except (ValueError, TypeError, KeyError, OSError, clock.Blocked):
+            health.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                          history_update_allowed=False, blockers=["CURRENT_CONFIG_PROOF_REQUIRED"])
     health = legacy_context_health(health, long_crisis, history, now, raw_state)
     long_crisis = dict(long_crisis)
     long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
@@ -361,13 +433,14 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         next_history.update(schema="legacy-crisis-diagnostic-history-v1",
                             risk_as_of_session=health["expected_session"], updated_at_utc=now)
 
-    holdings = read_csv(latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv")
+    holdings, holdings_health = bound_current_holdings(latest_run, long_crisis,
+        health.get("expected_session"), getattr(args, "expected_snapshot_sha256", None))
     leader_rows = 0
     if not holdings.empty:
         text = holdings.astype(str).agg(" ".join, axis=1).str.lower()
         leader_rows = int(text.str.contains("leader|monster|future_winner", regex=True).sum())
     paper_actions = (build_paper_action_candidates(state=state, raw_state=raw_state, reasons=reasons, holdings=holdings)
-                     if health["current_report_status"] != "BLOCKED" else [])
+                     if health["current_report_status"] != "BLOCKED" and holdings_health["status"] == "BOUND" else [])
 
     payload = {
         "schema_version": "daily-crisis-monitor-v2",
@@ -378,6 +451,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "paper_actions_only": True,
         "allowed_action_types": list(ALLOWED_PAPER_ACTION_TYPES),
         "paper_action_candidates": paper_actions,
+        "holdings_binding": holdings_health,
         "state": state,
         "raw_state": raw_state,
         "raw_state_scope": "UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC",
@@ -548,6 +622,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--history", default="outputs/daily_crisis_monitor/state_history.json")
     parser.add_argument("--long-crisis-features", default="data_pit/macro/long_crisis_daily_features.parquet")
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
+    parser.add_argument("--expected-thresholds-sha256", help="Accepted immutable current config hash; missing blocks current reports")
+    parser.add_argument("--expected-snapshot-sha256", help="Accepted same-session portfolio summary hash; missing suppresses action candidates")
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
     parser.add_argument("--report-session", type=report_session)

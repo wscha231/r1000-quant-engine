@@ -13,6 +13,7 @@ Outputs
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -58,8 +59,17 @@ def fetch_yfinance_history(ticker: str, days: int = 260):
 
 
 def fetch_fred_series(series_id: str, api_key: str | None) -> float | None:
+    """Keep the existing scalar API; source metadata is available separately."""
+    return fetch_fred_observation(series_id, api_key)["value"]
+
+
+def fetch_fred_observation(series_id: str, api_key: str | None) -> dict:
+    record = dict(series_id=series_id, value=None, observation_date=None,
+                  realtime_start=None, realtime_end=None, collected_at_utc=None,
+                  published_at_utc=None, availability_status="UNKNOWN",
+                  vintage_kind="CURRENT_VINTAGE_NOT_HISTORICAL_PIT", status="UNAVAILABLE")
     if not api_key:
-        return None
+        return record
     url = (
         f"https://api.stlouisfed.org/fred/series/observations"
         f"?series_id={series_id}&api_key={api_key}&file_type=json"
@@ -67,14 +77,22 @@ def fetch_fred_series(series_id: str, api_key: str | None) -> float | None:
     )
     try:
         with urllib.request.urlopen(url, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
+            raw = resp.read()
+            record["collected_at_utc"] = datetime.now(timezone.utc).isoformat()
+        data = json.loads(raw.decode())
+        record["response_sha256"] = hashlib.sha256(raw).hexdigest()
+        record["response_realtime_start"] = data.get("realtime_start")
+        record["response_realtime_end"] = data.get("realtime_end")
         for obs in data.get("observations", []):
             v = obs.get("value")
             if v not in (".", "", None):
-                return float(v)
+                record.update(value=float(v), observation_date=obs.get("date"),
+                              realtime_start=obs.get("realtime_start"), realtime_end=obs.get("realtime_end"),
+                              status="COLLECTED")
+                return record
     except Exception:
-        return None
-    return None
+        return record
+    return record
 
 
 def compute_snapshot() -> dict:
@@ -114,9 +132,11 @@ def compute_snapshot() -> dict:
     # ---- FRED block (HY OAS, DGS10) - optional, only if FRED_API_KEY set
     api = os.getenv("FRED_API_KEY")
     if api:
-        snap["hy_oas"] = fetch_fred_series("BAMLH0A0HYM2", api)
-        snap["dgs10"] = fetch_fred_series("DGS10", api)
-        snap["unrate"] = fetch_fred_series("UNRATE", api)
+        snap["fred_observations"] = {}
+        for name, series_id in (("hy_oas", "BAMLH0A0HYM2"), ("dgs10", "DGS10"), ("unrate", "UNRATE")):
+            record = fetch_fred_observation(series_id, api)
+            snap[name] = record["value"]
+            snap["fred_observations"][name] = record
 
     # ---- Regime classification (matches L1)
     snap["regime_state"] = classify_regime(snap)

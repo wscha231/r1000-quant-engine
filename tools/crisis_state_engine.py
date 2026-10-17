@@ -7,6 +7,9 @@ result into research-only target-book mutation.
 from __future__ import annotations
 
 import json
+import hashlib
+import math
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -96,8 +99,32 @@ def latest_observable_long_crisis_row(features_path: Path) -> tuple[pd.Timestamp
     return pd.Timestamp(d.index[-1]).normalize(), row
 
 
-def load_long_crisis_thresholds(path: Path) -> dict[str, Any]:
-    payload = read_json(path)
+def load_long_crisis_thresholds(path: Path, *, expected_sha256: str | None = None,
+                               require_complete: bool = False) -> dict[str, Any]:
+    if require_complete:
+        raw = path.read_bytes()
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise ValueError("CURRENT_CONFIG_HASH_REQUIRED")
+        payload = json.loads(raw)
+        fields = (("governor_thresholds", ("low", "mid", "high")),
+                  ("cash_hard_gate", ("liquidity_gate", "trend_gate", "credit_gate")))
+        result = {}
+        for section, keys in fields:
+            for key in keys:
+                value = payload[section][key]
+                if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+                    raise ValueError("CURRENT_CONFIG_INCOMPLETE")
+                result[key] = float(value)
+        if not result["low"] <= result["mid"] <= result["high"]:
+            raise ValueError("CURRENT_CONFIG_ORDER")
+        return {**result, "source": str(path), "sha256": expected_sha256}
+    try:
+        raw = path.read_bytes()
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            payload = {}
+    except (OSError, ValueError):
+        raw, payload = b"", {}
     governor = payload.get("governor_thresholds") if isinstance(payload.get("governor_thresholds"), dict) else {}
     cash_gate = payload.get("cash_hard_gate") if isinstance(payload.get("cash_hard_gate"), dict) else {}
     return {
@@ -108,6 +135,7 @@ def load_long_crisis_thresholds(path: Path) -> dict[str, Any]:
         "trend_gate": safe_float(cash_gate.get("trend_gate"), 0.35),
         "credit_gate": safe_float(cash_gate.get("credit_gate"), 0.55),
         "source": str(path) if path.exists() else "default_thresholds",
+        "sha256": hashlib.sha256(raw).hexdigest(),
     }
 
 
@@ -119,6 +147,7 @@ def infer_long_crisis_state_from_row(
     features_path: Path | None = None,
     thresholds_path: Path | None = None,
     allow_crisis_defense: bool = False,
+    source_clock_required: bool = False,
 ) -> tuple[str, list[str], dict[str, Any]]:
     if row.empty:
         return "DEGRADED_DATA", [], {
@@ -155,11 +184,32 @@ def infer_long_crisis_state_from_row(
         state = "GREEN"
 
     latest_date = pd.Timestamp(asof_date).normalize() if asof_date is not None else None
-    availability = component_availability(
-        row.to_dict(),
-        decision_time=latest_date,
-        available_from=latest_date,
-    )
+    values = row.to_dict()
+    source_clocks = {}
+    if source_clock_required:
+        try:
+            source_clocks = json.loads(row.get("source_clocks_json", ""))
+            if not isinstance(source_clocks, dict):
+                source_clocks = {}
+        except (ValueError, TypeError):
+            source_clocks = {}
+        dependencies = {"spy_trend_drawdown": ("market",), "qqq_trend": ("qqq",),
+                        "hy_oas": ("hy_oas",), "vix": ("vix",), "rate_shock": ("dgs10",),
+                        "liquidity": ("m2", "fed_assets", "reverse_repo", "tga", "dxy", "hy_oas")}
+        for component in component_availability(values):
+            records = [source_clocks.get(name) for name in dependencies.get(component.component, ())]
+            valid = bool(records) and all(isinstance(item, dict) and item.get("available_from") for item in records)
+            if valid:
+                try:
+                    clocks = [pd.Timestamp(item["available_from"]) for item in records]
+                    if any(t.tzinfo is None for t in clocks):
+                        raise ValueError("date-only availability")
+                    values[component.component + "_available_from"] = max(clocks).isoformat()
+                except (ValueError, TypeError):
+                    valid = False
+            values[component.component + "_stale"] = not valid
+    availability = component_availability(values, decision_time=None if source_clock_required else latest_date,
+        available_from=None if source_clock_required else latest_date)
     canonical_input_fields = sorted(
         {
             field
@@ -176,6 +226,7 @@ def infer_long_crisis_state_from_row(
         "features": str(features_path or ""),
         "thresholds": str(thresholds_path or ""),
         "threshold_source": thresholds["source"],
+        "thresholds_sha256": thresholds.get("sha256"),
         "latest_date": latest_date.date().isoformat() if latest_date is not None else "",
         "crisis_score": crisis_score,
         "low_threshold": low,
@@ -202,6 +253,10 @@ def infer_long_crisis_state_from_row(
         ],
         "state": state,
     }
+    if source_clock_required:
+        meta["source_clocks"] = source_clocks
+        meta["canonical_state_inputs"].update({key: value for key, value in values.items()
+            if key.endswith("_available_from") or key.endswith("_stale")})
     reasons = [
         "long-crisis learned "
         f"state={state} score={crisis_score:.3f} date={meta['latest_date']} cash_gate={decision.reason}"
@@ -225,6 +280,7 @@ def infer_latest_long_crisis_state(features_path: Path, thresholds_path: Path) -
         features_path=features_path,
         thresholds_path=thresholds_path,
         allow_crisis_defense=False,
+        source_clock_required=True,
     )
 
 

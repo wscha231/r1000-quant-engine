@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import io
 import sys
 import tempfile
 import copy
@@ -135,6 +137,25 @@ class LegacyCurrentnessTests(unittest.TestCase):
                     component_availability=availability_records(component_availability(
                         values, decision_time=available, available_from=available)),
                     missing_critical_components=[], future_labels_excluded=True)
+        meta["source_clocks"] = {name:dict(observation_date=session, value_observation_date=session,
+            available_from=available, collected_at=available, expiry=(observed+timedelta(days=1)).isoformat(),
+            source_sha256="a"*64) for name in
+            ("market", "qqq", "vix", "hy_oas", "dgs10", "dxy", "m2", "fed_assets", "reverse_repo", "tga")}
+        config = self.root/"thresholds.json"
+        config.write_text(json.dumps(dict(governor_thresholds=dict(low=.35, mid=.55, high=.75),
+            cash_hard_gate=dict(liquidity_gate=.35, trend_gate=.35, credit_gate=.55))))
+        config_sha = hashlib.sha256(config.read_bytes()).hexdigest()
+        meta["thresholds_sha256"] = config_sha
+        snapshot_root = self.root/"inputs/operating_snapshot"
+        snapshot_root.mkdir(parents=True, exist_ok=True)
+        raw = b"ticker,weight\nCASH,1.0\n"
+        (snapshot_root/"current_operating_holdings_latest.csv").write_bytes(raw)
+        snapshot = dict(report_session=session, book_session=session,
+            holdings_sha256=hashlib.sha256(raw).hexdigest())
+        snapshot_raw = json.dumps(snapshot).encode()
+        (snapshot_root/"current_portfolio_snapshot_summary.json").write_bytes(snapshot_raw)
+        snapshot_sha = hashlib.sha256(snapshot_raw).hexdigest()
+        meta["portfolio_snapshot_binding"] = dict(snapshot, summary_sha256=snapshot_sha)
         meta["raw_state_sidecar_clocks"] = {name:dict(report_session=session, available_from=available,
                                                      generated_at_utc=available)
             for name in ("risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot")}
@@ -152,7 +173,8 @@ class LegacyCurrentnessTests(unittest.TestCase):
         history_path.write_bytes(before)
         args = SimpleNamespace(latest_run=str(self.root/"inputs"), output_dir=str(self.root/"report"),
             history=str(history_path), update_history=update, long_crisis_features="not-read.parquet",
-            long_crisis_thresholds="not-read.json", report_now=report_now)
+            long_crisis_thresholds=str(config), expected_thresholds_sha256=config_sha,
+            expected_snapshot_sha256=snapshot_sha, report_now=report_now)
         with patch.object(clock, "trusted_now", return_value=observed), \
              patch.object(monitor, "infer_raw_state", side_effect=inference_error, return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
              patch.object(monitor, "apply_hysteresis", wraps=monitor.apply_hysteresis) as hysteresis:
@@ -428,6 +450,97 @@ class LegacyCurrentnessTests(unittest.TestCase):
         with patch.object(monitor, "build_clock_report", return_value=marker) as route:
             self.assertIs(build_monitor(SimpleNamespace(report_slot="AFTER_CLOSE", report_session="2025-01-02")), marker)
         route.assert_called_once()
+
+    def test_original_source_clocks_missing_expired_and_mismatched_refuse(self):
+        def missing(meta):meta.pop("source_clocks")
+        def expired(meta):meta["source_clocks"]["hy_oas"]["expiry"] = "2026-03-21T00:00:00Z"
+        def mismatch(meta):meta["source_clocks"]["vix"]["observation_date"] = "2026-03-20"
+        def future(meta):meta["source_clocks"]["dgs10"]["collected_at"] = "2026-10-18T00:00:00Z"
+        for change in (missing, expired, mismatch, future):
+            with self.subTest(change=change.__name__):
+                self.assert_current_blocked(self.run_case(mutate=change))
+
+    def test_current_thresholds_require_complete_pinned_exact_values(self):
+        from tools.crisis_state_engine import load_long_crisis_thresholds
+        path = self.root/"strict.json"
+        valid = dict(governor_thresholds=dict(low=.35, mid=.55, high=.75),
+                     cash_hard_gate=dict(liquidity_gate=.35, trend_gate=.35, credit_gate=.55))
+        for invalid in ({}, dict(governor_thresholds=valid["governor_thresholds"]),
+                        dict(valid, governor_thresholds=dict(low=True, mid=.55, high=.75)),
+                        dict(valid, cash_hard_gate=dict(liquidity_gate=".35", trend_gate=.35, credit_gate=.55))):
+            path.write_text(json.dumps(invalid))
+            with self.assertRaises((ValueError, KeyError, TypeError)):
+                load_long_crisis_thresholds(path, require_complete=True,
+                    expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        path.write_text(json.dumps(valid))
+        with self.assertRaises(ValueError):
+            load_long_crisis_thresholds(path, require_complete=True, expected_sha256="b"*64)
+        result = load_long_crisis_thresholds(path, require_complete=True,
+                    expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+        self.assertEqual([result[k] for k in ("low", "mid", "high", "liquidity_gate", "trend_gate", "credit_gate")],
+                         [.35, .55, .75, .35, .35, .55])
+        self.assert_current_blocked(self.run_case(mutate=lambda m:m.update(thresholds_sha256="b"*64)),
+                                    "CURRENT_CONFIG_PROOF_REQUIRED")
+
+    def test_unbound_holdings_never_produce_action_candidates(self):
+        for field, value in (("summary_sha256", "b"*64), ("holdings_sha256", "c"*64),
+                             ("book_session", "2026-10-15"), ("report_session", None)):
+            with self.subTest(field=field):
+                out, _, _, _ = self.run_case(mutate=lambda m:m["portfolio_snapshot_binding"].update({field:value}))
+                self.assertEqual(out["holdings_binding"]["status"], "BLOCKED_HOLDINGS_PROOF")
+                self.assertEqual(out["paper_action_candidates"], [])
+
+    def test_producer_preserves_clocks_through_ffill_and_current_inference(self):
+        from r1000_long_crisis_liquidity import source_clock_panel
+        from tools.crisis_state_engine import infer_long_crisis_state_from_row, load_long_crisis_thresholds
+        dates = pd.DatetimeIndex(["2026-03-20", "2026-10-16"])
+        series = pd.Series([18.0], index=dates[:1])
+        series.attrs["observation_clocks"] = {"2026-03-20":dict(available_from="2026-03-20T20:15:00Z",
+            collected_at="2026-03-20T20:20:00Z", expiry="2026-03-21T00:00:00Z", source_sha256="a"*64)}
+        panel = source_clock_panel(series, dates)
+        self.assertEqual(json.loads(panel.iloc[-1])["observation_date"], "2026-03-20")
+        self.assertEqual(json.loads(panel.iloc[-1])["available_from"], "2026-03-20T20:15:00Z")
+        row = pd.Series(dict(crisis_score=.1, vix_zscore_252d=.1,
+            source_clocks_json=json.dumps(dict(vix=json.loads(panel.iloc[-1])))))
+        _, _, meta = infer_long_crisis_state_from_row(row, load_long_crisis_thresholds(self.root/"absent"),
+            asof_date=dates[-1], source_clock_required=True)
+        vix = next(item for item in meta["component_availability"] if item["component"] == "vix")
+        self.assertEqual(vix["available_from"], "2026-03-20T20:15:00+00:00")
+        self.assertNotIn("2026-10-16", vix["available_from"])
+
+    def test_fred_snapshot_preserves_observation_realtime_and_fetch_clock(self):
+        from tools import macro_daily_snapshot as daily
+        raw = json.dumps(dict(realtime_start="2026-10-17", realtime_end="2026-10-17",
+            observations=[dict(date="2026-10-14", value="4.25", realtime_start="2026-10-17",
+                               realtime_end="2026-10-17")])).encode()
+        with patch.object(daily.urllib.request, "urlopen", return_value=io.BytesIO(raw)):
+            record = daily.fetch_fred_observation("DGS10", "fixture-not-real")
+        self.assertEqual(record["value"], 4.25)
+        self.assertEqual(record["observation_date"], "2026-10-14")
+        self.assertEqual(record["realtime_start"], "2026-10-17")
+        self.assertIsNotNone(record["collected_at_utc"])
+        self.assertIsNone(record["published_at_utc"])
+        self.assertEqual(record["availability_status"], "UNKNOWN")
+        self.assertNotIn("fixture-not-real", json.dumps(record))
+        with patch.object(daily.urllib.request, "urlopen", return_value=io.BytesIO(raw)):
+            self.assertEqual(daily.fetch_fred_series("DGS10", "fixture-not-real"), 4.25)
+
+    def test_feature_numeric_panel_preserved_with_lagged_clock_provenance(self):
+        from r1000_long_crisis_liquidity import build_long_crisis_features
+        dates = pd.bdate_range("2025-01-02", "2026-10-16")
+        market = pd.Series(range(100, 100+len(dates)), index=dates, dtype=float)
+        macros = {name:market.copy() for name in
+                  ("vix", "hy_oas", "dgs10", "dxy", "fed_assets", "reverse_repo", "tga")}
+        monthly = pd.date_range("2024-01-01", "2026-10-01", freq="MS")
+        macros["m2"] = pd.Series(range(1000,1000+len(monthly)), index=monthly, dtype=float)
+        before = build_long_crisis_features(market, macros, qqq_close=market, start="2025-01-02")
+        macros["m2"].attrs["observation_clocks"] = {d.date().isoformat():dict(
+            available_from=(d+pd.Timedelta(days=15)).tz_localize("UTC").isoformat()) for d in monthly}
+        after = build_long_crisis_features(market, macros, qqq_close=market, start="2025-01-02")
+        pd.testing.assert_frame_equal(before.drop(columns="source_clocks_json"), after.drop(columns="source_clocks_json"))
+        m2 = json.loads(after.iloc[-1]["source_clocks_json"])["m2"]
+        self.assertEqual(m2["observation_date"], "2026-09-01")
+        self.assertEqual(m2["available_from"], "2026-09-16T00:00:00+00:00")
 
 
 def run_currentness_tests():

@@ -184,7 +184,7 @@ portfolio snapshot) must declare the same `report_session`, `available_from` and
 The clocks are captured from the payloads actually used for inference, not later
 file rereads. Missing/unclocked sidecars block current history/actions even if the
 long-crisis row is current. These are declared diagnostic clocks, not authenticated
-Source/PIT. Existing producers/workflow are unchanged; until they provide those
+Source/PIT. The existing workflow is unchanged; until producers provide those
 clocks and a recovered typed prior history, this legacy route remains BLOCKED.
 The existing pinned B1 report route remains available under its own strict contract.
 
@@ -218,3 +218,40 @@ and adds unittest clock refusals active in normal and -O. A hash-verified real
 artifact's March20 source/October17 execution can be replayed through this clock
 boundary without fetching providers or treating archived inference as a new model
 recomputation. No actual workflow, collector, history catch-up or book is invoked.
+
+### Current producer/config/holdings integrity correction
+
+Long-crisis features now preserve a `source_clocks_json` column. Each input's
+`observation_clocks` Series metadata is matched to the exact raw value observation
+before forward fill; M2 clocks follow the same monthly lag as its value. The
+index establishes observation date only. Missing publication, collection,
+expiry or immutable source hash is not fabricated from the feature row date.
+Current inference carries these original clocks into component availability.
+Current reports refuse absent, inconsistent, future or expired source records;
+historical inference retains its separate behavior. These declared clocks still
+do not authenticate a Source receipt or admit a historical PIT vintage.
+
+The current monitor requires `--expected-thresholds-sha256` from the accepted
+immutable config and all six numeric governor/cash gate fields. The decoded
+inference config hash must match; current reports cannot authorize a missing,
+partial, string/bool-valued or changed config through historical defaults.
+No threshold value or risk-policy formula is changed. Missing approval/pin
+keeps current output BLOCKED rather than creating an accepted config.
+
+Action candidates additionally require `--expected-snapshot-sha256` bound to
+the exact decoded portfolio summary used in raw inference. Its `report_session`
+and `book_session` must match the current session; `holdings_sha256` must match
+the exact CSV bytes decoded for actions. An absent or mismatched binding yields
+`BLOCKED_HOLDINGS_PROOF` and no action candidates. It does not invent a book or
+turn a hash into investment approval. Existing producers without this accepted
+binding cannot generate actions.
+
+The daily FRED helper retains its scalar API and numeric definitions. Snapshot
+metadata separately preserves response observation date, realtime start/end,
+response hash and actual fetch time. Snapshot `asof` remains generation time;
+unknown publication/availability remains UNKNOWN/null and current-vintage
+retrieval is not historical PIT. No provider request is needed to test this.
+
+Paper consumer review 4301684126 remains a separate B2 gate. File-scope
+allocation does not supply B1 terminal/actual coverage proof. Until that proof
+is verified, only fixture/design preparation is allowed; no actual preview runs.
