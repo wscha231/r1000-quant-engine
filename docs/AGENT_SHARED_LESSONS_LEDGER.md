@@ -7148,3 +7148,17 @@ Expected contract:
 - An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
 - Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.
 - Preserve failed Native QA logs; use the actual repository for relative seed fixtures and a controlled local temporary folder. Temporary-file access errors do not justify relaxing atomic journal writes or recertifying Linux/runtime readiness.
+
+
+## 2026-10-17 — Bind CLI transport and pre-dispatch recovery to original evidence
+
+- gh2.91 workflow run --json parses map[string]string before dispatch POST. YAML boolean/number inputs still need outer string values; retain the nested authorization's actual JSON types. Test the real CLI on loopback and the registered host boundary rather than treating every mocked subprocess as successful.
+- Preserve discarded-original-stderr uncertainty separately from independently reproduced pre-POST rejection. No observed remote run alone is not a generic zero-use refund.
+- Close only the named, hash-pinned local rejection after actual bounded-history and OWNER proof checks. Append a typed old-to-new authorization/pin event to the same journal; preserve original auth/reservation/progress snapshot and never fabricate a run, meter or SETTLED.
+- Idempotent receipt recovery must conserve scope, limits, counters and original checkpoint. A late original run, proof drift or any prior canonical use stops instead of starting a fresh budget/clock.
+
+- Review recovery at transitions as well as initial proof: recheck full canonical history before dispatch, while discovering the replacement and before settlement. Exclude typed closures from outstanding-reservation reports.
+- Keep recovery receipts outside the append-only journal namespace and disjoint from inputs before writing any closure. Bind original authorization raw bytes, and reject unrelated network-recovery IDs instead of persisting invented relationships.
+- Put the final canonical-history guard in the common settlement boundary after receipt/checkpoint reads; a watch-only guard misses interrupted-host resume and delayed visibility during those reads.
+- An immutable snapshot cannot alias mutable progress. Guard closure after remote pin reads, bind the stored event's actual bytes, and distinguish initial proof acceptance expiry from later reconciliation of an already accepted event; campaign clocks still govern new dispatch.
+- On Windows, set TMPDIR as well as TEMP/TMP for controlled Native fixtures; an inherited application-managed temp path can deny atomic replacement. Preserve that failed log and rerun unchanged bytes in the controlled folder rather than weakening exclusive/fsync writes.
