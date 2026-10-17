@@ -7317,3 +7317,27 @@ the preserved v2 revision cannot serve as the new v3 frozen consent. Prefer
 the active Drive revision in postwatch/import settlement and test the complete
 host169 closure, restart without POST and interrupted family repair in both
 modes, alongside the worker/collector boundary.
+
+### 2026-10-18 — Diagnose object roles before interpreting an orphan failure
+
+Run39058081878 charged no provider GET and preserved CP160, but its fixed
+`EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS` reason did not prove a missing gzip:
+the same refusal covered count, role and size. Record a bounded, allowlisted
+inventory before those checks. A private folder/time query may also contain
+unrelated content-addressed JSONs; those are diagnostic context, not raw bars.
+Keep IDs, arbitrary names/responses and credentials out of the public meter.
+
+Gzip object identity and normalized-row identity are separate. Python's gzip
+header can vary while rebuilt rows match. Reuse actual bytes only after full
+ZIP, asset, normalized and parent-chain checks. Exact-name absence never proves
+that an uncertain earlier POST had no side effect. A separately authorized,
+normalized-only derivation must retain that uncertainty and all old costs,
+record its own actual source/codec/hash/time and use one existing CREATE path.
+Do not invent old collection/publication clocks or retry unknown writes.
+
+Every named transition needs the active proof at common settlement and every
+older proof in later cohort guards. Test whole-host closure, restart/import,
+family repair, malformed/duplicate/paginated metadata, gzip-header drift,
+unknown CREATE and CP164 readback failure. No last5 provider request is allowed
+until independent CP164 closure. All fixtures remain synthetic and confer no
+supplier rights, market-data coverage or Source/PIT eligibility.

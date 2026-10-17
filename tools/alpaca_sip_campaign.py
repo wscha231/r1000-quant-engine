@@ -85,6 +85,18 @@ DRIVE_RECOVERY = dict(
     request_sha256="9e7391293df9fca33e799f7e2ac893bd6c125fbb03d1f15a93651f240831c7da",
     window_start="2026-10-17T12:23:43Z", window_end="2026-10-17T12:26:22Z",
     raw_bytes=505475)
+# The v3 diagnostic failure spent its allowance but admitted no new symbols.
+# This successor can derive one normalized object from independently verified
+# original ZIP bytes; it cannot repeat the uncertain original CREATE.
+MATERIALIZATION_RECOVERY = dict(
+    prior_auth="83da6be13d5b8fde8111a12b0b2995870e994867380fb986da637cedcb7700e9",
+    master="35b36d289dbae9104042c2158532466076844f9b", run_id=39058081878,
+    receipt_sha256="7a2eff65c06d3591072b0440b8c59d2228325653840d8ed4d97d5d62cd4534ad",
+    checkpoint_sha256="f07693bdb23abeabf9540413c3db5ac4c474a13d443d3f5c5dae0fd49d87b89b",
+    reason="EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS", examined=160, events=27, family_events=25, batch=9,
+    cohort_event_sha256="50c4ee61a7ef784365c1b5a83cf2b4376bc13482908e7f19f4a8b1c61f057789",
+    family_event_sha256="ae439338e83618cd9f0a2f267c55cb8d7a5270561c60b71db024e7dcade325f2",
+    request_sha256="b42f7e70e974918e2aefabec5543f4cced79f365be81e207fbdb2e6519ba23dd")
 METRIC = "HTTP_BODIES_PLUS_65536_RESERVED_OVERHEAD_PER_GOOGLE_REQUEST"
 PINS = ("tools/alpaca_sip_campaign.py", "tools/alpaca_sip_private_backfill_v1.py",
         "tools/twelve_private_capture.py", "tools/configure_macro_research_drive.py",
@@ -162,10 +174,12 @@ def validate_authorization(auth):
     external = isinstance(auth, dict) and "external_cohort" in auth
     revised = external and isinstance(auth["external_cohort"], dict) and "named_recovery" in auth["external_cohort"]
     drive_revised = revised and "drive_recovery" in auth["external_cohort"]
+    material_revised = drive_revised and "materialization_recovery" in auth["external_cohort"]
     require(not (continued and external), "CAMPAIGN_AUTHORIZATION")
     require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | (
             {"external_cohort"} if external else {"continuation"} if continued else set())
-            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v3" if drive_revised else
+            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v4" if material_revised else
+                                       "r1000-sip-external-cohort-authorization-v3" if drive_revised else
                                        "r1000-sip-external-cohort-authorization-v2" if revised else
                                        "r1000-sip-external-cohort-authorization-v1" if external else
                                        "r1000-sip-campaign-authorization-v2" if continued else
@@ -578,6 +592,8 @@ def receipt_for_run(run, auth_hash, expected_master, limits=None):
                 and type(failure["request_ordinal"]) is int
                 and 1 <= failure["request_ordinal"] <= value["usage"]["provider_gets"]+value["usage"]["drive_requests"],
                 "CAMPAIGN_TRANSPORT_DIAGNOSTIC")
+    if "orphan_inventory" in value:
+        verify_orphan_inventory(value["orphan_inventory"])
     require(set(value.get("new_states", {})) ==
             {"VALID_COLLECTED", "VERIFIED_NO_DATA", "QUARANTINED"}, "CAMPAIGN_RECEIPT_STATES")
     for count in value["new_states"].values():
@@ -972,7 +988,8 @@ class WorkJournal:
     Canonical Actions reconciliation, not the local hash chain alone, detects
     a complete rollback to an older valid prefix.
     """
-    def __init__(self, directory, auth_hash, recovery=None, continuation=None, revision=None, drive_revision=None):
+    def __init__(self, directory, auth_hash, recovery=None, continuation=None, revision=None, drive_revision=None,
+                 material_revision=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -993,6 +1010,7 @@ class WorkJournal:
         self.continuation = continuation
         self.revision = revision
         self.drive_revision = drive_revision
+        self.material_revision = material_revision
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -1004,7 +1022,9 @@ class WorkJournal:
                             if recovery is not None and index == 1 else
                             CONTINUATION["auth"] if continuation and index <= CONTINUATION["events"] else
                             NAMED_RECOVERY["prior_auth"] if revision and index <= NAMED_RECOVERY["events"] else
-                            DRIVE_RECOVERY["prior_auth"] if drive_revision and index <= DRIVE_RECOVERY["events"] else auth_hash)
+                            DRIVE_RECOVERY["prior_auth"] if drive_revision and index <= DRIVE_RECOVERY["events"] else
+                            MATERIALIZATION_RECOVERY["prior_auth"] if material_revision
+                                and index <= MATERIALIZATION_RECOVERY["events"] else auth_hash)
                         and entry.get("sequence") == index, "CAMPAIGN_JOURNAL_CHAIN")
                 if recovery is not None and index == 1:
                     require(digest(raw) == recovery["binding"]["prior_reservation_sha256"],
@@ -1039,6 +1059,20 @@ class WorkJournal:
                             and utc(drive_revision["proof_updated_utc"]) <= utc(entry["recorded_utc"])
                                 < utc(drive_revision["expires_at_utc"])
                             and utc(entry["recorded_utc"]) <= utc(), "EXTERNAL_DRIVE_BINDING")
+                if material_revision and index == MATERIALIZATION_RECOVERY["events"]:
+                    require(self.parent == MATERIALIZATION_RECOVERY["cohort_event_sha256"]
+                            and entry.get("kind") == "SETTLED"
+                            and entry.get("run_id") == MATERIALIZATION_RECOVERY["run_id"]
+                            and entry.get("receipt_sha256") == MATERIALIZATION_RECOVERY["receipt_sha256"],
+                            "EXTERNAL_MATERIAL_PREFIX")
+                if material_revision and index == MATERIALIZATION_RECOVERY["events"]+1:
+                    require(entry.get("kind") == "EXTERNAL_MATERIALIZATION_BOUND"
+                            and {k:entry.get(k) for k in material_revision} == material_revision
+                            and set(entry) == {"sequence", "kind", "auth_sha256", "previous_sha256", "recorded_utc"}
+                                | set(material_revision)
+                            and utc(material_revision["proof_updated_utc"]) <= utc(entry["recorded_utc"])
+                                < utc(material_revision["expires_at_utc"])
+                            and utc(entry["recorded_utc"]) <= utc(), "EXTERNAL_MATERIAL_BINDING")
                 if continuation and index == CONTINUATION["events"]:
                     require(self.parent == CONTINUATION["event"] and entry.get("kind") == "SETTLED",
                             "CAMPAIGN_CONTINUATION_PREFIX")
@@ -1057,6 +1091,9 @@ class WorkJournal:
                 require(len(self.entries) >= NAMED_RECOVERY["events"], "EXTERNAL_RECOVERY_PREFIX")
             if drive_revision:
                 require(revision is not None and len(self.entries) >= DRIVE_RECOVERY["events"], "EXTERNAL_DRIVE_PREFIX")
+            if material_revision:
+                require(drive_revision is not None and len(self.entries) >= MATERIALIZATION_RECOVERY["events"],
+                        "EXTERNAL_MATERIAL_PREFIX")
             if recovery is not None:
                 require(self.entries, "CAMPAIGN_LOCAL_REJECT_PREFIX")
                 if len(self.entries) > 1:
@@ -1102,6 +1139,12 @@ class WorkJournal:
                     and self.parent == DRIVE_RECOVERY["cohort_event_sha256"]
                     and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"])
                         < utc(data["expires_at_utc"]), "EXTERNAL_DRIVE_BINDING")
+        if kind == "EXTERNAL_MATERIALIZATION_BOUND":
+            require(self.material_revision is not None and data == self.material_revision
+                    and len(self.entries) == MATERIALIZATION_RECOVERY["events"]
+                    and self.parent == MATERIALIZATION_RECOVERY["cohort_event_sha256"]
+                    and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"])
+                        < utc(data["expires_at_utc"]), "EXTERNAL_MATERIAL_BINDING")
         raw = encoded(entry)
         require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
         path = self.directory / f"{entry['sequence']:06d}.json"
@@ -1139,12 +1182,36 @@ def verify_worker_source(auth):
                 "CAMPAIGN_CODE_DRIFT")
 
 
+def verify_orphan_inventory(evidence):
+    require(isinstance(evidence, dict) and set(evidence) ==
+            {"schema", "observed_at_utc", "window", "files_count", "has_more", "entries"}
+            and evidence["schema"] == "a1-bounded-orphan-inventory-v1"
+            and evidence["window"] == [DRIVE_RECOVERY["window_start"], DRIVE_RECOVERY["window_end"]]
+            and (evidence["files_count"] is None or type(evidence["files_count"]) is int
+                 and 0 <= evidence["files_count"] <= 1_000_000)
+            and type(evidence["has_more"]) is bool and isinstance(evidence["entries"], list)
+            and len(evidence["entries"]) <= 8
+            and utc(DRIVE_RECOVERY["window_end"]) <= utc(evidence["observed_at_utc"]) <= utc(),
+            "EXTERNAL_ORPHAN_DIAGNOSTIC")
+    for row in evidence["entries"]:
+        require(isinstance(row, dict) and set(row) == {"kind", "sha256", "bytes", "created_at_utc"}
+                and row["kind"] in {"RAW", "NORMALIZED", "JSON", "OTHER"}
+                and (row["sha256"] is None or isinstance(row["sha256"], str)
+                     and re.fullmatch(r"[0-9a-f]{64}", row["sha256"]))
+                and (row["bytes"] is None or type(row["bytes"]) is int and 0 <= row["bytes"] <= 16_000_000)
+                and (row["created_at_utc"] is None or
+                     utc(DRIVE_RECOVERY["window_start"]) <= utc(row["created_at_utc"]) <= utc()),
+                "EXTERNAL_ORPHAN_DIAGNOSTIC")
+
+
 def verify_drive_reuse(reuse, identity):
+    material = isinstance(reuse, dict) and "materialization" in reuse
+    spec = MATERIALIZATION_RECOVERY if material else DRIVE_RECOVERY
     require(isinstance(reuse, dict) and set(reuse) == {
         "failed_run_id", "capture_source_sha", "derivation_source_sha", "raw_sha256", "normalized_sha256",
         "external_proof_sha256", "derivation_run_id", "derivation_auth_sha256", "parent_checkpoint_sha256",
-        "derived_at_utc", "failed_run_observation_window"}
-        and reuse["failed_run_id"] == DRIVE_RECOVERY["run_id"]
+        "derived_at_utc", "failed_run_observation_window"} | ({"materialization"} if material else set())
+        and reuse["failed_run_id"] == spec["run_id"]
         and type(reuse["failed_run_id"]) is int
         and reuse["capture_source_sha"] == DRIVE_RECOVERY["master"]
         and reuse["derivation_source_sha"] == identity["source_sha"]
@@ -1156,6 +1223,24 @@ def verify_drive_reuse(reuse, identity):
         and all(isinstance(reuse[k], str) and re.fullmatch(r"[0-9a-f]{64}", reuse[k])
                 for k in ("raw_sha256", "normalized_sha256"))
         and utc(DRIVE_RECOVERY["window_end"]) <= utc(reuse["derived_at_utc"]) <= utc(), "EXTERNAL_ORPHAN_PROVENANCE")
+    if material:
+        data = reuse["materialization"]
+        evidence = identity.get("orphan_inventory")
+        verify_orphan_inventory(evidence)
+        require(isinstance(data, dict) and set(data) == {"capture_failed_run_id", "rows_sha256", "codec", "mode",
+                "created_at_utc", "lookup_observed_at_utc", "inventory_sha256", "original_create_outcome"}
+                and data["capture_failed_run_id"] == DRIVE_RECOVERY["run_id"]
+                and type(data["capture_failed_run_id"]) is int
+                and isinstance(data["rows_sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", data["rows_sha256"])
+                and data["mode"] in {"EXISTING_VERIFIED", "DERIVED_NEW"}
+                and data["codec"] in {"EXISTING_GZIP_VERIFIED", "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9"}
+                and (data["mode"] != "DERIVED_NEW" or data["codec"] == "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9")
+                and data["original_create_outcome"] == "UNKNOWN"
+                and data["inventory_sha256"] == digest(encoded(evidence))
+                and utc(DRIVE_RECOVERY["window_start"]) <= utc(data["created_at_utc"])
+                    <= utc(data["lookup_observed_at_utc"]) <= utc(reuse["derived_at_utc"])
+                and (data["mode"] != "DERIVED_NEW" or utc(evidence["observed_at_utc"]) <= utc(data["created_at_utc"])),
+                "EXTERNAL_MATERIAL_PROVENANCE")
 
 
 def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False):
@@ -1178,14 +1263,15 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
         if reused_source:
             reuse = meter.identity.get("drive_orphan_reuse")
             verify_drive_reuse(reuse, meter.identity)
+            recovery_spec = MATERIALIZATION_RECOVERY if "materialization" in reuse else DRIVE_RECOVERY
             require(isinstance(reuse, dict) and receipt.get("recovered_from") == reuse
-                    and meter.identity.get("recovery_run") == DRIVE_RECOVERY["run_id"]
+                    and meter.identity.get("recovery_run") == recovery_spec["run_id"]
                     and meter.identity.get("examined_before") == meter.examined == DRIVE_RECOVERY["examined"]
                     and meter.checkpoint_sha == DRIVE_RECOVERY["checkpoint_sha256"]
                     and receipt.get("symbols") == ["TWST", "UBS", "UL", "UPST"]
                     and objects[0]["sha256"] == reuse.get("raw_sha256")
                     and objects[1]["sha256"] == reuse.get("normalized_sha256")
-                    and reuse.get("failed_run_id") == DRIVE_RECOVERY["run_id"]
+                    and reuse.get("failed_run_id") == recovery_spec["run_id"]
                     and reuse.get("capture_source_sha") == DRIVE_RECOVERY["master"]
                     and reuse.get("derivation_source_sha") == expected_source
                     and reuse.get("derivation_run_id") == meter.identity["run_id"]
@@ -1209,6 +1295,9 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
                     ("source_admission", "pit_verified", "historical_identity_verified",
                      "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
         cap.verify_archived_group(raw, normalized, receipt)
+        if reused_source and "materialization" in reuse:
+            require(digest(cap.gzip.decompress(normalized)) == reuse["materialization"]["rows_sha256"],
+                    "EXTERNAL_MATERIAL_ROWS")
         meter.rows += receipt["rows"]
         meter.states["VALID_COLLECTED"] += len(receipt["collected"])
         meter.states["VERIFIED_NO_DATA"] += len(receipt["no_bars"])
@@ -1520,7 +1609,7 @@ def settle_run(journal, auth, run, receipt):
     require(receipt["parent_checkpoint_sha256"] == parent["sha256"], "CAMPAIGN_LOCAL_PARENT")
     ref = checkpoint_from_log(run, receipt, parent)
     if "external_cohort" in auth:
-        binding = getattr(journal, "drive_revision", None) or journal.revision or journal.entries[0]
+        binding = active_external_revision(journal)[0] or journal.entries[0]
         frozen = {k: binding[k] for k in ("proof_sha256", "proof_updated_utc", "expires_at_utc")}
         observed = external_history(auth, enforce_expiry=False, allow_stopped=True)
         require(observed["external_proof"] == frozen
@@ -1745,10 +1834,12 @@ def validate_external_authorization(auth):
     ex = auth["external_cohort"]
     revised = isinstance(ex, dict) and "named_recovery" in ex
     drive_revised = isinstance(ex, dict) and "drive_recovery" in ex
+    material_revised = isinstance(ex, dict) and "materialization_recovery" in ex
     require(isinstance(ex, dict) and set(ex) == {"scope", "input_csv", "intake_manifest_sha256",
             "receipt_dedupe_sha256", "prior_authorization", "prior_epochs", "proof_reference"}
             | ({"named_recovery"} if revised else set())
-            | ({"drive_recovery"} if drive_revised else set()), "EXTERNAL_AUTHORIZATION")
+            | ({"drive_recovery"} if drive_revised else set())
+            | ({"materialization_recovery"} if material_revised else set()), "EXTERNAL_AUTHORIZATION")
     scope = cap.external_scope(ex["scope"])
     require(isinstance(ex["input_csv"], str), "EXTERNAL_COHORT_SCHEMA")
     raw = ex["input_csv"].encode("utf-8")
@@ -1789,7 +1880,28 @@ def validate_external_authorization(auth):
     require(set(names).isdisjoint(cap.cohort(cap.SEED.read_bytes())[:CONTINUATION["examined"]]),
             "EXTERNAL_RECOLLECTION")
     require(len(encoded(auth)) <= 15000, "CAMPAIGN_CONTROL_SIZE")
-    if drive_revised:
+    if material_revised:
+        recovery = ex["materialization_recovery"]
+        require(drive_revised and revised and isinstance(recovery, dict) and set(recovery) ==
+                {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
+                "EXTERNAL_MATERIAL_RECOVERY")
+        source = recovery["prior_capture_source"]
+        require(isinstance(source, dict) and set(source) == {"expected_master", "code_pins", "proof_reference"}
+                and ex["prior_epochs"] == [], "EXTERNAL_MATERIAL_RECOVERY")
+        previous = external_previous(auth)
+        require(validate_authorization(previous) == MATERIALIZATION_RECOVERY["prior_auth"]
+                and previous["expected_master"] == MATERIALIZATION_RECOVERY["master"]
+                and all(recovery[k] == MATERIALIZATION_RECOVERY[v] and type(recovery[k]) is type(MATERIALIZATION_RECOVERY[v])
+                        for k,v in (("failed_run_id","run_id"),("failed_receipt_sha256","receipt_sha256"),
+                                    ("checkpoint_sha256","checkpoint_sha256"),("examined","examined")))
+                and all(ex[k] == previous["external_cohort"][k] for k in ex
+                        if k not in ("materialization_recovery", "proof_reference"))
+                and all(auth[k] == previous[k] for k in AUTH_FIELDS
+                        - {"schema", "expected_master", "code_pins", "account_permission_reference"})
+                and auth["expected_master"] != previous["expected_master"]
+                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
+                "EXTERNAL_MATERIAL_RECOVERY")
+    elif drive_revised:
         recovery = ex["drive_recovery"]
         require(revised and isinstance(recovery, dict) and set(recovery) ==
                 {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
@@ -1839,12 +1951,14 @@ def external_previous(auth):
     deduplication keeps a later top500 wrapper below the unchanged control cap.
     """
     ex = auth["external_cohort"]
+    material_revised = "materialization_recovery" in ex
     drive_revised = "drive_recovery" in ex
-    field = "drive_recovery" if drive_revised else "named_recovery"
+    field = "materialization_recovery" if material_revised else "drive_recovery" if drive_revised else "named_recovery"
     source = ex[field]["prior_capture_source"]
     old_ex = {k:v for k,v in ex.items() if k != field}
     old_ex["proof_reference"] = source["proof_reference"]
-    return dict(auth, schema=("r1000-sip-external-cohort-authorization-v2" if drive_revised else
+    return dict(auth, schema=("r1000-sip-external-cohort-authorization-v3" if material_revised else
+                             "r1000-sip-external-cohort-authorization-v2" if drive_revised else
                              "r1000-sip-external-cohort-authorization-v1"),
                 expected_master=source["expected_master"], code_pins=source["code_pins"],
                 account_permission_reference=source["proof_reference"], external_cohort=old_ex)
@@ -1856,11 +1970,13 @@ def external_variants(auth):
 
 
 def external_recoveries(auth):
-    """Two sealed, inspected transitions only; never arbitrary retry authority."""
+    """Sealed inspected transitions only; never arbitrary retry authority."""
     ex = auth["external_cohort"]
     result = [dict(NAMED_RECOVERY, batch=8)] if "named_recovery" in ex else []
     if "drive_recovery" in ex:
         result.append(DRIVE_RECOVERY)
+    if "materialization_recovery" in ex:
+        result.append(MATERIALIZATION_RECOVERY)
     return result
 
 
@@ -1873,32 +1989,43 @@ def external_revision(auth, proof):
 
 
 def external_journal(directory, auth, proof, *, epoch_proofs=None):
-    drive_revision = None
-    if "drive_recovery" in auth["external_cohort"]:
-        previous = external_previous(auth)
-        if epoch_proofs is None:
-            previous_proof = external_proof(previous)  # Initial open, before canonical reconciliation.
+    revisions = []
+    versions = external_variants(auth)
+    for version, spec in zip(versions[1:], external_recoveries(auth)):
+        if version is auth:
+            version_proof = proof
+        elif epoch_proofs is None:
+            version_proof = external_proof(version)  # Initial open, before canonical reconciliation.
         else:
             require(isinstance(epoch_proofs, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
-            previous_proof = epoch_proofs.get(validate_authorization(previous))
-            require(isinstance(previous_proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
-        revision = external_revision(previous, previous_proof)
-        drive_revision = dict(prior_auth_sha256=DRIVE_RECOVERY["prior_auth"],
-            failed_run_id=DRIVE_RECOVERY["run_id"], failed_receipt_sha256=DRIVE_RECOVERY["receipt_sha256"],
-            checkpoint_sha256=DRIVE_RECOVERY["checkpoint_sha256"], examined=DRIVE_RECOVERY["examined"], **proof)
-    else:
-        revision = external_revision(auth, proof)
+            version_proof = epoch_proofs.get(validate_authorization(version))
+            require(isinstance(version_proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+        revisions.append(dict(prior_auth_sha256=spec["prior_auth"], failed_run_id=spec["run_id"],
+            failed_receipt_sha256=spec["receipt_sha256"], checkpoint_sha256=spec["checkpoint_sha256"],
+            examined=spec["examined"], **version_proof))
+    revision, drive_revision, material_revision = (revisions+[None]*3)[:3]
     if revision:
         require(Path(directory).is_dir() and not Path(directory).is_symlink()
                 and (Path(directory)/f"{NAMED_RECOVERY['events']:06d}.json").is_file(), "EXTERNAL_RECOVERY_PREFIX")
-    return WorkJournal(directory, validate_authorization(auth), revision=revision, drive_revision=drive_revision)
+    return WorkJournal(directory, validate_authorization(auth), revision=revision,
+                       drive_revision=drive_revision, material_revision=material_revision)
+
+
+def active_external_revision(journal):
+    for field, spec, kind in (("material_revision", MATERIALIZATION_RECOVERY, "EXTERNAL_MATERIALIZATION_BOUND"),
+                             ("drive_revision", DRIVE_RECOVERY, "EXTERNAL_DRIVE_RECOVERY_BOUND"),
+                             ("revision", NAMED_RECOVERY, "EXTERNAL_RECOVERY_BOUND")):
+        value = getattr(journal, field, None)
+        if value:
+            return value, spec, kind
+    return None, None, None
 
 
 def named_failed_receipt(run, value, auth):
     for spec in external_recoveries(auth):
         matched = (run.get("id") == spec["run_id"] and run.get("run_attempt") == 1
             and run.get("conclusion") == "failure" and value.get("status") == "BLOCKED"
-            and value.get("reason") == "HTTP_ERROR" and value.get("auth_sha256") == spec["prior_auth"]
+            and value.get("reason") == spec.get("reason", "HTTP_ERROR") and value.get("auth_sha256") == spec["prior_auth"]
             and digest(encoded(value)) == spec["receipt_sha256"]
             and value.get("checkpoint_sha256") == spec["checkpoint_sha256"]
             and value.get("examined_after") == spec["examined"])
@@ -1940,6 +2067,14 @@ def external_proof_record(auth):
             checkpoint_sha256=DRIVE_RECOVERY["checkpoint_sha256"], examined=DRIVE_RECOVERY["examined"],
             recovery_dispatch_limit=1, first_recovery_batch_limit=9,
             uncertain_create_outcome_acknowledged=True, request_sha256=DRIVE_RECOVERY["request_sha256"]))
+    if "materialization_recovery" in ex:
+        spec = MATERIALIZATION_RECOVERY
+        result.update(materialization_recovery=dict(prior_capture_auth_sha256=spec["prior_auth"],
+            failed_run_id=spec["run_id"], failed_receipt_sha256=spec["receipt_sha256"],
+            checkpoint_sha256=spec["checkpoint_sha256"], examined=spec["examined"],
+            recovery_dispatch_limit=1, first_recovery_batch_limit=9,
+            normalized_only_derivation=True, original_create_outcome_unknown=True,
+            request_sha256=spec["request_sha256"]))
     return result
 
 
@@ -2062,6 +2197,8 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                         or value["examined_after"] >= DRIVE_RECOVERY["examined"]+4, "EXTERNAL_ORPHAN_CLOSURE")
                 if value["examined_after"] > DRIVE_RECOVERY["examined"] or "drive_orphan_reuse" in value:
                     verify_drive_reuse(value.get("drive_orphan_reuse"), value)
+                    require(("materialization" in value["drive_orphan_reuse"]) ==
+                            ("materialization_recovery" in a["external_cohort"]), "EXTERNAL_ORPHAN_PROVENANCE")
             state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
             state["runs"].append(run); state["receipts"].append(value)
             named_failure = named_failed_receipt(run, value, epoch)
@@ -2106,7 +2243,83 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS})
 
 
-def recover_drive_orphan(drive, args, auth, meter):
+def orphan_inventory(drive, folder, meter):
+    """One bounded original-time query. Persist only allowlisted diagnostics."""
+    spec = DRIVE_RECOVERY
+    query = ("'"+folder+"' in parents and trashed = false and createdTime >= '"+spec["window_start"]
+             +"' and createdTime <= '"+spec["window_end"]+"'")
+    listed = credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+urlencode(dict(
+        q=query, pageSize=8, fields="nextPageToken,files(id,name,size,parents,createdTime)"))), (drive.token,))
+    files = listed.get("files") if isinstance(listed, dict) else None
+    evidence = dict(schema="a1-bounded-orphan-inventory-v1", observed_at_utc=utc().isoformat(),
+        window=[spec["window_start"], spec["window_end"]], files_count=len(files) if isinstance(files, list) else None,
+        has_more=not isinstance(listed, dict) or listed.get("nextPageToken") is not None, entries=[])
+    for item in files[:8] if isinstance(files, list) else []:
+        item = item if isinstance(item, dict) else {}
+        name = item.get("name")
+        match = re.fullmatch(r"([0-9a-f]{64})(\.zip|\.jsonl\.gz|\.json)", name) if isinstance(name, str) else None
+        size = item.get("size")
+        size = int(size) if isinstance(size, str) and size.isascii() and size.isdigit() and len(size) <= 8 else None
+        created = item.get("createdTime")
+        try:
+            if not (utc(spec["window_start"]) <= utc(created) <= utc()):
+                created = None
+        except Refused:
+            created = None
+        evidence["entries"].append(dict(kind={".zip":"RAW", ".jsonl.gz":"NORMALIZED", ".json":"JSON"}.get(
+            match[2] if match else None, "OTHER"), sha256=match[1] if match else None,
+            bytes=size if size is not None and size <= 16_000_000 else None, created_at_utc=created))
+    verify_orphan_inventory(evidence)
+    meter.identity["orphan_inventory"] = evidence
+    meter.save()  # Survives a count/role/metadata refusal without leaking IDs or raw names.
+    require(isinstance(files, list) and len(files) <= 8 and not evidence["has_more"], "EXTERNAL_ORPHAN_INVENTORY")
+    kinds, ids = {"raw":[], "normalized":[]}, set()
+    for item, safe in zip(files, evidence["entries"]):
+        validate_orphan_item(item, folder)
+        require(item["id"] not in ids and safe["kind"] != "OTHER"
+                and utc(spec["window_start"]) <= utc(item["createdTime"]) <= utc(spec["window_end"]),
+                "EXTERNAL_ORPHAN_LISTING")
+        ids.add(item["id"])
+        if safe["kind"] != "JSON":
+            kinds["raw" if safe["kind"] == "RAW" else "normalized"].append(item)
+    require(len(kinds["raw"]) == 1 and len(kinds["normalized"]) <= 1, "EXTERNAL_ORPHAN_ROLES")
+    return kinds
+
+
+def validate_orphan_item(item, folder):
+    require(isinstance(item, dict) and isinstance(item.get("name"), str)
+            and re.fullmatch(r"[0-9a-f]{64}\.(zip|jsonl\.gz|json)", item["name"])
+            and isinstance(item.get("id"), str) and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", item["id"])
+            and item.get("parents") == [folder] and isinstance(item.get("size"), str)
+            and item["size"].isascii() and item["size"].isdigit() and len(item["size"]) <= 8
+            and 0 < int(item["size"]) < 16_000_000
+            and isinstance(item.get("createdTime"), str)
+            and utc(DRIVE_RECOVERY["window_start"]) <= utc(item.get("createdTime")) <= utc(),
+            "EXTERNAL_ORPHAN_LISTING")
+
+
+def read_orphan_item(drive, folder, item):
+    validate_orphan_item(item, folder)
+    drive.check(item["id"], folder, folder=False)
+    raw = drive.read(item["id"], 16_000_000)
+    require(len(raw) == int(item["size"]) and digest(raw) == item["name"][:64], "EXTERNAL_ORPHAN_HASH")
+    return dict(file_id=item["id"], sha256=digest(raw), bytes=len(raw)), raw
+
+
+def lookup_orphan_normalized(drive, folder, name):
+    require(re.fullmatch(r"[0-9a-f]{64}\.jsonl\.gz", name), "EXTERNAL_ORPHAN_LISTING")
+    query = "name = '"+name+"' and '"+folder+"' in parents and trashed = false"
+    result = credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+urlencode(dict(
+        q=query, pageSize=2, fields="nextPageToken,files(id,name,size,parents,createdTime)"))), (drive.token,))
+    require(isinstance(result, dict) and result.get("nextPageToken") is None
+            and isinstance(result.get("files"), list) and len(result["files"]) <= 1, "EXTERNAL_ORPHAN_NORMALIZED_LOOKUP")
+    for item in result["files"]:
+        validate_orphan_item(item, folder)
+        require(item["name"] == name, "EXTERNAL_ORPHAN_NORMALIZED_LOOKUP")
+    return result["files"]
+
+
+def recover_drive_orphan(drive, args, auth, meter, *, materialize=False):
     """Only exact existing bytes from the sealed failed POST window; no GETs
     to providers and no raw/normalized uploads, even when an object is absent.
     The old capture source and original asset clocks remain unchanged.
@@ -2116,11 +2329,24 @@ def recover_drive_orphan(drive, args, auth, meter):
     names = cap.external_cohort(ex["input_csv"].encode())
     group = names[160:164]
     require(group == ["TWST", "UBS", "UL", "UPST"]
-            and meter.identity.get("recovery_run") == spec["run_id"]
+            and meter.identity.get("recovery_run") == (MATERIALIZATION_RECOVERY if materialize else spec)["run_id"]
             and meter.examined == spec["examined"] and meter.checkpoint_sha == spec["checkpoint_sha256"],
             "EXTERNAL_ORPHAN_PARENT")
     folder = args.private_data_folder_id
     require(isinstance(folder, str) and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", folder), "PRIVATE_FOLDER")
+    if materialize:
+        require("materialization_recovery" in ex, "EXTERNAL_MATERIAL_RECOVERY")
+        kinds = orphan_inventory(drive, folder, meter)
+        ref, raw = read_orphan_item(drive, folder, kinds["raw"][0])
+        require(ref["bytes"] == spec["raw_bytes"], "EXTERNAL_ORPHAN_RAW_SIZE")
+        refs, contents = {"raw":ref}, {"raw":raw}
+    else:
+        refs, contents = legacy_orphan_objects(drive, folder)
+    return finish_drive_orphan(drive, args, auth, meter, refs, contents, kinds if materialize else None)
+
+
+def legacy_orphan_objects(drive, folder):
+    spec = DRIVE_RECOVERY
     query = ("'"+folder+"' in parents and trashed = false and createdTime >= '"+spec["window_start"]
              +"' and createdTime <= '"+spec["window_end"]+"'")
     listed = credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+urlencode(dict(
@@ -2148,6 +2374,14 @@ def recover_drive_orphan(drive, args, auth, meter):
         contents[kind] = raw
     require(set(refs) == {"raw", "normalized"} and refs["raw"]["bytes"] == spec["raw_bytes"],
             "EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS")
+    return refs, contents
+
+
+def finish_drive_orphan(drive, args, auth, meter, refs, contents, kinds):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    spec, ex, folder = DRIVE_RECOVERY, auth["external_cohort"], args.private_data_folder_id
+    names = cap.external_cohort(ex["input_csv"].encode())
+    group = names[160:164]
     try:
         with cap.zipfile.ZipFile(cap.io.BytesIO(contents["raw"])) as archive:
             infos = archive.infolist()
@@ -2177,6 +2411,33 @@ def recover_drive_orphan(drive, args, auth, meter):
     for symbol in group:
         for basis in ("raw", "split"):
             rows.extend(cap.normalize(grids[basis][symbol], symbol, basis, auth["start"], auth["end"]))
+    row_bytes = b"".join(encoded(row) for row in rows)
+    norm_item = None
+    if kinds is not None:
+        # Gzip wrapper bytes differ across Python versions. Compare rebuilt row
+        # bytes separately and use an explicit encoder for this new derivation.
+        buffer = cap.io.BytesIO()
+        with cap.gzip.GzipFile(filename="", mode="wb", fileobj=buffer, compresslevel=9, mtime=0) as handle:
+            handle.write(row_bytes)
+        canonical = buffer.getvalue()
+        candidates = kinds["normalized"]
+        if candidates:
+            indexed = lookup_orphan_normalized(drive, folder, candidates[0]["name"])
+            require(indexed == candidates, "EXTERNAL_ORPHAN_NORMALIZED_LOOKUP")
+        else:
+            # Python3.12's fast gzip path may retain zlib's OS=3 header;
+            # later Python versions use255. These are candidate content names,
+            # never evidence that any prior object was actually created.
+            for hashed in sorted({digest(canonical), digest(cap.gzip.compress(row_bytes, mtime=0)),
+                                  digest(canonical[:9]+b"\x03"+canonical[10:])}):
+                candidates += lookup_orphan_normalized(drive, folder, hashed+".jsonl.gz")
+        require(len(candidates) <= 1, "EXTERNAL_ORPHAN_ROLES")
+        if candidates:
+            norm_item = candidates[0]
+            refs["normalized"], contents["normalized"] = read_orphan_item(drive, folder, norm_item)
+        else:
+            contents["normalized"] = canonical
+            refs["normalized"] = dict(sha256=digest(canonical), bytes=len(canonical))  # Not a stored object yet.
     receipt = dict(schema=cap.SCHEMA, scope="PRIVATE_RESEARCH_ONLY", source=cap.SOURCE,
         source_sha=spec["master"], seed_sha256=ex["scope"]["input_sha256"],
         start=auth["start"], end=auth["end"], asof=cap.mapping_asof(auth["end"]), symbols=group,
@@ -2191,13 +2452,41 @@ def recover_drive_orphan(drive, args, auth, meter):
     examined, completed, held, parent = cap.resume_state(drive, folder, args.resume_file_id, args.resume_sha256,
         ex["scope"]["input_sha256"], auth["start"], auth["end"], scope=ex["scope"])
     require(examined == names[:160] and parent["sha256"] == spec["checkpoint_sha256"], "EXTERNAL_ORPHAN_PARENT")
-    # Everything above is read-only. Only new derivation receipt/CP JSONs follow.
-    reuse = dict(failed_run_id=spec["run_id"], capture_source_sha=spec["master"],
+    materialization = None
+    if kinds is not None:
+        created = False
+        if norm_item is None:
+            class DerivationDrive:
+                def __getattr__(self, name):
+                    return getattr(drive, name)
+                def write(self, *a, **kw):
+                    nonlocal created
+                    created = True
+                    return drive.write(*a, **kw)  # One CREATE only; an unknown result is terminal.
+            refs["normalized"] = cap.persist_object(DerivationDrive(), folder, canonical, ".jsonl.gz")
+            indexed = lookup_orphan_normalized(drive, folder, refs["normalized"]["sha256"]+".jsonl.gz")
+            require(len(indexed) == 1 and indexed[0]["id"] == refs["normalized"]["file_id"],
+                    "EXTERNAL_ORPHAN_NORMALIZED_LOOKUP")
+            norm_item = indexed[0]
+            actual_ref, actual = read_orphan_item(drive, folder, norm_item)
+            require(actual_ref == refs["normalized"] and actual == canonical, "EXTERNAL_MATERIAL_READBACK")
+        materialization = dict(capture_failed_run_id=spec["run_id"], rows_sha256=digest(row_bytes),
+            codec="GZIP_FILENAME_EMPTY_MTIME0_LEVEL9" if created else "EXISTING_GZIP_VERIFIED",
+            mode="DERIVED_NEW" if created else "EXISTING_VERIFIED", created_at_utc=norm_item["createdTime"],
+            lookup_observed_at_utc=utc().isoformat(), inventory_sha256=digest(encoded(meter.identity["orphan_inventory"])),
+            original_create_outcome="UNKNOWN")
+        receipt["normalized_object"] = refs["normalized"]
+    # All raw semantics and the entire old checkpoint were verified before any
+    # new storage. No original ZIP upload or provider request occurs here.
+    reuse = dict(failed_run_id=(MATERIALIZATION_RECOVERY if kinds is not None else spec)["run_id"], capture_source_sha=spec["master"],
         derivation_source_sha=auth["expected_master"], raw_sha256=refs["raw"]["sha256"],
         normalized_sha256=refs["normalized"]["sha256"], external_proof_sha256=meter.identity["external_proof_sha256"],
         derivation_run_id=meter.identity["run_id"], derivation_auth_sha256=meter.identity["auth_sha256"],
         parent_checkpoint_sha256=spec["checkpoint_sha256"],
         derived_at_utc=utc().isoformat(), failed_run_observation_window=[spec["window_start"],spec["window_end"]])
+    if materialization is not None:
+        reuse["materialization"] = materialization
+    verify_drive_reuse(reuse, meter.identity)
     meter.identity["drive_orphan_reuse"] = reuse
     meter.save()
     receipt["recovered_from"] = reuse
@@ -2278,7 +2567,8 @@ def external_worker(args, control, journal):
         meter.identity["free_bytes_at_start"] = drive.free
         meter.save()
         if drive_recovery:
-            ref = recover_drive_orphan(drive, args, auth, meter)
+            ref = recover_drive_orphan(drive, args, auth, meter,
+                **({"materialize":True} if "materialization_recovery" in ex else {}))
             args.resume_file_id, args.resume_sha256 = ref["file_id"], ref["sha256"]
             args.max_new_symbols = original_batch-4
         return drive
@@ -2377,6 +2667,11 @@ def external_family_registry(budget_path, auth, state_path, *, first_proof=None)
                 and (directory/f"{DRIVE_RECOVERY['family_events']:06d}.json").is_file()
                 and digest(bounded_bytes(directory/f"{DRIVE_RECOVERY['family_events']:06d}.json"))
                     == DRIVE_RECOVERY["family_event_sha256"], "EXTERNAL_DRIVE_FAMILY_PREFIX")
+    if any("materialization_recovery" in a["external_cohort"] for a in auth["external_cohort"]["prior_epochs"]+[auth]):
+        require(directory.is_dir() and not directory.is_symlink()
+                and (directory/f"{MATERIALIZATION_RECOVERY['family_events']:06d}.json").is_file()
+                and digest(bounded_bytes(directory/f"{MATERIALIZATION_RECOVERY['family_events']:06d}.json"))
+                    == MATERIALIZATION_RECOVERY["family_event_sha256"], "EXTERNAL_MATERIAL_FAMILY_PREFIX")
     if any("named_recovery" in a["external_cohort"] for a in auth["external_cohort"]["prior_epochs"]+[auth]):
         require(directory.is_dir() and not directory.is_symlink()
                 and (directory/f"{NAMED_RECOVERY['events']:06d}.json").is_file()
@@ -2442,6 +2737,10 @@ def verify_external_prior_journals(registry, auth, observed):
                     cursor += 1
                 if prior.drive_revision and cursor == DRIVE_RECOVERY["events"]:
                     require(cursor < len(prior.entries) and prior.entries[cursor]["kind"] == "EXTERNAL_DRIVE_RECOVERY_BOUND",
+                            "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+                    cursor += 1
+                if prior.material_revision and cursor == MATERIALIZATION_RECOVERY["events"]:
+                    require(cursor < len(prior.entries) and prior.entries[cursor]["kind"] == "EXTERNAL_MATERIALIZATION_BOUND",
                             "EXTERNAL_PRIOR_JOURNAL_DRIFT")
                     cursor += 1
                 require(cursor < len(prior.entries), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
@@ -2569,9 +2868,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             # Importing or repairing the first recovery still consumes its one
             # allowed batch. A crash must not turn that closure into a free slot.
             require(max_batches == 1, "EXTERNAL_RECOVERY_BOUNDARY")
-        active_revision = journal.drive_revision or journal.revision
-        active_spec = DRIVE_RECOVERY if journal.drive_revision else NAMED_RECOVERY
-        active_kind = "EXTERNAL_DRIVE_RECOVERY_BOUND" if journal.drive_revision else "EXTERNAL_RECOVERY_BOUND"
+        active_revision, active_spec, active_kind = active_external_revision(journal)
         while True:
             observed = external_history(auth, recovery_run=recovery_run, enforce_expiry=False, allow_stopped=True)
             last_observed = observed
@@ -2620,11 +2917,12 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                     "EXTERNAL_FAMILY_PENDING")
             parent = settled_parent(journal, auth)
             require(parent["sha256"] == observed["parent_sha"]
-                    and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND", "EXTERNAL_DRIVE_RECOVERY_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+                    and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND",
+                        "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
             if observed.get("recovery_required") is not None:
                 require(max_batches == 1 and recovery_run == active_spec["run_id"]
                         and observed["examined"] == active_spec["examined"]
-                        and external_batch(observed["examined"], count) == (9 if journal.drive_revision else 8),
+                        and external_batch(observed["examined"], count) == active_spec.get("batch", 8),
                         "EXTERNAL_RECOVERY_BOUNDARY")
             nonce = PREFIX+os.urandom(12).hex()
             control = dict(authorization=auth, nonce=nonce, recovery_run=recovery_run,
