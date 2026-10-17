@@ -39,6 +39,28 @@ INITIAL_SHA = "9a8e0d12d0acb065ce0b5a44963b6b152646127c521bf0e592119526d889fd6a"
 SEED_SHA = "333668b35a6264ad9c3bbe635212a5b95db21ba57855666dca2ee5311ea160cc"
 LIMITS = dict(provider_gets=2000, drive_requests=50000,
               drive_bytes=8 * 1024**3, storage_bytes=1024**3)
+CONTINUED_LIMITS = dict(LIMITS, drive_bytes=9 * 1024**3)
+# One human-approved continuation of the measured128-name stop, not a reset
+# or a general budget/account migration facility. All identifiers are public
+# run IDs or evidence hashes; private objects and credentials stay external.
+CONTINUATION = dict(
+    auth="b5f25d1bac9b393bc5101fa3562b95e7a54ed3c6f79768b4651b541e454bdf9e",
+    master="5a762256a17851b864595265c6e83c01f22f9a0a",
+    checkpoint="032dac3437c379f6cebc00f3b1e2f0315304974a8f16b39787086c2614048605",
+    event="e4bbd55f825e17745270ea9a8c7893253728cc1c9e15938adc5e5695b64408bb",
+    progress="af888fc6e3b72c451269f06f61ec673597db7159ef4fc822d38bcafeea4e7630",
+    request="e602411e37b3e6e544a46e7fc78b1a320acfbde891ead7b7268efe79ebca8eec",
+    runs=[38993769026, 38994018637, 38994265036, 38994543208, 38994825057],
+    receipts=["9337aa3aac842a7c128488e3a4a221a40697243396613834b299acd8269af120",
+              "b16472531ef68c90756683abaaa447c2a596c7e66f76ccbc23062b6438ddeeb3",
+              "a1aa85c89c2508a6a75ad3daf35372bdf03c1ede036586938e29b151b4499c14",
+              "1a26ad29e6c6dfec2293d1be697cb78c52cd17f172693649bdceb4e06d9f95a2",
+              "93e1ce073ae2c4bfccd70bebf40a4e834cd1ea03608e757c039be49214a6604f"],
+    used=dict(provider_gets=88, drive_requests=1428, drive_bytes=235895806, storage_bytes=28012817),
+    bindings=dict(credential_binding="0c71faf943d489e215c81bcd31affe6b8f6600b646a3462ed02c97fab1637ad2",
+                  owner_sha256="08e29aa6cca772e9319b2aab20ad9fdba5dd0d8fce08a90b9fdbf3253fe9a94e"),
+    permission_record="f6bcb213cacc09e41288375da7ad983607da99614a41b6cb9ab7e4e23fd27e0e",
+    active_seconds=872, examined=144, events=17, first="2026-10-17T02:08:51Z")
 METRIC = "HTTP_BODIES_PLUS_65536_RESERVED_OVERHEAD_PER_GOOGLE_REQUEST"
 PINS = ("tools/alpaca_sip_campaign.py", "tools/alpaca_sip_private_backfill_v1.py",
         "tools/twelve_private_capture.py", "tools/configure_macro_research_drive.py",
@@ -112,8 +134,10 @@ def atomic_json(path, value):
 
 
 def validate_authorization(auth):
-    require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS
-            and auth.get("schema") == "r1000-sip-campaign-authorization-v1" and auth.get("task_key") == TASK
+    continued = isinstance(auth, dict) and "continuation" in auth
+    require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | ({"continuation"} if continued else set())
+            and auth.get("schema") == ("r1000-sip-campaign-authorization-v2" if continued else
+                                       "r1000-sip-campaign-authorization-v1") and auth.get("task_key") == TASK
             and auth.get("scope_approved") is True
             and auth.get("private_noncommercial") is True
             and isinstance(auth.get("approval_reference"), str)
@@ -124,7 +148,7 @@ def validate_authorization(auth):
             and auth.get("initial_checkpoint_sha256") == INITIAL_SHA
             and auth.get("transfer_definition") == METRIC,
             "CAMPAIGN_SCOPE")
-    require(auth.get("limits") == LIMITS
+    require(auth.get("limits") == (CONTINUED_LIMITS if continued else LIMITS)
             and all(type(auth["limits"][name]) is int for name in LIMITS),
             "CAMPAIGN_LIMITS")
     require(type(auth.get("workflow_run_floor")) is int
@@ -150,7 +174,85 @@ def validate_authorization(auth):
             "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
     require(key is None or (isinstance(key, str) and re.fullmatch(r"[0-9a-f]{64}", key)),
             "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
+    if continued:
+        continuation = auth["continuation"]
+        require(isinstance(continuation, dict) and set(continuation) == {"prior_authorization", "proof_reference"},
+                "CAMPAIGN_CONTINUATION_AUTH")
+        prior = continuation["prior_authorization"]
+        require(isinstance(prior, dict) and "continuation" not in prior,
+                "CAMPAIGN_CONTINUATION_AUTH")
+        require(validate_authorization(prior) == CONTINUATION["auth"]
+                and prior["expected_master"] == CONTINUATION["master"]
+                and auth["expected_master"] != prior["expected_master"]
+                and all(auth[k] == prior[k] for k in AUTH_FIELDS - {"schema", "limits", "expected_master", "code_pins"}),
+                "CAMPAIGN_CONTINUATION_SCOPE")
+        require(isinstance(continuation["proof_reference"], str) and re.fullmatch(
+            r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+            continuation["proof_reference"]), "CAMPAIGN_CONTINUATION_PROOF")
     return digest(encoded(auth))
+
+
+def active_limit(auth):
+    return 43200 if "continuation" in auth else 28800
+
+
+def continuation_proof(auth):
+    """Bind the real OWNER record to exactly this one finite, spent prefix."""
+    if "continuation" not in auth:
+        return None
+    auth_hash = validate_authorization(auth)
+    reference = auth["continuation"]["proof_reference"]
+    comment_id = int(reference.rsplit("-", 1)[1])
+    comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
+    author = comment.get("user", {})
+    require(comment.get("id") == comment_id and type(comment.get("id")) is int
+            and comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("author_association") == "OWNER" and author.get("type") == "User"
+            and type(author.get("id")) is int and author["id"] > 0
+            and isinstance(comment.get("body"), str), "CAMPAIGN_CONTINUATION_ATTESTOR")
+    tag = "A1_SIP_BOUNDED_CONTINUATION "
+    lines = [line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096, "CAMPAIGN_CONTINUATION_PROOF")
+    record = decode(lines[0])
+    expected = dict(schema="a1-sip-bounded-continuation-v1", task_key=TASK,
+                    prior_auth_sha256=CONTINUATION["auth"], auth_sha256=auth_hash,
+                    prior_journal_event_sha256=CONTINUATION["event"],
+                    prior_progress_sha256=CONTINUATION["progress"],
+                    checkpoint_sha256=CONTINUATION["checkpoint"],
+                    prior_run_ids=CONTINUATION["runs"], prior_usage=CONTINUATION["used"],
+                    prior_active_seconds=CONTINUATION["active_seconds"], prior_examined=CONTINUATION["examined"],
+                    first_canonical_utc=CONTINUATION["first"],
+                    expires_at_utc=(utc(CONTINUATION["first"])+timedelta(hours=48)).isoformat(),
+                    request_sha256=CONTINUATION["request"], limits=CONTINUED_LIMITS,
+                    active_seconds_limit=43200, dispatch_limit=40, preserve_seed_order=True,
+                    account_rotation=False, expected_master=auth["expected_master"],
+                    code_pins_sha256=digest(encoded(auth["code_pins"])))
+    require(isinstance(record, dict) and set(record) == set(expected)
+            and all(record[k] == v and type(record[k]) is type(v) for k,v in expected.items())
+            and all(type(record["prior_usage"][k]) is int and type(record["limits"][k]) is int for k in LIMITS)
+            and all(type(v) is int for v in record["prior_run_ids"]), "CAMPAIGN_CONTINUATION_PROOF")
+    require(isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str),
+            "CAMPAIGN_CONTINUATION_CLOCK")
+    created, updated = utc(comment["created_at"]), utc(comment["updated_at"])
+    require(utc(CONTINUATION["first"]) <= created <= updated <= utc()
+            and updated < utc(expected["expires_at_utc"]), "CAMPAIGN_CONTINUATION_CLOCK")
+    permission = account_permission_evidence(reference, auth_hash, CONTINUATION["bindings"])
+    require(permission["body_sha256"] == digest(comment["body"].encode())
+            and permission["record"]["expires_at_utc"] == expected["expires_at_utc"],
+            "CAMPAIGN_CONTINUATION_PERMISSION")
+    return dict(prior_auth_sha256=CONTINUATION["auth"],
+                prior_journal_event_sha256=CONTINUATION["event"],
+                checkpoint_sha256=CONTINUATION["checkpoint"], prior_usage=CONTINUATION["used"],
+                prior_active_seconds=CONTINUATION["active_seconds"], prior_examined=CONTINUATION["examined"],
+                first_canonical_utc=CONTINUATION["first"], expires_at_utc=expected["expires_at_utc"],
+                proof_reference=reference, proof_created_utc=created.isoformat(), proof_updated_utc=updated.isoformat(),
+                proof_sha256=digest(encoded(dict(author_id=author["id"], body_sha256=digest(comment["body"].encode()),
+                                               created_at=created.isoformat(), updated_at=updated.isoformat(), record=record))),
+                prior_permission_record_sha256=CONTINUATION["permission_record"],
+                permission_reference_sha256=digest(reference.encode()),
+                permission_record_sha256=digest(encoded(permission)),
+                limits=CONTINUED_LIMITS, active_seconds_limit=43200,
+                expected_master=auth["expected_master"], code_pins_sha256=expected["code_pins_sha256"])
 
 
 class RuntimeMeter:
@@ -161,9 +263,11 @@ class RuntimeMeter:
     This explicit metric must be accepted in the immutable authorization.
     """
     def __init__(self, allowance, journal, deadline, identity, clock=utc,
-                 opener=None):
+                 opener=None, limits=None):
+        caps = LIMITS if limits is None else limits
+        require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
         require(set(allowance) == set(LIMITS), "CAMPAIGN_COUNTER")
-        self.allowance = {k: integer(allowance[k], LIMITS[k]) for k in LIMITS}
+        self.allowance = {k: integer(allowance[k], caps[k]) for k in LIMITS}
         self.used = {k: 0 for k in LIMITS}
         self.journal, self.deadline = Path(journal), utc(deadline)
         self.identity, self.clock = dict(identity), clock
@@ -353,7 +457,9 @@ def campaign_runs(floor=None):
     return sorted(runs, key=lambda r: (r["created_at"], r["id"]))
 
 
-def receipt_for_run(run, auth_hash, expected_master):
+def receipt_for_run(run, auth_hash, expected_master, limits=None):
+    caps = LIMITS if limits is None else limits
+    require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
     require(run.get("status") == "completed" and run.get("run_attempt") == 1
             and run.get("head_sha") == expected_master and run.get("head_branch") == "master",
             "CAMPAIGN_RUN_UNRESOLVED")
@@ -385,8 +491,8 @@ def receipt_for_run(run, auth_hash, expected_master):
     require(set(value.get("usage", {})) == set(LIMITS)
             and set(value.get("allowance", {})) == set(LIMITS), "CAMPAIGN_RECEIPT_COUNTERS")
     for name in LIMITS:
-        integer(value["usage"][name], LIMITS[name])
-        integer(value["allowance"][name], LIMITS[name])
+        integer(value["usage"][name], caps[name])
+        integer(value["allowance"][name], caps[name])
         require(value["usage"][name] <= value["allowance"][name], "CAMPAIGN_RECEIPT_COUNTERS")
     integer(value.get("examined_before"), 1009)
     integer(value.get("examined_after"), 1009)
@@ -398,7 +504,7 @@ def receipt_for_run(run, auth_hash, expected_master):
     require(sum(value["new_states"].values()) == value["examined_after"] - value["examined_before"],
             "CAMPAIGN_RECEIPT_STATES")
     require(integer(value.get("confirmed_storage_bytes"), LIMITS["storage_bytes"]) <= value["usage"]["storage_bytes"]
-            and integer(value.get("observed_google_body_bytes"), LIMITS["drive_bytes"]) <= value["usage"]["drive_bytes"],
+            and integer(value.get("observed_google_body_bytes"), caps["drive_bytes"]) <= value["usage"]["drive_bytes"],
             "CAMPAIGN_RECEIPT_OBSERVED")
     require(type(value.get("preflight_only")) is bool, "CAMPAIGN_RECEIPT_PREFLIGHT")
     if value["preflight_only"]:
@@ -432,7 +538,14 @@ def job_seconds(run):
 def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True):
     """Canonical Actions history prevents a valid old local ledger rollback."""
     auth_hash = validate_authorization(auth)
+    continuation = continuation_proof(auth)
+    prior = auth["continuation"]["prior_authorization"] if continuation else None
     runs = campaign_runs(auth["workflow_run_floor"])
+    if continuation:
+        require([r["id"] for r in runs[:len(CONTINUATION["runs"])]] == CONTINUATION["runs"],
+                "CAMPAIGN_CONTINUATION_PREFIX")
+        require(all(utc(r["created_at"]) >= utc(continuation["proof_updated_utc"])
+                    for r in runs[len(CONTINUATION["runs"]):]), "CAMPAIGN_CONTINUATION_CLOCK")
     if current_run is not None:
         require(runs and runs[-1]["id"] == current_run
                 and runs[-1]["display_title"] == "a1-sip " + nonce
@@ -446,8 +559,24 @@ def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expir
     permission_record_hash = None
     receipts = []
     durations = []
-    values = [receipt_for_run(run, auth_hash, auth["expected_master"]) for run in previous]
+    values = []
+    for index, run in enumerate(previous):
+        if continuation and index < len(CONTINUATION["runs"]):
+            value = receipt_for_run(run, CONTINUATION["auth"], prior["expected_master"])
+            require(digest(encoded(value)) == CONTINUATION["receipts"][index], "CAMPAIGN_CONTINUATION_PREFIX")
+        elif continuation:
+            value = receipt_for_run(run, auth_hash, auth["expected_master"], auth["limits"])
+            require(value.get("continuation_proof_sha256") == continuation["proof_sha256"],
+                    "CAMPAIGN_CONTINUATION_DRIFT")
+        else:
+            value = receipt_for_run(run, auth_hash, auth["expected_master"])
+        values.append(value)
     for index, (run, value) in enumerate(zip(previous, values)):
+        if continuation and index == len(CONTINUATION["runs"]):
+            # The only allowed permission transition is hash-bound in the
+            # typed bridge; arbitrary same-URL/body/account drift still fails.
+            permission_hash = continuation["permission_reference_sha256"]
+            permission_record_hash = continuation["permission_record_sha256"]
         current_bindings = value.get("bindings")
         if current_bindings is not None:
             require(isinstance(current_bindings, dict) and set(current_bindings) ==
@@ -477,28 +606,39 @@ def history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expir
         require(isinstance(value.get("checkpoint_sha256"), str)
                 and re.fullmatch(r"[0-9a-f]{64}", value["checkpoint_sha256"]), "CAMPAIGN_CHECKPOINT")
         for name in LIMITS:
-            require(value["allowance"][name] == LIMITS[name] - used[name], "CAMPAIGN_ALLOWANCE_RESET")
+            caps = prior["limits"] if continuation and index < len(CONTINUATION["runs"]) else auth["limits"]
+            require(value["allowance"][name] == caps[name] - used[name], "CAMPAIGN_ALLOWANCE_RESET")
             used[name] += value["usage"][name]
-            require(used[name] <= LIMITS[name], "CAMPAIGN_LEDGER_BUDGET")
+            require(used[name] <= caps[name], "CAMPAIGN_LEDGER_BUDGET")
         duration = job_seconds(run)
         active += duration
         durations.append(duration)
         parent, examined = value["checkpoint_sha256"], after
         receipts.append(value)
+        if continuation and index + 1 == len(CONTINUATION["runs"]):
+            require(used == CONTINUATION["used"] and active == CONTINUATION["active_seconds"]
+                    and examined == CONTINUATION["examined"] and parent == CONTINUATION["checkpoint"]
+                    and bindings == CONTINUATION["bindings"]
+                    and permission_record_hash == CONTINUATION["permission_record"], "CAMPAIGN_CONTINUATION_PREFIX")
         require((value["status"] == "COMPLETE" and run.get("conclusion") == "success") or
                 (value.get("reason") in ("NETWORK", "HTTP_ERROR") and
                  ((run["id"] == recovery_run and run == previous[-1]) or
                   (index + 1 < len(values) and values[index + 1].get("recovery_run") == run["id"]))),
                 "CAMPAIGN_FAILED_RUN_REQUIRES_RECOVERY")
-    require(active <= 28800, "CAMPAIGN_ACTIVE_TIME")
+    require(active <= active_limit(auth), "CAMPAIGN_ACTIVE_TIME")
     first = utc(runs[0]["created_at"]) if runs else None
+    if continuation:
+        require(first == utc(CONTINUATION["first"]), "CAMPAIGN_CONTINUATION_CLOCK")
+        if len(previous) == len(CONTINUATION["runs"]):
+            permission_hash = continuation["permission_reference_sha256"]
+            permission_record_hash = continuation["permission_record_sha256"]
     if first is not None and enforce_expiry:
         require(utc() < first + timedelta(hours=48), "CAMPAIGN_EXPIRED")
     return dict(runs=runs, receipts=receipts, used=used, active_seconds=active, bindings=bindings,
                 permission_hash=permission_hash, permission_record_hash=permission_record_hash,
-                durations=durations,
+                durations=durations, active_limit=active_limit(auth), continuation=continuation,
                 parent_sha=parent, examined=examined, first=first,
-                remaining={k: LIMITS[k] - used[k] for k in LIMITS})
+                remaining={k: auth["limits"][k] - used[k] for k in LIMITS})
 
 
 def forecast_remaining(observed):
@@ -544,7 +684,7 @@ def forecast_remaining(observed):
     durations = [seconds for _, seconds in pairs]
     seconds = math.ceil(full_batch_forecast(durations) * 1.25)
     fits = all(estimates[k] <= observed["remaining"][k] for k in LIMITS)
-    fits = fits and seconds <= 28800 - observed["active_seconds"]
+    fits = fits and seconds <= observed.get("active_limit", 28800) - observed["active_seconds"]
     return dict(new_processed=processed, remaining_candidates=remaining_names,
                 estimated_remaining=estimates, estimated_remaining_active_seconds=seconds,
                 margin=1.25, estimate_only=True, fits_current_budgets=fits)
@@ -686,7 +826,7 @@ def apply_local_reject_recovery(journal, auth, recovery):
     event_raw = bounded_bytes(journal.directory / "000002.json")
     require(event_raw == encoded(event), "CAMPAIGN_LOCAL_REJECT_EVENT_BYTES")
     receipt = dict(schema="a1-sip-local-reject-recovery-receipt-v1",
-                   auth_sha256=journal.auth_hash, journal_event_sha256=digest(event_raw),
+                   auth_sha256=event["auth_sha256"], journal_event_sha256=digest(event_raw),
                    recorded_utc=event["recorded_utc"], **binding)
     raw, path = encoded(receipt), Path(recovery["receipt_path"])
     if path.exists():
@@ -698,13 +838,56 @@ def apply_local_reject_recovery(journal, auth, recovery):
             os.fsync(handle.fileno())
 
 
+def apply_continuation(journal, auth, receipt_path, inputs):
+    """Append one bridge to the SAME spent ledger; no old byte or clock reset."""
+    binding = journal.continuation
+    require(binding is not None and receipt_path is not None, "CAMPAIGN_CONTINUATION_RECEIPT_PATH")
+    path, state = Path(receipt_path), journal.directory.resolve()
+    resolved = path.resolve()
+    require(not path.is_symlink() and resolved != state and state not in resolved.parents
+            and resolved not in {Path(p).resolve() for p in inputs}, "CAMPAIGN_CONTINUATION_RECEIPT_PATH")
+    if len(journal.entries) == CONTINUATION["events"]:
+        require(not path.exists(), "CAMPAIGN_CONTINUATION_RECEIPT_PATH")
+        require(digest(bounded_bytes(journal.directory / "progress")) == CONTINUATION["progress"],
+                "CAMPAIGN_CONTINUATION_PREFIX")
+        # Recheck the canonical5 after all deployed code/pin reads too. A late
+        # run or modified OWNER proof cannot be hidden by a valid local prefix.
+        require(gh_json(f"repos/{REPO}/branches/master")["commit"]["sha"] == auth["expected_master"],
+                "CAMPAIGN_MASTER_DRIFT")
+        for name in PINS:
+            deployed = gh_json(f"repos/{REPO}/contents/{name}?ref={auth['expected_master']}")
+            require(deployed.get("encoding") == "base64"
+                    and digest(base64.b64decode(deployed["content"])) == auth["code_pins"][name]
+                    and digest(bounded_bytes(ROOT/name, 262144).replace(b"\r\n", b"\n")) == auth["code_pins"][name],
+                    "CAMPAIGN_DEPLOYED_CODE")
+        observed = history(auth)
+        require(observed["continuation"] == binding
+                and [r["id"] for r in observed["runs"]] == CONTINUATION["runs"],
+                "CAMPAIGN_CONTINUATION_PREFIX")
+        journal.reconcile(observed["runs"])
+        journal.append("BUDGET_CONTINUED", **binding)
+    event = journal.entries[CONTINUATION["events"]]
+    raw_event = bounded_bytes(journal.directory / f"{CONTINUATION['events']+1:06d}.json")
+    require(raw_event == encoded(event), "CAMPAIGN_CONTINUATION_EVENT_BYTES")
+    receipt = encoded(dict(schema="a1-sip-bounded-continuation-receipt-v1",
+                           auth_sha256=journal.auth_hash, journal_event_sha256=digest(raw_event),
+                           recorded_utc=event["recorded_utc"], **binding))
+    if path.exists():
+        require(bounded_bytes(path) == receipt, "CAMPAIGN_CONTINUATION_RECEIPT")
+    else:
+        with path.open("xb") as handle:
+            handle.write(receipt)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
 class WorkJournal:
     """One existing Work directory; append and fsync before dispatch.
 
     Canonical Actions reconciliation, not the local hash chain alone, detects
     a complete rollback to an older valid prefix.
     """
-    def __init__(self, directory, auth_hash, recovery=None):
+    def __init__(self, directory, auth_hash, recovery=None, continuation=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -722,6 +905,7 @@ class WorkJournal:
         self.lock_owned = True
         self.auth_hash, self.entries, self.parent = auth_hash, [], None
         self.recovery = recovery
+        self.continuation = continuation
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -730,7 +914,8 @@ class WorkJournal:
                 entry = decode(raw)
                 require(entry.get("previous_sha256") == self.parent
                         and entry.get("auth_sha256") == (recovery["binding"]["prior_auth_sha256"]
-                            if recovery is not None and index == 1 else auth_hash)
+                            if recovery is not None and index == 1 else
+                            CONTINUATION["auth"] if continuation and index <= CONTINUATION["events"] else auth_hash)
                         and entry.get("sequence") == index, "CAMPAIGN_JOURNAL_CHAIN")
                 if recovery is not None and index == 1:
                     require(digest(raw) == recovery["binding"]["prior_reservation_sha256"],
@@ -739,6 +924,20 @@ class WorkJournal:
                     require(raw == encoded(entry), "CAMPAIGN_LOCAL_REJECT_EVENT_BYTES")
                 self.parent = digest(raw)
                 self.entries.append(entry)
+                if continuation and index == CONTINUATION["events"]:
+                    require(self.parent == CONTINUATION["event"] and entry.get("kind") == "SETTLED",
+                            "CAMPAIGN_CONTINUATION_PREFIX")
+                if continuation and index == CONTINUATION["events"]+1:
+                    common = {"sequence", "kind", "auth_sha256", "previous_sha256", "recorded_utc"}
+                    require(raw == encoded(entry) and entry.get("kind") == "BUDGET_CONTINUED"
+                            and set(entry) == common | set(continuation)
+                            and all(entry.get(k) == v for k,v in continuation.items())
+                            and utc(continuation["proof_updated_utc"]) <= utc(entry["recorded_utc"])
+                                < utc(continuation["expires_at_utc"])
+                            and utc(entry["recorded_utc"]) <= utc(), "CAMPAIGN_CONTINUATION_DRIFT")
+            if continuation:
+                require(recovery is not None and len(self.entries) >= CONTINUATION["events"],
+                        "CAMPAIGN_CONTINUATION_PREFIX")
             if recovery is not None:
                 require(self.entries, "CAMPAIGN_LOCAL_REJECT_PREFIX")
                 if len(self.entries) > 1:
@@ -764,6 +963,11 @@ class WorkJournal:
             require(self.recovery is not None and data == self.recovery["binding"]
                     and utc(data["proof_created_utc"]) <= utc(entry["recorded_utc"])
                         < utc(data["proof_expires_utc"]), "CAMPAIGN_LOCAL_REJECT_CLOCK")
+        if kind == "BUDGET_CONTINUED":
+            require(self.continuation is not None and data == self.continuation
+                    and len(self.entries) == CONTINUATION["events"] and self.parent == CONTINUATION["event"]
+                    and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"]) < utc(data["expires_at_utc"]),
+                    "CAMPAIGN_CONTINUATION_CLOCK")
         raw = encoded(entry)
         require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
         path = self.directory / f"{entry['sequence']:06d}.json"
@@ -863,7 +1067,7 @@ def worker_deadline(run_id, first):
     return min(start + timedelta(seconds=7100), first + timedelta(hours=48))
 
 
-def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
+def account_permission_evidence(reference, auth_hash, bindings):
     # Preserve actual account attestations. A separate direct human capture
     # request is execution consent, explicitly not supplier-rights certification.
     match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)", reference or "")
@@ -949,12 +1153,7 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
                                 author_id=approval_author["id"], created_at_utc=approval_created.isoformat(),
                                 updated_at_utc=approval_updated.isoformat(),
                                 body_sha256=digest(approval["body"].encode()), scope=scope)
-    now = utc()
-    created, expiry = utc(comment.get("created_at")), utc(record["expires_at_utc"])
-    require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
-            "CAMPAIGN_CLOCK")
-    require(created <= now < valid_through <= expiry,
-            "CAMPAIGN_ACCOUNT_EXPIRED")
+    created = utc(comment.get("created_at"))
     # URL identity alone cannot bind a mutable comment. Record the verified
     # assertions and immutable issue/comment/author identity, never raw rights
     # text in the public meter. A later edit must stop the next worker.
@@ -964,6 +1163,16 @@ def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
                     body_sha256=digest(comment["body"].encode()), record=record)
     if approval_binding is not None:
         verified["capture_approval"] = approval_binding
+    return verified
+
+
+def verify_account_permission(reference, auth_hash, bindings, *, valid_through):
+    verified = account_permission_evidence(reference, auth_hash, bindings)
+    now = utc()
+    created, expiry = utc(verified["created_at_utc"]), utc(verified["record"]["expires_at_utc"])
+    require(isinstance(valid_through, datetime) and valid_through.utcoffset() == timedelta(0),
+            "CAMPAIGN_CLOCK")
+    require(created <= now < valid_through <= expiry, "CAMPAIGN_ACCOUNT_EXPIRED")
     return digest(encoded(verified))
 
 
@@ -975,7 +1184,7 @@ def worker(args, control, journal):
             "USER_AUTHORIZATION_MISSING")
     require(isinstance(control, dict) and {"authorization", "nonce"} <= set(control)
             and set(control) <= {"authorization", "nonce", "recovery_run", "preflight_only",
-                                 "account_permission_reference"}, "CAMPAIGN_CONTROL_REQUIRED")
+                                 "account_permission_reference", "continuation_binding"}, "CAMPAIGN_CONTROL_REQUIRED")
     auth = control.get("authorization")
     auth_hash = validate_authorization(auth)
     verify_worker_source(auth)
@@ -986,9 +1195,16 @@ def worker(args, control, journal):
     recovered = control.get("recovery_run")
     require(recovered is None or type(recovered) is int, "CAMPAIGN_RECOVERY")
     observed = history(auth, current_id, nonce, recovered)
+    if "continuation" in auth:
+        require(control.get("continuation_binding") == observed["continuation"], "CAMPAIGN_CONTINUATION_DRIFT")
+    else:
+        require("continuation_binding" not in control, "CAMPAIGN_CONTINUATION_AUTH")
     preflight = control.get("preflight_only") is True
     require(type(control.get("preflight_only", False)) is bool, "CAMPAIGN_PREFLIGHT")
     permission = auth.get("account_permission_reference") or control.get("account_permission_reference")
+    if "continuation" in auth:
+        require(permission == auth["continuation"]["proof_reference"] and not preflight,
+                "CAMPAIGN_CONTINUATION_PERMISSION")
     require(preflight or (isinstance(permission, str) and 0 < len(permission) <= 512),
             "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
     require(preflight or observed.get("permission_hash") is None or
@@ -997,7 +1213,7 @@ def worker(args, control, journal):
     if observed["examined"] > 16 and (observed["examined"] - 16) % 128 == 0:
         require(forecast_remaining(observed)["fits_current_budgets"], "CAMPAIGN_CALIBRATION_BUDGET")
     require(len(observed["runs"]) <= 40
-            and observed["active_seconds"] + 7800 <= 28800, "CAMPAIGN_ACTIVE_RESERVATION")
+            and observed["active_seconds"] + 7800 <= active_limit(auth), "CAMPAIGN_ACTIVE_RESERVATION")
     require(args.resume_sha256 == observed["parent_sha"]
             and args.private_root_folder_id == auth["private_root_folder_id"]
             and args.private_data_folder_id == auth["private_data_folder_id"]
@@ -1031,7 +1247,9 @@ def worker(args, control, journal):
                     account_permission_record_sha256=record_hash,
                     parent_checkpoint_sha256=args.resume_sha256,
                     examined_before=observed["examined"])
-    meter = RuntimeMeter(observed["remaining"], journal, deadline.isoformat(), identity)
+    if "continuation" in auth:
+        identity["continuation_proof_sha256"] = observed["continuation"]["proof_sha256"]
+    meter = RuntimeMeter(observed["remaining"], journal, deadline.isoformat(), identity, limits=auth["limits"])
     def factory(root, temp):
         drive = OwnerDrive(root, temp, meter=meter)
         owner = auth.get("owner_permission_id")
@@ -1110,6 +1328,10 @@ def settle_run(journal, auth, run, receipt):
     ref = checkpoint_from_log(run, receipt, parent)
     if getattr(journal, "recovery", None) is not None:
         journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
+    if getattr(journal, "continuation", None) is not None:
+        require(continuation_proof(auth) == journal.continuation
+                and receipt.get("continuation_proof_sha256") == journal.continuation["proof_sha256"],
+                "CAMPAIGN_CONTINUATION_DRIFT")
     journal.append("SETTLED", nonce=receipt["nonce"], run_id=run["id"],
                    usage=receipt["usage"], checkpoint=ref,
                    receipt=receipt,
@@ -1140,19 +1362,32 @@ def progress_summary(observed, status):
                 source_admission=False, pit_verified=False, economic_authority=False)
 
 
-def host(auth_path, state_dir, recovery_run=None, permission_reference=None, predispatch_recovery=None):
+def host(auth_path, state_dir, recovery_run=None, permission_reference=None, predispatch_recovery=None,
+         continuation_receipt=None):
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
-    recovery = local_reject_recovery(predispatch_recovery, auth, state_dir) if predispatch_recovery else None
-    journal = WorkJournal(state_dir, auth_hash, recovery=recovery)
+    continuation = continuation_proof(auth)
+    prior = auth["continuation"]["prior_authorization"] if continuation else auth
+    require(not continuation or (predispatch_recovery is not None and continuation_receipt is not None),
+            "CAMPAIGN_CONTINUATION_PREFIX")
+    require(continuation or continuation_receipt is None, "CAMPAIGN_CONTINUATION_AUTH")
+    recovery = local_reject_recovery(predispatch_recovery, prior, state_dir) if predispatch_recovery else None
+    journal = WorkJournal(state_dir, auth_hash, recovery=recovery, continuation=continuation)
     last_observed = None
     try:
         if recovery is not None:
             apply_local_reject_recovery(journal, auth, recovery)
+        if continuation is not None:
+            bundle = bounded_json(predispatch_recovery)
+            apply_continuation(journal, auth, continuation_receipt,
+                               [auth_path, predispatch_recovery, *(bundle[k] for k in
+                                ("prior_authorization", "prior_progress_snapshot", "receipt_path"))])
         while True:
             observed = history(auth, recovery_run=recovery_run, enforce_expiry=False)
             last_observed = observed
+            if continuation is not None:
+                require(observed["continuation"] == continuation, "CAMPAIGN_CONTINUATION_DRIFT")
             if recovery is not None and recovery_run is not None:
                 require(observed["runs"] and observed["runs"][-1]["id"] == recovery_run
                         and observed["receipts"][-1]["status"] == "BLOCKED"
@@ -1163,7 +1398,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
                 nonce = journal.entries[-1]["nonce"]
                 pending = [r for r in observed["runs"] if r["display_title"] == "a1-sip " + nonce]
                 require(len(pending) == 1 and pending[0]["status"] == "completed", "CAMPAIGN_ACTIVE_RESERVATION")
-                receipt = receipt_for_run(pending[0], auth_hash, auth["expected_master"])
+                receipt = (receipt_for_run(pending[0], auth_hash, auth["expected_master"], auth["limits"]) if continuation
+                           else receipt_for_run(pending[0], auth_hash, auth["expected_master"]))
                 settle_run(journal, auth, pending[0], receipt)
             if observed["examined"] > 16 and (observed["examined"] - 16) % 128 == 0:
                 forecast = forecast_remaining(observed)
@@ -1174,7 +1410,7 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
                 atomic_json(journal.directory / "progress", summary)
                 print(json.dumps(summary))
                 return
-            require(len(observed["runs"]) < 40 and observed["active_seconds"] + 7800 <= 28800,
+            require(len(observed["runs"]) < 40 and observed["active_seconds"] + 7800 <= active_limit(auth),
                     "CAMPAIGN_DISPATCH_BUDGET")
             require(gh_json("repos/" + REPO + "/branches/master")["commit"]["sha"] == auth["expected_master"],
                     "CAMPAIGN_MASTER_DRIFT")
@@ -1187,25 +1423,33 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             current_ref = settled_parent(journal, auth)
             require(current_ref and current_ref["sha256"] == observed["parent_sha"], "CAMPAIGN_LOCAL_PARENT")
             require(not journal.entries or journal.entries[-1]["kind"] == "SETTLED"
-                    or (recovery is not None and journal.entries[-1]["kind"] == "LOCAL_REJECT_RECOVERED"),
+                    or (recovery is not None and journal.entries[-1]["kind"] == "LOCAL_REJECT_RECOVERED")
+                    or (continuation is not None and journal.entries[-1]["kind"] == "BUDGET_CONTINUED"),
                     "CAMPAIGN_ACTIVE_RESERVATION")
             if recovery is not None:
                 journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
+            if continuation is not None:
+                require(continuation_proof(auth) == continuation, "CAMPAIGN_CONTINUATION_DRIFT")
             nonce = PREFIX + os.urandom(12).hex()
             bindings_missing = (observed.get("bindings") is None and
                                 (auth.get("owner_permission_id") is None or auth.get("credential_binding") is None))
             preflight = bool(bindings_missing)
             permission = auth.get("account_permission_reference") or permission_reference
+            if continuation is not None:
+                require(permission == auth["continuation"]["proof_reference"] and not preflight,
+                        "CAMPAIGN_CONTINUATION_PERMISSION")
             require(preflight or (isinstance(permission, str) and 0 < len(permission) <= 512),
                     "CAMPAIGN_ACCOUNT_PROOF_REQUIRED")
             require(observed["first"] is None or utc() < observed["first"] + timedelta(hours=48),
                     "CAMPAIGN_EXPIRED")
             control = dict(authorization=auth, nonce=nonce, recovery_run=recovery_run,
                            preflight_only=preflight, account_permission_reference=permission)
+            if continuation is not None:
+                control["continuation_binding"] = continuation
             control_raw = encoded(control).decode()
             require(len(control_raw) <= 16384, "CAMPAIGN_CONTROL_SIZE")
             journal.append("RESERVED", nonce=nonce, remaining=observed["remaining"],
-                           active_seconds_remaining=28800 - observed["active_seconds"],
+                           active_seconds_remaining=active_limit(auth) - observed["active_seconds"],
                            parent_checkpoint_sha256=observed["parent_sha"])
             inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
                           private_data_folder_id=auth["private_data_folder_id"],
@@ -1240,7 +1484,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             if recovery is not None:
                 journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
             fresh = gh_json(f"repos/{REPO}/actions/runs/{run['id']}")
-            receipt = receipt_for_run(fresh, auth_hash, auth["expected_master"])
+            receipt = (receipt_for_run(fresh, auth_hash, auth["expected_master"], auth["limits"]) if continuation
+                       else receipt_for_run(fresh, auth_hash, auth["expected_master"]))
             settle_run(journal, auth, fresh, receipt)
             # Known closed outcomes can be handed off even if the run failed;
             # an unknown/missing meter never reaches this point.
@@ -1265,7 +1510,7 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             closed = ({recovery["binding"]["prior_nonce"]}
                       if recovery is not None and len(journal.entries) > 1 else set())
             pending = [e for e in journal.entries if e["kind"] == "RESERVED" and e["nonce"] not in closed]
-            unsettled = bool(journal.entries and journal.entries[-1]["kind"] != "SETTLED")
+            unsettled = bool(journal.entries and journal.entries[-1]["kind"] in ("RESERVED", "RUN_ASSIGNED"))
             summary["unsettled_reservation"] = pending[-1]["remaining"] if unsettled and pending else None
             try:
                 atomic_json(journal.directory / "progress", summary)
@@ -1283,9 +1528,11 @@ def main():
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
     parser.add_argument("--predispatch-recovery", help="Bounded proof bundle for the named local CLI rejection only")
+    parser.add_argument("--continuation-receipt", help="External immutable receipt for the approved128-stop continuation")
     args = parser.parse_args()
     try:
-        host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference, args.predispatch_recovery)
+        host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference,
+             args.predispatch_recovery, args.continuation_receipt)
         return 0
     except Refused as exc:
         print(json.dumps(dict(status="BLOCKED", code=str(exc), source_admission=False)))
