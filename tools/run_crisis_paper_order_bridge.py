@@ -266,11 +266,14 @@ def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any
     weight_col = "target_weight" if "target_weight" in source else "weight"
     if weight_col not in source or not all(0 <= strict_number(x) <= 1 for x in source[weight_col]):
         raise ValueError("TARGET_WEIGHT_REQUIRED")
+    policy = resolve_reserve_asset_policy(context="current_paper")
+    if RESERVE_REASON_SOURCE_HASH_FIELD in source.columns:
+        # Normalization drops zero-weight rows; verify every original declaration first.
+        reserve_reason_reconciliation(source, policy=policy, weight_col=weight_col)
     target = normalize_target(source, portfolio, target_date=report_session or "")
     if target.empty:
         raise ValueError("TARGET_BOOK_REQUIRED")
     out = target.copy()
-    policy = resolve_reserve_asset_policy(context="current_paper")
     reserve_reason_reconciliation(out, policy=policy, weight_col="target_weight")
     if not math.isclose(float(out.target_weight.sum()), 1.0, abs_tol=1e-9):
         raise ValueError("TARGET_WEIGHT_CONSERVATION")

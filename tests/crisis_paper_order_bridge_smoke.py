@@ -231,6 +231,27 @@ class BridgeTests(unittest.TestCase):
         source[RESERVE_REASON_SOURCE_HASH_FIELD]='d'*64
         with self.assertRaises(ValueError):bridge.derive_target_book(source,'main',bridge.action_plan(self.monitor,'main'))
 
+    def test_zero_weight_rows_cannot_erase_embedded_reserve_hash(self):
+        from tools.reserve_asset_policy import RESERVE_REASON_SOURCE_HASH_FIELD, reserve_reason_reconciliation, resolve_reserve_asset_policy
+        source=pd.DataFrame({'ticker':['AAA','BBB','CASH'], 'target_weight':[.5,.5,0.]})
+        policy=resolve_reserve_asset_policy(context='current_paper')
+        valid=reserve_reason_reconciliation(source,policy=policy,weight_col='target_weight')[RESERVE_REASON_SOURCE_HASH_FIELD]
+        source[RESERVE_REASON_SOURCE_HASH_FIELD]=['','',valid]
+        before=source.copy(deep=True)
+        plan={'portfolio_kind':'main','trim_tickers':{'AAA':{'current_weight':.5,'trim_weight':.03}}}
+        out=bridge.derive_target_book(source,'main',plan).set_index('ticker')
+        self.assertAlmostEqual(out.loc['AAA','target_weight'],.47)
+        self.assertAlmostEqual(out.loc['BBB','target_weight'],.5)
+        self.assertAlmostEqual(out.loc['CASH','target_weight'],.03)
+        reserve_reason_reconciliation(out.reset_index(),policy=policy,weight_col='target_weight')
+        pd.testing.assert_frame_equal(source,before)
+        for declarations in (['','','d'*64],[valid,'','d'*64]):
+            with self.subTest(declarations=declarations):
+                bad=source.copy();bad[RESERVE_REASON_SOURCE_HASH_FIELD]=declarations
+                with self.assertRaises(ValueError):bridge.derive_target_book(bad,'main',plan)
+        extra=pd.concat([source,pd.DataFrame({'ticker':['ZERO'],'target_weight':[0.],RESERVE_REASON_SOURCE_HASH_FIELD:['d'*64]})],ignore_index=True)
+        with self.assertRaises(ValueError):bridge.derive_target_book(extra,'main',plan)
+
     def test_numeric_actions_require_exact_portfolio_scope(self):
         missing=copy.deepcopy(self.monitor);missing['paper_action_candidates'][-1].pop('portfolio_kind')
         with self.assertRaises(ValueError):bridge.action_plan(missing,'main')
