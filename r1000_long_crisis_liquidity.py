@@ -9,6 +9,7 @@ Nothing here changes production scores or live target books.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Mapping
 
 import numpy as np
@@ -99,6 +100,30 @@ def _asof_to_index(series: pd.Series, idx: pd.DatetimeIndex) -> pd.Series:
     if s.empty:
         return pd.Series(np.nan, index=idx, dtype=float)
     return s.reindex(s.index.union(idx)).sort_index().ffill().reindex(idx)
+
+
+def source_clock_panel(series: pd.Series, idx: pd.DatetimeIndex) -> pd.Series:
+    """Carry the exact source observation's clock record with its filled value.
+
+    The index establishes observation date only. Publication, collection and
+    expiry must come from the producer's observation_clocks metadata, never
+    from the feature/decision row date. Missing proof remains explicit.
+    """
+    values = _as_series(series)
+    supplied = series.attrs.get("observation_clocks", {}) if isinstance(series, pd.Series) else {}
+    records = {}
+    for date in values.index:
+        observation = date.date().isoformat()
+        record = supplied.get(observation, {}) if isinstance(supplied, dict) else {}
+        record = dict(record) if isinstance(record, dict) else {}
+        # An inconsistent declaration must not be silently corrected.
+        record.setdefault("observation_date", observation)
+        record["value_observation_date"] = observation
+        records[date] = json.dumps(record, sort_keys=True, allow_nan=False)
+    if not records:
+        return pd.Series("", index=idx, dtype=object)
+    clocks = pd.Series(records, dtype=object)
+    return clocks.reindex(clocks.index.union(idx)).sort_index().ffill().reindex(idx).fillna("")
 
 
 def forward_drawdown(close: pd.Series, horizon: int) -> pd.Series:
@@ -283,6 +308,20 @@ def build_long_crisis_features(
     out["future_126d_drawdown_le_20pct"] = (out["future_126d_drawdown"] <= -0.20).astype(int)
     out["false_alarm_no_drawdown_63d"] = (out["future_63d_drawdown"] > -0.05).astype(int)
     out["split"] = [split_name_for_date(x) for x in out.index]
+    # Preserve raw clocks before any forward fill, unit transform or monthly
+    # release lag. This is provenance only; it does not admit a Source vintage.
+    inputs = {"market": market_close, "qqq": qqq_close,
+              **{name: macro_series.get(name) for name in
+                 ("vix", "hy_oas", "dgs10", "dxy", "m2", "fed_assets", "reverse_repo", "tga")}}
+    panels = {name: source_clock_panel(value, idx) for name, value in inputs.items()}
+    # Match the exact monthly observation selected by monthly_release_lag,
+    # rather than attaching the newest raw M2 observation to a lagged value.
+    m2_source = _as_series(macro_series.get("m2"))
+    if not m2_source.empty:
+        monthly_clocks = source_clock_panel(macro_series["m2"], m2_source.index).resample("MS").last().shift(int(m2_lag_months))
+        panels["m2"] = monthly_clocks.reindex(monthly_clocks.index.union(idx)).sort_index().ffill().reindex(idx).fillna("")
+    out["source_clocks_json"] = [json.dumps({name: json.loads(panel.loc[date])
+        for name, panel in panels.items() if panel.loc[date]}, sort_keys=True) for date in idx]
     return out
 
 
