@@ -1,5 +1,218 @@
 # Finite private SIP campaign control
 
+## Separate external discovery input (same finite resource family)
+
+`r1000-sip-external-cohort-authorization-v1` adds a bounded ticker-only CSV
+to the existing collector/controller and existing workflow. It does not replace
+`data_static/iwb_holdings_seed.csv`, weaken its900..1500 guard, append names to
+the original1009 queue, or turn another supplier's holdings count into Alpaca
+completion. The explicit CSV order is retained. Maximum500 names, maximum32
+new names per price batch, with a boundary at each128 examined names.
+
+The typed `external_cohort` contains `scope` (capture task, distinct namespace,
+exact input SHA256), original `input_csv` bytes as UTF-8, intake manifest SHA256,
+an actually verified owner-receipt dedupe report SHA256, the exact prior spent
+authorization, zero or one prior external epoch, and an immutable OWNER consent
+reference. A prior epoch must be complete and its input disjoint before the next
+epoch. The controller also refuses the original144 already examined names.
+Remaining same-window cache/receipt reconciliation is required before preparing
+that consent; ticker lists, metadata or a caller-supplied hash alone do not prove
+reusable prices. A later market-cap cohort requires actual dated ranking bytes,
+ADR/common-share identity reconciliation, ETF exclusion and receipt dedupe;
+there is no automatic universe discovery or ranking API call in this path.
+
+`A1_SIP_EXTERNAL_COHORT_CONSENT` binds the exact authorization/input/source pins,
+prior epoch identities, actual owner/key bindings, original checkpoint/event and
+spent usage, and existing9GiB/12h cumulative amendment. It records the human's
+personal historical capture request, **supplier_rights_verified:false** and
+**budget_reset:false**. This is execution consent, not invented account terms,
+historical SIP entitlement, PIT, commercial rights or investment admission.
+It must truthfully refer to the actual human-authorized input and verified
+dedupe report; agents may not fabricate owner evidence. Its entire comment body,
+author, creation/update clocks and typed record are hash-bound in all new meters.
+Editing it invalidates the next import/dispatch/worker. No legacy permission
+record is relabelled as consent for additional names.
+
+The SAME `r1000-993-20261015-` nonce prefix and workflow history floor are kept.
+Every canonical original, discovery, metadata, price, failed and future epoch
+run consumes the shared2000 provider GET /50000 Drive requests /9GiB transfer
+reservation /1GiB storage /12h active /40 dispatch budget. The original first
+canonical clock and48h expiry do not restart. Legacy v1/v2 controllers see the
+new records and refuse auth/source drift rather than silently ignoring spending.
+Each new allowance subtracts **all** prior family usage, not just its namespace.
+
+The external host requires `--cohort-input`, `--budget-state-dir` and the existing
+`--predispatch-recovery` bundle in addition to its own `--state-dir`. The latter
+is fixed to `budget-state-dir`'s parent plus `external-cohort-<namespace>`.
+The shared append-only reservation registry is fixed beneath that same parent
+as `external-budget-<first16hex of original auth SHA>`; an authorization cannot
+move it. Lock order is original global journal, shared registry, then cohort
+journal; release is reversed even when a later acquisition fails. The original
+resolved budget root and first cohort root are persisted in the family binding
+and rechecked on every open. A copied or renamed complete tree cannot acquire
+an independent set of locks and reuse the original settled history to dispatch.
+The current cohort path must also equal its namespace under that same root.
+The original
+17 events, progress and recovery receipt are read-only: no continuation event,
+receipt regeneration or progress write occurs there. Missing/conflicting original
+evidence refuses. External checkpoints/progress use their own chain. Every
+reservation is written to the shared registry FIRST, then the cohort journal,
+then dispatch; assignment is shared-first too. The entire family canonical
+suffix must match the shared reservation set. An invisible/uncertain POST,
+missing/partial registration, orphan or single-sided prefix rollback blocks
+every later namespace without refund or a replacement nonce. Cohort SETTLED is
+written FIRST, shared SETTLED second. A crash between those writes can finish
+the latter only from the exact canonical auth/namespace/nonce/run/usage/receipt
+hash. Registry costs are never added twice to the canonical meter sum. Missing
+registration is not zero-POST proof and cannot create a fresh budget.
+First registration also refuses if **any** `external-cohort-*` sibling exists
+under the fixed original budget parent, including an empty directory, symlink
+or file. Losing/renaming the whole shared registry cannot hide another pending
+cohort. Erasing all local prefixes together is a prohibited reset, never a
+supported recovery or evidence of zero spending.
+Before a later epoch can reserve, every earlier cohort's existing binding and
+complete journal chain is opened at its fixed root and matched to canonical
+receipts. Missing/empty/truncated or conflicting prior journals refuse without
+recreating them. A canonical meter alone cannot replace that local prefix.
+
+The original authorization's raw owner ID may remain null: the actual owner SHA
+already established in the verified five-run prefix is mandatory in the consent
+and meter, checked against every metered OAuth/Drive owner observation. No raw
+owner ID, account binding, credential validity or supplier right is invented.
+
+An empty external chain has local examined=0 and a logical genesis commitment
+derived from task/namespace/input SHA/date/feed/bases. This is not the original
+16-name checkpoint or a physical Drive object. Its first workflow resume ID and
+SHA are **both empty**; its first physical checkpoint has previous=null. Later
+checkpoints require exact namespace/input/task and verified raw/split prefix.
+`--max-batches 1` can stop at the first verified boundary for an early metadata
+handoff without enabling a scheduler or discarding cumulative state.
+The limit counts new durable family settlements in that invocation, including
+pending successful imports and interrupted shared-settlement repair. A restarted
+`--max-batches 1` stops at that first newly verified boundary, without another POST.
+
+Before price requests, each selected name gets a separately metered, scoped
+`GET https://paper-api.alpaca.markets/v2/assets/{symbol}`. This is part of the
+price batch, **not** `preflight_only` (which still requires provider GET0).
+Only the selected32 names are allowed; no account/orders/positions or all-assets
+endpoint is admitted. Official reference:
+<https://docs.alpaca.markets/us/reference/get-v2-assets-symbol_or_asset_id>.
+Actual200 reference bytes/hash/collection time/current UUID/exchange are retained
+privately in the raw pack manifest. These establish current provider reference,
+not historical security identity, MIC certification or licensed historical access.
+404 and actual inactive asset references become `HELD_PROVIDER_ASSET`, distinct
+from verified empty bars or numerical `HELD_BAR_VALUE`. Supported names around
+an unsupported name still advance in contiguous groups. Asset401/403/429, network,
+price404 and every unapproved error remain terminal and retain the debit.
+No credential-bearing or vendor original bytes enter public GitHub reports.
+
+All external-cohort runtime failures stop that epoch, including asset-network
+and generic price HTTP failures. This minimal path accepts no `--recovery-run`
+and never turns NETWORK/HTTP_ERROR into permission for another dispatch. A
+finalized failed receipt can still be read, accounted and settled after expiry;
+new reservations remain forbidden. Any later recovery needs a distinct A0
+reviewed contract and explicit authorization preserving all spent bytes/counters.
+Legacy fixed-seed recovery behavior is unchanged.
+
+### Named partial120 correction (preparation requires separate deployment)
+
+`r1000-sip-external-cohort-authorization-v2` is a single typed revision of the
+same169 input, namespace and immutable generation chain. It does not create
+another epoch, reset its examined prefix, or grant generic HTTP/network retries.
+The only eligible old failure is run39023083535/attempt1, finalized HTTP_ERROR
+meter `e189da57517ea833e31ed348cdc5930984d0938c79a52b9de43401d4536ace2b`,
+with120 examined and checkpoint
+`a9459d00316fe60bd1a3638571b484878aa78897d94b0fc8ecdc3c7e323d3e12`.
+Its HTTP status/request category was not recorded. Unknown status is explicitly
+acknowledged in the new consent; it is not retroactively classified as transient,
+provider, Drive, permission, entitlement or quota failure.
+
+The closed `named_recovery` record contains `prior_capture_source` (only old
+expected_master, code_pins, proof_reference), failed_run_id,
+failed_receipt_sha256, checkpoint_sha256 and examined. Shared immutable fields
+reconstruct the complete old v1 authorization; its canonical SHA must equal
+`ca08ac2f7da1d6483a98c2db260f5d7b0beff047980162cb63c9906acc7af8c3`.
+This avoids duplicating the shared budget/input while preserving the15k auth
+and16KiB control caps for a later market-cap wrapper. New protected source pins
+and a new immutable OWNER consent are mandatory. The old consent remains frozen.
+
+Both exact13-event old raw journal prefixes are fixed by SHA. The cohort adds
+exactly one `EXTERNAL_RECOVERY_BOUND` event before any new reservation; its
+effective proof is the new consent. Its first binding and the shared registry's
+original proof/root stay unchanged. All old and new reservations reconcile in
+the same global lock/registry. Missing, moved, edited or rolled-back prefixes,
+unknown POSTs and mixed proof versions refuse without reconstruction or refunds.
+
+Canonical history permits only old→new auth order within this one logical epoch.
+The first new attempt must explicitly name `--recovery-run 39023083535`, resume
+checkpoint120, use exactly8 names to reach128, and use `--max-batches 1`.
+RESERVED-before-POST consumes that one attempt even when its outcome is unknown.
+Until that first recovery was fully settled before the current invocation,
+max-batches1 also applies to restart/import/family-repair; closing that receipt
+consumes the batch and cannot dispatch an ordinary second POST.
+Every new failure is terminal; no second recovery or namespace escape follows.
+A completed new8 receipt can be imported/settled after expiry, but cannot renew
+execution authority. Later ordinary successes use recovery_run:null; the actual
+128-name cost review and remaining32+9 boundaries stay intact. A later top500
+epoch still requires complete169 and validates the full old/revision/new journal.
+All failed usage, the original17 events, first48h, owner/key and existing finite
+limits remain unchanged. Preparing this correction does not authorize deployment
+or another provider request.
+
+Future meters may include `last_transport_failure`: only integer HTTP status
+(or null), fixed request category, HEADER_OPEN/HEADERS/BODY_READ phase, GET/POST,
+and the already-debited per-run request ordinal. It stores no URL, ticker query,
+headers, response body, credential or exception message. Existing meters are
+validated without inserting defaults or changing their canonical hashes.
+
+## Named Drive CREATE502 recovery of the final9 discovery names
+
+The owner's follow-up `계속진행하고` approves preparation of the concrete
+named9 intake `9e7391293df9fca33e799f7e2ac893bd6c125fbb03d1f15a93651f240831c7da`.
+Protected exact-head deployment and immutable activation are separate gates.
+The only new v3 transition is failed run39032304843/attempt1, exact meter
+`36fb77e3dbc24b379b4b601bf692babe5e996251b92e2424220dfb74265baeeb`,
+at160, CP `f07693bdb23abeabf9540413c3db5ac4c474a13d443d3f5c5dae0fd49d87b89b`.
+It records DRIVE_CREATE/POST/HEADER_OPEN502, ordinal343. Its outcome is unknown;
+this is neither an Alpaca entitlement verdict nor proof of a transient failure.
+
+The v3 `drive_recovery` is one closed source/proof delta reconstructing the
+unchanged78bc78ae v2 authorization, which still reconstructs ca08ac2f v1.
+The original120 failure and its first8 recovery remain checked independently.
+Seal the original23 cohort/22 family events; append only cohort24's typed
+`EXTERNAL_DRIVE_RECOVERY_BOUND` under the new immutable OWNER consent. Preserve
+the original family proof/root, every original17 event, all failed costs,
+key/owner/date/seed,9GiB/12h/40/first48h and the unchanged control-size limits.
+This is not general retry authority, account rotation or a new epoch.
+
+Before any provider request or storage POST, one metered owner-only Drive
+listing inspects only capture job117395177592's recorded12:23:43Z..12:26:22Z window in
+the original folder. Refuse pagination, missing/extra/duplicate/ambiguous files.
+Both original ZIP and normalized gzip must actually exist, with exact filename
+hashes, sizes, owner/parent and complete archive/asset/raw-split/row semantics.
+An absent normalized object remains BLOCKED: no absence inference, raw/gzip
+upload or automatic retry is permitted. Neither a name nor current bytes alone
+certifies historical identity, supplier rights or public availability.
+
+Restore the accepted160 semantically before writing a new derivation receipt
+and CP164 for TWST,UBS,UL,UPST. Reuse their original byte objects and asset clocks;
+request their price data zero times. The receipt's source_sha remains the ff85
+capture generation; typed `recovered_from` separately records actual new
+derivation code/auth/proof/run/time, old CP160, raw/gzip hashes and the failed-run
+observation window. It invents no original bar-request or public-release clock.
+Only this exact named source/group/checkpoint exception is accepted by new-group
+readback; ordinary new groups still require the deployed GITHUB_SHA.
+
+After CP164 independent semantic readback, use the unchanged collector for only
+VCYT,VICR,VIR,VSTM,WULF. The new meter covers160→169, including all reconciliation
+and actual I/O costs. Use the same namespace with `--recovery-run 39032304843`,
+exactly9/max1. A COMPLETE receipt must close169;
+every new failure or uncertain dispatch remains terminal and charged. Later
+top500 verification must check both revision events14 and24 and full169 closure.
+Postwatch/import settlement selects the active v3 Drive proof before the
+preserved v2 revision or genesis proof; completing a recovery or repairing its
+family settlement still consumes its one batch and never grants another POST.
+
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,
 historical Russell membership certificate, scheduler, broker or portfolio path.
@@ -174,3 +387,290 @@ missing/unfinalized/mismatched receipts, every budget boundary, failed/partial
 HTTP and POST, stale/expired authority, bootstrap/OAuth, slow header/body/CPU,
 checkpoint loss, mixed basis, held/no-data status, privacy/rights drift and
 128 calibration. CI/hash/A6 are code evidence, not data or investment approval.
+
+
+## Explicit human capture request without supplier-rights attestation
+
+The original account-attestation record remains accepted unchanged. An actual
+owner/member/collaborator User may instead record one `A1_SIP_CAPTURE_DIRECTIVE `
+JSON line for the existing private noncommercial historical campaign after an
+explicit human request to waive the internal evidence-document procedure.
+It is execution consent, not certification of supplier licensing or eligibility.
+
+Required exact fields: `task_key`, `auth_sha256`, actual `bindings`,
+`mode: DIRECT_HUMAN_CAPTURE_REQUEST`, `plan: Trading Basic`,
+`personal_historical_capture_requested: true`, `private_noncommercial: true`,
+`evidence_procedure_waived: true`, `supplier_rights_verified: false`,
+`approval_reference` (the actual Issue448 human-directive coordination reference),
+and `expires_at_utc`. Expiry is the finite operational approval limit, not an
+invented license expiry. Do not add agreement-reviewed/account-eligible or
+retention-rights assertions to this record. Record only actual human consent;
+never manufacture supplier assertions or actual owner/key bindings.
+
+The same verifier checks real comment/author identity, exact campaign/auth and
+metadata-observed bindings, the entire fixed worker deadline and immutable
+comment-body/author hash. Existing account_permission_* meter fields retain
+compatibility as execution-authority reference/record hashes; the referenced
+record's explicit mode determines whether it is account attestation or consent.
+Mixed/duplicate records refuse. All existing counters, authorization bytes,
+canonical history, reservation/settlement, checkpoint, seed, provider/OAuth errors,
+Drive privacy/quota, deadlines and fail-closed outcomes remain unchanged.
+
+The cited approval URL is fetched and must resolve to an actual Issue448 OWNER
+User comment containing one bounded `A1_SIP_CAPTURE_APPROVAL ` JSON line. Its
+exact fields are `task_key`, `plan`, `personal_historical_capture_requested`,
+`private_noncommercial`, `evidence_procedure_waived`, `supplier_rights_verified`,
+`start`, `end`, `seed_sha256`, `initial_checkpoint_sha256`. The values preserve
+the same Trading Basic/personal/noncommercial/direct-request/false-supplier
+semantics and exact original campaign scope. It records the already-given human
+request, not new supplier evidence or a repeated approval question. The owner
+approval's creation AND last-update clocks must precede the bound directive's
+creation; both clocks, its actual author and entire body hash enter the execution
+record digest. A previously created comment edited after the directive refuses.
+Missing, unrelated, altered
+or synthetic provenance cannot authorize capture. Do not edit either comment
+after activation. A directive may reference its own verified OWNER comment if
+that same comment contains the exact approval line.
+
+If no canonical campaign has started, finalize and approve deployed source
+before creating the first immutable activation authorization and metadata-only
+run. Compute the actual next workflow floor at activation; never hardcode an
+old observed floor or reset an existing authorization/journal. The metadata-only
+run measures actual credentials/OAuth/private owner/free>=2GiB, debits its costs
+and starts the existing48h clock. Bind the direct request to those actual hashes,
+then resume the same authorization/journal at the original16 checkpoint.
+Provider403 or another entitlement failure remains terminal; do not switch feed,
+account or subscription to evade it. Source/PIT/commercial flags remain false.
+
+
+## Named pre-dispatch local rejection recovery
+
+The installed GitHub CLI 2.91 requires every outer `workflow run --json`
+input to be a string. Serialize consent inputs as `"true"` and the batch size
+as `str(...)`; the nested campaign-control/authorization JSON keeps its real
+boolean and integer types. This changes transport representation only.
+
+The only new recovery is the independently reproduced first local rejection
+whose original authorization, reservation and progress hashes are pinned in
+`LOCAL_REJECT`. It is not recovery for an arbitrary unknown dispatch, a
+provider/Drive failure, a completed/assigned run or a changed budget/scope.
+The original stdout status is known; its discarded gh stderr is not recovered.
+Root's separately executed installed-CLI loopback proof establishes the typed
+input parse failure before POST; synthetic POSTs are not actual Actions runs.
+
+Use the SAME existing state directory. Preserve the original authorization and
+entry1 byte-for-byte and copy the original progress bytes to an immutable
+snapshot. A new, separately saved authorization changes only actual deployed
+master/six code pins/next workflow floor. All other fields, private identities,
+original16 checkpoint, date/seed/limits and task key must be exactly equal.
+Do not replace the old authorization or create a fresh journal.
+
+`--predispatch-recovery <private-bundle.json>` accepts exactly four strings:
+`prior_authorization`, `prior_progress_snapshot`, `proof_reference`,
+`receipt_path`. The reference is a real Issue448 OWNER User comment with one
+bounded `A1_SIP_LOCAL_REJECT_RECOVERY ` JSON line. Its exact schema/fields are
+validated by `local_reject_recovery`: old/new auth and scope/code-pin hashes,
+the named old reservation/progress/nonce, the actually observed CLI binary and
+independent transport-proof hashes, POST=false, canonical_runs=0, actual usage
+strict integer zeros and a finite operational expiry. This is an agent-prepared
+record of the authorized recovery and observed evidence, not a supplier-rights
+attestation or a claim that a human read the code. Final Source exact-head CI,
+independent QA, hosted review and protected deployment remain mandatory.
+
+Before appending, canonical bounded history must contain no campaign run and
+the floor must be the actual next workflow number. Live master, deployed six
+pins and native Git-LF-equivalent code must agree. Any hidden/delayed original
+nonce or earlier canonical run fails closed; an existing first clock, active
+cost or dispatch can never be treated as zero through this named path.
+
+Append entry2 `LOCAL_REJECT_RECOVERED` under the new authorization, with entry1's
+hash as its predecessor, the actual proof author/body hash, old/new scope/pin
+bindings and verified zero usage. Never fabricate RUN_ASSIGNED, a meter or
+SETTLED. Preserve the original RESERVED bytes: the typed event closes only that
+one proved-untransmitted nonce. Every other reservation still reconciles exactly
+against canonical runs. The immutable recovery receipt links both auths and the
+journal event; it is exclusively created/fsynced and identical on restart.
+A crash before receipt creation can finish that same receipt without adding a
+second closure; partial/conflicting receipt bytes stop instead of overwriting.
+
+Supply the same recovery bundle on subsequent host resumes so the old/new
+journal prefix and immutable proof remain checked. Existing canonical history
+still governs all Provider/Drive/storage/transfer counters, 40 dispatches, 8h
+active time and the first actual canonical run's48h window. The original local
+rejection had no such run or active use; recovery does not reset an existing
+clock. Resume metadata-only, then bind the actual observed owner/key hashes to
+the existing direct capture-consent record and continue original seed17..48.
+Worker, provider/Drive behavior, deadline, entitlement, privacy and source/PIT
+fail-closed policies are unchanged.
+
+Recovery also hashes the original authorization's raw bytes. Its receipt must
+resolve outside the journal and be disjoint from the bundle/prior inputs; an
+existing receipt before the closure refuses before any append. Reconcile fresh
+full canonical history immediately before dispatch, during nonce discovery and
+after watching before settlement. A delayed original nonce always stops; a
+closed local reservation is excluded from the progress report's pending set.
+The persisted pre-dispatch bundle can accompany a later legitimate network
+recovery only when its requested run is the actual latest bound BLOCKED
+NETWORK/HTTP_ERROR receipt. An arbitrary recovery ID on the first dispatch
+cannot manufacture a relationship.
+
+Both pending-run resume and postwatch settlement recheck the full canonical set
+after receipt/checkpoint-log reads, immediately before the common SETTLED append.
+
+The immutable prior-progress snapshot must resolve outside the entire state
+folder and cannot be a symlink to live progress. Recheck canonical emptiness
+after all deployed-pin reads immediately before closure. Proof expiry permits
+only the initial closure: bind its expiry and require the actual event timestamp
+to be inside its approval window before append. Later resumes verify that same
+canonical event, body/author hash and immutable receipt even after proof expiry;
+this never extends the actual campaign48h/8h clock or permits expired dispatch.
+Event2 must retain its canonical raw bytes, and the receipt anchors the actual
+stored event bytes rather than reserializing an unanchored equivalent object.
+
+## Approved continuation of the measured128-name stop
+
+The owner approved the concrete continuation request
+`e602411e37b3e6e544a46e7fc78b1a320acfbde891ead7b7268efe79ebca8eec`;
+coordination: Issue448 comment6229153314. This authorizes only cumulative
+transfer9GiB and active12h for this existing campaign. Provider2000, Drive50000,
+storage1GiB, dispatch40, fixed seed/date/adjustments, original16 and the original
+first canonical48h window do not change. An account switch cannot reset any
+counter and is outside this continuation. Supplier-rights flags stay false.
+
+The default v1 authorization remains exactly8GiB/8h. A v2 authorization adds
+one portable `continuation` object with `prior_authorization` (the full unchanged
+b5f25d1b v1 authorization) and `proof_reference` (an actual Issue448 OWNER User
+comment). All other authorization fields except schema, transfer cap, deployed
+master and code pins remain identical, including the original workflow floor.
+The only accepted prior boundary is hard-pinned: five exact runs/meters,
+128new names,144examined,872active seconds, checkpoint032dac34,17journal events,
+and first canonical2026-10-17T02:08:51Z. The validity still ends
+2026-10-19T02:08:51Z. A late/missing/rerun/altered old run refuses.
+
+The OWNER comment contains exactly one `A1_SIP_BOUNDED_CONTINUATION ` JSON line,
+with the closed schema/fields checked by `continuation_proof`: old/new auth,
+spent prefix/checkpoint/progress, all prior usage/time/run IDs, unchanged first
+clock, concrete request hash, exact9GiB/12h/40 limits, preserved seed, no account
+rotation, actual deployed master/pin digest and the original48h expiry. The same
+completed comment carries the new auth-bound capture directive, retaining the
+actual metadata-observed owner/key hashes and the original human capture
+approval reference. Compute proof and permission digests only after the full
+comment is frozen: do not put its own body-derived hash back inside that body.
+The bridge binds old and new permission-record hashes; no general RIGHTS_DRIFT
+exception or supplier attestation is added. Do not edit activated comments.
+The host supplies the frozen portable `continuation_binding` with each worker
+control. Workers compare it to freshly verified evidence before any external
+data I/O, and every new meter carries its `continuation_proof_sha256`.
+History and common settlement require the same hash, including the first new
+dispatch; an edited comment cannot become a silent new first-suffix authority.
+
+Keep all three authorization eras: entry1=f67185f7, entries2..17=b5f25d1b on
+master5a762256 with8GiB/8h, and entry18/new suffix=new auth/source with9GiB/12h.
+Each original meter allowance is checked against its original cap minus all
+earlier spent usage; new meters use the new cumulative cap minus that SAME
+usage. Active time, dispatch count and first creation time include all five old
+runs. Preserve the old local-reject event/receipt rather than reissue them.
+
+Use the SAME journal and old pre-dispatch recovery bundle, plus
+`--continuation-receipt <external-private-path>`. The host selects the embedded
+proof URL as capture permission. No redundant
+`--account-permission-reference` is needed; a conflicting explicit URL refuses
+before taking the campaign writer lock or writing the bridge.
+Before the initial append,
+verify native/deployed code pins, actual master, unchanged progress bytes and
+fresh full canonical history. Append only typed entry18 `BUDGET_CONTINUED`, then
+exclusively create/fsync its immutable receipt outside the journal and disjoint
+from inputs. This is no fake price run, settlement or refund. A receipt-create
+interruption may finish that same receipt; changed/partial bytes refuse.
+On restart, revalidate the exact bridge body/author/time/hash and old prefix.
+Resume only at the existing checkpoint032dac34, seed145 onward, with the
+existing32-name batches,128 calibration and fail-closed provider/Drive policies.
+New source must pass exact-head Native/Linux/A6/review/protected deployment
+before any actual continuation. This contract change alone is not capture,
+PIT admission, historical universe certification or investment approval.
+
+## Sealed orphan evidence and normalized-only successor
+
+Run39058081878 on protected master35b36d28 stopped at CP160 with
+`EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS`. Its meter7a2eff65 charged Provider0,
+Drive4, transfer263644B, storage0 and88active seconds. That reason does not
+identify a missing normalized object: the old test also rejected an unexpected
+object count, duplicate role or raw-size mismatch. Preserve all13 canonical
+runs, the original17-event journal, cohort27/family25 prefixes, CPf07693bd,
+owner/key bindings and first2026-10-17T02:08:51Z / expiry2026-10-19T02:08:51Z.
+No uncertainty refunds, extra epochs, new seed or counter reset are allowed.
+
+The v4 external authorization adds only `materialization_recovery`, a typed
+source/proof delta reconstructing the exact old v3 authorization83da6be1.
+It seals this one failed run/meter, parent and approved scope packetb42f7e70.
+The v2/v3 revisions and their original OWNER comments remain immutable.
+Append only event28 `EXTERNAL_MATERIALIZATION_BOUND` under a separately frozen
+v4 OWNER record, reviewed code pins and protected deployment. All host,
+settlement and later prior-cohort guards select the active v4 proof while
+retaining every older proof. The last local guard consumes the already verified
+proof snapshot; it must not fetch fresh remote evidence after canonical reads.
+The same unchanged15KB authorization /16KiB worker-control limits apply,
+including the future417-name wrapper. No dispatch is enabled merely by this
+contract or its code/CI results.
+
+Before any provider request or new storage, inspect at most8 objects in the
+original sealed failed-capture window. Persist only bounded count, kind,
+content-name SHA, byte count and actual server-created/observation times.
+Do not persist object IDs, arbitrary names, raw responses or credentials in
+these diagnostics. Pagination, malformed metadata, duplicate IDs or multiple
+raw/normalized roles refuse. Unrelated valid content-addressed JSONs may be
+counted without becoming price evidence. Exactly one original505475-byte ZIP
+must pass owner/parent/hash, original ff85c823 source/input/date/symbol and
+complete archived-page/asset-clock/raw-split semantics. The complete CP160
+chain must independently restore before a new object may be written.
+
+Existing normalized gzip bytes are usable only when their decoded rows equal
+the verified ZIP reconstruction. Retain both the compressed-object SHA and
+the canonical JSONL-row SHA; gzip wrapper/OS-header differences are not row
+differences. Check an existing window candidate by exact content name across
+the same folder. When absent from that window, perform only indexed exact-name
+lookups for the deterministic encoding/current-runtime encoding and OS3-header
+variant. Duplicate matches, pagination or semantic mismatches refuse.
+Zero matches is a time-specific lookup observation, not proof that the old
+uncertain POST stored nothing.
+
+An indexed exact-name normalized object may predate the failed-run window:
+retain its actual server creation time and verify its content/decoded rows.
+The original ZIP must still be inside the sealed window. Successful canonical
+reuse receipts reapply inventory closure (count, no pagination, exactly one raw,
+at most one normalized, hashes/sizes/window) rather than only diagnostic shapes.
+Existing mode requires EXISTING_GZIP_VERIFIED; new mode requires the canonical
+encoder label. A failed diagnostic may retain incomplete inventory evidence.
+Inventory observation, reuse derivation and materialization creation/lookup
+clocks require actual UTC strings. Missing values must not invoke the runtime
+clock's current-time fallback; incomplete diagnostic row clocks stay distinct
+from successful reuse evidence.
+When the inventory already contains normalized bytes, successful reuse must
+retain existing mode and that row's actual creation clock. New derivation
+requires no normalized inventory candidate; indexed existing objects outside
+the sealed window retain their separately verified actual creation clocks.
+For both modes, inventory observation must precede or equal exact-name lookup,
+which must precede or equal reuse derivation. Historical object creation may
+predate inventory observation; the lookup evidence itself may not.
+A non-inventoried existing object must have been created outside the inclusive
+sealed query window, or the inventory and exact-name result conflict. Canonical
+history also anchors inventory observation at or after that recovery run's actual
+GitHub creation time; ordering fabricated only among receipt clocks is insufficient.
+
+The v4 OWNER record must explicitly authorize one normalized-only derivation
+from these verified original bytes. Use the existing content-addressed
+`persist_object` primitive, with gzip filename empty, mtime0, compression9;
+the primitive reuses exact bytes or creates once. An unknown CREATE outcome is
+terminal, with its full reservation retained. Never upload another raw ZIP or
+request the first4 symbols again. Separately retain original capture source,
+asset clocks and failed run, plus actual normalized creation/lookup time,
+row/object hashes, codec, existing-versus-new status, new derivation source,
+authorization/proof/run/time and inventory hash. Never manufacture original
+publication clocks or claim the old CREATE outcome is known.
+
+Only independent receipt and CP164 readback permits the existing collector to
+request VCYT/VICR/VIR/VSTM/WULF, closing exactly160→169. First recovery max1
+includes an imported or repaired settlement; a new failure cannot authorize
+another POST. All earlier costs, shared accounting, original48h and existing
+9GiB/12h/40 caps remain. Source/PIT, supplier-rights and economic flags stay
+false; Work B/Main and the fixed993 campaign remain separate.

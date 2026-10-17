@@ -738,4 +738,2440 @@ class WorkerIntegrationTests(unittest.TestCase):
         self.assertTrue(receipt['finalized']); self.assertEqual(receipt['status'],'BLOCKED')
 
 
+
+
+class DirectCaptureDirectiveTests(unittest.TestCase):
+    """Synthetic execution-consent fixtures; never supplier/account evidence."""
+    def fixture(self):
+        bindings = dict(owner_sha256='a' * 64, credential_binding='b' * 64)
+        now = c.utc()
+        reference = f'https://github.com/{c.REPO}/issues/448#issuecomment-1'
+        record = dict(task_key=c.TASK, auth_sha256='c' * 64, bindings=bindings,
+                      mode='DIRECT_HUMAN_CAPTURE_REQUEST', plan='Trading Basic',
+                      personal_historical_capture_requested=True, private_noncommercial=True,
+                      evidence_procedure_waived=True, supplier_rights_verified=False,
+                      approval_reference=reference, expires_at_utc=(now + timedelta(hours=3)).isoformat())
+        approval = dict(task_key=c.TASK, plan='Trading Basic',
+                        personal_historical_capture_requested=True, private_noncommercial=True,
+                        evidence_procedure_waived=True, supplier_rights_verified=False,
+                        start='2016-01-04', end='2026-10-14', seed_sha256=c.SEED_SHA,
+                        initial_checkpoint_sha256=c.INITIAL_SHA)
+        comment = dict(id=1, issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
+                       author_association='OWNER', user=dict(type='User', id=123),
+                       created_at=now.isoformat(), updated_at=now.isoformat(),
+                       body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record)
+                       + '\nA1_SIP_CAPTURE_APPROVAL ' + json.dumps(approval))
+        return bindings, reference, record, comment, now + timedelta(seconds=7100)
+
+    def test_direct_request_is_distinct_from_supplier_certification(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        with patch.object(c, 'gh_json', return_value=comment):
+            original = c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+            self.assertRegex(original, r'^[a-f0-9]{64}$')
+        for key, value in [('supplier_rights_verified', True), ('private_noncommercial', False),
+                           ('evidence_procedure_waived', False), ('personal_historical_capture_requested', 1),
+                           ('plan', 'OTHER_ACCOUNT'), ('mode', 'ACCOUNT_RIGHTS_CERTIFIED'),
+                           ('approval_reference', 'https://example.invalid/'), ('auth_sha256', 'd' * 64),
+                           ('bindings', dict(owner_sha256='d' * 64, credential_binding='b' * 64))]:
+            changed = dict(record); changed[key] = value
+            with self.subTest(key=key), patch.object(c, 'gh_json', return_value=dict(comment, body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(changed))), self.assertRaises(c.Refused):
+                c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for body in [comment['body'] + '\n' + comment['body'],
+                     comment['body'] + '\nA1_SIP_ACCOUNT_PERMISSION {}',
+                     'A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(dict(record, private_retention_allowed=True))]:
+            with self.subTest(body=body[:30]), patch.object(c, 'gh_json', return_value=dict(comment, body=body)), self.assertRaises(c.Refused):
+                c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+
+    def test_direct_request_keeps_identity_deadline_and_comment_drift(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        with patch.object(c, 'gh_json', return_value=comment):
+            original = c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for changed in [dict(comment, user=dict(type='Bot', id=123)),
+                        dict(comment, author_association='NONE'), dict(comment, id=2),
+                        dict(comment, issue_url=f'https://api.github.com/repos/{c.REPO}/issues/590')]:
+            with self.subTest(changed=changed.get('author_association')), patch.object(c, 'gh_json', return_value=changed), self.assertRaises(c.Refused):
+                c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for seconds in [30, -1]:
+            changed = dict(record, expires_at_utc=(c.utc() + timedelta(seconds=seconds)).isoformat())
+            body = 'A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(changed) + '\n' + comment['body'].splitlines()[1]
+            with patch.object(c, 'gh_json', return_value=dict(comment, body=body)), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_ACCOUNT_EXPIRED$'):
+                c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for changed in [dict(comment, body=comment['body'] + '\nChanged execution context'),
+                        dict(comment, user=dict(type='User', id=124))]:
+            with patch.object(c, 'gh_json', return_value=changed):
+                self.assertNotEqual(c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline), original)
+        exact = dict(record, expires_at_utc=deadline.isoformat())
+        body = 'A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(exact) + '\n' + comment['body'].splitlines()[1]
+        with patch.object(c, 'gh_json', return_value=dict(comment, body=body)):
+            self.assertRegex(c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline), r'^[a-f0-9]{64}$')
+
+    def test_cited_approval_is_fetched_checked_and_hash_bound(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        record['approval_reference'] = reference[:-1] + '2'
+        directive = dict(comment, body='A1_SIP_CAPTURE_DIRECTIVE ' + json.dumps(record))
+        approval = dict(comment, id=2, body=comment['body'].splitlines()[1])
+        def verify(candidate):
+            def fetch(endpoint):
+                return directive if endpoint.endswith('/1') else candidate
+            with patch.object(c, 'gh_json', side_effect=fetch) as get:
+                result = c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+                self.assertEqual(get.call_count, 2)
+                return result
+        original = verify(approval)
+        missing = c.Refused('CAMPAIGN_GITHUB_READ')
+        with patch.object(c, 'gh_json', side_effect=[directive, missing]), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_GITHUB_READ$'):
+            c.verify_account_permission(reference, 'c' * 64, bindings, valid_through=deadline)
+        for changed in [dict(approval, body='unrelated owner comment'),
+                        dict(approval, author_association='COLLABORATOR'),
+                        dict(approval, user=dict(type='Bot', id=123)), dict(approval, id=99),
+                        dict(approval, created_at=(c.utc()+timedelta(minutes=1)).isoformat()),
+                        dict(approval, body=approval['body']+'\n'+approval['body'])]:
+            with self.subTest(changed=changed.get('id')), self.assertRaises(c.Refused):
+                verify(changed)
+        scope = json.loads(approval['body'].split(' ',1)[1])
+        for key,value in [('task_key','OTHER'),('plan','OTHER'),('supplier_rights_verified',True),
+                          ('private_noncommercial',False),('evidence_procedure_waived',1),
+                          ('seed_sha256','f'*64),('initial_checkpoint_sha256','f'*64),
+                          ('start','2000-01-01'),('end','2027-01-01')]:
+            bad=dict(scope);bad[key]=value
+            with self.subTest(key=key), self.assertRaises(c.Refused):
+                verify(dict(approval, body='A1_SIP_CAPTURE_APPROVAL '+json.dumps(bad)))
+        self.assertNotEqual(verify(dict(approval, body=approval['body']+'\nEdited owner context')), original)
+        self.assertNotEqual(verify(dict(approval, user=dict(type='User',id=124))), original)
+
+    def test_approval_last_update_cannot_postdate_directive(self):
+        bindings, reference, record, comment, deadline = self.fixture()
+        created = c.utc() - timedelta(minutes=2)
+        comment = dict(comment, created_at=created.isoformat(), updated_at=created.isoformat())
+        with patch.object(c, 'gh_json', return_value=comment):
+            self.assertRegex(c.verify_account_permission(reference, 'c'*64, bindings, valid_through=deadline), r'^[a-f0-9]{64}$')
+        for updated in [(created+timedelta(seconds=1)).isoformat(),
+                        (created-timedelta(seconds=1)).isoformat(), None]:
+            with self.subTest(updated=updated), patch.object(c, 'gh_json', return_value=dict(comment, updated_at=updated)), self.assertRaises(c.Refused):
+                c.verify_account_permission(reference, 'c'*64, bindings, valid_through=deadline)
+
+
+
+class LocalRejectRecoveryTests(unittest.TestCase):
+    """Synthetic local-reject lineage; no original vendor or private auth bytes."""
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="a1-local-reject-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.state = self.root / "journal"
+        self.old = auth()
+        self.old.update(account_permission_reference=None, owner_permission_id=None, credential_binding=None)
+        self.old["code_pins"] = {p: c.digest((c.ROOT / p).read_bytes().replace(b"\r\n", b"\n")) for p in c.PINS}
+        self.new = copy.deepcopy(self.old)
+        self.new.update(expected_master="2"*40, workflow_run_floor=2)
+        self.old_path, self.snapshot, self.receipt = (self.root / p for p in ("old-auth.json", "old-progress.json", "recovery-receipt.json"))
+        self.old_path.write_bytes(c.encoded(self.old))
+        self.nonce = c.PREFIX + "a"*24
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.old))
+        journal.append("RESERVED", nonce=self.nonce, remaining=dict(c.LIMITS),
+                       active_seconds_remaining=28800, parent_checkpoint_sha256=c.INITIAL_SHA)
+        journal.close()
+        self.original = (self.state / "000001.json").read_bytes()
+        progress = c.encoded(dict(status="BLOCKED", charged_usage={k: 0 for k in c.LIMITS},
+                                 first_workflow_created_utc=None, total_processed=16))
+        self.snapshot.write_bytes(progress)
+        (self.state / "progress").write_bytes(progress)
+        constants = dict(c.LOCAL_REJECT, auth=c.validate_authorization(self.old),
+                         reservation=c.digest(self.original), progress=c.digest(progress))
+        patcher = patch.object(c, "LOCAL_REJECT", constants)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        scope = {k: v for k, v in self.old.items() if k not in {"expected_master", "code_pins", "workflow_run_floor"}}
+        self.record = dict(schema="a1-sip-local-reject-recovery-v1", task_key=c.TASK,
+                           prior_auth_sha256=constants["auth"], auth_sha256=c.validate_authorization(self.new),
+                           prior_reservation_sha256=constants["reservation"], prior_progress_sha256=constants["progress"],
+                           prior_nonce=self.nonce, expected_master=self.new["expected_master"],
+                           scope_sha256=c.digest(c.encoded(scope)), code_pins_sha256=c.digest(c.encoded(self.new["code_pins"])),
+                           cli_version="2.91.0", cli_binary_sha256=constants["cli_binary"],
+                           local_reject_evidence_sha256=constants["cli_evidence"], independent_qa_sha256=constants["independent_qa"],
+                           dispatch_post_sent=False, canonical_runs_before_recovery=0, actual_usage={k: 0 for k in c.LIMITS},
+                           expires_at_utc=(c.utc()+timedelta(days=1)).isoformat())
+        created = c.utc().isoformat()
+        self.comment = dict(id=17, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+                            author_association="OWNER", user=dict(type="User", id=123),
+                            created_at=created, updated_at=created)
+        self.bundle_path = self.root / "bundle.json"
+        self.bundle_path.write_bytes(c.encoded(dict(prior_authorization=str(self.old_path),
+            prior_progress_snapshot=str(self.snapshot), receipt_path=str(self.receipt),
+            proof_reference="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-17")))
+
+    def proof(self, record=None, comment=None, new=None):
+        data = dict(self.comment if comment is None else comment)
+        data["body"] = "A1_SIP_LOCAL_REJECT_RECOVERY " + json.dumps(self.record if record is None else record)
+        with patch.object(c, "gh_json", return_value=data):
+            return c.local_reject_recovery(self.bundle_path, self.new if new is None else new, self.state)
+
+    def deployed(self, route):
+        if route.endswith("/branches/master"):
+            return dict(commit=dict(sha=self.new["expected_master"]))
+        for p in c.PINS:
+            if "/contents/"+p+"?ref=" in route:
+                import base64
+                return dict(encoding="base64", content=base64.b64encode((c.ROOT / p).read_bytes().replace(b"\r\n", b"\n")).decode())
+        self.fail("Unexpected GitHub route")
+
+    def apply(self, journal, recovery, runs=None):
+        with patch.object(c, "campaign_runs", return_value=[] if runs is None else runs), patch.object(c, "gh_json", side_effect=self.deployed):
+            c.apply_local_reject_recovery(journal, self.new, recovery)
+
+    def test_original_prefix_and_scope_are_conserved_without_fake_settlement(self):
+        recovery = self.proof()
+        old_auth, old_progress = self.old_path.read_bytes(), self.snapshot.read_bytes()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        try:
+            with self.assertRaises(c.Refused):
+                journal.reconcile([])
+            self.apply(journal, recovery)
+            journal.reconcile([])
+            self.assertEqual([v["kind"] for v in journal.entries], ["RESERVED", "LOCAL_REJECT_RECOVERED"])
+            self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+            self.assertEqual(self.old_path.read_bytes(), old_auth)
+            self.assertEqual(self.snapshot.read_bytes(), old_progress)
+            self.assertEqual((self.state/"progress").read_bytes(), old_progress)
+            receipt = c.bounded_json(self.receipt)
+            self.assertEqual(receipt["actual_usage"], {k:0 for k in c.LIMITS})
+            self.assertEqual(receipt["prior_auth_sha256"], c.validate_authorization(self.old))
+            self.assertEqual(receipt["auth_sha256"], c.validate_authorization(self.new))
+            self.assertEqual(receipt["code_pins_sha256"], c.digest(c.encoded(self.new["code_pins"])))
+        finally:
+            journal.close()
+
+    def test_reopen_is_idempotent_and_preserves_receipt_and_chain(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        self.apply(journal, recovery)
+        journal.close()
+        event, receipt = (self.state/"000002.json").read_bytes(), self.receipt.read_bytes()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), self.proof())
+        try:
+            self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+            self.assertEqual((self.state/"000002.json").read_bytes(), event)
+            self.assertEqual(self.receipt.read_bytes(), receipt)
+        finally:
+            journal.close()
+
+    def test_receipt_creation_crash_can_finish_without_duplicate_closure(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        original_open = Path.open
+        receipt_path = self.receipt
+        def fail_receipt(path, *args, **kwargs):
+            if path == receipt_path:
+                raise OSError("SYNTHETIC_BEFORE_RECEIPT_CREATE")
+            return original_open(path, *args, **kwargs)
+        try:
+            with patch.object(Path, "open", fail_receipt), self.assertRaises(OSError):
+                self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+        finally:
+            journal.close()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), self.proof())
+        try:
+            self.apply(journal, recovery)
+            self.assertEqual(len(journal.entries), 2)
+            self.assertTrue(self.receipt.exists())
+        finally:
+            journal.close()
+
+    def test_missing_or_drifted_proof_cannot_relabel_old_auth(self):
+        with self.assertRaises(c.Refused):
+            c.WorkJournal(self.state, c.validate_authorization(self.new))
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        self.apply(journal, recovery)
+        journal.close()
+        data = dict(self.comment)
+        data["body"] = "A1_SIP_LOCAL_REJECT_RECOVERY "+json.dumps(self.record)+"\nEDITED"
+        with patch.object(c, "gh_json", return_value=data):
+            changed = c.local_reject_recovery(self.bundle_path, self.new, self.state)
+        with self.assertRaises(c.Refused):
+            c.WorkJournal(self.state, c.validate_authorization(self.new), changed)
+        self.assertFalse((self.state/"writer.lock").exists())
+
+    def test_fabricated_zero_or_unproven_request_is_rejected(self):
+        mutations = [dict(dispatch_post_sent=True), dict(canonical_runs_before_recovery=1),
+                     dict(prior_reservation_sha256="0"*64), dict(independent_qa_sha256="0"*64),
+                     dict(cli_version="unknown"), dict(actual_usage={k:False for k in c.LIMITS})]
+        for delta in mutations:
+            with self.subTest(delta=delta), self.assertRaises(c.Refused):
+                self.proof(dict(self.record, **delta))
+        for key in ("created_at", "updated_at"):
+            with self.subTest(clock=key), self.assertRaises(c.Refused):
+                self.proof(comment=dict(self.comment, **{key:None}))
+        with self.assertRaises(c.Refused):
+            self.proof(dict(self.record, expires_at_utc=None))
+        with self.assertRaises(c.Refused):
+            self.proof(comment=dict(self.comment, author_association="COLLABORATOR"))
+        self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_scope_and_bound_snapshot_cannot_change(self):
+        for key, value in [("private_data_folder_id","changed-folder-123"),
+                           ("approval_reference","NEW_SCOPE"), ("expected_master", self.old["expected_master"]),
+                           ("workflow_run_floor",0)]:
+            changed = copy.deepcopy(self.new);changed[key]=value
+            with self.subTest(key=key), self.assertRaises(c.Refused):
+                self.proof(new=changed)
+        self.snapshot.write_bytes(b"changed")
+        with self.assertRaises(c.Refused):
+            self.proof()
+        self.assertEqual((self.state/"000001.json").read_bytes(), self.original)
+
+    def test_late_original_run_fails_before_closure_or_new_dispatch(self):
+        recovery = self.proof()
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.new), recovery)
+        try:
+            with self.assertRaises(c.Refused):
+                self.apply(journal, recovery, runs=[dict(display_title="a1-sip "+self.nonce)])
+            self.assertEqual(len(journal.entries),1)
+            self.apply(journal,recovery)
+            with self.assertRaises(c.Refused):
+                journal.reconcile([dict(display_title="a1-sip "+self.nonce)])
+        finally:
+            journal.close()
+
+    def observed(self):
+        return dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),
+                    examined=16, parent_sha=c.INITIAL_SHA, active_seconds=0, first=None, bindings=None)
+
+    def host_fixture(self):
+        recovery=self.proof()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        path=self.root/"new-auth.json";path.write_bytes(c.encoded(self.new))
+        return path,recovery
+
+    def test_original_authorization_raw_bytes_are_immutable(self):
+        self.old_path.write_text(json.dumps(self.old,indent=2))
+        with self.assertRaises(c.Refused):
+            self.proof()
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_receipt_namespace_and_existing_input_collisions_fail_before_closure(self):
+        original=self.bundle_path.read_bytes();bundle=json.loads(original)
+        for target in [self.state/"000003.json",self.old_path,self.snapshot,self.bundle_path]:
+            with self.subTest(target=target):
+                self.bundle_path.write_bytes(c.encoded(dict(bundle,receipt_path=str(target))))
+                with self.assertRaises(c.Refused):
+                    self.proof()
+                self.assertFalse((self.state/"000002.json").exists())
+        self.bundle_path.write_bytes(original)
+        self.receipt.write_bytes(b"existing unrelated file")
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        try:
+            with self.assertRaises(c.Refused):self.apply(journal,recovery)
+            self.assertEqual(len(journal.entries),1)
+        finally:journal.close()
+
+    def test_closed_local_reservation_is_not_reported_as_unsettled(self):
+        path,recovery=self.host_fixture()
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=self.observed()), \
+                patch.object(c,"gh_json",return_value=dict(commit=dict(sha="0"*40))),self.assertRaises(c.Refused):
+            c.host(path,self.state,predispatch_recovery=self.bundle_path)
+        self.assertIsNone(c.bounded_json(self.state/"progress")["unsettled_reservation"])
+        self.assertEqual((self.state/"000001.json").read_bytes(),self.original)
+
+    def test_unrelated_network_recovery_id_cannot_annotate_first_dispatch(self):
+        path,recovery=self.host_fixture();calls=[]
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=self.observed()), \
+                patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.subprocess,"run",side_effect=lambda *a,**k:calls.append(a)),self.assertRaises(c.Refused):
+            c.host(path,self.state,recovery_run=999,predispatch_recovery=self.bundle_path)
+        self.assertEqual(calls,[])
+        self.assertFalse((self.state/"000003.json").exists())
+
+    def test_bound_latest_network_failure_can_reuse_persisted_bundle(self):
+        path,recovery=self.host_fixture()
+        observed=self.observed()
+        observed.update(runs=[dict(id=999,display_title="a1-sip "+c.PREFIX+"b"*24)],
+                        receipts=[dict(status="BLOCKED",reason="NETWORK",new_states={},rows_verified=0,
+                                       confirmed_storage_bytes=0,observed_google_body_bytes=0)])
+        class DispatchReached(BaseException):pass
+        def cli(command,**kwargs):
+            self.assertEqual(json.loads(json.loads(kwargs["input"])["campaign_control"])["recovery_run"],999)
+            raise DispatchReached()
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=observed),patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.WorkJournal,"reconcile"),patch.object(c,"campaign_runs",return_value=observed["runs"]), \
+                patch.object(c.subprocess,"run",side_effect=cli),self.assertRaises(DispatchReached):
+            c.host(path,self.state,recovery_run=999,predispatch_recovery=self.bundle_path)
+
+    def test_delayed_original_during_poll_or_before_settlement_blocks_watch_or_settle(self):
+        path,recovery=self.host_fixture()
+        observed=self.observed();closed=dict(display_title="a1-sip "+self.nonce)
+        for phase in ("predispatch","poll","settlement"):
+            with self.subTest(phase=phase):
+                # Separate fixture journal; original fixture stays unchanged.
+                state=self.root/("race-"+phase);state.mkdir()
+                for entry in ("000001.json","000002.json"):
+                    (state/entry).write_bytes((self.state/entry).read_bytes())
+                calls=[];run=dict(id=987,display_title="",status="completed")
+                def cli(command,**kwargs):
+                    calls.append(command)
+                    if command[1:3]==["workflow","run"]:
+                        run["display_title"]="a1-sip "+json.loads(kwargs["input"])["campaign_nonce"]
+                    return type("Result",(),{"returncode":0})()
+                snapshots=([closed],) if phase=="predispatch" else ([[],[closed,run]] if phase=="poll" else [[],[run],[closed,run]])
+                with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                        patch.object(c,"history",return_value=observed),patch.object(c,"gh_json",side_effect=self.deployed), \
+                        patch.object(c,"campaign_runs",side_effect=snapshots), \
+                        patch.object(c.subprocess,"run",side_effect=cli),patch.object(c,"settle_run") as settle, \
+                        self.assertRaisesRegex(c.Refused,"CAMPAIGN_LOCAL_REJECT_REMOTE"):
+                    c.host(path,state,predispatch_recovery=self.bundle_path)
+                settle.assert_not_called()
+                self.assertEqual(sum(cmd[1:3]==["run","watch"] for cmd in calls),1 if phase=="settlement" else 0)
+                self.assertEqual((state/"000001.json").read_bytes(),self.original)
+
+    def test_receipt_read_race_on_pending_resume_or_postwatch_never_settles(self):
+        path,recovery=self.host_fixture()
+        for phase in ("resume","postwatch"):
+            with self.subTest(phase=phase):
+                state=self.root/("receipt-race-"+phase);state.mkdir()
+                for entry in ("000001.json","000002.json"):
+                    (state/entry).write_bytes((self.state/entry).read_bytes())
+                nonce=c.PREFIX+"c"*24
+                run=dict(id=987,display_title="a1-sip "+nonce,status="completed",created_at=c.utc().isoformat())
+                receipt=dict(nonce=nonce,status="COMPLETE",usage={k:0 for k in c.LIMITS},
+                             checkpoint_sha256=c.INITIAL_SHA,parent_checkpoint_sha256=c.INITIAL_SHA,
+                             examined_after=16,new_states={},rows_verified=0,
+                             confirmed_storage_bytes=0,observed_google_body_bytes=0)
+                observed=self.observed()
+                if phase=="resume":
+                    journal=c.WorkJournal(state,c.validate_authorization(self.new),recovery)
+                    journal.append("RESERVED",nonce=nonce,remaining=dict(c.LIMITS),
+                                   active_seconds_remaining=28800,parent_checkpoint_sha256=c.INITIAL_SHA)
+                    journal.append("RUN_ASSIGNED",nonce=nonce,run_id=987);journal.close()
+                    observed.update(runs=[run],receipts=[receipt])
+                closed=dict(display_title="a1-sip "+self.nonce)
+                def cli(command,**kwargs):
+                    if command[1:3]==["workflow","run"]:
+                        run["display_title"]="a1-sip "+json.loads(kwargs["input"])["campaign_nonce"]
+                        receipt["nonce"]=run["display_title"][7:]
+                    return type("Result",(),{"returncode":0})()
+                def api(route):
+                    if route.endswith("/actions/runs/987"):return run
+                    return self.deployed(route)
+                snapshots=[[closed,run]] if phase=="resume" else [[],[run],[run],[closed,run]]
+                with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                        patch.object(c,"history",side_effect=[observed,dict(observed,runs=[run],receipts=[receipt])]), \
+                        patch.object(c,"job_seconds",return_value=1),patch.object(c,"gh_json",side_effect=api), \
+                        patch.object(c,"campaign_runs",side_effect=snapshots),patch.object(c,"receipt_for_run",return_value=receipt), \
+                        patch.object(c.subprocess,"run",side_effect=cli),self.assertRaisesRegex(c.Refused,"CAMPAIGN_LOCAL_REJECT_REMOTE"):
+                    c.host(path,state,predispatch_recovery=self.bundle_path)
+                kinds=[json.loads(p.read_bytes())["kind"] for p in state.glob("*.json")]
+                self.assertNotIn("SETTLED",kinds)
+                self.assertEqual((state/"000001.json").read_bytes(),self.original)
+
+    def test_live_progress_cannot_be_the_immutable_snapshot(self):
+        bundle=json.loads(self.bundle_path.read_bytes())
+        self.bundle_path.write_bytes(c.encoded(dict(bundle,prior_progress_snapshot=str(self.state/"progress"))))
+        with self.assertRaises(c.Refused):self.proof()
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_original_appearing_during_deployed_pin_reads_prevents_closure(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        try:
+            with patch.object(c,"campaign_runs",side_effect=[[],[dict(display_title="a1-sip "+self.nonce)]]), \
+                    patch.object(c,"gh_json",side_effect=self.deployed),self.assertRaises(c.Refused):
+                c.apply_local_reject_recovery(journal,self.new,recovery)
+            self.assertEqual(len(journal.entries),1)
+            self.assertFalse(self.receipt.exists())
+        finally:journal.close()
+
+    def test_expired_proof_cannot_create_closure_but_applied_closure_can_reopen(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        original_event=(self.state/"000002.json").read_bytes();original_receipt=self.receipt.read_bytes()
+        real_utc=c.utc;future=real_utc(self.record["expires_at_utc"])+timedelta(seconds=1)
+        def later(value=None):return future if value is None else real_utc(value)
+        with patch.object(c,"utc",side_effect=later):
+            expired=self.proof()
+            journal=c.WorkJournal(self.state,c.validate_authorization(self.new),expired)
+            try:self.apply(journal,expired)
+            finally:journal.close()
+            fresh=self.root/"expired-fresh";fresh.mkdir()
+            (fresh/"000001.json").write_bytes(self.original)
+            (fresh/"progress").write_bytes(self.snapshot.read_bytes())
+            journal=c.WorkJournal(fresh,c.validate_authorization(self.new),expired)
+            try:
+                with self.assertRaises(c.Refused):self.apply(journal,expired)
+                self.assertEqual(len(journal.entries),1)
+            finally:journal.close()
+        self.assertEqual((self.state/"000002.json").read_bytes(),original_event)
+        self.assertEqual(self.receipt.read_bytes(),original_receipt)
+
+    def test_recovery_event_reserialization_cannot_change_anchored_bytes(self):
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        event=self.state/"000002.json";event.write_text(json.dumps(json.loads(event.read_bytes()),indent=2))
+        with self.assertRaises(c.Refused):
+            reopened=c.WorkJournal(self.state,c.validate_authorization(self.new),self.proof())
+            reopened.close()
+        self.assertFalse((self.state/"writer.lock").exists())
+
+    def test_all_outer_cli_values_are_strings_nested_authority_unchanged(self):
+        path = self.root / "new-auth.json";path.write_bytes(c.encoded(self.new))
+        observed = dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),
+                        examined=16, parent_sha=c.INITIAL_SHA, active_seconds=0, first=None, bindings=None)
+        calls=[]
+        class BoundaryReached(BaseException): pass
+        def strict_cli(command, **kwargs):
+            self.assertEqual(command[:3],["gh","workflow","run"])
+            payload=json.loads(kwargs["input"])
+            self.assertTrue(all(type(v) is str for v in payload.values()))
+            self.assertEqual(json.loads(payload["campaign_control"])["authorization"],self.new)
+            calls.append(payload)
+            raise BoundaryReached()
+        with patch.object(c,"history",return_value=observed), patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.subprocess,"run",side_effect=strict_cli), self.assertRaises(BoundaryReached):
+            c.host(path,self.root/"fresh-journal")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0]["max_new_symbols"],"32")
+        self.assertEqual(calls[0]["private_research_authorized"],"true")
+
+class BoundedContinuationTests(unittest.TestCase):
+    """Synthetic spent ledger; neither real prices nor supplier attestations."""
+    def setUp(self):
+        self.local = LocalRejectRecoveryTests()
+        self.local.setUp()
+        self.addCleanup(self.local.doCleanups)
+        self.prior = copy.deepcopy(self.local.new)
+        self.recovery = self.local.proof()
+        self.state, self.root = self.local.state, self.local.root
+        journal = c.WorkJournal(self.state, c.validate_authorization(self.prior), self.recovery)
+        self.local.apply(journal, self.recovery)
+        first = (c.utc()-timedelta(seconds=1)).isoformat()
+        self.runs, self.receipts = [], []
+        used = {k:0 for k in c.LIMITS}
+        before, parent = 16, c.INITIAL_SHA
+        self.bindings = dict(owner_sha256=c.digest(b'fixture-owner'), credential_binding=c.digest(b'fixture-key\0fixture-secret'))
+        for index in range(5):
+            nonce = c.PREFIX + str(index+1)*24
+            run = dict(id=index+1, display_title='a1-sip '+nonce, created_at=first,
+                       head_sha=self.prior['expected_master'], head_branch='master',
+                       status='completed', conclusion='success', run_attempt=1)
+            usage = dict(provider_gets=0 if index==0 else 22, drive_requests=4 if index==0 else 260+64*(index-1),
+                         drive_bytes=1000+index*100000, storage_bytes=0 if index==0 else 1000)
+            after = before + (0 if index==0 else 32)
+            checkpoint = parent if index==0 else str(index+2)*64
+            receipt = dict(schema='a1-sip-campaign-meter-v1', task_key=c.TASK,
+                           auth_sha256=c.validate_authorization(self.prior), source_sha=self.prior['expected_master'],
+                           nonce=nonce, run_id=index+1, run_attempt=1, finalized=True,
+                           status='COMPLETE', preflight_only=index==0, bindings=self.bindings,
+                           parent_checkpoint_sha256=parent, checkpoint_sha256=checkpoint,
+                           examined_before=before, examined_after=after, rows_verified=0 if index==0 else 64,
+                           new_states=dict(VALID_COLLECTED=0 if index==0 else 32,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                           allowance={k:c.LIMITS[k]-used[k] for k in c.LIMITS}, usage=usage,
+                           account_permission_reference_sha256=None if index==0 else 'c'*64,
+                           account_permission_record_sha256=None if index==0 else 'd'*64,
+                           confirmed_storage_bytes=usage['storage_bytes'], observed_google_body_bytes=0,
+                           source_admission=False,pit_verified=False,economic_authority=False,transfer_definition=c.METRIC)
+            journal.append('RESERVED',nonce=nonce,remaining=receipt['allowance'],active_seconds_remaining=28800,
+                           parent_checkpoint_sha256=parent)
+            journal.append('RUN_ASSIGNED',nonce=nonce,run_id=index+1)
+            journal.append('SETTLED',nonce=nonce,run_id=index+1,usage=usage,
+                           checkpoint=dict(file_id='fixture-checkpoint-'+str(index),sha256=checkpoint,bytes=1375),
+                           receipt=receipt,receipt_sha256=c.digest(c.encoded(receipt)),examined_after=after)
+            self.runs.append(run);self.receipts.append(receipt)
+            used={k:used[k]+usage[k] for k in used}
+            before,parent=after,checkpoint
+        self.prefix = {p.name:p.read_bytes() for p in self.state.glob('*.json')}
+        event_hash = journal.parent
+        journal.close()
+        progress=c.encoded(dict(status='BLOCKED',new_processed=128,charged_usage=used,active_seconds=872,
+                                first_workflow_created_utc=first,last_checkpoint_sha256=parent))
+        (self.state/'progress').write_bytes(progress)
+        constants=dict(c.CONTINUATION,auth=c.validate_authorization(self.prior),master=self.prior['expected_master'],
+                       checkpoint=parent,event=event_hash,progress=c.digest(progress),runs=[r['id'] for r in self.runs],
+                       receipts=[c.digest(c.encoded(r)) for r in self.receipts],used=used,bindings=self.bindings,
+                       permission_record='d'*64,first=first)
+        patcher=patch.object(c,'CONTINUATION',constants);patcher.start();self.addCleanup(patcher.stop)
+        self.new=copy.deepcopy(self.prior)
+        self.reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-27'
+        self.new.update(schema='r1000-sip-campaign-authorization-v2',limits=dict(c.CONTINUED_LIMITS),
+                        expected_master='3'*40,continuation=dict(prior_authorization=self.prior,proof_reference=self.reference))
+        self.record=dict(schema='a1-sip-bounded-continuation-v1',task_key=c.TASK,
+                         prior_auth_sha256=constants['auth'],auth_sha256=c.validate_authorization(self.new),
+                         prior_journal_event_sha256=constants['event'],prior_progress_sha256=constants['progress'],
+                         checkpoint_sha256=parent,prior_run_ids=constants['runs'],prior_usage=used,
+                         prior_active_seconds=872,prior_examined=144,first_canonical_utc=first,
+                         expires_at_utc=(c.utc(first)+timedelta(hours=48)).isoformat(),request_sha256=constants['request'],
+                         limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
+                         preserve_seed_order=True,account_rotation=False,expected_master=self.new['expected_master'],
+                         code_pins_sha256=c.digest(c.encoded(self.new['code_pins'])))
+        now=c.utc().isoformat()
+        self.comment=dict(id=27,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
+                          user=dict(type='User',id=123),created_at=now,updated_at=now)
+
+    def proof(self, record=None, changed=None):
+        comment=dict(self.comment,body='A1_SIP_BOUNDED_CONTINUATION '+json.dumps(self.record if record is None else record))
+        if changed:comment.update(changed)
+        evidence=dict(body_sha256=c.digest(comment['body'].encode()),record=dict(expires_at_utc=self.record['expires_at_utc']))
+        with patch.object(c,'gh_json',return_value=comment),patch.object(c,'account_permission_evidence',return_value=evidence):
+            return c.continuation_proof(self.new)
+
+    def observed(self, runs=None, receipts=None, durations=None):
+        proof=self.proof()
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'campaign_runs',return_value=self.runs if runs is None else runs), \
+             patch.object(c,'receipt_for_run',side_effect=self.receipts if receipts is None else receipts) as read, \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265] if durations is None else durations):
+            observed=c.history(self.new)
+            self.receipt_calls=read.call_args_list
+            return observed
+
+    def test_spent_prefix_stays_old_and_all_remaining_allowances_are_cumulative(self):
+        observed=self.observed()
+        self.assertEqual(observed['active_seconds'],872)
+        self.assertEqual(observed['active_limit'],43200)
+        self.assertEqual(observed['examined'],144)
+        self.assertEqual(observed['parent_sha'],c.CONTINUATION['checkpoint'])
+        self.assertEqual(observed['first'],c.utc(c.CONTINUATION['first']))
+        self.assertEqual(observed['remaining'],{k:c.CONTINUED_LIMITS[k]-c.CONTINUATION['used'][k] for k in c.LIMITS})
+        self.assertTrue(all(call.args[1:]==(c.CONTINUATION['auth'],self.prior['expected_master']) for call in self.receipt_calls))
+        self.assertEqual(len(observed['runs']),5)
+
+    def test_no_nested_continuation_scope_account_seed_floor_or_cap_change(self):
+        mutations=[dict(workflow_run_floor=self.prior['workflow_run_floor']+1),dict(seed_sha256='0'*64),dict(owner_permission_id='OTHER'),
+                   dict(private_data_folder_id='another-private-folder'),dict(credential_binding='0'*64),
+                   dict(limits=dict(c.CONTINUED_LIMITS,provider_gets=2001)),dict(limits=dict(c.LIMITS))]
+        for change in mutations:
+            with self.subTest(change=change),self.assertRaises(c.Refused):c.validate_authorization(dict(self.new,**change))
+        prior=copy.deepcopy(self.prior);prior['continuation']={}
+        with self.assertRaises(c.Refused):c.validate_authorization(dict(self.new,continuation=dict(self.new['continuation'],prior_authorization=prior)))
+        with self.assertRaises(c.Refused):c.validate_authorization(dict(self.prior,limits=dict(c.CONTINUED_LIMITS)))
+
+    def test_real_owner_typed_exact_budget_and_unchanged_scope_are_mandatory(self):
+        for change in [dict(active_seconds_limit=43201),dict(prior_active_seconds=0),dict(prior_run_ids=[]),
+                       dict(account_rotation=True),dict(preserve_seed_order=False),dict(dispatch_limit=41),
+                       dict(prior_usage=dict(c.CONTINUATION['used'],provider_gets=False)),
+                       dict(expires_at_utc=(c.utc()+timedelta(hours=49)).isoformat())]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.proof(dict(self.record,**change))
+        for change in [dict(author_association='COLLABORATOR'),dict(user=dict(type='Bot',id=123)),
+                       dict(updated_at=(c.utc()+timedelta(minutes=1)).isoformat())]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.proof(changed=change)
+
+    def test_missing_reordered_or_changed_old_receipt_refuses_without_refund(self):
+        for runs in [self.runs[1:],list(reversed(self.runs))]:
+            with self.subTest(runs=runs),self.assertRaises(c.Refused):self.observed(runs=runs)
+        receipts=copy.deepcopy(self.receipts);receipts[-1]['usage']['provider_gets']-=1
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):self.observed(receipts=receipts)
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):self.observed(durations=[27,159,215,206,264])
+
+    def test_suffix_uses_new_auth_but_cannot_reset_cost_clock_or_permission(self):
+        observed=self.observed();proof=observed['continuation']
+        run=dict(self.runs[-1],id=6,created_at=c.utc().isoformat(),head_sha=self.new['expected_master'],
+                 display_title='a1-sip '+c.PREFIX+'6'*24)
+        receipt=dict(self.receipts[-1],parent_checkpoint_sha256=c.CONTINUATION['checkpoint'],
+                     examined_before=144,examined_after=176,checkpoint_sha256='7'*64,
+                     allowance=dict(observed['remaining']),usage={k:1 for k in c.LIMITS},
+                     account_permission_reference_sha256=proof['permission_reference_sha256'],
+                     account_permission_record_sha256=proof['permission_record_sha256'],
+                     continuation_proof_sha256=proof['proof_sha256'])
+        result=self.observed(runs=self.runs+[run],receipts=self.receipts+[receipt],durations=[27,159,215,206,265,300])
+        self.assertEqual(result['active_seconds'],1172)
+        self.assertEqual(result['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+1)
+        self.assertEqual(self.receipt_calls[-1].args[1:],(c.validate_authorization(self.new),self.new['expected_master'],self.new['limits']))
+        for change in [dict(allowance=dict(c.CONTINUED_LIMITS)),dict(account_permission_record_sha256='0'*64),
+                       dict(account_permission_reference_sha256='0'*64),dict(bindings=dict(self.bindings,owner_sha256='0'*64)),
+                       dict(continuation_proof_sha256='0'*64)]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):
+                self.observed(runs=self.runs+[run],receipts=self.receipts+[dict(receipt,**change)],durations=[27,159,215,206,265,300])
+
+    def test_bridge_is_single_immutable_event_preserving_all17_and_original_recovery_receipt(self):
+        proof=self.proof();observed=self.observed()
+        old_receipt=self.local.receipt.read_bytes()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        path=self.root/'continuation-receipt.json'
+        def deployed(route):
+            import base64
+            if route.endswith('/branches/master'):return dict(commit=dict(sha=self.new['expected_master']))
+            for name in c.PINS:
+                if '/contents/'+name+'?ref=' in route:return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+            self.fail('Unexpected offline route')
+        try:
+            c.apply_local_reject_recovery(journal,self.new,self.recovery)
+            with patch.object(c,'gh_json',side_effect=deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs):
+                c.apply_continuation(journal,self.new,path,[])
+            first=path.read_bytes();event=(self.state/'000018.json').read_bytes()
+            c.apply_continuation(journal,self.new,path,[])
+            self.assertEqual(len(journal.entries),18)
+            self.assertEqual(journal.entries[-1]['kind'],'BUDGET_CONTINUED')
+            self.assertEqual(path.read_bytes(),first)
+            self.assertEqual((self.state/'000018.json').read_bytes(),event)
+            self.assertEqual(self.local.receipt.read_bytes(),old_receipt)
+            self.assertTrue(all((self.state/name).read_bytes()==raw for name,raw in self.prefix.items()))
+        finally:journal.close()
+        changed=dict(proof,proof_sha256='0'*64)
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_DRIFT'):
+            c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,changed)
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_bridge_rejects_receipt_alias_and_changed_progress_before_any_append(self):
+        proof=self.proof()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        try:
+            for path,inputs in [(self.state/'000018.json',[]),(self.root/'auth.json',[self.root/'auth.json'])]:
+                with self.subTest(path=path),self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_RECEIPT_PATH'):
+                    c.apply_continuation(journal,self.new,path,inputs)
+            (self.state/'progress').write_bytes(b'{}')
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):
+                c.apply_continuation(journal,self.new,self.root/'continuation.json',[])
+            self.assertEqual(len(journal.entries),17)
+        finally:journal.close()
+
+    def test_old_meter_stays8gib_and_new_meter_obeys_only_passed_cumulative_allowance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            remaining=dict(c.CONTINUED_LIMITS,drive_bytes=8*1024**3+1)
+            with self.assertRaises(c.Refused):meter(temp,allowance=remaining)
+            m=c.RuntimeMeter(remaining,Path(temp)/'continued.json',(c.utc()+timedelta(seconds=60)).isoformat(),
+                             identity(),opener=Opener(),limits=c.CONTINUED_LIMITS)
+            m.debit(dict(provider_gets=1))
+            self.assertEqual(m.used['provider_gets'],1)
+            with self.assertRaises(c.Refused):m.debit(dict(provider_gets=2000))
+            self.assertEqual(m.used['provider_gets'],1)
+
+    def test_worker_requires_frozen_portable_bridge_before_any_provider_or_drive(self):
+        observed=self.observed()
+        nonce=c.PREFIX+'6'*24
+        env=dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+                 GITHUB_RUN_ID='6',INPUT_CAMPAIGN_NONCE=nonce)
+        base=dict(authorization=self.new,nonce=nonce,account_permission_reference=self.reference)
+        for binding in [None,{},dict(observed['continuation'],proof_sha256='0'*64)]:
+            control=dict(base)
+            if binding is not None:control['continuation_binding']=binding
+            with self.subTest(binding=binding),patch.dict(os.environ,env,clear=True), \
+                 patch.object(c,'verify_worker_source'),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O allowed')), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_DRIFT'):
+                c.worker(SimpleNamespace(),control,self.root/'unused-meter.json')
+
+    def deployed(self, route):
+        import base64
+        if route.endswith('/branches/master'):return dict(commit=dict(sha=self.new['expected_master']))
+        for name in c.PINS:
+            if '/contents/'+name+'?ref=' in route:return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+        self.fail('Unexpected offline deployed route')
+
+    def test_unknown_run_appearing_during_old_meter_reads_stops_before_bridge_append(self):
+        proof=self.proof();observed=self.observed()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        unknown=dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24)
+        try:
+            with patch.object(c,'gh_json',side_effect=self.deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs+[unknown]), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):
+                c.apply_continuation(journal,self.new,self.root/'late-bridge.json',[])
+            self.assertEqual(len(journal.entries),17)
+            self.assertFalse((self.root/'late-bridge.json').exists())
+        finally:journal.close()
+
+    def test_unknown_run_during_proof_query_stops_common_settlement(self):
+        from unittest.mock import Mock
+        proof=self.proof();remote=list(self.runs)
+        receipt=dict(parent_checkpoint_sha256=c.CONTINUATION['checkpoint'],nonce=c.PREFIX+'6'*24,
+                     usage={k:0 for k in c.LIMITS},examined_after=176,continuation_proof_sha256=proof['proof_sha256'])
+        def reconcile(runs):
+            if len(runs)!=5:raise c.Refused('CAMPAIGN_JOURNAL_REMOTE_CONFLICT')
+        journal=SimpleNamespace(recovery=self.recovery,continuation=proof,reconcile=reconcile,append=Mock())
+        def changing_proof(_):
+            remote.append(dict(self.runs[-1],id=99))
+            return proof
+        with patch.object(c,'settled_parent',return_value=dict(sha256=c.CONTINUATION['checkpoint'])), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(sha256='7'*64)), \
+             patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.settle_run(journal,self.new,dict(id=6),receipt)
+        journal.append.assert_not_called()
+
+    def test_unknown_run_during_final_host_proof_query_stops_before_reservation_and_dispatch(self):
+        proof=self.proof();observed=self.observed();remote=list(self.runs)
+        path=self.root/'new-auth.json';path.write_bytes(c.encoded(self.new))
+        proof_calls=[]
+        def changing_proof(_):
+            proof_calls.append(1)
+            if len(proof_calls)==2:remote.append(dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24))
+            return proof
+        with patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'apply_local_reject_recovery'),patch.object(c,'apply_continuation'), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Dispatch forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.host(path,self.state,permission_reference=self.reference,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'host-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_documented_host_arguments_use_embedded_permission_at_actual_cli_boundary(self):
+        proof=self.proof();observed=self.observed();calls=[]
+        path=self.root/'documented-auth.json';path.write_bytes(c.encoded(self.new))
+        class BoundaryReached(BaseException):pass
+        def strict_cli(command,**kwargs):
+            self.assertEqual(command[:3],['gh','workflow','run'])
+            payload=json.loads(kwargs['input'])
+            self.assertTrue(all(type(value) is str for value in payload.values()))
+            control=json.loads(payload['campaign_control'])
+            self.assertEqual(control['account_permission_reference'],self.reference)
+            self.assertEqual(control['continuation_binding'],proof)
+            self.assertFalse(control['preflight_only'])
+            self.assertEqual(payload['resume_sha256'],c.CONTINUATION['checkpoint'])
+            self.assertEqual(payload['max_new_symbols'],'32')
+            self.assertLessEqual(len(payload['campaign_control']),16384)
+            calls.append(payload)
+            raise BoundaryReached()
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',return_value=self.runs), \
+             patch.object(c.subprocess,'run',side_effect=strict_cli),self.assertRaises(BoundaryReached):
+            c.host(path,self.state,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'documented-continuation-receipt.json')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(c.decode((self.state/'000018.json').read_bytes())['kind'],'BUDGET_CONTINUED')
+        self.assertEqual(c.decode((self.state/'000019.json').read_bytes())['kind'],'RESERVED')
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_explicit_conflicting_permission_refuses_before_writer_or_bridge(self):
+        proof=self.proof()
+        path=self.root/'conflict-auth.json';path.write_bytes(c.encoded(self.new))
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'WorkJournal',side_effect=AssertionError('Writer forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PERMISSION'):
+            c.host(path,self.state,permission_reference=self.reference+'0',predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'unused-conflict-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+
+
+class ExternalCohortTests(unittest.TestCase):
+    """Synthetic discovery epochs, never actual input/owner/capture proof."""
+    def setUp(self):
+        self.old = BoundedContinuationTests(); self.old.setUp()
+        self.addCleanup(self.old.doCleanups)
+        self.prior, self.root, self.state = self.old.prior, self.old.root, self.old.state
+        self.names = ['ZZZDISCA', 'ZZZDISCB', 'ZZZDISCC', 'ZZZDISCD']
+        raw = ('ticker\n'+'\n'.join(self.names)+'\n').encode()
+        self.reference = self.old.reference+'1'
+        self.new = copy.deepcopy(self.prior)
+        self.new.update(schema='r1000-sip-external-cohort-authorization-v1', limits=dict(c.CONTINUED_LIMITS),
+            expected_master='3'*40, account_permission_reference=self.reference,
+            owner_permission_id='fixture-owner',credential_binding=c.digest(b'fixture-key\0fixture-secret'),
+            code_pins={p:c.digest((c.ROOT/p).read_bytes()) for p in c.PINS},
+            external_cohort=dict(scope=dict(task_key='R1000-DISCOVERY-FIXTURE-20261017',
+                namespace='fixture-discovery-169', input_sha256=c.digest(raw)), input_csv=raw.decode(),
+                intake_manifest_sha256='e'*64, receipt_dedupe_sha256='f'*64, prior_authorization=self.prior,
+                prior_epochs=[], proof_reference=self.reference))
+        self.input = self.root/'cohort.csv'; self.input.write_bytes(raw)
+        self.cohort_state = self.root/'external-cohort-fixture-discovery-169'
+
+    def proof(self, auth_value=None, changed=None):
+        a = auth_value or self.new
+        comment = dict(self.old.comment, id=int(a['external_cohort']['proof_reference'].rsplit('-',1)[1]),
+                       body='A1_SIP_EXTERNAL_COHORT_CONSENT '+json.dumps(c.external_proof_record(a)))
+        if changed: comment.update(changed)
+        with patch.object(c,'gh_json',return_value=comment): return c.external_proof(a)
+
+    def observed(self, suffix=None, changed_receipts=None, proof=None):
+        runs = self.old.runs+([suffix[0]] if suffix else [])
+        values = self.old.receipts+([suffix[1]] if suffix else [])
+        if changed_receipts is not None: values=changed_receipts
+        with patch.object(c,'external_proof',return_value=proof or self.proof()), \
+             patch.object(c,'campaign_runs',return_value=runs), \
+             patch.object(c,'receipt_for_run',side_effect=values), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+([10] if suffix else [])):
+            return c.external_history(self.new)
+
+    def suffix(self):
+        proof=self.proof(); h=c.validate_authorization(self.new)
+        scope=self.new['external_cohort']['scope']; nonce=c.PREFIX+'6'*24
+        run=dict(self.old.runs[-1], id=6,display_title='a1-sip '+nonce,head_sha=self.new['expected_master'],
+                 created_at=c.utc().isoformat())
+        value=dict(self.old.receipts[-1],auth_sha256=h,source_sha=self.new['expected_master'],nonce=nonce,run_id=6,
+            parent_checkpoint_sha256=c.external_genesis(scope),checkpoint_sha256='9'*64,
+            examined_before=0,examined_after=4,cohort_scope=scope,external_proof_sha256=proof['proof_sha256'],
+            new_states=dict(VALID_COLLECTED=4,VERIFIED_NO_DATA=0,QUARANTINED=0),
+            allowance={k:c.CONTINUED_LIMITS[k]-c.CONTINUATION['used'][k] for k in c.LIMITS},
+            usage=dict(provider_gets=6,drive_requests=10,drive_bytes=100,storage_bytes=100),
+            account_permission_reference_sha256=c.digest(self.reference.encode()),
+            account_permission_record_sha256=proof['proof_sha256'],confirmed_storage_bytes=100)
+        return run,value
+
+    def test_local_zero_does_not_reset_global_cost_clock_or_dispatches(self):
+        observed=self.observed()
+        self.assertEqual(observed['examined'],0)
+        self.assertEqual(observed['parent_sha'],c.external_genesis(self.new['external_cohort']['scope']))
+        self.assertEqual(observed['used'],c.CONTINUATION['used'])
+        self.assertEqual(observed['active_seconds'],872); self.assertEqual(len(observed['runs']),5)
+        self.assertEqual(observed['first'],c.utc(c.CONTINUATION['first']))
+        observed=self.observed(self.suffix())
+        self.assertEqual(observed['examined'],4)
+        self.assertEqual(observed['active_seconds'],882)
+        self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+
+    def test_scope_input_budget_account_and_prior_epoch_mutations_refuse(self):
+        for mutate in (lambda a:a['limits'].update(provider_gets=2001),
+                       lambda a:a.update(credential_binding='0'*64),
+                       lambda a:a['external_cohort'].update(input_csv='ticker\nAAPL\n'),
+                       lambda a:a['external_cohort'].update(prior_epochs=[self.new,self.new]),
+                       lambda a:a['external_cohort']['scope'].update(namespace='../unsafe')):
+            a=copy.deepcopy(self.new);mutate(a)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.validate_authorization(a)
+        a=copy.deepcopy(self.new);a['external_cohort']['input_csv']='ticker\nAAPL\n'
+        a['external_cohort']['scope']['input_sha256']=c.digest(b'ticker\nAAPL\n')
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOLLECTION'):c.validate_authorization(a)
+
+    def test_unknown_source_namespace_allowance_or_proof_cannot_hide_spending(self):
+        for key,value in [('cohort_scope',dict(self.new['external_cohort']['scope'],namespace='other-cohort')),
+                          ('parent_checkpoint_sha256',c.INITIAL_SHA),('external_proof_sha256','0'*64),
+                          ('source_sha','8'*40),('allowance',dict(c.CONTINUED_LIMITS))]:
+            run,receipt=self.suffix();receipt[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.observed((run,receipt))
+        changed=copy.deepcopy(self.old.receipts);changed[0]['usage']['provider_gets']=1
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_BUDGET_PREFIX'):self.observed(changed_receipts=changed)
+
+    def test_second_frozen_epoch_retains_first_epoch_and_all_global_usage(self):
+        previous=copy.deepcopy(self.new);a=copy.deepcopy(self.new)
+        ex=a['external_cohort'];ex.update(input_csv='ticker\nZZZLATER\n',prior_epochs=[previous],
+                                       proof_reference=self.reference+'2')
+        ex['scope']=dict(ex['scope'],namespace='fixture-marketcap-500',input_sha256=c.digest(b'ticker\nZZZLATER\n'))
+        a['account_permission_reference']=ex['proof_reference']
+        c.validate_authorization(a)
+        old_run,old_value=self.suffix();proof=self.proof(a)
+        run=dict(old_run,id=7,display_title='a1-sip '+c.PREFIX+'7'*24)
+        value=dict(old_value,run_id=7,nonce=c.PREFIX+'7'*24,auth_sha256=c.validate_authorization(a),
+                   cohort_scope=ex['scope'],external_proof_sha256=proof['proof_sha256'],
+                   account_permission_reference_sha256=c.digest(ex['proof_reference'].encode()),
+                   account_permission_record_sha256=proof['proof_sha256'],examined_before=0,examined_after=1,
+                   parent_checkpoint_sha256=c.external_genesis(ex['scope']),checkpoint_sha256='8'*64,
+                   new_states=dict(VALID_COLLECTED=1,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                   allowance={k:old_value['allowance'][k]-old_value['usage'][k] for k in c.LIMITS})
+        with patch.object(c,'external_proof',side_effect=[self.proof(previous),proof]), \
+             patch.object(c,'campaign_runs',return_value=self.old.runs+[old_run,run]), \
+             patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[old_value,value]), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10,12]):
+            observed=c.external_history(a)
+        self.assertEqual(observed['examined'],1);self.assertEqual(observed['active_seconds'],894)
+        self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+12)
+        self.assertEqual(len(observed['runs']),7);self.assertEqual(len(observed['cohort_runs']),1)
+        a['external_cohort']['input_csv']=previous['external_cohort']['input_csv']
+        a['external_cohort']['scope']['input_sha256']=previous['external_cohort']['scope']['input_sha256']
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOLLECTION'):c.validate_authorization(a)
+
+    def test_closed_terminal_failure_can_be_accounted_but_never_recovered_as_auth_error(self):
+        run,value=self.suffix();run['conclusion']='failure'
+        value.update(status='BLOCKED',reason='AUTH')
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.observed((run,value))
+        with patch.object(c,'external_proof',return_value=self.proof()), \
+             patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
+             patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]):
+            observed=c.external_history(self.new,allow_stopped=True)
+        self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+        with patch.object(c,'external_proof',return_value=self.proof()), \
+             patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
+             patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_NOT_AUTHORIZED'):
+            c.external_history(self.new,recovery_run=run['id'],allow_stopped=True)
+
+    def test_network_and_price_http_failure_do_not_authorize_another_external_attempt(self):
+        for reason in ('NETWORK','HTTP_ERROR'):
+            run,value=self.suffix();run['conclusion']='failure';value.update(status='BLOCKED',reason=reason)
+            with self.subTest(reason=reason),self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):
+                self.observed((run,value))
+            with patch.object(c,'external_proof',return_value=self.proof()), \
+                 patch.object(c,'campaign_runs',return_value=self.old.runs+[run]), \
+                 patch.object(c,'receipt_for_run',side_effect=self.old.receipts+[value]), \
+                 patch.object(c,'job_seconds',side_effect=[27,159,215,206,265,10]):
+                observed=c.external_history(self.new,allow_stopped=True)
+            self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+            with patch.object(c,'WorkJournal',side_effect=AssertionError('No writer for unauthorized recovery')), \
+                 self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_NOT_AUTHORIZED'):
+                c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,run['id'],1)
+
+    def test_owner_consent_is_exact_input_and_no_supplier_certification(self):
+        self.assertTrue(self.proof()['proof_sha256'])
+        record=c.external_proof_record(self.new)
+        self.assertFalse(record['supplier_rights_verified']);self.assertFalse(record['budget_reset'])
+        for changed in [dict(author_association='CONTRIBUTOR'),dict(body='A1_SIP_EXTERNAL_COHORT_CONSENT {}'),
+                        dict(updated_at=(c.utc()+timedelta(hours=49)).isoformat())]:
+            with self.subTest(changed=changed),self.assertRaises(c.Refused):self.proof(changed=changed)
+
+    def test_global_journal_pure_read_never_recreates_missing_receipt(self):
+        recovery=self.old.recovery
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.prior),recovery=recovery)
+        before={p.name:p.read_bytes() for p in self.state.iterdir() if p.name!='writer.lock'}
+        try:
+            c.verify_external_budget_journal(journal,self.new,recovery)
+            receipt=Path(recovery['receipt_path']);original=receipt.read_bytes();receipt.unlink()
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_LOCAL_REJECT_RECEIPT'):
+                c.verify_external_budget_journal(journal,self.new,recovery)
+            self.assertFalse(receipt.exists());receipt.write_bytes(original)
+            with self.assertRaises(c.Refused):c.WorkJournal(self.state,c.validate_authorization(self.prior),recovery=recovery)
+        finally:journal.close()
+        self.assertEqual(before,{p.name:p.read_bytes() for p in self.state.iterdir()})
+
+    def host_patches(self, observed, **kwargs):
+        from contextlib import ExitStack
+        stack=ExitStack()
+        stack.enter_context(patch.object(c,'local_reject_recovery',return_value=self.old.recovery))
+        stack.enter_context(patch.object(c,'external_proof',return_value=self.proof()))
+        stack.enter_context(patch.object(c,'external_history',side_effect=observed if isinstance(observed,list) else None,
+                                         return_value=observed))
+        stack.enter_context(patch.object(c,'campaign_runs',return_value=(observed[0] if isinstance(observed,list) else observed)['runs']))
+        stack.enter_context(patch.object(c,'external_deployed',return_value=None))
+        return stack
+
+    def test_second_namespace_lock_failure_releases_only_global_lock(self):
+        with patch.object(c,'external_proof',return_value=self.proof()),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        family.close()
+        self.cohort_state.mkdir();lock=self.cohort_state/'writer.lock';lock.write_text('other-owner')
+        with self.host_patches(self.observed()),self.assertRaisesRegex(c.Refused,'CAMPAIGN_WRITER_LOCK'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.state/'writer.lock').exists());self.assertEqual(lock.read_text(),'other-owner')
+
+    def test_copied_or_renamed_budget_tree_cannot_relocate_its_registry(self):
+        import shutil
+        proof=self.proof()
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        directory=family.directory;family.close()
+        before=(directory/'000001.json').read_bytes()
+        with tempfile.TemporaryDirectory() as temporary:
+            copied=Path(temporary)/'copied'
+            shutil.copytree(self.root,copied)
+            for target in (copied,Path(temporary)/'renamed'):
+                if target != copied:
+                    copied.rename(target)  # Isolated synthetic tree only.
+                budget=target/self.state.relative_to(self.root)
+                cohort=target/self.cohort_state.relative_to(self.root)
+                with self.subTest(target=target.name),patch.object(c,'external_proof',return_value=proof), \
+                     patch.object(c.subprocess,'run',side_effect=AssertionError('Relocation cannot dispatch')), \
+                     self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_DRIFT'):
+                    relocated=c.external_family_registry(budget,self.new,cohort)
+                    relocated.close()
+                registry=target/directory.relative_to(self.root)
+                self.assertEqual((registry/'000001.json').read_bytes(),before)
+                self.assertFalse((registry/'writer.lock').exists())
+                self.assertFalse((registry/'000002.json').exists())
+        with patch.object(c,'external_proof',return_value=proof):
+            original=c.external_family_registry(self.state,self.new,self.cohort_state)
+        original.close()
+        self.assertEqual((directory/'000001.json').read_bytes(),before)
+
+    def test_expired_new_namespace_never_appends_its_binding(self):
+        original=c.utc;proof=self.proof()
+        future=original(proof['expires_at_utc'])+timedelta(seconds=1)
+        with self.host_patches(self.observed()), \
+             patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Dispatch after expiry')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_BINDING_CLOCK'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.cohort_state/'000001.json').exists())
+        self.assertFalse((self.state/'writer.lock').exists());self.assertFalse((self.cohort_state/'writer.lock').exists())
+
+    def test_completed_reserved_run_still_settles_and_accounts_after_expiry(self):
+        proof=self.proof();scope=self.new['external_cohort']['scope'];run,value=self.suffix()
+        observed=self.observed((run,value))
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        family.append('RESERVED',nonce=value['nonce'],capture_auth_sha256=c.validate_authorization(self.new),scope=scope,
+                      remaining=value['allowance'],parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+        family.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'],
+                      capture_auth_sha256=c.validate_authorization(self.new),scope=scope)
+        family.close()
+        journal=c.WorkJournal(self.cohort_state,c.validate_authorization(self.new))
+        journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+        journal.append('RESERVED',nonce=value['nonce'],remaining=value['allowance'],
+                       parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+        journal.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id']);journal.close()
+        original=c.utc;future=original(proof['expires_at_utc'])+timedelta(seconds=1)
+        with self.host_patches(observed),patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('No new dispatch after expiry')):
+            result=c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(result['status'],'COHORT_PROCESSED');self.assertEqual(result['examined'],4)
+        self.assertEqual(result['charged_usage']['provider_gets'],c.CONTINUATION['used']['provider_gets']+6)
+        self.assertEqual(c.bounded_json(self.cohort_state/'000004.json')['kind'],'SETTLED')
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_uncertain_invisible_post_blocks_another_namespace_without_refund(self):
+        calls=[]
+        def rejected(command,**kwargs):
+            calls.append(json.loads(kwargs['input']))
+            return SimpleNamespace(returncode=1)
+        with self.host_patches(self.observed()),patch.object(c.subprocess,'run',side_effect=rejected), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(len(calls),1)
+        original_global=list(self.root.glob('external-budget-*'))
+        self.assertEqual(len(original_global),1)
+        global_reserved=c.bounded_json(original_global[0]/'000002.json')
+        self.assertEqual(global_reserved['remaining'],self.observed()['remaining'])
+        self.assertEqual(c.bounded_json(self.cohort_state/'000002.json')['kind'],'RESERVED')
+        # A separately consented first epoch cannot bypass an unobserved A.
+        b=copy.deepcopy(self.new);b['external_cohort']['scope']['namespace']='fixture-another-cohort'
+        frozen=self.proof(b)
+        with self.host_patches(self.observed()),patch.object(c,'external_proof',return_value=frozen), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Second dispatch forbidden')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_DRIFT'):
+            c.external_host(b,self.root/'external-cohort-fixture-another-cohort',self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(c.bounded_json(original_global[0]/'000002.json'),global_reserved)
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_registry_only_or_cohort_only_orphan_never_proves_zero_post(self):
+        observed=self.observed();proof=self.proof();h=c.validate_authorization(self.new);scope=self.new['external_cohort']['scope']
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        journal=c.WorkJournal(self.cohort_state,h)
+        journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+        # Reserve globally first, then simulate a crash before cohort reserve.
+        family.append('RESERVED',nonce=c.PREFIX+'8'*24,scope=scope,capture_auth_sha256=h,
+                      remaining=observed['remaining'],parent_checkpoint_sha256=observed['parent_sha'])
+        before=family.parent
+        try:
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+                c.reconcile_external_family(family,journal,self.new,observed)
+            self.assertEqual(family.parent,before)
+        finally:journal.close();family.close()
+
+    def test_single_side_registry_or_cohort_prefix_rollback_cannot_refund_unknown_post(self):
+        # Two independent synthetic namespaces/campaign roots per subcase.
+        for target in ('registry','cohort'):
+            with self.subTest(target=target):
+                fixture=ExternalCohortTests();fixture.setUp()
+                try:
+                    observed=fixture.observed()
+                    with fixture.host_patches(observed),patch.object(c.subprocess,'run',return_value=SimpleNamespace(returncode=1)), \
+                         self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+                        c.external_host(fixture.new,fixture.cohort_state,fixture.input,fixture.state,
+                                        fixture.old.local.bundle_path,None,1)
+                    family_dir=next(fixture.root.glob('external-budget-*'))
+                    truncated=family_dir if target=='registry' else fixture.cohort_state
+                    (truncated/'000002.json').unlink()  # Synthetic rollback, never actual journal.
+                    with fixture.host_patches(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No replacement POST')), \
+                         self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+                        c.external_host(fixture.new,fixture.cohort_state,fixture.input,fixture.state,
+                                        fixture.old.local.bundle_path,None,1)
+                finally:fixture.doCleanups()
+
+    def test_visible_canonical_run_without_shared_registration_refuses(self):
+        observed=self.observed(self.suffix())
+        with self.host_patches(observed),patch.object(c.subprocess,'run',side_effect=AssertionError), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_MISSING'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_whole_registry_missing_cannot_initialize_foreign_namespace_over_pending_cohort(self):
+        with self.host_patches(self.observed()),patch.object(c.subprocess,'run',return_value=SimpleNamespace(returncode=1)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        original=(self.cohort_state/'000002.json').read_bytes()
+        family_dir=next(self.root.glob('external-budget-*'));preserved=self.root/'preserved-family'
+        self.assertEqual(family_dir.resolve().parent,self.root.resolve())
+        self.assertEqual(preserved.resolve().parent,self.root.resolve())
+        family_dir.rename(preserved)  # Only this isolated synthetic fixture.
+        b=copy.deepcopy(self.new);b['external_cohort']['scope']['namespace']='fixture-foreign-cohort'
+        frozen=self.proof(b)
+        with self.host_patches(self.observed()),patch.object(c,'external_proof',return_value=frozen), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Missing registry is not zero POST')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_MISSING'):
+            c.external_host(b,self.root/'external-cohort-fixture-foreign-cohort',self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual((self.cohort_state/'000002.json').read_bytes(),original)
+        self.assertTrue((preserved/'000002.json').exists())
+
+    def test_first_family_and_cohort_use_one_consent_snapshot_before_dispatch(self):
+        original=self.proof()
+        changed=self.proof(changed=dict(body='A1_SIP_EXTERNAL_COHORT_CONSENT '+
+                            json.dumps(c.external_proof_record(self.new))+'\nOWNER comment edited'))
+        observed=self.observed();observed['external_proof']=changed
+        with self.host_patches(observed),patch.object(c,'external_proof',side_effect=[original,changed]) as proof_read, \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Cannot POST across consent drift')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_PROOF_DRIFT'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(proof_read.call_count,1)
+        family_dir=next(self.root.glob('external-budget-*'))
+        self.assertEqual(c.bounded_json(family_dir/'000001.json')['proof_sha256'],original['proof_sha256'])
+        self.assertEqual(c.bounded_json(self.cohort_state/'000001.json')['proof_sha256'],original['proof_sha256'])
+        self.assertFalse((self.cohort_state/'000002.json').exists())
+
+    def seed_pending_epoch(self, run, value):
+        proof=self.proof();scope=self.new['external_cohort']['scope'];h=c.validate_authorization(self.new)
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        try:
+            family.append('RESERVED',nonce=value['nonce'],capture_auth_sha256=h,scope=scope,
+                          remaining=value['allowance'],parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+            family.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'],capture_auth_sha256=h,scope=scope)
+        finally:family.close()
+        journal=c.WorkJournal(self.cohort_state,h)
+        try:
+            journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+            journal.append('RESERVED',nonce=value['nonce'],remaining=value['allowance'],
+                parent_checkpoint_sha256=value['parent_checkpoint_sha256'],external_proof_sha256=proof['proof_sha256'])
+            journal.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'])
+        finally:journal.close()
+
+    def test_prior_epoch_loss_or_rebound_conflict_blocks_later_epoch_without_recreation(self):
+        for damage in ('intact','missing','empty','bound-only','reserved-only','missing-settled','binding','receipt'):
+            with self.subTest(damage=damage):
+                f=ExternalCohortTests();f.setUp()
+                try:
+                    run,value=f.suffix();observed=f.observed((run,value));proof=f.proof()
+                    f.seed_pending_epoch(run,value)
+                    with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=
+                            dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)):
+                        c.external_host(f.new,f.cohort_state,f.input,f.state,f.old.local.bundle_path,None,1)
+                    b=copy.deepcopy(f.new);ex=b['external_cohort'];raw='ticker\nZZZDISCX\n'
+                    ex.update(prior_epochs=[copy.deepcopy(f.new)],input_csv=raw,proof_reference=f.reference+'2')
+                    ex['scope']=dict(ex['scope'],namespace='fixture-topcap-cohort',input_sha256=c.digest(raw.encode()))
+                    b['account_permission_reference']=ex['proof_reference'];other_proof=f.proof(b)
+                    observed=dict(observed,external_proof=other_proof,cohort_runs=[],cohort_receipts=[],
+                        examined=0,parent_sha=c.external_genesis(ex['scope']),
+                        epoch_proofs={c.validate_authorization(f.new):proof,c.validate_authorization(b):other_proof})
+                    other=f.root/'external-cohort-fixture-topcap-cohort'
+                    with patch.object(c,'external_proof',return_value=proof):
+                        family=c.external_family_registry(f.state,b,other)
+                    journal=c.WorkJournal(other,c.validate_authorization(b))
+                    journal.append('EXTERNAL_COHORT_BOUND',scope=ex['scope'],
+                                   genesis_sha256=c.external_genesis(ex['scope']),**other_proof)
+                    try:
+                        if damage in ('missing','empty'):
+                            f.cohort_state.rename(f.root/'preserved-prior')
+                            if damage=='empty':f.cohort_state.mkdir()
+                        elif damage in ('bound-only','reserved-only','missing-settled'):
+                            keep={'bound-only':1,'reserved-only':2,'missing-settled':3}[damage]
+                            for p in f.cohort_state.glob('*.json'):
+                                if int(p.stem)>keep:p.unlink()  # Isolated synthetic prefix only.
+                        elif damage in ('binding','receipt'):
+                            previous=None
+                            for p in sorted(f.cohort_state.glob('*.json')):
+                                entry=c.bounded_json(p)
+                                if damage=='binding' and entry['sequence']==1:entry['proof_sha256']='0'*64
+                                if damage=='receipt' and entry['kind']=='SETTLED':entry['receipt_sha256']='0'*64
+                                entry['previous_sha256']=previous;p.write_bytes(c.encoded(entry));previous=c.digest(p.read_bytes())
+                        before={p.name:p.read_bytes() for p in f.cohort_state.glob('*.json')}
+                        with patch.object(c.subprocess,'run',side_effect=AssertionError('No provider or dispatch')):
+                            if damage=='intact':self.assertIsNone(c.reconcile_external_family(family,journal,b,observed))
+                            else:
+                                with self.assertRaises(c.Refused):c.reconcile_external_family(family,journal,b,observed)
+                        self.assertEqual(before,{p.name:p.read_bytes() for p in f.cohort_state.glob('*.json')})
+                        if damage=='missing':self.assertFalse(f.cohort_state.exists())
+                        self.assertFalse((f.cohort_state/'writer.lock').exists())
+                        self.assertFalse((other/'000002.json').exists())
+                    finally:journal.close();family.close()
+                finally:f.doCleanups()
+
+    def test_resumed_success_or_shared_repair_consumes_max_one_without_another_post(self):
+        for repair in (False,True):
+            with self.subTest(shared_repair=repair):
+                f=ExternalCohortTests();f.setUp()
+                try:
+                    raw='ticker\n'+'\n'.join('ZZZDISC%02d'%i for i in range(40))+'\n'
+                    f.new['external_cohort']['input_csv']=raw
+                    f.new['external_cohort']['scope']['input_sha256']=c.digest(raw.encode());f.input.write_bytes(raw.encode())
+                    run,value=f.suffix();value['examined_after']=32
+                    value['new_states']=dict(VALID_COLLECTED=32,VERIFIED_NO_DATA=0,QUARANTINED=0)
+                    observed=f.observed((run,value));f.seed_pending_epoch(run,value)
+                    ref=dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)
+                    if repair:
+                        j=c.WorkJournal(f.cohort_state,c.validate_authorization(f.new))
+                        try:
+                            with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=ref):
+                                c.settle_run(j,f.new,run,value)
+                        finally:j.close()
+                    with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=ref), \
+                         patch.object(c.subprocess,'run',side_effect=AssertionError('Unexpected second dispatch')):
+                        result=c.external_host(f.new,f.cohort_state,f.input,f.state,f.old.local.bundle_path,None,1)
+                    self.assertEqual(result['status'],'BATCH_BOUNDARY');self.assertEqual(result['examined'],32)
+                    self.assertEqual(result['charged_usage'],observed['used'])
+                    self.assertEqual(len(list(f.cohort_state.glob('*.json'))),4)
+                    self.assertFalse((f.state/'writer.lock').exists())
+                finally:f.doCleanups()
+
+    def test_actual_cli_empty_physical_parent_and_unchanged_old17(self):
+        class Boundary(BaseException):pass
+        before={p.name:p.read_bytes() for p in self.state.iterdir()}
+        calls=[]
+        def dispatch(command,**kwargs):
+            self.assertEqual(command[:3],['gh','workflow','run'])
+            payload=json.loads(kwargs['input']);calls.append(payload)
+            self.assertTrue(all(type(v) is str for v in payload.values()))
+            self.assertEqual(payload['resume_file_id'],payload['resume_sha256'])
+            self.assertEqual(payload['resume_sha256'],'')
+            control=json.loads(payload['campaign_control'])
+            self.assertFalse(control['preflight_only']);self.assertEqual(control['authorization'],self.new)
+            raise Boundary()
+        with self.host_patches(self.observed()),patch.object(c.subprocess,'run',side_effect=dispatch),self.assertRaises(Boundary):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in self.state.iterdir()})
+        self.assertEqual(c.bounded_json(self.cohort_state/'000002.json')['kind'],'RESERVED')
+        self.assertFalse((self.cohort_state/'writer.lock').exists())
+
+    def test_canonical_drift_after_pin_reads_never_reserves_or_dispatches(self):
+        before=self.observed();after=copy.deepcopy(before);after['used']['provider_gets']+=1
+        with self.host_patches([before,after]),patch.object(c.subprocess,'run',side_effect=AssertionError), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_CANONICAL_DRIFT'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertFalse((self.cohort_state/'000002.json').exists())
+
+    def test_asset_404_is_narrow_metered_and_other_errors_terminal(self):
+        url='https://paper-api.alpaca.markets/v2/assets/ZZZDISCA'
+        with tempfile.TemporaryDirectory() as tmp:
+            for code,reason in [(404,'ASSET_NOT_FOUND'),(401,'AUTH'),(403,'PERMISSION'),(429,'RATE_LIMIT'),(500,'HTTP_ERROR')]:
+                opener=Opener(failure=HTTPError(url,code,'private',{},io.BytesIO(b'private')))
+                m=c.RuntimeMeter(dict(c.LIMITS),Path(tmp)/'meter', (c.utc()+timedelta(seconds=60)).isoformat(),
+                                 identity(),opener=opener,asset_symbols=['ZZZDISCA'])
+                with self.assertRaisesRegex(c.Refused,'^'+reason+'$'):m.perform(url)
+                self.assertEqual(m.used['provider_gets'],1)
+            m=meter(tmp)
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_ENDPOINT'):m.perform(url)
+            self.assertEqual(m.used['provider_gets'],0)
+
+    def execute_external_worker(self, unsupported=None, failed_status=None, lost_post=False, drift=False):
+        names=self.names
+        class AssetServer(Server):
+            def open(server,request,**kwargs):
+                parts=urlsplit(request.full_url)
+                if parts.netloc=='paper-api.alpaca.markets':
+                    server.requests.append(request.full_url)
+                    name=parts.path.rsplit('/',1)[1]
+                    if name==unsupported:
+                        raise HTTPError(request.full_url,failed_status or 404,'fixture',{},io.BytesIO(b'fixture'))
+                    return Reply(c.encoded(dict(id='00000000-0000-0000-0000-000000000001',
+                        symbol=name,exchange='NASDAQ',status='active',**{'class':'us_equity'})))
+                return super().open(request,**kwargs)
+        server=AssetServer(missing=names[2],lost_post=lost_post)
+        observed=self.observed();observed['runs'].append(dict(id=6))
+        a=self.new;nonce=c.PREFIX+'6'*24;proof=self.proof()
+        args=SimpleNamespace(private_root_folder_id=a['private_root_folder_id'],private_data_folder_id=a['private_data_folder_id'],
+                             resume_file_id='',resume_sha256='',start=a['start'],end=a['end'],max_new_symbols=4)
+        env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=a['expected_master'],
+            GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID='6',INPUT_CAMPAIGN_NONCE=nonce,
+            A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+            ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret',
+            MACRO_DRIVE_CONFIG='[gdrive]\ntype=drive\ntoken='+json.dumps(dict(access_token='fixture-access',
+                refresh_token='fixture-refresh',expiry='2030-01-01T00:00:00Z'))+'\n')
+        original_meter=c.RuntimeMeter;original_pages=cap.request_pages
+        path=self.root/'worker-meter'
+        with patch.dict(os.environ,env,clear=True),patch.object(c,'external_history',return_value=observed), \
+             patch.object(c,'campaign_runs',return_value=observed['runs']), \
+             patch.object(c,'external_proof',return_value=dict(proof,proof_sha256='0'*64) if drift else proof), \
+             patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=7100)), \
+             patch.object(c,'RuntimeMeter',side_effect=lambda *a,**kw:original_meter(*a,opener=server,**kw)), \
+             patch.object(cap,'request_pages',side_effect=lambda *a,**kw:original_pages(*a,pause=lambda _:None,**kw)), \
+             patch.object(drive_module.subprocess,'run',side_effect=AssertionError('No external command')), \
+             patch('sys.stdout',new=io.StringIO()):
+            try:
+                result=c.worker(args,dict(authorization=a,nonce=nonce,recovery_run=None,preflight_only=False,
+                                         external_binding=proof),path)
+            except c.Refused as exc:failure,result=str(exc),None
+            else:failure=None
+        return failure,c.bounded_json(path) if path.exists() else None,server,result
+
+    def test_real_external_worker_readback_genesis_and_mixed_supported_asset_hold(self):
+        failure,m,server,result=self.execute_external_worker(unsupported=self.names[1])
+        self.assertIsNone(failure)
+        self.assertEqual(m['new_states'],dict(VALID_COLLECTED=2,VERIFIED_NO_DATA=1,QUARANTINED=1))
+        self.assertEqual(m['usage']['provider_gets'],8);self.assertEqual(m['examined_before'],0)
+        self.assertEqual(m['examined_after'],4);self.assertEqual(m['rows_verified'],4)
+        self.assertNotIn(self.names[1],server.symbols)
+        self.assertFalse(m['source_admission']);self.assertFalse(m['pit_verified'])
+        state=c.decode(server.objects[result['checkpoint']['file_id']][1])
+        self.assertEqual(state['cohort_scope'],self.new['external_cohort']['scope'])
+        self.assertEqual(state['examined'],self.names)
+        self.assertEqual(state['held'],[self.names[1]])
+        rawpacks=[v[1] for v in server.objects.values() if v[0]['name'].endswith('.zip')]
+        self.assertTrue(rawpacks)
+        import zipfile
+        with zipfile.ZipFile(io.BytesIO(rawpacks[0])) as z:
+            manifest=c.decode(z.read('capture.json'))
+            self.assertEqual(manifest['asset_precheck'][0]['symbol'],self.names[0])
+            self.assertFalse(manifest['historical_identity_verified'])
+
+    def test_original_observed_owner_hash_needs_no_invented_raw_owner_id(self):
+        self.new['owner_permission_id']=None
+        failure,m,server,_=self.execute_external_worker()
+        self.assertIsNone(failure)
+        self.assertEqual(m['bindings'],c.CONTINUATION['bindings'])
+        self.assertTrue(server.symbols)
+
+    def test_asset_auth_or_quota_failure_never_becomes_held_or_price_capture(self):
+        for code,reason in [(401,'AUTH'),(403,'PERMISSION'),(429,'RATE_LIMIT')]:
+            with self.subTest(code=code):
+                failure,m,server,_=self.execute_external_worker(unsupported=self.names[1],failed_status=code)
+                self.assertEqual(failure,reason);self.assertEqual(server.symbols,set())
+                self.assertEqual(m['usage']['provider_gets'],2);self.assertEqual(m['usage']['storage_bytes'],0)
+                self.assertEqual(m['examined_after'],0);self.assertEqual(m['status'],'BLOCKED')
+                self.assertFalse(server.objects)
+
+    def test_external_lost_upload_and_mutated_consent_preserve_failure_debit(self):
+        failure,m,server,_=self.execute_external_worker(lost_post=True)
+        self.assertEqual(failure,'NETWORK');self.assertTrue(server.objects)
+        self.assertEqual(m['checkpoint_sha256'],c.external_genesis(self.new['external_cohort']['scope']))
+        self.assertEqual(m['examined_after'],0);self.assertGreater(m['usage']['storage_bytes'],0)
+        self.assertEqual(m['confirmed_storage_bytes'],0)
+        (self.root/'worker-meter').unlink()
+        failure,m,server,_=self.execute_external_worker(drift=True)
+        self.assertEqual(failure,'EXTERNAL_PROOF_DRIFT');self.assertIsNone(m);self.assertFalse(server.requests)
+
+
+class TransportDiagnosticTests(unittest.TestCase):
+    def test_diagnostic_save_failure_suppresses_sensitive_http_context(self):
+        import traceback
+        with tempfile.TemporaryDirectory() as t:
+            url='https://data.alpaca.markets/v2/stocks/bars?PRIVATE_CANARY'
+            error=HTTPError(url,502,
+                            'PRIVATE_CANARY',{},io.BytesIO(b'PRIVATE_CANARY'))
+            m=meter(t,Opener(failure=error))
+            with patch.object(m,'save',side_effect=[None,OSError('PRIVATE_CANARY')]):
+                try:m.perform(url)
+                except c.Refused as exc:
+                    self.assertEqual(str(exc),'CAMPAIGN_DIAGNOSTIC_JOURNAL')
+                    self.assertNotIn('PRIVATE_CANARY',''.join(traceback.format_exception(exc)))
+                else:self.fail('Diagnostic journal failure must stop')
+            self.assertTrue(error.fp is None or error.fp.closed)
+            self.assertEqual(m.used['provider_gets'],1)
+
+    def test_http_status_phase_and_debit_are_sanitized_and_legacy_meter_unchanged(self):
+        for url,category,method in [
+                ('https://data.alpaca.markets/v2/stocks/bars?token=PRIVATE_CANARY','ALPACA_BARS','GET'),
+                ('https://www.googleapis.com/upload/drive/v3/files?secret=PRIVATE_CANARY','DRIVE_CREATE','POST')]:
+            with self.subTest(category=category),tempfile.TemporaryDirectory() as t:
+                stream=io.BytesIO(b'PRIVATE_CANARY')
+                error=HTTPError(url,502,'PRIVATE_CANARY',{'Authorization':'PRIVATE_CANARY'},stream)
+                m=meter(t,Opener(failure=error)); before=c.bounded_json(m.journal)
+                self.assertNotIn('last_transport_failure',before)
+                with self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):m.perform(url,method=method)
+                value=c.bounded_json(m.journal); detail=value['last_transport_failure']
+                self.assertEqual(detail,dict(http_status=502,request_category=category,phase='HEADER_OPEN',method=method,request_ordinal=1))
+                self.assertTrue(stream.closed);self.assertNotIn('PRIVATE_CANARY',json.dumps(value))
+                self.assertEqual(value['usage']['provider_gets']+value['usage']['drive_requests'],1)
+
+    def test_non200_and_body_failure_keep_phase_cleanup_and_full_charge(self):
+        for wire,phase,status,reason in [
+                (b'HTTP/1.1 503 Unavailable\r\nContent-Length: 1\r\n\r\nx','HEADERS',503,'HTTP_ERROR'),
+                (b'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx','BODY_READ',200,'NETWORK')]:
+            with self.subTest(phase=phase),tempfile.TemporaryDirectory() as t:
+                opener=WireOpener(wire);m=meter(t,opener)
+                with self.assertRaisesRegex(c.Refused,reason):m.perform('https://www.googleapis.com/drive/v3/files/private-id?alt=media',limit=100)
+                value=c.bounded_json(m.journal)
+                self.assertEqual(value['last_transport_failure']['phase'],phase)
+                self.assertEqual(value['last_transport_failure']['http_status'],status)
+                self.assertEqual(value['last_transport_failure']['request_category'],'DRIVE_MEDIA')
+                self.assertEqual(value['usage']['drive_bytes'],101+65536);self.assertTrue(opener.closed)
+
+
+class NamedExternalRecoveryTests(unittest.TestCase):
+    """Synthetic original13/failed120 revision, never an execution consent."""
+    def setUp(self):
+        self.base=ExternalCohortTests();self.base.setUp();self.addCleanup(self.base.doCleanups)
+        b=self.base;self.old=b.new
+        raw=('ticker\n'+''.join('ZZZREC%03d\n'%i for i in range(169))).encode()
+        self.old['external_cohort']['input_csv']=raw.decode()
+        self.old['external_cohort']['scope']['input_sha256']=c.digest(raw);b.input.write_bytes(raw)
+        self.old_hash=c.validate_authorization(self.old);self.old_proof=b.proof()
+        with patch.object(c,'external_proof',return_value=self.old_proof),patch.object(c,'campaign_runs',return_value=b.old.runs):
+            family=c.external_family_registry(b.state,self.old,b.cohort_state)
+        self.family_path=family.directory
+        journal=c.WorkJournal(b.cohort_state,self.old_hash)
+        journal.append('EXTERNAL_COHORT_BOUND',scope=self.old['external_cohort']['scope'],
+            genesis_sha256=c.external_genesis(self.old['external_cohort']['scope']),**self.old_proof)
+        self.runs=[];self.values=[];used=dict(c.CONTINUATION['used']);before=0
+        parent=c.external_genesis(self.old['external_cohort']['scope'])
+        for index,end in enumerate((32,64,96,120),6):
+            run,value=b.suffix();run.update(id=index,display_title='a1-sip '+c.PREFIX+format(index,'x')*24)
+            checkpoint=c.digest(('fixture-checkpoint-%d'%end).encode())
+            value.update(run_id=index,nonce=run['display_title'][7:],parent_checkpoint_sha256=parent,
+                checkpoint_sha256=checkpoint,examined_before=before,examined_after=end,rows_verified=2*(end-before),
+                new_states=dict(VALID_COLLECTED=end-before,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS})
+            if end==120:run['conclusion']='failure';value.update(status='BLOCKED',reason='HTTP_ERROR')
+            self.append_pair(journal,family,run,value,self.old_proof)
+            self.runs.append(run);self.values.append(value)
+            used={k:used[k]+value['usage'][k] for k in c.LIMITS};before,parent=end,checkpoint
+        journal.close();family.close()
+        specification=dict(c.NAMED_RECOVERY,prior_auth=self.old_hash,run_id=9,
+            receipt_sha256=c.digest(c.encoded(self.values[-1])),checkpoint_sha256=parent,
+            cohort_event_sha256=c.digest((b.cohort_state/'000013.json').read_bytes()),
+            family_event_sha256=c.digest((self.family_path/'000013.json').read_bytes()))
+        patcher=patch.dict(c.NAMED_RECOVERY,specification,clear=True);patcher.start();self.addCleanup(patcher.stop)
+        self.new=copy.deepcopy(self.old);self.new.update(schema='r1000-sip-external-cohort-authorization-v2',expected_master='4'*40)
+        ex=self.new['external_cohort'];ex['proof_reference']=b.reference+'99';self.new['account_permission_reference']=ex['proof_reference']
+        ex['named_recovery']=dict(prior_capture_source=dict(expected_master=self.old['expected_master'],
+            code_pins=self.old['code_pins'],proof_reference=b.reference),failed_run_id=9,
+            failed_receipt_sha256=specification['receipt_sha256'],checkpoint_sha256=parent,examined=120)
+        self.new_hash=c.validate_authorization(self.new);self.new_proof=b.proof(self.new)
+        self.proofs={self.old_hash:self.old_proof,self.new_hash:self.new_proof}
+
+    def append_pair(self,journal,family,run,value,proof):
+        common=dict(nonce=value['nonce'],remaining=value['allowance'],active_seconds_remaining=43200,
+                    parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+        family.append('RESERVED',**common,capture_auth_sha256=value['auth_sha256'],scope=value['cohort_scope'])
+        journal.append('RESERVED',**common,external_proof_sha256=proof['proof_sha256'])
+        family.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'],capture_auth_sha256=value['auth_sha256'],scope=value['cohort_scope'])
+        journal.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'])
+        journal.append('SETTLED',nonce=value['nonce'],run_id=run['id'],receipt=value,
+            receipt_sha256=c.digest(c.encoded(value)),usage=value['usage'],examined_after=value['examined_after'],
+            checkpoint=dict(file_id='fixture-private-checkpoint-%d'%value['examined_after'],bytes=100,sha256=value['checkpoint_sha256']))
+        family.append('SETTLED',nonce=value['nonce'],run_id=run['id'],capture_auth_sha256=value['auth_sha256'],
+            scope=value['cohort_scope'],receipt_sha256=c.digest(c.encoded(value)),usage=value['usage'],checkpoint_sha256=value['checkpoint_sha256'])
+
+    def history(self,pairs=(),auth_value=None,**kwargs):
+        a=auth_value or self.new;run_values=list(pairs)
+        runs=self.base.old.runs+self.runs+[r for r,v in run_values]
+        values=self.base.old.receipts+self.values+[v for r,v in run_values]
+        with patch.object(c,'external_proof',side_effect=lambda x:self.proofs[c.validate_authorization(x)]), \
+             patch.object(c,'campaign_runs',return_value=runs),patch.object(c,'receipt_for_run',side_effect=values), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*(4+len(run_values))):
+            return c.external_history(a,**kwargs)
+
+    def next_pair(self,before=120,end=128,index=10,previous=None):
+        run=copy.deepcopy(self.runs[-1]);value=copy.deepcopy(self.values[-1])
+        run.update(id=index,head_sha=self.new['expected_master'],conclusion='success',display_title='a1-sip '+c.PREFIX+format(index,'x')*24)
+        used=dict(c.CONTINUATION['used'])
+        for v in self.values+([x[1] for x in previous] if previous else []):
+            used={k:used[k]+v['usage'][k] for k in c.LIMITS}
+        value.update(run_id=index,auth_sha256=self.new_hash,source_sha=self.new['expected_master'],
+            nonce=run['display_title'][7:],status='COMPLETE',reason=None,recovery_run=9 if before==120 else None,
+            external_proof_sha256=self.new_proof['proof_sha256'],account_permission_reference_sha256=c.digest(self.new['external_cohort']['proof_reference'].encode()),
+            account_permission_record_sha256=self.new_proof['proof_sha256'],examined_before=before,examined_after=end,
+            parent_checkpoint_sha256=(previous[-1][1]['checkpoint_sha256'] if previous else self.values[-1]['checkpoint_sha256']),
+            checkpoint_sha256=c.digest(('fixture-new-checkpoint-%d'%end).encode()),rows_verified=2*(end-before),
+            new_states=dict(VALID_COLLECTED=end-before,VERIFIED_NO_DATA=0,QUARANTINED=0),
+            allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS})
+        return run,value
+
+    def host_context(self,observed):
+        from contextlib import ExitStack
+        stack=ExitStack();b=self.base
+        stack.enter_context(patch.object(c,'local_reject_recovery',return_value=b.old.recovery))
+        stack.enter_context(patch.object(c,'external_proof',side_effect=lambda a:self.proofs[c.validate_authorization(a)]))
+        stack.enter_context(patch.object(c,'external_history',return_value=observed))
+        stack.enter_context(patch.object(c,'campaign_runs',return_value=observed['runs']))
+        stack.enter_context(patch.object(c,'external_deployed',return_value=None))
+        return stack
+
+    def test_exact_revision_reconstructs_old_auth_without_double_charging(self):
+        self.assertEqual(c.external_previous(self.new),self.old)
+        observed=self.history(recovery_run=9)
+        self.assertEqual(observed['examined'],120);self.assertEqual(observed['active_seconds'],912)
+        self.assertEqual(observed['used']['provider_gets'],c.CONTINUATION['used']['provider_gets']+24)
+        self.assertEqual(len(observed['runs']),9);self.assertEqual(observed['recovery_required'],9)
+        for field in ('failed_run_id','examined','checkpoint_sha256','failed_receipt_sha256'):
+            bad=copy.deepcopy(self.new);v=bad['external_cohort']['named_recovery'][field]
+            bad['external_cohort']['named_recovery'][field]=v+1 if type(v)is int else '0'*64
+            with self.subTest(field=field),self.assertRaises(c.Refused):c.validate_authorization(bad)
+        bad=copy.deepcopy(self.new);bad['external_cohort']['input_csv']=bad['external_cohort']['input_csv'].replace('ZZZREC000','ZZZCHANGED')
+        bad['external_cohort']['scope']['input_sha256']=c.digest(bad['external_cohort']['input_csv'].encode())
+        with self.assertRaises(c.Refused):c.validate_authorization(bad)
+
+    def test_one8_recovery_then_normal_followup_and_no_old_auth_reentry(self):
+        first=self.next_pair();observed=self.history([first])
+        self.assertEqual(observed['examined'],128);self.assertIsNone(observed['recovery_required'])
+        second=self.next_pair(128,160,11,[first]);self.assertEqual(self.history([first,second])['examined'],160)
+        for change in [dict(recovery_run=None),dict(examined_after=129),dict(parent_checkpoint_sha256='0'*64)]:
+            run,value=copy.deepcopy(first);value.update(change)
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.history([(run,value)])
+        old_run,old_value=copy.deepcopy(self.runs[-2]),copy.deepcopy(self.values[-2])
+        old_run['id']=11
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_AUTH_REVISION_ORDER'):self.history([first,(old_run,old_value)])
+
+    def test_new_failure_never_authorizes_a_second_recovery(self):
+        run,value=self.next_pair();run['conclusion']='failure';value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=120,checkpoint_sha256=value['parent_checkpoint_sha256'],rows_verified=0,new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0))
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.history([(run,value)])
+        accounted=self.history([(run,value)],allow_stopped=True)
+        self.assertEqual(accounted['examined'],120);self.assertIsNone(accounted['recovery_required'])
+        with self.assertRaises(c.Refused):self.history([(run,value)],recovery_run=9)
+        with self.assertRaises(c.Refused):self.history(recovery_run=10)
+
+    def test_first_complete_recovery_must_close_exactly_eight_names(self):
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_CLOSURE'):
+            self.history([self.next_pair(end=124)])
+
+    def test_missing_named_failure_refuses_history_and_worker_before_meter(self):
+        active,value=self.next_pair();active.update(status='in_progress',conclusion=None)
+        self.runs=self.runs[:-1];self.values=self.values[:-1]
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):self.history(recovery_run=9)
+        runs=self.base.old.runs+self.runs+[active]
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],
+            private_data_folder_id=self.new['private_data_folder_id'],start=self.new['start'],end=self.new['end'],
+            max_new_symbols=32,resume_sha256=self.values[-1]['checkpoint_sha256'],resume_file_id='fixture-parent-96')
+        control=dict(authorization=self.new,nonce=active['display_title'][7:],recovery_run=9,
+                     preflight_only=False,external_binding=self.new_proof)
+        env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=self.new['expected_master'],
+            GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID=str(active['id']),
+            INPUT_CAMPAIGN_NONCE=control['nonce'])
+        with patch.dict(os.environ,env),patch.object(c,'campaign_runs',return_value=runs), \
+             patch.object(c,'receipt_for_run',side_effect=self.base.old.receipts+self.values), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*3), \
+             patch.object(c,'external_proof',side_effect=lambda a:self.proofs[c.validate_authorization(a)]), \
+             patch.object(c,'RuntimeMeter',side_effect=AssertionError('No meter/I/O before named failure')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):
+            c.external_worker(args,control,self.base.root/'must-not-create-meter')
+        self.assertFalse((self.base.root/'must-not-create-meter').exists())
+
+    def test_revision_binding_preserves_old13_and_rejects_changed_new_proof(self):
+        path=self.base.cohort_state;before={p.name:p.read_bytes() for p in path.glob('*.json')}
+        j=c.external_journal(path,self.new,self.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision);j.close()
+        self.assertEqual(before,{p.name:p.read_bytes() for p in path.glob('*.json') if p.name in before})
+        j=c.external_journal(path,self.new,self.new_proof);j.close()
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BINDING'):
+            c.external_journal(path,self.new,dict(self.new_proof,proof_sha256='0'*64))
+        raw=(path/'000013.json').read_bytes();(path/'000013.json').write_bytes(raw+b' ')
+        with self.assertRaises(c.Refused):c.external_journal(path,self.new,self.new_proof)
+
+    def test_first_dispatch_requires_max1_and_retains_unknown_post_reservation(self):
+        b=self.base;observed=self.history(recovery_run=9)
+        for flag,limit in [(None,1),(9,2)]:
+            with self.subTest(flag=flag,limit=limit),self.host_context(observed), \
+                 patch.object(c.subprocess,'run',side_effect=AssertionError('No dispatch')),self.assertRaises(c.Refused):
+                c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,flag,limit)
+            self.assertFalse((b.cohort_state/'000014.json').exists())
+        posted=[]
+        def uncertain(args,**kwargs):
+            self.assertEqual(args[1:3],['workflow','run']);data=json.loads(kwargs['input'])
+            self.assertEqual(data['max_new_symbols'],'8');self.assertEqual(data['resume_sha256'],c.NAMED_RECOVERY['checkpoint_sha256'])
+            self.assertEqual(json.loads(data['campaign_control'])['recovery_run'],9);posted.append(data)
+            return SimpleNamespace(returncode=1)
+        with self.host_context(observed),patch.object(c.subprocess,'run',side_effect=uncertain),self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+        self.assertEqual(len(posted),1)
+        self.assertEqual(c.bounded_json(b.cohort_state/'000015.json')['kind'],'RESERVED')
+        with self.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')),self.assertRaises(c.Refused):
+            c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+        self.assertFalse((b.cohort_state/'writer.lock').exists());self.assertFalse((self.family_path/'writer.lock').exists())
+
+    def test_success_import_stops_at128_and_uses_effective_revision_proof(self):
+        b=self.base;first=self.next_pair();before=self.history(recovery_run=9);after=self.history([first])
+        dispatched=[]
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:dispatched.append(json.loads(kwargs['input']))
+            else:self.assertEqual(args[1:3],['run','watch'])
+            return SimpleNamespace(returncode=0)
+        with self.host_context(before),patch.object(c,'external_history',side_effect=lambda *a,**k:after if dispatched else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if dispatched else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('a'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(file_id='fixture-new-checkpoint-128',sha256=first[1]['checkpoint_sha256'],bytes=100)):
+            result=c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+        self.assertEqual(result['status'],'BATCH_BOUNDARY');self.assertEqual(result['examined'],128);self.assertEqual(len(dispatched),1)
+        self.assertEqual(c.bounded_json(b.cohort_state/'000017.json')['kind'],'SETTLED')
+        self.assertEqual(c.bounded_json(self.family_path/'000016.json')['kind'],'SETTLED')
+        self.assertEqual(c.digest((b.state/'000017.json').read_bytes()),c.CONTINUATION['event'])
+
+    def test_recovery_restart_import_or_family_repair_still_consumes_max1(self):
+        b=self.base;first=self.next_pair();after=self.history([first])
+        j=c.external_journal(b.cohort_state,self.new,self.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision);j.close()
+        with self.host_context(self.history(recovery_run=9)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('No POST after binding')):
+            for limit in (None,2):
+                with self.subTest(stage='bound',limit=limit),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                    c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,limit)
+        j=c.external_journal(b.cohort_state,self.new,self.new_proof)
+        with patch.object(c,'external_proof',return_value=self.old_proof):
+            family=c.external_family_registry(b.state,self.new,b.cohort_state)
+        self.append_pair(j,family,*first,self.new_proof);j.close();family.close()
+        # A successful remote recovery exists; neither journal has closed it.
+        (b.cohort_state/'000017.json').unlink();(self.family_path/'000016.json').unlink()
+        with self.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')):
+            for limit in (None,2):
+                with self.subTest(stage='import',limit=limit),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                    c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,limit)
+            with patch.object(c,'checkpoint_from_log',return_value=dict(file_id='fixture-new-checkpoint-128',sha256=first[1]['checkpoint_sha256'],bytes=100)):
+                result=c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+            self.assertEqual(result['status'],'BATCH_BOUNDARY');self.assertEqual(result['examined'],128)
+            # Crash after cohort SETTLED but before shared family SETTLED.
+            (self.family_path/'000016.json').unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,None,2)
+            repaired=c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,None,1)
+            self.assertEqual(repaired['status'],'BATCH_BOUNDARY');self.assertEqual(repaired['examined'],128)
+
+    def test_later_cohort_verifies_revision_journal_and_control_size(self):
+        b=self.base;j=c.external_journal(b.cohort_state,self.new,self.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision)
+        with patch.object(c,'external_proof',return_value=self.old_proof):
+            family=c.external_family_registry(b.state,self.new,b.cohort_state)
+        pairs=[]
+        for start,end,index in [(120,128,10),(128,160,11),(160,169,12)]:
+            pair=self.next_pair(start,end,index,pairs);pairs.append(pair)
+            self.append_pair(j,family,*pair,self.new_proof)
+        j.close();family.close()
+        later=copy.deepcopy(self.old);ex=later['external_cohort'];raw='ticker\nZZZLATER\n'
+        ex.update(input_csv=raw,prior_epochs=[self.new],proof_reference=b.reference+'999')
+        ex['scope']=dict(ex['scope'],namespace='fixture-marketcap-500',input_sha256=c.digest(raw.encode()))
+        later['account_permission_reference']=ex['proof_reference'];later_hash=c.validate_authorization(later)
+        self.proofs[later_hash]=b.proof(later)
+        observed=self.history(pairs,auth_value=later)
+        with patch.object(c,'external_proof',return_value=self.old_proof):
+            family=c.external_family_registry(b.state,later,b.root/'external-cohort-fixture-marketcap-500')
+        try:
+            c.verify_external_prior_journals(family,later,observed)
+            raw=(b.cohort_state/'000014.json').read_bytes();(b.cohort_state/'000014.json').write_bytes(raw+b' ')
+            with self.assertRaises(c.Refused):c.verify_external_prior_journals(family,later,observed)
+        finally:family.close()
+        self.assertLessEqual(len(c.encoded(later)),15000)
+        self.assertLessEqual(len(c.encoded(dict(authorization=later,nonce=c.PREFIX+'a'*24,recovery_run=None,preflight_only=False,external_binding=self.proofs[later_hash]))),16384)
+
+    def test_worker_limits_parent8_and_records_new_failure_without_reset(self):
+        active,value=self.next_pair();active.update(status='in_progress',conclusion=None)
+        runs=self.base.old.runs+self.runs+[active]
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],
+            private_data_folder_id=self.new['private_data_folder_id'],start=self.new['start'],end=self.new['end'],
+            max_new_symbols=8,resume_sha256=c.NAMED_RECOVERY['checkpoint_sha256'],resume_file_id='fixture-parent-120')
+        control=dict(authorization=self.new,nonce=active['display_title'][7:],recovery_run=9,
+                     preflight_only=False,external_binding=self.new_proof)
+        env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=self.new['expected_master'],
+            GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID=str(active['id']),
+            INPUT_CAMPAIGN_NONCE=control['nonce'],ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')
+        original_meter=c.RuntimeMeter;opener=Opener(failure=HTTPError('https://data.alpaca.markets/PRIVATE_CANARY',502,'PRIVATE_CANARY',{},io.BytesIO(b'PRIVATE_CANARY')))
+        def create_meter(*a,**k):return original_meter(*a,opener=opener,**k)
+        def collect(a,**k):
+            self.assertEqual(k['expected_examined'],120)
+            self.assertEqual(cap.external_cohort(k['external']['input_csv'].encode())[120:128],
+                             cap.external_cohort(self.new['external_cohort']['input_csv'].encode())[120:128])
+            k['get']('https://data.alpaca.markets/v2/stocks/bars?PRIVATE_CANARY')
+        def context():
+            from contextlib import ExitStack
+            stack=ExitStack();stack.enter_context(patch.dict(os.environ,env))
+            stack.enter_context(patch.object(c,'campaign_runs',return_value=runs))
+            stack.enter_context(patch.object(c,'receipt_for_run',side_effect=self.base.old.receipts+self.values))
+            stack.enter_context(patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*4))
+            stack.enter_context(patch.object(c,'external_proof',side_effect=lambda a:self.proofs[c.validate_authorization(a)]))
+            stack.enter_context(patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=60)))
+            return stack
+        path=self.base.root/'new-worker-meter'
+        args.max_new_symbols=32
+        with context(),patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O meter for wrong scope')),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):
+            c.external_worker(args,control,path)
+        args.max_new_symbols=8
+        with context(),patch.object(c,'RuntimeMeter',side_effect=create_meter),patch.object(cap,'_collect',side_effect=collect),self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):
+            c.external_worker(args,control,path)
+        meter_value=c.bounded_json(path)
+        self.assertEqual(meter_value['usage']['provider_gets'],1);self.assertEqual(opener.calls,1)
+        self.assertEqual(meter_value['examined_after'],120);self.assertEqual(meter_value['rows_verified'],0)
+        self.assertEqual(meter_value['checkpoint_sha256'],c.NAMED_RECOVERY['checkpoint_sha256'])
+        self.assertEqual(meter_value['allowance']['provider_gets'],c.CONTINUED_LIMITS['provider_gets']-c.CONTINUATION['used']['provider_gets']-24)
+        self.assertEqual(meter_value['last_transport_failure']['http_status'],502)
+        self.assertNotIn('PRIVATE_CANARY',json.dumps(meter_value))
+
+    def test_failed_first_attempt_settles_once_and_restart_cannot_dispatch(self):
+        b=self.base;run,value=self.next_pair();run['conclusion']='failure'
+        value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=120,
+            checkpoint_sha256=value['parent_checkpoint_sha256'],rows_verified=0,
+            new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0))
+        before=self.history(recovery_run=9);after=self.history([(run,value)],allow_stopped=True)
+        posted=[]
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:posted.append(1)
+            return SimpleNamespace(returncode=0)
+        with self.host_context(before),patch.object(c,'external_history',side_effect=lambda *a,**k:after if posted else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if posted else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('a'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation),self.assertRaisesRegex(c.Refused,'CAMPAIGN_WORKER_BLOCKED'):
+            c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+        self.assertEqual(len(posted),1)
+        self.assertEqual(c.bounded_json(b.cohort_state/'000017.json')['receipt'],value)
+        with self.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second attempt')),self.assertRaisesRegex(c.Refused,'CAMPAIGN_WORKER_BLOCKED'):
+            c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,None,1)
+
+    def test_expiry_and_missing_family_prefix_never_reset_or_recreate_state(self):
+        original=c.utc;future=original(self.new_proof['expires_at_utc'])+timedelta(seconds=1)
+        old_receipts=c.encoded(self.values)
+        with patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)):
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):self.history(recovery_run=9)
+            accounted=self.history(enforce_expiry=False,allow_stopped=True)
+        self.assertEqual(accounted['examined'],120);self.assertEqual(c.encoded(self.values),old_receipts)
+        prefix=self.family_path/'000013.json';before=prefix.read_bytes();prefix.unlink()
+        with patch.object(c,'external_proof',return_value=self.old_proof), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_FAMILY_PREFIX'):
+            c.external_family_registry(self.base.state,self.new,self.base.cohort_state)
+        self.assertFalse(prefix.exists());self.assertFalse((self.family_path/'writer.lock').exists())
+        prefix.write_bytes(before)
+
+
+class DriveRevisionTests(unittest.TestCase):
+    """A second *named* transition; all evidence here is offline synthetic."""
+    def setUp(self):
+        n=NamedExternalRecoveryTests(); n.setUp(); self.addCleanup(n.doCleanups)
+        self.n=n; self.b=n.base; self.pairs=[]
+        j=c.external_journal(self.b.cohort_state,n.new,n.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision)
+        with patch.object(c,'external_proof',return_value=n.old_proof):
+            family=c.external_family_registry(self.b.state,n.new,self.b.cohort_state)
+        for before,end,index in [(120,128,10),(128,160,11),(160,169,12)]:
+            run,value=n.next_pair(before,end,index,self.pairs)
+            if index==12:
+                run['conclusion']='failure'
+                value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=160,
+                    checkpoint_sha256=value['parent_checkpoint_sha256'],rows_verified=0,
+                    new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                    last_transport_failure=dict(http_status=502,method='POST',phase='HEADER_OPEN',request_category='DRIVE_CREATE',request_ordinal=343))
+            n.append_pair(j,family,run,value,n.new_proof); self.pairs.append((run,value))
+        j.close();family.close()
+        spec=dict(c.DRIVE_RECOVERY,prior_auth=n.new_hash,master=n.new['expected_master'],run_id=12,
+            receipt_sha256=c.digest(c.encoded(self.pairs[-1][1])),checkpoint_sha256=self.pairs[-1][1]['checkpoint_sha256'],
+            cohort_event_sha256=c.digest((self.b.cohort_state/'000023.json').read_bytes()),
+            family_event_sha256=c.digest((n.family_path/'000022.json').read_bytes()))
+        patcher=patch.dict(c.DRIVE_RECOVERY,spec,clear=True);patcher.start();self.addCleanup(patcher.stop)
+        self.new=copy.deepcopy(n.new); self.new.update(schema='r1000-sip-external-cohort-authorization-v3',expected_master='5'*40)
+        ex=self.new['external_cohort'];old_ref=ex['proof_reference'];ex['proof_reference']=self.b.reference+'9999'
+        self.new['account_permission_reference']=ex['proof_reference']
+        ex['drive_recovery']=dict(prior_capture_source=dict(expected_master=n.new['expected_master'],
+            code_pins=n.new['code_pins'],proof_reference=old_ref),failed_run_id=12,
+            failed_receipt_sha256=spec['receipt_sha256'],checkpoint_sha256=spec['checkpoint_sha256'],examined=160)
+        self.h=c.validate_authorization(self.new);self.proof=self.b.proof(self.new);n.proofs[self.h]=self.proof
+
+    def history(self,extra=(),**kwargs):
+        return self.n.history(self.pairs+list(extra),auth_value=self.new,**kwargs)
+
+    def completion(self,end=169):
+        run,value=self.n.next_pair(160,end,13,self.pairs)
+        run['head_sha']=self.new['expected_master']
+        value.update(auth_sha256=self.h,source_sha=self.new['expected_master'],recovery_run=12,
+            external_proof_sha256=self.proof['proof_sha256'],account_permission_record_sha256=self.proof['proof_sha256'],
+            account_permission_reference_sha256=c.digest(self.new['external_cohort']['proof_reference'].encode()))
+        value['drive_orphan_reuse']=dict(failed_run_id=12,capture_source_sha=c.DRIVE_RECOVERY['master'],
+            derivation_source_sha=self.new['expected_master'],raw_sha256='b'*64,normalized_sha256='c'*64,
+            external_proof_sha256=self.proof['proof_sha256'],derivation_run_id=run['id'],
+            derivation_auth_sha256=self.h,parent_checkpoint_sha256=c.DRIVE_RECOVERY['checkpoint_sha256'],
+            derived_at_utc=c.utc().isoformat(),failed_run_observation_window=[c.DRIVE_RECOVERY['window_start'],c.DRIVE_RECOVERY['window_end']])
+        return run,value
+
+    def test_exact_three_versions_and_all_spent_costs_preserved(self):
+        self.assertEqual(c.external_previous(self.new),self.n.new)
+        self.assertEqual(c.external_variants(self.new),[self.n.old,self.n.new,self.new])
+        observed=self.history(recovery_run=12)
+        self.assertEqual(observed['examined'],160);self.assertEqual(len(observed['runs']),12)
+        self.assertEqual(observed['recovery_required'],12)
+        expected=c.CONTINUATION['used']['provider_gets']+sum(v['usage']['provider_gets'] for v in self.n.values+[p[1] for p in self.pairs])
+        self.assertEqual(observed['used']['provider_gets'],expected)
+        self.assertEqual(self.history([self.completion()])['examined'],169)
+        for flag in (9,13):
+            with self.subTest(flag=flag),self.assertRaises(c.Refused):self.history(recovery_run=flag)
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_CLOSURE'):self.history([self.completion(164)])
+
+    def test_sealed_old23_and_binding24_reject_proof_or_prefix_drift(self):
+        before={p.name:p.read_bytes() for p in self.b.cohort_state.glob('*.json')}
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof)
+            j.append('EXTERNAL_DRIVE_RECOVERY_BOUND',**j.drive_revision);j.close()
+            self.assertEqual(before,{p.name:p.read_bytes() for p in self.b.cohort_state.glob('*.json') if p.name in before})
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof);j.close()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_DRIVE_BINDING'):
+                c.external_journal(self.b.cohort_state,self.new,dict(self.proof,proof_sha256='0'*64))
+            (self.b.cohort_state/'000023.json').write_bytes(before['000023.json']+b' ')
+            with self.assertRaises(c.Refused):c.external_journal(self.b.cohort_state,self.new,self.proof)
+
+    def test_new_failure_is_terminal_and_wrong_target_cannot_bind(self):
+        run,value=self.completion();run['conclusion']='failure'
+        value.update(status='BLOCKED',reason='HTTP_ERROR',examined_after=160,checkpoint_sha256=value['parent_checkpoint_sha256'])
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.history([(run,value)])
+        self.assertEqual(self.history([(run,value)],allow_stopped=True)['examined'],160)
+        for field in ('failed_run_id','failed_receipt_sha256','checkpoint_sha256','examined'):
+            bad=copy.deepcopy(self.new);old=bad['external_cohort']['drive_recovery'][field]
+            bad['external_cohort']['drive_recovery'][field]=old+1 if type(old)is int else '0'*64
+            with self.subTest(field=field),self.assertRaises(c.Refused):c.validate_authorization(bad)
+
+    def test_max1_unknown_post_and_family22_prefix_guard(self):
+        observed=self.history(recovery_run=12);posted=[]
+        def operation(args,**kwargs):
+            data=json.loads(kwargs['input']);self.assertEqual(data['max_new_symbols'],'9')
+            self.assertEqual(json.loads(data['campaign_control'])['recovery_run'],12);posted.append(data)
+            return SimpleNamespace(returncode=1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No POST')):
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,2)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=operation),self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+        self.assertEqual(len(posted),1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')),self.assertRaises(c.Refused):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+
+    def test_prior500_wrapper_checks_both_revision_events_and_control_size(self):
+        pair=self.completion()
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof)
+            j.append('EXTERNAL_DRIVE_RECOVERY_BOUND',**j.drive_revision)
+            family=c.external_family_registry(self.b.state,self.new,self.b.cohort_state)
+            self.n.append_pair(j,family,*pair,self.proof);j.close();family.close()
+        later=copy.deepcopy(self.n.old);ex=later['external_cohort']
+        raw='ticker\n'+''.join('Q%03d\n'%i for i in range(500))
+        ex.update(input_csv=raw,prior_epochs=[self.new],proof_reference=self.b.reference+'99999')
+        ex['scope']=dict(ex['scope'],namespace='fixture-marketcap-500',input_sha256=c.digest(raw.encode()))
+        later.update(expected_master=self.new['expected_master'],code_pins=self.new['code_pins'],account_permission_reference=ex['proof_reference'])
+        h=c.validate_authorization(later);self.n.proofs[h]=self.b.proof(later)
+        observed=self.n.history(self.pairs+[pair],auth_value=later)
+        with patch.object(c,'external_proof',return_value=self.n.old_proof):
+            family=c.external_family_registry(self.b.state,later,self.b.root/'external-cohort-fixture-marketcap-500')
+        try:
+            with patch.object(c,'external_proof',side_effect=AssertionError('No remote I/O in final local guard')):
+                c.verify_external_prior_journals(family,later,observed)
+                missing=dict(observed,epoch_proofs={k:v for k,v in observed['epoch_proofs'].items() if k!=self.n.new_hash})
+                with self.assertRaisesRegex(c.Refused,'EXTERNAL_PRIOR_JOURNAL_DRIFT'):
+                    c.verify_external_prior_journals(family,later,missing)
+        finally:family.close()
+        self.assertLessEqual(len(c.encoded(dict(authorization=later,nonce=c.PREFIX+'a'*24,
+            recovery_run=None,preflight_only=False,external_binding=self.n.proofs[h]))),16384)
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000024.json')['kind'],'EXTERNAL_DRIVE_RECOVERY_BOUND')
+
+    def test_worker_reconciles_before_provider_then_only_remaining_five(self):
+        from contextlib import ExitStack
+        observed=self.history(recovery_run=12);run,_=self.completion();run.update(status='in_progress',conclusion=None)
+        observed['runs']=observed['runs']+[run]
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],private_data_folder_id=self.new['private_data_folder_id'],
+            start=self.new['start'],end=self.new['end'],max_new_symbols=9,resume_sha256=c.DRIVE_RECOVERY['checkpoint_sha256'],resume_file_id='fixture-parent-160')
+        control=dict(authorization=self.new,nonce=run['display_title'][7:],recovery_run=12,preflight_only=False,external_binding=self.proof)
+        env=dict(GITHUB_SHA=self.new['expected_master'],GITHUB_RUN_ID=str(run['id']),INPUT_CAMPAIGN_NONCE=control['nonce'],ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')
+        original=c.RuntimeMeter;opener=Opener(body=b'{}');meters=[];reconciled=[]
+        def create(*a,**k):
+            value=original(*a,opener=opener,**k);meters.append(value);return value
+        def recover(drive,a,auth_value,meter):
+            self.assertEqual(meter.used['provider_gets'],0);reconciled.append(1)
+            meter.examined=164;meter.checkpoint_sha='b'*64;return dict(file_id='fixture-parent-164',sha256='b'*64)
+        def collect(a,**k):
+            k['drive_factory'](a.private_root_folder_id,str(self.b.root))
+            self.assertEqual(reconciled,[1]);self.assertEqual(a.max_new_symbols,5);self.assertEqual(a.resume_sha256,'b'*64)
+            self.assertEqual(k['expected_examined'],164)
+            for symbol in cap.external_cohort(self.new['external_cohort']['input_csv'].encode())[164:169]:
+                k['get']('https://paper-api.alpaca.markets/v2/assets/'+symbol)
+            meter=meters[-1];meter.examined=169;meter.checkpoint_sha='c'*64
+            return dict(checkpoint=dict(sha256='c'*64))
+        def context():
+            stack=ExitStack();stack.enter_context(patch.dict(os.environ,env))
+            stack.enter_context(patch.object(c,'verify_worker_source',return_value=None))
+            stack.enter_context(patch.object(c,'external_history',return_value=observed))
+            stack.enter_context(patch.object(c,'external_proof',return_value=self.proof))
+            stack.enter_context(patch.object(c,'campaign_runs',return_value=observed['runs']))
+            stack.enter_context(patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=60)))
+            stack.enter_context(patch.object(c,'RuntimeMeter',side_effect=create))
+            stack.enter_context(patch.object(drive_module,'OwnerDrive',return_value=SimpleNamespace(owner=self.new['owner_permission_id'],free=3*1024**3)))
+            stack.enter_context(patch.object(cap,'_collect',side_effect=collect));return stack
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=c.Refused('EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS')),self.assertRaises(c.Refused):
+            c.external_worker(args,control,self.b.root/'worker-missing-meter')
+        self.assertEqual(opener.calls,0);self.assertEqual(meters[-1].examined,160)
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=recover):
+            c.external_worker(args,control,self.b.root/'worker-five-meter')
+        self.assertEqual(opener.calls,5);self.assertEqual(args.max_new_symbols,9)
+        self.assertEqual(c.bounded_json(self.b.root/'worker-five-meter')['examined_after'],169)
+
+    def test_expiry_missing_failure_and_changed_provenance_refuse(self):
+        original=c.utc;future=original(self.proof['expires_at_utc'])+timedelta(seconds=1)
+        with patch.object(c,'utc',side_effect=lambda value=None:future if value is None else original(value)),self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):
+            self.history(recovery_run=12)
+        removed=self.pairs.pop()
+        try:
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):self.history(recovery_run=12)
+        finally:self.pairs.append(removed)
+        run,value=self.completion();value['drive_orphan_reuse']['capture_source_sha']='0'*40
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_PROVENANCE'):self.history([(run,value)])
+
+    def close_host_once(self):
+        before=self.history(recovery_run=12);pair=self.completion();after=self.history([pair]);posted=[]
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:posted.append(json.loads(kwargs['input']))
+            else:self.assertEqual(args[1:3],['run','watch'])
+            return SimpleNamespace(returncode=0)
+        ref=dict(file_id='fixture-new-checkpoint-169',sha256=pair[1]['checkpoint_sha256'],bytes=100)
+        with self.n.host_context(before), \
+             patch.object(c,'external_history',side_effect=lambda *a,**k:after if posted else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if posted else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('d'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation),patch.object(c,'checkpoint_from_log',return_value=ref):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+        self.assertEqual(result['status'],'COHORT_PROCESSED');self.assertEqual(result['examined'],169)
+        self.assertEqual(len(posted),1);self.assertEqual(posted[0]['max_new_symbols'],'9')
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000027.json')['receipt'],pair[1])
+        self.assertEqual(c.bounded_json(self.n.family_path/'000025.json')['kind'],'SETTLED')
+        return after,ref
+
+    def test_complete9_host_selects_active_proof_and_restart_never_reposts(self):
+        after,ref=self.close_host_once()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)
+        self.assertEqual(result['examined'],169);self.assertEqual(len(list(self.b.cohort_state.glob('*.json'))),27)
+
+    def test_completed9_import_and_family_repair_consume_one_batch(self):
+        after,ref=self.close_host_once()
+        (self.b.cohort_state/'000027.json').unlink();(self.n.family_path/'000025.json').unlink()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')), \
+             patch.object(c,'checkpoint_from_log',return_value=ref):
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+            (self.n.family_path/'000025.json').unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+
+
+class DriveOrphanReuseTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        self.group=['TWST','UBS','UL','UPST'];self.names=['ZZZ%03d'%n for n in range(160)]+self.group+['VCYT','VICR','VIR','VSTM','WULF']
+        raw=('ticker\n'+'\n'.join(self.names)+'\n').encode();scope=dict(task_key='R1000-DISCOVERY-EXPANSION-INTAKE-20261017',namespace='discovery169-20261017',input_sha256=c.digest(raw))
+        self.auth=dict(expected_master='5'*40,start='2016-01-04',end='2026-10-14',external_cohort=dict(input_csv=raw.decode(),scope=scope))
+        self.args=SimpleNamespace(private_data_folder_id='fixture-folder-123',resume_file_id='fixture-checkpoint-160',resume_sha256='a'*64)
+        assets=[]
+        for symbol in self.group:
+            asset=c.encoded(dict(symbol=symbol,**{'class':'us_equity'},id='00000000-0000-0000-0000-000000000001',exchange='NASDAQ',status='active'))
+            assets.append(dict(symbol=symbol,url='https://paper-api.alpaca.markets/v2/assets/'+symbol,collected_at_utc='2026-10-17T12:24:00Z',http_status=200,response_utf8=asset.decode(),sha256=c.digest(asset)))
+        bar=dict(t='2026-10-01T00:00:00Z',o=1,h=2,l=1,c=2,v=4)
+        payload=c.encoded(dict(bars={s:[bar] for s in self.group},next_page_token=None));member=c.digest(payload)+'.json'
+        pages=[dict(sha256=c.digest(payload),bytes=len(payload),member=member,page=0,symbols=self.group,adjustment=b) for b in ('raw','split')]
+        self.manifest=dict(schema=cap.SCHEMA,source=cap.SOURCE,symbols=self.group,collected=self.group,no_bars=[],start=self.auth['start'],end=self.auth['end'],asof='2026-10-13',
+            seed_sha256=scope['input_sha256'],source_sha='4'*40,pages=pages,raw_adjustments=['raw','split'],historical_identity_verified=False,pit_verified=False,source_admission=False,commercial_use_authorized=False,cohort_scope=scope,asset_precheck=assets)
+        self.members={member:payload};self.raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(self.manifest)}))
+        rows=[r for s in self.group for b in ('raw','split') for r in cap.normalize([bar],s,b,self.auth['start'],self.auth['end'])]
+        self.norm=cap.gzip.compress(b''.join(c.encoded(r) for r in rows),mtime=0)
+        self.store={'fixture-raw-123':self.raw,'fixture-norm-123':self.norm};self.suffix={'fixture-raw-123':'.zip','fixture-norm-123':'.jsonl.gz'};self.writes=[]
+        self.listing=[dict(id=k,name=c.digest(v)+self.suffix[k],size=str(len(v)),parents=[self.args.private_data_folder_id],createdTime='2026-10-17T12:25:00Z') for k,v in self.store.items()]
+        test=self
+        class Drive:
+            token='OFFLINE_ONLY'; owner='fixture-owner'
+            def request(self,url,**kwargs):
+                q=parse_qs(urlsplit(url).query)['q'][0]
+                if 'createdTime' in q:return c.encoded(test.reply)
+                name=q.split("name = '")[1].split("'")[0]
+                return c.encoded(dict(files=[dict(id=k,name=name) for k,v in test.store.items() if c.digest(v)+test.suffix[k]==name]))
+            def check(self,fid,parent=None,folder=False):
+                c.require(fid in test.store and parent==test.args.private_data_folder_id,'OFFLINE_OWNER_REFUSAL')
+            def read(self,fid,limit=16_000_000):return test.store[fid]
+            def write(self,folder,raw,extension):
+                test.assertEqual(extension,'.json');test.writes.append(extension)
+                fid='fixture-new-'+str(len(test.writes));test.store[fid]=raw;test.suffix[fid]=extension
+                return dict(file_id=fid,sha256=c.digest(raw),bytes=len(raw))
+        self.drive=Drive();self.reply=dict(files=self.listing)
+        patcher=patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,master='4'*40,checkpoint_sha256='a'*64,raw_bytes=len(self.raw)),clear=True)
+        patcher.start();self.addCleanup(patcher.stop)
+        meter_identity=dict(identity(),source_sha=self.auth['expected_master'],examined_before=160,parent_checkpoint_sha256='a'*64,recovery_run=c.DRIVE_RECOVERY['run_id'],cohort_scope=scope,external_proof_sha256='e'*64)
+        self.meter=c.RuntimeMeter(dict(c.CONTINUED_LIMITS),self.root/'meter',(c.utc()+timedelta(minutes=10)).isoformat(),meter_identity,limits=c.CONTINUED_LIMITS)
+        self.parent=dict(file_id=self.args.resume_file_id,sha256='a'*64,bytes=100)
+
+    def recover(self):
+        with patch.dict(os.environ,{'GITHUB_SHA':self.auth['expected_master']}), \
+             patch.object(cap,'resume_state',return_value=(self.names[:160],self.names[:160],[],self.parent)):
+            return c.recover_drive_orphan(self.drive,self.args,self.auth,self.meter)
+
+    def test_exact_existing_originals_admit_four_with_no_provider_or_pack_write(self):
+        before=dict(self.store);ref=self.recover();self.assertEqual(self.writes,['.json','.json'])
+        self.assertEqual(self.meter.examined,164);self.assertEqual(self.meter.rows,8)
+        self.assertEqual(self.meter.used['provider_gets'],0)
+        self.assertEqual(before,{k:self.store[k] for k in before})
+        state=c.decode(self.store[ref['file_id']]);receipt=c.decode(self.store[state['last_objects'][2]['file_id']])
+        self.assertEqual(receipt['source_sha'],'4'*40)
+        self.assertEqual(receipt['recovered_from']['derivation_source_sha'],'5'*40)
+        self.assertEqual(receipt['asset_precheck'],self.manifest['asset_precheck'])
+
+    def test_missing_duplicate_or_paginated_listing_never_writes(self):
+        for files,token in [([],None),(self.listing[:1],None),(self.listing*2,None),(self.listing,'more')]:
+            self.reply=dict(files=files,nextPageToken=token)
+            with self.subTest(count=len(files),token=token),self.assertRaises(c.Refused):self.recover()
+            self.assertEqual(self.writes,[]);self.assertEqual(self.meter.used['provider_gets'],0)
+
+    def test_hash_false_normalization_or_owner_failure_refuses_before_json(self):
+        self.store['fixture-norm-123']=self.norm+b'corrupt'
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_HASH'):self.recover()
+        self.store['fixture-norm-123']=cap.gzip.compress(b'{}\n',mtime=0)
+        self.listing[1].update(name=c.digest(self.store['fixture-norm-123'])+'.jsonl.gz',size=str(len(self.store['fixture-norm-123'])))
+        with self.assertRaisesRegex(c.Refused,'RESUME_NORMALIZED_MISMATCH'):self.recover()
+        self.assertEqual(self.writes,[])
+
+    def test_wrong_original_source_scope_or_clock_never_becomes_reusable(self):
+        for field,value in [('source_sha','8'*40),('symbols',['VCYT']),('start','2017-01-01')]:
+            manifest=dict(self.manifest,**{field:value})
+            raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(manifest)}));self.store['fixture-raw-123']=raw
+            self.listing[0].update(name=c.digest(raw)+'.zip',size=str(len(raw)))
+            with patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,raw_bytes=len(raw))),self.subTest(field=field),self.assertRaises(c.Refused):self.recover()
+            self.assertEqual(self.writes,[])
+
+    def test_parent_or_permission_refusal_and_json_failure_stop_before_provider(self):
+        with patch.object(self.drive,'check',side_effect=c.Refused('OFFLINE_OWNER_REFUSAL')),self.assertRaisesRegex(c.Refused,'OFFLINE_OWNER_REFUSAL'):
+            self.recover()
+        self.assertEqual(self.writes,[])
+        with patch.object(self.drive,'write',side_effect=c.Refused('HTTP_ERROR')),self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):
+            self.recover()
+        self.assertEqual(self.meter.examined,160);self.assertEqual(self.meter.used['provider_gets'],0)
+
+    def test_original_asset_clock_and_parent_mismatch_stop_before_json(self):
+        manifest=copy.deepcopy(self.manifest);manifest['asset_precheck'][0]['collected_at_utc']='2030-01-01T00:00:00Z'
+        raw=cap.zip_bytes(dict(self.members,**{'capture.json':c.encoded(manifest)}));self.store['fixture-raw-123']=raw
+        self.listing[0].update(name=c.digest(raw)+'.zip',size=str(len(raw)))
+        with patch.dict(c.DRIVE_RECOVERY,dict(c.DRIVE_RECOVERY,raw_bytes=len(raw))),self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_CLOCK'):
+            self.recover()
+        self.assertEqual(self.writes,[])
+
+
+class MaterializationRevisionTests(unittest.TestCase):
+    """Third transition, including the complete host and prior-epoch guards."""
+    def setUp(self):
+        d=DriveRevisionTests();d.setUp();self.addCleanup(d.doCleanups)
+        self.d=d;self.n=d.n;self.b=d.b
+        run,value=d.completion(160);run['conclusion']='failure'
+        value.pop('drive_orphan_reuse');value.update(status='BLOCKED',reason='EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS')
+        value['usage']=dict(provider_gets=0,drive_requests=4,drive_bytes=263644,storage_bytes=0)
+        self.pairs=d.pairs+[(run,value)]
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,d.new,d.proof)
+            j.append('EXTERNAL_DRIVE_RECOVERY_BOUND',**j.drive_revision)
+            family=c.external_family_registry(self.b.state,d.new,self.b.cohort_state)
+            self.n.append_pair(j,family,run,value,d.proof);j.close();family.close()
+        spec=dict(c.MATERIALIZATION_RECOVERY,prior_auth=d.h,master=d.new['expected_master'],run_id=13,
+            receipt_sha256=c.digest(c.encoded(value)),checkpoint_sha256=value['checkpoint_sha256'],
+            cohort_event_sha256=c.digest((self.b.cohort_state/'000027.json').read_bytes()),
+            family_event_sha256=c.digest((self.n.family_path/'000025.json').read_bytes()))
+        p=patch.dict(c.MATERIALIZATION_RECOVERY,spec,clear=True);p.start();self.addCleanup(p.stop)
+        self.new=copy.deepcopy(d.new);ex=self.new['external_cohort'];old_ref=ex['proof_reference']
+        ex['proof_reference']=self.b.reference+'999999';self.new.update(schema='r1000-sip-external-cohort-authorization-v4',
+            expected_master='6'*40,account_permission_reference=ex['proof_reference'])
+        ex['materialization_recovery']=dict(prior_capture_source=dict(expected_master=d.new['expected_master'],
+            code_pins=d.new['code_pins'],proof_reference=old_ref),failed_run_id=13,
+            failed_receipt_sha256=spec['receipt_sha256'],checkpoint_sha256=spec['checkpoint_sha256'],examined=160)
+        self.h=c.validate_authorization(self.new);self.proof=self.b.proof(self.new);self.n.proofs[self.h]=self.proof
+
+    def history(self,extra=(),**kwargs):
+        return self.n.history(self.pairs+list(extra),auth_value=self.new,**kwargs)
+
+    def completion(self):
+        run,value=self.n.next_pair(160,169,14,self.pairs);run['head_sha']=self.new['expected_master']
+        value.update(auth_sha256=self.h,source_sha=self.new['expected_master'],recovery_run=13,
+            external_proof_sha256=self.proof['proof_sha256'],account_permission_record_sha256=self.proof['proof_sha256'],
+            account_permission_reference_sha256=c.digest(self.new['external_cohort']['proof_reference'].encode()))
+        value['orphan_inventory']=dict(schema='a1-bounded-orphan-inventory-v1',observed_at_utc=c.utc().isoformat(),
+            window=[c.DRIVE_RECOVERY['window_start'],c.DRIVE_RECOVERY['window_end']],files_count=1,has_more=False,
+            entries=[dict(kind='RAW',sha256='b'*64,bytes=505475,created_at_utc=c.DRIVE_RECOVERY['window_end'])])
+        reuse=copy.deepcopy(self.d.completion()[1]['drive_orphan_reuse'])
+        reuse.update(failed_run_id=13,derivation_source_sha=self.new['expected_master'],derivation_run_id=14,
+            derivation_auth_sha256=self.h,external_proof_sha256=self.proof['proof_sha256'],derived_at_utc=c.utc().isoformat())
+        reuse['materialization']=dict(capture_failed_run_id=12,rows_sha256='d'*64,codec='EXISTING_GZIP_VERIFIED',
+            mode='EXISTING_VERIFIED',created_at_utc='2026-10-16T00:00:00Z',lookup_observed_at_utc=c.utc().isoformat(),
+            inventory_sha256=c.digest(c.encoded(value['orphan_inventory'])),original_create_outcome='UNKNOWN')
+        reuse['derived_at_utc']=c.utc().isoformat();value['drive_orphan_reuse']=reuse
+        return run,value
+
+    def test_four_exact_versions_keep_all_thirteen_costs_and_terminal_failure(self):
+        self.assertEqual(c.external_previous(self.new),self.d.new)
+        self.assertEqual(c.external_variants(self.new),[self.n.old,self.n.new,self.d.new,self.new])
+        observed=self.history(recovery_run=13);self.assertEqual(len(observed['runs']),13)
+        self.assertEqual(observed['used']['provider_gets'],self.d.history(recovery_run=12)['used']['provider_gets'])
+        self.assertEqual(observed['used']['drive_requests'],self.d.history(recovery_run=12)['used']['drive_requests']+4)
+        self.assertEqual(self.history([self.completion()])['examined'],169)
+        run,value=self.completion();run['conclusion']='failure'
+        value.update(status='BLOCKED',reason='EXTERNAL_ORPHAN_ROLES',examined_after=160,
+            checkpoint_sha256=value['parent_checkpoint_sha256'],rows_verified=0,
+            new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0));value.pop('drive_orphan_reuse')
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXTERNAL_FAILURE_STOP'):self.history([(run,value)])
+        self.assertIsNone(self.history([(run,value)],allow_stopped=True)['recovery_required'])
+        for field in ('failed_run_id','failed_receipt_sha256','checkpoint_sha256','examined'):
+            bad=copy.deepcopy(self.new);v=bad['external_cohort']['materialization_recovery'][field]
+            bad['external_cohort']['materialization_recovery'][field]=v+1 if type(v)is int else '0'*64
+            with self.subTest(field=field),self.assertRaises(c.Refused):c.validate_authorization(bad)
+
+    def close_host(self):
+        before=self.history(recovery_run=13);pair=self.completion();after=self.history([pair]);posted=[]
+        ref=dict(file_id='fixture-new-checkpoint-169',sha256=pair[1]['checkpoint_sha256'],bytes=100)
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:posted.append(json.loads(kwargs['input']))
+            else:self.assertEqual(args[1:3],['run','watch'])
+            return SimpleNamespace(returncode=0)
+        with self.n.host_context(before),patch.object(c,'external_history',side_effect=lambda *a,**k:after if posted else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if posted else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('e'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation),patch.object(c,'checkpoint_from_log',return_value=ref):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,13,1)
+        self.assertEqual(result['examined'],169);self.assertEqual(len(posted),1)
+        self.assertEqual(json.loads(posted[0]['campaign_control'])['recovery_run'],13)
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000031.json')['receipt'],pair[1])
+        self.assertEqual(c.bounded_json(self.n.family_path/'000028.json')['kind'],'SETTLED')
+        self.closed_pair=pair
+        return after,ref
+
+    def test_active_v4_host_closure_restart_import_and_family_repair_no_second_post(self):
+        after,ref=self.close_host()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')), \
+             patch.object(c,'checkpoint_from_log',return_value=ref):
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,
+                self.b.old.local.bundle_path,None,1)['examined'],169)
+            for path in (self.b.cohort_state/'000031.json',self.n.family_path/'000028.json'):
+                path.unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,
+                self.b.old.local.bundle_path,None,1)['examined'],169)
+            (self.n.family_path/'000028.json').unlink()
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,
+                self.b.old.local.bundle_path,None,1)['examined'],169)
+
+    def test_wrong_active_or_historical_proof_and_max1_uncertain_post(self):
+        with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            j=c.external_journal(self.b.cohort_state,self.new,self.proof)
+            j.append('EXTERNAL_MATERIALIZATION_BOUND',**j.material_revision);j.close()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_BINDING'):
+                c.external_journal(self.b.cohort_state,self.new,self.d.proof)
+            saved=self.n.proofs[self.d.h];self.n.proofs[self.d.h]=self.proof
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_DRIVE_BINDING'):
+                c.external_journal(self.b.cohort_state,self.new,self.proof)
+            self.n.proofs[self.d.h]=saved
+        observed=self.history(recovery_run=13);posted=[]
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No POST')),self.assertRaises(c.Refused):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,13,2)
+        def uncertain(*a,**kw):posted.append(1);return SimpleNamespace(returncode=1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=uncertain),self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,13,1)
+        with self.n.host_context(observed),patch.object(c.subprocess,'run',side_effect=AssertionError('No repeat')),self.assertRaises(c.Refused):
+            c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,13,1)
+        self.assertEqual(posted,[1])
+
+    def test_prior500_local_guard_requires_all_old_proofs_and_preserves_control_cap(self):
+        self.close_host();later=copy.deepcopy(self.n.old);ex=later['external_cohort']
+        # Same1749-byte shape as the frozen incremental417 input; synthetic
+        # identities only. Do not raise the15KB cap to accommodate the wrapper.
+        raw='ticker\n'+''.join('Q'+chr(65+i//26)+chr(65+i%26)+('X' if i>=343 else '')+'\n' for i in range(417))
+        self.assertEqual(len(raw.encode()),1749)
+        ex.update(input_csv=raw,prior_epochs=[self.new],proof_reference=self.b.reference+'9999999')
+        ex['scope']=dict(ex['scope'],namespace='fixture-marketcap-500',input_sha256=c.digest(raw.encode()))
+        later.update(expected_master=self.new['expected_master'],code_pins=self.new['code_pins'],account_permission_reference=ex['proof_reference'])
+        h=c.validate_authorization(later);self.n.proofs[h]=self.b.proof(later)
+        observed=self.n.history(self.pairs+[self.closed_pair],auth_value=later)
+        with patch.object(c,'external_proof',return_value=self.n.old_proof):
+            family=c.external_family_registry(self.b.state,later,self.b.root/'external-cohort-fixture-marketcap-500')
+        try:
+            with patch.object(c,'external_proof',side_effect=AssertionError('No remote read in final guard')):
+                c.verify_external_prior_journals(family,later,observed)
+                for old in (self.n.new_hash,self.d.h,self.h):
+                    missing=dict(observed,epoch_proofs={k:v for k,v in observed['epoch_proofs'].items() if k!=old})
+                    with self.subTest(proof=old),self.assertRaises(c.Refused):c.verify_external_prior_journals(family,later,missing)
+        finally:family.close()
+        self.assertLessEqual(len(c.encoded(dict(authorization=later,nonce=c.PREFIX+'a'*24,recovery_run=None,
+            preflight_only=False,external_binding=self.n.proofs[h]))),16384)
+        self.assertLessEqual(len(c.encoded(c.external_proof_record(self.new))),4096)
+
+    def test_v4_worker_requires_reuse_closure_before_only_the_last_five(self):
+        from contextlib import ExitStack
+        observed=self.history(recovery_run=13);run,_=self.completion();run.update(status='in_progress',conclusion=None)
+        observed['runs']=observed['runs']+[run];meters=[];opener=Opener(body=b'{}');original=c.RuntimeMeter
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],private_data_folder_id=self.new['private_data_folder_id'],
+            start=self.new['start'],end=self.new['end'],max_new_symbols=9,resume_sha256=c.MATERIALIZATION_RECOVERY['checkpoint_sha256'],resume_file_id='fixture-parent-160')
+        control=dict(authorization=self.new,nonce=run['display_title'][7:],recovery_run=13,preflight_only=False,external_binding=self.proof)
+        def create(*a,**k):
+            meter=original(*a,opener=opener,**k);meters.append(meter);return meter
+        def recover(drive,a,auth_value,meter,**kwargs):
+            self.assertEqual(kwargs,dict(materialize=True));self.assertEqual(meter.used['provider_gets'],0)
+            meter.examined=164;meter.checkpoint_sha='b'*64;return dict(file_id='fixture-parent-164',sha256='b'*64)
+        def collect(a,**k):
+            k['drive_factory'](a.private_root_folder_id,str(self.b.root))
+            self.assertEqual(a.max_new_symbols,5);self.assertEqual(k['expected_examined'],164)
+            for symbol in cap.external_cohort(self.new['external_cohort']['input_csv'].encode())[164:169]:
+                k['get']('https://paper-api.alpaca.markets/v2/assets/'+symbol)
+            meters[-1].examined=169;meters[-1].checkpoint_sha='c'*64
+            return dict(checkpoint=dict(sha256='c'*64))
+        def context():
+            stack=ExitStack();stack.enter_context(patch.dict(os.environ,dict(GITHUB_SHA=self.new['expected_master'],
+                GITHUB_RUN_ID=str(run['id']),INPUT_CAMPAIGN_NONCE=control['nonce'],ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')))
+            for name,value in [('verify_worker_source',None),('external_history',observed),('external_proof',self.proof),
+                               ('campaign_runs',observed['runs']),('worker_deadline',c.utc()+timedelta(seconds=60))]:
+                stack.enter_context(patch.object(c,name,return_value=value))
+            stack.enter_context(patch.object(c,'RuntimeMeter',side_effect=create))
+            stack.enter_context(patch.object(drive_module,'OwnerDrive',return_value=SimpleNamespace(owner=self.new['owner_permission_id'],free=3*1024**3)))
+            stack.enter_context(patch.object(cap,'_collect',side_effect=collect));return stack
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=c.Refused('CP164_READBACK_FAILED')),self.assertRaises(c.Refused):
+            c.external_worker(args,control,self.b.root/'v4-refusal-meter')
+        self.assertEqual(opener.calls,0);self.assertEqual(meters[-1].examined,160)
+        with context(),patch.object(c,'recover_drive_orphan',side_effect=recover):
+            c.external_worker(args,control,self.b.root/'v4-complete-meter')
+        self.assertEqual(opener.calls,5);self.assertEqual(args.max_new_symbols,9)
+
+    def test_existing_mode_cannot_claim_new_encoder_provenance(self):
+        run,value=self.completion()
+        value['drive_orphan_reuse']['materialization']['codec']='GZIP_FILENAME_EMPTY_MTIME0_LEVEL9'
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):self.history([(run,value)])
+
+    def test_reuse_clocks_require_actual_values_without_now_fallback(self):
+        for missing in ('derived','observed','created','lookup','all'):
+            run,value=self.completion();reuse=value['drive_orphan_reuse'];material=reuse['materialization']
+            if missing in ('derived','all'):reuse['derived_at_utc']=None
+            if missing in ('observed','all'):value['orphan_inventory']['observed_at_utc']=None
+            if missing in ('created','all'):material['created_at_utc']=None
+            if missing in ('lookup','all'):material['lookup_observed_at_utc']=None
+            material['inventory_sha256']=c.digest(c.encoded(value['orphan_inventory']))
+            with self.subTest(missing=missing),self.assertRaises(c.Refused):self.history([(run,value)])
+
+    def test_normalized_inventory_binds_existing_mode_and_creation_clock(self):
+        for mutation in ('none','created','derived'):
+            run,value=self.completion();reuse=value['drive_orphan_reuse'];material=reuse['materialization']
+            inventory=value['orphan_inventory'];inventory['entries'].append(dict(inventory['entries'][0],
+                kind='NORMALIZED',sha256=reuse['normalized_sha256'],bytes=100))
+            material['created_at_utc']=inventory['entries'][1]['created_at_utc']
+            inventory['files_count']=2;material['inventory_sha256']=c.digest(c.encoded(inventory))
+            if mutation=='created':material['created_at_utc']=(c.utc(material['created_at_utc'])+timedelta(seconds=1)).isoformat()
+            elif mutation=='derived':
+                material.update(mode='DERIVED_NEW',codec='GZIP_FILENAME_EMPTY_MTIME0_LEVEL9',
+                    created_at_utc=inventory['observed_at_utc'],lookup_observed_at_utc=reuse['derived_at_utc'])
+            if mutation=='none':self.assertEqual(self.history([(run,value)])['examined'],169)
+            else:
+                with self.subTest(mutation=mutation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                    self.history([(run,value)])
+
+    def test_existing_lookup_cannot_predate_inventory_observation(self):
+        for earlier_derivation in (False,True):
+            run,value=self.completion();reuse=value['drive_orphan_reuse']
+            reuse['materialization']['lookup_observed_at_utc']=c.DRIVE_RECOVERY['window_end']
+            if earlier_derivation:reuse['derived_at_utc']=c.DRIVE_RECOVERY['window_end']
+            with self.subTest(earlier_derivation=earlier_derivation),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                self.history([(run,value)])
+
+    def test_noninventoried_existing_object_cannot_have_an_in_window_creation(self):
+        for clock in (c.DRIVE_RECOVERY['window_start'],'2026-10-17T12:25:00Z',c.DRIVE_RECOVERY['window_end']):
+            run,value=self.completion();value['drive_orphan_reuse']['materialization']['created_at_utc']=clock
+            with self.subTest(clock=clock),self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):
+                self.history([(run,value)])
+
+    def test_recovery_observations_cannot_predate_the_canonical_run(self):
+        run,value=self.completion();run['created_at']=c.utc().isoformat()
+        value['orphan_inventory']['observed_at_utc']=c.DRIVE_RECOVERY['window_end']
+        reuse=value['drive_orphan_reuse'];reuse['derived_at_utc']=c.DRIVE_RECOVERY['window_end']
+        reuse['materialization'].update(lookup_observed_at_utc=c.DRIVE_RECOVERY['window_end'],
+            inventory_sha256=c.digest(c.encoded(value['orphan_inventory'])))
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_RUN_CLOCK'):self.history([(run,value)])
+
+    def test_successful_receipts_must_close_the_same_bounded_inventory(self):
+        for mutation in ('pagination','count','missing_raw','two_norm','raw_hash','raw_bytes','norm_hash','clock'):
+            run,value=self.completion();inventory=value['orphan_inventory'];entries=inventory['entries']
+            if mutation=='pagination':inventory['has_more']=True
+            elif mutation=='count':inventory['files_count']=2
+            elif mutation=='missing_raw':entries[0]['kind']='JSON'
+            elif mutation=='two_norm':entries.extend([dict(entries[0],kind='NORMALIZED')]*2);inventory['files_count']=3
+            elif mutation=='raw_hash':entries[0]['sha256']='f'*64
+            elif mutation=='raw_bytes':entries[0]['bytes']=1
+            elif mutation=='norm_hash':entries.append(dict(entries[0],kind='NORMALIZED'));inventory['files_count']=2
+            else:entries[0]['created_at_utc']=(c.utc(c.DRIVE_RECOVERY['window_end'])+timedelta(seconds=1)).isoformat()
+            c.verify_orphan_inventory(inventory)  # Valid diagnostic shape, not successful evidence.
+            value['drive_orphan_reuse']['materialization']['inventory_sha256']=c.digest(c.encoded(inventory))
+            with self.subTest(mutation=mutation),self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_INVENTORY_CLOSURE'):
+                self.history([(run,value)])
+
+
+class OrphanMaterializationTests(unittest.TestCase):
+    def setUp(self):
+        f=DriveOrphanReuseTests();f.setUp();self.addCleanup(f.doCleanups);self.f=f
+        f.auth['external_cohort']['materialization_recovery']={}
+        f.meter.identity['recovery_run']=c.MATERIALIZATION_RECOVERY['run_id']
+        self.clock={k:'2026-10-17T12:25:00Z' for k in f.store};test=self
+        class Drive(type(f.drive)):
+            def request(self,url,**kwargs):
+                q=parse_qs(urlsplit(url).query)['q'][0]
+                if 'createdTime' in q:return c.encoded(f.reply)
+                name=q.split("name = '")[1].split("'")[0]
+                return c.encoded(dict(files=[dict(id=k,name=name,size=str(len(v)),parents=[f.args.private_data_folder_id],
+                    createdTime=test.clock[k]) for k,v in f.store.items() if c.digest(v)+f.suffix[k]==name]))
+            def write(self,folder,raw,extension):
+                test.assertIn(extension,('.jsonl.gz','.json'));f.writes.append(extension)
+                fid='fixture-new-'+str(len(f.writes));f.store[fid]=raw;f.suffix[fid]=extension;test.clock[fid]=c.utc().isoformat()
+                return dict(file_id=fid,sha256=c.digest(raw),bytes=len(raw))
+        f.drive=Drive()
+
+    def recover(self):
+        f=self.f
+        with patch.dict(os.environ,{'GITHUB_SHA':f.auth['expected_master']}), \
+             patch.object(cap,'resume_state',return_value=(f.names[:160],f.names[:160],[],f.parent)):
+            return c.recover_drive_orphan(f.drive,f.args,f.auth,f.meter,materialize=True)
+
+    def test_raw_only_creates_one_explicit_normalized_derivation_and_keeps_original(self):
+        f=self.f;f.reply=dict(files=f.listing[:1]);f.store.pop('fixture-norm-123');before=dict(f.store)
+        ref=self.recover();self.assertEqual(f.writes,['.jsonl.gz','.json','.json'])
+        self.assertEqual(f.meter.examined,164);self.assertEqual(f.meter.used['provider_gets'],0)
+        self.assertEqual(before,{k:f.store[k] for k in before})
+        reuse=c.decode(f.store[ref['file_id']])['recovered_from'];self.assertEqual(reuse['materialization']['mode'],'DERIVED_NEW')
+        self.assertEqual(reuse['materialization']['original_create_outcome'],'UNKNOWN')
+        self.assertNotIn('fixture-',c.encoded(f.meter.identity['orphan_inventory']).decode())
+
+    def test_different_gzip_headers_reuse_by_rows_without_normalized_upload(self):
+        f=self.f;f.store['fixture-norm-123']=cap.gzip.compress(cap.gzip.decompress(f.norm),mtime=123)
+        f.listing[1].update(name=c.digest(f.store['fixture-norm-123'])+'.jsonl.gz',size=str(len(f.store['fixture-norm-123'])))
+        ref=self.recover();self.assertEqual(f.writes,['.json','.json'])
+        reuse=c.decode(f.store[ref['file_id']])['recovered_from']
+        self.assertEqual(reuse['materialization']['rows_sha256'],c.digest(cap.gzip.decompress(f.norm)))
+        self.assertEqual(reuse['normalized_sha256'],c.digest(f.store['fixture-norm-123']))
+
+    def test_exact_content_lookup_outside_window_and_unrelated_json_are_bounded(self):
+        f=self.f;f.reply=dict(files=f.listing[:1]);self.clock['fixture-norm-123']=c.utc().isoformat()
+        other=dict(f.listing[0],id='fixture-other-json',name='f'*64+'.json');f.reply['files'].append(other)
+        self.recover();self.assertEqual(f.writes,['.json','.json'])
+        self.assertEqual(f.meter.identity['orphan_inventory']['files_count'],2)
+        self.assertEqual([x['kind'] for x in f.meter.identity['orphan_inventory']['entries']],['RAW','JSON'])
+
+    def test_exact_name_older_normalized_object_retains_its_actual_creation_clock(self):
+        f=self.f;f.reply=dict(files=f.listing[:1]);self.clock['fixture-norm-123']='2026-10-16T00:00:00Z'
+        ref=self.recover();reuse=c.decode(f.store[ref['file_id']])['recovered_from']
+        self.assertEqual(f.writes,['.json','.json']);self.assertEqual(f.meter.examined,164)
+        self.assertEqual(reuse['materialization']['mode'],'EXISTING_VERIFIED')
+        self.assertEqual(reuse['materialization']['created_at_utc'],'2026-10-16T00:00:00Z')
+        self.assertEqual(f.meter.used['provider_gets'],0)
+
+    def test_exact_name_in_window_object_missing_from_inventory_refuses(self):
+        f=self.f;f.reply=dict(files=f.listing[:1])
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):self.recover()
+        self.assertEqual(f.writes,[]);self.assertEqual(f.meter.examined,160)
+        self.assertEqual(f.meter.used['provider_gets'],0)
+
+    def test_older_raw_is_still_outside_the_sealed_original_window(self):
+        f=self.f;f.listing[0]['createdTime']='2026-10-16T00:00:00Z'
+        with patch.object(f.drive,'read',side_effect=AssertionError('No bytes before original-window closure')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_LISTING'):
+            self.recover()
+        self.assertEqual(f.writes,[]);self.assertEqual(f.meter.examined,160)
+
+    def test_missing_duplicate_paginated_and_unknown_names_record_safe_diagnostic_no_write(self):
+        f=self.f
+        for files,token in [([],None),(f.listing*2,None),(f.listing,'more'),([dict(f.listing[0],name='PRIVATE_SECRET_URL')],None)]:
+            f.reply=dict(files=files,nextPageToken=token)
+            with self.subTest(count=len(files),token=token),self.assertRaises(c.Refused):self.recover()
+            evidence=f.meter.identity['orphan_inventory'];c.verify_orphan_inventory(evidence)
+            self.assertNotIn('PRIVATE_SECRET_URL',c.encoded(evidence).decode());self.assertEqual(f.writes,[])
+
+    def test_invalid_raw_owner_rows_or_full_parent_refuse_before_normalization_write(self):
+        f=self.f
+        with patch.object(f.drive,'check',side_effect=c.Refused('OWNER_REFUSAL')),self.assertRaises(c.Refused):self.recover()
+        original=f.store['fixture-raw-123'];f.store['fixture-raw-123']=original+b'bad'
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_HASH'):self.recover()
+        f.store['fixture-raw-123']=original
+        with patch.object(cap,'resume_state',side_effect=c.Refused('FULL_PARENT_INVALID')):
+            # recover() normally supplies the valid fixture parent itself.
+            with patch.dict(os.environ,{'GITHUB_SHA':f.auth['expected_master']}),self.assertRaisesRegex(c.Refused,'FULL_PARENT_INVALID'):
+                c.recover_drive_orphan(f.drive,f.args,f.auth,f.meter,materialize=True)
+        f.store['fixture-norm-123']=cap.gzip.compress(b'{}\n',mtime=0)
+        f.listing[1].update(name=c.digest(f.store['fixture-norm-123'])+'.jsonl.gz',size=str(len(f.store['fixture-norm-123'])))
+        with self.assertRaisesRegex(c.Refused,'RESUME_NORMALIZED_MISMATCH'):self.recover()
+        self.assertEqual(f.writes,[]);self.assertEqual(f.meter.examined,160)
+
+    def test_unknown_create_stops_once_and_checkpoint_readback_failure_never_advances(self):
+        f=self.f;f.reply=dict(files=f.listing[:1]);f.store.pop('fixture-norm-123');attempts=[]
+        def uncertain(*a,**k):attempts.append(1);raise c.Refused('HTTP_ERROR')
+        with patch.object(f.drive,'write',side_effect=uncertain),self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):self.recover()
+        self.assertEqual(attempts,[1]);self.assertEqual(f.meter.examined,160)
+        write=f.drive.write
+        def tamper(folder,raw,ext):
+            ref=write(folder,raw,ext)
+            if ext=='.json' and c.decode(raw).get('examined'):
+                f.store[ref['file_id']]=b'{}'
+            return ref
+        with patch.object(f.drive,'write',side_effect=tamper),self.assertRaises(c.Refused):self.recover()
+        self.assertEqual(f.meter.examined,160);self.assertEqual(f.meter.used['provider_gets'],0)
+
+
 if __name__=='__main__': unittest.main()

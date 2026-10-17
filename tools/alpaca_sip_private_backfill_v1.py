@@ -57,6 +57,90 @@ def cohort(raw: bytes) -> list[str]:
     return sorted(values)
 
 
+def external_cohort(raw: bytes) -> list[str]:
+    """Explicit bounded discovery input; never changes the legacy IWB seed."""
+    require(isinstance(raw, bytes) and 0 < len(raw) <= 8192, "EXTERNAL_COHORT_SIZE")
+    try:
+        rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"), newline="")))
+    except (UnicodeError, csv.Error):
+        raise Refused("EXTERNAL_COHORT_SCHEMA") from None
+    require(rows and rows[0] == ["ticker"] and 1 <= len(rows)-1 <= 500
+            and all(len(row) == 1 and SYMBOL.fullmatch(row[0]) for row in rows[1:]),
+            "EXTERNAL_COHORT_SCHEMA")
+    names = [row[0] for row in rows[1:]]
+    require(len(set(names)) == len(names), "EXTERNAL_COHORT_DUPLICATE")
+    return names
+
+
+def external_scope(value):
+    require(isinstance(value, dict) and set(value) ==
+            {"task_key", "namespace", "input_sha256"}
+            and isinstance(value["task_key"], str)
+            and re.fullmatch(r"R1000-[A-Z0-9-]{8,100}", value["task_key"])
+            and isinstance(value["namespace"], str)
+            and re.fullmatch(r"[a-z][a-z0-9-]{7,79}", value["namespace"])
+            and isinstance(value["input_sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", value["input_sha256"]), "EXTERNAL_COHORT_SCOPE")
+    return dict(value)
+
+
+def asset_record(raw, symbol):
+    """Current asset reference only, never historical identity/entitlement."""
+    value = decode(raw)
+    require(isinstance(value, dict) and value.get("symbol") == symbol
+            and value.get("class") == "us_equity"
+            and isinstance(value.get("id"), str)
+            and re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value["id"])
+            and isinstance(value.get("exchange"), str) and 1 <= len(value["exchange"]) <= 32
+            and value.get("status") in ("active", "inactive"), "EXTERNAL_ASSET_IDENTITY")
+    return value
+
+
+def verify_asset_evidence(evidence, names):
+    require(isinstance(evidence, list) and len(evidence) == len(names), "EXTERNAL_ASSET_EVIDENCE")
+    for row, symbol in zip(evidence, names):
+        require(isinstance(row, dict) and set(row) ==
+                {"symbol", "url", "collected_at_utc", "http_status", "response_utf8", "sha256"}
+                and row["symbol"] == symbol
+                and row["url"] == "https://paper-api.alpaca.markets/v2/assets/" + symbol
+                and valid_clock(row["collected_at_utc"]), "EXTERNAL_ASSET_EVIDENCE")
+        if row["http_status"] == 404:
+            require(type(row["http_status"]) is int and row["response_utf8"] is None
+                    and row["sha256"] is None, "EXTERNAL_ASSET_EVIDENCE")
+        else:
+            require(type(row["http_status"]) is int and row["http_status"] == 200
+                    and isinstance(row["response_utf8"], str)
+                    and 0 < len(row["response_utf8"].encode()) <= 65536
+                    and digest(row["response_utf8"].encode()) == row["sha256"], "EXTERNAL_ASSET_EVIDENCE")
+            asset_record(row["response_utf8"].encode(), symbol)
+
+
+def precheck_assets(names, key, secret, get):
+    evidence = []
+    for symbol in names:
+        url = "https://paper-api.alpaca.markets/v2/assets/" + symbol
+        row = dict(symbol=symbol, url=url, collected_at_utc=datetime.now(timezone.utc).isoformat(),
+                   http_status=200, response_utf8=None, sha256=None)
+        try:
+            raw = get(url, headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+                      limit=65536, credentials=(key, secret))
+            credential_safe_json(raw, (key, secret))
+            asset_record(raw, symbol)
+            row.update(response_utf8=raw.decode("utf-8"), sha256=digest(raw))
+        except Refused as exc:
+            if str(exc) != "ASSET_NOT_FOUND":
+                raise
+            row["http_status"] = 404  # No response bytes/hash are invented.
+        evidence.append(row)
+    verify_asset_evidence(evidence, names)
+    return evidence
+
+
+def asset_supported(row):
+    return row["http_status"] == 200 and asset_record(
+        row["response_utf8"].encode(), row["symbol"])["status"] == "active"
+
+
 def mapping_asof(end: str) -> str:
     """Stable symbol-identity mapping date derived only from frozen cohort end."""
     require(isinstance(end, str) and
@@ -281,6 +365,8 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
                     and manifest.get("start") == receipt.get("start")
                     and manifest.get("end") == receipt.get("end")
                     and manifest.get("asof") == receipt.get("asof")
+                    and manifest.get("cohort_scope") == receipt.get("cohort_scope")
+                    and manifest.get("asset_precheck") == receipt.get("asset_precheck")
                     and manifest.get("asof") == mapping_asof(receipt.get("end"))
                     and manifest.get("raw_adjustments") == ["raw", "split"]
                     and manifest.get("pit_verified") is False
@@ -288,6 +374,11 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
                     and manifest.get("commercial_use_authorized") is False
                     and manifest.get("source_admission") is False,
                     "RESUME_MANIFEST")
+            if receipt.get("cohort_scope") is not None:
+                external_scope(receipt["cohort_scope"])
+                verify_asset_evidence(receipt.get("asset_precheck"), names)
+                require(all(asset_supported(row) for row in receipt["asset_precheck"]),
+                        "EXTERNAL_ASSET_EVIDENCE")
             evidence = manifest.get("pages")
             require(isinstance(evidence, list)
                     and 2 <= len(evidence) <= 2 * MAX_PAGES
@@ -366,7 +457,7 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
 
 
 def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
-                 seed_sha: str, start: str, end: str):
+                 seed_sha: str, start: str, end: str, *, scope=None):
     """Restore verified groups and separately quarantined invalid observations.
 
     examined is a contiguous discovery-queue prefix. completed contains only
@@ -399,6 +490,7 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
         state = decode(original)
         require(isinstance(state, dict) and state.get("schema") == SCHEMA
                 and state.get("seed_sha256") == seed_sha
+                and state.get("cohort_scope") == scope
                 and state.get("start") == start and state.get("end") == end
                 and state.get("asof") == asof
                 and state.get("source") == SOURCE
@@ -429,7 +521,8 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
             raise Refused("RESUME_CHAIN_MEMBERSHIP")
         refs = state.get("last_objects")
         status = state.get("last_status")
-        require(status in ("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE")
+        require(status in (("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE", "HELD_PROVIDER_ASSET")
+                           if scope else ("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE"))
                 and isinstance(refs, list)
                 and len(refs) == (3 if status == "VERIFIED_RAW_SPLIT" else 1),
                 "RESUME_OBJECTS")
@@ -443,6 +536,7 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and receipt.get("scope") == "PRIVATE_RESEARCH_ONLY"
                     and receipt.get("source") == SOURCE
                     and receipt.get("seed_sha256") == seed_sha
+                    and receipt.get("cohort_scope") == scope
                     and receipt.get("start") == start
                     and receipt.get("end") == end
                     and receipt.get("asof") == asof
@@ -481,10 +575,11 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
             require(isinstance(marker, dict)
                     and marker.get("schema") == SCHEMA
                     and marker.get("scope") == "PRIVATE_RESEARCH_ONLY"
-                    and marker.get("status") == "HELD_BAR_VALUE"
-                    and marker.get("reason") == "BAR_VALUE"
+                    and marker.get("status") == status
+                    and marker.get("reason") == ("PROVIDER_ASSET_UNAVAILABLE" if status == "HELD_PROVIDER_ASSET" else "BAR_VALUE")
                     and marker.get("source") == SOURCE
                     and marker.get("seed_sha256") == seed_sha
+                    and marker.get("cohort_scope") == scope
                     and marker.get("start") == start
                     and marker.get("end") == end
                     and marker.get("asof") == asof
@@ -496,6 +591,10 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and marker.get("original_price_bytes_retained") is False,
                     "RESUME_HELD_RECEIPT")
             group = marker.get("symbols")
+            if status == "HELD_PROVIDER_ASSET":
+                verify_asset_evidence(marker.get("asset_precheck"), group)
+                require(all(not asset_supported(row) for row in marker["asset_precheck"]),
+                        "EXTERNAL_ASSET_EVIDENCE")
             require(isinstance(group, list)
                     and 1 <= len(group) <= GROUP_SIZE
                     and len(group) == len(set(group))
@@ -533,7 +632,7 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
 
 def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
                       start: str, end: str, key: str, secret: str,
-                      seed_sha: str, source_sha: str, *, get=None):
+                      seed_sha: str, source_sha: str, *, get=None, scope=None, asset_evidence=None):
     raw_members, evidence, results = {}, [], {}
     for adjustment in ("raw", "split"):
         members, grouped, pages = request_pages(
@@ -573,6 +672,8 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
         "historical_identity_verified": False, "pit_verified": False,
         "source_admission": False, "commercial_use_authorized": False,
     }
+    if scope is not None:
+        meta.update(cohort_scope=scope, asset_precheck=asset_evidence)
     raw_members["capture.json"] = encoded(meta)
     zipped = zip_bytes(raw_members)
     require(0 < len(zipped) < 16_000_000, "PACK_BUDGET")
@@ -595,11 +696,13 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
         "pit_verified": False, "historical_identity_verified": False,
         "commercial_use_authorized": False,
     }
+    if scope is not None:
+        receipt.update(cohort_scope=scope, asset_precheck=asset_evidence)
     rec_obj = persist_object(drive, folder, encoded(receipt), ".json")
     return [raw_obj, norm_obj, rec_obj], collected, missing, len(normalized)
 
 
-def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=None):
+def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=None, external=None):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true",
             "USER_AUTHORIZATION_MISSING")
     require(os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
@@ -615,8 +718,17 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
     require(args.start == MIN_START and MIN_START < args.end <= date.today().isoformat(),
             "DATE_SCOPE")
     require(1 <= args.max_new_symbols <= 32, "BATCH_SCOPE")
-    seed = SEED.read_bytes()
-    names = cohort(seed)
+    scope = None
+    if external is None:
+        seed = SEED.read_bytes()
+        names = cohort(seed)
+    else:
+        require(isinstance(external, dict) and set(external) == {"input_csv", "scope"}
+                and callable(get), "EXTERNAL_COHORT_SCOPE")
+        scope = external_scope(external["scope"])
+        seed = external["input_csv"].encode("utf-8")
+        names = external_cohort(seed)
+        require(digest(seed) == scope["input_sha256"], "EXTERNAL_COHORT_HASH")
     seed_sha = digest(seed)
     with tempfile.TemporaryDirectory(prefix="a1-alpaca-private-") as tmp:
         drive = drive_factory(args.private_root_folder_id, tmp)
@@ -624,7 +736,7 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
         examined, completed, held_invalid, prior = resume_state(
             drive, args.private_data_folder_id,
             args.resume_file_id, args.resume_sha256,
-            seed_sha, args.start, args.end,
+            seed_sha, args.start, args.end, **({"scope": scope} if scope is not None else {}),
         )
         # The discovery queue is immutable; held groups do not become
         # completed data and cannot silently create holes in the worklist.
@@ -639,14 +751,28 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
         checkpoint, row_count = prior, 0
         held_this_batch = []
         no_data_this_batch = []
-        for offset in range(0, len(selected), GROUP_SIZE):
-            group = selected[offset:offset + GROUP_SIZE]
+        asset_rows = precheck_assets(selected, key, secret, get) if scope is not None else None
+        offset = 0
+        while offset < len(selected):
+            size = GROUP_SIZE
+            unavailable = asset_rows is not None and not asset_supported(asset_rows[offset])
+            if asset_rows is not None:
+                size = 1
+                while size < GROUP_SIZE and offset+size < len(selected) and (
+                        not asset_supported(asset_rows[offset+size])) == unavailable:
+                    size += 1
+            group = selected[offset:offset + size]
+            assets = asset_rows[offset:offset+len(group)] if asset_rows is not None else None
+            offset += len(group)
             try:
+                if unavailable:
+                    raise Refused("PROVIDER_ASSET_UNAVAILABLE")
                 objs, accepted, missing, rows = capture_one_group(
                     drive, args.private_data_folder_id, group,
                     args.start, args.end, key, secret, seed_sha,
                     source_sha,
                     **({"get": get} if get is not None else {}),
+                    **({"scope": scope, "asset_evidence": assets} if scope is not None else {}),
                 )
             except Refused as exc:
                 # A single invalid numerical bar gives no eligible data
@@ -655,11 +781,13 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                 # deterministic error is recoverable. Auth, quota,
                 # incomplete pagination, identity and storage failures
                 # remain terminal.
-                if str(exc) != "BAR_VALUE":
+                if str(exc) != "BAR_VALUE" and not (scope is not None and unavailable
+                                                  and str(exc) == "PROVIDER_ASSET_UNAVAILABLE"):
                     raise
+                held_status = "HELD_PROVIDER_ASSET" if unavailable else "HELD_BAR_VALUE"
                 marker = {
                     "schema": SCHEMA, "scope": "PRIVATE_RESEARCH_ONLY",
-                    "status": "HELD_BAR_VALUE", "reason": "BAR_VALUE",
+                    "status": held_status, "reason": str(exc),
                     "symbols": group, "source": SOURCE,
                     "seed_sha256": seed_sha,
                     "source_sha": source_sha,
@@ -670,6 +798,8 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                     "historical_identity_verified": False,
                     "commercial_use_authorized": False,
                 }
+                if scope is not None:
+                    marker.update(cohort_scope=scope, asset_precheck=assets)
                 objs = [persist_object(
                     drive, args.private_data_folder_id,
                     encoded(marker), ".json",
@@ -677,7 +807,7 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                 accepted, missing, rows = [], [], 0
                 held_invalid.extend(group)
                 held_this_batch.extend(group)
-                status = "HELD_BAR_VALUE"
+                status = held_status
                 last_held = group
             else:
                 completed.extend(group)
@@ -701,6 +831,8 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                 "historical_identity_verified": False, "pit_verified": False,
                 "source_admission": False, "commercial_use_authorized": False,
             }
+            if scope is not None:
+                state["cohort_scope"] = scope
             checkpoint = persist_object(
                 drive, args.private_data_folder_id, encoded(state), ".json",
             )

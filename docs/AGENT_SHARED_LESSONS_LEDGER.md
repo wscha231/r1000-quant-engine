@@ -7109,3 +7109,260 @@ Expected contract:
 - A null-reference reconciliation preview still needs a valid aware cutoff.
   A containing queue check must be at or after every included reason's last
   observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-17 - Code publication is not collection approval
+
+- A Reader or test merge can match a collector workflow's master-push paths.
+  Treat that deployment as source/Drive capable until the producer job explicitly
+  excludes code-push events; a research-only code review does not authorize capture.
+- Preserve the existing repository/master checks, schedule/manual entry points,
+  single-writer concurrency, non-cancellation and source admission contracts.
+  Keep the full consumed-path push filter: a skipped producer job does not prove
+  the workflow-level concurrency queue disappeared or a real collection ran.
+- Cover the guard in the existing registered Lake smoke entry. Parse workflow
+  syntax with a loader that preserves the `on` key and compare unchanged fields.
+  Validate offline rather than accessing providers or Drive to test a trigger.
+- Keep the isolated workflow change separate from the approved Source Reader
+  paths. Reuse unchanged exact-head evidence; protected deployment and account
+  rights remain separate from local tests and a Draft PR.
+
+## 2026-10-17 - Isolate producer queues and select actual history evidence
+
+- A skipped job alone cannot isolate workflow-level concurrency: a code push
+  can replace a pending real producer even with cancel-in-progress false. Bind
+  the unchanged writer group to the guarded producer job only; preserve its
+  master/repository checks and scheduled/manual entry points.
+- Public history evidence must exclude push and explicit skipped runs. Query
+  schedule/manual streams separately so no-op pushes cannot crowd out real
+  producers. Keep the newest real failure, cancellation or pending run visible;
+  workflow success still does not certify data or durable Drive completion.
+- Parse real YAML and retain the original regression/helper ASTs. Offline queue
+  and metadata fixtures do not prove live Actions skip/queue behavior or deploy.
+
+## 2026-10-17 — Separate capture consent and supplier-rights assertions
+
+- A direct request for finite private historical capture is execution consent; do not manufacture account eligibility or supplier retention certifications.
+- When the owner waives an internal evidence-document procedure, represent that consent explicitly with supplier_rights_verified=false rather than require unsupported perpetual or post-termination claims.
+- Preserve actual owner/key bindings, comment identity and body hash, authorization, seed/checkpoint, cumulative reservations and all existing deadlines; provider entitlement failures remain terminal.
+- Finalize deployed code before the first immutable activation/preflight, so a later source change cannot strand an already-started campaign on incompatible pins.
+- An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
+- Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.
+- Preserve failed Native QA logs; use the actual repository for relative seed fixtures and a controlled local temporary folder. Temporary-file access errors do not justify relaxing atomic journal writes or recertifying Linux/runtime readiness.
+
+
+## 2026-10-17 — Bind CLI transport and pre-dispatch recovery to original evidence
+
+- gh2.91 workflow run --json parses map[string]string before dispatch POST. YAML boolean/number inputs still need outer string values; retain the nested authorization's actual JSON types. Test the real CLI on loopback and the registered host boundary rather than treating every mocked subprocess as successful.
+- Preserve discarded-original-stderr uncertainty separately from independently reproduced pre-POST rejection. No observed remote run alone is not a generic zero-use refund.
+- Close only the named, hash-pinned local rejection after actual bounded-history and OWNER proof checks. Append a typed old-to-new authorization/pin event to the same journal; preserve original auth/reservation/progress snapshot and never fabricate a run, meter or SETTLED.
+- Idempotent receipt recovery must conserve scope, limits, counters and original checkpoint. A late original run, proof drift or any prior canonical use stops instead of starting a fresh budget/clock.
+
+- Review recovery at transitions as well as initial proof: recheck full canonical history before dispatch, while discovering the replacement and before settlement. Exclude typed closures from outstanding-reservation reports.
+- Keep recovery receipts outside the append-only journal namespace and disjoint from inputs before writing any closure. Bind original authorization raw bytes, and reject unrelated network-recovery IDs instead of persisting invented relationships.
+- Put the final canonical-history guard in the common settlement boundary after receipt/checkpoint reads; a watch-only guard misses interrupted-host resume and delayed visibility during those reads.
+- An immutable snapshot cannot alias mutable progress. Guard closure after remote pin reads, bind the stored event's actual bytes, and distinguish initial proof acceptance expiry from later reconciliation of an already accepted event; campaign clocks still govern new dispatch.
+- On Windows, set TMPDIR as well as TEMP/TMP for controlled Native fixtures; an inherited application-managed temp path can deny atomic replacement. Preserve that failed log and rerun unchanged bytes in the controlled folder rather than weakening exclusive/fsync writes.
+
+## 2026-10-17 — Extend a finite campaign without reinterpreting spent receipts
+
+- Provider rate limits and a project's cumulative transfer/active-time budget
+  are separate. A second account cannot replenish the same campaign or erase
+  its first canonical48h clock; keep actual owner/key binding unchanged.
+- Retain old authorization/source/caps for old meter allowances and journal
+  bytes. Apply a narrowly approved cumulative extension only through one typed,
+  hash-bound bridge, carrying all earlier usage, time, dispatch and checkpoint.
+- Keep the original workflow history floor; raising it to the next dispatch
+  hides prior costs. A portable prior authorization lets Linux workers verify
+  the same prefix as the Windows host without local-only evidence paths.
+- Bind the single new consent-record transition explicitly. Freeze a combined
+  budget/capture comment before deriving hashes; embedding a body-derived hash
+  inside that same body would create an unsatisfiable cycle.
+- Keep failed fixture logs. Metadata preflight leaves authorization bindings
+  null while receipts establish real binding hashes; synthetic continuation
+  fixtures must model that distinction and actually mutate the prior floor.
+- A proof fetch added after a canonical-history guard reopens the same race.
+  After all meter/job/proof/pin reads, reconcile fresh canonical runs immediately
+  before bridge, reservation and settlement appends; stale observed.runs is
+  insufficient even when its five receipts and old ledger hashes are valid.
+- Exercise the documented host command through the real serialization
+  boundary. When prior authorization bindings intentionally stay null, select
+  the verified embedded continuation URL by default; reject a conflicting
+  optional CLI reference before locking or appending any campaign event.
+
+## 2026-10-17 — External discovery progress cannot reset finite capture costs
+
+When a verified discovery CSV is outside the fixed IWB seed, keep its input
+SHA/task/namespace and checkpoint chain separate, including local zero genesis.
+Keep the original workflow nonce family, history floor, first48h, global writer
+lock and **all** actual spent counters shared. A new prefix or per-cohort-only
+lock can hide earlier spending or permit overlapping reservations. A logical
+empty genesis is not a physical Drive checkpoint: the first resume ID/SHA must
+both be empty. Read-only validation must refuse a missing original recovery
+receipt rather than recreate it. Current asset metadata/404 can support a
+sanitized held state only on the narrow metered asset endpoint; auth/quota/network
+failures cannot be converted into no-data or eligible history. Freeze a dated
+market-cap input and reconcile actual source receipts before its later dispatch.
+
+Independent A6 found three pre-deployment counterexamples: expiry must be
+checked against the binding event's actual recorded clock before appending it;
+a known completed run must still be imported/settled after expiry (while new
+dispatch remains forbidden); and UUID syntax needs exact8-4-4-4-12 hexadecimal
+positions rather than a permissive36-character hex/hyphen class. Keep expired
+read-only accounting separate from renewed execution authorization.
+
+A6 also reproduced a cross-namespace unknown-POST hole: releasing the original
+global lock does not expose a pending cohort reservation to the next namespace
+before Actions visibility. Keep a deterministic family reservation journal
+under that same lock, outside the immutable17-event prefix. Write shared
+RESERVED first, cohort RESERVED second, then POST. Reconcile all family nonces;
+missing/orphan/partial or rolled-back registration cannot prove zero POST.
+Settle cohort first, shared second, and close an interrupted shared settlement
+only with the exact canonical receipt and already settled cohort record.
+
+Hosted review also caught a terminal/recovery mismatch: generic HTTP_ERROR can
+include a price404, and NETWORK can occur during asset identity precheck. The
+minimal external path stops its entire epoch on every runtime failure and
+accepts no legacy recovery flag. Known failed receipts still settle/account;
+another attempt requires a separately reviewed A0 recovery contract. Do not
+inherit legacy retry authority merely because it shares the same meter.
+
+A6's next frozen-head check also removed the whole family registry while
+preserving an uncertain cohort, then tried a different namespace. First registry
+creation must check every deterministic `external-cohort-*` sibling under the
+original budget parent, not only the incoming namespace. Any existing path is
+a conservative blocker; loss of one prefix cannot authorize a fresh budget.
+
+Hosted review found a first-registration proof race too: fetch one consent
+snapshot for both the first family binding and its cohort binding. If an OWNER
+comment changes between reads, the next canonical proof comparison must stop
+before reserving, never combine an old family proof with a newer cohort proof.
+
+The post-Ready hosted review found a relocation race: deterministic names alone
+do not bind a registry to the original resolved budget root. Copying or renaming
+the complete settled tree can create independent lock files while Actions history
+is still unchanged. Persist and verify the normalized resolved original budget
+and first cohort roots in the family binding; verify each current namespace path
+too. An unchanged original tree remains resumable; relocated copies fail before
+another reservation or POST. Preserve the pre-fix two-case failing fixture log.
+
+For later epochs, canonical receipts and a shared journal cannot substitute for
+the prior cohort's own complete binding/RESERVED/SETTLED chain. Verify every
+earlier fixed-root journal without regenerating missing or truncated prefixes.
+For a bounded invocation, count newly durable shared settlements from its entry
+baseline. A resumed pending completion or cohort-to-family repair consumes one
+batch; a watch and subsequent import must not count twice or trigger an extra POST.
+
+Check a review finding against the called helper before changing policy: a
+terminal receipt whose checkpoint hash equals its parent already returns that
+parent before any log lookup. Independent AUTH/NETWORK worker-to-host closure
+and duplicate-resume probes confirmed this unchanged-parent behavior; preserve
+the disposition and avoid inventing a new checkpoint or recovery permission.
+
+### 2026-10-17 — Preserve a partial cohort across a named Source revision
+
+Actual external run39023083535 stopped at120/169 after24 newly verified names,
+with a generic HTTP_ERROR and no status/request-phase detail. The120 names and
+503006 raw+split rows remain valid private source bytes; the entire failed meter
+is charged and settled. Do not infer an entitlement, quota, provider/Drive or
+transient cause from the generic label, and do not blindly rerun the workflow.
+
+The separately authorized correction uses one same-namespace auth revision:
+reconstruct/hash-check the exact old auth, freeze both13-event raw prefixes,
+append one typed recovery binding, retain the registry's original proof/root,
+and verify one old→new canonical transition. The first new attempt is explicitly
+bound to failed run/meter/CP120 and exactly8/max1; unknown POST consumes the
+reservation and every new failure remains terminal. All spent costs and the
+first48h survive source-pin changes. A later cohort must verify the revision
+journal too. Deduplicate immutable fields rather than raising control-size caps.
+
+Record only allowlisted HTTP status/category/phase/method/debit ordinal at the
+transport boundary; never serialize URL/query/header/body/exception text. Legacy
+receipt hashes stay untouched. Code/CI/A6 success and Draft preparation do not
+authorize protected deployment or actual capture.
+
+Independent A6 counterexamples tightened the portable worker boundary too: a
+missing named failure must refuse before the meter, and first COMPLETE means
+exactly120→128, not merely a delta of at most8. If diagnostic persistence fails,
+raise only a fixed refusal with suppressed exception context; an active HTTPError
+may otherwise leak a sensitive URL/reason through an unrelated journal error.
+Codex also required max1 across restarts until the first recovery is fully
+settled in both journals: importing or repairing that settlement consumes the
+one batch, rather than allowing a second ordinary POST in the same invocation.
+
+### 2026-10-17 — A Drive CREATE502 does not prove zero storage side effects
+
+Actual run39032304843 failed at160/169 during DRIVE_CREATE/POST/HEADER_OPEN502.
+Keep CP160 and all160/682614 accepted rows; settle its Provider11/Drive332 and
+all transfer/storage/time, including the unconfirmed upload reservation.
+Do not call it an Alpaca entitlement error or refund unknown storage.
+
+A separately reviewed named9 revision must retain the old120→128 transition,
+both old23/22 prefixes, all costs and original48h. Before provider or storage
+writes, find both exact existing raw and normalized objects in only the failed
+run's bounded owner-only window and verify complete semantics. Missing or
+ambiguous normalized storage remains blocked, even after a long wait. Reuse
+the original4 symbols' bytes/clocks and separately record new derivation code,
+proof, run and time; do not relabel historical bytes as newly collected. Only
+after CP164 readback may the original collector request the remaining5 names.
+Ordinary source guards, no second retry, max1 and private/PIT limits remain.
+
+Independent A6 reproduced a v3 prior-epoch guard race in normal/-O: reopening
+the old-v2 journal fetched its proof again after the final canonical run read.
+Pass the already verified epoch-proof snapshot into that last local guard;
+missing old-v2 proof must refuse rather than fall back to remote I/O. Keep
+the initial remote proof reads before later complete canonical reconciliation.
+
+Hosted Codex then reproduced the missing active-proof selection at settlement:
+the preserved v2 revision cannot serve as the new v3 frozen consent. Prefer
+the active Drive revision in postwatch/import settlement and test the complete
+host169 closure, restart without POST and interrupted family repair in both
+modes, alongside the worker/collector boundary.
+
+### 2026-10-18 — Diagnose object roles before interpreting an orphan failure
+
+Run39058081878 charged no provider GET and preserved CP160, but its fixed
+`EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS` reason did not prove a missing gzip:
+the same refusal covered count, role and size. Record a bounded, allowlisted
+inventory before those checks. A private folder/time query may also contain
+unrelated content-addressed JSONs; those are diagnostic context, not raw bars.
+Keep IDs, arbitrary names/responses and credentials out of the public meter.
+
+Gzip object identity and normalized-row identity are separate. Python's gzip
+header can vary while rebuilt rows match. Reuse actual bytes only after full
+ZIP, asset, normalized and parent-chain checks. Exact-name absence never proves
+that an uncertain earlier POST had no side effect. A separately authorized,
+normalized-only derivation must retain that uncertainty and all old costs,
+record its own actual source/codec/hash/time and use one existing CREATE path.
+Do not invent old collection/publication clocks or retry unknown writes.
+
+Every named transition needs the active proof at common settlement and every
+older proof in later cohort guards. Test whole-host closure, restart/import,
+family repair, malformed/duplicate/paginated metadata, gzip-header drift,
+unknown CREATE and CP164 readback failure. No last5 provider request is allowed
+until independent CP164 closure. All fixtures remain synthetic and confer no
+supplier rights, market-data coverage or Source/PIT eligibility.
+
+The post-Ready639 review found three further boundaries: indexed normalized
+objects may be older than the failed window, while original ZIPs may not;
+existing/new mode and codec must agree in both directions; canonical reuse
+reconciliation must reapply successful inventory closure and object hashes,
+not accept a merely well-shaped diagnostic. Preserve actual older server times
+without inventing collection/PIT clocks. No runtime or budget policy changes.
+
+Independent A6 also reproduced null canonical evidence clocks being accepted
+through `utc(None)`'s runtime-now default. Require actual timestamp strings at
+inventory observation, reuse derivation and normalized creation/lookup before
+parsing. Preserve the runtime clock helper and incomplete diagnostic-row schema;
+never fill missing provenance with the verifier's current time.
+The exact-head hosted review also required mode/clock binding to any normalized
+inventory row: existing bytes cannot become a new derivation or acquire a
+different server-created time during canonical reconciliation.
+Canonical reconciliation must preserve live observation order too: inventory
+observation precedes lookup in both existing and derived modes, and lookup
+precedes derivation. An older object's creation clock is not an exemption for
+chronologically conflicting new lookup evidence.
+Exact-name fallback is not an escape from a complete inclusive-window inventory:
+an existing object created in that window must appear in it. Anchor new inventory
+observations to the actual canonical recovery run, rather than accepting a
+self-consistent set of receipt clocks that all predate execution. Keep old object
+creation separate; synthetic successful fixtures must model the same distinction.
