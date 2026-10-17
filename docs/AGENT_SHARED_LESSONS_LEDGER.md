@@ -7366,3 +7366,14 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+## 2026-10-18 - Connect supplied research without granting admission
+
+- Reuse the existing A2/A3/Registry/A8 and macro/hold-policy validators over
+  bounded original bytes with explicit hashes and availability clocks. Preserve
+  null ER and each BLOCKED/NOT_RUN stage; a successful synthetic connection is
+  not authenticated current selection, Source/PIT proof or A5 eligibility.
+- Publish each attempt to a new research namespace as one directory batch and
+  physically reread output hashes. Never return an older receipt after failure.
+  Checked minimum code pins and fixed source hashes do not authenticate the
+  complete executable dependency closure or a remote HEAD.
