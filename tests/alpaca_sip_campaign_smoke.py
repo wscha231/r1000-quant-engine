@@ -1906,6 +1906,100 @@ class ExternalCohortTests(unittest.TestCase):
         self.assertEqual(c.bounded_json(self.cohort_state/'000001.json')['proof_sha256'],original['proof_sha256'])
         self.assertFalse((self.cohort_state/'000002.json').exists())
 
+    def seed_pending_epoch(self, run, value):
+        proof=self.proof();scope=self.new['external_cohort']['scope'];h=c.validate_authorization(self.new)
+        with patch.object(c,'external_proof',return_value=proof),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        try:
+            family.append('RESERVED',nonce=value['nonce'],capture_auth_sha256=h,scope=scope,
+                          remaining=value['allowance'],parent_checkpoint_sha256=value['parent_checkpoint_sha256'])
+            family.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'],capture_auth_sha256=h,scope=scope)
+        finally:family.close()
+        journal=c.WorkJournal(self.cohort_state,h)
+        try:
+            journal.append('EXTERNAL_COHORT_BOUND',scope=scope,genesis_sha256=c.external_genesis(scope),**proof)
+            journal.append('RESERVED',nonce=value['nonce'],remaining=value['allowance'],
+                parent_checkpoint_sha256=value['parent_checkpoint_sha256'],external_proof_sha256=proof['proof_sha256'])
+            journal.append('RUN_ASSIGNED',nonce=value['nonce'],run_id=run['id'])
+        finally:journal.close()
+
+    def test_prior_epoch_loss_or_rebound_conflict_blocks_later_epoch_without_recreation(self):
+        for damage in ('intact','missing','empty','bound-only','reserved-only','missing-settled','binding','receipt'):
+            with self.subTest(damage=damage):
+                f=ExternalCohortTests();f.setUp()
+                try:
+                    run,value=f.suffix();observed=f.observed((run,value));proof=f.proof()
+                    f.seed_pending_epoch(run,value)
+                    with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=
+                            dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)):
+                        c.external_host(f.new,f.cohort_state,f.input,f.state,f.old.local.bundle_path,None,1)
+                    b=copy.deepcopy(f.new);ex=b['external_cohort'];raw='ticker\nZZZDISCX\n'
+                    ex.update(prior_epochs=[copy.deepcopy(f.new)],input_csv=raw,proof_reference=f.reference+'2')
+                    ex['scope']=dict(ex['scope'],namespace='fixture-topcap-cohort',input_sha256=c.digest(raw.encode()))
+                    b['account_permission_reference']=ex['proof_reference'];other_proof=f.proof(b)
+                    observed=dict(observed,external_proof=other_proof,cohort_runs=[],cohort_receipts=[],
+                        examined=0,parent_sha=c.external_genesis(ex['scope']),
+                        epoch_proofs={c.validate_authorization(f.new):proof,c.validate_authorization(b):other_proof})
+                    other=f.root/'external-cohort-fixture-topcap-cohort'
+                    with patch.object(c,'external_proof',return_value=proof):
+                        family=c.external_family_registry(f.state,b,other)
+                    journal=c.WorkJournal(other,c.validate_authorization(b))
+                    journal.append('EXTERNAL_COHORT_BOUND',scope=ex['scope'],
+                                   genesis_sha256=c.external_genesis(ex['scope']),**other_proof)
+                    try:
+                        if damage in ('missing','empty'):
+                            f.cohort_state.rename(f.root/'preserved-prior')
+                            if damage=='empty':f.cohort_state.mkdir()
+                        elif damage in ('bound-only','reserved-only','missing-settled'):
+                            keep={'bound-only':1,'reserved-only':2,'missing-settled':3}[damage]
+                            for p in f.cohort_state.glob('*.json'):
+                                if int(p.stem)>keep:p.unlink()  # Isolated synthetic prefix only.
+                        elif damage in ('binding','receipt'):
+                            previous=None
+                            for p in sorted(f.cohort_state.glob('*.json')):
+                                entry=c.bounded_json(p)
+                                if damage=='binding' and entry['sequence']==1:entry['proof_sha256']='0'*64
+                                if damage=='receipt' and entry['kind']=='SETTLED':entry['receipt_sha256']='0'*64
+                                entry['previous_sha256']=previous;p.write_bytes(c.encoded(entry));previous=c.digest(p.read_bytes())
+                        before={p.name:p.read_bytes() for p in f.cohort_state.glob('*.json')}
+                        with patch.object(c.subprocess,'run',side_effect=AssertionError('No provider or dispatch')):
+                            if damage=='intact':self.assertIsNone(c.reconcile_external_family(family,journal,b,observed))
+                            else:
+                                with self.assertRaises(c.Refused):c.reconcile_external_family(family,journal,b,observed)
+                        self.assertEqual(before,{p.name:p.read_bytes() for p in f.cohort_state.glob('*.json')})
+                        if damage=='missing':self.assertFalse(f.cohort_state.exists())
+                        self.assertFalse((f.cohort_state/'writer.lock').exists())
+                        self.assertFalse((other/'000002.json').exists())
+                    finally:journal.close();family.close()
+                finally:f.doCleanups()
+
+    def test_resumed_success_or_shared_repair_consumes_max_one_without_another_post(self):
+        for repair in (False,True):
+            with self.subTest(shared_repair=repair):
+                f=ExternalCohortTests();f.setUp()
+                try:
+                    raw='ticker\n'+'\n'.join('ZZZDISC%02d'%i for i in range(40))+'\n'
+                    f.new['external_cohort']['input_csv']=raw
+                    f.new['external_cohort']['scope']['input_sha256']=c.digest(raw.encode());f.input.write_bytes(raw.encode())
+                    run,value=f.suffix();value['examined_after']=32
+                    value['new_states']=dict(VALID_COLLECTED=32,VERIFIED_NO_DATA=0,QUARANTINED=0)
+                    observed=f.observed((run,value));f.seed_pending_epoch(run,value)
+                    ref=dict(file_id='fixture-checkpoint-final',sha256=value['checkpoint_sha256'],bytes=100)
+                    if repair:
+                        j=c.WorkJournal(f.cohort_state,c.validate_authorization(f.new))
+                        try:
+                            with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=ref):
+                                c.settle_run(j,f.new,run,value)
+                        finally:j.close()
+                    with f.host_patches(observed),patch.object(c,'checkpoint_from_log',return_value=ref), \
+                         patch.object(c.subprocess,'run',side_effect=AssertionError('Unexpected second dispatch')):
+                        result=c.external_host(f.new,f.cohort_state,f.input,f.state,f.old.local.bundle_path,None,1)
+                    self.assertEqual(result['status'],'BATCH_BOUNDARY');self.assertEqual(result['examined'],32)
+                    self.assertEqual(result['charged_usage'],observed['used'])
+                    self.assertEqual(len(list(f.cohort_state.glob('*.json'))),4)
+                    self.assertFalse((f.state/'writer.lock').exists())
+                finally:f.doCleanups()
+
     def test_actual_cli_empty_physical_parent_and_unchanged_old17(self):
         class Boundary(BaseException):pass
         before={p.name:p.read_bytes() for p in self.state.iterdir()}

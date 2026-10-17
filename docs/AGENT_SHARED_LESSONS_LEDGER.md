@@ -7244,3 +7244,16 @@ is still unchanged. Persist and verify the normalized resolved original budget
 and first cohort roots in the family binding; verify each current namespace path
 too. An unchanged original tree remains resumable; relocated copies fail before
 another reservation or POST. Preserve the pre-fix two-case failing fixture log.
+
+For later epochs, canonical receipts and a shared journal cannot substitute for
+the prior cohort's own complete binding/RESERVED/SETTLED chain. Verify every
+earlier fixed-root journal without regenerating missing or truncated prefixes.
+For a bounded invocation, count newly durable shared settlements from its entry
+baseline. A resumed pending completion or cohort-to-family repair consumes one
+batch; a watch and subsequent import must not count twice or trigger an extra POST.
+
+Check a review finding against the called helper before changing policy: a
+terminal receipt whose checkpoint hash equals its parent already returns that
+parent before any log lookup. Independent AUTH/NETWORK worker-to-host closure
+and duplicate-resume probes confirmed this unchanged-parent behavior; preserve
+the disposition and avoid inventing a new checkpoint or recovery permission.

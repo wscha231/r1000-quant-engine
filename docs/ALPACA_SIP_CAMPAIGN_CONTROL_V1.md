@@ -70,6 +70,10 @@ under the fixed original budget parent, including an empty directory, symlink
 or file. Losing/renaming the whole shared registry cannot hide another pending
 cohort. Erasing all local prefixes together is a prohibited reset, never a
 supported recovery or evidence of zero spending.
+Before a later epoch can reserve, every earlier cohort's existing binding and
+complete journal chain is opened at its fixed root and matched to canonical
+receipts. Missing/empty/truncated or conflicting prior journals refuse without
+recreating them. A canonical meter alone cannot replace that local prefix.
 
 The original authorization's raw owner ID may remain null: the actual owner SHA
 already established in the verified five-run prefix is mandatory in the consent
@@ -83,6 +87,9 @@ SHA are **both empty**; its first physical checkpoint has previous=null. Later
 checkpoints require exact namespace/input/task and verified raw/split prefix.
 `--max-batches 1` can stop at the first verified boundary for an early metadata
 handoff without enabling a scheduler or discarding cumulative state.
+The limit counts new durable family settlements in that invocation, including
+pending successful imports and interrupted shared-settlement repair. A restarted
+`--max-batches 1` stops at that first newly verified boundary, without another POST.
 
 Before price requests, each selected name gets a separately metered, scoped
 `GET https://paper-api.alpaca.markets/v2/assets/{symbol}`. This is part of the

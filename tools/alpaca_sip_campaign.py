@@ -1782,6 +1782,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 "EXTERNAL_EPOCH_INCOMPLETE")
     return dict(runs=runs, receipts=receipts, used=used, active_seconds=active, first=first,
                 durations=durations, bindings=CONTINUATION["bindings"], external_proof=proofs[-1],
+                epoch_proofs=dict(zip(hashes, proofs)),
                 parent_sha=state["parent"], examined=state["examined"], cohort_runs=state["runs"],
                 cohort_receipts=state["receipts"], cohort_durations=state["durations"],
                 remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS})
@@ -1957,6 +1958,54 @@ def external_family_registry(budget_path, auth, state_path, *, first_proof=None)
         raise
 
 
+def verify_external_prior_journals(registry, auth, observed):
+    """Read existing prior epochs only; canonical meters do not replace their journals."""
+    from tools.alpaca_sip_private_backfill_v1 import external_cohort
+    for previous in auth["external_cohort"]["prior_epochs"]:
+        h, scope = validate_authorization(previous), previous["external_cohort"]["scope"]
+        directory = registry.directory.parent / ("external-cohort-"+scope["namespace"])
+        require(directory.is_dir() and not directory.is_symlink()
+                and (directory/"000001.json").is_file(), "EXTERNAL_PRIOR_JOURNAL_MISSING")
+        proof = observed.get("epoch_proofs", {}).get(h)
+        require(isinstance(proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+        prior = WorkJournal(directory, h)
+        try:
+            known = [(r,v) for r,v in zip(observed["runs"], observed["receipts"]) if v["auth_sha256"] == h]
+            prior.reconcile([r for r,v in known])
+            binding = dict(scope=scope, genesis_sha256=external_genesis(scope), **proof)
+            first = prior.entries[0]
+            require(first.get("kind") == "EXTERNAL_COHORT_BOUND"
+                    and {k:first.get(k) for k in binding} == binding
+                    and utc(proof["proof_updated_utc"]) <= utc(first.get("recorded_utc"))
+                        < utc(proof["expires_at_utc"]), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+            cursor = 1
+            for run, value in known:
+                require(cursor < len(prior.entries), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+                reserved = prior.entries[cursor]; cursor += 1
+                require(reserved.get("kind") == "RESERVED" and reserved.get("nonce") == value["nonce"]
+                        and reserved.get("remaining") == value["allowance"]
+                        and reserved.get("parent_checkpoint_sha256") == value["parent_checkpoint_sha256"]
+                        and reserved.get("external_proof_sha256") == proof["proof_sha256"],
+                        "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+                if cursor < len(prior.entries) and prior.entries[cursor].get("kind") == "RUN_ASSIGNED":
+                    assigned = prior.entries[cursor]; cursor += 1
+                    require(assigned.get("nonce") == value["nonce"] and assigned.get("run_id") == run["id"],
+                            "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+                require(cursor < len(prior.entries), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+                settled = prior.entries[cursor]; cursor += 1
+                require(settled.get("kind") == "SETTLED" and settled.get("nonce") == value["nonce"]
+                        and settled.get("run_id") == run["id"] and settled.get("receipt") == value
+                        and settled.get("receipt_sha256") == digest(encoded(value))
+                        and settled.get("usage") == value["usage"]
+                        and settled.get("checkpoint", {}).get("sha256") == value["checkpoint_sha256"]
+                        and settled.get("examined_after") == value["examined_after"], "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+            require(cursor == len(prior.entries) and known and known[-1][1]["status"] == "COMPLETE"
+                    and known[-1][1]["examined_after"] == len(external_cohort(
+                        previous["external_cohort"]["input_csv"].encode())), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+        finally:
+            prior.close()
+
+
 def reconcile_external_family(registry, journal, auth, observed):
     """No later namespace can ignore an unobserved or partially logged POST."""
     h, scope = validate_authorization(auth), auth["external_cohort"]["scope"]
@@ -2008,6 +2057,7 @@ def reconcile_external_family(registry, journal, auth, observed):
                 registry.append("SETTLED", nonce=nonce, run_id=run["id"], capture_auth_sha256=h, scope=scope,
                     receipt_sha256=digest(encoded(value)), usage=value["usage"], checkpoint_sha256=value["checkpoint_sha256"])
                 pending = None
+    verify_external_prior_journals(registry, auth, observed)
     require(pending is None or reserved[pending]["capture_auth_sha256"] == h, "EXTERNAL_FAMILY_PENDING")
     return pending
 
@@ -2046,7 +2096,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
         else:
             # No provider/Drive I/O or dispatch; binding is this new namespace only.
             journal.append("EXTERNAL_COHORT_BOUND", **binding)
-        completed = 0
+        settled_before = sum(e["kind"] == "SETTLED" and e.get("capture_auth_sha256") == h for e in family.entries)
         while True:
             observed = external_history(auth, recovery_run=recovery_run, enforce_expiry=False, allow_stopped=True)
             last_observed = observed
@@ -2062,6 +2112,10 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                 require(external_proof(auth) == frozen, "EXTERNAL_PROOF_DRIFT")
                 settle_run(journal, auth, run, value)
                 reconcile_external_family(family, journal, auth, observed)
+            # Count newly closed shared settlements, including an imported run
+            # or interrupted cohort-to-family settlement; never count a watch twice.
+            completed = sum(e["kind"] == "SETTLED" and e.get("capture_auth_sha256") == h
+                            for e in family.entries) - settled_before
             atomic_json(journal.directory/"progress", external_progress(auth, observed, "VERIFIED"))
             latest = observed["cohort_receipts"][-1] if observed["cohort_receipts"] else None
             if latest is not None and latest["status"] == "BLOCKED":
@@ -2120,7 +2174,6 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=9000)
             # Loop revalidates all family meters/proof before importing or
             # settling. Unknown outcomes leave the reservation intact.
-            completed += 1
             recovery_run = None
     except BaseException:
         if journal is not None and last_observed is not None:
