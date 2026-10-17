@@ -92,6 +92,92 @@ def fixture(bundle_root: Path):
 
 
 class BackendConnectionTests(unittest.TestCase):
+    def publication_result(self):
+        result = runner._base_result()
+        result.update(status="DONE", case_id="SYNTHETIC:OWNERSHIP", cutoff=CUTOFF)
+        return result
+
+    def test_success_requires_returned_acceptance_not_stored_preparation(self):
+        publication = runner._publish(self.output, self.publication_result())
+        stored = json.loads((self.output / "receipt.json").read_bytes())
+        self.assertEqual(stored["status"], "UNACCEPTED")
+        self.assertEqual(stored["publication_state"], "PREPARED_ONLY")
+        self.assertEqual(stored["result_status"], "DONE")
+        acceptance = publication["acceptance"]
+        self.assertEqual(acceptance["state"], "LOCAL_READBACK_ACCEPTED")
+        self.assertEqual(acceptance["attempt_id"], stored["attempt_id"])
+        self.assertEqual(acceptance["files"], publication["files"])
+        self.assertEqual(acceptance["directory_identity"]["ino"], self.output.stat().st_ino)
+        self.assertEqual(runner.digest(raw(acceptance) + b"\n"), publication["acceptance_sha256"])
+        self.assertTrue(publication["readback_verified"])
+        for name, expected in publication["files"].items():
+            self.assertEqual(runner.digest((self.output / name).read_bytes()), expected)
+
+    def moved_publication(self, replace):
+        moved = self.directory / "claimed-batch"
+        original_read = runner._read
+        acted = []
+
+        def move_before_read(path, limit):
+            if path == self.output / "result.json" and not acted:
+                code = ("import os,pathlib,sys; os.rename(sys.argv[1],sys.argv[2]); "
+                        + ("pathlib.Path(sys.argv[1]).mkdir(); "
+                           "(pathlib.Path(sys.argv[1])/'competitor.txt').write_bytes(b'preserve-me')" if replace else ""))
+                child = subprocess.run([sys.executable, "-B", "-c", code, str(self.output), str(moved)],
+                                       capture_output=True, timeout=10)
+                self.assertEqual(child.returncode, 0, child.stderr)
+                acted.append(True)
+                raise runner.BundleError("OUTPUT_READBACK_MISMATCH")
+            return original_read(path, limit)
+
+        with patch.object(runner, "_read", side_effect=move_before_read):
+            with self.assertRaises(runner.BundleError):
+                runner._publish(self.output, self.publication_result())
+        self.assertEqual(acted, [True])
+        stored = json.loads((moved / "receipt.json").read_bytes())
+        self.assertEqual(stored["status"], "UNACCEPTED")
+        self.assertEqual(stored["publication_state"], "PREPARED_ONLY")
+        self.assertEqual(set(p.name for p in moved.iterdir()), {"result.json", "inputs.json", "receipt.json"})
+        if replace:
+            self.assertEqual((self.output / "competitor.txt").read_bytes(), b"preserve-me")
+            self.assertEqual([p.name for p in self.output.iterdir()], ["competitor.txt"])
+        else:
+            self.assertFalse(self.output.exists())
+
+    def test_moved_publication_preserves_competitor_and_leaves_no_stored_acceptance(self):
+        self.moved_publication(replace=True)
+
+    def test_moved_publication_without_replacement_stays_unaccepted(self):
+        self.moved_publication(replace=False)
+
+    def test_identical_competitor_bytes_cannot_substitute_directory_identity(self):
+        moved = self.directory / "moved-before-final-check"
+        original_read = runner._read
+        replaced = []
+
+        def copy_before_final_check(path, limit):
+            if path == self.output / "receipt.json" and not replaced:
+                child = subprocess.run([sys.executable, "-B", "-c",
+                                        "import os,shutil,sys; os.rename(sys.argv[1],sys.argv[2]); "
+                                        "shutil.copytree(sys.argv[2],sys.argv[1])", str(self.output), str(moved)],
+                                       capture_output=True, timeout=10)
+                self.assertEqual(child.returncode, 0, child.stderr)
+                replaced.append({p.name: p.read_bytes() for p in self.output.iterdir()})
+            return original_read(path, limit)
+
+        with patch.object(runner, "_read", side_effect=copy_before_final_check):
+            with self.assertRaisesRegex(runner.BundleError, "PUBLICATION_OWNERSHIP_LOST"):
+                runner._publish(self.output, self.publication_result())
+        self.assertEqual(len(replaced), 1)
+        self.assertNotEqual(self.output.stat().st_ino, moved.stat().st_ino)
+        self.assertEqual(replaced[0], {p.name: p.read_bytes() for p in self.output.iterdir()})
+        self.assertEqual(json.loads((moved / "receipt.json").read_bytes())["status"], "UNACCEPTED")
+
+    def assert_unaccepted_staging(self):
+        staged = list(self.directory.glob("." + self.output.name + ".tmp-*"))
+        self.assertEqual(len(staged), 1)
+        self.assertEqual(json.loads((staged[0] / "receipt.json").read_bytes())["status"], "UNACCEPTED")
+
     @unittest.skipUnless(os.name == "posix" and hasattr(os, "mkfifo"), "requires real POSIX FIFO")
     def test_fifo_manifest_descriptor_artifact_and_code_pin_refuse_without_writer(self):
         code = r'''
@@ -187,7 +273,7 @@ except r.BundleError as error:
         self.assertIsNone(result["publication"])
         self.assertEqual(self.output.stat().st_ino, reserved[0])
         self.assertEqual(list(self.output.iterdir()), [])
-        self.assertEqual(list(self.directory.glob("." + self.output.name + ".tmp-*")), [])
+        self.assert_unaccepted_staging()
 
     def test_unsupported_publication_platform_fails_closed(self):
         with patch.object(runner.sys, "platform", "unsupported-no-replace-platform"):
@@ -195,7 +281,7 @@ except r.BundleError as error:
             with self.assertRaisesRegex(runner.BundleError, "PUBLICATION_NOREPLACE_UNAVAILABLE"):
                 runner._publish(self.output, result)
         self.assertFalse(self.output.exists())
-        self.assertEqual(list(self.directory.glob("." + self.output.name + ".tmp-*")), [])
+        self.assert_unaccepted_staging()
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -379,7 +465,7 @@ except r.BundleError as error:
                 self.assertEqual(result["status"], "BLOCKED")
                 self.assertEqual(result["calls"], [])
 
-    def test_post_publish_readback_failure_leaves_no_receipt(self):
+    def test_post_publish_readback_failure_leaves_no_accepted_receipt(self):
         original_read = runner._read
 
         def failing_read(path, limit):
@@ -392,7 +478,10 @@ except r.BundleError as error:
         self.assertEqual(result["status"], "BLOCKED")
         self.assertIn("OUTPUT_READBACK_MISMATCH", result["reasons"])
         self.assertIsNone(result["publication"])
-        self.assertFalse(self.output.exists())
+        self.assertTrue(self.output.exists())
+        stored = json.loads((self.output / "receipt.json").read_bytes())
+        self.assertEqual(stored["status"], "UNACCEPTED")
+        self.assertEqual(stored["publication_state"], "PREPARED_ONLY")
 
     def test_cli_help_and_actual_fixture_process(self):
         optimization = ["-O"] if sys.flags.optimize else []

@@ -119,14 +119,33 @@ the original company hash remains, never silently truncated research.
 The new output contains `result.json`, `inputs.json` and `receipt.json`.
 All three are written and fsynced in a new sibling temporary directory,
 hash-checked, renamed as one directory batch without replacing any existing
-destination, then physically reread and
-hash-checked. A post-rename read failure removes this invocation's owned batch.
+destination, then physically reread and hash-checked. The staged directory's
+actual device/inode identity must still match after publication and readback;
+identical bytes in a replacement directory cannot substitute for it.
 Windows uses its no-replace rename; Linux requires libc/filesystem support for
 renameat2(RENAME_NOREPLACE). Other platforms or unavailable support refuse
 publication, with no fallback to an existence check followed by replacing rename.
-The returned `publication` field describes those physical files; it is not
-embedded into its own hashed `result.json`. Directory rename/fsync on a local
-filesystem is not a claim of durable Drive persistence or power-loss proof.
+
+Disk `receipt.json` is always `status=UNACCEPTED` / `publication_state=PREPARED_ONLY`.
+Its `result_status` is a computation result, not publication completion. Only a
+successful call returns `publication.acceptance` with LOCAL_READBACK_ACCEPTED,
+attempt ID, observed directory identity, exact three-file hashes and a separate
+acceptance SHA256. This returned receipt is not written into its own batch.
+Consumers must preserve that exact returned acceptance separately; disk bytes,
+directory appearance, or a reconstructed hash alone cannot replace it. Losing
+the returned acceptance leaves the batch unaccepted. This is a local readback
+protocol, not authenticated source or economic admission.
+
+Failure returns no publication/acceptance. It performs no path-based recursive
+cleanup: a path may belong to another process after rename. Failed staging,
+published or moved batches may remain, bounded by this invocation's existing
+output limits, with no accepted completion in them. They require explicit owner
+inspection; no automatic cleanup or retry is introduced. Earlier cleanup-on-
+failure test expectations are superseded by this no-delete refusal protocol.
+An identity/hash check records the readback instant and does not lock future
+filesystem changes. Later consumers must recheck the returned identity/hashes.
+Directory rename/fsync on a local filesystem is not a claim of durable Drive
+persistence or power-loss proof.
 
 The result retains case, manifest/input/artifact/code/config hashes, cutoff,
 actual module call list, each stage result and its SHA256. Inner NOT_RUN and

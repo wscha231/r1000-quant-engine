@@ -11,7 +11,6 @@ import math
 import os
 from pathlib import Path
 import re
-import shutil
 import stat
 import sys
 import uuid
@@ -330,6 +329,17 @@ def _rename_noreplace(source: Path, destination: Path):
         raise
 
 
+def _directory_identity(path: Path):
+    _no_links(path)
+    try:
+        info = path.stat(follow_symlinks=False)
+    except OSError:
+        raise BundleError("PUBLICATION_OWNERSHIP_LOST") from None
+    if not stat.S_ISDIR(info.st_mode) or not info.st_ino:
+        raise BundleError("PUBLICATION_IDENTITY_UNAVAILABLE")
+    return {"dev": info.st_dev, "ino": info.st_ino}
+
+
 def _publish(output: Path, result):
     # A new directory is one atomic batch; no mutable latest/CURRENT alias exists.
     if output.exists():
@@ -337,50 +347,57 @@ def _publish(output: Path, result):
     _no_links(output)
     if not output.parent.is_dir():
         raise BundleError("OUTPUT_PARENT_MISSING")
-    temporary = output.parent / ("." + output.name + ".tmp-" + uuid.uuid4().hex)
+    attempt_id = uuid.uuid4().hex
+    temporary = output.parent / ("." + output.name + ".tmp-" + attempt_id)
     temporary.mkdir()
-    published = False
-    try:
-        payload = canonical(result)
-        evidence = canonical({"input_sha256": result["input_sha256"],
+    identity = _directory_identity(temporary)
+
+    def require_own(path):
+        if _directory_identity(path) != identity:
+            raise BundleError("PUBLICATION_OWNERSHIP_LOST")
+
+    payload = canonical(result)
+    evidence = canonical({"input_sha256": result["input_sha256"],
                               "dependency_sha256": result["dependency_sha256"],
                               "code_file_sha256": result["code_file_sha256"],
                               "runtime_dependency_file_sha256": result["runtime_dependency_file_sha256"],
                               "runtime_dependency_status": result["runtime_dependency_status"],
                               "config_sha256": result["config_sha256"],
                               "manifest_sha256": result["manifest_sha256"]})
-        receipt = canonical({"schema": "research-backend-publication-v1", "case_id": result["case_id"],
-                             "status": result["status"], "cutoff": result["cutoff"],
-                             "authority": _closed(), "files": {
-                                 "result.json": digest(payload), "inputs.json": digest(evidence)}})
-        files = {"result.json": payload, "inputs.json": evidence, "receipt.json": receipt}
-        for name, raw in files.items():
-            with (temporary / name).open("xb") as stream:
-                stream.write(raw)
-                stream.flush()
-                os.fsync(stream.fileno())
-            if digest(_read(temporary / name, MAX_OUTPUT)) != digest(raw):
-                raise BundleError("OUTPUT_READBACK_MISMATCH")
-        _no_links(output)
-        if output.exists():
-            raise BundleError("OUTPUT_ALREADY_EXISTS")
-        _rename_noreplace(temporary, output)
-        published = True
-        for name, raw in files.items():
-            if digest(_read(output / name, MAX_OUTPUT)) != digest(raw):
-                raise BundleError("OUTPUT_READBACK_MISMATCH")
-        return {"directory": str(output), "files": {name: digest(raw) for name, raw in files.items()},
-                "readback_verified": True, "atomic_batch": True}
-    except Exception:
-        # This invocation owns this newly created namespace. Do not leave a
-        # success-looking receipt after a post-rename physical-read failure.
-        if published:
-            _no_links(output)
-            shutil.rmtree(output)
-        raise
-    finally:
-        if temporary.exists():
-            shutil.rmtree(temporary)
+    # Disk bytes are always provisional, even if a watcher moves this batch.
+    # Only the separately returned acceptance binds a successful readback. A
+    # failed call cannot leave a self-certifying completion in a moved batch.
+    receipt = canonical({"schema": "research-backend-publication-v1", "case_id": result["case_id"],
+                         "status": "UNACCEPTED", "publication_state": "PREPARED_ONLY",
+                         "attempt_id": attempt_id, "result_status": result["status"],
+                         "cutoff": result["cutoff"], "authority": _closed(), "files": {
+                             "result.json": digest(payload), "inputs.json": digest(evidence)}})
+    files = {"result.json": payload, "inputs.json": evidence, "receipt.json": receipt}
+    for name, raw in files.items():
+        require_own(temporary)
+        with (temporary / name).open("xb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if digest(_read(temporary / name, MAX_OUTPUT)) != digest(raw):
+            raise BundleError("OUTPUT_READBACK_MISMATCH")
+    require_own(temporary)
+    _no_links(output)
+    if output.exists():
+        raise BundleError("OUTPUT_ALREADY_EXISTS")
+    _rename_noreplace(temporary, output)
+    require_own(output)
+    for name, raw in files.items():
+        if digest(_read(output / name, MAX_OUTPUT)) != digest(raw):
+            raise BundleError("OUTPUT_READBACK_MISMATCH")
+    require_own(output)
+    hashes = {name: digest(raw) for name, raw in files.items()}
+    acceptance = {"schema": "research-backend-local-acceptance-v1", "attempt_id": attempt_id,
+                  "state": "LOCAL_READBACK_ACCEPTED", "directory_identity": identity, "files": hashes}
+    # No path-based cleanup: paths may now name another process's directory.
+    # Failed staging/published batches stay unaccepted for explicit inspection.
+    return {"directory": str(output), "files": hashes, "readback_verified": True, "atomic_batch": True,
+            "acceptance": acceptance, "acceptance_sha256": digest(canonical(acceptance))}
 
 
 def run_bundle(manifest_path: Path, output_dir: Path) -> dict:

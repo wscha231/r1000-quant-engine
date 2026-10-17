@@ -7388,3 +7388,14 @@ creation separate; synthetic successful fixtures must model the same distinction
 - An existence check does not reserve a directory. Use an atomic no-replace
   operation and fail closed when unsupported; preserve competing namespaces
   and clean only the current invocation's staging directory after refusal.
+
+## 2026-10-18 - Separate prepared batches from returned readback acceptance
+
+- A published path is not durable ownership. Never recursively delete by that
+  path after failure: a watcher may have moved the batch and reserved the name.
+- Keep disk receipts explicitly UNACCEPTED/PREPARED_ONLY. Return acceptance
+  separately only after directory-identity and byte readback checks; a failed
+  moved batch cannot certify its own completion from stored bytes.
+- Without an anchored deletion capability, retain bounded failed artifacts for
+  explicit inspection instead of risking another process's directory. Identity
+  checks describe an instant, not a lock; later consumers recheck the receipt.
