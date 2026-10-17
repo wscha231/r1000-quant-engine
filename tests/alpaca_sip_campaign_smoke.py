@@ -1399,7 +1399,8 @@ class BoundedContinuationTests(unittest.TestCase):
             self.fail('Unexpected offline route')
         try:
             c.apply_local_reject_recovery(journal,self.new,self.recovery)
-            with patch.object(c,'gh_json',side_effect=deployed),patch.object(c,'history',return_value=observed):
+            with patch.object(c,'gh_json',side_effect=deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs):
                 c.apply_continuation(journal,self.new,path,[])
             first=path.read_bytes();event=(self.state/'000018.json').read_bytes()
             c.apply_continuation(journal,self.new,path,[])
@@ -1453,6 +1454,65 @@ class BoundedContinuationTests(unittest.TestCase):
                  patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O allowed')), \
                  self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_DRIFT'):
                 c.worker(SimpleNamespace(),control,self.root/'unused-meter.json')
+
+    def deployed(self, route):
+        import base64
+        if route.endswith('/branches/master'):return dict(commit=dict(sha=self.new['expected_master']))
+        for name in c.PINS:
+            if '/contents/'+name+'?ref=' in route:return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+        self.fail('Unexpected offline deployed route')
+
+    def test_unknown_run_appearing_during_old_meter_reads_stops_before_bridge_append(self):
+        proof=self.proof();observed=self.observed()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),self.recovery,proof)
+        unknown=dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24)
+        try:
+            with patch.object(c,'gh_json',side_effect=self.deployed),patch.object(c,'history',return_value=observed), \
+                 patch.object(c,'campaign_runs',return_value=self.runs+[unknown]), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PREFIX'):
+                c.apply_continuation(journal,self.new,self.root/'late-bridge.json',[])
+            self.assertEqual(len(journal.entries),17)
+            self.assertFalse((self.root/'late-bridge.json').exists())
+        finally:journal.close()
+
+    def test_unknown_run_during_proof_query_stops_common_settlement(self):
+        from unittest.mock import Mock
+        proof=self.proof();remote=list(self.runs)
+        receipt=dict(parent_checkpoint_sha256=c.CONTINUATION['checkpoint'],nonce=c.PREFIX+'6'*24,
+                     usage={k:0 for k in c.LIMITS},examined_after=176,continuation_proof_sha256=proof['proof_sha256'])
+        def reconcile(runs):
+            if len(runs)!=5:raise c.Refused('CAMPAIGN_JOURNAL_REMOTE_CONFLICT')
+        journal=SimpleNamespace(recovery=self.recovery,continuation=proof,reconcile=reconcile,append=Mock())
+        def changing_proof(_):
+            remote.append(dict(self.runs[-1],id=99))
+            return proof
+        with patch.object(c,'settled_parent',return_value=dict(sha256=c.CONTINUATION['checkpoint'])), \
+             patch.object(c,'checkpoint_from_log',return_value=dict(sha256='7'*64)), \
+             patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.settle_run(journal,self.new,dict(id=6),receipt)
+        journal.append.assert_not_called()
+
+    def test_unknown_run_during_final_host_proof_query_stops_before_reservation_and_dispatch(self):
+        proof=self.proof();observed=self.observed();remote=list(self.runs)
+        path=self.root/'new-auth.json';path.write_bytes(c.encoded(self.new))
+        proof_calls=[]
+        def changing_proof(_):
+            proof_calls.append(1)
+            if len(proof_calls)==2:remote.append(dict(self.runs[-1],id=99,display_title='a1-sip '+c.PREFIX+'9'*24))
+            return proof
+        with patch.object(c,'continuation_proof',side_effect=changing_proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'apply_local_reject_recovery'),patch.object(c,'apply_continuation'), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',side_effect=lambda _:list(remote)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Dispatch forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_REMOTE_CONFLICT'):
+            c.host(path,self.state,permission_reference=self.reference,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'host-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+        self.assertFalse((self.state/'writer.lock').exists())
 
 
 if __name__=='__main__': unittest.main()

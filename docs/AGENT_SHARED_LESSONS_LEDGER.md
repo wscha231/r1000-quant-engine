@@ -7180,3 +7180,7 @@ Expected contract:
 - Keep failed fixture logs. Metadata preflight leaves authorization bindings
   null while receipts establish real binding hashes; synthetic continuation
   fixtures must model that distinction and actually mutate the prior floor.
+- A proof fetch added after a canonical-history guard reopens the same race.
+  After all meter/job/proof/pin reads, reconcile fresh canonical runs immediately
+  before bridge, reservation and settlement appends; stale observed.runs is
+  insufficient even when its five receipts and old ledger hashes are valid.

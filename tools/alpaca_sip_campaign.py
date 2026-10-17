@@ -864,7 +864,9 @@ def apply_continuation(journal, auth, receipt_path, inputs):
         require(observed["continuation"] == binding
                 and [r["id"] for r in observed["runs"]] == CONTINUATION["runs"],
                 "CAMPAIGN_CONTINUATION_PREFIX")
-        journal.reconcile(observed["runs"])
+        fresh_runs = campaign_runs(auth["workflow_run_floor"])
+        require([r["id"] for r in fresh_runs] == CONTINUATION["runs"], "CAMPAIGN_CONTINUATION_PREFIX")
+        journal.reconcile(fresh_runs)
         journal.append("BUDGET_CONTINUED", **binding)
     event = journal.entries[CONTINUATION["events"]]
     raw_event = bounded_bytes(journal.directory / f"{CONTINUATION['events']+1:06d}.json")
@@ -1326,12 +1328,12 @@ def settle_run(journal, auth, run, receipt):
     parent = settled_parent(journal, auth)
     require(receipt["parent_checkpoint_sha256"] == parent["sha256"], "CAMPAIGN_LOCAL_PARENT")
     ref = checkpoint_from_log(run, receipt, parent)
-    if getattr(journal, "recovery", None) is not None:
-        journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
     if getattr(journal, "continuation", None) is not None:
         require(continuation_proof(auth) == journal.continuation
                 and receipt.get("continuation_proof_sha256") == journal.continuation["proof_sha256"],
                 "CAMPAIGN_CONTINUATION_DRIFT")
+    if getattr(journal, "recovery", None) is not None:
+        journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
     journal.append("SETTLED", nonce=receipt["nonce"], run_id=run["id"],
                    usage=receipt["usage"], checkpoint=ref,
                    receipt=receipt,
@@ -1426,10 +1428,10 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
                     or (recovery is not None and journal.entries[-1]["kind"] == "LOCAL_REJECT_RECOVERED")
                     or (continuation is not None and journal.entries[-1]["kind"] == "BUDGET_CONTINUED"),
                     "CAMPAIGN_ACTIVE_RESERVATION")
-            if recovery is not None:
-                journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
             if continuation is not None:
                 require(continuation_proof(auth) == continuation, "CAMPAIGN_CONTINUATION_DRIFT")
+            if recovery is not None:
+                journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
             nonce = PREFIX + os.urandom(12).hex()
             bindings_missing = (observed.get("bindings") is None and
                                 (auth.get("owner_permission_id") is None or auth.get("credential_binding") is None))
