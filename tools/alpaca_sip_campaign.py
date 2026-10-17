@@ -1371,6 +1371,11 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     auth_hash = validate_authorization(auth)
     continuation = continuation_proof(auth)
     prior = auth["continuation"]["prior_authorization"] if continuation else auth
+    if continuation is not None:
+        reference = auth["continuation"]["proof_reference"]
+        require(permission_reference is None or permission_reference == reference,
+                "CAMPAIGN_CONTINUATION_PERMISSION")
+        permission_reference = reference
     require(not continuation or (predispatch_recovery is not None and continuation_receipt is not None),
             "CAMPAIGN_CONTINUATION_PREFIX")
     require(continuation or continuation_receipt is None, "CAMPAIGN_CONTINUATION_AUTH")

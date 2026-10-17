@@ -7184,3 +7184,7 @@ Expected contract:
   After all meter/job/proof/pin reads, reconcile fresh canonical runs immediately
   before bridge, reservation and settlement appends; stale observed.runs is
   insufficient even when its five receipts and old ledger hashes are valid.
+- Exercise the documented host command through the real serialization
+  boundary. When prior authorization bindings intentionally stay null, select
+  the verified embedded continuation URL by default; reject a conflicting
+  optional CLI reference before locking or appending any campaign event.

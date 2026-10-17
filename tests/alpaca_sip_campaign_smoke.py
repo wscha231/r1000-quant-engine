@@ -1514,5 +1514,44 @@ class BoundedContinuationTests(unittest.TestCase):
         self.assertFalse((self.state/'000018.json').exists())
         self.assertFalse((self.state/'writer.lock').exists())
 
+    def test_documented_host_arguments_use_embedded_permission_at_actual_cli_boundary(self):
+        proof=self.proof();observed=self.observed();calls=[]
+        path=self.root/'documented-auth.json';path.write_bytes(c.encoded(self.new))
+        class BoundaryReached(BaseException):pass
+        def strict_cli(command,**kwargs):
+            self.assertEqual(command[:3],['gh','workflow','run'])
+            payload=json.loads(kwargs['input'])
+            self.assertTrue(all(type(value) is str for value in payload.values()))
+            control=json.loads(payload['campaign_control'])
+            self.assertEqual(control['account_permission_reference'],self.reference)
+            self.assertEqual(control['continuation_binding'],proof)
+            self.assertFalse(control['preflight_only'])
+            self.assertEqual(payload['resume_sha256'],c.CONTINUATION['checkpoint'])
+            self.assertEqual(payload['max_new_symbols'],'32')
+            self.assertLessEqual(len(payload['campaign_control']),16384)
+            calls.append(payload)
+            raise BoundaryReached()
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'local_reject_recovery',return_value=self.recovery), \
+             patch.object(c,'history',return_value=observed),patch.object(c,'gh_json',side_effect=self.deployed), \
+             patch.object(c,'campaign_runs',return_value=self.runs), \
+             patch.object(c.subprocess,'run',side_effect=strict_cli),self.assertRaises(BoundaryReached):
+            c.host(path,self.state,predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'documented-continuation-receipt.json')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(c.decode((self.state/'000018.json').read_bytes())['kind'],'BUDGET_CONTINUED')
+        self.assertEqual(c.decode((self.state/'000019.json').read_bytes())['kind'],'RESERVED')
+        self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_explicit_conflicting_permission_refuses_before_writer_or_bridge(self):
+        proof=self.proof()
+        path=self.root/'conflict-auth.json';path.write_bytes(c.encoded(self.new))
+        with patch.object(c,'continuation_proof',return_value=proof), \
+             patch.object(c,'WorkJournal',side_effect=AssertionError('Writer forbidden')), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_CONTINUATION_PERMISSION'):
+            c.host(path,self.state,permission_reference=self.reference+'0',predispatch_recovery=self.local.bundle_path,
+                   continuation_receipt=self.root/'unused-conflict-receipt.json')
+        self.assertFalse((self.state/'000018.json').exists())
+
 
 if __name__=='__main__': unittest.main()

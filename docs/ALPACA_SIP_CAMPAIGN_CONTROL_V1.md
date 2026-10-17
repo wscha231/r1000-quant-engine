@@ -359,7 +359,11 @@ usage. Active time, dispatch count and first creation time include all five old
 runs. Preserve the old local-reject event/receipt rather than reissue them.
 
 Use the SAME journal and old pre-dispatch recovery bundle, plus
-`--continuation-receipt <external-private-path>`. Before the initial append,
+`--continuation-receipt <external-private-path>`. The host selects the embedded
+proof URL as capture permission. No redundant
+`--account-permission-reference` is needed; a conflicting explicit URL refuses
+before taking the campaign writer lock or writing the bridge.
+Before the initial append,
 verify native/deployed code pins, actual master, unchanged progress bytes and
 fresh full canonical history. Append only typed entry18 `BUDGET_CONTINUED`, then
 exclusively create/fsync its immutable receipt outside the journal and disjoint
