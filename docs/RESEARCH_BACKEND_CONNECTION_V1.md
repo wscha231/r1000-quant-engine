@@ -110,11 +110,20 @@ duplicate keys, nonfinite numbers, depth >32, >100,000 lexical tokens or
 to 16 MiB with room reserved for its physical-publication metadata. File reads
 reject symlinks, Windows junction/reparse points, input/output overlap and
 changes observed during the read.
+Non-regular paths are refused before opening. POSIX opens also use nonblocking
+mode, then recheck the opened file type, so a FIFO replacement cannot wait for
+a writer. The direct risk adapter returns a compact, closed BLOCKED envelope
+if retained company research plus diagnostics exceeds its output budget; only
+the original company hash remains, never silently truncated research.
 
 The new output contains `result.json`, `inputs.json` and `receipt.json`.
 All three are written and fsynced in a new sibling temporary directory,
-hash-checked, renamed as one directory batch, then physically reread and
+hash-checked, renamed as one directory batch without replacing any existing
+destination, then physically reread and
 hash-checked. A post-rename read failure removes this invocation's owned batch.
+Windows uses its no-replace rename; Linux requires libc/filesystem support for
+renameat2(RENAME_NOREPLACE). Other platforms or unavailable support refuse
+publication, with no fallback to an existence check followed by replacing rename.
 The returned `publication` field describes those physical files; it is not
 embedded into its own hashed `result.json`. Directory rename/fsync on a local
 filesystem is not a claim of durable Drive persistence or power-loss proof.

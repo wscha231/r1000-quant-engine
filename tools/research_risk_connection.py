@@ -329,4 +329,16 @@ def build_risk_connection(request: dict, *, cutoff: str) -> dict:
                                "ACTUAL_ER_DOWNSIDE_COST_IDENTITY_AND_PORTFOLIO_CLOCKS_NOT_ADMITTED",
                                "INDEPENDENT_A6_AND_EXPLICIT_ECONOMIC_APPROVAL_NOT_PRESENT"],
                   limitation="FIXTURE_OR_HASH_PARITY_IS_NOT_ACTUAL_SOURCE_PIT_OR_ECONOMIC_ADMISSION", **AUTHORITY)
-    return bridge.seal(output)
+    try:
+        sealed = bridge.seal(output)
+        # seal checks the payload before adding its content hash. Verify the
+        # complete envelope too, so the public result stays within the budget.
+        return bridge.clean(sealed)
+    except bridge.ReassessmentError as exc:
+        # A valid company asset can leave insufficient room for diagnostics.
+        # Retain its hash, refuse the whole output, and never truncate research
+        # into a success-looking partial asset or expose an unbounded exception.
+        output.update(status="BLOCKED", company_research=None, call_trace=[],
+                      input_errors={"output": _error(exc)}, output_refusal=_error(exc),
+                      stages={name: _stage("BLOCKED", ["OUTPUT_SEAL_REFUSED"]) for name in STAGES})
+        return bridge.clean(bridge.seal(output))

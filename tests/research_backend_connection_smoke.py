@@ -92,6 +92,111 @@ def fixture(bundle_root: Path):
 
 
 class BackendConnectionTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix" and hasattr(os, "mkfifo"), "requires real POSIX FIFO")
+    def test_fifo_manifest_descriptor_artifact_and_code_pin_refuse_without_writer(self):
+        code = r'''
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from tools import run_research_backend_connection as r
+root, role = Path(sys.argv[2]), sys.argv[3]
+root.mkdir()
+fifo = root / "pipe"
+os.mkfifo(fifo)
+if role == "manifest":
+    result = r.run_bundle(fifo, root / "research-out")
+    print(json.dumps(result["reasons"]))
+else:
+    try:
+        if role == "code":
+            r.ROOT = root
+            pins = {}
+            for index, name in enumerate(r.REQUIRED_CODE):
+                path = root / name
+                path.parent.mkdir(exist_ok=True)
+                if index == 0:
+                    os.mkfifo(path)
+                else:
+                    path.write_bytes(b"# fixture")
+                pins[name] = r.digest(b"# fixture")
+            r._verify_pins(pins)
+        else:
+            descriptor = dict(path="pipe", expected_sha256=r.digest(b"{}"),
+                              available_at="2026-10-18T00:00:00Z", collected_at="2026-10-18T00:00:00Z",
+                              valid_through="2026-10-19T00:00:00Z")
+            r._descriptor(root, descriptor, r.clock("2026-10-18T01:00:00Z"), [0], parse=role != "artifact")
+    except r.BundleError as error:
+        print(json.dumps([str(error)]))
+'''
+        for role in ("manifest", "descriptor", "artifact", "code"):
+            with self.subTest(role=role):
+                command = [sys.executable, "-B"] + (["-O"] if sys.flags.optimize else [])
+                completed = subprocess.run(command + ["-c", code, str(ROOT), str(self.directory / role), role],
+                                           capture_output=True, text=True, timeout=8)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(json.loads(completed.stdout), ["INPUT_NOT_REGULAR"])
+
+    @unittest.skipUnless(os.name == "posix" and hasattr(os, "mkfifo"), "requires real POSIX FIFO replacement")
+    def test_file_swapped_to_fifo_before_open_is_nonblocking(self):
+        code = r'''
+import json, os, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+from tools import run_research_backend_connection as r
+path = Path(sys.argv[2])
+path.write_bytes(b"regular")
+original = os.open
+def swapped(name, flags):
+    path.unlink()
+    os.mkfifo(path)
+    return original(name, flags)
+try:
+    with patch.object(r.os, "open", side_effect=swapped):
+        r._read(path, 100)
+except r.BundleError as error:
+    print(json.dumps(str(error)))
+'''
+        command = [sys.executable, "-B"] + (["-O"] if sys.flags.optimize else [])
+        completed = subprocess.run(command + ["-c", code, str(ROOT), str(self.directory / "swap")],
+                                   capture_output=True, text=True, timeout=8)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(json.loads(completed.stdout), "INPUT_NOT_REGULAR")
+
+    def test_publication_race_preserves_other_process_empty_namespace(self):
+        original_exists = Path.exists
+        reserved = []
+
+        def race(path):
+            present = original_exists(path)
+            staged = list(self.directory.glob("." + self.output.name + ".tmp-*/receipt.json"))
+            if path == self.output and not present and staged and not reserved:
+                child = subprocess.run([sys.executable, "-B", "-c",
+                                        "import pathlib,sys; pathlib.Path(sys.argv[1]).mkdir()", str(path)],
+                                       capture_output=True, timeout=10)
+                self.assertEqual(child.returncode, 0, child.stderr)
+                reserved.append(path.stat().st_ino)
+                return False  # The existence check raced with the reservation.
+            return present
+
+        with patch.object(Path, "exists", new=race):
+            result = self.run_case()
+        self.assertEqual(len(reserved), 1)
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertIn("OUTPUT_ALREADY_EXISTS", result["reasons"])
+        self.assertIsNone(result["publication"])
+        self.assertEqual(self.output.stat().st_ino, reserved[0])
+        self.assertEqual(list(self.output.iterdir()), [])
+        self.assertEqual(list(self.directory.glob("." + self.output.name + ".tmp-*")), [])
+
+    def test_unsupported_publication_platform_fails_closed(self):
+        with patch.object(runner.sys, "platform", "unsupported-no-replace-platform"):
+            result = runner._base_result()
+            with self.assertRaisesRegex(runner.BundleError, "PUBLICATION_NOREPLACE_UNAVAILABLE"):
+                runner._publish(self.output, result)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.directory.glob("." + self.output.name + ".tmp-*")), [])
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

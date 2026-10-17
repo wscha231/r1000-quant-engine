@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import errno
 import hashlib
 import json
 import math
@@ -185,10 +186,17 @@ def _relative(root: Path, value) -> Path:
 def _read(path: Path, limit: int) -> bytes:
     _no_links(path)
     try:
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        if not stat.S_ISREG(path.stat(follow_symlinks=False).st_mode):
+            raise BundleError("INPUT_NOT_REGULAR")
+        # A regular path can become a FIFO after stat. Nonblocking open ensures
+        # fstat can reject the replacement without waiting for a pipe writer.
+        flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                 | getattr(os, "O_NONBLOCK", 0))
         with os.fdopen(os.open(path, flags), "rb") as stream:
             before = os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+            if not stat.S_ISREG(before.st_mode):
+                raise BundleError("INPUT_NOT_REGULAR")
+            if before.st_size > limit:
                 raise BundleError("INPUT_BYTE_BUDGET")
             raw = stream.read(limit + 1)
             after = os.fstat(stream.fileno())
@@ -291,6 +299,37 @@ def _stage(callable_, result, name):
             "result": value, "result_sha256": digest(raw)}
 
 
+def _rename_noreplace(source: Path, destination: Path):
+    """Publish a directory only if no destination exists at the rename itself."""
+    try:
+        if sys.platform == "win32":
+            # Windows os.rename refuses an existing destination, including an
+            # empty directory. Do not use os.replace or MoveFileEx REPLACE.
+            os.rename(source, destination)
+        elif sys.platform.startswith("linux"):
+            import ctypes
+            library = ctypes.CDLL(None, use_errno=True)
+            rename = getattr(library, "renameat2", None)
+            if rename is None:
+                raise BundleError("PUBLICATION_NOREPLACE_UNAVAILABLE")
+            rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            rename.restype = ctypes.c_int
+            # AT_FDCWD=-100; RENAME_NOREPLACE=1. No racy check/rename fallback.
+            if rename(-100, os.fsencode(source), -100, os.fsencode(destination), 1) != 0:
+                code = ctypes.get_errno()
+                raise OSError(code, os.strerror(code))
+        else:
+            raise BundleError("PUBLICATION_NOREPLACE_UNAVAILABLE")
+    except FileExistsError:
+        raise BundleError("OUTPUT_ALREADY_EXISTS") from None
+    except OSError as error:
+        if error.errno == errno.ENOTEMPTY:
+            raise BundleError("OUTPUT_ALREADY_EXISTS") from None
+        if error.errno in {errno.ENOSYS, errno.EINVAL, errno.EOPNOTSUPP}:
+            raise BundleError("PUBLICATION_NOREPLACE_UNAVAILABLE") from None
+        raise
+
+
 def _publish(output: Path, result):
     # A new directory is one atomic batch; no mutable latest/CURRENT alias exists.
     if output.exists():
@@ -325,7 +364,7 @@ def _publish(output: Path, result):
         _no_links(output)
         if output.exists():
             raise BundleError("OUTPUT_ALREADY_EXISTS")
-        temporary.rename(output)
+        _rename_noreplace(temporary, output)
         published = True
         for name, raw in files.items():
             if digest(_read(output / name, MAX_OUTPUT)) != digest(raw):

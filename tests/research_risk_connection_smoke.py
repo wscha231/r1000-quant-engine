@@ -6,6 +6,7 @@ and: python -B -O tests/research_risk_connection_smoke.py
 from __future__ import annotations
 
 import copy
+import json
 import math
 import sys
 import unittest
@@ -59,6 +60,26 @@ def request_fixture():
 
 
 class ConnectionTests(unittest.TestCase):
+    def test_company_near_byte_limit_returns_closed_blocked_not_exception(self):
+        company = "x" * (b.MAX_BYTES - 1000)
+        self.assertEqual(b.clean(company), company)
+        result = self.call({"company_research": company})
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["output_refusal"], "BYTE_BUDGET")
+        self.assertIsNone(result["company_research"])
+        self.assertEqual(result["company_research_sha256"], b.digest(company))
+        self.assertTrue(all(stage["status"] == "BLOCKED" for stage in result["stages"].values()))
+        self.assertEqual(result["call_trace"], [])
+        self.assertLess(len(json.dumps(result).encode()), 16384)
+        self.closed(result)
+
+    def test_small_company_is_preserved_without_output_refusal(self):
+        company = {"note": "complete retained research"}
+        result = self.call({"company_research": company})
+        self.assertEqual(result["company_research"], company)
+        self.assertNotIn("output_refusal", result)
+        self.closed(result)
+
     def call(self, request=None, cutoff=CUTOFF):
         return connection.build_risk_connection(request_fixture() if request is None else request, cutoff=cutoff)
 

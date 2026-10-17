@@ -7377,3 +7377,14 @@ creation separate; synthetic successful fixtures must model the same distinction
   physically reread output hashes. Never return an older receipt after failure.
   Checked minimum code pins and fixed source hashes do not authenticate the
   complete executable dependency closure or a remote HEAD.
+
+## 2026-10-18 - Bound special-file reads and refuse publication races
+
+- Check regular-file type before open and use nonblocking POSIX open plus fstat
+  to reject a FIFO swapped into the path. A post-open check alone can hang.
+- Keep envelope/hash overhead inside the output budget. If a valid research
+  asset leaves insufficient space, return an explicit closed BLOCKED result
+  retaining only its hash; never truncate it into apparent success.
+- An existence check does not reserve a directory. Use an atomic no-replace
+  operation and fail closed when unsupported; preserve competing namespaces
+  and clean only the current invocation's staging directory after refusal.
