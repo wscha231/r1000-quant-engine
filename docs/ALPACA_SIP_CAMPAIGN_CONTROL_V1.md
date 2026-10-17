@@ -634,6 +634,14 @@ variant. Duplicate matches, pagination or semantic mismatches refuse.
 Zero matches is a time-specific lookup observation, not proof that the old
 uncertain POST stored nothing.
 
+An indexed exact-name normalized object may predate the failed-run window:
+retain its actual server creation time and verify its content/decoded rows.
+The original ZIP must still be inside the sealed window. Successful canonical
+reuse receipts reapply inventory closure (count, no pagination, exactly one raw,
+at most one normalized, hashes/sizes/window) rather than only diagnostic shapes.
+Existing mode requires EXISTING_GZIP_VERIFIED; new mode requires the canonical
+encoder label. A failed diagnostic may retain incomplete inventory evidence.
+
 The v4 OWNER record must explicitly authorize one normalized-only derivation
 from these verified original bytes. Use the existing content-addressed
 `persist_object` primitive, with gzip filename empty, mtime0, compression9;

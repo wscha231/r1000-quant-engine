@@ -1227,6 +1227,20 @@ def verify_drive_reuse(reuse, identity):
         data = reuse["materialization"]
         evidence = identity.get("orphan_inventory")
         verify_orphan_inventory(evidence)
+        entries = evidence["entries"]
+        originals = [row for row in entries if row["kind"] == "RAW"]
+        normalized = [row for row in entries if row["kind"] == "NORMALIZED"]
+        require(evidence["has_more"] is False and evidence["files_count"] == len(entries)
+                and 1 <= len(entries) <= 8 and len(originals) == 1 and len(normalized) <= 1
+                and all(row["kind"] != "OTHER" and row["sha256"] is not None
+                        and row["bytes"] is not None and 0 < row["bytes"] < 16_000_000
+                        and row["created_at_utc"] is not None
+                        and utc(DRIVE_RECOVERY["window_start"]) <= utc(row["created_at_utc"])
+                            <= utc(DRIVE_RECOVERY["window_end"]) for row in entries)
+                and originals[0]["sha256"] == reuse["raw_sha256"]
+                and originals[0]["bytes"] == DRIVE_RECOVERY["raw_bytes"]
+                and (not normalized or normalized[0]["sha256"] == reuse["normalized_sha256"]),
+                "EXTERNAL_ORPHAN_INVENTORY_CLOSURE")
         require(isinstance(data, dict) and set(data) == {"capture_failed_run_id", "rows_sha256", "codec", "mode",
                 "created_at_utc", "lookup_observed_at_utc", "inventory_sha256", "original_create_outcome"}
                 and data["capture_failed_run_id"] == DRIVE_RECOVERY["run_id"]
@@ -1234,11 +1248,12 @@ def verify_drive_reuse(reuse, identity):
                 and isinstance(data["rows_sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", data["rows_sha256"])
                 and data["mode"] in {"EXISTING_VERIFIED", "DERIVED_NEW"}
                 and data["codec"] in {"EXISTING_GZIP_VERIFIED", "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9"}
-                and (data["mode"] != "DERIVED_NEW" or data["codec"] == "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9")
+                and data["codec"] == {"DERIVED_NEW":"GZIP_FILENAME_EMPTY_MTIME0_LEVEL9",
+                                      "EXISTING_VERIFIED":"EXISTING_GZIP_VERIFIED"}[data["mode"]]
                 and data["original_create_outcome"] == "UNKNOWN"
                 and data["inventory_sha256"] == digest(encoded(evidence))
-                and utc(DRIVE_RECOVERY["window_start"]) <= utc(data["created_at_utc"])
-                    <= utc(data["lookup_observed_at_utc"]) <= utc(reuse["derived_at_utc"])
+                and utc(data["created_at_utc"]) <= utc(data["lookup_observed_at_utc"])
+                    <= utc(reuse["derived_at_utc"])
                 and (data["mode"] != "DERIVED_NEW" or utc(evidence["observed_at_utc"]) <= utc(data["created_at_utc"])),
                 "EXTERNAL_MATERIAL_PROVENANCE")
 
@@ -2294,7 +2309,7 @@ def validate_orphan_item(item, folder):
             and item["size"].isascii() and item["size"].isdigit() and len(item["size"]) <= 8
             and 0 < int(item["size"]) < 16_000_000
             and isinstance(item.get("createdTime"), str)
-            and utc(DRIVE_RECOVERY["window_start"]) <= utc(item.get("createdTime")) <= utc(),
+            and utc(item["createdTime"]) <= utc(),
             "EXTERNAL_ORPHAN_LISTING")
 
 

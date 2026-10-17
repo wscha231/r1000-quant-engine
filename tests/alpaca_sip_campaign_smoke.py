@@ -2996,6 +2996,27 @@ class MaterializationRevisionTests(unittest.TestCase):
             c.external_worker(args,control,self.b.root/'v4-complete-meter')
         self.assertEqual(opener.calls,5);self.assertEqual(args.max_new_symbols,9)
 
+    def test_existing_mode_cannot_claim_new_encoder_provenance(self):
+        run,value=self.completion()
+        value['drive_orphan_reuse']['materialization']['codec']='GZIP_FILENAME_EMPTY_MTIME0_LEVEL9'
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_MATERIAL_PROVENANCE'):self.history([(run,value)])
+
+    def test_successful_receipts_must_close_the_same_bounded_inventory(self):
+        for mutation in ('pagination','count','missing_raw','two_norm','raw_hash','raw_bytes','norm_hash','clock'):
+            run,value=self.completion();inventory=value['orphan_inventory'];entries=inventory['entries']
+            if mutation=='pagination':inventory['has_more']=True
+            elif mutation=='count':inventory['files_count']=2
+            elif mutation=='missing_raw':entries[0]['kind']='JSON'
+            elif mutation=='two_norm':entries.extend([dict(entries[0],kind='NORMALIZED')]*2);inventory['files_count']=3
+            elif mutation=='raw_hash':entries[0]['sha256']='f'*64
+            elif mutation=='raw_bytes':entries[0]['bytes']=1
+            elif mutation=='norm_hash':entries.append(dict(entries[0],kind='NORMALIZED'));inventory['files_count']=2
+            else:entries[0]['created_at_utc']=(c.utc(c.DRIVE_RECOVERY['window_end'])+timedelta(seconds=1)).isoformat()
+            c.verify_orphan_inventory(inventory)  # Valid diagnostic shape, not successful evidence.
+            value['drive_orphan_reuse']['materialization']['inventory_sha256']=c.digest(c.encoded(inventory))
+            with self.subTest(mutation=mutation),self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_INVENTORY_CLOSURE'):
+                self.history([(run,value)])
+
 
 class OrphanMaterializationTests(unittest.TestCase):
     def setUp(self):
@@ -3045,6 +3066,21 @@ class OrphanMaterializationTests(unittest.TestCase):
         self.recover();self.assertEqual(f.writes,['.json','.json'])
         self.assertEqual(f.meter.identity['orphan_inventory']['files_count'],2)
         self.assertEqual([x['kind'] for x in f.meter.identity['orphan_inventory']['entries']],['RAW','JSON'])
+
+    def test_exact_name_older_normalized_object_retains_its_actual_creation_clock(self):
+        f=self.f;f.reply=dict(files=f.listing[:1]);self.clock['fixture-norm-123']='2026-10-16T00:00:00Z'
+        ref=self.recover();reuse=c.decode(f.store[ref['file_id']])['recovered_from']
+        self.assertEqual(f.writes,['.json','.json']);self.assertEqual(f.meter.examined,164)
+        self.assertEqual(reuse['materialization']['mode'],'EXISTING_VERIFIED')
+        self.assertEqual(reuse['materialization']['created_at_utc'],'2026-10-16T00:00:00Z')
+        self.assertEqual(f.meter.used['provider_gets'],0)
+
+    def test_older_raw_is_still_outside_the_sealed_original_window(self):
+        f=self.f;f.listing[0]['createdTime']='2026-10-16T00:00:00Z'
+        with patch.object(f.drive,'read',side_effect=AssertionError('No bytes before original-window closure')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_LISTING'):
+            self.recover()
+        self.assertEqual(f.writes,[]);self.assertEqual(f.meter.examined,160)
 
     def test_missing_duplicate_paginated_and_unknown_names_record_safe_diagnostic_no_write(self):
         f=self.f

@@ -7341,3 +7341,10 @@ family repair, malformed/duplicate/paginated metadata, gzip-header drift,
 unknown CREATE and CP164 readback failure. No last5 provider request is allowed
 until independent CP164 closure. All fixtures remain synthetic and confer no
 supplier rights, market-data coverage or Source/PIT eligibility.
+
+The post-Ready639 review found three further boundaries: indexed normalized
+objects may be older than the failed window, while original ZIPs may not;
+existing/new mode and codec must agree in both directions; canonical reuse
+reconciliation must reapply successful inventory closure and object hashes,
+not accept a merely well-shaped diagnostic. Preserve actual older server times
+without inventing collection/PIT clocks. No runtime or budget policy changes.
