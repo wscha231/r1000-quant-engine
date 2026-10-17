@@ -114,6 +114,57 @@ new reservations remain forbidden. Any later recovery needs a distinct A0
 reviewed contract and explicit authorization preserving all spent bytes/counters.
 Legacy fixed-seed recovery behavior is unchanged.
 
+### Named partial120 correction (preparation requires separate deployment)
+
+`r1000-sip-external-cohort-authorization-v2` is a single typed revision of the
+same169 input, namespace and immutable generation chain. It does not create
+another epoch, reset its examined prefix, or grant generic HTTP/network retries.
+The only eligible old failure is run39023083535/attempt1, finalized HTTP_ERROR
+meter `e189da57517ea833e31ed348cdc5930984d0938c79a52b9de43401d4536ace2b`,
+with120 examined and checkpoint
+`a9459d00316fe60bd1a3638571b484878aa78897d94b0fc8ecdc3c7e323d3e12`.
+Its HTTP status/request category was not recorded. Unknown status is explicitly
+acknowledged in the new consent; it is not retroactively classified as transient,
+provider, Drive, permission, entitlement or quota failure.
+
+The closed `named_recovery` record contains `prior_capture_source` (only old
+expected_master, code_pins, proof_reference), failed_run_id,
+failed_receipt_sha256, checkpoint_sha256 and examined. Shared immutable fields
+reconstruct the complete old v1 authorization; its canonical SHA must equal
+`ca08ac2f7da1d6483a98c2db260f5d7b0beff047980162cb63c9906acc7af8c3`.
+This avoids duplicating the shared budget/input while preserving the15k auth
+and16KiB control caps for a later market-cap wrapper. New protected source pins
+and a new immutable OWNER consent are mandatory. The old consent remains frozen.
+
+Both exact13-event old raw journal prefixes are fixed by SHA. The cohort adds
+exactly one `EXTERNAL_RECOVERY_BOUND` event before any new reservation; its
+effective proof is the new consent. Its first binding and the shared registry's
+original proof/root stay unchanged. All old and new reservations reconcile in
+the same global lock/registry. Missing, moved, edited or rolled-back prefixes,
+unknown POSTs and mixed proof versions refuse without reconstruction or refunds.
+
+Canonical history permits only old→new auth order within this one logical epoch.
+The first new attempt must explicitly name `--recovery-run 39023083535`, resume
+checkpoint120, use exactly8 names to reach128, and use `--max-batches 1`.
+RESERVED-before-POST consumes that one attempt even when its outcome is unknown.
+Until that first recovery was fully settled before the current invocation,
+max-batches1 also applies to restart/import/family-repair; closing that receipt
+consumes the batch and cannot dispatch an ordinary second POST.
+Every new failure is terminal; no second recovery or namespace escape follows.
+A completed new8 receipt can be imported/settled after expiry, but cannot renew
+execution authority. Later ordinary successes use recovery_run:null; the actual
+128-name cost review and remaining32+9 boundaries stay intact. A later top500
+epoch still requires complete169 and validates the full old/revision/new journal.
+All failed usage, the original17 events, first48h, owner/key and existing finite
+limits remain unchanged. Preparing this correction does not authorize deployment
+or another provider request.
+
+Future meters may include `last_transport_failure`: only integer HTTP status
+(or null), fixed request category, HEADER_OPEN/HEADERS/BODY_READ phase, GET/POST,
+and the already-debited per-run request ordinal. It stores no URL, ticker query,
+headers, response body, credential or exception message. Existing meters are
+validated without inserting defaults or changing their canonical hashes.
+
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,
 historical Russell membership certificate, scheduler, broker or portfolio path.

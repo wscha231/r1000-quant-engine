@@ -7257,3 +7257,34 @@ terminal receipt whose checkpoint hash equals its parent already returns that
 parent before any log lookup. Independent AUTH/NETWORK worker-to-host closure
 and duplicate-resume probes confirmed this unchanged-parent behavior; preserve
 the disposition and avoid inventing a new checkpoint or recovery permission.
+
+### 2026-10-17 — Preserve a partial cohort across a named Source revision
+
+Actual external run39023083535 stopped at120/169 after24 newly verified names,
+with a generic HTTP_ERROR and no status/request-phase detail. The120 names and
+503006 raw+split rows remain valid private source bytes; the entire failed meter
+is charged and settled. Do not infer an entitlement, quota, provider/Drive or
+transient cause from the generic label, and do not blindly rerun the workflow.
+
+The separately authorized correction uses one same-namespace auth revision:
+reconstruct/hash-check the exact old auth, freeze both13-event raw prefixes,
+append one typed recovery binding, retain the registry's original proof/root,
+and verify one old→new canonical transition. The first new attempt is explicitly
+bound to failed run/meter/CP120 and exactly8/max1; unknown POST consumes the
+reservation and every new failure remains terminal. All spent costs and the
+first48h survive source-pin changes. A later cohort must verify the revision
+journal too. Deduplicate immutable fields rather than raising control-size caps.
+
+Record only allowlisted HTTP status/category/phase/method/debit ordinal at the
+transport boundary; never serialize URL/query/header/body/exception text. Legacy
+receipt hashes stay untouched. Code/CI/A6 success and Draft preparation do not
+authorize protected deployment or actual capture.
+
+Independent A6 counterexamples tightened the portable worker boundary too: a
+missing named failure must refuse before the meter, and first COMPLETE means
+exactly120→128, not merely a delta of at most8. If diagnostic persistence fails,
+raise only a fixed refusal with suppressed exception context; an active HTTPError
+may otherwise leak a sensitive URL/reason through an unrelated journal error.
+Codex also required max1 across restarts until the first recovery is fully
+settled in both journals: importing or repairing that settlement consumes the
+one batch, rather than allowing a second ordinary POST in the same invocation.
