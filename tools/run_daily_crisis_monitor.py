@@ -220,12 +220,27 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
         clock.need(source_session == result["expected_session"], "STALE_SUCCESS_NOT_CURRENT_REPORT")
         records = long_crisis.get("component_availability")
         clock.need(isinstance(records, list) and bool(records), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
+        values = long_crisis.get("canonical_state_inputs")
+        clock.need(isinstance(values, dict), "SOURCE_AVAILABILITY_METADATA")
+        expected = {row.component: row for row in component_availability(values, decision_time=now)}
+        declared = {}
         for record in records:
             clock.need(isinstance(record, dict), "SOURCE_AVAILABILITY_CLOCKS_REQUIRED")
+            name = record.get("component")
+            clock.need(isinstance(name, str) and name in expected and name not in declared,
+                       "SOURCE_AVAILABILITY_METADATA")
+            clock.need(type(record.get("available")) is bool and type(record.get("fresh")) is bool,
+                       "SOURCE_AVAILABILITY_METADATA")
+            clock.need(not record["fresh"] or record["available"], "SOURCE_AVAILABILITY_METADATA")
+            clock.need(record["available"] == expected[name].available, "SOURCE_AVAILABILITY_METADATA")
+            declared[name] = record
             original_clock = record.get("available_from")
             if original_clock or record.get("available") is True:
                 available = clock.stamp(original_clock)
                 clock.need(available <= cutoff, "SOURCE_AVAILABLE_AFTER_DECISION")
+        clock.need(set(declared) == set(expected), "SOURCE_AVAILABILITY_METADATA")
+        clock.need(all(row.available and row.fresh and declared[name]["available"] and declared[name]["fresh"]
+                       for name, row in expected.items() if row.critical), "MISSING_CRITICAL_COMPONENTS")
         clock.need(not long_crisis.get("missing_critical_components"), "MISSING_CRITICAL_COMPONENTS")
         result.update(current_report_status="CURRENT_LEGACY_DIAGNOSTIC", data_health="DATE_CURRENT_DIAGNOSTIC",
                       history_update_allowed=True)

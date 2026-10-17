@@ -221,9 +221,28 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.assert_current_blocked(self.run_case(mutate=change), "MISSING_CRITICAL_COMPONENTS")
 
     def test_missing_or_invalid_component_clock_records_refuse(self):
-        for records in (None, [], 3, [None]):
+        for records in (None, [], 3, [None], [{}]):
             with self.subTest(records=records):
                 self.assert_current_blocked(self.run_case(mutate=lambda meta:meta.update(component_availability=records)))
+
+    def test_component_records_require_unique_complete_known_names_and_booleans(self):
+        def duplicate(meta):meta["component_availability"].append(copy.deepcopy(meta["component_availability"][0]))
+        def incomplete(meta):meta["component_availability"].pop()
+        def unknown(meta):meta["component_availability"][0]["component"] = "unknown"
+        def invalid_bool(meta):meta["component_availability"][0]["fresh"] = "true"
+        def absent_clock(meta):meta["component_availability"][0].pop("available_from")
+        for change in (duplicate, incomplete, unknown, invalid_bool, absent_clock):
+            with self.subTest(change=change.__name__):
+                self.assert_current_blocked(self.run_case(mutate=change))
+
+    def test_critical_metadata_cannot_hide_missing_or_stale_values(self):
+        def missing(meta):meta["canonical_state_inputs"].pop("hy_oas_zscore_252d")
+        def stale(meta):meta["component_availability"][0]["fresh"] = False
+        def unavailable(meta):meta["component_availability"][0]["available"] = False
+        def hidden_stale(meta):meta["canonical_state_inputs"]["hy_oas_stale"] = True
+        for change in (missing, stale, unavailable, hidden_stale):
+            with self.subTest(change=change.__name__):
+                self.assert_current_blocked(self.run_case(mutate=change))
 
     def test_explicit_historical_report_route_remains_separate(self):
         marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}

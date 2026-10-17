@@ -158,6 +158,10 @@ The legacy current report uses the host UTC clock; caller report-now does not
 backdate it. Old/missing/malformed/future source sessions, unavailable calendar,
 future or malformed declared component clocks and missing critical components
 return BLOCKED/DATA_BLOCKED with current state NULL and no paper-action candidates.
+Declared availability requires complete, unique known component names, strict
+boolean flags and parseable clocks for available values. Critical availability
+is recomputed from canonical inputs and cross-checked against those declarations;
+an empty or incomplete metadata record cannot authorize current history updates.
 STALE_SUCCESS_NOT_CURRENT_REPORT retains the explicit B1 stale-success meaning.
 No blocked observation calls current hysteresis or rewrites its history bytes.
 
