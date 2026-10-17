@@ -404,6 +404,12 @@ A6_FIXED_PROOF_INPUTS = (
     'research/control_plane/matured_outcome_cohort_v1.schema.json',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tests/research_path_connection_smoke.py',
+    'tests/research_risk_connection_smoke.py',
+    'tests/research_backend_connection_smoke.py',
+    'research/research_path_connection_v1.py',
+    'tools/research_risk_connection.py',
+    'tools/run_research_backend_connection.py',
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
     'tests/valuation_provenance_shadow_smoke.py',
     'tools/audit_valuation_provenance_shadow.py',

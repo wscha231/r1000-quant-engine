@@ -150,6 +150,17 @@ class ManualTests(unittest.TestCase):
             paths.update(manual.required_dependencies(key))
         for row in manual.load_catalog()['entries']:
             paths.update(row['dependency_hashes'])
+        # This is executable fixture closure, not an A6 admission/list update.
+        # Keep the new registered programs and their actual local adapters
+        # available so missing production pins fail the strict oracle below.
+        paths.update({
+            'tests/research_path_connection_smoke.py',
+            'tests/research_risk_connection_smoke.py',
+            'tests/research_backend_connection_smoke.py',
+            'research/research_path_connection_v1.py',
+            'tools/research_risk_connection.py',
+            'tools/run_research_backend_connection.py',
+        })
         for name in paths:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -3167,7 +3178,11 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 235)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 238)
+        self.assertEqual(len({path for path, _ in registered_validation.DEFAULT_TESTS}), 238)
+        self.assertTrue({'tests/research_path_connection_smoke.py',
+                         'tests/research_risk_connection_smoke.py',
+                         'tests/research_backend_connection_smoke.py'}.issubset(programs))
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
         self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
