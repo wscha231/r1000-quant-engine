@@ -80,7 +80,7 @@ def test_decision_cadence_outputs_mid_month_reentry_review() -> None:
             ]
         ).to_csv(latest / "reports" / "candidate_replay_book.csv", index=False)
         (latest / "daily_crisis_monitor" / "summary.json").write_text(
-            json.dumps({"state": "REENTRY_READY", "raw_state": "REENTRY_READY",
+            json.dumps({"state": "REENTRY_STAGE_1", "raw_state": "GREEN",
                         "schema_version":"daily-crisis-monitor-v2", "current_report_status":"CURRENT_LEGACY_DIAGNOSTIC",
                         "data_health":"DATE_CURRENT_DIAGNOSTIC", "risk_as_of_session":"2025-11-19",
                         "expected_session":"2025-11-19", "generated_at_utc":"2025-11-19T23:00:00Z"}),

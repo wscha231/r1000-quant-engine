@@ -398,6 +398,31 @@ class LegacyCurrentnessTests(unittest.TestCase):
             (monitor_dir/"summary.json").write_text(json.dumps(valid))
             self.assertEqual(cadence.crisis_context(latest)["daily_monitor_state"], "GREEN")
 
+    def test_cadence_requires_canonical_states_and_uses_current_reentry_only(self):
+        from tools import run_decision_cadence_review as cadence
+        valid = self.run_case()[0]
+        latest = self.root/"typed_cadence"
+        monitor_dir = latest/"daily_crisis_monitor"
+        monitor_dir.mkdir(parents=True)
+        integrated = latest/"integrated_theme_leader_crisis_replay"
+        integrated.mkdir()
+        (integrated/"daily_crisis_state.csv").write_text("crisis_state,reentry_stage\nGREEN,REENTRY_STAGE_3\n")
+        with patch.object(clock, "trusted_now", return_value=datetime.fromisoformat("2026-10-17T00:45:00+00:00")):
+            for key in ("state", "raw_state"):
+                for value in (None, "", "NORMAL", "REENTRY_READY", "GREEN ", True, {}, []):
+                    with self.subTest(key=key, value=value):
+                        (monitor_dir/"summary.json").write_text(json.dumps(dict(valid, **{key:value})))
+                        context = cadence.crisis_context(latest)
+                        self.assertEqual(context["current_report_status"], "BLOCKED")
+                        self.assertIsNone(context["daily_monitor_state"])
+                        self.assertEqual(context["reentry_stage"], "")
+            for state, stage in (("GREEN", ""), ("REENTRY_STAGE_1", "REENTRY_STAGE_1")):
+                (monitor_dir/"summary.json").write_text(json.dumps(dict(valid, state=state)))
+                context = cadence.crisis_context(latest)
+                self.assertEqual(context["daily_monitor_state"], state)
+                self.assertEqual(context["daily_monitor_raw_state"], "GREEN")
+                self.assertEqual(context["reentry_stage"], stage)
+
     def test_explicit_historical_report_route_remains_separate(self):
         marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}
         with patch.object(monitor, "build_clock_report", return_value=marker) as route:

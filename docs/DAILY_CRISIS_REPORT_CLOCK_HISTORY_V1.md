@@ -200,6 +200,9 @@ rechecks the generated clock and source session against its own host/XNYS clock.
 The old cadence smoke uses an explicit pinned historical clock fixture, not
 implicit current eligibility. An inference/input exception similarly writes a
 blocked monitor summary without exposing private exception text.
+Both current state fields must be exact canonical enum strings; missing values
+and legacy aliases are refused. Reentry metadata comes from that typed current
+monitor, never a historical integrated-state fallback.
 
 Combined raw state remains an UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC; individual
 long-crisis metadata and source clocks retain their source-session scope.

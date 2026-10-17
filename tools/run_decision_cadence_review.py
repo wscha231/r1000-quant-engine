@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
-from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
+from tools.run287_crisis_policy import CANONICAL_STATES, adapt_crisis_state, canonical_state  # noqa: E402
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
@@ -295,6 +295,8 @@ def crisis_context(latest_run: Path) -> dict[str, Any]:
         clock.need(daily.get("schema_version") == "daily-crisis-monitor-v2"
                    and daily.get("current_report_status") == "CURRENT_LEGACY_DIAGNOSTIC"
                    and daily.get("data_health") == "DATE_CURRENT_DIAGNOSTIC", "CURRENT_MONITOR_UNVERIFIED")
+        clock.need(all(type(daily.get(key)) is str and daily[key] in CANONICAL_STATES
+                       for key in ("state", "raw_state")), "CURRENT_MONITOR_STATE_INVALID")
         now = clock.trusted_now().isoformat()
         expected = clock.completed_session_clock(now)
         observed = clock.stamp(now)
@@ -310,22 +312,10 @@ def crisis_context(latest_run: Path) -> dict[str, Any]:
                     integrated_daily_state_available=False, daily_crisis_state_latest=None,
                     reentry_stage="", reentry_trigger="", current_report_status="BLOCKED",
                     data_health="DATA_BLOCKED")
-    state = str(daily.get("state") or daily.get("raw_state") or "")
-    if not state and not integrated_states.empty and "crisis_state" in integrated_states.columns:
-        state = str(integrated_states["crisis_state"].iloc[-1])
-    reentry_stage = ""
-    reentry_trigger = ""
-    if not integrated_states.empty:
-        for col in ("reentry_stage", "stage"):
-            if col in integrated_states.columns:
-                reentry_stage = str(integrated_states[col].iloc[-1])
-                break
-        for col in ("reentry_trigger", "trigger", "action_reason"):
-            if col in integrated_states.columns:
-                reentry_trigger = str(integrated_states[col].iloc[-1])
-                break
-    state = adapt_crisis_state(state, reentry_stage)
-    raw_state = adapt_crisis_state(daily.get("raw_state"), reentry_stage)
+    state, raw_state = daily["state"], daily["raw_state"]
+    reentry_stage = state if state.startswith("REENTRY_STAGE_") else ""
+    history = daily.get("hysteresis")
+    reentry_trigger = str(history.get("transition_reason") or "") if isinstance(history, dict) else ""
     latest_integrated_state = (
         adapt_crisis_state(
             integrated_states["crisis_state"].iloc[-1], reentry_stage
