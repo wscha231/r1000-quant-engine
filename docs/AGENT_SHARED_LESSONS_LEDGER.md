@@ -7311,3 +7311,9 @@ the old-v2 journal fetched its proof again after the final canonical run read.
 Pass the already verified epoch-proof snapshot into that last local guard;
 missing old-v2 proof must refuse rather than fall back to remote I/O. Keep
 the initial remote proof reads before later complete canonical reconciliation.
+
+Hosted Codex then reproduced the missing active-proof selection at settlement:
+the preserved v2 revision cannot serve as the new v3 frozen consent. Prefer
+the active Drive revision in postwatch/import settlement and test the complete
+host169 closure, restart without POST and interrupted family repair in both
+modes, alongside the worker/collector boundary.

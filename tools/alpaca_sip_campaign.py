@@ -1520,7 +1520,7 @@ def settle_run(journal, auth, run, receipt):
     require(receipt["parent_checkpoint_sha256"] == parent["sha256"], "CAMPAIGN_LOCAL_PARENT")
     ref = checkpoint_from_log(run, receipt, parent)
     if "external_cohort" in auth:
-        binding = journal.revision or journal.entries[0]
+        binding = getattr(journal, "drive_revision", None) or journal.revision or journal.entries[0]
         frozen = {k: binding[k] for k in ("proof_sha256", "proof_updated_utc", "expires_at_utc")}
         observed = external_history(auth, enforce_expiry=False, allow_stopped=True)
         require(observed["external_proof"] == frozen

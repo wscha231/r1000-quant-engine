@@ -209,6 +209,9 @@ and actual I/O costs. Use the same namespace with `--recovery-run 39032304843`,
 exactly9/max1. A COMPLETE receipt must close169;
 every new failure or uncertain dispatch remains terminal and charged. Later
 top500 verification must check both revision events14 and24 and full169 closure.
+Postwatch/import settlement selects the active v3 Drive proof before the
+preserved v2 revision or genesis proof; completing a recovery or repairing its
+family settlement still consumes its one batch and never grants another POST.
 
 Task: `R1000-A1-993-SIP-BOUNDED-CAMPAIGN-20261015`.
 This is Source collection control, not a new price collector, reader admission,

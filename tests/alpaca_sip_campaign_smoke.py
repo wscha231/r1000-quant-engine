@@ -2681,6 +2681,44 @@ class DriveRevisionTests(unittest.TestCase):
         run,value=self.completion();value['drive_orphan_reuse']['capture_source_sha']='0'*40
         with self.assertRaisesRegex(c.Refused,'EXTERNAL_ORPHAN_PROVENANCE'):self.history([(run,value)])
 
+    def close_host_once(self):
+        before=self.history(recovery_run=12);pair=self.completion();after=self.history([pair]);posted=[]
+        def operation(args,**kwargs):
+            if args[1:3]==['workflow','run']:posted.append(json.loads(kwargs['input']))
+            else:self.assertEqual(args[1:3],['run','watch'])
+            return SimpleNamespace(returncode=0)
+        ref=dict(file_id='fixture-new-checkpoint-169',sha256=pair[1]['checkpoint_sha256'],bytes=100)
+        with self.n.host_context(before), \
+             patch.object(c,'external_history',side_effect=lambda *a,**k:after if posted else before), \
+             patch.object(c,'campaign_runs',side_effect=lambda *a:after['runs'] if posted else before['runs']), \
+             patch.object(c.os,'urandom',side_effect=lambda n:bytes.fromhex('d'*24) if n==12 else b'\x01'*n), \
+             patch.object(c.subprocess,'run',side_effect=operation),patch.object(c,'checkpoint_from_log',return_value=ref):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,12,1)
+        self.assertEqual(result['status'],'COHORT_PROCESSED');self.assertEqual(result['examined'],169)
+        self.assertEqual(len(posted),1);self.assertEqual(posted[0]['max_new_symbols'],'9')
+        self.assertEqual(c.bounded_json(self.b.cohort_state/'000027.json')['receipt'],pair[1])
+        self.assertEqual(c.bounded_json(self.n.family_path/'000025.json')['kind'],'SETTLED')
+        return after,ref
+
+    def test_complete9_host_selects_active_proof_and_restart_never_reposts(self):
+        after,ref=self.close_host_once()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')):
+            result=c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)
+        self.assertEqual(result['examined'],169);self.assertEqual(len(list(self.b.cohort_state.glob('*.json'))),27)
+
+    def test_completed9_import_and_family_repair_consume_one_batch(self):
+        after,ref=self.close_host_once()
+        (self.b.cohort_state/'000027.json').unlink();(self.n.family_path/'000025.json').unlink()
+        with self.n.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')), \
+             patch.object(c,'checkpoint_from_log',return_value=ref):
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+            (self.n.family_path/'000025.json').unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,2)
+            self.assertEqual(c.external_host(self.new,self.b.cohort_state,self.b.input,self.b.state,self.b.old.local.bundle_path,None,1)['examined'],169)
+
 
 class DriveOrphanReuseTests(unittest.TestCase):
     def setUp(self):
