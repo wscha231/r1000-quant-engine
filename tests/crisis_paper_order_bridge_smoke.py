@@ -36,14 +36,20 @@ class BridgeTests(unittest.TestCase):
             risk_as_of_session='2026-01-02',generated_at_utc='2026-01-02T22:30:00Z',
             source_clock_authenticated=True,canonical_regime_authorized=True,
             auto_trade_allowed=False,paper_actions_only=True,paper_action_candidates=[
-                dict(action_type='block_new_buys'),dict(action_type='raise_cash',target_cash_weight=.25),
-                dict(action_type='trim_position',ticker='AAA',current_weight=.20,trim_weight=.03)])
+                dict(action_type='block_new_buys'),dict(action_type='raise_cash',portfolio_kind='main',target_cash_weight=.25),
+                dict(action_type='raise_cash',portfolio_kind='concentrated',target_cash_weight=.25),
+                dict(action_type='trim_position',portfolio_kind='concentrated',ticker='AAA',current_weight=.40,trim_weight=.03),
+                dict(action_type='trim_position',portfolio_kind='main',ticker='AAA',current_weight=.20,trim_weight=.03)])
         self.proof = dict(schema='crisis-paper-bridge-evidence-v1',report_session='2026-01-02',
             policy_sha256=sha((ROOT/'tools/run287_crisis_policy.py').read_bytes()),portfolios={})
         for portfolio in bridge.PORTFOLIOS:
             account = dict(as_of_date='2026-01-02',cash_usd=8000.,positions=[dict(ticker='AAA',shares=20.,cost_basis=90.)])
             a=self.latest/'broker_replay'/portfolio/'account_state_latest.json';a.parent.mkdir(parents=True);a.write_text(json.dumps(account))
-            t=self.latest/'reports'/f'operating_{portfolio}_target_book.csv';t.parent.mkdir(parents=True,exist_ok=True);self.target.to_csv(t,index=False)
+            t=self.latest/'reports'/f'operating_{portfolio}_target_book.csv';t.parent.mkdir(parents=True,exist_ok=True);portfolio_target=self.target.copy()
+            if portfolio=='concentrated':
+                portfolio_target.loc[portfolio_target.ticker=='AAA','target_weight']=.40
+                portfolio_target.loc[portfolio_target.ticker=='BBB','target_weight']=.38
+            portfolio_target.to_csv(t,index=False)
             self.proof['portfolios'][portfolio]=dict(book_session='2026-01-02',accepted_book_receipt_sha256='b'*64,
                 account_sha256=sha(a.read_bytes()),target_sha256=sha(t.read_bytes()),economics={
                     ticker:dict(net_er=.12,downside=.20,cost_bps=25.,liquidity_usd=1e7,receipt_sha256='c'*64)
@@ -111,12 +117,12 @@ class BridgeTests(unittest.TestCase):
         for invalid in (None,True,float('nan'),float('inf'),10**400,-.01,.21):
             with self.subTest(value=str(invalid)[:20]):
                 m=copy.deepcopy(self.monitor);m['paper_action_candidates'][-1]['trim_weight']=invalid
-                with self.assertRaises(ValueError):bridge.action_plan(m)
+                with self.assertRaises(ValueError):bridge.action_plan(m,'main')
         m=copy.deepcopy(self.monitor);m['paper_action_candidates'][-1].pop('trim_weight')
-        with self.assertRaises(ValueError):bridge.action_plan(m)
+        with self.assertRaises(ValueError):bridge.action_plan(m,'main')
 
     def test_twenty_percent_minus_three_points_is_seventeen_and_winner_unchanged(self):
-        out=bridge.derive_target_book(self.target,'main',bridge.action_plan(self.monitor)).set_index('ticker')
+        out=bridge.derive_target_book(self.target,'main',bridge.action_plan(self.monitor,'main')).set_index('ticker')
         self.assertAlmostEqual(out.loc['AAA','target_weight'],.17)
         self.assertAlmostEqual(out.loc['BBB','target_weight'],.58)
         self.assertAlmostEqual(out.loc['CASH','target_weight'],.25)
@@ -129,17 +135,17 @@ class BridgeTests(unittest.TestCase):
         canonical,audit,summary=apply_selective_defense(original,state='DEFENSE',portfolio_kind='main',
             evidence=pd.DataFrame([dict(ticker='AAA',thesis_broken=True),dict(ticker='BBB',current_conviction=100.)]))
         self.assertAlmostEqual(audit[0]['trim_weight'],.03)
-        out=bridge.derive_target_book(self.target,'main',bridge.action_plan(self.monitor)).set_index('ticker')
+        out=bridge.derive_target_book(self.target,'main',bridge.action_plan(self.monitor,'main')).set_index('ticker')
         for row in canonical.itertuples():self.assertAlmostEqual(out.loc[row.ticker,'target_weight'],row.weight)
         for reason,value in summary['reserve_reasons'].items():self.assertAlmostEqual(out[reason].sum(),value)
 
     def test_unsupported_cash_target_or_mismatched_trim_refuses(self):
         m=copy.deepcopy(self.monitor);m['paper_action_candidates'][1]['target_cash_weight']=.50
-        with self.assertRaises(ValueError):bridge.derive_target_book(self.target,'main',bridge.action_plan(m))
+        with self.assertRaises(ValueError):bridge.derive_target_book(self.target,'main',bridge.action_plan(m,'main'))
         m=copy.deepcopy(self.monitor);m['paper_action_candidates'][-1]['current_weight']=.80
-        with self.assertRaises(ValueError):bridge.derive_target_book(self.target,'main',bridge.action_plan(m))
+        with self.assertRaises(ValueError):bridge.derive_target_book(self.target,'main',bridge.action_plan(m,'main'))
         m=copy.deepcopy(self.monitor);m['paper_action_candidates'].append(m['paper_action_candidates'][-1])
-        with self.assertRaises(ValueError):bridge.action_plan(m)
+        with self.assertRaises(ValueError):bridge.action_plan(m,'main')
 
     def test_overlap_and_symlink_outputs_refuse_before_mutation(self):
         before=self.monitor_path.read_bytes();self.args.output_dir=str(self.latest)
@@ -165,6 +171,9 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(orders.approval_required.all())
         target=pd.read_csv(self.output/'main/paper_action_target_book.csv').set_index('ticker')
         self.assertAlmostEqual(target.loc['AAA','target_weight'],.17)
+        other=pd.read_csv(self.output/'concentrated/paper_action_target_book.csv').set_index('ticker')
+        self.assertAlmostEqual(other.loc['AAA','target_weight'],.37)
+        self.assertAlmostEqual(other.loc['BBB','target_weight'],.38)
 
     def test_preview_failure_invalidates_partial_derived_outputs(self):
         with patch.object(clock,'trusted_now',return_value=self.now),patch.object(bridge,'ACTUAL_PREVIEW_ACTIVATED',True),patch.object(bridge,'run_order_preview',side_effect=[dict(status='blocked'),RuntimeError('private')]):
@@ -178,7 +187,7 @@ class BridgeTests(unittest.TestCase):
         self.run_blocked()
 
     def test_empty_sentinel_alias_or_unnormalized_identity_never_becomes_cash(self):
-        plan=bridge.action_plan(dict(self.monitor,paper_action_candidates=[dict(action_type='no_op')]))
+        plan=bridge.action_plan(dict(self.monitor,paper_action_candidates=[dict(action_type='no_op')]),'main')
         for invalid in ('',None,float('nan'),'NAN','NONE','NULL','__CASH__',' aaa','AAA '):
             with self.subTest(value=invalid):
                 target=self.target.copy();target.loc[0,'ticker']=invalid
@@ -187,6 +196,48 @@ class BridgeTests(unittest.TestCase):
                 self.proof['portfolios']['main']['target_sha256']=sha(target_path.read_bytes());self.bind()
                 with patch.object(clock,'trusted_now',return_value=self.now):
                     with self.assertRaises(ValueError):bridge.checked_inputs(self.args,self.latest,self.monitor_path.read_bytes())
+
+    def test_dated_book_selects_pinned_snapshot_before_identity_and_economics(self):
+        prior=self.target.copy();prior['rebalance_date']='2025-12-31'
+        prior.loc[prior.ticker=='AAA','target_weight']=.10
+        prior.loc[prior.ticker=='CASH','target_weight']=.32
+        current=self.target.copy();current['rebalance_date']='2026-01-02'
+        future=self.target.copy();future['rebalance_date']='2026-01-05'
+        future.loc[future.ticker=='BBB','ticker']='FUTURE_ONLY'
+        history=pd.concat([prior,current,future],ignore_index=True)
+        path=self.latest/'reports/operating_main_target_book.csv';history.to_csv(path,index=False)
+        self.proof['portfolios']['main']['target_sha256']=sha(path.read_bytes());self.bind()
+        with patch.object(clock,'trusted_now',return_value=self.now):
+            prepared=bridge.checked_inputs(self.args,self.latest,self.monitor_path.read_bytes())
+        self.assertEqual(set(prepared['portfolios']['main']['target'].rebalance_date),{'2026-01-02'})
+        out=bridge.derive_target_book(history,'main',bridge.action_plan(self.monitor,'main'),'2026-01-02').set_index('ticker')
+        self.assertAlmostEqual(out.loc['AAA','target_weight'],.17)
+        self.assertNotIn('FUTURE_ONLY',out.index)
+        with self.assertRaises(ValueError):bridge.derive_target_book(history,'main',bridge.action_plan(self.monitor,'main'))
+        with self.assertRaises(ValueError):bridge.session_target(future,'2026-01-02')
+
+    def test_reserve_hash_is_verified_then_reissued_for_derived_cash(self):
+        from tools.reserve_asset_policy import RESERVE_REASONS, RESERVE_REASON_SOURCE_HASH_FIELD, reserve_reason_reconciliation, resolve_reserve_asset_policy
+        source=self.target.copy()
+        for reason in RESERVE_REASONS:source[reason]=0.
+        source.loc[source.ticker=='CASH','capacity_unallocated']=.22
+        policy=resolve_reserve_asset_policy(context='current_paper')
+        original=reserve_reason_reconciliation(source,policy=policy,weight_col='target_weight')
+        source[RESERVE_REASON_SOURCE_HASH_FIELD]=original[RESERVE_REASON_SOURCE_HASH_FIELD]
+        out=bridge.derive_target_book(source,'main',bridge.action_plan(self.monitor,'main'))
+        after=reserve_reason_reconciliation(out,policy=policy,weight_col='target_weight')
+        self.assertNotEqual(after[RESERVE_REASON_SOURCE_HASH_FIELD],original[RESERVE_REASON_SOURCE_HASH_FIELD])
+        self.assertEqual(set(out[RESERVE_REASON_SOURCE_HASH_FIELD]),{after[RESERVE_REASON_SOURCE_HASH_FIELD]})
+        source[RESERVE_REASON_SOURCE_HASH_FIELD]='d'*64
+        with self.assertRaises(ValueError):bridge.derive_target_book(source,'main',bridge.action_plan(self.monitor,'main'))
+
+    def test_numeric_actions_require_exact_portfolio_scope(self):
+        missing=copy.deepcopy(self.monitor);missing['paper_action_candidates'][-1].pop('portfolio_kind')
+        with self.assertRaises(ValueError):bridge.action_plan(missing,'main')
+        main=bridge.action_plan(self.monitor,'main');other=bridge.action_plan(self.monitor,'concentrated')
+        self.assertEqual(main['trim_tickers']['AAA']['current_weight'],.20)
+        self.assertEqual(other['trim_tickers']['AAA']['current_weight'],.40)
+        with self.assertRaises(ValueError):bridge.derive_target_book(self.target,'main',other)
 
     def test_cli_blocked_exit_status(self):
         with patch.object(bridge,'run',return_value=dict(status='blocked')):

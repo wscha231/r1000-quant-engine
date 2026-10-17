@@ -23,9 +23,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
+from tools.run_account_order_preview import normalize_target, select_target_snapshot, run as run_order_preview  # noqa: E402
 from tools.run287_crisis_policy import CANONICAL_STATES, adapt_crisis_state  # noqa: E402
-from tools.reserve_asset_policy import RESERVE_REASONS  # noqa: E402
+from tools.reserve_asset_policy import (  # noqa: E402
+    RESERVE_REASONS, RESERVE_REASON_SOURCE_HASH_FIELD,
+    reserve_reason_reconciliation, resolve_reserve_asset_policy,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
@@ -90,6 +93,21 @@ def strict_ticker(value: Any) -> str:
             re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,20}", value) is None:
         raise ValueError("EXACT_BOOK_IDENTITY_REQUIRED")
     return value
+
+
+def session_target(source: pd.DataFrame, report_session: str | None) -> pd.DataFrame:
+    """Select a dated book at the pinned session before identity/economics checks."""
+    if "rebalance_date" not in source:
+        return source.copy()
+    if not isinstance(report_session, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", report_session) is None:
+        raise ValueError("DATED_TARGET_SESSION_REQUIRED")
+    dates = pd.to_datetime(source.rebalance_date, errors="coerce")
+    if dates.isna().any():
+        raise ValueError("TARGET_SNAPSHOT_DATE_REQUIRED")
+    selected = select_target_snapshot(source, target_date=report_session)
+    if selected.empty:
+        raise ValueError("TARGET_SNAPSHOT_UNAVAILABLE_AT_SESSION")
+    return selected
 
 
 PREVIEW_FILES = ("orders_preview.csv", "positions_current.csv", "target_weights.csv",
@@ -160,7 +178,7 @@ def checked_inputs(args: argparse.Namespace, latest: Path, monitor_raw: bytes) -
                 entry.get("book_session") != session or not isinstance(entry.get("accepted_book_receipt_sha256"), str) or \
                 re.fullmatch(r"[0-9a-f]{64}", entry["accepted_book_receipt_sha256"]) is None:
             raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
-        target_frame = pd.read_csv(io.BytesIO(target))
+        target_frame = session_target(pd.read_csv(io.BytesIO(target)), session)
         if target_frame.empty or "ticker" not in target_frame or target_frame.ticker.duplicated().any():
             raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
         target_names = [strict_ticker(ticker) for ticker in target_frame.ticker]
@@ -193,10 +211,18 @@ def checked_inputs(args: argparse.Namespace, latest: Path, monitor_raw: bytes) -
     return dict(monitor=monitor, portfolios=prepared, report_session=session, evidence_sha256=pin)
 
 
-def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
+def action_plan(monitor: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    if portfolio not in PORTFOLIOS:
+        raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
     actions = monitor.get("paper_action_candidates")
     if not isinstance(actions, list) or any(not isinstance(a, dict) or a.get("action_type") not in ALLOWED_ACTION_TYPES for a in actions):
         raise ValueError("TYPED_ACTIONS_REQUIRED")
+    for action in actions:
+        scope = action.get("portfolio_kind")
+        if scope is not None and scope not in PORTFOLIOS or \
+                action["action_type"] in {"raise_cash", "trim_position"} and scope not in PORTFOLIOS:
+            raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
+    actions = [a for a in actions if a.get("portfolio_kind") in (None, portfolio)]
     raise_cash_targets = [strict_number(a.get("target_cash_weight")) for a in actions if a.get("action_type") == "raise_cash"]
     trim_tickers = {}
     for action in actions:
@@ -223,11 +249,16 @@ def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
         "target_cash_weight": max(raise_cash_targets) if raise_cash_targets else None,
         "block_new_buys": any(a.get("action_type") == "block_new_buys" for a in actions),
         "trim_tickers": trim_tickers,
+        "portfolio_kind": portfolio,
     }
 
 
-def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any]) -> pd.DataFrame:
+def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any],
+                       report_session: str | None = None) -> pd.DataFrame:
     """Pure fixture-capable parity calculation, not an accepted target write."""
+    if plan.get("portfolio_kind") != portfolio:
+        raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
+    source = session_target(source, report_session)
     if "ticker" not in source or source.ticker.duplicated().any():
         raise ValueError("TARGET_IDENTITY_REQUIRED")
     for ticker in source.ticker:
@@ -235,10 +266,12 @@ def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any
     weight_col = "target_weight" if "target_weight" in source else "weight"
     if weight_col not in source or not all(0 <= strict_number(x) <= 1 for x in source[weight_col]):
         raise ValueError("TARGET_WEIGHT_REQUIRED")
-    target = normalize_target(source, portfolio)
+    target = normalize_target(source, portfolio, target_date=report_session or "")
     if target.empty:
         raise ValueError("TARGET_BOOK_REQUIRED")
     out = target.copy()
+    policy = resolve_reserve_asset_policy(context="current_paper")
+    reserve_reason_reconciliation(out, policy=policy, weight_col="target_weight")
     if not math.isclose(float(out.target_weight.sum()), 1.0, abs_tol=1e-9):
         raise ValueError("TARGET_WEIGHT_CONSERVATION")
     cash_mask = out.ticker.eq("CASH")
@@ -278,6 +311,11 @@ def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any
     out.loc[index, reason] += incremental
     if not math.isclose(float(sum(out[x].sum() for x in RESERVE_REASONS)), final_cash, abs_tol=1e-9):
         raise ValueError("RESERVE_REASON_RECONCILIATION")
+    # The source hash describes the accepted pre-trim reserve. Verify it above,
+    # then issue the canonical derived hash for the changed cash/reason values.
+    out = out.drop(columns=[RESERVE_REASON_SOURCE_HASH_FIELD], errors="ignore")
+    derived = reserve_reason_reconciliation(out, policy=policy, weight_col="target_weight")
+    out[RESERVE_REASON_SOURCE_HASH_FIELD] = derived[RESERVE_REASON_SOURCE_HASH_FIELD]
     out["bridge_reason"] = ",".join(plan.get("action_types") or [])
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
 
@@ -312,7 +350,7 @@ def run_preview_for_portfolio(
         raise ValueError("ACTUAL_PREVIEW_NOT_ACTIVATED")
     portfolio_out = output_dir / portfolio
     portfolio_out.mkdir(parents=True, exist_ok=True)
-    target = derive_target_book(prepared["target"], portfolio, plan)
+    target = derive_target_book(prepared["target"], portfolio, plan, report_session)
     derived_target = portfolio_out / "paper_action_target_book.csv"
     target.to_csv(derived_target, index=False)
 
@@ -420,10 +458,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if not ACTUAL_PREVIEW_ACTIVATED:
             raise ValueError("ACTUAL_PREVIEW_NOT_ACTIVATED")
         monitor = inputs["monitor"]
-        plan = action_plan(monitor)
+        plans = {p: action_plan(monitor, p) for p in PORTFOLIOS}
         portfolio_summaries = [
             run_preview_for_portfolio(latest_run=latest_run, price_cache=price_cache,
-                output_dir=output_dir, portfolio=p, plan=plan,
+                output_dir=output_dir, portfolio=p, plan=plans[p],
                 cost_bps=strict_number(args.cost_bps), prepared=inputs["portfolios"][p],
                 report_session=inputs["report_session"])
             for p in PORTFOLIOS]
@@ -443,9 +481,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "auto_trade_allowed": False,
         "paper_only": True,
         "approval_required": True,
-        "monitor_state": plan.get("state"),
-        "monitor_raw_state": plan.get("raw_state"),
-        "paper_action_types": plan.get("action_types") or [],
+        "monitor_state": monitor["state"],
+        "monitor_raw_state": monitor["raw_state"],
+        "paper_action_types": sorted({action for plan in plans.values() for action in plan["action_types"]}),
         "portfolios": portfolio_summaries,
     }
     write_json(output_dir / "summary.json", payload)
