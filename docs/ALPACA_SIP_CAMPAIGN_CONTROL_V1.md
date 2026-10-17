@@ -147,6 +147,9 @@ Canonical history permits only old→new auth order within this one logical epoc
 The first new attempt must explicitly name `--recovery-run 39023083535`, resume
 checkpoint120, use exactly8 names to reach128, and use `--max-batches 1`.
 RESERVED-before-POST consumes that one attempt even when its outcome is unknown.
+Until that first recovery was fully settled before the current invocation,
+max-batches1 also applies to restart/import/family-repair; closing that receipt
+consumes the batch and cannot dispatch an ordinary second POST.
 Every new failure is terminal; no second recovery or namespace escape follows.
 A completed new8 receipt can be imported/settled after expiry, but cannot renew
 execution authority. Later ordinary successes use recovery_run:null; the actual

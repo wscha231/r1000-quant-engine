@@ -7279,3 +7279,12 @@ Record only allowlisted HTTP status/category/phase/method/debit ordinal at the
 transport boundary; never serialize URL/query/header/body/exception text. Legacy
 receipt hashes stay untouched. Code/CI/A6 success and Draft preparation do not
 authorize protected deployment or actual capture.
+
+Independent A6 counterexamples tightened the portable worker boundary too: a
+missing named failure must refuse before the meter, and first COMPLETE means
+exactly120→128, not merely a delta of at most8. If diagnostic persistence fails,
+raise only a fixed refusal with suppressed exception context; an active HTTPError
+may otherwise leak a sensitive URL/reason through an unrelated journal error.
+Codex also required max1 across restarts until the first recovery is fully
+settled in both journals: importing or repairing that settlement consumes the
+one batch, rather than allowing a second ordinary POST in the same invocation.

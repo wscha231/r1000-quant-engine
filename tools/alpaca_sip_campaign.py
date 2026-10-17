@@ -400,7 +400,12 @@ class RuntimeMeter:
                 http_status=http_status if type(http_status) is int and 100 <= http_status <= 599 else None,
                 request_category=category, phase=phase, method=method,
                 request_ordinal=self.used["provider_gets"]+self.used["drive_requests"])
-            self.save()
+            try:
+                self.save()
+            except Exception:
+                # Suppress the active HTTP/transport exception context too.
+                # Its URL, reason or body may contain sensitive provider data.
+                raise Refused("CAMPAIGN_DIAGNOSTIC_JOURNAL") from None
         try:
             with self.opener.open(Request(url, data=body, method=method,
                                          headers=headers or {}),
@@ -1908,6 +1913,9 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                     and isinstance(value.get("checkpoint_sha256"), str)
                     and re.fullmatch(r"[0-9a-f]{64}", value["checkpoint_sha256"]), "EXTERNAL_CHECKPOINT_CHAIN")
             require((value["examined_after"] > state["examined"]) == (value["checkpoint_sha256"] != state["parent"]), "EXTERNAL_CHECKPOINT_CHAIN")
+            if expected_recovery is not None and value["status"] == "COMPLETE":
+                require(value["examined_after"] == NAMED_RECOVERY["examined"]+8,
+                        "EXTERNAL_RECOVERY_CLOSURE")
             state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
             state["runs"].append(run); state["receipts"].append(value)
             named_failure = named_failed_receipt(run, value, epoch)
@@ -1932,6 +1940,8 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 require(isinstance(value.get("reason"), str) and re.fullmatch(r"[A-Z_]{1,80}", value["reason"]), "CAMPAIGN_REASON")
                 continue
             raise Refused("CAMPAIGN_EXTERNAL_FAILURE_STOP")
+    require(all(state["named_failure"] for state,epoch in zip(local,epochs)
+                if "named_recovery" in epoch["external_cohort"]), "EXTERNAL_RECOVERY_PARENT")
     require(active <= active_limit(auth) and utc(runs[0]["created_at"]) == utc(CONTINUATION["first"]), "CAMPAIGN_ACTIVE_TIME")
     first = utc(CONTINUATION["first"])
     if enforce_expiry:
@@ -1969,6 +1979,10 @@ def external_worker(args, control, journal):
     scope = ex["scope"]
     names = cap.external_cohort(ex["input_csv"].encode())
     n = observed["examined"]
+    if recovered is not None:
+        require(n == NAMED_RECOVERY["examined"]
+                and observed["parent_sha"] == NAMED_RECOVERY["checkpoint_sha256"]
+                and args.max_new_symbols == 8, "EXTERNAL_RECOVERY_PARENT")
     require(control["external_binding"] == proof and len(observed["runs"]) <= 40
             and observed["active_seconds"] + 7800 <= active_limit(auth), "EXTERNAL_PROOF_DRIFT")
     require(args.private_root_folder_id == auth["private_root_folder_id"]
@@ -2275,6 +2289,10 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             # No provider/Drive I/O or dispatch; binding is this new namespace only.
             journal.append("EXTERNAL_COHORT_BOUND", **binding)
         settled_before = sum(e["kind"] == "SETTLED" and e.get("capture_auth_sha256") == h for e in family.entries)
+        if journal.revision and settled_before == 0:
+            # Importing or repairing the first recovery still consumes its one
+            # allowed batch. A crash must not turn that closure into a free slot.
+            require(max_batches == 1, "EXTERNAL_RECOVERY_BOUNDARY")
         while True:
             observed = external_history(auth, recovery_run=recovery_run, enforce_expiry=False, allow_stopped=True)
             last_observed = observed

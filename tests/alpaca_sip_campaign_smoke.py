@@ -2129,6 +2129,22 @@ class ExternalCohortTests(unittest.TestCase):
 
 
 class TransportDiagnosticTests(unittest.TestCase):
+    def test_diagnostic_save_failure_suppresses_sensitive_http_context(self):
+        import traceback
+        with tempfile.TemporaryDirectory() as t:
+            url='https://data.alpaca.markets/v2/stocks/bars?PRIVATE_CANARY'
+            error=HTTPError(url,502,
+                            'PRIVATE_CANARY',{},io.BytesIO(b'PRIVATE_CANARY'))
+            m=meter(t,Opener(failure=error))
+            with patch.object(m,'save',side_effect=[None,OSError('PRIVATE_CANARY')]):
+                try:m.perform(url)
+                except c.Refused as exc:
+                    self.assertEqual(str(exc),'CAMPAIGN_DIAGNOSTIC_JOURNAL')
+                    self.assertNotIn('PRIVATE_CANARY',''.join(traceback.format_exception(exc)))
+                else:self.fail('Diagnostic journal failure must stop')
+            self.assertTrue(error.fp is None or error.fp.closed)
+            self.assertEqual(m.used['provider_gets'],1)
+
     def test_http_status_phase_and_debit_are_sanitized_and_legacy_meter_unchanged(self):
         for url,category,method in [
                 ('https://data.alpaca.markets/v2/stocks/bars?token=PRIVATE_CANARY','ALPACA_BARS','GET'),
@@ -2281,6 +2297,32 @@ class NamedExternalRecoveryTests(unittest.TestCase):
         with self.assertRaises(c.Refused):self.history([(run,value)],recovery_run=9)
         with self.assertRaises(c.Refused):self.history(recovery_run=10)
 
+    def test_first_complete_recovery_must_close_exactly_eight_names(self):
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_CLOSURE'):
+            self.history([self.next_pair(end=124)])
+
+    def test_missing_named_failure_refuses_history_and_worker_before_meter(self):
+        active,value=self.next_pair();active.update(status='in_progress',conclusion=None)
+        self.runs=self.runs[:-1];self.values=self.values[:-1]
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):self.history(recovery_run=9)
+        runs=self.base.old.runs+self.runs+[active]
+        args=SimpleNamespace(private_root_folder_id=self.new['private_root_folder_id'],
+            private_data_folder_id=self.new['private_data_folder_id'],start=self.new['start'],end=self.new['end'],
+            max_new_symbols=32,resume_sha256=self.values[-1]['checkpoint_sha256'],resume_file_id='fixture-parent-96')
+        control=dict(authorization=self.new,nonce=active['display_title'][7:],recovery_run=9,
+                     preflight_only=False,external_binding=self.new_proof)
+        env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=self.new['expected_master'],
+            GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID=str(active['id']),
+            INPUT_CAMPAIGN_NONCE=control['nonce'])
+        with patch.dict(os.environ,env),patch.object(c,'campaign_runs',return_value=runs), \
+             patch.object(c,'receipt_for_run',side_effect=self.base.old.receipts+self.values), \
+             patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*3), \
+             patch.object(c,'external_proof',side_effect=lambda a:self.proofs[c.validate_authorization(a)]), \
+             patch.object(c,'RuntimeMeter',side_effect=AssertionError('No meter/I/O before named failure')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):
+            c.external_worker(args,control,self.base.root/'must-not-create-meter')
+        self.assertFalse((self.base.root/'must-not-create-meter').exists())
+
     def test_revision_binding_preserves_old13_and_rejects_changed_new_proof(self):
         path=self.base.cohort_state;before={p.name:p.read_bytes() for p in path.glob('*.json')}
         j=c.external_journal(path,self.new,self.new_proof)
@@ -2330,6 +2372,35 @@ class NamedExternalRecoveryTests(unittest.TestCase):
         self.assertEqual(c.bounded_json(b.cohort_state/'000017.json')['kind'],'SETTLED')
         self.assertEqual(c.bounded_json(self.family_path/'000016.json')['kind'],'SETTLED')
         self.assertEqual(c.digest((b.state/'000017.json').read_bytes()),c.CONTINUATION['event'])
+
+    def test_recovery_restart_import_or_family_repair_still_consumes_max1(self):
+        b=self.base;first=self.next_pair();after=self.history([first])
+        j=c.external_journal(b.cohort_state,self.new,self.new_proof)
+        j.append('EXTERNAL_RECOVERY_BOUND',**j.revision);j.close()
+        with self.host_context(self.history(recovery_run=9)), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('No POST after binding')):
+            for limit in (None,2):
+                with self.subTest(stage='bound',limit=limit),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                    c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,limit)
+        j=c.external_journal(b.cohort_state,self.new,self.new_proof)
+        with patch.object(c,'external_proof',return_value=self.old_proof):
+            family=c.external_family_registry(b.state,self.new,b.cohort_state)
+        self.append_pair(j,family,*first,self.new_proof);j.close();family.close()
+        # A successful remote recovery exists; neither journal has closed it.
+        (b.cohort_state/'000017.json').unlink();(self.family_path/'000016.json').unlink()
+        with self.host_context(after),patch.object(c.subprocess,'run',side_effect=AssertionError('No second POST')):
+            for limit in (None,2):
+                with self.subTest(stage='import',limit=limit),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                    c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,limit)
+            with patch.object(c,'checkpoint_from_log',return_value=dict(file_id='fixture-new-checkpoint-128',sha256=first[1]['checkpoint_sha256'],bytes=100)):
+                result=c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,9,1)
+            self.assertEqual(result['status'],'BATCH_BOUNDARY');self.assertEqual(result['examined'],128)
+            # Crash after cohort SETTLED but before shared family SETTLED.
+            (self.family_path/'000016.json').unlink()
+            with self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_BOUNDARY'):
+                c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,None,2)
+            repaired=c.external_host(self.new,b.cohort_state,b.input,b.state,b.old.local.bundle_path,None,1)
+            self.assertEqual(repaired['status'],'BATCH_BOUNDARY');self.assertEqual(repaired['examined'],128)
 
     def test_later_cohort_verifies_revision_journal_and_control_size(self):
         b=self.base;j=c.external_journal(b.cohort_state,self.new,self.new_proof)
@@ -2386,7 +2457,7 @@ class NamedExternalRecoveryTests(unittest.TestCase):
             return stack
         path=self.base.root/'new-worker-meter'
         args.max_new_symbols=32
-        with context(),patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O meter for wrong scope')),self.assertRaisesRegex(c.Refused,'EXTERNAL_PARENT'):
+        with context(),patch.object(c,'RuntimeMeter',side_effect=AssertionError('No I/O meter for wrong scope')),self.assertRaisesRegex(c.Refused,'EXTERNAL_RECOVERY_PARENT'):
             c.external_worker(args,control,path)
         args.max_new_symbols=8
         with context(),patch.object(c,'RuntimeMeter',side_effect=create_meter),patch.object(cap,'_collect',side_effect=collect),self.assertRaisesRegex(c.Refused,'HTTP_ERROR'):
