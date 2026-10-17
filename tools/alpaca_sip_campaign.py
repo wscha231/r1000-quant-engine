@@ -574,7 +574,16 @@ def local_reject_recovery(bundle_path, auth, directory):
             {"prior_authorization", "prior_progress_snapshot", "proof_reference", "receipt_path"}
             and all(isinstance(v, str) and 0 < len(v) <= 4096 for v in bundle.values()),
             "CAMPAIGN_LOCAL_REJECT_BUNDLE")
-    prior = bounded_json(bundle["prior_authorization"])
+    receipt = Path(bundle["receipt_path"])
+    resolved_receipt, resolved_directory = receipt.resolve(), Path(directory).resolve()
+    inputs = {Path(v).resolve() for v in (bundle_path, bundle["prior_authorization"],
+                                         bundle["prior_progress_snapshot"])}
+    require(not receipt.is_symlink() and resolved_receipt != resolved_directory
+            and resolved_directory not in resolved_receipt.parents
+            and resolved_receipt not in inputs, "CAMPAIGN_LOCAL_REJECT_RECEIPT_PATH")
+    prior_raw = bounded_bytes(bundle["prior_authorization"])
+    require(digest(prior_raw) == LOCAL_REJECT["auth"], "CAMPAIGN_LOCAL_REJECT_AUTH")
+    prior = decode(prior_raw)
     old_hash, new_hash = validate_authorization(prior), validate_authorization(auth)
     require(old_hash == LOCAL_REJECT["auth"] and new_hash != old_hash,
             "CAMPAIGN_LOCAL_REJECT_AUTH")
@@ -652,6 +661,7 @@ def apply_local_reject_recovery(journal, auth, recovery):
     """Append a typed zero-use closure and immutable receipt, preserving entry1."""
     binding = recovery["binding"]
     if len(journal.entries) == 1:
+        require(not Path(recovery["receipt_path"]).exists(), "CAMPAIGN_LOCAL_REJECT_RECEIPT_PATH")
         require(digest(bounded_bytes(journal.directory / "progress")) == LOCAL_REJECT["progress"],
                 "CAMPAIGN_LOCAL_REJECT_PREFIX")
         require(not campaign_runs(auth["workflow_run_floor"]), "CAMPAIGN_LOCAL_REJECT_REMOTE")
@@ -1122,6 +1132,11 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
         while True:
             observed = history(auth, recovery_run=recovery_run, enforce_expiry=False)
             last_observed = observed
+            if recovery is not None and recovery_run is not None:
+                require(observed["runs"] and observed["runs"][-1]["id"] == recovery_run
+                        and observed["receipts"][-1]["status"] == "BLOCKED"
+                        and observed["receipts"][-1].get("reason") in ("NETWORK", "HTTP_ERROR"),
+                        "CAMPAIGN_RECOVERY")
             journal.reconcile(observed["runs"])
             if journal.entries and journal.entries[-1]["kind"] in ("RESERVED", "RUN_ASSIGNED"):
                 nonce = journal.entries[-1]["nonce"]
@@ -1153,6 +1168,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             require(not journal.entries or journal.entries[-1]["kind"] == "SETTLED"
                     or (recovery is not None and journal.entries[-1]["kind"] == "LOCAL_REJECT_RECOVERED"),
                     "CAMPAIGN_ACTIVE_RESERVATION")
+            if recovery is not None:
+                journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
             nonce = PREFIX + os.urandom(12).hex()
             bindings_missing = (observed.get("bindings") is None and
                                 (auth.get("owner_permission_id") is None or auth.get("credential_binding") is None))
@@ -1181,9 +1198,15 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             require(result.returncode == 0, "CAMPAIGN_DISPATCH_UNCERTAIN")
             run = None
             for _ in range(30):
-                matches = [r for r in campaign_runs() if r["display_title"] == "a1-sip " + nonce]
+                polled = campaign_runs(auth["workflow_run_floor"]) if recovery is not None else campaign_runs()
+                if recovery is not None:
+                    require(all(r["display_title"] != "a1-sip " + recovery["binding"]["prior_nonce"]
+                                for r in polled), "CAMPAIGN_LOCAL_REJECT_REMOTE")
+                matches = [r for r in polled if r["display_title"] == "a1-sip " + nonce]
                 require(len(matches) <= 1, "CAMPAIGN_NONCE_REPLAY")
                 if matches:
+                    if recovery is not None:
+                        journal.reconcile(polled)
                     run = matches[0]
                     break
                 time.sleep(2)
@@ -1193,6 +1216,8 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
             result = subprocess.run(["gh", "run", "watch", str(run["id"]), "--repo", REPO,
                                      "--exit-status", "--interval", "30"],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=9000)
+            if recovery is not None:
+                journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
             fresh = gh_json(f"repos/{REPO}/actions/runs/{run['id']}")
             receipt = receipt_for_run(fresh, auth_hash, auth["expected_master"])
             settle_run(journal, auth, fresh, receipt)
@@ -1216,7 +1241,9 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     except BaseException:
         if last_observed is not None:
             summary = progress_summary(last_observed, "BLOCKED")
-            pending = [e for e in journal.entries if e["kind"] == "RESERVED"]
+            closed = ({recovery["binding"]["prior_nonce"]}
+                      if recovery is not None and len(journal.entries) > 1 else set())
+            pending = [e for e in journal.entries if e["kind"] == "RESERVED" and e["nonce"] not in closed]
             unsettled = bool(journal.entries and journal.entries[-1]["kind"] != "SETTLED")
             summary["unsettled_reservation"] = pending[-1]["remaining"] if unsettled and pending else None
             try:

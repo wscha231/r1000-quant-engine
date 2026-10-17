@@ -7156,3 +7156,6 @@ Expected contract:
 - Preserve discarded-original-stderr uncertainty separately from independently reproduced pre-POST rejection. No observed remote run alone is not a generic zero-use refund.
 - Close only the named, hash-pinned local rejection after actual bounded-history and OWNER proof checks. Append a typed old-to-new authorization/pin event to the same journal; preserve original auth/reservation/progress snapshot and never fabricate a run, meter or SETTLED.
 - Idempotent receipt recovery must conserve scope, limits, counters and original checkpoint. A late original run, proof drift or any prior canonical use stops instead of starting a fresh budget/clock.
+
+- Review recovery at transitions as well as initial proof: recheck full canonical history before dispatch, while discovering the replacement and before settlement. Exclude typed closures from outstanding-reservation reports.
+- Keep recovery receipts outside the append-only journal namespace and disjoint from inputs before writing any closure. Bind original authorization raw bytes, and reject unrelated network-recovery IDs instead of persisting invented relationships.

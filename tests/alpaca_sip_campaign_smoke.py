@@ -1036,6 +1036,100 @@ class LocalRejectRecoveryTests(unittest.TestCase):
         finally:
             journal.close()
 
+    def observed(self):
+        return dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),
+                    examined=16, parent_sha=c.INITIAL_SHA, active_seconds=0, first=None, bindings=None)
+
+    def host_fixture(self):
+        recovery=self.proof()
+        journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        self.apply(journal,recovery);journal.close()
+        path=self.root/"new-auth.json";path.write_bytes(c.encoded(self.new))
+        return path,recovery
+
+    def test_original_authorization_raw_bytes_are_immutable(self):
+        self.old_path.write_text(json.dumps(self.old,indent=2))
+        with self.assertRaises(c.Refused):
+            self.proof()
+        self.assertFalse((self.state/"000002.json").exists())
+
+    def test_receipt_namespace_and_existing_input_collisions_fail_before_closure(self):
+        original=self.bundle_path.read_bytes();bundle=json.loads(original)
+        for target in [self.state/"000003.json",self.old_path,self.snapshot,self.bundle_path]:
+            with self.subTest(target=target):
+                self.bundle_path.write_bytes(c.encoded(dict(bundle,receipt_path=str(target))))
+                with self.assertRaises(c.Refused):
+                    self.proof()
+                self.assertFalse((self.state/"000002.json").exists())
+        self.bundle_path.write_bytes(original)
+        self.receipt.write_bytes(b"existing unrelated file")
+        recovery=self.proof();journal=c.WorkJournal(self.state,c.validate_authorization(self.new),recovery)
+        try:
+            with self.assertRaises(c.Refused):self.apply(journal,recovery)
+            self.assertEqual(len(journal.entries),1)
+        finally:journal.close()
+
+    def test_closed_local_reservation_is_not_reported_as_unsettled(self):
+        path,recovery=self.host_fixture()
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=self.observed()), \
+                patch.object(c,"gh_json",return_value=dict(commit=dict(sha="0"*40))),self.assertRaises(c.Refused):
+            c.host(path,self.state,predispatch_recovery=self.bundle_path)
+        self.assertIsNone(c.bounded_json(self.state/"progress")["unsettled_reservation"])
+        self.assertEqual((self.state/"000001.json").read_bytes(),self.original)
+
+    def test_unrelated_network_recovery_id_cannot_annotate_first_dispatch(self):
+        path,recovery=self.host_fixture();calls=[]
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=self.observed()), \
+                patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.subprocess,"run",side_effect=lambda *a,**k:calls.append(a)),self.assertRaises(c.Refused):
+            c.host(path,self.state,recovery_run=999,predispatch_recovery=self.bundle_path)
+        self.assertEqual(calls,[])
+        self.assertFalse((self.state/"000003.json").exists())
+
+    def test_bound_latest_network_failure_can_reuse_persisted_bundle(self):
+        path,recovery=self.host_fixture()
+        observed=self.observed()
+        observed.update(runs=[dict(id=999,display_title="a1-sip "+c.PREFIX+"b"*24)],
+                        receipts=[dict(status="BLOCKED",reason="NETWORK",new_states={},rows_verified=0,
+                                       confirmed_storage_bytes=0,observed_google_body_bytes=0)])
+        class DispatchReached(BaseException):pass
+        def cli(command,**kwargs):
+            self.assertEqual(json.loads(json.loads(kwargs["input"])["campaign_control"])["recovery_run"],999)
+            raise DispatchReached()
+        with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                patch.object(c,"history",return_value=observed),patch.object(c,"gh_json",side_effect=self.deployed), \
+                patch.object(c.WorkJournal,"reconcile"),patch.object(c,"campaign_runs",return_value=observed["runs"]), \
+                patch.object(c.subprocess,"run",side_effect=cli),self.assertRaises(DispatchReached):
+            c.host(path,self.state,recovery_run=999,predispatch_recovery=self.bundle_path)
+
+    def test_delayed_original_during_poll_or_before_settlement_blocks_watch_or_settle(self):
+        path,recovery=self.host_fixture()
+        observed=self.observed();closed=dict(display_title="a1-sip "+self.nonce)
+        for phase in ("predispatch","poll","settlement"):
+            with self.subTest(phase=phase):
+                # Separate fixture journal; original fixture stays unchanged.
+                state=self.root/("race-"+phase);state.mkdir()
+                for entry in ("000001.json","000002.json"):
+                    (state/entry).write_bytes((self.state/entry).read_bytes())
+                calls=[];run=dict(id=987,display_title="",status="completed")
+                def cli(command,**kwargs):
+                    calls.append(command)
+                    if command[1:3]==["workflow","run"]:
+                        run["display_title"]="a1-sip "+json.loads(kwargs["input"])["campaign_nonce"]
+                    return type("Result",(),{"returncode":0})()
+                snapshots=([closed],) if phase=="predispatch" else ([[],[closed,run]] if phase=="poll" else [[],[run],[closed,run]])
+                with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                        patch.object(c,"history",return_value=observed),patch.object(c,"gh_json",side_effect=self.deployed), \
+                        patch.object(c,"campaign_runs",side_effect=snapshots), \
+                        patch.object(c.subprocess,"run",side_effect=cli),patch.object(c,"settle_run") as settle, \
+                        self.assertRaisesRegex(c.Refused,"CAMPAIGN_LOCAL_REJECT_REMOTE"):
+                    c.host(path,state,predispatch_recovery=self.bundle_path)
+                settle.assert_not_called()
+                self.assertEqual(sum(cmd[1:3]==["run","watch"] for cmd in calls),1 if phase=="settlement" else 0)
+                self.assertEqual((state/"000001.json").read_bytes(),self.original)
+
     def test_all_outer_cli_values_are_strings_nested_authority_unchanged(self):
         path = self.root / "new-auth.json";path.write_bytes(c.encoded(self.new))
         observed = dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),

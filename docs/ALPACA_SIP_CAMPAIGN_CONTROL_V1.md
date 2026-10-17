@@ -289,3 +289,14 @@ clock. Resume metadata-only, then bind the actual observed owner/key hashes to
 the existing direct capture-consent record and continue original seed17..48.
 Worker, provider/Drive behavior, deadline, entitlement, privacy and source/PIT
 fail-closed policies are unchanged.
+
+Recovery also hashes the original authorization's raw bytes. Its receipt must
+resolve outside the journal and be disjoint from the bundle/prior inputs; an
+existing receipt before the closure refuses before any append. Reconcile fresh
+full canonical history immediately before dispatch, during nonce discovery and
+after watching before settlement. A delayed original nonce always stops; a
+closed local reservation is excluded from the progress report's pending set.
+The persisted pre-dispatch bundle can accompany a later legitimate network
+recovery only when its requested run is the actual latest bound BLOCKED
+NETWORK/HTTP_ERROR receipt. An arbitrary recovery ID on the first dispatch
+cannot manufacture a relationship.
