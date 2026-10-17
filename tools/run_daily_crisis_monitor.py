@@ -155,6 +155,13 @@ def infer_raw_state(latest_run: Path, long_crisis_features: Path, long_crisis_th
     macro = read_json(latest_run / "macro_policy_engine" / "summary.json")
     snapshot = read_json(latest_run / "operating_snapshot" / "current_portfolio_snapshot_summary.json")
     long_state, long_reasons, long_meta = infer_latest_long_crisis_state(long_crisis_features, long_crisis_thresholds)
+    # Keep clocks from the exact decoded payloads used below, not a later reread.
+    long_meta = dict(long_meta)
+    long_meta["raw_state_sidecar_clocks"] = {
+        name: {key: payload.get(key) for key in ("report_session", "available_from", "generated_at_utc")}
+        for name, payload in (("risk_controls", risk), ("safety_audit", safety),
+                              ("macro_policy", macro), ("portfolio_snapshot", snapshot))
+    }
     reasons.extend(long_reasons)
 
     cash_flag = str(snapshot.get("cash_policy_flag") or "")
@@ -250,6 +257,43 @@ def legacy_current_report_health(long_crisis: dict[str, Any], now: str) -> dict[
     return result
 
 
+def legacy_context_health(health: dict[str, Any], long_crisis: dict[str, Any],
+                          history: dict[str, Any], now: str) -> dict[str, Any]:
+    """Refuse gaps/duplicates and unclocked contributors; never initialize history."""
+    from tools import daily_crisis_report_clock as clock
+    if health["current_report_status"] == "BLOCKED":
+        return health
+    result = dict(health)
+    try:
+        clock.need(isinstance(history, dict) and bool(history), "HISTORY_RECOVERY_REQUIRED")
+        clock.need(history.get("schema") == "legacy-crisis-diagnostic-history-v1", "HISTORY_RECOVERY_REQUIRED")
+        clock.need(history.get("risk_as_of_session") == health["previous_session"], "HISTORY_SESSION_GAP_OR_DUPLICATE")
+        states = {"GREEN", "WATCH", "DEFENSE", "CRISIS", "REENTRY_STAGE_1", "REENTRY_STAGE_2", "REENTRY_STAGE_3", "DEGRADED_DATA"}
+        clock.need(history.get("state") in states and history.get("raw_state") in states,
+                   "HISTORY_RECOVERY_REQUIRED")
+        streak = history.get("raw_state_streak")
+        clock.need(type(streak) is int and 0 < streak <= clock.MAX_COMPLETED_SESSIONS, "HISTORY_RECOVERY_REQUIRED")
+        prior = clock.session_times(health["previous_session"])
+        clock.need(prior is not None, "HISTORY_RECOVERY_REQUIRED")
+        clock.need(prior["AFTER_CLOSE"] <= clock.stamp(history.get("updated_at_utc")) <= clock.stamp(now),
+                   "HISTORY_CLOCK_INVALID")
+        sidecars = long_crisis.get("raw_state_sidecar_clocks")
+        names = {"risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot"}
+        clock.need(isinstance(sidecars, dict) and set(sidecars) == names, "SIDECAR_CLOCKS_UNVERIFIED")
+        for name in sorted(names):
+            record = sidecars[name]
+            clock.need(isinstance(record, dict) and record.get("report_session") == health["expected_session"],
+                       "SIDECAR_SESSION_UNVERIFIED")
+            available = clock.stamp(record.get("available_from"))
+            generated = clock.stamp(record.get("generated_at_utc"))
+            clock.need(clock.stamp(health["session_close_utc"]) <= available <= generated <= clock.stamp(health["decision_cutoff_utc"]),
+                       "SIDECAR_CLOCK_INVALID")
+    except (clock.Blocked, ValueError, TypeError, OverflowError, IndexError, KeyError, RuntimeError, OSError) as error:
+        result.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED", history_update_allowed=False,
+                      blockers=[str(error) if isinstance(error, clock.Blocked) else "CURRENT_CONTEXT_UNAVAILABLE"])
+    return result
+
+
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "report_slot", None):
         return build_clock_report(args)
@@ -266,6 +310,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         repo_path(args.long_crisis_thresholds),
     )
     health = legacy_current_report_health(long_crisis, now)
+    health = legacy_context_health(health, long_crisis, history, now)
     long_crisis = dict(long_crisis)
     long_crisis["diagnostic_scope"] = "AS_OF_SOURCE_SESSION_ONLY"
     long_crisis["current_report_eligible"] = health["current_report_status"] != "BLOCKED"
@@ -290,6 +335,8 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     else:
         state, next_history = apply_hysteresis(
             raw_state, history, values=state_values, availability=state_availability)
+        next_history.update(schema="legacy-crisis-diagnostic-history-v1",
+                            risk_as_of_session=health["expected_session"], updated_at_utc=now)
 
     holdings = read_csv(latest_run / "operating_snapshot" / "current_operating_holdings_latest.csv")
     leader_rows = 0
@@ -310,7 +357,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         "paper_action_candidates": paper_actions,
         "state": state,
         "raw_state": raw_state,
-        "raw_state_scope": "AS_OF_SOURCE_SESSION_DIAGNOSTIC",
+        "raw_state_scope": "UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC",
         "long_crisis": long_crisis,
         "hysteresis": next_history,
         "component_availability": availability_records(state_availability),

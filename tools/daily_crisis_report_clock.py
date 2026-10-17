@@ -197,9 +197,11 @@ def completed_session_clock(now):
     completed = schedule[schedule.market_close <= observed]
     need(not completed.empty, "COMPLETED_SESSION_UNAVAILABLE")
     session = completed.index[-1].date().isoformat()
+    need(len(completed) >= 2, "PREVIOUS_SESSION_UNAVAILABLE")
     times = session_times(session)
     need(times is not None, "COMPLETED_SESSION_UNAVAILABLE")
-    return dict(expected_session=session, session_close_utc=times["close"].isoformat(),
+    return dict(expected_session=session, previous_session=completed.index[-2].date().isoformat(),
+                session_close_utc=times["close"].isoformat(),
                 decision_cutoff_utc=times["AFTER_CLOSE"].isoformat())
 
 

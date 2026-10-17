@@ -121,7 +121,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None):
+    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None):
         observed = datetime.fromisoformat(now)
         values = dict(market_trend_damage_score=0.1, qqq_below_ma200=0.0, qqq_ma200=100.0,
                       hy_oas_zscore_252d=0.1, vix_zscore_252d=0.1, liquidity_confirmation_score=0.1,
@@ -135,9 +135,18 @@ class LegacyCurrentnessTests(unittest.TestCase):
                     component_availability=availability_records(component_availability(
                         values, decision_time=available, available_from=available)),
                     missing_critical_components=[], future_labels_excluded=True)
+        meta["raw_state_sidecar_clocks"] = {name:dict(report_session=session, available_from=available,
+                                                     generated_at_utc=available)
+            for name in ("risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot")}
         if mutate:
             mutate(meta)
-        prior = dict(state="GREEN", raw_state="GREEN", raw_state_streak=3, updated_at_utc="2026-03-20T22:00:00Z")
+        context = clock.completed_session_clock(now)
+        prior_session = context["previous_session"]
+        prior = dict(schema="legacy-crisis-diagnostic-history-v1", risk_as_of_session=prior_session,
+                     state="GREEN", raw_state="GREEN", raw_state_streak=3,
+                     updated_at_utc=clock.session_times(prior_session)["AFTER_CLOSE"].isoformat())
+        if history_mutate:
+            history_mutate(prior)
         history_path = self.root/"history.json"
         before = json.dumps(prior, indent=2).encode()
         history_path.write_bytes(before)
@@ -162,7 +171,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.assertEqual(calls, 0)
         self.assertFalse(out["history_update_allowed"])
         self.assertEqual(out["raw_state"], "GREEN")
-        self.assertEqual(out["raw_state_scope"], "AS_OF_SOURCE_SESSION_DIAGNOSTIC")
+        self.assertEqual(out["raw_state_scope"], "UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC")
         if code:
             self.assertIn(code, out["blockers"])
 
@@ -243,6 +252,40 @@ class LegacyCurrentnessTests(unittest.TestCase):
         for change in (missing, stale, unavailable, hidden_stale):
             with self.subTest(change=change.__name__):
                 self.assert_current_blocked(self.run_case(mutate=change))
+
+    def test_missing_stale_duplicate_or_malformed_history_requires_recovery(self):
+        def absent(h):h.clear()
+        def old(h):h.update(risk_as_of_session="2026-03-20", updated_at_utc="2026-03-20T22:00:00Z")
+        def duplicate(h):h.update(risk_as_of_session="2026-10-16")
+        def future(h):h.update(updated_at_utc="2026-10-19T00:00:00Z")
+        def streak(h):h.update(raw_state_streak=True)
+        def state(h):h.update(state="nonsense")
+        for change in (absent, old, duplicate, future, streak, state):
+            with self.subTest(change=change.__name__):
+                self.assert_current_blocked(self.run_case(history_mutate=change))
+
+    def test_all_raw_state_sidecar_clocks_are_required(self):
+        for name in ("risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot"):
+            for field, value in (("report_session", "2026-03-20"), ("available_from", None),
+                                 ("generated_at_utc", "2026-10-18T00:00:00Z")):
+                with self.subTest(name=name, field=field):
+                    def change(meta):meta["raw_state_sidecar_clocks"][name][field] = value
+                    self.assert_current_blocked(self.run_case(mutate=change))
+        self.assert_current_blocked(self.run_case(mutate=lambda m:m.pop("raw_state_sidecar_clocks")))
+
+    def test_native_inference_captures_clocks_from_all_consumed_sidecars(self):
+        names = ("live_trading_risk_controls/risk_controls_summary.json", "live_trading_safety/safety_audit_summary.json",
+                 "macro_policy_engine/summary.json", "operating_snapshot/current_portfolio_snapshot_summary.json")
+        for path in names:
+            target = self.root/path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(json.dumps(dict(report_session="2026-03-20", available_from="2026-03-20T21:00:00Z",
+                                              generated_at_utc="2026-03-20T21:00:00Z")))
+        with patch.object(monitor, "infer_latest_long_crisis_state", return_value=("GREEN", [], {})):
+            raw, _, meta = monitor.infer_raw_state(self.root, self.root/"unused", self.root/"unused")
+        self.assertEqual(raw, "GREEN")
+        self.assertEqual(set(meta["raw_state_sidecar_clocks"]), {"risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot"})
+        self.assertTrue(all(v["report_session"] == "2026-03-20" for v in meta["raw_state_sidecar_clocks"].values()))
 
     def test_explicit_historical_report_route_remains_separate(self):
         marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}

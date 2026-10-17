@@ -164,9 +164,24 @@ is recomputed from canonical inputs and cross-checked against those declarations
 an empty or incomplete metadata record cannot authorize current history updates.
 STALE_SUCCESS_NOT_CURRENT_REPORT retains the explicit B1 stale-success meaning.
 No blocked observation calls current hysteresis or rewrites its history bytes.
+Current legacy diagnostics additionally require a typed history from the
+immediately preceding XNYS session, valid state/streak and an aware update clock.
+Missing/legacy untyped, malformed, gapped or same-session history requires explicit
+recovery; this patch never initializes, catches up or restores history.
 
-Historical raw state, original long-crisis metadata and declared source clocks
-remain visibly AS_OF_SOURCE_SESSION diagnostics. Fresh legacy output is only
+All four decoded raw-state sidecars (risk controls, safety audit, macro policy,
+portfolio snapshot) must declare the same `report_session`, `available_from` and
+`generated_at_utc` clocks between that session's close and existing report cutoff.
+The clocks are captured from the payloads actually used for inference, not later
+file rereads. Missing/unclocked sidecars block current history/actions even if the
+long-crisis row is current. These are declared diagnostic clocks, not authenticated
+Source/PIT. Existing producers/workflow are unchanged; until they provide those
+clocks and a recovered typed prior history, this legacy route remains BLOCKED.
+The existing pinned B1 report route remains available under its own strict contract.
+
+Combined raw state remains an UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC; individual
+long-crisis metadata and source clocks retain their source-session scope.
+Fresh legacy output is only
 CURRENT_LEGACY_DIAGNOSTIC/DATE_CURRENT_DIAGNOSTIC, never authenticated Source/PIT,
 an approved A4 enum, canonical regime or economic approval. The explicit pinned
 report-slot route and historical risk inference remain separate and unchanged.
