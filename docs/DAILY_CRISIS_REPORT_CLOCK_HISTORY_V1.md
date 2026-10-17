@@ -230,6 +230,17 @@ Current inference carries these original clocks into component availability.
 Current reports refuse absent, inconsistent, future or expired source records;
 historical inference retains its separate behavior. These declared clocks still
 do not authenticate a Source receipt or admit a historical PIT vintage.
+Expiry extension alone cannot prove current observation coverage. Current
+reports additionally require `--current-source-expectations` and its externally
+accepted `--expected-current-source-expectations-sha256`. This dated
+`current-macro-observation-coverage-v1` snapshot binds `report_session` and each
+source's `expected_observation_date`, exact canonical clock-record SHA256 and
+`freshness_basis_sha256`. Its source set must match the ten consumed inputs.
+The caller must supply accepted current coverage; runtime never builds an
+acceptance file from its own inputs. Absent/mismatched proof blocks current
+history/actions with `CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED`. No per-series
+age interval or expiry-renewal rule is invented; actual coverage proof remains
+an upstream requirement, distinct from fixture acceptance and Source/PIT.
 
 The current monitor requires `--expected-thresholds-sha256` from the accepted
 immutable config and all six numeric governor/cash gate fields. The decoded

@@ -374,6 +374,40 @@ def bound_current_holdings(latest_run: Path, meta: dict[str, Any], session: str 
         return pd.DataFrame(), blocked
 
 
+def current_source_coverage(meta: dict[str, Any], session: str, path: Path | None,
+                            expected_sha256: str | None) -> dict[str, Any]:
+    """Bind observation freshness to an external accepted coverage snapshot.
+
+    Original availability/expiry alone cannot show that a newly fetched value
+    is the current observation. No per-series age window is invented here.
+    """
+    from tools import daily_crisis_report_clock as clock
+    import re
+    clock.need(path is not None and isinstance(expected_sha256, str) and
+               re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is not None,
+               "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+    raw = clock.bounded(path, 256*1024)
+    clock.need(clock.digest(raw) == expected_sha256, "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+    proof = json.loads(raw)
+    clock.need(isinstance(proof, dict) and proof.get("schema") == "current-macro-observation-coverage-v1"
+               and proof.get("report_session") == session, "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+    expected = proof.get("sources")
+    actual = meta.get("source_clocks")
+    clock.need(isinstance(expected, dict) and isinstance(actual, dict) and set(expected) == set(actual) ==
+               {"market", "qqq", "vix", "hy_oas", "dgs10", "dxy", "m2", "fed_assets", "reverse_repo", "tga"},
+               "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+    for name, record in actual.items():
+        entry = expected[name]
+        clock.need(isinstance(entry, dict) and isinstance(record, dict) and
+                   entry.get("expected_observation_date") == record.get("observation_date") and
+                   entry.get("clock_sha256") == clock.digest(clock.canonical(record)) and
+                   isinstance(entry.get("freshness_basis_sha256"), str) and
+                   re.fullmatch(r"[0-9a-f]{64}", entry["freshness_basis_sha256"]) is not None,
+                   "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+    return dict(status="PINNED_DECLARED_COVERAGE", sha256=expected_sha256,
+                authenticated_source_pit=False, source_count=len(actual))
+
+
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "report_slot", None):
         return build_clock_report(args)
@@ -395,6 +429,15 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
         # replace the current summary with data-health BLOCKED, never old GREEN.
         raw_state, reasons, long_crisis = None, ["INFERENCE_INPUT_UNAVAILABLE"], {"available":False}
     health = legacy_current_report_health(long_crisis, now)
+    if health["current_report_status"] != "BLOCKED":
+        try:
+            coverage_path = getattr(args, "current_source_expectations", None)
+            long_crisis["observation_coverage"] = current_source_coverage(long_crisis,
+                health["expected_session"], repo_path(coverage_path) if coverage_path else None,
+                getattr(args, "expected_current_source_expectations_sha256", None))
+        except (ValueError, TypeError, KeyError, OverflowError, OSError, clock.Blocked):
+            health.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                          history_update_allowed=False, blockers=["CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED"])
     if health["current_report_status"] != "BLOCKED":
         try:
             current_config = load_long_crisis_thresholds(repo_path(args.long_crisis_thresholds),
@@ -624,6 +667,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--long-crisis-thresholds", default="outputs/long_crisis_learning/best_thresholds.json")
     parser.add_argument("--expected-thresholds-sha256", help="Accepted immutable current config hash; missing blocks current reports")
     parser.add_argument("--expected-snapshot-sha256", help="Accepted same-session portfolio summary hash; missing suppresses action candidates")
+    parser.add_argument("--current-source-expectations", help="Accepted dated current observation-coverage snapshot")
+    parser.add_argument("--expected-current-source-expectations-sha256", help="Externally accepted coverage file hash; never inferred from collected values")
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
     parser.add_argument("--report-session", type=report_session)

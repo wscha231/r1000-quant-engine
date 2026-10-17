@@ -156,6 +156,15 @@ class LegacyCurrentnessTests(unittest.TestCase):
         (snapshot_root/"current_portfolio_snapshot_summary.json").write_bytes(snapshot_raw)
         snapshot_sha = hashlib.sha256(snapshot_raw).hexdigest()
         meta["portfolio_snapshot_binding"] = dict(snapshot, summary_sha256=snapshot_sha)
+        # Explicit synthetic acceptance boundary; runtime never creates a proof
+        # by hashing its own fetched inputs or extending their expiry.
+        coverage = dict(schema="current-macro-observation-coverage-v1", report_session=session,
+            sources={name:dict(expected_observation_date=item["observation_date"],
+                clock_sha256=clock.digest(clock.canonical(item)), freshness_basis_sha256="f"*64)
+                for name,item in meta["source_clocks"].items()})
+        coverage_path = self.root/"fixture-coverage.json"
+        coverage_path.write_bytes(clock.canonical(coverage))
+        coverage_sha = clock.digest(coverage_path.read_bytes())
         meta["raw_state_sidecar_clocks"] = {name:dict(report_session=session, available_from=available,
                                                      generated_at_utc=available)
             for name in ("risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot")}
@@ -174,6 +183,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         args = SimpleNamespace(latest_run=str(self.root/"inputs"), output_dir=str(self.root/"report"),
             history=str(history_path), update_history=update, long_crisis_features="not-read.parquet",
             long_crisis_thresholds=str(config), expected_thresholds_sha256=config_sha,
+            current_source_expectations=str(coverage_path), expected_current_source_expectations_sha256=coverage_sha,
             expected_snapshot_sha256=snapshot_sha, report_now=report_now)
         with patch.object(clock, "trusted_now", return_value=observed), \
              patch.object(monitor, "infer_raw_state", side_effect=inference_error, return_value=("GREEN", ["fixture source diagnostic"], copy.deepcopy(meta))), \
@@ -487,6 +497,20 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.run_case()
         self.assert_current_blocked(self.run_case(config_payload=dict(valid,
             governor_thresholds=dict(low=10**400, mid=.55, high=.75))), "CURRENT_CONFIG_PROOF_REQUIRED")
+
+    def test_renewed_expiry_cannot_admit_old_observation_without_accepted_coverage(self):
+        def renew(meta):
+            meta["source_clocks"]["vix"].update(observation_date="2026-03-20",
+                value_observation_date="2026-03-20", available_from="2026-03-20T20:15:00Z",
+                collected_at="2026-03-20T20:20:00Z", expiry="2026-10-18T00:00:00Z")
+        self.assert_current_blocked(self.run_case(mutate=renew), "CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED")
+        with self.assertRaises(clock.Blocked):
+            monitor.current_source_coverage({}, "2026-10-16", None, None)
+        proof = self.root/"proof.json"
+        proof.write_text('{"schema":"current-macro-observation-coverage-v1","report_session":"2026-10-15","sources":{}}')
+        with self.assertRaises(clock.Blocked):
+            monitor.current_source_coverage(dict(source_clocks={}), "2026-10-16", proof,
+                clock.digest(proof.read_bytes()))
 
     def test_unbound_holdings_never_produce_action_candidates(self):
         for field, value in (("summary_sha256", "b"*64), ("holdings_sha256", "c"*64),
