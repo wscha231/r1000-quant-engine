@@ -1872,11 +1872,17 @@ def external_revision(auth, proof):
                 checkpoint_sha256=NAMED_RECOVERY["checkpoint_sha256"], examined=NAMED_RECOVERY["examined"], **proof)
 
 
-def external_journal(directory, auth, proof):
+def external_journal(directory, auth, proof, *, epoch_proofs=None):
     drive_revision = None
     if "drive_recovery" in auth["external_cohort"]:
         previous = external_previous(auth)
-        revision = external_revision(previous, external_proof(previous))
+        if epoch_proofs is None:
+            previous_proof = external_proof(previous)  # Initial open, before canonical reconciliation.
+        else:
+            require(isinstance(epoch_proofs, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+            previous_proof = epoch_proofs.get(validate_authorization(previous))
+            require(isinstance(previous_proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
+        revision = external_revision(previous, previous_proof)
         drive_revision = dict(prior_auth_sha256=DRIVE_RECOVERY["prior_auth"],
             failed_run_id=DRIVE_RECOVERY["run_id"], failed_receipt_sha256=DRIVE_RECOVERY["receipt_sha256"],
             checkpoint_sha256=DRIVE_RECOVERY["checkpoint_sha256"], examined=DRIVE_RECOVERY["examined"], **proof)
@@ -2413,7 +2419,9 @@ def verify_external_prior_journals(registry, auth, observed):
                 and (directory/"000001.json").is_file(), "EXTERNAL_PRIOR_JOURNAL_MISSING")
         proof = observed.get("epoch_proofs", {}).get(h)
         require(isinstance(proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
-        prior = external_journal(directory, previous, proof)
+        # This final reservation guard must remain local after canonical history
+        # was fetched. A fresh remote proof read here would reopen a run race.
+        prior = external_journal(directory, previous, proof, epoch_proofs=observed.get("epoch_proofs"))
         try:
             versions = {validate_authorization(a) for a in external_variants(previous)}
             known = [(r,v) for r,v in zip(observed["runs"], observed["receipts"]) if v["auth_sha256"] in versions]

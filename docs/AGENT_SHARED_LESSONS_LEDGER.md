@@ -7305,3 +7305,9 @@ the original4 symbols' bytes/clocks and separately record new derivation code,
 proof, run and time; do not relabel historical bytes as newly collected. Only
 after CP164 readback may the original collector request the remaining5 names.
 Ordinary source guards, no second retry, max1 and private/PIT limits remain.
+
+Independent A6 reproduced a v3 prior-epoch guard race in normal/-O: reopening
+the old-v2 journal fetched its proof again after the final canonical run read.
+Pass the already verified epoch-proof snapshot into that last local guard;
+missing old-v2 proof must refuse rather than fall back to remote I/O. Keep
+the initial remote proof reads before later complete canonical reconciliation.

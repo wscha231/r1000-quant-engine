@@ -2620,8 +2620,11 @@ class DriveRevisionTests(unittest.TestCase):
         with patch.object(c,'external_proof',return_value=self.n.old_proof):
             family=c.external_family_registry(self.b.state,later,self.b.root/'external-cohort-fixture-marketcap-500')
         try:
-            with patch.object(c,'external_proof',side_effect=lambda a:self.n.proofs[c.validate_authorization(a)]):
+            with patch.object(c,'external_proof',side_effect=AssertionError('No remote I/O in final local guard')):
                 c.verify_external_prior_journals(family,later,observed)
+                missing=dict(observed,epoch_proofs={k:v for k,v in observed['epoch_proofs'].items() if k!=self.n.new_hash})
+                with self.assertRaisesRegex(c.Refused,'EXTERNAL_PRIOR_JOURNAL_DRIFT'):
+                    c.verify_external_prior_journals(family,later,missing)
         finally:family.close()
         self.assertLessEqual(len(c.encoded(dict(authorization=later,nonce=c.PREFIX+'a'*24,
             recovery_run=None,preflight_only=False,external_binding=self.n.proofs[h]))),16384)
