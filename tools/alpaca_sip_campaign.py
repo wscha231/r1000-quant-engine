@@ -1941,7 +1941,7 @@ def external_family_registry(budget_path, auth, state_path):
         else:
             # Absence of local registration is not evidence of zero POSTs.
             require(not existed and not auth["external_cohort"]["prior_epochs"]
-                    and not list(state_path.glob("*.json"))
+                    and not list(budget_path.parent.glob("external-cohort-*"))
                     and [r["id"] for r in campaign_runs(auth["workflow_run_floor"])] == CONTINUATION["runs"],
                     "EXTERNAL_FAMILY_MISSING")
             registry.append("EXTERNAL_FAMILY_BOUND", **binding)

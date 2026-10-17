@@ -1733,6 +1733,9 @@ class ExternalCohortTests(unittest.TestCase):
         return stack
 
     def test_second_namespace_lock_failure_releases_only_global_lock(self):
+        with patch.object(c,'external_proof',return_value=self.proof()),patch.object(c,'campaign_runs',return_value=self.old.runs):
+            family=c.external_family_registry(self.state,self.new,self.cohort_state)
+        family.close()
         self.cohort_state.mkdir();lock=self.cohort_state/'writer.lock';lock.write_text('other-owner')
         with self.host_patches(self.observed()),self.assertRaisesRegex(c.Refused,'CAMPAIGN_WRITER_LOCK'):
             c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
@@ -1840,6 +1843,24 @@ class ExternalCohortTests(unittest.TestCase):
              self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_MISSING'):
             c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
         self.assertFalse((self.state/'writer.lock').exists())
+
+    def test_whole_registry_missing_cannot_initialize_foreign_namespace_over_pending_cohort(self):
+        with self.host_patches(self.observed()),patch.object(c.subprocess,'run',return_value=SimpleNamespace(returncode=1)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+            c.external_host(self.new,self.cohort_state,self.input,self.state,self.old.local.bundle_path,None,1)
+        original=(self.cohort_state/'000002.json').read_bytes()
+        family_dir=next(self.root.glob('external-budget-*'));preserved=self.root/'preserved-family'
+        self.assertEqual(family_dir.resolve().parent,self.root.resolve())
+        self.assertEqual(preserved.resolve().parent,self.root.resolve())
+        family_dir.rename(preserved)  # Only this isolated synthetic fixture.
+        b=copy.deepcopy(self.new);b['external_cohort']['scope']['namespace']='fixture-foreign-cohort'
+        frozen=self.proof(b)
+        with self.host_patches(self.observed()),patch.object(c,'external_proof',return_value=frozen), \
+             patch.object(c.subprocess,'run',side_effect=AssertionError('Missing registry is not zero POST')), \
+             self.assertRaisesRegex(c.Refused,'EXTERNAL_FAMILY_MISSING'):
+            c.external_host(b,self.root/'external-cohort-fixture-foreign-cohort',self.input,self.state,self.old.local.bundle_path,None,1)
+        self.assertEqual((self.cohort_state/'000002.json').read_bytes(),original)
+        self.assertTrue((preserved/'000002.json').exists())
 
     def test_actual_cli_empty_physical_parent_and_unchanged_old17(self):
         class Boundary(BaseException):pass

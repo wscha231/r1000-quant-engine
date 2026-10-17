@@ -60,6 +60,11 @@ written FIRST, shared SETTLED second. A crash between those writes can finish
 the latter only from the exact canonical auth/namespace/nonce/run/usage/receipt
 hash. Registry costs are never added twice to the canonical meter sum. Missing
 registration is not zero-POST proof and cannot create a fresh budget.
+First registration also refuses if **any** `external-cohort-*` sibling exists
+under the fixed original budget parent, including an empty directory, symlink
+or file. Losing/renaming the whole shared registry cannot hide another pending
+cohort. Erasing all local prefixes together is a prohibited reset, never a
+supported recovery or evidence of zero spending.
 
 The original authorization's raw owner ID may remain null: the actual owner SHA
 already established in the verified five-run prefix is mandatory in the consent

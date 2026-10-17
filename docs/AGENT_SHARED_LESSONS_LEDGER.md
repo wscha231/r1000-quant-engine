@@ -7225,3 +7225,9 @@ minimal external path stops its entire epoch on every runtime failure and
 accepts no legacy recovery flag. Known failed receipts still settle/account;
 another attempt requires a separately reviewed A0 recovery contract. Do not
 inherit legacy retry authority merely because it shares the same meter.
+
+A6's next frozen-head check also removed the whole family registry while
+preserving an uncertain cohort, then tried a different namespace. First registry
+creation must check every deterministic `external-cohort-*` sibling under the
+original budget parent, not only the incoming namespace. Any existing path is
+a conservative blocker; loss of one prefix cannot authorize a fresh budget.
