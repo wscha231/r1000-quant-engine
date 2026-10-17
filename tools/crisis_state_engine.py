@@ -112,7 +112,7 @@ def load_long_crisis_thresholds(path: Path, *, expected_sha256: str | None = Non
         for section, keys in fields:
             for key in keys:
                 value = payload[section][key]
-                if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+                if type(value) not in (int, float) or not 0 <= value <= 1 or not math.isfinite(value):
                     raise ValueError("CURRENT_CONFIG_INCOMPLETE")
                 result[key] = float(value)
         if not result["low"] <= result["mid"] <= result["high"]:

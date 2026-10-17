@@ -401,7 +401,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
                 expected_sha256=getattr(args, "expected_thresholds_sha256", None), require_complete=True)
             # Inference must use the very same bytes/values as the pinned file.
             clock.need(long_crisis.get("thresholds_sha256") == current_config["sha256"], "CURRENT_CONFIG_CHANGED")
-        except (ValueError, TypeError, KeyError, OSError, clock.Blocked):
+        except (ValueError, TypeError, KeyError, OverflowError, OSError, clock.Blocked):
             health.update(current_report_status="BLOCKED", data_health="DATA_BLOCKED",
                           history_update_allowed=False, blockers=["CURRENT_CONFIG_PROOF_REQUIRED"])
     health = legacy_context_health(health, long_crisis, history, now, raw_state)

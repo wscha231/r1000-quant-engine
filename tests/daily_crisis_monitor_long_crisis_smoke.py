@@ -123,7 +123,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None, inference_error=None):
+    def run_case(self, session="2026-10-16", now="2026-10-17T00:45:00+00:00", *, mutate=None, update=True, report_now=None, history_mutate=None, inference_error=None, config_payload=None):
         observed = datetime.fromisoformat(now)
         values = dict(market_trend_damage_score=0.1, qqq_below_ma200=0.0, qqq_ma200=100.0,
                       hy_oas_zscore_252d=0.1, vix_zscore_252d=0.1, liquidity_confirmation_score=0.1,
@@ -142,7 +142,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
             source_sha256="a"*64) for name in
             ("market", "qqq", "vix", "hy_oas", "dgs10", "dxy", "m2", "fed_assets", "reverse_repo", "tga")}
         config = self.root/"thresholds.json"
-        config.write_text(json.dumps(dict(governor_thresholds=dict(low=.35, mid=.55, high=.75),
+        config.write_text(json.dumps(config_payload if config_payload is not None else dict(governor_thresholds=dict(low=.35, mid=.55, high=.75),
             cash_hard_gate=dict(liquidity_gate=.35, trend_gate=.35, credit_gate=.55))))
         config_sha = hashlib.sha256(config.read_bytes()).hexdigest()
         meta["thresholds_sha256"] = config_sha
@@ -467,6 +467,7 @@ class LegacyCurrentnessTests(unittest.TestCase):
                      cash_hard_gate=dict(liquidity_gate=.35, trend_gate=.35, credit_gate=.55))
         for invalid in ({}, dict(governor_thresholds=valid["governor_thresholds"]),
                         dict(valid, governor_thresholds=dict(low=True, mid=.55, high=.75)),
+                        dict(valid, governor_thresholds=dict(low=10**400, mid=.55, high=.75)),
                         dict(valid, cash_hard_gate=dict(liquidity_gate=".35", trend_gate=.35, credit_gate=.55))):
             path.write_text(json.dumps(invalid))
             with self.assertRaises((ValueError, KeyError, TypeError)):
@@ -481,6 +482,11 @@ class LegacyCurrentnessTests(unittest.TestCase):
                          [.35, .55, .75, .35, .35, .55])
         self.assert_current_blocked(self.run_case(mutate=lambda m:m.update(thresholds_sha256="b"*64)),
                                     "CURRENT_CONFIG_PROOF_REQUIRED")
+        # Rejection must replace an existing successful summary even when the
+        # malformed file is bound to its exact external fixture hash.
+        self.run_case()
+        self.assert_current_blocked(self.run_case(config_payload=dict(valid,
+            governor_thresholds=dict(low=10**400, mid=.55, high=.75))), "CURRENT_CONFIG_PROOF_REQUIRED")
 
     def test_unbound_holdings_never_produce_action_candidates(self):
         for field, value in (("summary_sha256", "b"*64), ("holdings_sha256", "c"*64),
