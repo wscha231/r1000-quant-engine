@@ -300,3 +300,6 @@ The persisted pre-dispatch bundle can accompany a later legitimate network
 recovery only when its requested run is the actual latest bound BLOCKED
 NETWORK/HTTP_ERROR receipt. An arbitrary recovery ID on the first dispatch
 cannot manufacture a relationship.
+
+Both pending-run resume and postwatch settlement recheck the full canonical set
+after receipt/checkpoint-log reads, immediately before the common SETTLED append.

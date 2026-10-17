@@ -1089,6 +1089,8 @@ def settle_run(journal, auth, run, receipt):
     parent = settled_parent(journal, auth)
     require(receipt["parent_checkpoint_sha256"] == parent["sha256"], "CAMPAIGN_LOCAL_PARENT")
     ref = checkpoint_from_log(run, receipt, parent)
+    if getattr(journal, "recovery", None) is not None:
+        journal.reconcile(campaign_runs(auth["workflow_run_floor"]))
     journal.append("SETTLED", nonce=receipt["nonce"], run_id=run["id"],
                    usage=receipt["usage"], checkpoint=ref,
                    receipt=receipt,

@@ -1130,6 +1130,46 @@ class LocalRejectRecoveryTests(unittest.TestCase):
                 self.assertEqual(sum(cmd[1:3]==["run","watch"] for cmd in calls),1 if phase=="settlement" else 0)
                 self.assertEqual((state/"000001.json").read_bytes(),self.original)
 
+    def test_receipt_read_race_on_pending_resume_or_postwatch_never_settles(self):
+        path,recovery=self.host_fixture()
+        for phase in ("resume","postwatch"):
+            with self.subTest(phase=phase):
+                state=self.root/("receipt-race-"+phase);state.mkdir()
+                for entry in ("000001.json","000002.json"):
+                    (state/entry).write_bytes((self.state/entry).read_bytes())
+                nonce=c.PREFIX+"c"*24
+                run=dict(id=987,display_title="a1-sip "+nonce,status="completed",created_at=c.utc().isoformat())
+                receipt=dict(nonce=nonce,status="COMPLETE",usage={k:0 for k in c.LIMITS},
+                             checkpoint_sha256=c.INITIAL_SHA,parent_checkpoint_sha256=c.INITIAL_SHA,
+                             examined_after=16,new_states={},rows_verified=0,
+                             confirmed_storage_bytes=0,observed_google_body_bytes=0)
+                observed=self.observed()
+                if phase=="resume":
+                    journal=c.WorkJournal(state,c.validate_authorization(self.new),recovery)
+                    journal.append("RESERVED",nonce=nonce,remaining=dict(c.LIMITS),
+                                   active_seconds_remaining=28800,parent_checkpoint_sha256=c.INITIAL_SHA)
+                    journal.append("RUN_ASSIGNED",nonce=nonce,run_id=987);journal.close()
+                    observed.update(runs=[run],receipts=[receipt])
+                closed=dict(display_title="a1-sip "+self.nonce)
+                def cli(command,**kwargs):
+                    if command[1:3]==["workflow","run"]:
+                        run["display_title"]="a1-sip "+json.loads(kwargs["input"])["campaign_nonce"]
+                        receipt["nonce"]=run["display_title"][7:]
+                    return type("Result",(),{"returncode":0})()
+                def api(route):
+                    if route.endswith("/actions/runs/987"):return run
+                    return self.deployed(route)
+                snapshots=[[closed,run]] if phase=="resume" else [[],[run],[run],[closed,run]]
+                with patch.object(c,"local_reject_recovery",return_value=recovery), \
+                        patch.object(c,"history",side_effect=[observed,dict(observed,runs=[run],receipts=[receipt])]), \
+                        patch.object(c,"job_seconds",return_value=1),patch.object(c,"gh_json",side_effect=api), \
+                        patch.object(c,"campaign_runs",side_effect=snapshots),patch.object(c,"receipt_for_run",return_value=receipt), \
+                        patch.object(c.subprocess,"run",side_effect=cli),self.assertRaisesRegex(c.Refused,"CAMPAIGN_LOCAL_REJECT_REMOTE"):
+                    c.host(path,state,predispatch_recovery=self.bundle_path)
+                kinds=[json.loads(p.read_bytes())["kind"] for p in state.glob("*.json")]
+                self.assertNotIn("SETTLED",kinds)
+                self.assertEqual((state/"000001.json").read_bytes(),self.original)
+
     def test_all_outer_cli_values_are_strings_nested_authority_unchanged(self):
         path = self.root / "new-auth.json";path.write_bytes(c.encoded(self.new))
         observed = dict(runs=[], receipts=[], used={k:0 for k in c.LIMITS}, remaining=dict(c.LIMITS),

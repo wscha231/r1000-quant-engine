@@ -7159,3 +7159,4 @@ Expected contract:
 
 - Review recovery at transitions as well as initial proof: recheck full canonical history before dispatch, while discovering the replacement and before settlement. Exclude typed closures from outstanding-reservation reports.
 - Keep recovery receipts outside the append-only journal namespace and disjoint from inputs before writing any closure. Bind original authorization raw bytes, and reject unrelated network-recovery IDs instead of persisting invented relationships.
+- Put the final canonical-history guard in the common settlement boundary after receipt/checkpoint reads; a watch-only guard misses interrupted-host resume and delayed visibility during those reads.
