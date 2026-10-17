@@ -7188,3 +7188,72 @@ Expected contract:
   boundary. When prior authorization bindings intentionally stay null, select
   the verified embedded continuation URL by default; reject a conflicting
   optional CLI reference before locking or appending any campaign event.
+
+## 2026-10-17 — External discovery progress cannot reset finite capture costs
+
+When a verified discovery CSV is outside the fixed IWB seed, keep its input
+SHA/task/namespace and checkpoint chain separate, including local zero genesis.
+Keep the original workflow nonce family, history floor, first48h, global writer
+lock and **all** actual spent counters shared. A new prefix or per-cohort-only
+lock can hide earlier spending or permit overlapping reservations. A logical
+empty genesis is not a physical Drive checkpoint: the first resume ID/SHA must
+both be empty. Read-only validation must refuse a missing original recovery
+receipt rather than recreate it. Current asset metadata/404 can support a
+sanitized held state only on the narrow metered asset endpoint; auth/quota/network
+failures cannot be converted into no-data or eligible history. Freeze a dated
+market-cap input and reconcile actual source receipts before its later dispatch.
+
+Independent A6 found three pre-deployment counterexamples: expiry must be
+checked against the binding event's actual recorded clock before appending it;
+a known completed run must still be imported/settled after expiry (while new
+dispatch remains forbidden); and UUID syntax needs exact8-4-4-4-12 hexadecimal
+positions rather than a permissive36-character hex/hyphen class. Keep expired
+read-only accounting separate from renewed execution authorization.
+
+A6 also reproduced a cross-namespace unknown-POST hole: releasing the original
+global lock does not expose a pending cohort reservation to the next namespace
+before Actions visibility. Keep a deterministic family reservation journal
+under that same lock, outside the immutable17-event prefix. Write shared
+RESERVED first, cohort RESERVED second, then POST. Reconcile all family nonces;
+missing/orphan/partial or rolled-back registration cannot prove zero POST.
+Settle cohort first, shared second, and close an interrupted shared settlement
+only with the exact canonical receipt and already settled cohort record.
+
+Hosted review also caught a terminal/recovery mismatch: generic HTTP_ERROR can
+include a price404, and NETWORK can occur during asset identity precheck. The
+minimal external path stops its entire epoch on every runtime failure and
+accepts no legacy recovery flag. Known failed receipts still settle/account;
+another attempt requires a separately reviewed A0 recovery contract. Do not
+inherit legacy retry authority merely because it shares the same meter.
+
+A6's next frozen-head check also removed the whole family registry while
+preserving an uncertain cohort, then tried a different namespace. First registry
+creation must check every deterministic `external-cohort-*` sibling under the
+original budget parent, not only the incoming namespace. Any existing path is
+a conservative blocker; loss of one prefix cannot authorize a fresh budget.
+
+Hosted review found a first-registration proof race too: fetch one consent
+snapshot for both the first family binding and its cohort binding. If an OWNER
+comment changes between reads, the next canonical proof comparison must stop
+before reserving, never combine an old family proof with a newer cohort proof.
+
+The post-Ready hosted review found a relocation race: deterministic names alone
+do not bind a registry to the original resolved budget root. Copying or renaming
+the complete settled tree can create independent lock files while Actions history
+is still unchanged. Persist and verify the normalized resolved original budget
+and first cohort roots in the family binding; verify each current namespace path
+too. An unchanged original tree remains resumable; relocated copies fail before
+another reservation or POST. Preserve the pre-fix two-case failing fixture log.
+
+For later epochs, canonical receipts and a shared journal cannot substitute for
+the prior cohort's own complete binding/RESERVED/SETTLED chain. Verify every
+earlier fixed-root journal without regenerating missing or truncated prefixes.
+For a bounded invocation, count newly durable shared settlements from its entry
+baseline. A resumed pending completion or cohort-to-family repair consumes one
+batch; a watch and subsequent import must not count twice or trigger an extra POST.
+
+Check a review finding against the called helper before changing policy: a
+terminal receipt whose checkpoint hash equals its parent already returns that
+parent before any log lookup. Independent AUTH/NETWORK worker-to-host closure
+and duplicate-resume probes confirmed this unchanged-parent behavior; preserve
+the disposition and avoid inventing a new checkpoint or recovery permission.
