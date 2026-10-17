@@ -290,6 +290,11 @@ def watchlist_candidates(latest_run: Path, max_candidates: int) -> pd.DataFrame:
 def crisis_context(latest_run: Path) -> dict[str, Any]:
     integrated_states = read_csv(latest_run / "integrated_theme_leader_crisis_replay" / "daily_crisis_state.csv")
     daily = read_json(latest_run / "daily_crisis_monitor" / "summary.json")
+    if daily.get("current_report_status") == "BLOCKED":
+        return dict(daily_monitor_state=None, daily_monitor_raw_state=None,
+                    integrated_daily_state_available=False, daily_crisis_state_latest=None,
+                    reentry_stage="", reentry_trigger="", current_report_status="BLOCKED",
+                    data_health="DATA_BLOCKED")
     state = str(daily.get("state") or daily.get("raw_state") or "")
     if not state and not integrated_states.empty and "crisis_state" in integrated_states.columns:
         state = str(integrated_states["crisis_state"].iloc[-1])
@@ -544,6 +549,9 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
+    crisis = crisis_context(latest_run)
+    if crisis.get("current_report_status") == "BLOCKED":
+        raise ValueError("CURRENT_CRISIS_REPORT_BLOCKED")
     output_dir.mkdir(parents=True, exist_ok=True)
     current = current_holdings(latest_run)
     targets = latest_targets(latest_run)
@@ -552,7 +560,6 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     tickers = set(current.get("ticker", pd.Series(dtype=str)).astype(str)) | set(targets.get("ticker", pd.Series(dtype=str)).astype(str)) | set(candidates.get("ticker", pd.Series(dtype=str)).astype(str))
     tickers = {clean_ticker(t) for t in tickers if clean_ticker(t)}
     prices = price_metrics(price_cache, tickers)
-    crisis = crisis_context(latest_run)
     daily = build_daily_review(current, values, prices, crisis)
     weekly = build_weekly_watchlist(current, targets, candidates, values, prices, crisis)
     summary = monthly_event_plan(daily, weekly, crisis, latest_run)

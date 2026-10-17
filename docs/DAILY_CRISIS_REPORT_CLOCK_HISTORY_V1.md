@@ -181,6 +181,11 @@ Source/PIT. Existing producers/workflow are unchanged; until they provide those
 clocks and a recovered typed prior history, this legacy route remains BLOCKED.
 The existing pinned B1 report route remains available under its own strict contract.
 
+The existing cadence consumer treats explicit BLOCKED as a data boundary: it
+does not fall back to diagnostic raw state or integrated historical GREEN/reentry
+state, and its build entry point refuses before decision computation or output
+creation. This is a Main read guard, not a new portfolio policy or trading action.
+
 Combined raw state remains an UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC; individual
 long-crisis metadata and source clocks retain their source-session scope.
 Fresh legacy output is only

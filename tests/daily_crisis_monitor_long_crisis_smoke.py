@@ -296,6 +296,31 @@ class LegacyCurrentnessTests(unittest.TestCase):
         self.assertEqual(set(meta["raw_state_sidecar_clocks"]), {"risk_controls", "safety_audit", "macro_policy", "portfolio_snapshot"})
         self.assertTrue(all(v["report_session"] == "2026-03-20" for v in meta["raw_state_sidecar_clocks"].values()))
 
+    def test_blocked_monitor_cannot_feed_cadence_raw_or_integrated_fallback(self):
+        from tools import run_decision_cadence_review as cadence
+        payload = self.run_case(session="2026-03-20")[0]
+        latest = self.root/"cadence_inputs"
+        monitor_dir = latest/"daily_crisis_monitor"
+        monitor_dir.mkdir(parents=True)
+        integrated = latest/"integrated_theme_leader_crisis_replay"
+        integrated.mkdir()
+        (integrated/"daily_crisis_state.csv").write_text("crisis_state,reentry_stage\nGREEN,REENTRY_STAGE_1\n")
+        for raw in ("GREEN", "DEFENSE", "CRISIS", "REENTRY_STAGE_1"):
+            with self.subTest(raw=raw):
+                payload["raw_state"] = raw
+                (monitor_dir/"summary.json").write_text(json.dumps(payload))
+                context = cadence.crisis_context(latest)
+                self.assertIsNone(context["daily_monitor_state"])
+                self.assertIsNone(context["daily_monitor_raw_state"])
+                self.assertIsNone(context["daily_crisis_state_latest"])
+                self.assertEqual(context["reentry_stage"], "")
+                args = SimpleNamespace(latest_run=str(latest), price_cache=str(self.root/"unused"),
+                                       output_dir=str(self.root/"cadence_output"), max_watchlist_candidates=1)
+                with patch.object(cadence, "current_holdings", side_effect=AssertionError("decision computation reached")):
+                    with self.assertRaisesRegex(ValueError, "CURRENT_CRISIS_REPORT_BLOCKED"):
+                        cadence.build_review(args)
+                self.assertFalse((self.root/"cadence_output").exists())
+
     def test_explicit_historical_report_route_remains_separate(self):
         marker = {"current_report_status":"READY_DRY_RUN", "input_kind":"FIXTURE"}
         with patch.object(monitor, "build_clock_report", return_value=marker) as route:
