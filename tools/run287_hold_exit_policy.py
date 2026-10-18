@@ -11,8 +11,9 @@ leadership-persistence hold.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,16 @@ from tools.security_lifecycle import SecurityLifecycleSnapshot, resolve_security
 
 SCHEMA_VERSION = "run287-hold-exit-policy-v1"
 POLICY_ID = "leadership_persistence_v2_strict"
+MODULE_ID = "run287_hold_exit_replacement_policy"
+MODULE_VERSION = "1"
+CANDIDATE_HYPOTHESIS = "minimum_score_gap"
+POLICY_PARAMETER_NAMES = (
+    "score_sigma_multiplier",
+    "minimum_score_gap",
+    "round_trip_cost_penalty",
+    "rs_percentile_floor",
+    "risk_block_ceiling",
+)
 SELL_TAXONOMY = (
     "THESIS_EXIT",
     "RISK_EXIT",
@@ -82,6 +93,88 @@ class LeadershipPersistencePolicy:
             "grid_search_allowed": False,
             "used_forward_return": False,
         }
+
+
+def policy_parameters(policy: LeadershipPersistencePolicy) -> dict[str, float]:
+    """Return the complete finite numeric policy parameter set.
+
+    This stays separate from audit() so legacy/default outputs remain
+    structurally unchanged until G1 owns shared StrategySpec/Recipe registration.
+    """
+
+    raw = {
+        "score_sigma_multiplier": policy.score_sigma_multiplier,
+        "minimum_score_gap": policy.minimum_score_gap,
+        "round_trip_cost_penalty": policy.round_trip_cost_penalty,
+        "rs_percentile_floor": policy.rs_percentile_floor,
+        "risk_block_ceiling": policy.risk_block_ceiling,
+    }
+    out: dict[str, float] = {}
+    for name in POLICY_PARAMETER_NAMES:
+        try:
+            value = float(raw[name])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid policy parameter:{name}") from exc
+        if not math.isfinite(value):
+            raise ValueError(f"invalid policy parameter:{name}")
+        out[name] = value
+    return out
+
+
+def policy_module_config(policy: LeadershipPersistencePolicy) -> dict[str, Any]:
+    """Return deterministic module metadata without changing policy behavior."""
+
+    return {
+        "module_id": MODULE_ID,
+        "module_version": MODULE_VERSION,
+        "policy_id": POLICY_ID,
+        "parameters": policy_parameters(policy),
+    }
+
+
+def serialize_policy_config(policy: LeadershipPersistencePolicy) -> str:
+    """Canonical JSON used by G1 for future module/config selection."""
+
+    return json.dumps(
+        policy_module_config(policy),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+
+
+def policy_audit_identity(policy: LeadershipPersistencePolicy) -> str:
+    """Stable SHA-256 identity over module/version/policy/config."""
+
+    payload = serialize_policy_config(policy).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def minimum_score_gap_candidate(
+    *,
+    baseline: LeadershipPersistencePolicy | None = None,
+    minimum_score_gap: float | None = None,
+) -> LeadershipPersistencePolicy:
+    """Prepare one bounded candidate hypothesis without tuning other policy axes.
+
+    With minimum_score_gap=None this is exactly the legacy/default policy.
+    Any supplied gap leaves cost, incumbent protection, RS/risk gates,
+    lifecycle handling, and all other policy semantics unchanged.
+    """
+
+    policy = baseline if baseline is not None else LeadershipPersistencePolicy()
+    if minimum_score_gap is None:
+        return policy
+    if isinstance(minimum_score_gap, bool):
+        raise ValueError("minimum_score_gap must be a finite nonnegative number")
+    try:
+        gap = float(minimum_score_gap)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("minimum_score_gap must be a finite nonnegative number") from exc
+    if not math.isfinite(gap) or gap < 0.0:
+        raise ValueError("minimum_score_gap must be a finite nonnegative number")
+    return replace(policy, minimum_score_gap=gap)
 
 
 def file_sha256(path: Path) -> str:
