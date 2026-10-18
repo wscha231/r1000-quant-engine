@@ -1,0 +1,12 @@
+{
+  "concentrated_max_mdd_loss": "0.25",
+  "concentrated_min_cagr": "0.50",
+  "contract_id": "mission-v3-us-reference-research-v1",
+  "currency": "USD",
+  "end": "2026-09-16",
+  "initial_nav": "100000",
+  "main_max_mdd_loss": "0.20",
+  "main_min_cagr": "0.35",
+  "start": "2018-09-17",
+  "state": "RESEARCH_DRAFT"
+}
