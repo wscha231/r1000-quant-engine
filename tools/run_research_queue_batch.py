@@ -43,6 +43,17 @@ def closed(value):
             and all(v is False for v in value.values()), "QUEUE_AUTHORITY_REFUSED")
 
 
+def _due(case, bundle=None):
+    now = datetime.now(timezone.utc)
+    if any(case[k] for k in ("correction", "source_failure", "outcome_due")) \
+            or backend.clock(case["valid_through"]) <= now \
+            or (case["review_due_at"] is not None and backend.clock(case["review_due_at"]) <= now):
+        return True
+    return bundle is not None and any(
+        backend.clock(d["valid_through"]) <= now for kind in ("inputs", "artifacts")
+        for d in bundle[kind].values() if d is not None)
+
+
 def _publish(parent, name, value):
     """Unique bounded JSON directory; failures retain unaccepted staging bytes."""
     identity = backend._directory_identity(parent)
@@ -266,9 +277,7 @@ class QueueSession:
                    "bundle_sha256": case["bundle_sha256"], "publication": None}
             rows.append(row)
             now = datetime.now(timezone.utc)
-            if any(case[k] for k in ("correction", "source_failure", "outcome_due")) \
-                    or backend.clock(case["valid_through"]) <= now \
-                    or (case["review_due_at"] is not None and backend.clock(case["review_due_at"]) <= now):
+            if _due(case):
                 row.update(status="REVIEW_DUE", reason="EXPIRY_CORRECTION_SOURCE_OR_OUTCOME_DUE")
                 continue
             if reason:
@@ -304,6 +313,10 @@ class QueueSession:
                 if str(error) == "DESCRIPTOR_REVIEW_DUE":
                     row["status"] = "REVIEW_DUE"
                 continue
+            self._guard()
+            if _due(case, bundle):
+                row.update(status="REVIEW_DUE", reason="CLOCK_EXPIRED_DURING_PREFLIGHT")
+                continue
             fingerprint = backend.digest(backend.canonical({"bundle": backend.digest(body),
                 "inputs": inputs, "code": snapshot}))
             key = backend.digest(backend.canonical([case["case_id"], fingerprint]))
@@ -313,6 +326,7 @@ class QueueSession:
                 try:
                     require(proof["modules"] == _module_stamp(), "LOADED_MODULES_CHANGED")
                     _read_publication(proof["publication"])
+                    require(not _due(case, bundle), "CLOCK_EXPIRED_DURING_READBACK")
                 except Error as error:
                     row.update(status="REVIEW_DUE", reason=str(error))
                 else:
@@ -332,6 +346,10 @@ class QueueSession:
             _publish(self.output, "intent-" + key, {"case_id": case["case_id"],
                 "fingerprint": fingerprint, "reserved_input_bytes": size,
                 "state": "UNACCEPTED_INTENT", "authority": backend._closed()})
+            self._guard()
+            if _due(case, bundle):
+                row.update(status="REVIEW_DUE", reason="CLOCK_EXPIRED_DURING_INTENT")
+                continue
             output = self.output / ("research-" + key)
             result = backend.run_bundle(bundle_path, output)
             self._guard()
@@ -351,6 +369,7 @@ class QueueSession:
                 actual = {"inputs:" + k: v for k, v in result["input_sha256"].items()}
                 actual.update({"artifacts:" + k: v for k, v in result["dependency_sha256"].items()})
                 require(actual == inputs, "DOWNSTREAM_INPUT_HASH_MISMATCH")
+                require(not _due(case, bundle), "CLOCK_EXPIRED_DURING_EXECUTION_OR_READBACK")
             except Error as error:
                 row.update(status="REVIEW_DUE", reason=str(error))
                 continue

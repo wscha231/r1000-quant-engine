@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timezone, timedelta
 import json
 from pathlib import Path
 import pickle
@@ -231,6 +232,63 @@ class QueueTests(unittest.TestCase):
         session.progress_count = session.limits["max_progress"]
         with self.assertRaisesRegex(queue.Error, "PROGRESS_BUDGET"):
             session.run(self.save())
+
+    def test_expired_preflight_never_reserves_or_invokes_backend(self):
+        elapsed = [0.0]
+        self.limits["max_seconds"] = 1
+        with patch.object(queue.time, "monotonic", side_effect=lambda: elapsed[0]):
+            session = self.session()
+            snapshot = queue._code_snapshot
+            def slow_snapshot():
+                result = snapshot()
+                elapsed[0] = 1.01
+                return result
+            with patch.object(queue, "_code_snapshot", side_effect=slow_snapshot), \
+                    patch.object(queue.backend, "run_bundle", side_effect=AssertionError), \
+                    self.assertRaisesRegex(queue.Error, "TIME_BUDGET"):
+                session.run(self.save())
+        self.assertEqual(session.reservations, {})
+        self.assertEqual(list(self.output.glob("intent-*")), [])
+
+    def test_expired_intent_keeps_charge_without_backend_invocation(self):
+        elapsed = [0.0]
+        self.limits["max_seconds"] = 1
+        with patch.object(queue.time, "monotonic", side_effect=lambda: elapsed[0]):
+            session = self.session()
+            original = queue._publish
+            def slow_intent(parent, name, value):
+                result = original(parent, name, value)
+                if name.startswith("intent-"):
+                    elapsed[0] = 1.01
+                return result
+            with patch.object(queue, "_publish", side_effect=slow_intent), \
+                    patch.object(queue.backend, "run_bundle", side_effect=AssertionError), \
+                    self.assertRaisesRegex(queue.Error, "TIME_BUDGET"):
+                session.run(self.save())
+        self.assertEqual(len(session.reservations), 1)
+        self.assertEqual(len(list(self.output.glob("intent-*"))), 1)
+        self.assertGreater(session.used_bytes, 0)
+
+    def test_wall_clock_expiry_crossing_preflight_cannot_skip(self):
+        moment = [datetime.fromisoformat(CUTOFF.replace("Z", "+00:00"))]
+        class Clock:
+            @staticmethod
+            def now(tz):
+                return moment[0].astimezone(tz)
+        self.case["valid_through"] = (moment[0] + timedelta(seconds=1)).isoformat()
+        with patch.object(queue, "datetime", Clock):
+            session, _ = self.run_one()
+            original = queue._code_snapshot
+            def slow_snapshot():
+                result = original()
+                moment[0] += timedelta(seconds=2)
+                return result
+            with patch.object(queue, "_code_snapshot", side_effect=slow_snapshot), \
+                    patch.object(queue.backend, "run_bundle", side_effect=AssertionError):
+                result = session.run(self.save())
+        self.assertEqual(result["rows"][0]["status"], "REVIEW_DUE")
+        self.assertEqual(result["rows"][0]["reason"], "CLOCK_EXPIRED_DURING_PREFLIGHT")
+        self.assertEqual(len(session.reservations), 1)
 
     def test_cli_has_one_shot_explicit_paths_and_refuses_existing_root(self):
         command = [sys.executable, "-B", str(ROOT / "tools/run_research_queue_batch.py"),
