@@ -2134,7 +2134,8 @@ def external_batch(examined, count):
     return min(32, count-examined, 128-(examined % 128))
 
 
-def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False):
+def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
+                     native_read_run=None):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2150,6 +2151,9 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     proofs = {h: external_proof(a) for h,(position,a) in zip(hashes,variants)}
     by_hash = dict(zip(hashes, variants))
     runs = campaign_runs(auth["workflow_run_floor"])
+    if native_read_run is not None:
+        require(current_run is None and allow_stopped, "NATIVE_READ_HISTORY_MODE")
+        runs = native_read_prefix(runs, native_read_run)
     require([r["id"] for r in runs[:5]] == CONTINUATION["runs"], "EXTERNAL_BUDGET_PREFIX")
     if current_run is not None:
         require(len(runs) > 5 and runs[-1]["id"] == current_run
@@ -3009,9 +3013,344 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
                 global_journal.close()
 
 
+NATIVE_READ_TASK = "R1000-SOURCE39085031884-NATIVE-METERED-READ-PATH-20261018"
+NATIVE_READ_CP = "efcea3356688118392fa71612ee2702c4b9ea436ad88bdfdab917ef60e373cfd"
+NATIVE_READ_AUTH = "141bcf8526425244821b2e940d01fced58ff3e64e9237dffd69e9d558131c7cb"
+NATIVE_READ_METER = "231d256890c209ef5dace024a25cfafc5d6a8714abded3a8cca76f2752818814"
+NATIVE_READ_CP_ID = "1mkt2HTzWWObV_60BSv1Iqdj9myQ4BlQZ"
+NATIVE_READ_WINDOW = ("2026-10-18T01:07:04.874Z", "2026-10-18T01:07:37Z")
+# A suballocation of the existing remaining caps, never a new campaign budget.
+NATIVE_READ_ALLOWANCE = dict(provider_gets=0, drive_requests=16, drive_bytes=16_000_000, storage_bytes=0)
+NATIVE_READ_OBSERVATION = "c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f"
+NATIVE_READ_SCOPE_BASIS = "EXPLICIT_EXACT6_SCOPE_DECISION"
+
+
+def native_read_scope_control(pending):
+    """A policy exception is not a measured or numerically settled expense."""
+    require(isinstance(pending, dict) and set(pending) == {
+            "basis", "decision_sha256", "observation_sha256", "status", "usage", "reference"}
+            and pending["basis"] == NATIVE_READ_SCOPE_BASIS
+            and pending["observation_sha256"] == NATIVE_READ_OBSERVATION
+            and pending["status"] == "UNKNOWN_NOT_ZERO"
+            and encoded(pending["usage"]) == encoded(dict(provider_gets=0, storage_bytes=0,
+                drive_requests=None, drive_bytes=None))
+            and isinstance(pending["decision_sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", pending["decision_sha256"])
+            and isinstance(pending["reference"], str) and re.fullmatch(
+                r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+", pending["reference"]),
+            "NATIVE_READ_SCOPE_DECISION_UNSET")
+
+
+def native_read_scope_record(control):
+    """The exact OWNER decision to sign, only after a separate scope approval."""
+    return dict(schema="a1-native-read-exact6-scope-decision-v1",
+        decision="APPROVE_EXACT6_EXCEPTION_AND_ONE_NATIVE_READ",
+        failed_run_id=39085031884, failed_meter_sha256=NATIVE_READ_METER,
+        prior_auth_sha256=NATIVE_READ_AUTH, checkpoint_sha256=NATIVE_READ_CP,
+        observation_sha256=NATIVE_READ_OBSERVATION, connector_calls=6, platform_materializations=1,
+        past_diagnostics_status="UNKNOWN_NOT_ZERO",
+        past_diagnostics_usage=dict(provider_gets=0, storage_bytes=0, drive_requests=None, drive_bytes=None),
+        budget_scope="ORIGINAL17_AND_NEW_CONTROLLED_NATIVE_NOT_TOTAL_PLATFORM_COST",
+        transfer_definition=METRIC, original_receipts=17,
+        controlled_capture_usage=dict(provider_gets=542, drive_requests=5269,
+            drive_bytes=842810550, storage_bytes=79426031),
+        controlled_active_seconds=3769, unknown_storage_bytes_still_charged=302101,
+        original_limits=dict(CONTINUED_LIMITS), original_dispatch_cap=40, original_active_seconds_cap=43200,
+        first_canonical_utc=CONTINUATION["first"],
+        expires_at_utc=(utc(CONTINUATION["first"])+timedelta(hours=48)).isoformat(),
+        owner_sha256=CONTINUATION["bindings"]["owner_sha256"],
+        expected_master=control["expected_master"], nonce=control["nonce"],
+        native_allowance=dict(NATIVE_READ_ALLOWANCE), native_dispatches=1, native_active_seconds=900,
+        extra_payment_authorized=False, budget_reset=False, capture_authorized=False,
+        provider_get_authorized=False, drive_data_write_authorized=False, failed_post_retry_authorized=False,
+        subsequent_native_settlement_required=True)
+
+
+def native_read_scope_proof(pending, control):
+    native_read_scope_control(pending)
+    require(isinstance(control, dict), "NATIVE_READ_SCOPE_CONTEXT")
+    expected = native_read_scope_record(control)
+    require(digest(encoded(expected)) == pending["decision_sha256"], "NATIVE_READ_SCOPE_BINDING")
+    comment_id = int(pending["reference"].rsplit("-", 1)[1])
+    comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
+    require(comment.get("id") == comment_id and comment.get("author_association") == "OWNER"
+            and comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("user", {}).get("type") == "User", "NATIVE_READ_SCOPE_OWNER")
+    tag = "A1_SIP_NATIVE_READ_SCOPE_DECISION "
+    lines = [line[len(tag):] for line in comment.get("body", "").splitlines() if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096 and encoded(decode(lines[0])) == encoded(expected)
+            and isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
+            and comment["created_at"] == comment["updated_at"]
+            and utc("2026-10-18T01:22:41.190159+00:00") <= utc(comment["created_at"]) <= utc(),
+            "NATIVE_READ_SCOPE_PROOF")
+    return digest(encoded(dict(id=comment_id, updated_at=comment["updated_at"], body=comment["body"])))
+
+
+def native_read_control(value):
+    require(isinstance(value, dict) and set(value) == {"schema", "task_key", "expected_master", "nonce",
+            "authorization", "pending_external_read_accounting"}
+            and value["schema"] == "a1-native-drive-read-39085031884-v1"
+            and value["task_key"] == NATIVE_READ_TASK, "NATIVE_READ_CONTROL")
+    auth = value["authorization"]
+    require(validate_authorization(auth) == NATIVE_READ_AUTH, "NATIVE_READ_AUTH")
+    require(isinstance(value["expected_master"], str) and re.fullmatch(r"[0-9a-f]{40}", value["expected_master"])
+            and isinstance(value["nonce"], str) and re.fullmatch(PREFIX+r"[0-9a-f]{24}", value["nonce"]),
+            "NATIVE_READ_SOURCE_NONCE")
+    # The original metric is HTTP bodies plus per-Google-request overhead.
+    # Unmeasured connector costs need either evidence or an explicit narrow decision.
+    pending = value["pending_external_read_accounting"]
+    if isinstance(pending, dict) and pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        native_read_scope_control(pending)
+        require(utc() < utc(CONTINUATION["first"])+timedelta(hours=48), "CAMPAIGN_EXPIRED")
+        return auth
+    require(isinstance(pending, dict) and set(pending) == {"basis", "receipt_sha256", "usage", "reference"}
+            and pending["basis"] == "VERIFIED_TRANSPORT_ACCOUNTING"
+            and isinstance(pending["receipt_sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", pending["receipt_sha256"])
+            and isinstance(pending["reference"], str) and re.fullmatch(
+                r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",pending["reference"])
+            and isinstance(pending["usage"], dict) and set(pending["usage"]) == set(LIMITS),
+            "NATIVE_READ_PENDING_COST_UNSETTLED")
+    for key in LIMITS:
+        integer(pending["usage"][key], CONTINUED_LIMITS[key])
+    require(pending["usage"]["provider_gets"] == pending["usage"]["storage_bytes"] == 0
+            and pending["usage"]["drive_requests"] > 0 and pending["usage"]["drive_bytes"] > 0,
+            "NATIVE_READ_PENDING_COST_UNSETTLED")
+    require(utc() < utc(CONTINUATION["first"])+timedelta(hours=48), "CAMPAIGN_EXPIRED")
+    return auth
+
+
+def native_read_pending_proof(pending, control=None):
+    """Counter input is not evidence: require an immutable OWNER accounting record."""
+    if pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        return native_read_scope_proof(pending, control)
+    comment_id = int(pending["reference"].rsplit("-",1)[1])
+    comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
+    require(comment.get("id") == comment_id and comment.get("author_association") == "OWNER"
+            and comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("user",{}).get("type") == "User", "NATIVE_READ_ACCOUNTING_OWNER")
+    tag = "A1_SIP_NATIVE_READ_ACCOUNTING "
+    lines = [line[len(tag):] for line in comment.get("body","").splitlines() if line.startswith(tag)]
+    expected = dict(schema="a1-native-read-pending-accounting-v1",failed_run_id=39085031884,
+        failed_meter_sha256=NATIVE_READ_METER,prior_auth_sha256=NATIVE_READ_AUTH,
+        pending_observation_sha256="c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f",
+        basis=pending["basis"],receipt_sha256=pending["receipt_sha256"],usage=pending["usage"])
+    require(len(lines) == 1 and len(lines[0]) <= 2048 and encoded(decode(lines[0])) == encoded(expected)
+            and isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
+            and utc("2026-10-18T01:07:37Z") <= utc(comment.get("created_at")) <= utc(comment.get("updated_at")) <= utc(),
+            "NATIVE_READ_ACCOUNTING_PROOF")
+    return digest(encoded(dict(id=comment_id,updated_at=comment["updated_at"],body=comment["body"])))
+
+
+def native_read_prefix(runs, current):
+    require(os.getenv("INPUT_NATIVE_READ_ONLY") == "true"
+            and current.get("id") == int(os.environ.get("GITHUB_RUN_ID", "0"))
+            and current.get("run_attempt") == 1 and type(current.get("run_attempt")) is int
+            and current.get("status") == "in_progress"
+            and current.get("head_sha") == os.getenv("GITHUB_SHA")
+            and current.get("head_branch") == "master" and current.get("event") == "workflow_dispatch"
+            and current.get("display_title") == "a1-sip "+os.getenv("INPUT_CAMPAIGN_NONCE", "")+" native-read39085031884"
+            and len(runs) == 18 and runs[-1] == current and runs[-2].get("id") == 39085031884,
+            "NATIVE_READ_SINGLE_USE")
+    require(all(r.get("display_title") != "a1-sip "+os.getenv("INPUT_CAMPAIGN_NONCE", "") for r in runs[:-1]),
+            "NATIVE_READ_NONCE_REUSE")
+    # This one marked in-progress read is removed ONLY for its own read-only
+    # precheck. Default capture still sees it and fails closed until a future
+    # explicit recovery accounts its separate meter/dispatch/job duration.
+    return runs[:-1]
+
+
+def native_read_budget(observed, pending):
+    require(len(observed["runs"]) == 17 and observed["runs"][-1]["id"] == 39085031884
+            and observed["examined"] == 76 and observed["parent_sha"] == NATIVE_READ_CP
+            and digest(encoded(observed["receipts"][-1])) == NATIVE_READ_METER
+            and observed["first"] == utc(CONTINUATION["first"])
+            and observed["used"] == dict(provider_gets=542,drive_requests=5269,drive_bytes=842810550,storage_bytes=79426031)
+            and observed["active_seconds"] == 3769, "NATIVE_READ_CAPTURE_PREFIX")
+    controlled_used = dict(observed["used"])
+    if pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        native_read_scope_control(pending)
+        budget_scope = "ORIGINAL17_AND_NEW_CONTROLLED_NATIVE_NOT_TOTAL_PLATFORM_COST"
+    else:
+        require(pending.get("basis") == "VERIFIED_TRANSPORT_ACCOUNTING", "NATIVE_READ_PENDING_COST_UNSETTLED")
+        controlled_used = {k: controlled_used[k]+pending["usage"][k] for k in LIMITS}
+        budget_scope = "INCLUDING_VERIFIED_EXTERNAL_ACCOUNTING"
+    require(all(controlled_used[k]+NATIVE_READ_ALLOWANCE[k] <= CONTINUED_LIMITS[k] for k in LIMITS)
+            and len(observed["runs"])+1 <= 40 and observed["active_seconds"]+900 <= 43200,
+            "NATIVE_READ_SHARED_BUDGET")
+    return dict(scope=budget_scope, controlled_used_before_native=controlled_used,
+        total_platform_cost_verified=False, external_diagnostics_status=pending.get("status", "VERIFIED_TRANSPORT_ACCOUNTING"))
+
+
+def native_read_source(expected_master):
+    branch = gh_json(f"repos/{REPO}/branches/master")
+    require(branch.get("protected") is True and branch.get("commit", {}).get("sha") == expected_master,
+            "CAMPAIGN_MASTER_DRIFT")
+    pins = {}
+    for path in PINS:
+        remote = gh_json(f"repos/{REPO}/contents/{path}?ref={expected_master}")
+        local = digest(bounded_bytes(ROOT/path,262144).replace(b"\r\n",b"\n"))
+        require(remote.get("encoding") == "base64" and digest(base64.b64decode(remote["content"])) == local,
+                "NATIVE_READ_CODE_DRIFT")
+        pins[path] = local
+    return pins
+
+
+def native_read_job_deadline(jobs, first):
+    require(jobs.get("total_count") == len(jobs.get("jobs", [])) == 2, "NATIVE_READ_JOB")
+    active = [j for j in jobs["jobs"] if j.get("name") == "reconcile" and j.get("status") == "in_progress"]
+    require(len(active) == 1 and isinstance(active[0].get("started_at"), str), "NATIVE_READ_JOB_CLOCK")
+    start = utc(active[0]["started_at"])
+    require(start <= utc()+timedelta(seconds=5), "NATIVE_READ_JOB_CLOCK")
+    return min(start+timedelta(seconds=300),first+timedelta(hours=48))
+
+
+class NativeReadMeter(RuntimeMeter):
+    """Existing conservative transport with no provider or Drive write door."""
+    def __init__(self, *args, root_id, folder_id, **kwargs):
+        self.native_ids = {root_id, folder_id, NATIVE_READ_CP_ID}
+        self.native_media_sizes = {NATIVE_READ_CP_ID:2304}
+        self.native_queries = {
+            "name = '"+NATIVE_READ_CP+".json' and '"+folder_id+"' in parents and trashed = false": "2",
+            "'"+folder_id+"' in parents and trashed = false and createdTime >= '"+NATIVE_READ_WINDOW[0]
+            +"' and createdTime <= '"+NATIVE_READ_WINDOW[1]+"'": "8"}
+        self.native_result = {}
+        super().__init__(*args, **kwargs)
+
+    def save(self):
+        atomic_json(self.journal, dict(schema="a1-native-drive-read-meter-v1", **self.identity,
+            usage=self.used, allowance=self.allowance, status=self.status, reason=self.reason,
+            finalized=self.finalized, transfer_definition=METRIC,
+            observed_google_body_bytes=self.observed_google_body_bytes,
+            result=self.native_result, capture_allowed=False, source_admission=False,
+            pit_verified=False, economic_authority=False,
+            **({"last_transport_failure":self.last_transport_failure} if self.last_transport_failure else {})))
+
+    def reserve_storage(self, size):
+        raise Refused("NATIVE_READ_WRITE_BLOCKED")
+
+    def perform(self, url, *, method="GET", body=None, **kwargs):
+        from urllib.parse import parse_qs, urlsplit
+        endpoint = urlsplit(url)
+        refresh = url == "https://oauth2.googleapis.com/token" and method == "POST"
+        allowed = False
+        if endpoint.scheme == "https" and endpoint.netloc == "www.googleapis.com" and method == "GET" and body is None:
+            if endpoint.path == "/drive/v3/about":
+                allowed = parse_qs(endpoint.query) == {"fields":["user(permissionId),storageQuota"]}
+            elif endpoint.path == "/drive/v3/files":
+                query = parse_qs(endpoint.query)
+                allowed = (set(query) == {"q", "pageSize", "fields"} and len(query["q"]) == 1
+                    and self.native_queries.get(query["q"][0]) == query["pageSize"][0]
+                    and query["fields"] == ["nextPageToken,files(id,name,size,parents,createdTime)"])
+            elif endpoint.path.startswith("/drive/v3/files/"):
+                file_id = endpoint.path.removeprefix("/drive/v3/files/")
+                allowed = file_id in self.native_ids
+                if parse_qs(endpoint.query) == {"alt":["media"]}:
+                    allowed = file_id in self.native_media_sizes
+                    if allowed:
+                        kwargs["limit"] = min(kwargs.get("limit",16_000_000),self.native_media_sizes[file_id])
+        require(refresh or allowed, "NATIVE_READ_ENDPOINT")
+        return super().perform(url, method=method, body=body, **kwargs)
+
+
+def native_read_objects(drive, auth, meter):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    folder = auth["private_data_folder_id"]
+    require(digest(drive.owner.encode()) == CONTINUATION["bindings"]["owner_sha256"], "NATIVE_READ_OWNER")
+    drive.check(folder, auth["private_root_folder_id"])
+    control = cap._private_object(drive, folder,
+        dict(file_id=NATIVE_READ_CP_ID, sha256=NATIVE_READ_CP, bytes=2304), 2304)
+    cp = decode(control)
+    names = cap.external_cohort(auth["external_cohort"]["input_csv"].encode())
+    require(cp.get("examined") == names[:76] and cp.get("cohort_scope") == auth["external_cohort"]["scope"],
+            "NATIVE_READ_CP_CONTENT")
+    def listed(query):
+        value = credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+urlencode(dict(
+            q=query, pageSize=meter.native_queries[query], fields="nextPageToken,files(id,name,size,parents,createdTime)"))),
+            (drive.token,))
+        require(isinstance(value, dict) and value.get("nextPageToken") is None
+                and isinstance(value.get("files"), list), "NATIVE_READ_LIST_INCOMPLETE")
+        return value["files"]
+    positive, window = meter.native_queries
+    matches = listed(positive)
+    require(len(matches) == 1 and matches[0].get("id") == NATIVE_READ_CP_ID
+            and matches[0].get("name") == NATIVE_READ_CP+".json"
+            and matches[0].get("parents") == [folder] and matches[0].get("size") == "2304"
+            and matches[0].get("createdTime") == NATIVE_READ_WINDOW[0], "NATIVE_READ_POSITIVE_CONTROL")
+    items = listed(window)
+    require(len(items) <= 8, "NATIVE_READ_LIST_INCOMPLETE")
+    seen, candidates = set(), []
+    for item in items:
+        validate_orphan_item(item, folder)
+        require(item["id"] not in seen and utc(NATIVE_READ_WINDOW[0]) <= utc(item["createdTime"]) <= utc(NATIVE_READ_WINDOW[1]),
+                "NATIVE_READ_LIST_IDENTITY")
+        seen.add(item["id"])
+        if item["name"].endswith(".zip") and item["size"] == "302101":
+            candidates.append(item)
+    require(len(candidates) <= 1, "NATIVE_READ_DUPLICATE")
+    result = dict(positive_control_verified=True, files_count=len(items), candidate_count=len(candidates),
+                  owner_sha256=digest(drive.owner.encode()), absence_proven=False, failed_request_body_hash_known=False)
+    if candidates:
+        item = candidates[0]
+        meter.native_ids.add(item["id"])
+        meter.native_media_sizes[item["id"]] = 302101
+        ref, raw = read_orphan_item(drive, folder, item)
+        result.update(candidate_sha256=ref["sha256"], candidate_bytes=len(raw))
+    meter.native_result = result
+    meter.save()
+    return result
+
+
+def native_read_worker(control_path, state_dir):
+    """Isolated reviewed-master diagnostic. Never invokes a collector/host."""
+    from tools.twelve_private_capture import OwnerDrive
+    control = bounded_json(control_path, 16384)
+    auth = native_read_control(control)  # Pending unknown accounting fails before any credentials.
+    require(os.getenv("GITHUB_REPOSITORY") == REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
+            and os.getenv("INPUT_NATIVE_READ_ONLY") == "true"
+            and os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
+            and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true"
+            and os.getenv("INPUT_CAMPAIGN_NONCE") == control["nonce"]
+            and os.getenv("GITHUB_SHA") == control["expected_master"], "NATIVE_READ_CONTEXT")
+    source_pins = native_read_source(control["expected_master"])
+    pending_proof_sha = native_read_pending_proof(control["pending_external_read_accounting"], control)
+    current = gh_json(f"repos/{REPO}/actions/runs/{int(os.environ['GITHUB_RUN_ID'])}")
+    observed = external_history(auth, allow_stopped=True, native_read_run=current)
+    pending = control["pending_external_read_accounting"]
+    budget_accounting = native_read_budget(observed,pending)
+    jobs = gh_json(f"repos/{REPO}/actions/runs/{current['id']}/jobs?per_page=100")
+    deadline = native_read_job_deadline(jobs,observed["first"])
+    directory = Path(state_dir)
+    directory.mkdir(exist_ok=False)
+    identity = dict(task_key=NATIVE_READ_TASK,run_id=current["id"],run_attempt=1,nonce=control["nonce"],
+        source_sha=control["expected_master"],source_pins=source_pins,
+        parent_checkpoint_sha256=NATIVE_READ_CP,examined_before=76,failed_run_id=39085031884,
+        failed_meter_sha256=NATIVE_READ_METER,pending_external_read_accounting=pending,
+        pending_external_read_proof_sha256=pending_proof_sha,
+        budget_accounting=budget_accounting,
+        capture_usage_before=observed["used"],active_seconds_reservation=900,dispatch_reservation=1,
+        subsequent_capture_requires_separate_native_meter_settlement=True)
+    meter = NativeReadMeter(NATIVE_READ_ALLOWANCE,directory/"native_read_meter.json",deadline.isoformat(),identity,
+        limits=CONTINUED_LIMITS,root_id=auth["private_root_folder_id"],folder_id=auth["private_data_folder_id"])
+    try:
+        with meter.process_deadline(), tempfile.TemporaryDirectory(prefix="a1-native-read-") as temp:
+            drive = OwnerDrive(auth["private_root_folder_id"],temp,meter=meter)
+            native_read_objects(drive,auth,meter)
+        meter.finish("COMPLETE")
+    except Refused as exc:
+        meter.finish("BLOCKED",str(exc))
+        raise
+    except Exception:
+        meter.finish("BLOCKED","NATIVE_READ_INTERNAL")
+        raise Refused("NATIVE_READ_INTERNAL") from None
+    print(json.dumps(dict(status="NATIVE_READ_COMPLETE",capture_allowed=False,source_admission=False)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--authorization", required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--authorization")
+    mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
@@ -3022,6 +3361,11 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.native_read_control:
+            require(not any((args.recovery_run,args.account_permission_reference,args.predispatch_recovery,
+                args.continuation_receipt,args.cohort_input,args.budget_state_dir,args.max_batches)), "NATIVE_READ_MODE")
+            native_read_worker(args.native_read_control,args.state_dir)
+            return 0
         host(args.authorization, args.state_dir, args.recovery_run, args.account_permission_reference,
              args.predispatch_recovery, args.continuation_receipt, args.cohort_input,
              args.budget_state_dir, args.max_batches)
