@@ -2166,6 +2166,19 @@ def named_failed_receipt(run, value, auth):
     return False
 
 
+def native18_consent_commitment(auth):
+    """Detached v5 consent only; never replaces the full runtime auth SHA."""
+    require(auth.get("schema") == "r1000-sip-external-cohort-authorization-v5"
+            and isinstance(auth.get("external_cohort"),dict)
+            and "native18_recovery" in auth["external_cohort"], "EXTERNAL_NATIVE18_RECOVERY")
+    projected = dict(auth, external_cohort=dict(auth["external_cohort"]))
+    self_locator = dict(schema="a1-sip-current-owner-self-locator-v1")
+    projected["account_permission_reference"] = self_locator
+    projected["external_cohort"]["proof_reference"] = self_locator
+    return digest(encoded(dict(schema="a1-sip-native18-consent-commitment-v1",
+                               authorization=projected)))
+
+
 def external_proof_record(auth):
     ex = auth["external_cohort"]
     result = dict(schema="a1-sip-external-cohort-consent-v1", budget_task_key=TASK,
@@ -2204,6 +2217,11 @@ def external_proof_record(auth):
             normalized_only_derivation=True, original_create_outcome_unknown=True,
             request_sha256=spec["request_sha256"]))
     if "native18_recovery" in ex:
+        # A GitHub comment ID exists only after POST. Bind the complete terms
+        # before that single create, then bind the returned real URL at runtime.
+        result.pop("auth_sha256")
+        result.update(schema="a1-sip-external-cohort-consent-v2",
+                      authorization_commitment_sha256=native18_consent_commitment(auth))
         result["native18_recovery"] = dict(
             failed_run_id=NATIVE18_RECOVERY["run_id"],
             failed_meter_sha256=NATIVE18_RECOVERY["receipt_sha256"],

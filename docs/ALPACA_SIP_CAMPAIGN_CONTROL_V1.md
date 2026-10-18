@@ -55,7 +55,21 @@ worker control caps. The OWNER comment contains the usual exact
 `A1_SIP_EXTERNAL_COHORT_CONSENT` and one `A1_SIP_NATIVE18_SETTLEMENT` line with
 the real event. Its event hash, Source/pins, native identity and creation clock
 must match the physical shared journal and precede the immutable consent.
-This ordering avoids predicting an event hash or a self-referential proof.
+The v5 comment uses `a1-sip-external-cohort-consent-v2` with a distinct
+`authorization_commitment_sha256`, never a projected digest named `auth_sha256`.
+Its domain-separated `a1-sip-native18-consent-commitment-v1` projection replaces
+only the current top-level `account_permission_reference` and current
+`external_cohort.proof_reference` with the typed
+`a1-sip-current-owner-self-locator-v1` marker. Every other field, including all
+ancestor references, remains committed. Legacy v1..v4 consent stays unchanged.
+Prepare this detached body before one comment CREATE; after GitHub assigns its
+actual ID, freeze both actual URLs into the runtime authorization. Do not
+predict an ID, edit the comment, or use same-second editing as immutability.
+Full authorization validation still requires the actual matching URLs; its
+complete `auth_sha256` and the fetched actual URL/ID/OWNER/body/creation clocks
+remain bound by runtime proof, nonce, meter and append-only journal. A changed
+actual locator cannot rebind an old journal even when its consent commitment
+is identical. This avoids both event-hash prediction and OWNER self-reference.
 There is no v5 execution authority before those actual records exist.
 
 The regular host verifies that physical event and preserves all18 canonical

@@ -4016,4 +4016,106 @@ class Native18RecoveryHistoryTests(unittest.TestCase):
             self.observe(current=runid+1,recovery=c.NATIVE18_RECOVERY["run_id"])
 
 
+class Native18OwnerIssuanceTests(unittest.TestCase):
+    """A server assigns the immutable OWNER locator only after one create."""
+    def setUp(self):
+        self.h=Native18RecoveryHistoryTests();self.h.setUp()
+        self.addCleanup(self.h.doCleanups)
+        self.auth=copy.deepcopy(self.h.new)
+        self.calls=[]
+
+    def issue(self,auth):
+        body=("A1_SIP_EXTERNAL_COHORT_CONSENT "+json.dumps(c.external_proof_record(auth),separators=(',',':'))
+              +"\nA1_SIP_NATIVE18_SETTLEMENT "+json.dumps(self.h.event,separators=(',',':')))
+        self.calls.append('POST')
+        # The simulated server allocates this ID after receiving the complete body.
+        comment_id=7000000000+len(self.calls)
+        clock=c.utc().isoformat()
+        comment=dict(id=comment_id,issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association='OWNER',user=dict(type='User',id=123),body=body,
+            created_at=clock,updated_at=clock)
+        reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-{comment_id}"
+        actual=copy.deepcopy(auth);actual['account_permission_reference']=reference
+        actual['external_cohort']['proof_reference']=reference
+        return actual,comment
+
+    def proof(self,auth,comment):
+        def get(path):
+            requested=auth['external_cohort']['proof_reference'].rsplit('-',1)[1]
+            self.assertEqual(path,f"repos/{c.REPO}/issues/comments/{requested}")
+            return comment
+        with patch.object(c,'gh_json',side_effect=get):return c.external_proof(auth)
+
+    def test_server_assigned_locator_one_create_zero_edits(self):
+        before=c.validate_authorization(self.auth)
+        actual,comment=self.issue(self.auth)
+        self.assertNotEqual(actual['account_permission_reference'],self.auth['account_permission_reference'])
+        self.assertNotEqual(c.validate_authorization(actual),before)
+        self.assertEqual(comment['created_at'],comment['updated_at'])
+        self.assertEqual(self.calls,['POST'])
+        self.assertEqual(self.proof(actual,comment)['proof_updated_utc'],comment['created_at'])
+        record=c.decode(comment['body'].splitlines()[0].split(' ',1)[1])
+        self.assertEqual(record['schema'],'a1-sip-external-cohort-consent-v2')
+        self.assertNotIn('auth_sha256',record)
+        self.assertEqual(record['authorization_commitment_sha256'],c.native18_consent_commitment(actual))
+
+    def test_only_two_current_locators_are_excluded_from_commitment(self):
+        original=copy.deepcopy(self.auth);baseline=c.native18_consent_commitment(original)
+        actual,_=self.issue(original)
+        self.assertEqual(c.native18_consent_commitment(actual),baseline)
+        # Visit every other leaf, including nested ancestor URLs/keys/budgets.
+        def leaves(value,path=()):
+            if isinstance(value,dict):
+                for key,child in value.items():yield from leaves(child,path+(key,))
+            elif isinstance(value,list):
+                for index,child in enumerate(value):yield from leaves(child,path+(index,))
+            else:yield path,value
+        excluded={('account_permission_reference',),('external_cohort','proof_reference')}
+        for path,value in leaves(original):
+            if path in excluded or path==('schema',):continue
+            changed=copy.deepcopy(original);parent=changed
+            for key in path[:-1]:parent=parent[key]
+            parent[path[-1]]=(not value if isinstance(value,bool) else value+1 if isinstance(value,int)
+                             else 'changed' if value is None else str(value)+'!')
+            with self.subTest(path=path):self.assertNotEqual(c.native18_consent_commitment(changed),baseline)
+        self.assertEqual(self.auth,original)
+
+    def test_actual_locator_full_hash_proof_and_journal_cannot_rebind(self):
+        first,comment=self.issue(self.auth);proof=self.proof(first,comment)
+        second,other=self.issue(self.auth);otherproof=self.proof(second,other)
+        self.assertEqual(c.native18_consent_commitment(first),c.native18_consent_commitment(second))
+        self.assertNotEqual(c.validate_authorization(first),c.validate_authorization(second))
+        self.assertNotEqual(proof['proof_sha256'],otherproof['proof_sha256'])
+        with self.assertRaises(c.Refused):self.proof(first,other)
+        mismatched=copy.deepcopy(first);mismatched['account_permission_reference']=second['account_permission_reference']
+        with self.assertRaisesRegex(c.Refused,'EXTERNAL_PROOF_REFERENCE'):c.external_proof_record(mismatched)
+        # A persisted journal authenticates the full hash, not the detached commitment.
+        with tempfile.TemporaryDirectory() as temp:
+            directory=Path(temp)/'journal'
+            journal=c.WorkJournal(directory,c.validate_authorization(first))
+            journal.append('FIXTURE_BOUND',proof_sha256=proof['proof_sha256']);journal.close()
+            original={p.name:p.read_bytes() for p in directory.glob('*.json')}
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_JOURNAL_CHAIN'):
+                c.WorkJournal(directory,c.validate_authorization(second))
+            self.assertEqual(original,{p.name:p.read_bytes() for p in directory.glob('*.json')})
+
+    def test_forged_owner_edited_consent_foreign_event_refuse(self):
+        actual,comment=self.issue(self.auth)
+        for change in [dict(id=comment['id']+1),dict(author_association='CONTRIBUTOR'),
+                       dict(issue_url=f'https://api.github.com/repos/{c.REPO}/issues/590'),
+                       dict(updated_at=(c.utc(comment['created_at'])+timedelta(seconds=1)).isoformat())]:
+            with self.subTest(change=change),self.assertRaises(c.Refused):self.proof(actual,dict(comment,**change))
+        changed=copy.deepcopy(self.h.event);changed['previous_sha256']='0'*64
+        body=comment['body'].splitlines()[0]+'\nA1_SIP_NATIVE18_SETTLEMENT '+json.dumps(changed)
+        with self.assertRaises(c.Refused):self.proof(actual,dict(comment,body=body))
+        changed=copy.deepcopy(actual);changed['external_cohort']['scope']['namespace']='foreign'
+        with self.assertRaises(c.Refused):self.proof(changed,comment)
+
+    def test_legacy_record_still_uses_complete_authorization_sha(self):
+        old=copy.deepcopy(self.h.old);record=c.external_proof_record(old)
+        self.assertEqual(record['schema'],'a1-sip-external-cohort-consent-v1')
+        self.assertEqual(record['auth_sha256'],c.validate_authorization(old))
+        self.assertNotIn('authorization_commitment_sha256',record)
+
+
 if __name__=='__main__': unittest.main()
