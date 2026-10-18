@@ -3174,4 +3174,236 @@ class OrphanMaterializationTests(unittest.TestCase):
         self.assertEqual(f.meter.examined,160);self.assertEqual(f.meter.used['provider_gets'],0)
 
 
+class NativeRead39085031884Tests(unittest.TestCase):
+    """Synthetic runtime integration. No original account/price/network proof."""
+    def setUp(self):
+        self.base=ExternalCohortTests();self.base.setUp();self.addCleanup(self.base.doCleanups)
+        self.a=self.base.new
+        self.addCleanup(patch.stopall)
+        patch.object(c,'NATIVE_READ_AUTH',c.validate_authorization(self.a)).start()
+        self.control=dict(schema='a1-native-drive-read-39085031884-v1',task_key=c.NATIVE_READ_TASK,
+            authorization=self.a,expected_master='4'*40,nonce=c.PREFIX+'a'*24,
+            pending_external_read_accounting=dict(basis='VERIFIED_TRANSPORT_ACCOUNTING',receipt_sha256='e'*64,
+                reference=self.base.reference,usage=dict(provider_gets=0,storage_bytes=0,drive_requests=6,drive_bytes=1000)))
+        self.names=['ZZZ%03d'%i for i in range(417)]
+        self.scope=dict(task_key='R1000-NATIVE-SYNTHETIC',namespace='fixture-native',input_sha256='f'*64)
+        self.raw=c.encoded(dict(examined=self.names[:76],cohort_scope=self.scope)).ljust(2304,b' ')
+        self.assertEqual(len(self.raw),2304)
+        patch.object(c,'NATIVE_READ_CP',c.digest(self.raw)).start()
+        self.read_auth=dict(private_root_folder_id='fixture-root-123',private_data_folder_id='fixture-data-123',
+            external_cohort=dict(input_csv='ticker\n'+'\n'.join(self.names)+'\n',scope=self.scope))
+        patch.dict(c.CONTINUATION['bindings'],owner_sha256=c.digest(b'fixture-owner')).start()
+        self.env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA='4'*40,
+            GITHUB_RUN_ID='12345',INPUT_NATIVE_READ_ONLY='true',INPUT_CAMPAIGN_NONCE=self.control['nonce'],
+            A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+            MACRO_DRIVE_CONFIG='[gdrive]\ntype=drive\ntoken='+json.dumps(dict(access_token='fixture-access',
+                refresh_token='fixture-refresh',expiry='2030-01-01T00:00:00Z'))+'\n')
+
+    def meter(self,server,allowance=None):
+        return c.NativeReadMeter(allowance or c.NATIVE_READ_ALLOWANCE,self.base.root/'native-meter',
+            (c.utc()+timedelta(seconds=30)).isoformat(),identity(),opener=server,limits=c.CONTINUED_LIMITS,
+            root_id='fixture-root-123',folder_id='fixture-data-123')
+
+    def server(self,mode=None):
+        case=self
+        class NativeServer(Server):
+            def __init__(self):
+                super().__init__();self.calls=0
+                self.objects[c.NATIVE_READ_CP_ID]=(dict(name=c.NATIVE_READ_CP+'.json',parents=['fixture-data-123']),case.raw)
+            def open(self,request,**kwargs):
+                self.calls+=1;parts=urlsplit(request.full_url);q=parse_qs(parts.query)
+                if parts.path=='/drive/v3/files':
+                    self.requests.append(request.full_url)
+                    positive=q['q'][0].startswith('name = ')
+                    item=dict(id=c.NATIVE_READ_CP_ID,name=c.NATIVE_READ_CP+'.json',parents=['fixture-data-123'],
+                        size='2304',createdTime=c.NATIVE_READ_WINDOW[0])
+                    if positive:
+                        return Reply(c.encoded(dict(files=[] if mode=='missing-control' else [item,item] if mode=='duplicate-control' else [item])))
+                    if mode=='paged':return Reply(c.encoded(dict(files=[],nextPageToken='fixture-page')))
+                    if mode=='duplicate':return Reply(c.encoded(dict(files=[item,item])))
+                    if mode=='wrong-time':item['createdTime']='2026-10-17T00:00:00Z'
+                    if mode=='wrong-parent':item['parents']=['fixture-other-123']
+                    return Reply(c.encoded(dict(files=[item])))
+                return super().open(request,**kwargs)
+        return NativeServer()
+
+    def read_objects(self,server):
+        meter=self.meter(server)
+        with patch.dict(os.environ,self.env,clear=True):
+            drive=drive_module.OwnerDrive('fixture-root-123',str(self.base.root),meter=meter)
+            result=c.native_read_objects(drive,self.read_auth,meter)
+        meter.finish('COMPLETE')
+        return result,c.bounded_json(meter.journal),meter
+
+    def test_actual_owner_drive_and_runtime_meter_readback_only(self):
+        server=self.server();result,value,meter=self.read_objects(server)
+        self.assertTrue(result['positive_control_verified']);self.assertEqual(result['candidate_count'],0)
+        self.assertFalse(result['absence_proven']);self.assertFalse(value['capture_allowed'])
+        self.assertEqual(value['schema'],'a1-native-drive-read-meter-v1')
+        self.assertEqual(value['usage']['drive_requests'],7)
+        self.assertEqual(value['usage']['provider_gets'],0);self.assertEqual(value['usage']['storage_bytes'],0)
+        self.assertGreater(value['usage']['drive_bytes'],7*65536)
+        self.assertNotIn('fixture-access',json.dumps(value));self.assertNotIn(c.NATIVE_READ_CP_ID,json.dumps(value))
+
+    def test_empty_positive_control_never_certifies_absence(self):
+        for mode in ('missing-control','duplicate-control','paged','duplicate','wrong-time','wrong-parent'):
+            with self.subTest(mode=mode),self.assertRaises(c.Refused):self.read_objects(self.server(mode))
+
+    def test_wrong_owner_stops_before_checkpoint_or_listing(self):
+        with patch.dict(c.CONTINUATION['bindings'],owner_sha256='0'*64),self.assertRaisesRegex(c.Refused,'NATIVE_READ_OWNER'):
+            self.read_objects(self.server())
+
+    def test_wrong_checkpoint_bytes_stop_before_list(self):
+        server=self.server();server.objects[c.NATIVE_READ_CP_ID]=(server.objects[c.NATIVE_READ_CP_ID][0],b'{}')
+        with self.assertRaisesRegex(c.Refused,'RESUME_OBJECT_HASH'):self.read_objects(server)
+        self.assertFalse(any(urlsplit(u).path=='/drive/v3/files' for u in server.requests))
+
+    def test_provider_create_patch_delete_and_scope_escape_never_open(self):
+        server=self.server();meter=self.meter(server)
+        for url,method in [('https://data.alpaca.markets/v2/stocks/bars','GET'),
+                ('https://www.googleapis.com/upload/drive/v3/files','POST'),
+                ('https://www.googleapis.com/drive/v3/files/fixture-data-123','PATCH'),
+                ('https://www.googleapis.com/drive/v3/files/fixture-data-123','DELETE'),
+                ('https://www.googleapis.com/drive/v3/files/fixture-other-123','GET'),
+                ('https://www.googleapis.com/drive/v3/files?q=all','GET')]:
+            with self.subTest(url=url,method=method),self.assertRaisesRegex(c.Refused,'NATIVE_READ_ENDPOINT'):
+                meter.perform(url,method=method)
+        self.assertEqual(server.calls,0);self.assertEqual(meter.used,{k:0 for k in c.LIMITS})
+        with self.assertRaisesRegex(c.Refused,'NATIVE_READ_WRITE_BLOCKED'):meter.reserve_storage(1)
+
+    def test_exhausted_suballocation_refuses_before_open(self):
+        server=self.server();meter=self.meter(server,dict(c.NATIVE_READ_ALLOWANCE,drive_requests=0))
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_BUDGET_DRIVE_REQUESTS'):
+            meter.perform('https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota')
+        self.assertEqual(server.calls,0)
+
+    def test_oauth_refresh_is_distinct_from_a_drive_write_and_metered(self):
+        server=Opener(c.encoded(dict(access_token='fixture-new',token_type='Bearer',expires_in=3600)))
+        meter=self.meter(server)
+        body=b'grant_type=refresh_token&refresh_token=fixture-refresh'
+        meter.perform('https://oauth2.googleapis.com/token',method='POST',body=body,limit=65536)
+        self.assertEqual(meter.used['drive_requests'],1);self.assertEqual(meter.used['storage_bytes'],0)
+        self.assertGreaterEqual(meter.used['drive_bytes'],len(body)+65536)
+
+    def test_unknown_pending_cost_stops_worker_before_credentials(self):
+        self.control['pending_external_read_accounting']=None
+        p=self.base.root/'native-control';p.write_bytes(c.encoded(self.control))
+        with patch.object(drive_module,'OwnerDrive',side_effect=AssertionError('NO_CREDENTIAL_READ')) as owner, \
+             patch.object(c,'gh_json',side_effect=AssertionError('NO_REMOTE_CALL')), \
+             self.assertRaisesRegex(c.Refused,'NATIVE_READ_PENDING_COST_UNSETTLED'):
+            c.native_read_worker(p,self.base.root/'native-state')
+        owner.assert_not_called()
+
+    def test_control_rejects_wrong_auth_mode_zero_cost_and_expiry(self):
+        for mutate in (lambda x:x.update(task_key='OTHER'),lambda x:x.update(nonce='bad'),
+                lambda x:x['authorization'].update(credential_binding='0'*64),
+                lambda x:x['pending_external_read_accounting']['usage'].update(drive_requests=0),
+                lambda x:x['pending_external_read_accounting']['usage'].update(provider_gets=1)):
+            changed=copy.deepcopy(self.control);mutate(changed)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.native_read_control(changed)
+        old=c.utc
+        with patch.object(c,'utc',side_effect=lambda v=None:old(v) if v is not None else old(c.CONTINUATION['first'])+timedelta(hours=48)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):c.native_read_control(self.control)
+
+    def test_read_run_exclusion_is_single_exact_current_context_only(self):
+        current=dict(id=12345,run_attempt=1,head_sha='4'*40,head_branch='master',event='workflow_dispatch',
+            display_title='a1-sip '+self.control['nonce']+' native-read39085031884')
+        runs=[dict(id=i) for i in range(16)]+[dict(id=39085031884),current]
+        with patch.dict(os.environ,self.env,clear=True):
+            self.assertEqual(c.native_read_prefix(runs,current),runs[:-1])
+            for mutate in (lambda x:x.update(run_attempt=2),lambda x:x.update(head_sha='5'*40),
+                    lambda x:x.update(id=999),lambda x:x.update(display_title='a1-sip '+self.control['nonce'])):
+                changed=copy.deepcopy(current);mutate(changed)
+                with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.native_read_prefix(runs[:-1]+[changed],changed)
+            with self.assertRaises(c.Refused):c.native_read_prefix(runs+[current],current)
+            reused=copy.deepcopy(runs);reused[0]['display_title']='a1-sip '+self.control['nonce']
+            with self.assertRaisesRegex(c.Refused,'NATIVE_READ_NONCE_REUSE'):c.native_read_prefix(reused,current)
+        with patch.dict(os.environ,dict(self.env,INPUT_NATIVE_READ_ONLY='false'),clear=True),self.assertRaises(c.Refused):
+            c.native_read_prefix(runs,current)
+
+    def test_workflow_separates_secrets_modes_artifacts_and_timeout(self):
+        text=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text()
+        read=text.split('      - name: Reconcile exact failed Drive POST',1)[1].split('      - name: Collect immutable',1)[0]
+        self.assertIn("if: env.INPUT_NATIVE_READ_ONLY == 'true'",read)
+        self.assertIn('secrets.RCLONE_CONFIG_GDRIVE',read)
+        self.assertNotIn('secrets.ALPACA_API_KEY',read);self.assertNotIn('secrets.ALPACA_API_SECRET',read)
+        self.assertIn('a1-native-drive-read-meter',read);self.assertIn('native_read_meter.json',read)
+        self.assertIn("&& 5 || 120",text);self.assertIn("if: env.INPUT_NATIVE_READ_ONLY != 'true'",text)
+        self.assertIn('native_read_control(decode(raw))',text)
+
+    def test_accounting_proof_requires_owner_exact_record_and_clock(self):
+        pending=self.control['pending_external_read_accounting']
+        expected=dict(schema='a1-native-read-pending-accounting-v1',failed_run_id=39085031884,
+            failed_meter_sha256=c.NATIVE_READ_METER,prior_auth_sha256=c.NATIVE_READ_AUTH,
+            pending_observation_sha256='c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f',
+            basis=pending['basis'],receipt_sha256=pending['receipt_sha256'],usage=pending['usage'])
+        comment=dict(id=int(pending['reference'].rsplit('-',1)[1]),author_association='OWNER',
+            issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',user=dict(type='User'),
+            created_at='2026-10-18T01:07:37Z',updated_at='2026-10-18T01:07:37Z',
+            body='A1_SIP_NATIVE_READ_ACCOUNTING '+json.dumps(expected))
+        with patch.object(c,'gh_json',return_value=comment):self.assertRegex(c.native_read_pending_proof(pending),r'^[0-9a-f]{64}$')
+        for mutate in (lambda x:x.update(author_association='MEMBER'),lambda x:x['user'].update(type='Bot'),
+                lambda x:x.update(body=x['body']+'\n'+x['body']),
+                lambda x:x.update(body=x['body'].replace('39085031884','39085031885')),
+                lambda x:x.update(updated_at='2099-01-01T00:00:00Z')):
+            changed=copy.deepcopy(comment);mutate(changed)
+            with self.subTest(mutate=mutate),patch.object(c,'gh_json',return_value=changed),self.assertRaises(c.Refused):
+                c.native_read_pending_proof(pending)
+
+    def observed(self):
+        receipt=dict(schema='SYNTHETIC_OFFLINE_ONLY',failed_run=39085031884)
+        patch.object(c,'NATIVE_READ_METER',c.digest(c.encoded(receipt))).start()
+        return dict(runs=[dict(id=i) for i in range(16)]+[dict(id=39085031884)],receipts=[receipt],
+            examined=76,parent_sha=c.NATIVE_READ_CP,first=c.utc(c.CONTINUATION['first']),
+            used=dict(provider_gets=542,drive_requests=5269,drive_bytes=842810550,storage_bytes=79426031),active_seconds=3769)
+
+    def test_exact_failed_prefix_and_pending_cost_share_original_caps(self):
+        observed=self.observed();pending=self.control['pending_external_read_accounting']
+        c.native_read_budget(observed,pending)
+        for mutate in (lambda x:x['runs'][-1].update(id=999),lambda x:x.update(examined=75),
+                lambda x:x.update(parent_sha='0'*64),lambda x:x['receipts'][-1].update(failed_run=1),
+                lambda x:x.update(active_seconds=0),lambda x:x['used'].update(drive_requests=0),
+                lambda x:x.update(first=x['first']+timedelta(seconds=1))):
+            changed=copy.deepcopy(observed);mutate(changed)
+            with self.subTest(mutate=mutate),self.assertRaisesRegex(c.Refused,'NATIVE_READ_CAPTURE_PREFIX'):
+                c.native_read_budget(changed,pending)
+        pending=copy.deepcopy(pending);pending['usage']['drive_bytes']=c.CONTINUED_LIMITS['drive_bytes']
+        with self.assertRaisesRegex(c.Refused,'NATIVE_READ_SHARED_BUDGET'):c.native_read_budget(observed,pending)
+
+    def test_worker_integrates_reviewed_source_history_meter_and_owner_drive(self):
+        observed=self.observed();self.a.update(self.read_auth)
+        patch.object(c,'validate_authorization',return_value=c.NATIVE_READ_AUTH).start()
+        server=self.server();p=self.base.root/'native-control';p.write_bytes(c.encoded(self.control))
+        run=dict(id=12345,run_attempt=1)
+        def metadata(path):
+            if path.endswith('/branches/master'):return dict(protected=True,commit=dict(sha='4'*40))
+            if '/contents/' in path:
+                import base64
+                name=path.split('/contents/',1)[1].split('?ref=',1)[0]
+                return dict(encoding='base64',content=base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+            if '/jobs?' in path:return dict(total_count=2,jobs=[dict(name='offline',status='completed'),
+                dict(name='reconcile',status='in_progress',started_at=c.utc().isoformat())])
+            return run
+        original=c.NativeReadMeter
+        with patch.dict(os.environ,self.env,clear=True),patch.object(c,'gh_json',side_effect=metadata), \
+             patch.object(c,'external_history',return_value=observed), \
+             patch.object(c,'native_read_pending_proof',return_value='a'*64), \
+             patch.object(c,'NativeReadMeter',side_effect=lambda *a,**kw:original(*a,opener=server,**kw)), \
+             patch('sys.stdout',new=io.StringIO()) as output:
+            c.native_read_worker(p,self.base.root/'native-state')
+        result=c.bounded_json(self.base.root/'native-state/native_read_meter.json')
+        self.assertTrue(result['finalized']);self.assertEqual(result['status'],'COMPLETE')
+        self.assertEqual(result['usage']['provider_gets'],0);self.assertEqual(result['usage']['storage_bytes'],0)
+        self.assertFalse(result['capture_allowed']);self.assertIn('NATIVE_READ_COMPLETE',output.getvalue())
+        self.assertEqual(result['capture_usage_before'],observed['used'])
+        self.assertEqual(result['dispatch_reservation'],1);self.assertEqual(result['active_seconds_reservation'],900)
+
+    def test_unreviewed_local_bytes_or_master_drift_cannot_use_native_credentials(self):
+        with patch.object(c,'gh_json',return_value=dict(protected=True,commit=dict(sha='0'*40))), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_MASTER_DRIFT'):c.native_read_source('4'*40)
+        with patch.object(c,'gh_json',side_effect=[dict(protected=True,commit=dict(sha='4'*40)),
+                dict(encoding='base64',content='eA==')]),self.assertRaisesRegex(c.Refused,'NATIVE_READ_CODE_DRIFT'):
+            c.native_read_source('4'*40)
+
+
 if __name__=='__main__': unittest.main()

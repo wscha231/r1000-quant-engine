@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
+
+- SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
+  opening response headers. Its302,101B unconfirmed storage remains charged.
+  A connected search omitted even the directly readable known checkpoint;
+  an empty result therefore cannot establish absence of the failed object.
+- The dedicated native mode reuses RuntimeMeter and OwnerDrive, excludes
+  provider calls and Drive writes, and requires a successful exact-file list
+  positive control before one small parent/time-window list. OAuth refresh
+  is separately metered credential maintenance, not a Drive CREATE.
+- Unknown connector request/transfer costs cannot be treated as zero. Native
+  execution requires a referenced OWNER transport-accounting record and keeps
+  its own meter, dispatch and active-time reservation separate from capture.
+  Its marked run stays visible to later capture history, which must stop until
+  a separately reviewed exact recovery settles that read. No retry/admission,
+  budget reset, protected deployment or market-data collection is authorized
+  by a successful diagnostic.
+
 ## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
 
 - Earnings Estimate Source Probe runs `38267566200` and `37183899304`
