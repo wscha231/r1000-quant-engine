@@ -91,6 +91,14 @@ exclusive file creation; an existing receipt cannot be silently replaced.
 
 ## Remaining operational gates
 
+Hosted review5563925645 found three further P2 boundaries. RF selection retains
+release timestamps and requires availability before each UTC return-date start,
+conservatively refusing same-day intraday releases because this API receives
+date-only sessions. A later review cannot backfill a late historical RF rate.
+The EOD close must share the named session's UTC date. Rights-receipt SHA is
+bound into the input digest and retained in both prepared and unchanged output;
+changed rights evidence is a same-session conflict, not an unchanged retry.
+
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,
 original immutable bytes, distributions/splits and availability are not newly

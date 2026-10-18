@@ -7398,3 +7398,13 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+### 2026-10-19 — RF release is evaluated per return, rights per digest
+
+Hosted review of the otherwise green ETF integration found that a final review
+cutoff does not prove an RF rate was available on an earlier return date. Retain
+release clocks and choose an already available prior observation per session; a
+date-only API uses a conservative UTC-start cutoff. NYSE session close dates
+cannot slide into the next UTC day. Bind rights receipts into idempotency hashes
+and retain them in every prepared/unchanged proposal; changed evidence must
+conflict instead of inheriting an earlier same-session success.

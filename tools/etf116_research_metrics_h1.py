@@ -171,7 +171,7 @@ def riskfree_lag_series(sessions: list[str], rf_rows: list[dict[str, Any]], *,
     decision = ts(decision_at)
     require(isinstance(rf_rows, list), 'RF_NOT_LIST')
     require(all(isinstance(r, dict) for r in rf_rows), 'RF_NOT_OBJECTS')
-    rf: dict[str, float] = {}
+    rf: dict[str, tuple[float, datetime]] = {}
     for row in rf_rows:
         day = row.get('observation_date')
         d(day)
@@ -181,9 +181,7 @@ def riskfree_lag_series(sessions: list[str], rf_rows: list[dict[str, Any]], *,
         when = ts(row.get('available_at_utc'))
         require(when.date() >= d(day), 'RF_AVAILABLE_BEFORE_OBSERVATION')
         require(when <= decision, 'RF_NOT_AVAILABLE_AT_REVIEW')
-        # Future PIT backtests must also check release vs evaluation day; here
-        # we demand prior completed observation day before the return session.
-        rf[day] = float(raw)
+        rf[day] = (float(raw), when)
     sorted_dates = sorted(rf)
     result = []
     for day in sessions[1:]:
@@ -191,10 +189,16 @@ def riskfree_lag_series(sessions: list[str], rf_rows: list[dict[str, Any]], *,
         idx = bisect_right(sorted_dates, previous_calendar_date) - 1
         if idx < 0:
             raise RefuseInput('RF_PRIOR_DATE_MISSING')
-        prior = sorted_dates[idx]
+        # This API has date-only sessions, not verified intraday close clocks.
+        # Conservatively require release by the start of the UTC return date.
+        # A later report/review date cannot make a late release historical PIT.
+        cutoff = ts(day + 'T00:00:00Z')
+        prior = next((p for p in reversed(sorted_dates[:idx + 1]) if rf[p][1] <= cutoff), None)
+        if prior is None:
+            raise RefuseInput('RF_NOT_AVAILABLE_FOR_RETURN_SESSION')
         if (d(day) - d(prior)).days > MAX_RF_LAG_CALENDAR_DAYS:
             raise RefuseInput('RF_PRIOR_DATE_STALE')
-        annual = rf[prior] / 100.0
+        annual = rf[prior][0] / 100.0
         result.append((1.0 + annual) ** (1.0 / 252.0) - 1.0)
     return result
 
