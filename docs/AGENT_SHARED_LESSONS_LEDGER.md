@@ -14,6 +14,10 @@
 - Enforce resource checks before retained allocation and during parsing, and
   redact malformed JSON at the CLI boundary. Trim circular bootstrap draws to
   the original grid span, with the frozen seed and block settings unchanged.
+- Source vintage order must agree with availability order, and feature admission
+  must honor the validated effective session without rewriting original clocks.
+  Validate off-window price dates too; stop censored drawdowns at actual last
+  observation and reserve memory before joining accumulated output chunks.
 
 ## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
 

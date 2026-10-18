@@ -264,6 +264,8 @@ def load_inputs(manifest, config, budget=None):
                 ordered = sorted(revisions, key=lambda x:x['vintage_date'])
                 need(all(date_value(a['realtime_end']) < date_value(b['vintage_date'])
                          for a,b in zip(ordered, ordered[1:])), 'OVERLAPPING_VINTAGE_INTERVALS')
+                need(all(instant(a['available_at']) < instant(b['available_at'])
+                         for a,b in zip(ordered, ordered[1:])), 'VINTAGE_AVAILABILITY_ORDER')
             macros[sid] = records
             audit[sid] = dict(rows=len(records), missing_values=sum(x['value'] is None for x in records),
                              source_order_sorted=keys == sorted(keys), frequency='monthly', revisions_retained=True)
@@ -271,6 +273,9 @@ def load_inputs(manifest, config, budget=None):
     need(len(schedule) > 0 and (schedule.market_close <= instant(config['as_of'])).all(), 'UNCOMPLETED_SESSION')
     sessions = pd.DatetimeIndex(schedule.index).tz_localize(None)
     for sid, price in prices.items():
+        full_schedule = mcal.get_calendar('NYSE').schedule(start_date=price.index[0].date(),
+                                                         end_date=price.index[-1].date())
+        need(len(price.index.difference(full_schedule.index)) == 0, 'OFF_CALENDAR_PRICE')
         latest = str(price.index[-1].date())
         last_session = mcal.get_calendar('NYSE').schedule(start_date=latest, end_date=latest)
         need(len(last_session) == 1, 'PRICE_OBSERVATION_NOT_SESSION')
@@ -309,17 +314,34 @@ def macro_features(macros, schedule):
     sessions = pd.DatetimeIndex(schedule.index).tz_localize(None)
     close_times = [t.to_pydatetime() for t in schedule.market_close]
     for sid, records in macros.items():
-        feature = archive_release_changes(records, sessions, close_times, 'monthly')
+        availability = [instant(r['available_at']) for r in records]
+        admission_schedule = mcal.get_calendar('NYSE').schedule(
+            start_date=min(schedule.index[0].date(), min(availability).date()),
+            end_date=max(schedule.index[-1].date(), max(availability).date())+timedelta(days=10))
+        admitted = []
+        for r, available in zip(records, availability):
+            eligible = admission_schedule.market_open[admission_schedule.market_open >= available]
+            need(len(eligible) > 0, 'EFFECTIVE_SESSION')
+            gate = eligible.iloc[0]
+            need(r.get('effective_session', str(eligible.index[0].date())) ==
+                 str(eligible.index[0].date()), 'EFFECTIVE_SESSION')
+            admitted.append((gate, r))
+        # Only this derived adapter view changes the eligibility clock. Original
+        # availability remains intact in source objects, bindings and events.
+        gated = [dict(r, available_at=gate.isoformat()) for gate,r in admitted]
+        feature = archive_release_changes(gated, sessions, close_times, 'monthly')
         features['macro_change_'+sid] = feature
-        ordered = sorted(records, key=lambda x:(instant(x['available_at']), x['observation_date']))
-        state, cursor = {}, 0
+        ordered = sorted(admitted, key=lambda x:(x[0], x[1]['observation_date']))
+        state, gates, cursor = {}, {}, 0
         for day, cutoff in zip(sessions, close_times):
-            while cursor < len(ordered) and instant(ordered[cursor]['available_at']) <= cutoff:
-                x = ordered[cursor]; state[x['observation_date']] = x; cursor += 1
+            while cursor < len(ordered) and ordered[cursor][0] <= cutoff:
+                gate, x = ordered[cursor]; state[x['observation_date']] = x
+                gates[x['observation_date']] = gate; cursor += 1
             if pd.notna(feature.loc[day]):
                 keys = sorted(state); a, b = state[keys[-1]], state[keys[-2]]
                 events.append(dict(series=sid, decision_session=str(day.date()), decision_cutoff=cutoff.isoformat(),
                     observation_date=a['observation_date'], vintage_date=a['vintage_date'], available_at=a['available_at'],
+                    admitted_at=gates[a['observation_date']].isoformat(),
                     previous_observation_date=b['observation_date'], previous_vintage_date=b['vintage_date'],
                     previous_available_at=b['available_at'], value=float(feature.loc[day])))
     return features, events
@@ -419,10 +441,11 @@ def evaluate_shared_pair(long, short, target, horizon, config, first, short_star
 
 
 def drawdowns(close, asset):
-    episodes = []; peak = trough = None; active = False
+    episodes = []; peak = trough = last_observed = None; active = False
     for pos, value in enumerate(close):
         if not np.isfinite(value):
             continue
+        last_observed = pos
         if peak is None:
             peak = trough = pos
         elif value >= close.iloc[peak]:
@@ -434,7 +457,7 @@ def drawdowns(close, asset):
             if value < close.iloc[trough]:
                 trough = pos
     if active:
-        episodes.append(_episode(close, asset, peak, trough, len(close)-1, True))
+        episodes.append(_episode(close, asset, peak, trough, last_observed, True))
     return episodes
 
 
@@ -490,6 +513,13 @@ def feature_views(close, benchmark, macro, comparison_start):
                                   benchmark.where(benchmark.index >= pd.Timestamp(comparison_start)))
     features.update(macro); short.update(macro)
     return features, kinds, short
+
+
+def join_predictions(chunks, budget):
+    budget.check(allocation=sum(len(chunk) for chunk in chunks))
+    result = b''.join(chunks)
+    budget.check()
+    return result
 
 
 def study(manifest, config, budget):
@@ -556,7 +586,7 @@ def study(manifest, config, budget):
         increment_1996_2015=increment, macro_event_count=len(events),
         multiple_testing='Existing BY adjustment over all384 declared comparisons including insufficient families; exploratory prior-exposed holdout',
         short_arm_scope='2016-01-01 truncated local reference with fresh technical warmup; not exact reproduction of old FRED2016-09-12 study or its336 results',
-        univariate_hypotheses_not_a_strategy=True), b''.join(predictions), events, dd, relative
+        univariate_hypotheses_not_a_strategy=True), join_predictions(predictions, budget), events, dd, relative
 
 
 def csv_bytes(rows):

@@ -27,6 +27,13 @@ must be at or before as_of. ALFRED intervals are inclusive: each revision's
 realtime_end must be strictly before the next vintage of the same observation.
 Null macro values remain missing release samples; the unchanged shared release
 function already refuses differencing either null member. They are not zeros.
+Availability must strictly increase with vintage for each observation; equal or
+backward revision clocks refuse. Every source price date, including off-window
+descriptive rows, is checked against the declared XNYS calendar. Censored
+drawdowns stop at the last finite observation, not an unobserved calendar tail.
+Macro admission uses the same next-eligible-open effective session as validation.
+An internal derived-clock view gates the reused release helper; original source
+availability is unchanged and events expose both available_at and admitted_at.
 
 Config schema `macro-index-research-config-v1` fixes start1996-01-01,
 comparison_start2016-01-01, horizons21/63/126/252, entry_delay1, min_train504,
@@ -89,6 +96,8 @@ CSV row iteration and JSONL per-record checks bound parsing. This can refuse
 an input well below1GiB rather than allowing whole-object expansion past the
 ceiling. Lists/scalars/deep or malformed JSON and allocation/parser refusals
 produce only the redacted BLOCKED_RESEARCH_RUN CLI response.
+Prediction CSV chunks reserve the final joined buffer before allocation too.
+These are cooperative checks/reservations, not OS hard-preemption guarantees.
 
 The original frozen config, manifest,384-comparison outputs and4 historical
 SHADOW labels are retained under their original hashes. The original shared-OOS

@@ -345,6 +345,57 @@ class EngineTests(unittest.TestCase):
             records[0]=original;records[-1]=copy.deepcopy(original);refresh()
             with self.assertRaisesRegex(ValueError,'MACRO_DUPLICATE'):engine.load_inputs(m,c)
 
+    def test_revision_availability_must_follow_vintage_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,records,refresh=input_fixture(Path(d));records[0].update(realtime_end='1996-02-05',
+                available_at='1996-02-09T05:00:00Z',effective_session='1996-02-09')
+            records.append(dict(records[0],vintage_date='1996-02-06',realtime_end='9999-12-31',
+                available_at='1996-02-07T05:00:00Z',effective_session='1996-02-07'))
+            refresh()
+            with self.assertRaisesRegex(ValueError,'VINTAGE_AVAILABILITY_ORDER'):engine.load_inputs(m,c)
+            records[0].update(available_at='1996-02-07T05:00:00Z',effective_session='1996-02-07');refresh()
+            with self.assertRaisesRegex(ValueError,'VINTAGE_AVAILABILITY_ORDER'):engine.load_inputs(m,c)
+            records[0].update(available_at='1996-02-03T05:00:00Z',effective_session='1996-02-05');refresh();engine.load_inputs(m,c)
+
+    def test_censored_drawdown_stops_at_last_observed_price(self):
+        x=pd.Series([100.,80.,np.nan,np.nan],index=pd.bdate_range('2020-01-02',periods=4))
+        row=engine.drawdowns(x,'SP500')[0]
+        self.assertEqual(row['observed_through'],'2020-01-03');self.assertEqual(row['duration_sessions'],1)
+        self.assertTrue(row['censored']);self.assertIsNone(row['recovery_date'])
+
+    def test_prediction_join_reserves_before_buffer_allocation(self):
+        class HugeLogicalChunk:
+            def __len__(self):return 1073741824
+        with self.assertRaisesRegex(ValueError,'MEMORY_BUDGET'):
+            engine.join_predictions([HugeLogicalChunk()],engine.Budget(config()))
+        self.assertEqual(engine.join_predictions([b'a',b'b'],engine.Budget(config())),b'ab')
+
+    def test_intraday_macro_waits_for_its_next_open_effective_session(self):
+        schedule=engine.mcal.get_calendar('NYSE').schedule(start_date='2020-01-02',end_date='2020-02-14')
+        rows=[dict(series='UNRATE',observation_date='2019-12-01',vintage_date='2020-01-03',
+            value=2.,evidence='alfred_date_archive',available_at='2020-01-04T05:00:00Z',
+            effective_session='2020-01-06',realtime_end='9999-12-31'),
+            dict(series='UNRATE',observation_date='2020-01-01',vintage_date='2020-02-06',
+            value=5.,evidence='alfred_date_archive',available_at='2020-02-07T16:00:00Z',
+            effective_session='2020-02-10',realtime_end='9999-12-31')]
+        original=copy.deepcopy(rows);features,events=engine.macro_features({'UNRATE':rows},schedule)
+        self.assertTrue(pd.isna(features['macro_change_UNRATE'].loc['2020-02-07']))
+        self.assertEqual(features['macro_change_UNRATE'].loc['2020-02-10'],3.)
+        self.assertEqual(events[0]['available_at'],'2020-02-07T16:00:00Z')
+        self.assertEqual(events[0]['admitted_at'],'2020-02-10T14:30:00+00:00');self.assertEqual(rows,original)
+
+    def test_off_window_source_prices_still_obey_declared_calendar(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,_,_=input_fixture(Path(d));row=m['datasets'][0];p=Path(row['path'])
+            original=p.read_bytes()
+            for day in ('1995-12-31','2016-04-02'):
+                raw=(b'date,close\n'+day.encode()+b',90\n'+original.split(b'\n',1)[1]
+                     if day<'1996' else original+day.encode()+b',90\n')
+                p.write_bytes(raw);row.update(sha256=engine.sha(raw),source_file_sha256=engine.sha(raw),byte_count=len(raw),
+                    row_count=len(engine.price_frame(raw)),date_start='1995-12-31' if day<'1996' else '1996-01-02',
+                    date_end='1996-02-15' if day<'1996' else day)
+                with self.assertRaisesRegex(ValueError,'OFF_CALENDAR_PRICE|PRICE_OBSERVATION_NOT_SESSION'):engine.load_inputs(m,c)
+
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
