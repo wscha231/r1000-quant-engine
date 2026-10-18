@@ -224,5 +224,30 @@ class PriceIncrementalTests(unittest.TestCase):
         self.assertEqual(row['reusable_sessions'], ['2026-10-16'])
 
 
+    def test_numeric_equal_closes_skip_actual_delta(self):
+        for reverse in (False, True):
+            f = Fixture(); prior = f.price(); current = f.price()
+            for bar in prior['bars']: bar['close'] = 100.0 if reverse else 100
+            for bar in current['bars']: bar['close'] = 100 if reverse else 100.0
+            self.assertNotEqual(intake.canonical(prior), intake.canonical(current))
+            self.assertEqual(h.price_fingerprint(prior), h.price_fingerprint(current))
+            f.bind(current, prior, f.context(current), f.context(prior))
+            with patch.object(intake, 'plan_delta', wraps=intake.plan_delta) as api:
+                result = f.run()['rows'][0]['delta']['result']
+            self.assertEqual(api.call_count, 1)
+            self.assertEqual(result['plan'], 'SKIP_UNCHANGED')
+            self.assertEqual(result['changed'], [])
+            self.assertEqual(result['refresh'], [])
+
+    def test_numeric_hash_preserves_large_integer_and_small_float_precision(self):
+        def fingerprint(close):
+            f = Fixture(); value = f.price()
+            value['bars'][-1]['close'] = close
+            return h.price_fingerprint(value)
+        self.assertEqual(fingerprint(9007199254740992), fingerprint(9007199254740992.0))
+        self.assertNotEqual(fingerprint(9007199254740993), fingerprint(9007199254740992.0))
+        self.assertNotEqual(fingerprint(0.1), fingerprint(0.10000000000000002))
+        self.assertNotEqual(fingerprint(1e-320), fingerprint(2e-320))
+
 if __name__ == '__main__':
     unittest.main()

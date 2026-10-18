@@ -123,11 +123,19 @@ def prices(sha, subject, memory, sessions, cutoff):
     return value, bars
 
 
+def _close_ratio(value):
+    # Exact stored-number equality; never round an integer through float.
+    need(type(value) in (int, float) and math.isfinite(value) and value > 0, 'PRICE_NUMBER')
+    numerator, denominator = value.as_integer_ratio()
+    return [str(numerator), str(denominator)]
+
+
 def price_fingerprint(value):
     """Clock-only recollection is not a changed economic price observation."""
     return intake.digest(intake.canonical({
         **{k: value[k] for k in SCOPE},
-        'bars': [{'session': b['session'], 'close': b['close']} for b in value['bars']],
+        'numeric_encoding': 'exact-integer-ratio-v1',
+        'bars': [{'session': b['session'], 'close': _close_ratio(b['close'])} for b in value['bars']],
     }))
 
 

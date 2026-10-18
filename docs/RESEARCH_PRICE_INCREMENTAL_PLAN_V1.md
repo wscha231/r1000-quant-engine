@@ -65,7 +65,11 @@ or missing calendar is BLOCKED, never fresh. One blocked identity does not erase
 an independently valid identity's plan. Duplicate requests refuse; duplicate
 scopes cannot produce a second valid plan. Nothing is written or invoked.
 
-Market-price fingerprints cover exact scope and session/close values. Transport
+Market-price fingerprints cover exact scope and session/close values. Accepted
+integers/floats use tagged exact-integer-ratio strings before hashing: 100 and
+100.0 agree, while distinct large integers and nearby floats remain distinct.
+Original source bytes are unchanged; old representation-based context hashes
+require a newly supplied matching research context, never an automatic rewrite. Transport
 clock-only recollection is not an economic change. Both supplied research
 contexts must match security/issuer, these fingerprints, and exact source expiry.
 Nonprice fingerprint changes refuse this price-only bridge. The existing API
@@ -90,8 +94,10 @@ outside this local adapter. It cannot authorize collection or activate cron.
 Focused Native invocation: `python -B tests/research_price_incremental_plan_smoke.py`
 and the same interpreter with `-O -B`. These are synthetic supplied-calendar and
 price fixtures exercising the real existing `plan_delta` API. No provider/Drive
-calls. The suite is standalone: the three-file scope does not register it in
-the common CI runner. Hosted generic CI is not claimed as focused-test coverage.
+calls. The suite is registered exactly once in `tools/run_pr_validation.py`
+`DEFAULT_TESTS`, after the backend connection suite. Actual hosted execution of
+this entry must be read from the successor-head CI evidence; registration or a
+generic green check alone is not claimed as focused-suite PASS.
 
 The preserved PRICE_UPDATE_STATUS audit (SHA256
 `75013b241a4418eb590d07db0bf14d6469f0da105b744289fe4baca7a0ba53cf`)
