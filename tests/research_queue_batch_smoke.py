@@ -148,19 +148,19 @@ class QueueTests(unittest.TestCase):
 
     def test_interrupted_downstream_keeps_intent_and_no_retry(self):
         session = self.session()
-        rename = queue.os.rename
-        def fail_backend(source, destination, *args, **kwargs):
-            if Path(destination).name.startswith("research-"):
-                raise OSError("interrupted actual backend publication")
-            return rename(source, destination, *args, **kwargs)
-        with patch.object(queue.os, "rename", side_effect=fail_backend):
-            result = session.run(self.save())
-        self.assertEqual(result["rows"][0]["status"], "REVIEW_DUE")
+        publish = queue._publish
+        def interrupted(parent, name, value):
+            result = publish(parent, name, value)
+            if name.startswith("intent-"):
+                raise OSError("interrupted after durable intent, before downstream")
+            return result
+        with patch.object(queue, "_publish", side_effect=interrupted), self.assertRaises(OSError):
+            session.run(self.save())
         self.assertEqual(len(list(self.output.glob("intent-*"))), 1)
         self.assertEqual(len(session.reservations), 1)
         self.assertGreater(session.used_bytes, 0)
-        result = session.run(self.save())
-        self.assertEqual(result["rows"][0]["reason"], "UNRESOLVED_PRIOR_INTENT")
+        with self.assertRaisesRegex(queue.Error, "NOT_LIVE"):
+            session.run(self.save())
 
     def test_progress_failure_cannot_mint_acceptance(self):
         session = self.session()
