@@ -3077,6 +3077,7 @@ def native_read_prefix(runs, current):
     require(os.getenv("INPUT_NATIVE_READ_ONLY") == "true"
             and current.get("id") == int(os.environ.get("GITHUB_RUN_ID", "0"))
             and current.get("run_attempt") == 1 and type(current.get("run_attempt")) is int
+            and current.get("status") == "in_progress"
             and current.get("head_sha") == os.getenv("GITHUB_SHA")
             and current.get("head_branch") == "master" and current.get("event") == "workflow_dispatch"
             and current.get("display_title") == "a1-sip "+os.getenv("INPUT_CAMPAIGN_NONCE", "")+" native-read39085031884"

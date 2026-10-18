@@ -3306,12 +3306,13 @@ class NativeRead39085031884Tests(unittest.TestCase):
              self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):c.native_read_control(self.control)
 
     def test_read_run_exclusion_is_single_exact_current_context_only(self):
-        current=dict(id=12345,run_attempt=1,head_sha='4'*40,head_branch='master',event='workflow_dispatch',
+        current=dict(id=12345,run_attempt=1,status='in_progress',head_sha='4'*40,head_branch='master',event='workflow_dispatch',
             display_title='a1-sip '+self.control['nonce']+' native-read39085031884')
         runs=[dict(id=i) for i in range(16)]+[dict(id=39085031884),current]
         with patch.dict(os.environ,self.env,clear=True):
             self.assertEqual(c.native_read_prefix(runs,current),runs[:-1])
             for mutate in (lambda x:x.update(run_attempt=2),lambda x:x.update(head_sha='5'*40),
+                    lambda x:x.update(status='completed'),lambda x:x.update(status='queued'),
                     lambda x:x.update(id=999),lambda x:x.update(display_title='a1-sip '+self.control['nonce'])):
                 changed=copy.deepcopy(current);mutate(changed)
                 with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.native_read_prefix(runs[:-1]+[changed],changed)
