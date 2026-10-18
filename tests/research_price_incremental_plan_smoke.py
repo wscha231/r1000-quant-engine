@@ -208,6 +208,21 @@ class PriceIncrementalTests(unittest.TestCase):
             self.assertEqual(row['status'], 'CONFLICTING')
             self.assertEqual(row['reason'], 'CONFLICTING_PRICE_VINTAGE' if mode == 'same_vintage' else 'PRICE_TIME_REGRESSION')
 
+    def test_prior_original_rows_not_recollected_for_partial_current(self):
+        f = Fixture(); before = f.price(('2026-10-16',), observed=FRIDAY); current = f.price(('2026-10-19',))
+        f.bind(current, before)
+        with patch.object(intake, 'plan_delta', side_effect=AssertionError('partial current delta consumed')):
+            row = f.run()['rows'][0]
+        self.assertEqual(row['status'], 'FRESH')
+        self.assertEqual(row['missing_sessions'], [])
+        self.assertEqual(row['reusable_sources'], {'2026-10-16': f.subject['prior_sha256'], '2026-10-19': f.subject['current_sha256']})
+        self.assertEqual(row['delta']['reason'], 'CURRENT_PRICE_SNAPSHOT_INCOMPLETE_FOR_DELTA')
+        self.assertFalse(row['collection_plan']['execute'])
+        f.subject['current_sha256'] = None
+        row = f.run()['rows'][0]
+        self.assertEqual(row['missing_sessions'], ['2026-10-19'])
+        self.assertEqual(row['reusable_sessions'], ['2026-10-16'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -55,9 +55,12 @@ and three original clocks. No provider error text or credentials are needed.
 ## Results and reuse
 
 Per request: `FRESH`, `STALE`, `MISSING`, `CONFLICTING`, or `BLOCKED`, with reason,
-expected/reusable/missing sessions and an inert collection plan. Only missing
-sessions enter that plan. Old rows remain reusable as supplied bytes even when
-the source expires; expiry still triggers research review. No closed session
+expected/reusable/missing sessions and an inert collection plan. Reuse is the
+union of valid exact-scope prior/current rows, preferring current for overlaps;
+`reusable_sources` binds each session to the original artifact SHA256. Only
+union-missing sessions enter the plan. Old rows remain reusable as supplied bytes
+even when their source expires; any used expired source marks the plan STALE.
+No closed session
 or missing calendar is BLOCKED, never fresh. One blocked identity does not erase
 an independently valid identity's plan. Duplicate requests refuse; duplicate
 scopes cannot produce a second valid plan. Nothing is written or invoked.
@@ -68,7 +71,11 @@ contexts must match security/issuer, these fingerprints, and exact source expiry
 Nonprice fingerprint changes refuse this price-only bridge. The existing API
 preserves same-hash expiry/catalyst/correction/source-failure/outcome/retraction
 exceptions; an explicit failure requires its supplied source-failure exception.
-Missing price sessions block price delta consumption. Complete but expired data
+Missing price sessions block price delta consumption. A partial current snapshot
+can reuse prior rows without re-fetching them, but its separate delta stage stays
+BLOCKED until a complete supplied current price snapshot/context exists. This
+does not request recollection or fabricate a combined Source generation.
+Complete but expired data
 can produce an expiry review plan; it cannot grant execution or admission.
 
 A price change yields only market/valuation/ER **review requirements**. It does

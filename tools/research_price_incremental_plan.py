@@ -208,7 +208,7 @@ def plan_incremental(inventory_raw, inventory_sha256, *, artifact_resolver, cuto
         rid = intake.identifier(subject.get('request_id'))
         need(rid not in ids, 'DUPLICATE_REQUEST'); ids.add(rid)
         row = dict(request_id=rid, status='BLOCKED', reason=None, expected_sessions=None,
-                   reusable_sessions=[], missing_sessions=None, collection_plan=None,
+                   reusable_sessions=[], reusable_sources={}, missing_sessions=None, collection_plan=None,
                    delta={'status': 'BLOCKED', 'reason': 'PRICE_PREREQUISITES', 'result': None})
         try:
             fields(subject, ('request_id', *SCOPE, 'calendar_sha256', 'prior_sha256', 'current_sha256', 'failure_sha256', 'delta'))
@@ -220,24 +220,30 @@ def plan_incremental(inventory_raw, inventory_sha256, *, artifact_resolver, cuto
             need(expected, 'NO_CLOSED_SESSION')
             failure = failure_for(subject, artifact_resolver, inventory_seen)
             current, bars = (None, {}) if subject['current_sha256'] is None else prices(subject['current_sha256'], subject, artifact_resolver, sessions, inventory_seen)
-            before = None
+            before = None; prior_bars = {}
             if subject['prior_sha256'] is not None:
-                before, _ = prices(subject['prior_sha256'], subject, artifact_resolver, sessions, inventory_seen)
+                before, prior_bars = prices(subject['prior_sha256'], subject, artifact_resolver, sessions, inventory_seen)
                 if current is not None:
                     check_transition(before, current)
-            missing = sorted(set(expected) - bars.keys())
-            expired = current is not None and intake.stamp(current['expires_at']) <= limit
-            status = 'BLOCKED' if failure else 'MISSING' if not bars else 'STALE' if missing or expired else 'FRESH'
+            reusable = {d: subject['prior_sha256'] for d in prior_bars}
+            reusable.update({d: subject['current_sha256'] for d in bars})
+            missing = sorted(set(expected) - reusable.keys())
+            used = {sha for sha in reusable.values()}
+            expired = any(v is not None and source_sha in used and intake.stamp(v['expires_at']) <= limit
+                          for source_sha, v in ((subject['prior_sha256'], before), (subject['current_sha256'], current)))
+            status = 'BLOCKED' if failure else 'MISSING' if not reusable else 'STALE' if missing or expired else 'FRESH'
             row.update(status=status, reason='SOURCE_FAILURE' if failure else 'MISSING_SESSIONS' if missing else 'SOURCE_EXPIRED' if expired else None,
-                       expected_sessions=expected, reusable_sessions=sorted(bars), missing_sessions=missing,
+                       expected_sessions=expected, reusable_sessions=sorted(reusable), reusable_sources=reusable, missing_sessions=missing,
                        collection_plan={'scope': {k: subject[k] for k in SCOPE}, 'sessions': missing,
                                         'calendar_sha256': subject['calendar_sha256'], 'execute': False})
             # Data gaps block this review stage, without erasing the gap plan.
-            if not missing and current is not None:
+            if not missing and current is not None and set(expected) <= bars.keys():
                 try:
                     row['delta'] = delta_for(subject, artifact_resolver, before, current, cutoff=cutoff, failure=failure)
                 except (PricePlanError, intake.IntakeError) as exc:
                     row['delta'] = {'status': 'BLOCKED', 'reason': str(exc), 'result': None}
+            elif not missing:
+                row['delta']['reason'] = 'CURRENT_PRICE_SNAPSHOT_INCOMPLETE_FOR_DELTA'
         except (PricePlanError, intake.IntakeError) as exc:
             row['reason'] = str(exc)
             if str(exc) in {'IDENTITY_MISMATCH', 'SCOPE_MISMATCH', 'DUPLICATE_OR_UNORDERED_SESSION', 'PRICE_NUMBER', 'CLOCK_OR_FUTURE', 'PRICE_CLOSE_CLOCK', 'PRICE_TIME_REGRESSION', 'CONFLICTING_PRICE_VINTAGE'}:
