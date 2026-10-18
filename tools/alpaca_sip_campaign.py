@@ -3067,6 +3067,7 @@ def native_read_pending_proof(pending):
         pending_observation_sha256="c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f",
         basis=pending["basis"],receipt_sha256=pending["receipt_sha256"],usage=pending["usage"])
     require(len(lines) == 1 and len(lines[0]) <= 2048 and encoded(decode(lines[0])) == encoded(expected)
+            and isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
             and utc("2026-10-18T01:07:37Z") <= utc(comment.get("created_at")) <= utc(comment.get("updated_at")) <= utc(),
             "NATIVE_READ_ACCOUNTING_PROOF")
     return digest(encoded(dict(id=comment_id,updated_at=comment["updated_at"],body=comment["body"])))
@@ -3113,6 +3114,15 @@ def native_read_source(expected_master):
                 "NATIVE_READ_CODE_DRIFT")
         pins[path] = local
     return pins
+
+
+def native_read_job_deadline(jobs, first):
+    require(jobs.get("total_count") == len(jobs.get("jobs", [])) == 2, "NATIVE_READ_JOB")
+    active = [j for j in jobs["jobs"] if j.get("name") == "reconcile" and j.get("status") == "in_progress"]
+    require(len(active) == 1 and isinstance(active[0].get("started_at"), str), "NATIVE_READ_JOB_CLOCK")
+    start = utc(active[0]["started_at"])
+    require(start <= utc()+timedelta(seconds=5), "NATIVE_READ_JOB_CLOCK")
+    return min(start+timedelta(seconds=300),first+timedelta(hours=48))
 
 
 class NativeReadMeter(RuntimeMeter):
@@ -3229,10 +3239,7 @@ def native_read_worker(control_path, state_dir):
     pending = control["pending_external_read_accounting"]
     native_read_budget(observed,pending)
     jobs = gh_json(f"repos/{REPO}/actions/runs/{current['id']}/jobs?per_page=100")
-    require(jobs.get("total_count") == len(jobs.get("jobs", [])) == 2, "NATIVE_READ_JOB")
-    active = [j for j in jobs["jobs"] if j.get("name") == "reconcile" and j.get("status") == "in_progress"]
-    require(len(active) == 1, "NATIVE_READ_JOB")
-    deadline = min(utc(active[0]["started_at"])+timedelta(seconds=300), observed["first"]+timedelta(hours=48))
+    deadline = native_read_job_deadline(jobs,observed["first"])
     directory = Path(state_dir)
     directory.mkdir(exist_ok=False)
     identity = dict(task_key=NATIVE_READ_TASK,run_id=current["id"],run_attempt=1,nonce=control["nonce"],

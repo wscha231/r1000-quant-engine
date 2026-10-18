@@ -3345,6 +3345,9 @@ class NativeRead39085031884Tests(unittest.TestCase):
         for mutate in (lambda x:x.update(author_association='MEMBER'),lambda x:x['user'].update(type='Bot'),
                 lambda x:x.update(body=x['body']+'\n'+x['body']),
                 lambda x:x.update(body=x['body'].replace('39085031884','39085031885')),
+                lambda x:x.pop('created_at'),lambda x:x.pop('updated_at'),
+                lambda x:x.update(created_at=None),lambda x:x.update(updated_at=None),
+                lambda x:x.update(created_at=None,updated_at=None),
                 lambda x:x.update(updated_at='2099-01-01T00:00:00Z')):
             changed=copy.deepcopy(comment);mutate(changed)
             with self.subTest(mutate=mutate),patch.object(c,'gh_json',return_value=changed),self.assertRaises(c.Refused):
@@ -3404,6 +3407,19 @@ class NativeRead39085031884Tests(unittest.TestCase):
         with patch.object(c,'gh_json',side_effect=[dict(protected=True,commit=dict(sha='4'*40)),
                 dict(encoding='base64',content='eA==')]),self.assertRaisesRegex(c.Refused,'NATIVE_READ_CODE_DRIFT'):
             c.native_read_source('4'*40)
+
+    def test_native_job_clock_is_actual_not_invented_or_reset(self):
+        now=c.utc();first=c.utc(c.CONTINUATION['first'])
+        job=dict(name='reconcile',status='in_progress',started_at=now.isoformat())
+        jobs=dict(total_count=2,jobs=[dict(name='offline',status='completed'),job])
+        deadline=c.native_read_job_deadline(jobs,first)
+        self.assertEqual(deadline,min(now+timedelta(seconds=300),first+timedelta(hours=48)))
+        for clock in (None,7,(now+timedelta(minutes=1)).isoformat()):
+            changed=copy.deepcopy(jobs);changed['jobs'][1]['started_at']=clock
+            with self.subTest(clock=clock),self.assertRaisesRegex(c.Refused,'NATIVE_READ_JOB_CLOCK'):
+                c.native_read_job_deadline(changed,first)
+        changed=copy.deepcopy(jobs);changed['jobs'][1].pop('started_at')
+        with self.assertRaisesRegex(c.Refused,'NATIVE_READ_JOB_CLOCK'):c.native_read_job_deadline(changed,first)
 
 
 if __name__=='__main__': unittest.main()
