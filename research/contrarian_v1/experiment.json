@@ -1,0 +1,103 @@
+{
+  "experiment_id": "H2_CONTRARIAN_USKR_V1_20260908",
+  "status": "PREREGISTERED_NOT_RUN",
+  "base_source_commit": "8ccbd478e05ff34c6dd70e410be0cae793c9863e",
+  "config": {
+    "fear_enter": 20.0,
+    "fear_exit": 35.0,
+    "greed_enter": 80.0,
+    "greed_exit": 65.0,
+    "confirm_sessions": 2,
+    "fear_tilt": 0.1,
+    "greed_tilt": -0.1,
+    "max_step": 0.05,
+    "no_trade_buffer": 0.01,
+    "daily_max_age_hours": 96,
+    "positioning_max_age_hours": 240
+  },
+  "config_hash": "05c301ed070804075ca8929f2ecf5817c9613a6ddbbd8dfdde1ebb9ff7d161c7",
+  "production_activation_allowed": false,
+  "fullrun_executed": false,
+  "hypothesis": "Conditional fear deployment and qualified greed trimming improve after-cost compounding versus an identical stock selector without compromising the MDD constraint.",
+  "comparison_arms": [
+    "fixed_95pct_equity_5pct_reserve_control",
+    "accepted_frozen_selector_plus_risk_baseline_to_be_verified",
+    "naive_sentiment_20_80_tilt_with_same_size_and_costs",
+    "conditional_contrarian_v1"
+  ],
+  "design": {
+    "walk_forward": "5y initial training, 1y validation, next 1y test; expanding forward; exact cutoffs registered after G0 coverage check, before inspecting returns",
+    "evaluation_horizons_sessions": [
+      21,
+      63,
+      126,
+      252
+    ],
+    "embargo": "No overlapping forward labels across splits; embargo up to 252 sessions where the longest outcome is used for tuning.",
+    "known_stress_windows": [
+      "2007-2009 credit crisis",
+      "2020 pandemic decline and recovery",
+      "2022 inflation/rate shock"
+    ],
+    "stress_is_not_unseen_oos": true,
+    "unseen_oos": "Respect the existing accepted historical holdout and multiple-testing registry; never call an already inspected interval unseen.",
+    "sensitivity_grid": {
+      "fear_enter": [
+        15,
+        20,
+        25
+      ],
+      "greed_enter": [
+        75,
+        80,
+        85
+      ],
+      "other_parameters": "frozen",
+      "planned_pairs": 9
+    },
+    "multiple_testing": "Record all nine sensitivity trials and all control/failed arms; select a plateau, not the best point."
+  },
+  "data_requirements": [
+    "point-in-time universe with delistings and corporate actions",
+    "total-return benchmarks and instrument prices",
+    "release-time macro vintages and availability-lagged positioning",
+    "independent sentiment-family mapping and within-family redundancy audit",
+    "issuer thesis/valuation/revisions captured only when public",
+    "market-specific US/KR calendar and FX translation"
+  ],
+  "execution_contract": [
+    "Freeze selector and rebalance clock across arms; no reselection advantage for the overlay",
+    "Honor the accepted next-session execution rule, gaps, spread, impact, turnover, taxes, suspensions and partial fills",
+    "Residual cash earns actual point-in-time reserve carry net of fees; separately report zero-yield sensitivity",
+    "Never overlay weights on an already exposure-adjusted return series (double scaling)",
+    "Use own total-return equity/NAV path for each arm, not reset wealth at fear events"
+  ],
+  "metrics": [
+    "net_CAGR",
+    "MDD",
+    "Calmar",
+    "Sortino",
+    "Sharpe",
+    "recovery_time",
+    "turnover",
+    "time_in_cash",
+    "cash_opportunity_cost",
+    "costs",
+    "incremental_PnL_by_fear_greed_risk",
+    "1_3_6_12m_excess_return_and_downside_probability_calibration"
+  ],
+  "acceptance": {
+    "G0_integrity_required": true,
+    "MDD_hard_ceiling": 0.25,
+    "main_net_CAGR_research_goal": 0.35,
+    "concentrated_net_CAGR_research_goal": 0.5,
+    "condition": "Compare risk-matched baseline with block-bootstrap uncertainty; reject if advantage disappears after costs or is isolated to one crisis. Goals are not guarantees. Independent review and shadow approval required."
+  },
+  "current_blockers": [
+    "no verified current or historical raw-input adapters in this package",
+    "no complete repo checkout for protected Tier-1 test registration",
+    "independent exact-head review not complete",
+    "no historical/OOS performance run",
+    "not wired to any official target or monitoring writer"
+  ]
+}
