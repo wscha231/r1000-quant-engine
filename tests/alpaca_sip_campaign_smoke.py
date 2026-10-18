@@ -4118,4 +4118,111 @@ class Native18OwnerIssuanceTests(unittest.TestCase):
         self.assertNotIn('authorization_commitment_sha256',record)
 
 
+class TypedCohortForecastTests(unittest.TestCase):
+    """Actual six cost/duration observations, with synthetic authority bindings."""
+    def setUp(self):
+        self.h=Native18RecoveryHistoryTests();self.h.setUp();self.addCleanup(self.h.doCleanups)
+        self.a=self.h.new;old=self.h.old;newhash=c.validate_authorization(self.a)
+        costs=[(60,228,39143721,8051478),(58,292,49291110,7348843),
+               (46,219,41735070,3516056),(0,170,29794102,3922),
+               (60,384,67118905,7754873),(26,336,58727660,3425835)]
+        windows=[(0,32),(32,64),(64,76),(76,80),(80,112),(112,128)]
+        receipts=[]
+        for i,((before,after),values) in enumerate(zip(windows,costs)):
+            a=old if i<3 else self.a;h=c.validate_authorization(a);proof=self.h.proofs[h]
+            r=copy.deepcopy(self.h.values[-1]);r.update(auth_sha256=h,source_sha=a['expected_master'],
+                run_id=c.NATIVE18_RUN+i+1,finalized=True,preflight_only=False,status='BLOCKED' if i==2 else 'COMPLETE',
+                examined_before=before,examined_after=after,checkpoint_sha256=c.digest(str(i).encode()),
+                external_proof_sha256=proof['proof_sha256'],recovery_run=None,
+                new_states=dict(VALID_COLLECTED=after-before,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                rows_verified=2*(after-before),usage=dict(zip(c.LIMITS,values)))
+            if i>=3:r['native18_settlement_sha256']=self.a['external_cohort']['native18_recovery']['settlement_sha256']
+            if i==3:
+                r.update(recovery_run=c.NATIVE18_RECOVERY['run_id'],rows_verified=0,
+                    new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=4),
+                    uncertain_storage_hold=dict(marker_sha256='b'*64,checkpoint_sha256=r['checkpoint_sha256'],
+                        evidence=dict(cap.STORAGE_QUARANTINE,authorization_sha256=newhash,
+                            external_proof_sha256=proof['proof_sha256'],
+                            native_settlement_sha256=r['native18_settlement_sha256'],recovery_run_id=r['run_id'])))
+            receipts.append(r)
+        used=dict(provider_gets=628,drive_requests=6167,drive_bytes=998980231,storage_bytes=90610661)
+        self.o=dict(examined=128,cohort_receipts=receipts,cohort_durations=[274,305,275,255,380,372],
+            epoch_proofs=self.h.proofs,used=used,remaining={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},
+            active_seconds=4938,runs=[{}]*21)
+
+    def test_actual_typed_control_and_direct_417_horizon_still_stop_on_time(self):
+        before=copy.deepcopy(self.o);result=c.external_forecast(self.a,self.o)
+        self.assertEqual(result['projected']['drive_bytes'],5730857188)
+        self.assertEqual(result['active_seconds'],38748)
+        self.assertEqual(result['dispatches'],10)
+        self.assertFalse(result['fits'])  # Actual remaining38262s is486s short.
+        self.assertEqual(self.o,before)  # Every real charge, including held, remains.
+
+    def test_failed_short_and_zero_row_price_observations_are_retained(self):
+        price,held=c.external_forecast_samples(self.a,self.o)
+        self.assertEqual([r['examined_after']-r['examined_before'] for r,_ in price],[32,32,12,32,16])
+        self.assertEqual(len(held),1)
+        self.assertEqual(price[2][0]['status'],'BLOCKED')
+        baseline=c.external_forecast(self.a,self.o)
+        for state in ['VERIFIED_NO_DATA','QUARANTINED']:
+            altered=copy.deepcopy(self.o);r=altered['cohort_receipts'][1]
+            r.update(rows_verified=0,new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0))
+            r['new_states'][state]=32;r['usage']['provider_gets']=0
+            result=c.external_forecast(self.a,altered)
+            self.assertEqual(result['price_samples'],5)
+            self.assertEqual(result['projected']['drive_bytes'],baseline['projected']['drive_bytes'])
+            self.assertEqual(result['active_seconds'],baseline['active_seconds'])
+        altered=copy.deepcopy(self.o);altered['cohort_receipts'][2]['usage']['storage_bytes']+=302101
+        self.assertGreater(c.external_forecast(self.a,altered)['projected']['storage_bytes'],
+                           baseline['projected']['storage_bytes'])
+
+    def test_unproved_mixed_or_foreign_typed_hold_never_becomes_a_free_sample(self):
+        changes=[lambda r:r.pop('uncertain_storage_hold'),
+            lambda r:r['uncertain_storage_hold']['evidence'].update(authorization_sha256='0'*64),
+            lambda r:r['uncertain_storage_hold']['evidence'].update(native_settlement_sha256='0'*64),
+            lambda r:r['uncertain_storage_hold']['evidence'].update(recovery_run_id=r['run_id']+1),
+            lambda r:r.update(rows_verified=2),lambda r:r['usage'].update(provider_gets=1),
+            lambda r:r.update(new_states=dict(VALID_COLLECTED=1,VERIFIED_NO_DATA=0,QUARANTINED=3)),
+            lambda r:r.update(cohort_scope=dict(r['cohort_scope'],namespace='foreign')),
+            lambda r:r.update(external_proof_sha256='0'*64),lambda r:r.update(source_sha='0'*40),
+            lambda r:r.update(schema='foreign-meter'),lambda r:r.update(task_key='foreign-task')]
+        for change in changes:
+            altered=copy.deepcopy(self.o);change(altered['cohort_receipts'][3])
+            with self.subTest(change=change),self.assertRaises(c.Refused):c.external_forecast(self.a,altered)
+        altered=copy.deepcopy(self.o)
+        altered['cohort_receipts'][4]['uncertain_storage_hold']=copy.deepcopy(altered['cohort_receipts'][3]['uncertain_storage_hold'])
+        with self.assertRaises(c.Refused):c.external_forecast(self.a,altered)
+        wrong=copy.deepcopy(self.a);wrong['end']='2026-10-15'
+        with self.assertRaises(c.Refused):c.external_forecast(wrong,self.o)
+
+    def test_missing_time_zero_progress_or_insufficient_price_history_blocks(self):
+        for changed in [[],self.o['cohort_durations'][:-1],[274,305,275,None,380,372],
+                        [274,305,275,0,380,372],[274,305,275,float('nan'),380,372]]:
+            altered=copy.deepcopy(self.o);altered['cohort_durations']=changed
+            with self.subTest(durations=changed),self.assertRaises(c.Refused):c.external_forecast(self.a,altered)
+        altered=copy.deepcopy(self.o);altered['cohort_receipts'][2]['examined_after']=64
+        with self.assertRaises(c.Refused):c.external_forecast(self.a,altered)
+        altered=copy.deepcopy(self.o);altered.update(examined=32,
+            cohort_receipts=altered['cohort_receipts'][:1],cohort_durations=[274])
+        with self.assertRaises(c.Refused):c.external_forecast_samples(self.a,altered)
+
+    def test_horizon_growth_roundup_and_resource_fit_are_monotone(self):
+        price,_=c.external_forecast_samples(self.a,self.o);captures=[r for r,_ in price]
+        values=[r['usage']['drive_bytes'] for r in captures]
+        small=c.external_price_envelope(captures,values,9)
+        direct=c.external_price_envelope(captures,values,10)
+        large=c.external_price_envelope(captures,values,28)
+        self.assertLess(small,direct);self.assertLess(direct,large)
+        self.assertEqual(c.external_price_envelope(captures,[v*2 for v in values],10),direct*2)
+        self.assertGreaterEqual(c.external_forecast(self.a,self.o)['projected']['drive_bytes'],direct*1.25)
+        # Synthetic boundary probe only: does not change frozen actual4938s.
+        altered=copy.deepcopy(self.o);altered['active_seconds']=4452
+        self.assertTrue(c.external_forecast(self.a,altered)['fits'])
+        altered['active_seconds']+=1
+        self.assertFalse(c.external_forecast(self.a,altered)['fits'])
+        altered['active_seconds']=4452;altered['used']['drive_bytes']=c.CONTINUED_LIMITS['drive_bytes']-5730857187
+        altered['remaining']['drive_bytes']=5730857187
+        self.assertFalse(c.external_forecast(self.a,altered)['fits'])
+
+
 if __name__=='__main__': unittest.main()

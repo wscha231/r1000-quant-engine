@@ -1,5 +1,38 @@
 # Finite private SIP campaign control
 
+## Typed cohort forecast correction (preparation only)
+
+At CP128, the existing gate correctly stopped before a new reservation:
+its forecast exceeded remaining resources even though actual caps were not
+exhausted. A one-time held4 readback was normalized into recurring32-price
+work; a1009-name quadratic envelope was then linearly scaled to417 names.
+The proposed correction consumes the already validated same-scope history,
+requires exact authorization/source/proof and contiguous receipt bindings,
+and separates only the strictly verified native18 held recovery. Generic
+zero-row, no-data, quarantined, expensive, failed12 and short16 price samples
+remain in the price envelope. Missing durations, unmeasurable zero progress,
+mixed/foreign recovery proof or insufficient price samples refuse prediction.
+
+All incurred held/native/failed costs, including302101B uncertain storage,
+stay fully charged in the shared ledger. Classification changes prediction
+samples only; it never refunds, skips a canonical run or creates price work.
+The external horizon uses the actual frozen cohort and existing batch schedule.
+It keeps the largest observed32-name equivalent, nonnegative growth slope,
+full-prefix metadata cost,1.25 margin, exact arithmetic with upward rounding,
+conservative full-batch byte/time bounds even for the final short batch,
+and the resource/time/dispatch fits gate. The original1009 forecast function
+is unchanged. This model is conservative, not a duration or completion promise.
+
+Retained snapshot differences bind six ordered durations274/305/275/255/380/372s
+to their receipt hashes;2915 prior seconds+162 native seconds+1861 cohort
+seconds=4938 actual seconds. This derivation is not a fresh remote timing read.
+The corrected CP128 projection is5730857188B transfer and38748 active seconds
+for289 remaining names/10 batches. Actual remaining active budget is38262s:
+the corrected result still returns fits=false, short486s. No value was tuned
+to fit. New code/CI/a Draft PR cannot raise caps, extend the original48h window,
+rebind a deployed authorization, or authorize another dispatch. Protected
+application and runtime identity reconciliation remain separate decisions.
+
 ## Sealed native18 accounting and four uncertain-storage holds (candidate)
 
 This contract prepares one reviewed successor for failed run39085031884 and

@@ -11,6 +11,7 @@ import base64
 import configparser
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -3070,26 +3071,109 @@ def external_deployed(auth):
                 "CAMPAIGN_DEPLOYED_CODE")
 
 
+def external_forecast_samples(auth, observed):
+    """Consume the same validated history; a typed one-time hold is not price work."""
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    validate_authorization(auth)
+    versions = {validate_authorization(a):a for a in external_variants(auth)}
+    receipts, durations = observed["cohort_receipts"], observed["cohort_durations"]
+    require(len(receipts) == len(durations) and 0 < len(receipts) <= 40, "EXTERNAL_FORECAST_SAMPLE")
+    price, one_time, prefix = [], [], 0
+    for r, seconds in zip(receipts, durations):
+        a = versions.get(r.get("auth_sha256"))
+        proof = observed["epoch_proofs"].get(r.get("auth_sha256"))
+        require(a is not None and isinstance(proof,dict)
+                and isinstance(proof.get("proof_sha256"),str) and re.fullmatch(r"[0-9a-f]{64}",proof["proof_sha256"])
+                and r.get("schema") == "a1-sip-campaign-meter-v1" and r.get("task_key") == TASK
+                and r.get("source_sha") == a["expected_master"]
+                and r.get("cohort_scope") == auth["external_cohort"]["scope"]
+                and r.get("external_proof_sha256") == proof.get("proof_sha256")
+                and r.get("finalized") is True and r.get("preflight_only") is False
+                and r.get("status") in ("COMPLETE","BLOCKED")
+                and type(r.get("run_id")) is int and r["run_id"] > 0
+                and type(r.get("examined_before")) is int and r["examined_before"] == prefix,
+                "EXTERNAL_FORECAST_SCOPE")
+        after = r.get("examined_after")
+        require(type(after) is int and after > prefix and after <= observed["examined"]
+                and isinstance(seconds,(int,float)) and not isinstance(seconds,bool)
+                and math.isfinite(seconds) and seconds > 0, "EXTERNAL_FORECAST_SAMPLE")
+        usage, states = r.get("usage"), r.get("new_states")
+        require(isinstance(usage,dict) and set(usage) == set(LIMITS)
+                and all(type(v) is int and v >= 0 for v in usage.values())
+                and isinstance(states,dict) and set(states) == {"VALID_COLLECTED","VERIFIED_NO_DATA","QUARANTINED"}
+                and all(type(v) is int and v >= 0 for v in states.values())
+                and sum(states.values()) == after-prefix, "EXTERNAL_FORECAST_SAMPLE")
+        native = a["external_cohort"].get("native18_recovery")
+        if native is not None:
+            require(r.get("native18_settlement_sha256") == native["settlement_sha256"], "EXTERNAL_FORECAST_TYPE")
+        if "uncertain_storage_hold" in r or native is not None and prefix == 76:
+            hold = r.get("uncertain_storage_hold")
+            require(native is not None and prefix == 76 and after == 80 and not one_time
+                    and r["status"] == "COMPLETE" and r.get("rows_verified") == 0
+                    and states == dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=4)
+                    and usage["provider_gets"] == 0 and r.get("recovery_run") == NATIVE18_RECOVERY["run_id"]
+                    and isinstance(hold,dict) and set(hold) == {"evidence","marker_sha256","checkpoint_sha256"},
+                    "EXTERNAL_FORECAST_TYPE")
+            cap.verify_storage_quarantine(hold["evidence"],r["cohort_scope"])
+            evidence = hold["evidence"]
+            require(evidence.get("authorization_sha256") == r["auth_sha256"]
+                    and evidence.get("external_proof_sha256") == proof["proof_sha256"]
+                    and evidence.get("native_settlement_sha256") == native["settlement_sha256"]
+                    and evidence.get("recovery_run_id") == r["run_id"]
+                    and isinstance(hold["marker_sha256"],str) and re.fullmatch(r"[0-9a-f]{64}",hold["marker_sha256"])
+                    and hold["checkpoint_sha256"] == r["checkpoint_sha256"], "EXTERNAL_FORECAST_TYPE")
+            one_time.append((r,seconds))
+        else:
+            price.append((r,seconds))
+        prefix = after
+    require(prefix == observed["examined"] and len(price) >= 2, "EXTERNAL_FORECAST_SAMPLE")
+    return price, one_time
+
+
+def external_price_envelope(captures, values, jobs):
+    """The same nonnegative growth envelope, rounded only after exact arithmetic."""
+    normalized = [Fraction(str(v))*32/(r["examined_after"]-r["examined_before"])
+                  for r,v in zip(captures,values)]
+    slope = max([Fraction(0)] + [max(0,b-a)*32/(right["examined_before"]-left["examined_before"])
+                for a,b,left,right in zip(normalized,normalized[1:],captures,captures[1:])])
+    return jobs*max(normalized) + slope*jobs*(jobs+1)/2
+
+
 def external_forecast(auth, observed):
-    # Includes assets, full-prefix readback, failed attempts and all global
-    # usage. A linear average would hide the growing restore/check cost.
     from tools.alpaca_sip_private_backfill_v1 import external_cohort
-    count = len(external_cohort(auth["external_cohort"]["input_csv"].encode()))
     if not observed["examined"] or observed["examined"] % 128:
         return None
-    proxy = dict(observed, examined=observed["examined"]+16,
-                 receipts=observed["cohort_receipts"], durations=observed["cohort_durations"])
-    # The existing predictor assumes1009 names; project its conservative
-    # envelope to the smaller cohort without changing hard meter limits.
-    forecast = forecast_remaining(proxy)
-    scale = (count-observed["examined"])/(1009-proxy["examined"])
-    projected = {k: math.ceil(v*scale) for k,v in forecast["estimated_remaining"].items()}
-    seconds = math.ceil(forecast["estimated_remaining_active_seconds"]*scale)
-    jobs = math.ceil((count-observed["examined"])/32)
+    price, one_time = external_forecast_samples(auth,observed)
+    count = len(external_cohort(auth["external_cohort"]["input_csv"].encode()))
+    prefix, schedule = observed["examined"], []
+    while prefix < count:
+        size = external_batch(prefix,count,auth)
+        schedule.append((prefix,size)); prefix += size
+    require(schedule, "EXTERNAL_FORECAST_SAMPLE")
+    require(observed["remaining"] == {k:CONTINUED_LIMITS[k]-observed["used"][k] for k in LIMITS},
+            "EXTERNAL_FORECAST_BUDGET")
+    captures = [r for r,_ in price]
+    processed = sum(r["examined_after"]-r["examined_before"] for r in captures)
+    jobs, remaining = len(schedule), count-observed["examined"]
+    projected = {}
+    for key in LIMITS:
+        values = [r["usage"][key] for r in captures]
+        if key in ("provider_gets","storage_bytes"):
+            estimate = Fraction(sum(values)*remaining,processed)
+        elif key == "drive_requests":
+            overhead = max([4]+[r["usage"][key]-8*math.ceil(r["examined_before"]/4)
+                         -28*math.ceil((r["examined_after"]-r["examined_before"])/4) for r in captures])
+            estimate = sum(8*math.ceil(start/4)+28*math.ceil(size/4)+overhead for start,size in schedule)
+        else:
+            estimate = external_price_envelope(captures,values,jobs)
+        projected[key] = math.ceil(estimate*Fraction(5,4))
+    seconds = math.ceil(external_price_envelope(captures,[s for _,s in price],jobs)*Fraction(5,4))
     return dict(projected=projected, active_seconds=seconds, dispatches=jobs, estimate_only=True,
-                fits=all(projected[k] <= observed["remaining"][k] for k in LIMITS)
-                     and seconds <= active_limit(auth)-observed["active_seconds"]
-                     and len(observed["runs"])+jobs <= 40)
+        price_samples=len(price), one_time_recovery_samples=len(one_time), price_processed=processed,
+        cohort_count=count,remaining_candidates=remaining,batch_sizes=[size for _,size in schedule],margin=1.25,
+        fits=all(projected[k] <= observed["remaining"][k] for k in LIMITS)
+             and seconds <= active_limit(auth)-observed["active_seconds"]
+             and len(observed["runs"])+jobs <= 40)
 
 
 def external_family_registry(budget_path, auth, state_path, *, first_proof=None):
