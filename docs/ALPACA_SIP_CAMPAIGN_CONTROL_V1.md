@@ -823,3 +823,52 @@ includes an imported or repaired settlement; a new failure cannot authorize
 another POST. All earlier costs, shared accounting, original48h and existing
 9GiB/12h/40 caps remain. Source/PIT, supplier-rights and economic flags stay
 false; Work B/Main and the fixed993 campaign remain separate.
+
+## CP128 Source revision and exact human time-forecast acceptance — 2026-10-19
+
+The human request with SHA256
+`bba8f690d5395eecd8a3fa946c7b405e00b14dd1f3ca4d4883ca4aedb558cdbb`
+accepts the explained CP128 conservative time projection. It does not increase
+any actual limit or restart/extend the original48h. All counters, the43200s
+actual active limit,40 dispatches and expiry2026-10-19T02:08:51Z remain.
+
+The v6 same-cohort Source revision reconstructs and verifies the exact v5
+authorization `cb2b3b73f2a0edd08a6ff40942d537ca21f5c125bc8ef2cb57e907ad8079dd81`.
+Its existing OWNER6251201164, proof5c87, deployed18571 six pins, native event38
+ac54, CP128 f618/receiptbb54 and family47 a584/cohort20 0414 are immutable
+historical authorities. They are not reinterpreted as new-source evidence.
+There is no second native settlement, old POST retry or new cohort genesis.
+
+Future execution binds an actually approved protected master, the complete
+current seven pins including `tools/alpaca_sip_source_revision.py`, a new real
+immutable OWNER locator/full authorization/proof and a fresh single-use nonce.
+Only the two current self-locator fields leave the detached consent commitment;
+the actual returned URL remains in the full runtime hash. created_at==updated_at
+is mandatory. Old six-pin authorizations remain valid historical evidence;
+current external worker/deployment requires the transitive seventh pin.
+The workflow changes only its two sparse source bundles.
+
+One typed SOURCE_REVISION_BOUND event follows the exact closed cohort20 and
+family47 prefixes. Exclusive existing locks and no unsettled capture are
+prerequisites. Cohort event21 is written/file+directory-synced before family48.
+Neither reservation nor dispatch can precede both durable barriers. A complete
+visible first event after a crash is revalidated and re-flushed before the
+identical second event; wrong, reordered, repeated or conflicting binding
+refuses. Every preceding byte and302101B unknown storage charge remains.
+
+At examined128 only, the same six canonical receipt hashes/durations and
+unchanged forecast model may accept its time term when projected time is no
+greater than38748s. Original actual4938s/remaining38262s/deficit486s stay bound.
+The projection must remain honestly fits=false. All non-time projected costs
+must fit, the7800s next-job reserve must fit, and actual caps/expiry remain hard
+stops. Changed samples/costs/checkpoint, a larger time projection, expired window
+or a new failure cannot use this exception. At CP256 and later, normal forecast
+gates apply. The first new worker receipt binds the one-time acceptance; later
+receipts cannot repeat it.
+
+New linking work is not a free native diagnostic. Existing job execution and
+provider/Google request definitions still determine actual charged costs;
+excluded or unmeasured platform/host costs remain UNKNOWN_NOT_ZERO. The known
+486s arithmetic deficit is not a measurement of that new work or a guarantee
+of completion. No scheduler, provider primitive, economic admission or broker
+state changes.
