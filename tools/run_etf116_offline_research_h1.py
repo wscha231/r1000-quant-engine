@@ -33,8 +33,8 @@ def run(input_path: Path, frozen_path: Path, out_path: Path):
         raise RefuseInput('SOURCE_ROWS_NOT_MAP')
     candidates=input_obj['source_candidate_rows']
     rf=input_obj.get('risk_free_rows')
-    bench=candidates.get('SPY') if isinstance(candidates.get('SPY'),list) else None
-    issuer_dates=input_obj.get('issuer_verified_exchange_listed_date') or {}
+    bench=candidates.get('SPY')
+    issuer_dates=input_obj.get('issuer_verified_exchange_listed_date',{})
     if not isinstance(issuer_dates,dict): raise RefuseInput('INCEPTION_MAP_INVALID')
     if any(t not in frozen for t in candidates):
         raise RefuseInput('OUT_OF_PINNED_UNIVERSE_SOURCE')
@@ -48,6 +48,7 @@ def run(input_path: Path, frozen_path: Path, out_path: Path):
                 official_sessions=official_calendar,tr_rows=candidates.get(ticker,[]),
                 issuer_listing_date=issuer_dates.get(ticker),rf_rows=rf,
                 benchmark_rows=bench if ticker!='SPY' else None,
+                benchmark_present=ticker!='SPY' and 'SPY' in candidates,
                 source_rights_verified=False,benchmark_source_rights_verified=False)
         except RefuseInput as exc:
             status[ticker]={'ticker':ticker,'state':'BLOCKED_RESEARCH_INPUT',

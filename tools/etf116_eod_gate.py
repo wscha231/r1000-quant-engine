@@ -73,6 +73,7 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
     run_at = timestamp(packet.get("run_at_utc"), "run_at")
     require(run_at >= close + timedelta(minutes=30), "SESSION_NOT_READY_30MIN_DELAY")
     require(close.date().isoformat() == session, "SESSION_CLOSE_DATE_MISMATCH")
+    close_identity = close.isoformat()
     require(close <= run_at, "FUTURE_SESSION")
     require(packet.get("nyse_session_verified") is True, "NYSE_CALENDAR_NOT_VERIFIED")
     require(packet.get("source_rights_verified") is True, "PROVIDER_RIGHTS_NOT_VERIFIED")
@@ -108,7 +109,7 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
         evidence = r.get("source_sha256")
         require(isinstance(evidence, str) and SHA_RE.fullmatch(evidence), t + "_SOURCE_DIGEST_MISSING")
         good.append({"ticker":t,"asof":session,"tr_index":value,"basis":basis,"source_sha256":evidence})
-    digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt})
+    digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity})
     if prior_receipt is not None:
         require(isinstance(prior_receipt, dict), "PRIOR_RECEIPT_INVALID")
         prev_s = prior_receipt.get("session")
@@ -116,10 +117,10 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
         require(prev_s <= session, "SESSION_ROLLBACK_BLOCKED")
         if prev_s == session:
             if prior_receipt.get("input_digest") == digest:
-                return {"state":"SKIP_UNCHANGED","session":session,"input_digest":digest,"rights_receipt_sha256":receipt,"publish_enabled":False}
+                return {"state":"SKIP_UNCHANGED","session":session,"input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"publish_enabled":False}
             raise GateError("SAME_SESSION_CONFLICT_BLOCKED")
     return {"state":"PREPARED_ONLY","session":session,"scope_sha256":EXPECTED_UNIVERSE_SHA256,
-            "input_digest":digest,"rights_receipt_sha256":receipt,"verified_count":len(good),"blocked_count":len(bad),
+            "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"verified_count":len(good),"blocked_count":len(bad),
             "verified_rows":good,"non_publishable_rows":bad,
             "publish_enabled":False,"source_id":source,
             "next_gate":"INTEGRATE_IN_APPROVED_REPO_LANE_AND_VERIFY_GOOGLE_SHEETS_WRITE"}

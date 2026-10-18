@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import csv
 import math
 import statistics
 import sys
@@ -100,7 +101,9 @@ class DeltaRegression(unittest.TestCase):
                 for f in ['GARP','QUAL','SPMO'] for i in range(1,11)]
 
     def overlay(self, rows, **kw):
-        return build_lookthrough(rows, [f'A{i}' for i in range(1,11)],reviewed_at_utc=REVIEW,**kw)
+        with (ROOT/'data_static/iwb_holdings_seed.csv').open() as handle:
+            seed=[r['ticker'] for r in csv.DictReader(handle)]
+        return build_lookthrough(rows,seed,reviewed_at_utc=REVIEW,**kw)
 
     def test_mixed_same_etf_snapshot_refuses(self):
         rows=self.holding_rows();rows[0]['holdings_asof']='2026-10-14'

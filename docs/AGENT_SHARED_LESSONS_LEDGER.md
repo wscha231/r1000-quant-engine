@@ -7408,3 +7408,16 @@ date-only API uses a conservative UTC-start cutoff. NYSE session close dates
 cannot slide into the next UTC day. Bind rights receipts into idempotency hashes
 and retain them in every prepared/unchanged proposal; changed evidence must
 conflict instead of inheriting an earlier same-session success.
+
+### 2026-10-19 — Bind all intake identities to the consumed snapshot
+
+An exact-close date check is insufficient when the close instant is omitted
+from idempotency provenance. Hash and retain canonical UTC close alongside
+rights. Distinguish supplied malformed/null SPY from absent optional input.
+Read holdings CSV once for both parsing and its raw hash; a concurrent source
+replacement cannot change the receipt. A supposedly fixed seed needs its exact
+symbol-set digest and1009 count, not just uniqueness. Tests use the existing
+canonical CSV rather than arbitrary ten-name stand-ins; no runtime bypass.
+Independent A6 applied the same absent-vs-malformed rule to listing-date maps:
+only an absent key defaults to an empty map; supplied null/false/list/scalar
+values must refuse instead of erasing untrusted metadata.

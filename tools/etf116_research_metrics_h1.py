@@ -241,13 +241,14 @@ def compute_horizons(*, ticker: str, asof: str, decision_at: str,
                      rf_rows: list[dict[str, Any]] | None = None,
                      benchmark_rows: list[dict[str, Any]] | None = None,
                      source_rights_verified: bool = False,
-                     benchmark_source_rights_verified: bool = False) -> dict[str, Any]:
+                     benchmark_source_rights_verified: bool = False,
+                     benchmark_present: bool = False) -> dict[str, Any]:
     official_session_dates(official_sessions, asof=asof)
     series = validate_series(tr_rows, official_sessions, ticker=ticker, asof=asof,
                              decision_at=decision_at, rights_allowed=source_rights_verified)
     bench = None
     benchmark_input_status = None
-    if benchmark_rows is not None:
+    if benchmark_rows is not None or benchmark_present:
         try:
             bench = validate_series(benchmark_rows, official_sessions, ticker='SPY',
                                     asof=asof, decision_at=decision_at,

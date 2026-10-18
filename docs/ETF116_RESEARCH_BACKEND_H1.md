@@ -99,6 +99,13 @@ The EOD close must share the named session's UTC date. Rights-receipt SHA is
 bound into the input digest and retained in both prepared and unchanged output;
 changed rights evidence is a same-session conflict, not an unchanged retry.
 
+Successor review also required canonical UTC close in the digest and both
+result states, explicit malformed-SPY diagnostics including supplied null,
+one-read CSV parsing/hash binding and the exact1009 seed identity digest.
+The seed file is unchanged; input lists must match its frozen symbol identity.
+Independent A6 also rejects supplied malformed/null listing-date maps rather
+than coalescing falsey values into an absent optional map.
+
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,
 original immutable bytes, distributions/splits and availability are not newly

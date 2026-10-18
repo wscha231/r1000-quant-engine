@@ -1,8 +1,14 @@
 """Discriminating regressions for Hosted review5563925645; all data synthetic."""
 import copy
+import csv
+import hashlib
+import io
+import json
+import tempfile
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools.etf116_research_metrics_h1 import riskfree_lag_series, risk_metrics, RefuseInput
 from tools import etf116_eod_gate as gate
@@ -79,6 +85,105 @@ class HostedP2Regression(unittest.TestCase):
         self.assertEqual(first['rights_receipt_sha256'], packet['rights_receipt_sha256'])
         self.assertEqual(second['rights_receipt_sha256'], packet['rights_receipt_sha256'])
         self.assertFalse(second['publish_enabled'])
+
+    def test_close_change_conflicts_and_is_retained(self):
+        frozen, packet = self.packet()
+        first = gate.prepare(packet, frozen)
+        packet['official_nyse_close_utc'] = '2026-10-16T19:00:00Z'
+        changed = gate.prepare(packet, frozen)
+        self.assertNotEqual(first['input_digest'], changed['input_digest'])
+        self.assertEqual(changed['official_nyse_close_utc'], '2026-10-16T19:00:00+00:00')
+        with self.assertRaisesRegex(gate.GateError, 'SAME_SESSION_CONFLICT_BLOCKED'):
+            gate.prepare(packet, frozen, first)
+
+    def test_equivalent_close_instant_retained_on_skip(self):
+        frozen, packet = self.packet()
+        first = gate.prepare(packet, frozen)
+        packet['official_nyse_close_utc'] = '2026-10-16T16:00:00-04:00'
+        skipped = gate.prepare(packet, frozen, first)
+        self.assertEqual(skipped['state'], 'SKIP_UNCHANGED')
+        self.assertEqual(skipped['official_nyse_close_utc'], first['official_nyse_close_utc'])
+
+    def test_offline_runner_exposes_all_supplied_nonlist_spy(self):
+        from tests.etf116_delta_regression import DeltaRegression
+        from tools.run_etf116_offline_research_h1 import run
+        case=DeltaRegression(methodName='runTest');case.setUp()
+        for malformed in (None, {}, 'BAD', 42):
+            with self.subTest(malformed=malformed), tempfile.TemporaryDirectory() as td:
+                source, output=Path(td)/'input.json',Path(td)/'output.json'
+                source.write_text(json.dumps({'schema':'etf116-metrics-candidate-input-v1',
+                    'scope_sha256':gate.EXPECTED_UNIVERSE_SHA256,'session':'2026-10-16',
+                    'decision_at_utc':'2026-10-18T14:00:00Z',
+                    'verified_nyse_sessions':case.sessions,
+                    'source_candidate_rows':{'GARP':case.rows,'SPY':malformed}}))
+                run(source,Path(__file__).resolve().parents[1]/'research/etf116_v1/frozen_tickers.txt',output)
+                result=json.loads(output.read_text())['ticker_results']['GARP']['horizons']['12']
+                self.assertEqual(result['benchmark_status'],'BLOCKED_OPTIONAL_BENCHMARK_SERIES_NOT_LIST')
+
+    def seed(self):
+        path=Path(__file__).resolve().parents[1]/'data_static/iwb_holdings_seed.csv'
+        return [r['ticker'] for r in csv.DictReader(io.StringIO(path.read_text()))]
+
+    def test_supplied_malformed_listing_map_never_becomes_absent(self):
+        from tools.run_etf116_offline_research_h1 import run
+        for malformed in (None, [], '', 0, False):
+            with self.subTest(malformed=malformed), tempfile.TemporaryDirectory() as td:
+                source,output=Path(td)/'input.json',Path(td)/'output.json'
+                source.write_text(json.dumps({'schema':'etf116-metrics-candidate-input-v1',
+                    'scope_sha256':gate.EXPECTED_UNIVERSE_SHA256,'session':'2026-10-16',
+                    'decision_at_utc':'2026-10-18T14:00:00Z',
+                    'verified_nyse_sessions':['2026-10-15','2026-10-16'],
+                    'source_candidate_rows':{},'issuer_verified_exchange_listed_date':malformed}))
+                with self.assertRaisesRegex(RefuseInput,'INCEPTION_MAP_INVALID'):
+                    run(source,Path(__file__).resolve().parents[1]/'research/etf116_v1/frozen_tickers.txt',output)
+                self.assertFalse(output.exists())
+
+    def holdings(self):
+        return [{'etf':f,'ticker':ticker,'rank':i,'weight_pct':1.,'holdings_asof':'2026-10-16',
+                 'source_url':'https://example.test/CONTRACT_FIXTURE'}
+                for f in ('GARP','QUAL','SPMO') for i,ticker in enumerate(self.seed()[:10],1)]
+
+    def lookthrough(self, seed):
+        from tools.etf_top3_holdings_overlay_h1 import build_lookthrough
+        return build_lookthrough(self.holdings(),seed,reviewed_at_utc='2026-10-18T14:00:00Z')
+
+    def test_empty_and_truncated_fixed_seed_refuse(self):
+        from tools.etf_top3_holdings_overlay_h1 import OverlayError
+        for seed in ([],self.seed()[:-1]):
+            with self.subTest(count=len(seed)), self.assertRaisesRegex(OverlayError,'FROZEN_1009_SEED_IDENTITY'):
+                self.lookthrough(seed)
+
+    def test_same_count_seed_substitution_refuses(self):
+        from tools.etf_top3_holdings_overlay_h1 import OverlayError
+        seed=self.seed();seed[-1]='ZZZZZZ'
+        with self.assertRaisesRegex(OverlayError,'FROZEN_1009_SEED_IDENTITY'):
+            self.lookthrough(seed)
+
+    def test_real_fixed_seed_identity_is_retained(self):
+        from tools.etf_top3_holdings_overlay_h1 import FROZEN_SEED_SHA256
+        result=self.lookthrough(self.seed())
+        self.assertEqual(result['universe_seed_sha256'],FROZEN_SEED_SHA256)
+        self.assertEqual(result['universe_seed_count'],1009)
+        self.assertEqual(result['count_already_in_seed'],10)
+        self.assertFalse(result['universe_seed_modified'])
+
+    def test_csv_hash_binds_parsed_snapshot_despite_source_replacement(self):
+        from tools import run_etf_top3_research_lookthrough_h1 as runner
+        actual_prepare=runner.prepare_holdings
+        text=io.StringIO(newline='');rows=self.holdings()
+        writer=csv.DictWriter(text,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
+        original=text.getvalue().encode()
+        with tempfile.TemporaryDirectory() as td:
+            source, output=Path(td)/'holdings.csv',Path(td)/'out.json';source.write_bytes(original)
+            def replace_after_parse(*args,**kwargs):
+                result=actual_prepare(*args,**kwargs)
+                source.write_bytes(b'REPLACED_AFTER_PARSE')
+                return result
+            with patch.object(runner,'prepare_holdings',side_effect=replace_after_parse):
+                runner.run(source,seed_symbols=self.seed(),observation_at='2026-10-18T14:00:00Z',output=output)
+            receipt=json.loads(output.read_text())
+            self.assertEqual(receipt['source_input_bytes_sha256'],hashlib.sha256(original).hexdigest())
+            self.assertNotEqual(source.read_bytes(),original)
 
 
 if __name__ == '__main__':

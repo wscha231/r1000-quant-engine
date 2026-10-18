@@ -90,7 +90,7 @@ class NativeETFIntegration(unittest.TestCase):
 
     def test_existing_normalizer_used_without_inventing_publication_time(self):
         from tools.run_etf_holdings_refresh import normalize_holding_rows
-        seed = [f'A{i}' for i in range(1, 11)]
+        seed = [r['ticker'] for r in csv.DictReader(io.StringIO((ROOT/'data_static/iwb_holdings_seed.csv').read_text()))]
         with patch('tools.run_etf_holdings_refresh.normalize_holding_rows', wraps=normalize_holding_rows) as normalizer:
             result = prepare_holdings(self.holdings(), seed, decision_at='2026-10-18T14:00:00Z')
         self.assertEqual(normalizer.call_count, 3)

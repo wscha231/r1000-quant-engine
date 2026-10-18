@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 from pathlib import Path
 import sys
@@ -17,15 +18,15 @@ from tools.etf116_research_backend import prepare_holdings
 
 def run(holdings_csv: Path, *, seed_symbols: list[str], observation_at: str,
         output: Path) -> dict:
-    with holdings_csv.open('r',encoding='utf-8',newline='') as f:
-        rows=list(csv.DictReader(f))
+    source_bytes=holdings_csv.read_bytes()
+    rows=list(csv.DictReader(io.StringIO(source_bytes.decode('utf-8'),newline='')))
     cohort=[]
     for r in rows:
         cohort.append({'etf':r['etf'],'ticker':r['ticker'],'rank':int(r['rank']),
             'weight_pct':float(r['weight_pct']),'holdings_asof':r['holdings_asof'],
             'source_url':r['source_url'],'published_at_utc':r.get('published_at_utc') or None})
     result=prepare_holdings(cohort,seed_symbols,decision_at=observation_at)
-    result['source_input_bytes_sha256']=hashlib.sha256(holdings_csv.read_bytes()).hexdigest()
+    result['source_input_bytes_sha256']=hashlib.sha256(source_bytes).hexdigest()
     result['research_only']=True
     result['sheet_publisher_allowed']=False
     output.parent.mkdir(parents=True,exist_ok=True)

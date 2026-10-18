@@ -7,12 +7,15 @@ availability timestamps separate. The ETFIQ quote is research only.
 """
 from __future__ import annotations
 import re
+import hashlib
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
 
 TOP3 = ('GARP','QUAL','SPMO')
 TICKER = re.compile(r'^[A-Z][A-Z0-9.-]{0,10}$')
+FROZEN_SEED_COUNT = 1009
+FROZEN_SEED_SHA256 = '92f0fb903bb6d4c90f9c5ac880c976fc2f65d227220ea6c4385bf77880383577'
 
 class OverlayError(ValueError): pass
 
@@ -48,7 +51,12 @@ def build_lookthrough(records: list[dict[str, Any]], seed_symbols: list[str], *,
     review=parse_timestamp(reviewed_at_utc)
     require(type(expected_top_n) is int and expected_top_n > 0, 'TOP_N_INVALID')
     require(isinstance(records,list) and len(records)==len(TOP3)*expected_top_n,'TOP3_NUMBER_WRONG')
-    require(isinstance(seed_symbols,list) and len(seed_symbols)==len(set(seed_symbols)), 'SEED_DUPLICATE')
+    require(isinstance(seed_symbols,list)
+            and all(type(t) is str and TICKER.fullmatch(t) for t in seed_symbols), 'SEED_SYMBOLS_INVALID')
+    require(len(seed_symbols)==len(set(seed_symbols)), 'SEED_DUPLICATE')
+    seed_digest=hashlib.sha256('\n'.join(sorted(seed_symbols)).encode()).hexdigest()
+    require(len(seed_symbols)==FROZEN_SEED_COUNT and seed_digest==FROZEN_SEED_SHA256,
+            'FROZEN_1009_SEED_IDENTITY')
     seed=set(seed_symbols)
     byfund: dict[str, dict[int, dict]]={t:{} for t in TOP3}
     tick_byfund={f:set() for f in TOP3}
@@ -95,6 +103,7 @@ def build_lookthrough(records: list[dict[str, Any]], seed_symbols: list[str], *,
                        'issuer_economic_identity': 'SAME_COMPANY_MULTICLASS__REVIEW' if ticker in {'GOOG','GOOGL'} else 'NOT_INFERRED',
                        'eligible_for_buy':False, 'eligible_for_portfolio':False, 'a2_candidate_approved':False})
     return {'status':'RESEARCH_TAGS_PREPARED_ONLY','universe_seed_modified':False,
+            'universe_seed_sha256':seed_digest,'universe_seed_count':len(seed),
             'etfs':list(TOP3),'holding_slots':len(records),'unique_securities':len(result),
             'count_already_in_seed':sum(x['seed_membership'] for x in result),
             'requires_identity_review':sum(not x['seed_membership'] for x in result),
