@@ -1,5 +1,24 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-18 - Refuse infeasible shared OOS grids before fitting
+
+- Warmup, label-maturity purge and eligible training counts are separate. A
+  frozen initial756/purge253/minimum504 cannot support the short arm's first
+  fold, even before warmup. Preserve the declared grid/config and report both
+  arms BLOCKED with counts; never rescue a comparison by later-date intersection,
+  relaxed minima or a score-selected boundary. Preserve original exposed outputs.
+- Exact dataset-typed calendars, observation/availability<=retrieval<=as_of and
+  nonoverlapping inclusive vintage intervals are provenance prerequisites.
+  Existing null-safe release differencing was already correct; verify it rather
+  than replacing missing observations with invented numbers.
+- Enforce resource checks before retained allocation and during parsing, and
+  redact malformed JSON at the CLI boundary. Trim circular bootstrap draws to
+  the original grid span, with the frozen seed and block settings unchanged.
+- Source vintage order must agree with availability order, and feature admission
+  must honor the validated effective session without rewriting original clocks.
+  Validate off-window price dates too; stop censored drawdowns at actual last
+  observation and reserve memory before joining accumulated output chunks.
+
 ## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
 
 - Earnings Estimate Source Probe runs `38267566200` and `37183899304`
