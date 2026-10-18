@@ -3021,6 +3021,69 @@ NATIVE_READ_CP_ID = "1mkt2HTzWWObV_60BSv1Iqdj9myQ4BlQZ"
 NATIVE_READ_WINDOW = ("2026-10-18T01:07:04.874Z", "2026-10-18T01:07:37Z")
 # A suballocation of the existing remaining caps, never a new campaign budget.
 NATIVE_READ_ALLOWANCE = dict(provider_gets=0, drive_requests=16, drive_bytes=16_000_000, storage_bytes=0)
+NATIVE_READ_OBSERVATION = "c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f"
+NATIVE_READ_SCOPE_BASIS = "EXPLICIT_EXACT6_SCOPE_DECISION"
+
+
+def native_read_scope_control(pending):
+    """A policy exception is not a measured or numerically settled expense."""
+    require(isinstance(pending, dict) and set(pending) == {
+            "basis", "decision_sha256", "observation_sha256", "status", "usage", "reference"}
+            and pending["basis"] == NATIVE_READ_SCOPE_BASIS
+            and pending["observation_sha256"] == NATIVE_READ_OBSERVATION
+            and pending["status"] == "UNKNOWN_NOT_ZERO"
+            and encoded(pending["usage"]) == encoded(dict(provider_gets=0, storage_bytes=0,
+                drive_requests=None, drive_bytes=None))
+            and isinstance(pending["decision_sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", pending["decision_sha256"])
+            and isinstance(pending["reference"], str) and re.fullmatch(
+                r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+", pending["reference"]),
+            "NATIVE_READ_SCOPE_DECISION_UNSET")
+
+
+def native_read_scope_record(control):
+    """The exact OWNER decision to sign, only after a separate scope approval."""
+    return dict(schema="a1-native-read-exact6-scope-decision-v1",
+        decision="APPROVE_EXACT6_EXCEPTION_AND_ONE_NATIVE_READ",
+        failed_run_id=39085031884, failed_meter_sha256=NATIVE_READ_METER,
+        prior_auth_sha256=NATIVE_READ_AUTH, checkpoint_sha256=NATIVE_READ_CP,
+        observation_sha256=NATIVE_READ_OBSERVATION, connector_calls=6, platform_materializations=1,
+        past_diagnostics_status="UNKNOWN_NOT_ZERO",
+        past_diagnostics_usage=dict(provider_gets=0, storage_bytes=0, drive_requests=None, drive_bytes=None),
+        budget_scope="ORIGINAL17_AND_NEW_CONTROLLED_NATIVE_NOT_TOTAL_PLATFORM_COST",
+        transfer_definition=METRIC, original_receipts=17,
+        controlled_capture_usage=dict(provider_gets=542, drive_requests=5269,
+            drive_bytes=842810550, storage_bytes=79426031),
+        controlled_active_seconds=3769, unknown_storage_bytes_still_charged=302101,
+        original_limits=dict(CONTINUED_LIMITS), original_dispatch_cap=40, original_active_seconds_cap=43200,
+        first_canonical_utc=CONTINUATION["first"],
+        expires_at_utc=(utc(CONTINUATION["first"])+timedelta(hours=48)).isoformat(),
+        owner_sha256=CONTINUATION["bindings"]["owner_sha256"],
+        expected_master=control["expected_master"], nonce=control["nonce"],
+        native_allowance=dict(NATIVE_READ_ALLOWANCE), native_dispatches=1, native_active_seconds=900,
+        extra_payment_authorized=False, budget_reset=False, capture_authorized=False,
+        provider_get_authorized=False, drive_data_write_authorized=False, failed_post_retry_authorized=False,
+        subsequent_native_settlement_required=True)
+
+
+def native_read_scope_proof(pending, control):
+    native_read_scope_control(pending)
+    require(isinstance(control, dict), "NATIVE_READ_SCOPE_CONTEXT")
+    expected = native_read_scope_record(control)
+    require(digest(encoded(expected)) == pending["decision_sha256"], "NATIVE_READ_SCOPE_BINDING")
+    comment_id = int(pending["reference"].rsplit("-", 1)[1])
+    comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
+    require(comment.get("id") == comment_id and comment.get("author_association") == "OWNER"
+            and comment.get("issue_url") == f"https://api.github.com/repos/{REPO}/issues/448"
+            and comment.get("user", {}).get("type") == "User", "NATIVE_READ_SCOPE_OWNER")
+    tag = "A1_SIP_NATIVE_READ_SCOPE_DECISION "
+    lines = [line[len(tag):] for line in comment.get("body", "").splitlines() if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096 and encoded(decode(lines[0])) == encoded(expected)
+            and isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
+            and comment["created_at"] == comment["updated_at"]
+            and utc("2026-10-18T01:22:41.190159+00:00") <= utc(comment["created_at"]) <= utc(),
+            "NATIVE_READ_SCOPE_PROOF")
+    return digest(encoded(dict(id=comment_id, updated_at=comment["updated_at"], body=comment["body"])))
 
 
 def native_read_control(value):
@@ -3033,9 +3096,13 @@ def native_read_control(value):
     require(isinstance(value["expected_master"], str) and re.fullmatch(r"[0-9a-f]{40}", value["expected_master"])
             and isinstance(value["nonce"], str) and re.fullmatch(PREFIX+r"[0-9a-f]{24}", value["nonce"]),
             "NATIVE_READ_SOURCE_NONCE")
-    # Connector calls are NOT wire bytes. Unknown costs remain pending and
-    # cannot silently become zero or be omitted from the shared remaining cap.
+    # The original metric is HTTP bodies plus per-Google-request overhead.
+    # Unmeasured connector costs need either evidence or an explicit narrow decision.
     pending = value["pending_external_read_accounting"]
+    if isinstance(pending, dict) and pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        native_read_scope_control(pending)
+        require(utc() < utc(CONTINUATION["first"])+timedelta(hours=48), "CAMPAIGN_EXPIRED")
+        return auth
     require(isinstance(pending, dict) and set(pending) == {"basis", "receipt_sha256", "usage", "reference"}
             and pending["basis"] == "VERIFIED_TRANSPORT_ACCOUNTING"
             and isinstance(pending["receipt_sha256"], str)
@@ -3053,8 +3120,10 @@ def native_read_control(value):
     return auth
 
 
-def native_read_pending_proof(pending):
+def native_read_pending_proof(pending, control=None):
     """Counter input is not evidence: require an immutable OWNER accounting record."""
+    if pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        return native_read_scope_proof(pending, control)
     comment_id = int(pending["reference"].rsplit("-",1)[1])
     comment = gh_json(f"repos/{REPO}/issues/comments/{comment_id}")
     require(comment.get("id") == comment_id and comment.get("author_association") == "OWNER"
@@ -3098,9 +3167,19 @@ def native_read_budget(observed, pending):
             and observed["first"] == utc(CONTINUATION["first"])
             and observed["used"] == dict(provider_gets=542,drive_requests=5269,drive_bytes=842810550,storage_bytes=79426031)
             and observed["active_seconds"] == 3769, "NATIVE_READ_CAPTURE_PREFIX")
-    require(all(observed["used"][k]+pending["usage"][k]+NATIVE_READ_ALLOWANCE[k] <= CONTINUED_LIMITS[k] for k in LIMITS)
+    controlled_used = dict(observed["used"])
+    if pending.get("basis") == NATIVE_READ_SCOPE_BASIS:
+        native_read_scope_control(pending)
+        budget_scope = "ORIGINAL17_AND_NEW_CONTROLLED_NATIVE_NOT_TOTAL_PLATFORM_COST"
+    else:
+        require(pending.get("basis") == "VERIFIED_TRANSPORT_ACCOUNTING", "NATIVE_READ_PENDING_COST_UNSETTLED")
+        controlled_used = {k: controlled_used[k]+pending["usage"][k] for k in LIMITS}
+        budget_scope = "INCLUDING_VERIFIED_EXTERNAL_ACCOUNTING"
+    require(all(controlled_used[k]+NATIVE_READ_ALLOWANCE[k] <= CONTINUED_LIMITS[k] for k in LIMITS)
             and len(observed["runs"])+1 <= 40 and observed["active_seconds"]+900 <= 43200,
             "NATIVE_READ_SHARED_BUDGET")
+    return dict(scope=budget_scope, controlled_used_before_native=controlled_used,
+        total_platform_cost_verified=False, external_diagnostics_status=pending.get("status", "VERIFIED_TRANSPORT_ACCOUNTING"))
 
 
 def native_read_source(expected_master):
@@ -3234,11 +3313,11 @@ def native_read_worker(control_path, state_dir):
             and os.getenv("INPUT_CAMPAIGN_NONCE") == control["nonce"]
             and os.getenv("GITHUB_SHA") == control["expected_master"], "NATIVE_READ_CONTEXT")
     source_pins = native_read_source(control["expected_master"])
-    pending_proof_sha = native_read_pending_proof(control["pending_external_read_accounting"])
+    pending_proof_sha = native_read_pending_proof(control["pending_external_read_accounting"], control)
     current = gh_json(f"repos/{REPO}/actions/runs/{int(os.environ['GITHUB_RUN_ID'])}")
     observed = external_history(auth, allow_stopped=True, native_read_run=current)
     pending = control["pending_external_read_accounting"]
-    native_read_budget(observed,pending)
+    budget_accounting = native_read_budget(observed,pending)
     jobs = gh_json(f"repos/{REPO}/actions/runs/{current['id']}/jobs?per_page=100")
     deadline = native_read_job_deadline(jobs,observed["first"])
     directory = Path(state_dir)
@@ -3248,6 +3327,7 @@ def native_read_worker(control_path, state_dir):
         parent_checkpoint_sha256=NATIVE_READ_CP,examined_before=76,failed_run_id=39085031884,
         failed_meter_sha256=NATIVE_READ_METER,pending_external_read_accounting=pending,
         pending_external_read_proof_sha256=pending_proof_sha,
+        budget_accounting=budget_accounting,
         capture_usage_before=observed["used"],active_seconds_reservation=900,dispatch_reservation=1,
         subsequent_capture_requires_separate_native_meter_settlement=True)
     meter = NativeReadMeter(NATIVE_READ_ALLOWANCE,directory/"native_read_meter.json",deadline.isoformat(),identity,

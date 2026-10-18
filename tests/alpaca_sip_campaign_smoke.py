@@ -3423,4 +3423,167 @@ class NativeRead39085031884Tests(unittest.TestCase):
         with self.assertRaisesRegex(c.Refused,'NATIVE_READ_JOB_CLOCK'):c.native_read_job_deadline(changed,first)
 
 
+class NativeReadExact6ScopeDecisionTests(unittest.TestCase):
+    """Focused policy-boundary counterexamples; fixtures issue no real decision."""
+    def setUp(self):
+        self.native=NativeRead39085031884Tests();self.native.setUp();self.addCleanup(self.native.doCleanups)
+        self.control=self.native.control
+        self.control['pending_external_read_accounting']=dict(basis=c.NATIVE_READ_SCOPE_BASIS,
+            observation_sha256=c.NATIVE_READ_OBSERVATION,status='UNKNOWN_NOT_ZERO',
+            usage=dict(provider_gets=0,storage_bytes=0,drive_requests=None,drive_bytes=None),
+            reference=self.native.base.reference,decision_sha256='0'*64)
+        self.refresh_decision()
+
+    def refresh_decision(self):
+        self.record=c.native_read_scope_record(self.control)
+        self.pending=self.control['pending_external_read_accounting']
+        self.pending['decision_sha256']=c.digest(c.encoded(self.record))
+        self.comment=dict(id=int(self.pending['reference'].rsplit('-',1)[1]),author_association='OWNER',
+            issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',user=dict(type='User'),
+            created_at='2026-10-18T01:30:00Z',updated_at='2026-10-18T01:30:00Z',
+            body='A1_SIP_NATIVE_READ_SCOPE_DECISION '+c.encoded(self.record).decode())
+
+    def proof(self,comment=None):
+        with patch.object(c,'gh_json',return_value=self.comment if comment is None else comment):
+            return c.native_read_pending_proof(self.pending,self.control)
+
+    def test_explicit_exact_decision_keeps_unknown_and_controlled_balance(self):
+        self.assertIs(c.native_read_control(self.control),self.control['authorization'])
+        self.assertRegex(self.proof(),r'^[0-9a-f]{64}$')
+        observed=self.native.observed();self.refresh_decision()
+        balance=c.native_read_budget(observed,self.pending)
+        self.assertEqual(balance['controlled_used_before_native'],observed['used'])
+        self.assertFalse(balance['total_platform_cost_verified'])
+        self.assertEqual(balance['external_diagnostics_status'],'UNKNOWN_NOT_ZERO')
+        self.assertIsNone(self.pending['usage']['drive_requests']);self.assertIsNone(self.pending['usage']['drive_bytes'])
+        self.assertEqual(self.record['native_dispatches'],1);self.assertEqual(self.record['native_active_seconds'],900)
+        self.assertEqual(self.record['unknown_storage_bytes_still_charged'],302101)
+
+    def test_unapproved_template_blocks_before_credentials_or_remote_call(self):
+        self.pending['decision_sha256']=None
+        p=self.native.base.root/'scope-control';p.write_bytes(c.encoded(self.control))
+        with patch.object(drive_module,'OwnerDrive',side_effect=AssertionError('NO_CREDENTIAL')) as owner, \
+             patch.object(c,'gh_json',side_effect=AssertionError('NO_REMOTE')),self.assertRaises(c.Refused):
+            c.native_read_worker(p,self.native.base.root/'scope-native')
+        owner.assert_not_called()
+
+    def test_missing_decision_observation_or_reference_is_rejected(self):
+        for key in tuple(self.pending):
+            changed=copy.deepcopy(self.control);del changed['pending_external_read_accounting'][key]
+            with self.subTest(key=key),self.assertRaises(c.Refused):c.native_read_control(changed)
+
+    def test_unknown_cannot_be_zero_verified_or_arbitrary_upper_bound(self):
+        for mutate in (lambda p:p['usage'].update(drive_requests=0),lambda p:p['usage'].update(drive_bytes=0),
+                lambda p:p['usage'].update(drive_requests=6,drive_bytes=2304),
+                lambda p:p['usage'].update(drive_requests=16,drive_bytes=16000000),
+                lambda p:p.update(status='VERIFIED_TRANSPORT_ACCOUNTING'),
+                lambda p:p.update(basis='VERIFIED_TRANSPORT_ACCOUNTING'),
+                lambda p:p.update(receipt_sha256='e'*64)):
+            changed=copy.deepcopy(self.control);mutate(changed['pending_external_read_accounting'])
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.native_read_control(changed)
+
+    def test_other_observation_and_other_six_calls_are_rejected(self):
+        changed=copy.deepcopy(self.control);changed['pending_external_read_accounting']['observation_sha256']='f'*64
+        with self.assertRaises(c.Refused):c.native_read_control(changed)
+        for key,value in [('observation_sha256','f'*64),('connector_calls',5),('connector_calls',7),
+                ('platform_materializations',0),('platform_materializations',2)]:
+            record=copy.deepcopy(self.record);record[key]=value
+            comment=copy.deepcopy(self.comment);comment['body']='A1_SIP_NATIVE_READ_SCOPE_DECISION '+c.encoded(record).decode()
+            self.pending['decision_sha256']=c.digest(c.encoded(record))
+            with self.subTest(key=key,value=value),self.assertRaises(c.Refused):self.proof(comment)
+
+    def test_owner_decision_is_immutable_actual_user_and_not_accounting_tag(self):
+        for mutate in (lambda x:x.update(author_association='MEMBER'),lambda x:x['user'].update(type='Bot'),
+                lambda x:x.update(id=99),lambda x:x.update(issue_url='https://api.github.com/repos/other/repo/issues/448'),
+                lambda x:x.update(updated_at='2026-10-18T01:31:00Z'),lambda x:x.pop('created_at'),
+                lambda x:x.update(created_at=None,updated_at=None),
+                lambda x:x.update(body=x['body'].replace('A1_SIP_NATIVE_READ_SCOPE_DECISION','A1_SIP_NATIVE_READ_ACCOUNTING')),
+                lambda x:x.update(body=x['body']+'\n'+x['body'])):
+            changed=copy.deepcopy(self.comment);mutate(changed)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):self.proof(changed)
+
+    def test_policy_signature_cannot_rewrite_failure_owner_source_checkpoint_or_caps(self):
+        mutations=[('failed_run_id',39085031885),('failed_meter_sha256','0'*64),('prior_auth_sha256','0'*64),
+            ('checkpoint_sha256','0'*64),('owner_sha256','0'*64),('expected_master','5'*40),
+            ('nonce',c.PREFIX+'b'*24),('first_canonical_utc','2026-10-18T01:30:00Z'),
+            ('expires_at_utc','2099-01-01T00:00:00Z'),('original_receipts',16),
+            ('unknown_storage_bytes_still_charged',0),('original_dispatch_cap',41),
+            ('original_active_seconds_cap',43201),('native_dispatches',2),('native_active_seconds',901),
+            ('budget_reset',True),('capture_authorized',True),('provider_get_authorized',True),
+            ('drive_data_write_authorized',True),('failed_post_retry_authorized',True),
+            ('extra_payment_authorized',True),('subsequent_native_settlement_required',False),
+            ('budget_scope','ALL_PLATFORM_COST_VERIFIED'),('decision','PENDING')]
+        for key,value in mutations:
+            record=copy.deepcopy(self.record);record[key]=value
+            comment=copy.deepcopy(self.comment);comment['body']='A1_SIP_NATIVE_READ_SCOPE_DECISION '+c.encoded(record).decode()
+            self.pending['decision_sha256']=c.digest(c.encoded(record))
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.proof(comment)
+
+    def test_policy_cannot_invent_controlled_totals_or_increase_allowance(self):
+        for field,key,value in [('controlled_capture_usage','drive_requests',0),
+                ('controlled_capture_usage','drive_bytes',842810549),('controlled_capture_usage','storage_bytes',0),
+                ('native_allowance','provider_gets',1),('native_allowance','drive_requests',17),
+                ('native_allowance','drive_bytes',16000001),('native_allowance','storage_bytes',1),
+                ('original_limits','drive_requests',50001),('past_diagnostics_usage','drive_bytes',0)]:
+            record=copy.deepcopy(self.record);record[field][key]=value
+            comment=copy.deepcopy(self.comment);comment['body']='A1_SIP_NATIVE_READ_SCOPE_DECISION '+c.encoded(record).decode()
+            self.pending['decision_sha256']=c.digest(c.encoded(record))
+            with self.subTest(field=field,key=key),self.assertRaises(c.Refused):self.proof(comment)
+
+    def test_original_authorization_and_expiry_cannot_be_reset(self):
+        changed=copy.deepcopy(self.control);changed['authorization']['limits']['drive_requests']+=1
+        with self.assertRaises(c.Refused):c.native_read_control(changed)
+        old=c.utc
+        with patch.object(c,'utc',side_effect=lambda v=None:old(v) if v is not None else old(c.CONTINUATION['first'])+timedelta(hours=48)), \
+             self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):c.native_read_control(self.control)
+
+    def test_budget_resets_extra_receipt_or_bad_sum_are_rejected(self):
+        observed=self.native.observed();self.refresh_decision()
+        for mutate in (lambda x:x['runs'].append(dict(id=999)),lambda x:x['runs'][-1].update(id=999),
+                lambda x:x['used'].update(drive_requests=0),lambda x:x['used'].update(drive_bytes=842810549),
+                lambda x:x['used'].update(storage_bytes=x['used']['storage_bytes']-302101),
+                lambda x:x.update(active_seconds=0),lambda x:x.update(first=c.utc()),
+                lambda x:x.update(parent_sha='0'*64)):
+            changed=copy.deepcopy(observed);mutate(changed)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):c.native_read_budget(changed,self.pending)
+        with patch.dict(c.CONTINUED_LIMITS,drive_requests=5284),self.assertRaisesRegex(c.Refused,'NATIVE_READ_SHARED_BUDGET'):
+            c.native_read_budget(observed,self.pending)
+
+    def test_exact_decision_does_not_enable_provider_or_drive_post(self):
+        self.assertRegex(self.proof(),r'^[0-9a-f]{64}$')
+        opener=Opener(b'{}');meter=self.native.meter(opener)
+        for url,provider in [('https://data.alpaca.markets/v2/stocks/bars',True),
+                ('https://www.googleapis.com/drive/v3/files',False)]:
+            with self.subTest(url=url),self.assertRaisesRegex(c.Refused,'NATIVE_READ_ENDPOINT'):
+                meter.perform(url,provider=provider,method='POST',body=b'{}',limit=1024)
+        self.assertEqual(meter.used['provider_gets'],0);self.assertEqual(meter.used['drive_requests'],0)
+        with self.assertRaises(c.Refused):meter.reserve_storage(1)
+
+    def test_worker_uses_real_scope_proof_and_meter_preserving_unknown(self):
+        observed=self.native.observed();self.native.a.update(self.native.read_auth);self.refresh_decision()
+        patch.object(c,'validate_authorization',return_value=c.NATIVE_READ_AUTH).start()
+        server=self.native.server();p=self.native.base.root/'scope-control';p.write_bytes(c.encoded(self.control))
+        def metadata(path):
+            if '/issues/comments/' in path:return self.comment
+            if '/jobs?' in path:return dict(total_count=2,jobs=[dict(name='offline',status='completed'),
+                dict(name='reconcile',status='in_progress',started_at=c.utc().isoformat())])
+            return dict(id=12345,run_attempt=1)
+        original=c.NativeReadMeter
+        with patch.dict(os.environ,self.native.env,clear=True),patch.object(c,'gh_json',side_effect=metadata), \
+             patch.object(c,'native_read_source',return_value={'SYNTHETIC_OFFLINE_SOURCE':'a'*64}), \
+             patch.object(c,'external_history',return_value=observed), \
+             patch.object(c,'NativeReadMeter',side_effect=lambda *a,**kw:original(*a,opener=server,**kw)), \
+             patch('sys.stdout',new=io.StringIO()):
+            c.native_read_worker(p,self.native.base.root/'scope-native')
+        result=c.bounded_json(self.native.base.root/'scope-native/native_read_meter.json')
+        self.assertTrue(result['finalized']);self.assertEqual(result['status'],'COMPLETE')
+        self.assertEqual(result['usage']['drive_requests'],7)
+        self.assertEqual(result['usage']['provider_gets'],0);self.assertEqual(result['usage']['storage_bytes'],0)
+        self.assertIsNone(result['pending_external_read_accounting']['usage']['drive_bytes'])
+        self.assertFalse(result['budget_accounting']['total_platform_cost_verified'])
+        self.assertEqual(result['budget_accounting']['controlled_used_before_native'],observed['used'])
+        self.assertTrue(result['subsequent_capture_requires_separate_native_meter_settlement'])
+        self.assertFalse(result['capture_allowed']);self.assertEqual(result['dispatch_reservation'],1)
+
+
 if __name__=='__main__': unittest.main()
