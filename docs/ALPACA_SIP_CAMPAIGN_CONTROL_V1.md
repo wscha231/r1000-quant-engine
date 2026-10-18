@@ -1,5 +1,96 @@
 # Finite private SIP campaign control
 
+## Sealed native18 accounting and four uncertain-storage holds (candidate)
+
+This contract prepares one reviewed successor for failed run39085031884 and
+the completed read-only run39103855450. Preparation, tests, CI, a Draft PR and
+independent QA do not activate the policy, deploy source or authorize a data
+request. Protected deployment, actual accounting/activation and the concrete
+four-name hold policy still require their own final execution decision.
+
+The failure ended at CP76 efcea335 with302101B of unconfirmed storage still
+charged. Its failed meter231d2568 records CREATE/POST/HEADER_OPEN502, ordinal265.
+The native meter5ee2027e has its own schema and sourcea549c27b. It verifies the
+actual owner and positive-control checkpoint, reports candidate0, and explicitly
+retains absence=false and failed-body-hash=false. It spends Google8/529014B
+(4726 body bytes plus8*65536 overhead), provider0/storage0 and one dispatch.
+Actual job time is84+78=162s, distinct from its900s reservation. The older exact6
+diagnostic costs remain UNKNOWN_NOT_ZERO; total platform cost is not certified.
+
+After a separately reviewed Source deployment, the local controller's isolated
+`--native18-settle-authorization` mode accepts only the original141bcf85
+authorization and existing global/cohort/family roots. It also requires
+`--native18-deployed-master`, the unchanged cohort CSV and predispatch bundle.
+It verifies protected deployed/local6pins, all17 original receipts, the exact
+completed native18 artifact/run/jobs and the original clocks/caps/owner/CP.
+It takes the same global -> shared-family -> cohort locks. This mode has no
+provider/Drive client, price collector, nonce generation or dispatch path.
+
+Only shared event38 `NATIVE_READ_SETTLED` may follow the actual37-event family
+prefix27768663. It contains the exact native meter/source/proof/costs, original
+capture identity and the Source/pins that perform the import. No historical
+RESERVED, fake capture meter or capture SETTLED is manufactured. Only a durable
+fsynced valid append releases900 reserved seconds to162 actual seconds. An
+identical reopen verifies that same event; duplicate, foreign, noncanonical,
+changed or partial bytes refuse. Accounting may close after expiry; new
+reservations and activation cannot renew or extend the original48h window.
+Original17-event global and10-event CP76 cohort bytes are not rewritten.
+
+Freeze the actual event before producing a new immutable OWNER activation.
+The v5 external authorization adds only `native18_recovery`, containing the
+actual `settlement_sha256`; shared old fields and the sealed source delta
+reconstruct unchanged141bcf85. Keep the15000-byte authorization and16384-byte
+worker control caps. The OWNER comment contains the usual exact
+`A1_SIP_EXTERNAL_COHORT_CONSENT` and one `A1_SIP_NATIVE18_SETTLEMENT` line with
+the real event. Its event hash, Source/pins, native identity and creation clock
+must match the physical shared journal and precede the immutable consent.
+This ordering avoids predicting an event hash or a self-referential proof.
+There is no v5 execution authority before those actual records exist.
+
+The regular host verifies that physical event and preserves all18 canonical
+run identities, native costs, time and dispatch. The native artifact has a
+separate typed slot, not a capture-shaped substitute or an ignored run. Source
+v1..v4 still refuse native18. The current cohort adds only sealed event11
+`EXTERNAL_NATIVE18_RECOVERY_BOUND` after prefix33bf9344; old recovery keys
+for39023083535/39032304843/39058081878 cannot be reused or generalized.
+
+The first named successor explicitly uses `--recovery-run 39085031884`
+and `--max-batches 1`, exactly four names at positions76..79:
+VLO/MFG/BP/BTI. It performs no provider asset/bar request. The existing collector
+persists only a new typed `HELD_UNCERTAIN_STORAGE` marker and a successor
+checkpoint, with independent content/hash/semantic readback. It never generates
+or persists the unknown old ZIP, normalized gzip or capture receipt. A fresh raw
+wrapper alone would not make a deterministic normalized body different; the
+typed hold avoids that retry altogether.
+
+The marker binds the exact failed/native meters, native source, owner, scope,
+input, CP76, four ordered positions, actual recovery run and new authorization,
+consent and native-settlement hashes. It preserves302101B and both unknown
+flags. Its no-price field describes the marker, not an assertion that the old
+Drive object is absent. Emission, controller readback and recursive restore all
+recognize this distinct type; BAR_VALUE and unsupported-asset reasons are not
+relabelled. Unknown/missing/edited/misordered proofs fail closed.
+
+If the future first successor succeeds, examined becomes80, VALID remains76,
+QUARANTINED becomes4, new price rows/no-data/provider GETs are0. No CP80 hash or
+actual held status exists merely from this candidate. A later ordinary batch
+starts at SPGI, position80, using the same fixed queue and original timeframe.
+Existing verified raw/split and older marker restore remain compatible. A new
+failure, including an uncertain new marker/checkpoint CREATE, is terminal;
+neither the original sealed key nor a different nonce grants another retry.
+
+Keep original first2026-10-17T02:08:51Z and expiry2026-10-19T02:08:51Z,
+2000provider/50000Google/9GiB transfer/1GiB storage/12h active/40dispatch.
+No302101B refund, budget reset, new account, altered seed or data overwrite.
+All Source/PIT/historical-identity/commercial/economic flags remain false.
+An alternative recovery of actual old body/hash/object requires a separately
+bounded evidence-read scope; this candidate does not execute that search.
+
+Operational lesson: typed diagnostic accounting and an unresolved storage
+disposition are separate. Neither zero search results nor green CI supplies
+missing originals. A new hold type must agree across collector, restore,
+controller counters and canonical history before later names can advance.
+
 ## Separate external discovery input (same finite resource family)
 
 `r1000-sip-external-cohort-authorization-v1` adds a bounded ticker-only CSV

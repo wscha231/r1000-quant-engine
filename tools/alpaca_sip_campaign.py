@@ -109,6 +109,31 @@ AUTH_FIELDS = {"schema", "task_key", "scope_approved", "private_noncommercial", 
                "owner_permission_id", "credential_binding"}
 
 
+# Only the observed CP76 failure and completed native18 diagnostic.
+# No other failure/diagnostic can acquire this recovery through caller values.
+NATIVE18_RECOVERY = dict(
+    prior_auth="141bcf8526425244821b2e940d01fced58ff3e64e9237dffd69e9d558131c7cb",
+    run_id=39085031884,
+    receipt_sha256="231d256890c209ef5dace024a25cfafc5d6a8714abded3a8cca76f2752818814",
+    checkpoint_sha256="efcea3356688118392fa71612ee2702c4b9ea436ad88bdfdab917ef60e373cfd",
+    examined=76, events=10, family_events=37, batch=4,
+    cohort_event_sha256="33bf934452e7cb1b7833dc229cf701595bf84920f1a727f4df6a325f4572c1a8",
+    family_event_sha256="27768663a7aea5f16c104071202ab32701e1e8ff17dc7f6380a6eeff3a76664b")
+NATIVE18_RUN = 39103855450
+NATIVE18_MASTER = "a549c27b1cdd002bdaaa7dd6ab5dfc44fef0aaad"
+NATIVE18_METER = "5ee2027eb33a6f271aa8cf96c35763e71b49e23ac9eb8517541ecf6a8556c18e"
+NATIVE18_USAGE = dict(provider_gets=0,drive_requests=8,drive_bytes=529014,storage_bytes=0)
+NATIVE18_CAPTURE_USED = dict(provider_gets=542,drive_requests=5269,drive_bytes=842810550,storage_bytes=79426031)
+NATIVE18_PRIOR_SOURCE = {'code_pins': {'.github/workflows/alpaca_sip_private_backfill_v1.yml': 'c3d9d526ec102d43f00f8785c872bd70f28c1ea75f78bf3469930f2dca00d4b3',
+               'tools/alpaca_sip_campaign.py': 'f766a4a5582a01b2dfebeaebb30582e7904cbd74049b691933b3ebaa65542b55',
+               'tools/alpaca_sip_private_backfill_v1.py': '229fffc8f6fda45fe228efa81b58b71908070b3979aee74d37665d4a1aacacf7',
+               'tools/configure_macro_research_drive.py': '51c6210ae63f4e7522d5d73d8eb90c5c03348736a9638461772d116fcf51d2fc',
+               'tools/macro_history_sources.py': '029ae7337618211c1520adc78c9199831ed739918070c6b29204e9110aa9ab08',
+               'tools/twelve_private_capture.py': '2cfe64847cb6a9d4777247968832dbdf5737eafc1ed5f47a2e7b6877bc27bdac'},
+ 'expected_master': 'b268ef972b3f157501e489ab4d1ba67fe9dfd874',
+ 'proof_reference': 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6243829364'}
+
+
 def utc(value=None):
     if value is None:
         return datetime.now(timezone.utc)
@@ -175,10 +200,12 @@ def validate_authorization(auth):
     revised = external and isinstance(auth["external_cohort"], dict) and "named_recovery" in auth["external_cohort"]
     drive_revised = revised and "drive_recovery" in auth["external_cohort"]
     material_revised = drive_revised and "materialization_recovery" in auth["external_cohort"]
+    native_revised = external and isinstance(auth["external_cohort"], dict) and "native18_recovery" in auth["external_cohort"]
     require(not (continued and external), "CAMPAIGN_AUTHORIZATION")
     require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | (
             {"external_cohort"} if external else {"continuation"} if continued else set())
-            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v4" if material_revised else
+            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v5" if native_revised else
+                                       "r1000-sip-external-cohort-authorization-v4" if material_revised else
                                        "r1000-sip-external-cohort-authorization-v3" if drive_revised else
                                        "r1000-sip-external-cohort-authorization-v2" if revised else
                                        "r1000-sip-external-cohort-authorization-v1" if external else
@@ -989,7 +1016,7 @@ class WorkJournal:
     a complete rollback to an older valid prefix.
     """
     def __init__(self, directory, auth_hash, recovery=None, continuation=None, revision=None, drive_revision=None,
-                 material_revision=None):
+                 material_revision=None, native_revision=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -1011,6 +1038,7 @@ class WorkJournal:
         self.revision = revision
         self.drive_revision = drive_revision
         self.material_revision = material_revision
+        self.native_revision = native_revision
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -1018,7 +1046,9 @@ class WorkJournal:
                 raw = bounded_bytes(path)
                 entry = decode(raw)
                 require(entry.get("previous_sha256") == self.parent
-                        and entry.get("auth_sha256") == (recovery["binding"]["prior_auth_sha256"]
+                        and entry.get("auth_sha256") == (NATIVE18_RECOVERY["prior_auth"]
+                            if native_revision and index <= NATIVE18_RECOVERY["events"] else
+                            recovery["binding"]["prior_auth_sha256"]
                             if recovery is not None and index == 1 else
                             CONTINUATION["auth"] if continuation and index <= CONTINUATION["events"] else
                             NAMED_RECOVERY["prior_auth"] if revision and index <= NAMED_RECOVERY["events"] else
@@ -1073,6 +1103,19 @@ class WorkJournal:
                             and utc(material_revision["proof_updated_utc"]) <= utc(entry["recorded_utc"])
                                 < utc(material_revision["expires_at_utc"])
                             and utc(entry["recorded_utc"]) <= utc(), "EXTERNAL_MATERIAL_BINDING")
+                if native_revision and index == NATIVE18_RECOVERY["events"]:
+                    require(self.parent == NATIVE18_RECOVERY["cohort_event_sha256"]
+                            and entry.get("kind") == "SETTLED" and entry.get("run_id") == NATIVE18_RECOVERY["run_id"]
+                            and entry.get("receipt_sha256") == NATIVE18_RECOVERY["receipt_sha256"],
+                            "EXTERNAL_NATIVE18_PREFIX")
+                if native_revision and index == NATIVE18_RECOVERY["events"]+1:
+                    require(raw == encoded(entry) and entry.get("kind") == "EXTERNAL_NATIVE18_RECOVERY_BOUND"
+                            and set(entry) == {"sequence","kind","auth_sha256","previous_sha256","recorded_utc"}|set(native_revision)
+                            and all(entry.get(k) == v for k,v in native_revision.items())
+                            and isinstance(entry.get("recorded_utc"),str)
+                            and utc(native_revision["proof_updated_utc"]) <= utc(entry["recorded_utc"])
+                                < utc(native_revision["expires_at_utc"])
+                            and utc(entry["recorded_utc"]) <= utc(), "EXTERNAL_NATIVE18_BINDING")
                 if continuation and index == CONTINUATION["events"]:
                     require(self.parent == CONTINUATION["event"] and entry.get("kind") == "SETTLED",
                             "CAMPAIGN_CONTINUATION_PREFIX")
@@ -1084,6 +1127,8 @@ class WorkJournal:
                             and utc(continuation["proof_updated_utc"]) <= utc(entry["recorded_utc"])
                                 < utc(continuation["expires_at_utc"])
                             and utc(entry["recorded_utc"]) <= utc(), "CAMPAIGN_CONTINUATION_DRIFT")
+            if native_revision:
+                require(len(self.entries) >= NATIVE18_RECOVERY["events"], "EXTERNAL_NATIVE18_PREFIX")
             if continuation:
                 require(recovery is not None and len(self.entries) >= CONTINUATION["events"],
                         "CAMPAIGN_CONTINUATION_PREFIX")
@@ -1145,6 +1190,12 @@ class WorkJournal:
                     and self.parent == MATERIALIZATION_RECOVERY["cohort_event_sha256"]
                     and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"])
                         < utc(data["expires_at_utc"]), "EXTERNAL_MATERIAL_BINDING")
+        if kind == "EXTERNAL_NATIVE18_RECOVERY_BOUND":
+            require(self.native_revision is not None and data == self.native_revision
+                    and len(self.entries) == NATIVE18_RECOVERY["events"]
+                    and self.parent == NATIVE18_RECOVERY["cohort_event_sha256"]
+                    and utc(data["proof_updated_utc"]) <= utc(entry["recorded_utc"]) < utc(data["expires_at_utc"]),
+                    "EXTERNAL_NATIVE18_BINDING")
         raw = encoded(entry)
         require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
         path = self.directory / f"{entry['sequence']:06d}.json"
@@ -1325,13 +1376,14 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
         meter.states["VALID_COLLECTED"] += len(receipt["collected"])
         meter.states["VERIFIED_NO_DATA"] += len(receipt["no_bars"])
     else:
-        require(state["last_status"] in (("HELD_BAR_VALUE", "HELD_PROVIDER_ASSET") if scope else ("HELD_BAR_VALUE",))
+        require(state["last_status"] in (("HELD_BAR_VALUE", "HELD_PROVIDER_ASSET", "HELD_UNCERTAIN_STORAGE") if scope else ("HELD_BAR_VALUE",))
                 and len(objects) == 1,
                 "CAMPAIGN_GROUP_STATUS")
         marker = decode(cap._private_object(drive, folder, objects[0]))
         asset_hold = state["last_status"] == "HELD_PROVIDER_ASSET"
+        storage_hold = state["last_status"] == "HELD_UNCERTAIN_STORAGE"
         require(marker.get("status") == state["last_status"]
-                and marker.get("reason") == ("PROVIDER_ASSET_UNAVAILABLE" if asset_hold else "BAR_VALUE")
+                and marker.get("reason") == ("DRIVE_CREATE_OUTCOME_UNKNOWN" if storage_hold else "PROVIDER_ASSET_UNAVAILABLE" if asset_hold else "BAR_VALUE")
                 and marker.get("symbols") == state["last_held"]
                 and marker.get("source_sha") == os.environ["GITHUB_SHA"]
                 and marker.get("seed_sha256") == (scope["input_sha256"] if scope else SEED_SHA)
@@ -1339,6 +1391,18 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
                 and marker.get("start") == "2016-01-04" and marker.get("end") == "2026-10-14"
                 and marker.get("original_price_bytes_retained") is False,
                 "CAMPAIGN_HELD_MARKER")
+        if storage_hold:
+            cap.verify_storage_hold(marker,state)
+            evidence = marker["uncertain_storage"]
+            require(meter.examined == NATIVE18_RECOVERY["examined"]
+                    and meter.identity.get("recovery_run") == NATIVE18_RECOVERY["run_id"]
+                    and evidence["authorization_sha256"] == meter.identity.get("auth_sha256")
+                    and evidence["external_proof_sha256"] == meter.identity.get("external_proof_sha256")
+                    and evidence["native_settlement_sha256"] == meter.identity.get("native18_settlement_sha256")
+                    and evidence["recovery_run_id"] == meter.identity.get("run_id"),
+                    "EXTERNAL_NATIVE18_HELD")
+            meter.identity["uncertain_storage_hold"] = dict(evidence=evidence,
+                marker_sha256=objects[0]["sha256"],checkpoint_sha256=checkpoint["sha256"])
         if asset_hold:
             cap.verify_asset_evidence(marker.get("asset_precheck"), state["last_held"])
             require(all(not cap.asset_supported(row) for row in marker["asset_precheck"]),
@@ -1858,11 +1922,13 @@ def validate_external_authorization(auth):
     revised = isinstance(ex, dict) and "named_recovery" in ex
     drive_revised = isinstance(ex, dict) and "drive_recovery" in ex
     material_revised = isinstance(ex, dict) and "materialization_recovery" in ex
+    native_revised = isinstance(ex, dict) and "native18_recovery" in ex
     require(isinstance(ex, dict) and set(ex) == {"scope", "input_csv", "intake_manifest_sha256",
             "receipt_dedupe_sha256", "prior_authorization", "prior_epochs", "proof_reference"}
             | ({"named_recovery"} if revised else set())
             | ({"drive_recovery"} if drive_revised else set())
-            | ({"materialization_recovery"} if material_revised else set()), "EXTERNAL_AUTHORIZATION")
+            | ({"materialization_recovery"} if material_revised else set())
+            | ({"native18_recovery"} if native_revised else set()), "EXTERNAL_AUTHORIZATION")
     scope = cap.external_scope(ex["scope"])
     require(isinstance(ex["input_csv"], str), "EXTERNAL_COHORT_SCHEMA")
     raw = ex["input_csv"].encode("utf-8")
@@ -1903,7 +1969,22 @@ def validate_external_authorization(auth):
     require(set(names).isdisjoint(cap.cohort(cap.SEED.read_bytes())[:CONTINUATION["examined"]]),
             "EXTERNAL_RECOLLECTION")
     require(len(encoded(auth)) <= 15000, "CAMPAIGN_CONTROL_SIZE")
-    if material_revised:
+    if native_revised:
+        previous = external_previous(auth)
+        require(isinstance(ex["native18_recovery"],dict) and set(ex["native18_recovery"]) == {"settlement_sha256"}
+                and isinstance(ex["native18_recovery"]["settlement_sha256"],str)
+                and re.fullmatch(r"[0-9a-f]{64}",ex["native18_recovery"]["settlement_sha256"])
+                and not (revised or drive_revised or material_revised)
+                and len(ex["prior_epochs"]) == 1
+                and scope == dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
+                    namespace="top500-20261017",
+                    input_sha256=cap.STORAGE_QUARANTINE["input_sha256"])
+                and len(names) == 417 and names[76:80] == ["VLO","MFG","BP","BTI"]
+                and validate_authorization(previous) == NATIVE18_RECOVERY["prior_auth"]
+                and auth["expected_master"] not in (previous["expected_master"], NATIVE18_MASTER)
+                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
+                "EXTERNAL_NATIVE18_RECOVERY")
+    elif material_revised:
         recovery = ex["materialization_recovery"]
         require(drive_revised and revised and isinstance(recovery, dict) and set(recovery) ==
                 {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
@@ -1974,6 +2055,14 @@ def external_previous(auth):
     deduplication keeps a later top500 wrapper below the unchanged control cap.
     """
     ex = auth["external_cohort"]
+    if "native18_recovery" in ex:
+        old_ex = {k:v for k,v in ex.items() if k != "native18_recovery"}
+        old_ex["proof_reference"] = NATIVE18_PRIOR_SOURCE["proof_reference"]
+        return dict(auth, schema="r1000-sip-external-cohort-authorization-v1",
+                    expected_master=NATIVE18_PRIOR_SOURCE["expected_master"],
+                    code_pins=NATIVE18_PRIOR_SOURCE["code_pins"],
+                    account_permission_reference=NATIVE18_PRIOR_SOURCE["proof_reference"],
+                    external_cohort=old_ex)
     material_revised = "materialization_recovery" in ex
     drive_revised = "drive_recovery" in ex
     field = "materialization_recovery" if material_revised else "drive_recovery" if drive_revised else "named_recovery"
@@ -1989,7 +2078,7 @@ def external_previous(auth):
 
 def external_variants(auth):
     named = auth["external_cohort"].get("named_recovery")
-    return external_variants(external_previous(auth)) + [auth] if named else [auth]
+    return external_variants(external_previous(auth)) + [auth] if named or "native18_recovery" in auth["external_cohort"] else [auth]
 
 
 def external_recoveries(auth):
@@ -2000,6 +2089,8 @@ def external_recoveries(auth):
         result.append(DRIVE_RECOVERY)
     if "materialization_recovery" in ex:
         result.append(MATERIALIZATION_RECOVERY)
+    if "native18_recovery" in ex:
+        result.append(NATIVE18_RECOVERY)
     return result
 
 
@@ -2012,7 +2103,7 @@ def external_revision(auth, proof):
 
 
 def external_journal(directory, auth, proof, *, epoch_proofs=None):
-    revisions = []
+    revisions, native_revision = [], None
     versions = external_variants(auth)
     for version, spec in zip(versions[1:], external_recoveries(auth)):
         if version is auth:
@@ -2023,19 +2114,29 @@ def external_journal(directory, auth, proof, *, epoch_proofs=None):
             require(isinstance(epoch_proofs, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
             version_proof = epoch_proofs.get(validate_authorization(version))
             require(isinstance(version_proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
-        revisions.append(dict(prior_auth_sha256=spec["prior_auth"], failed_run_id=spec["run_id"],
+        item = dict(prior_auth_sha256=spec["prior_auth"], failed_run_id=spec["run_id"],
             failed_receipt_sha256=spec["receipt_sha256"], checkpoint_sha256=spec["checkpoint_sha256"],
-            examined=spec["examined"], **version_proof))
+            examined=spec["examined"], **version_proof)
+        if spec is NATIVE18_RECOVERY:
+            native_revision = dict(item,native_meter_sha256=NATIVE18_METER,
+                native_settlement_sha256=auth["external_cohort"]["native18_recovery"]["settlement_sha256"])
+        else:
+            revisions.append(item)
     revision, drive_revision, material_revision = (revisions+[None]*3)[:3]
     if revision:
         require(Path(directory).is_dir() and not Path(directory).is_symlink()
                 and (Path(directory)/f"{NAMED_RECOVERY['events']:06d}.json").is_file(), "EXTERNAL_RECOVERY_PREFIX")
+    if native_revision:
+        require(Path(directory).is_dir() and not Path(directory).is_symlink()
+                and (Path(directory)/f"{NATIVE18_RECOVERY['events']:06d}.json").is_file(),
+                "EXTERNAL_NATIVE18_PREFIX")
     return WorkJournal(directory, validate_authorization(auth), revision=revision,
-                       drive_revision=drive_revision, material_revision=material_revision)
+                       drive_revision=drive_revision, material_revision=material_revision, native_revision=native_revision)
 
 
 def active_external_revision(journal):
-    for field, spec, kind in (("material_revision", MATERIALIZATION_RECOVERY, "EXTERNAL_MATERIALIZATION_BOUND"),
+    for field, spec, kind in (("native_revision", NATIVE18_RECOVERY, "EXTERNAL_NATIVE18_RECOVERY_BOUND"),
+                             ("material_revision", MATERIALIZATION_RECOVERY, "EXTERNAL_MATERIALIZATION_BOUND"),
                              ("drive_revision", DRIVE_RECOVERY, "EXTERNAL_DRIVE_RECOVERY_BOUND"),
                              ("revision", NAMED_RECOVERY, "EXTERNAL_RECOVERY_BOUND")):
         value = getattr(journal, field, None)
@@ -2052,6 +2153,10 @@ def named_failed_receipt(run, value, auth):
             and digest(encoded(value)) == spec["receipt_sha256"]
             and value.get("checkpoint_sha256") == spec["checkpoint_sha256"]
             and value.get("examined_after") == spec["examined"])
+        if matched and spec is NATIVE18_RECOVERY:
+            require(value.get("last_transport_failure") == dict(http_status=502,method="POST",
+                phase="HEADER_OPEN",request_category="DRIVE_CREATE",request_ordinal=265),
+                "EXTERNAL_NATIVE18_FAILURE_DIAGNOSTIC")
         if matched and spec is DRIVE_RECOVERY:
             require(value.get("last_transport_failure") == dict(http_status=502, method="POST",
                 phase="HEADER_OPEN", request_category="DRIVE_CREATE", request_ordinal=343),
@@ -2098,6 +2203,19 @@ def external_proof_record(auth):
             recovery_dispatch_limit=1, first_recovery_batch_limit=9,
             normalized_only_derivation=True, original_create_outcome_unknown=True,
             request_sha256=spec["request_sha256"]))
+    if "native18_recovery" in ex:
+        result["native18_recovery"] = dict(
+            failed_run_id=NATIVE18_RECOVERY["run_id"],
+            failed_meter_sha256=NATIVE18_RECOVERY["receipt_sha256"],
+            native_run_id=NATIVE18_RUN, native_meter_sha256=NATIVE18_METER,
+            native_source_sha=NATIVE18_MASTER, checkpoint_sha256=NATIVE18_RECOVERY["checkpoint_sha256"],
+            policy="HOLD_EXACT4_UNCERTAIN_STORAGE", symbols=["VLO","MFG","BP","BTI"],
+            unknown_storage_bytes_still_charged=302101, absence_proven=False,
+            failed_request_body_hash_known=False, old_post_retry_authorized=False,
+            native_usage=NATIVE18_USAGE, native_job_seconds=162, native_reserved_seconds=900,
+            native_dispatches=1, first_recovery_batch_limit=4, recovery_dispatch_limit=1,
+            past_diagnostics_status="UNKNOWN_NOT_ZERO", total_platform_cost_verified=False,
+            settlement_sha256=ex["native18_recovery"]["settlement_sha256"])
     return result
 
 
@@ -2118,6 +2236,8 @@ def external_proof(auth):
     require(len(lines) == 1 and len(lines[0]) <= 4096, "EXTERNAL_PROOF")
     record = decode(lines[0])
     require(isinstance(record, dict) and encoded(record) == encoded(expected), "EXTERNAL_PROOF")
+    if "native18_recovery" in auth["external_cohort"]:
+        native18_consent_event(auth,comment)
     created, updated = utc(comment.get("created_at")), utc(comment.get("updated_at"))
     require(utc(CONTINUATION["first"]) <= created <= updated <= utc()
             and updated < utc(expected["expires_at_utc"]), "EXTERNAL_PROOF_CLOCK")
@@ -2128,20 +2248,192 @@ def external_proof(auth):
                 expires_at_utc=expected["expires_at_utc"])
 
 
-def external_batch(examined, count):
+def external_batch(examined, count, auth=None):
     integer(examined, count)
+    if auth and "native18_recovery" in auth["external_cohort"] and examined == 76:
+        require(count == 417, "EXTERNAL_NATIVE18_RECOVERY")
+        return 4
     require(examined < count <= 500, "EXTERNAL_COHORT_COMPLETE")
     return min(32, count-examined, 128-(examined % 128))
 
 
+def validate_native18_evidence(run, value, jobs):
+    """Validate the exact completed diagnostic, never a capture-shaped substitute."""
+    require(isinstance(value, dict) and digest(encoded(value)) == NATIVE18_METER
+            and value.get("schema") == "a1-native-drive-read-meter-v1"
+            and value.get("run_id") == NATIVE18_RUN and type(value.get("run_id")) is int
+            and value.get("run_attempt") == 1 and value.get("source_sha") == NATIVE18_MASTER
+            and value.get("finalized") is True and value.get("status") == "COMPLETE"
+            and value.get("usage") == NATIVE18_USAGE
+            and all(type(v) is int for v in value["usage"].values())
+            and value.get("observed_google_body_bytes") == 4726
+            and value.get("transfer_definition") == METRIC
+            and value.get("active_seconds_reservation") == 900 and value.get("dispatch_reservation") == 1
+            and value.get("failed_run_id") == NATIVE18_RECOVERY["run_id"]
+            and value.get("failed_meter_sha256") == NATIVE18_RECOVERY["receipt_sha256"]
+            and value.get("parent_checkpoint_sha256") == NATIVE18_RECOVERY["checkpoint_sha256"]
+            and value.get("examined_before") == 76
+            and value.get("pending_external_read_proof_sha256") ==
+                "e25fca3a43a14d8d44b6615a758cce55fd8c665dbafd6bf653b639a6d3400b1d"
+            and value.get("result") == dict(positive_control_verified=True, files_count=1, candidate_count=0,
+                owner_sha256=CONTINUATION["bindings"]["owner_sha256"],
+                absence_proven=False, failed_request_body_hash_known=False)
+            and all(value.get(k) is False for k in
+                    ("capture_allowed", "source_admission", "pit_verified", "economic_authority"))
+            and value.get("subsequent_capture_requires_separate_native_meter_settlement") is True,
+            "EXTERNAL_NATIVE18_METER")
+    pending = value.get("pending_external_read_accounting")
+    require(isinstance(pending, dict) and pending.get("basis") == NATIVE_READ_SCOPE_BASIS
+            and pending.get("status") == "UNKNOWN_NOT_ZERO"
+            and pending.get("usage") == dict(provider_gets=0,storage_bytes=0,drive_requests=None,drive_bytes=None),
+            "EXTERNAL_NATIVE18_UNKNOWN")
+    require(run.get("id") == NATIVE18_RUN and type(run.get("id")) is int
+            and run.get("run_attempt") == 1 and type(run.get("run_attempt")) is int
+            and run.get("status") == "completed" and run.get("conclusion") == "success"
+            and run.get("head_sha") == NATIVE18_MASTER and run.get("head_branch") == "master"
+            and run.get("event") == "workflow_dispatch"
+            and run.get("display_title") == "a1-sip "+value["nonce"]+" native-read39085031884"
+            and run.get("created_at") == "2026-10-18T06:23:17Z",
+            "EXTERNAL_NATIVE18_RUN")
+    expected = [
+        (117605461102,"offline","2026-10-18T06:23:23Z","2026-10-18T06:24:47Z"),
+        (117605710106,"reconcile","2026-10-18T06:24:50Z","2026-10-18T06:26:08Z")]
+    require(isinstance(jobs, dict) and jobs.get("total_count") == 2
+            and isinstance(jobs.get("jobs"), list) and len(jobs["jobs"]) == 2,
+            "EXTERNAL_NATIVE18_JOBS")
+    actual = sorted(jobs["jobs"],key=lambda j:j.get("id",0))
+    require([(j.get("id"),j.get("name"),j.get("started_at"),j.get("completed_at")) for j in actual] == expected
+            and all(j.get("status") == "completed" and j.get("conclusion") == "success" for j in actual),
+            "EXTERNAL_NATIVE18_JOBS")
+    seconds = sum((utc(j["completed_at"])-utc(j["started_at"])).total_seconds() for j in actual)
+    require(seconds == 162 and seconds <= value["active_seconds_reservation"], "EXTERNAL_NATIVE18_JOBS")
+    return dict(meter_sha256=NATIVE18_METER,run_id=NATIVE18_RUN,source_sha=NATIVE18_MASTER,
+                usage=dict(NATIVE18_USAGE),active_seconds=162,dispatches=1,reserved_active_seconds=900,
+                checkpoint_sha256=NATIVE18_RECOVERY["checkpoint_sha256"],
+                pending_external_read_proof_sha256=value["pending_external_read_proof_sha256"])
+
+
+def native18_receipt_for_run(run):
+    artifacts = gh_json(f"repos/{REPO}/actions/runs/{NATIVE18_RUN}/artifacts?per_page=100")
+    require(artifacts.get("total_count") == len(artifacts.get("artifacts", [])) <= 100,
+            "EXTERNAL_NATIVE18_ARTIFACT")
+    found = [a for a in artifacts["artifacts"] if a.get("name") == "a1-native-drive-read-meter"]
+    require(len(found) == 1 and found[0].get("id") == 12127433913
+            and found[0].get("expired") is False
+            and found[0].get("digest") == "sha256:b178147404e094b4652c5a56ed9d0a33db3cc58012816bb00eb037c33619b402"
+            and type(found[0].get("size_in_bytes")) is int and 0 < found[0]["size_in_bytes"] <= 65536,
+            "EXTERNAL_NATIVE18_ARTIFACT")
+    with tempfile.TemporaryDirectory(prefix="a1-native18-meter-") as temp:
+        result = subprocess.run(["gh","run","download",str(NATIVE18_RUN),"--repo",REPO,
+                                 "--name","a1-native-drive-read-meter","--dir",temp],
+                                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=45)
+        require(result.returncode == 0, "EXTERNAL_NATIVE18_DOWNLOAD")
+        files = list(Path(temp).iterdir())
+        require(len(files) == 1 and files[0].name == "native_read_meter.json" and not files[0].is_symlink(),
+                "EXTERNAL_NATIVE18_ARTIFACT")
+        raw = bounded_bytes(files[0])
+        require(digest(raw) == NATIVE18_METER, "EXTERNAL_NATIVE18_METER")
+        value = decode(raw)
+    jobs = gh_json(f"repos/{REPO}/actions/runs/{NATIVE18_RUN}/jobs?per_page=100")
+    return value, validate_native18_evidence(run,value,jobs)
+
+
+def external_family_genesis():
+    return digest(encoded(dict(schema="a1-external-budget-genesis-v1", task_key=TASK,
+        prior_auth_sha256=CONTINUATION["auth"], prior_event_sha256=CONTINUATION["event"],
+        first=CONTINUATION["first"], limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
+
+
+def native18_event_payload(source_sha, code_pins):
+    require(isinstance(source_sha,str) and re.fullmatch(r"[0-9a-f]{40}",source_sha)
+            and source_sha not in (NATIVE18_MASTER,NATIVE18_PRIOR_SOURCE["expected_master"])
+            and isinstance(code_pins,dict) and set(code_pins) == set(PINS)
+            and all(isinstance(h,str) and re.fullmatch(r"[0-9a-f]{64}",h) for h in code_pins.values()),
+            "EXTERNAL_NATIVE18_SOURCE")
+    from tools.alpaca_sip_private_backfill_v1 import STORAGE_QUARANTINE
+    scope = dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
+                 namespace="top500-20261017",input_sha256=STORAGE_QUARANTINE["input_sha256"])
+    return dict(schema="a1-native18-shared-settlement-v1",
+        capture_auth_sha256=NATIVE18_RECOVERY["prior_auth"],scope=scope,
+        run_id=NATIVE18_RUN,source_sha=NATIVE18_MASTER,meter_sha256=NATIVE18_METER,
+        usage=dict(NATIVE18_USAGE),active_seconds=162,reserved_active_seconds=900,dispatches=1,
+        checkpoint_sha256=NATIVE18_RECOVERY["checkpoint_sha256"],
+        pending_external_read_proof_sha256="e25fca3a43a14d8d44b6615a758cce55fd8c665dbafd6bf653b639a6d3400b1d",
+        unknown_storage_bytes_still_charged=302101,absence_proven=False,
+        failed_request_body_hash_known=False,total_platform_cost_verified=False,
+        settled_by_source_sha=source_sha,settled_by_code_pins_sha256=digest(encoded(code_pins)))
+
+
+def verify_native18_event(entry, source_sha, code_pins, expected_sha=None):
+    common = {"sequence","kind","auth_sha256","previous_sha256","recorded_utc"}
+    expected = native18_event_payload(source_sha,code_pins)
+    require(isinstance(entry,dict) and set(entry) == common|set(expected)
+            and entry.get("sequence") == NATIVE18_RECOVERY["family_events"]+1
+            and type(entry.get("sequence")) is int and entry.get("kind") == "NATIVE_READ_SETTLED"
+            and entry.get("auth_sha256") == external_family_genesis()
+            and entry.get("previous_sha256") == NATIVE18_RECOVERY["family_event_sha256"]
+            and encoded({k:v for k,v in entry.items() if k not in common}) == encoded(expected)
+            and isinstance(entry.get("recorded_utc"),str)
+            and utc("2026-10-18T06:26:08Z") <= utc(entry["recorded_utc"]) <= utc()
+            and (expected_sha is None or digest(encoded(entry)) == expected_sha),
+            "EXTERNAL_NATIVE18_SETTLEMENT")
+
+
+def native18_consent_event(auth,comment):
+    tag = "A1_SIP_NATIVE18_SETTLEMENT "
+    lines = [line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
+    require(len(lines) == 1 and len(lines[0]) <= 4096
+            and isinstance(comment.get("created_at"),str) and comment["created_at"] == comment.get("updated_at"),
+            "EXTERNAL_NATIVE18_SETTLEMENT_PROOF")
+    entry = decode(lines[0])
+    verify_native18_event(entry,auth["expected_master"],auth["code_pins"],
+                         auth["external_cohort"]["native18_recovery"]["settlement_sha256"])
+    require(utc(entry["recorded_utc"]) <= utc(comment["created_at"]), "EXTERNAL_NATIVE18_SETTLEMENT_PROOF")
+    return entry
+
+
+def verify_native18_shared(registry,auth):
+    matches = [e for e in registry.entries if e["kind"] == "NATIVE_READ_SETTLED"]
+    if "native18_recovery" not in auth["external_cohort"]:
+        require(not matches,"EXTERNAL_NATIVE18_UNAUTHORIZED")
+        return
+    require(len(matches) == 1,"EXTERNAL_NATIVE18_SETTLEMENT")
+    entry = matches[0]
+    verify_native18_event(entry,auth["expected_master"],auth["code_pins"],
+                         auth["external_cohort"]["native18_recovery"]["settlement_sha256"])
+    path = registry.directory/f"{entry['sequence']:06d}.json"
+    require(bounded_bytes(path) == encoded(entry),"EXTERNAL_NATIVE18_SETTLEMENT")
+
+
+def append_native18_settlement(registry,source_sha,code_pins):
+    """Accounting-only preactivation import; no future consent/hash cycle."""
+    matches = [e for e in registry.entries if e["kind"] == "NATIVE_READ_SETTLED"]
+    if matches:
+        require(len(matches) == 1 and len(registry.entries) == NATIVE18_RECOVERY["family_events"]+1,
+                "EXTERNAL_NATIVE18_SETTLEMENT")
+        verify_native18_event(matches[0],source_sha,code_pins)
+        require(bounded_bytes(registry.directory/f"{matches[0]['sequence']:06d}.json") == encoded(matches[0]),
+                "EXTERNAL_NATIVE18_SETTLEMENT")
+        return matches[0]
+    require(len(registry.entries) == NATIVE18_RECOVERY["family_events"]
+            and registry.parent == NATIVE18_RECOVERY["family_event_sha256"]
+            and registry.entries[-1].get("kind") == "SETTLED"
+            and registry.entries[-1].get("run_id") == NATIVE18_RECOVERY["run_id"],
+            "EXTERNAL_NATIVE18_PREFIX")
+    # The900s reservation is not released until this durable fsynced append.
+    registry.append("NATIVE_READ_SETTLED",**native18_event_payload(source_sha,code_pins))
+    return registry.entries[-1]
+
+
+
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
-                     native_read_run=None):
+                     native_read_run=None, native18_accounting=False):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
     ex = auth["external_cohort"]
-    named = "named_recovery" in ex
     recoveries = external_recoveries(auth)
+    named = bool(recoveries)
     require(recovery_run is None or named and type(recovery_run) is int
             and recovery_run == recoveries[-1]["run_id"], "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     epochs = ex["prior_epochs"] + [auth]
@@ -2151,6 +2443,14 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     proofs = {h: external_proof(a) for h,(position,a) in zip(hashes,variants)}
     by_hash = dict(zip(hashes, variants))
     runs = campaign_runs(auth["workflow_run_floor"])
+    all_runs, native18 = runs, None
+    if native18_accounting:
+        require(auth_hash == NATIVE18_RECOVERY["prior_auth"] and current_run is None
+                and recovery_run is None and native_read_run is None and allow_stopped
+                and len(runs) == 18 and runs[-1].get("id") == NATIVE18_RUN
+                and runs[-2].get("id") == NATIVE18_RECOVERY["run_id"],"EXTERNAL_NATIVE18_ACCOUNTING_MODE")
+        _, native18 = native18_receipt_for_run(runs[-1])
+        runs = runs[:-1]
     if native_read_run is not None:
         require(current_run is None and allow_stopped, "NATIVE_READ_HISTORY_MODE")
         runs = native_read_prefix(runs, native_read_run)
@@ -2166,6 +2466,19 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     old_parent, old_examined = INITIAL_SHA, 16
     receipts, durations, epoch_index = [], [], 0
     for index, run in enumerate(previous):
+        if run.get("id") == NATIVE18_RUN and "native18_recovery" in ex:
+            require(index == 17 and native18 is None and active == 3769 and used == NATIVE18_CAPTURE_USED
+                    and local[-1]["examined"] == 76
+                    and local[-1]["parent"] == NATIVE18_RECOVERY["checkpoint_sha256"]
+                    and previous[index-1]["id"] == NATIVE18_RECOVERY["run_id"],
+                    "EXTERNAL_NATIVE18_CAPTURE_PREFIX")
+            value, native18 = native18_receipt_for_run(run)
+            for k in LIMITS:
+                require(used[k]+NATIVE_READ_ALLOWANCE[k] <= CONTINUED_LIMITS[k],"CAMPAIGN_LEDGER_BUDGET")
+                used[k] += value["usage"][k]
+            active += native18["active_seconds"]
+            receipts.append(value); durations.append(native18["active_seconds"])
+            continue
         named_failure = False
         if index < 5:
             value = receipt_for_run(run, CONTINUATION["auth"], CONTINUATION["master"])
@@ -2212,7 +2525,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
             count = len(cap.external_cohort(a["external_cohort"]["input_csv"].encode()))
             require(value["examined_before"] == state["examined"]
                     and value["parent_checkpoint_sha256"] == state["parent"]
-                    and state["examined"] <= value["examined_after"] <= state["examined"] + external_batch(state["examined"], count)
+                    and state["examined"] <= value["examined_after"] <= state["examined"] + external_batch(state["examined"], count, a)
                     and isinstance(value.get("checkpoint_sha256"), str)
                     and re.fullmatch(r"[0-9a-f]{64}", value["checkpoint_sha256"]), "EXTERNAL_CHECKPOINT_CHAIN")
             require((value["examined_after"] > state["examined"]) == (value["checkpoint_sha256"] != state["parent"]), "EXTERNAL_CHECKPOINT_CHAIN")
@@ -2230,6 +2543,26 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                         require(isinstance(run["created_at"], str)
                                 and utc(run["created_at"]) <= utc(value["orphan_inventory"]["observed_at_utc"]),
                                 "EXTERNAL_MATERIAL_RUN_CLOCK")
+            if "native18_recovery" in a["external_cohort"]:
+                native_sha = a["external_cohort"]["native18_recovery"]["settlement_sha256"]
+                require(value.get("native18_settlement_sha256") == native_sha,"EXTERNAL_NATIVE18_HELD")
+                if value["examined_before"] == 76:
+                    require(value["usage"]["provider_gets"] == 0,"EXTERNAL_NATIVE18_HELD")
+                    if value["examined_after"] > 76:
+                        hold = value.get("uncertain_storage_hold")
+                        require(value["examined_after"] == 80 and value["rows_verified"] == 0
+                                and value["new_states"] == dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=4)
+                                and isinstance(hold,dict) and set(hold) == {"evidence","marker_sha256","checkpoint_sha256"},
+                                "EXTERNAL_NATIVE18_HELD")
+                        cap.verify_storage_quarantine(hold["evidence"],scope)
+                        require(hold["evidence"]["authorization_sha256"] == h
+                                and hold["evidence"]["external_proof_sha256"] == proof["proof_sha256"]
+                                and hold["evidence"]["native_settlement_sha256"] == native_sha
+                                and hold["evidence"]["recovery_run_id"] == run["id"]
+                                and isinstance(hold["marker_sha256"],str) and re.fullmatch(r"[0-9a-f]{64}",hold["marker_sha256"])
+                                and hold["checkpoint_sha256"] == value["checkpoint_sha256"],"EXTERNAL_NATIVE18_HELD")
+                else:
+                    require("uncertain_storage_hold" not in value,"EXTERNAL_NATIVE18_HELD")
             state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
             state["runs"].append(run); state["receipts"].append(value)
             named_failure = named_failed_receipt(run, value, epoch)
@@ -2254,6 +2587,13 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 require(isinstance(value.get("reason"), str) and re.fullmatch(r"[A-Z_]{1,80}", value["reason"]), "CAMPAIGN_REASON")
                 continue
             raise Refused("CAMPAIGN_EXTERNAL_FAILURE_STOP")
+    if "native18_recovery" in ex or native18_accounting:
+        require(native18 is not None,"EXTERNAL_NATIVE18_METER")
+    if native18_accounting:
+        require(used == NATIVE18_CAPTURE_USED and active == 3769 and local[-1]["examined"] == 76
+                and local[-1]["parent"] == NATIVE18_RECOVERY["checkpoint_sha256"]
+                and digest(encoded(receipts[-1])) == NATIVE18_RECOVERY["receipt_sha256"],
+                "EXTERNAL_NATIVE18_CAPTURE_PREFIX")
     require(all(spec["run_id"] in state["named_failures"] for state,epoch in zip(local,epochs)
                 for spec in external_recoveries(epoch)), "EXTERNAL_RECOVERY_PARENT")
     require(active <= active_limit(auth) and utc(runs[0]["created_at"]) == utc(CONTINUATION["first"]), "CAMPAIGN_ACTIVE_TIME")
@@ -2271,7 +2611,9 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 epoch_proofs=proofs, parent_sha=state["parent"], examined=state["examined"],
                 cohort_runs=state["runs"], cohort_receipts=state["receipts"], cohort_durations=state["durations"],
                 recovery_required=expected_recovery,
-                remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS})
+                remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS},
+                native18=native18, native18_accounting=native18_accounting,
+                all_runs=all_runs if native18_accounting else runs)
 
 
 def orphan_inventory(drive, folder, meter):
@@ -2549,7 +2891,7 @@ def external_worker(args, control, journal):
     nonce, recovered = control["nonce"], control["recovery_run"]
     require(isinstance(nonce, str) and re.fullmatch(PREFIX+r"[0-9a-f]{24}", nonce)
             and nonce == os.getenv("INPUT_CAMPAIGN_NONCE")
-            and (recovered is None or "named_recovery" in auth["external_cohort"]
+            and (recovered is None or bool(specs)
                  and type(recovered) is int and recovered == specs[-1]["run_id"]), "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     run_id = int(os.environ["GITHUB_RUN_ID"])
     observed = external_history(auth, run_id, nonce, recovered)
@@ -2566,7 +2908,7 @@ def external_worker(args, control, journal):
     require(args.private_root_folder_id == auth["private_root_folder_id"]
             and args.private_data_folder_id == auth["private_data_folder_id"]
             and args.start == auth["start"] and args.end == auth["end"]
-            and args.max_new_symbols == external_batch(n, len(names))
+            and args.max_new_symbols == external_batch(n, len(names), auth)
             and (args.resume_sha256 == observed["parent_sha"] if n else
                  args.resume_file_id == args.resume_sha256 == ""), "EXTERNAL_PARENT")
     key, secret = os.getenv("ALPACA_API_KEY", "").strip(), os.getenv("ALPACA_API_SECRET", "").strip()
@@ -2587,6 +2929,16 @@ def external_worker(args, control, journal):
                     account_permission_record_sha256=proof["proof_sha256"])
     meter = RuntimeMeter(observed["remaining"], journal, deadline.isoformat(), identity, limits=auth["limits"],
                          asset_symbols=names[n:n+args.max_new_symbols])
+    external_input = dict(input_csv=ex["input_csv"],scope=scope)
+    if "native18_recovery" in ex:
+        meter.identity["native18_settlement_sha256"] = ex["native18_recovery"]["settlement_sha256"]
+        meter.identity["past_diagnostics_status"] = "UNKNOWN_NOT_ZERO"
+        meter.identity["total_platform_cost_verified"] = False
+        if recovered == NATIVE18_RECOVERY["run_id"]:
+            require(n == 76 and args.max_new_symbols == 4,"EXTERNAL_NATIVE18_HELD")
+            external_input["storage_quarantine"] = dict(cap.STORAGE_QUARANTINE,
+                authorization_sha256=h,external_proof_sha256=proof["proof_sha256"],
+                native_settlement_sha256=ex["native18_recovery"]["settlement_sha256"],recovery_run_id=run_id)
     original_batch = args.max_new_symbols
     args = argparse.Namespace(**vars(args))
     def factory(root, temp):
@@ -2607,7 +2959,7 @@ def external_worker(args, control, journal):
         with meter.process_deadline():
             result = cap._collect(args, drive_factory=factory, get=meter.perform,
                 on_group=lambda drive,state,ref: verify_new_group(drive, args.private_data_folder_id, state, ref, meter),
-                expected_examined=n+(4 if drive_recovery else 0), external=dict(input_csv=ex["input_csv"], scope=scope))
+                expected_examined=n+(4 if drive_recovery else 0), external=external_input)
         require(meter.examined == n+original_batch and meter.checkpoint_sha == result["checkpoint"]["sha256"],
                 "CAMPAIGN_BATCH_CLOSURE")
         meter.finish("COMPLETE")
@@ -2689,9 +3041,7 @@ def external_family_registry(budget_path, auth, state_path, *, first_proof=None)
     first_auth = external_variants((auth["external_cohort"]["prior_epochs"] or [auth])[0])[0]
     first_hash = validate_authorization(first_auth)
     proof = external_proof(first_auth) if first_proof is None else first_proof
-    genesis = digest(encoded(dict(schema="a1-external-budget-genesis-v1", task_key=TASK,
-        prior_auth_sha256=CONTINUATION["auth"], prior_event_sha256=CONTINUATION["event"],
-        first=CONTINUATION["first"], limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
+    genesis = external_family_genesis()
     directory = budget_path.parent / ("external-budget-"+CONTINUATION["auth"][:16])
     if any("drive_recovery" in a["external_cohort"] for a in auth["external_cohort"]["prior_epochs"]+[auth]):
         require(directory.is_dir() and not directory.is_symlink()
@@ -2708,6 +3058,11 @@ def external_family_registry(budget_path, auth, state_path, *, first_proof=None)
                 and (directory/f"{NAMED_RECOVERY['events']:06d}.json").is_file()
                 and digest(bounded_bytes(directory/f"{NAMED_RECOVERY['events']:06d}.json"))
                     == NAMED_RECOVERY["family_event_sha256"], "EXTERNAL_RECOVERY_FAMILY_PREFIX")
+    if "native18_recovery" in auth["external_cohort"]:
+        require(directory.is_dir() and not directory.is_symlink()
+                and (directory/f"{NATIVE18_RECOVERY['family_events']:06d}.json").is_file()
+                and digest(bounded_bytes(directory/f"{NATIVE18_RECOVERY['family_events']:06d}.json"))
+                    == NATIVE18_RECOVERY["family_event_sha256"],"EXTERNAL_NATIVE18_PREFIX")
     existed = directory.exists()
     registry = WorkJournal(directory, genesis)
     try:
@@ -2750,7 +3105,7 @@ def verify_external_prior_journals(registry, auth, observed):
         prior = external_journal(directory, previous, proof, epoch_proofs=observed.get("epoch_proofs"))
         try:
             versions = {validate_authorization(a) for a in external_variants(previous)}
-            known = [(r,v) for r,v in zip(observed["runs"], observed["receipts"]) if v["auth_sha256"] in versions]
+            known = [(r,v) for r,v in zip(observed["runs"], observed["receipts"]) if v.get("auth_sha256") in versions]
             prior.reconcile([r for r,v in known])
             first_proof = observed.get("epoch_proofs", {}).get(validate_authorization(external_variants(previous)[0]))
             require(isinstance(first_proof, dict), "EXTERNAL_PRIOR_JOURNAL_DRIFT")
@@ -2800,15 +3155,30 @@ def verify_external_prior_journals(registry, auth, observed):
             prior.close()
 
 
-def reconcile_external_family(registry, journal, auth, observed):
+def reconcile_external_family(registry, journal, auth, observed, *, native18_accounting_source=None):
     """No later namespace can ignore an unobserved or partially logged POST."""
     h, scope = validate_authorization(auth), auth["external_cohort"]["scope"]
     versions = {validate_authorization(a) for a in external_variants(auth)}
-    suffix = list(zip(observed["runs"][5:], observed["receipts"][5:]))
+    if native18_accounting_source is not None:
+        require(validate_authorization(auth) == NATIVE18_RECOVERY["prior_auth"]
+                and observed.get("native18_accounting") is True and observed.get("native18") is not None,
+                "EXTERNAL_NATIVE18_ACCOUNTING_MODE")
+        matches = [e for e in registry.entries if e["kind"] == "NATIVE_READ_SETTLED"]
+        require(len(matches) <= 1, "EXTERNAL_NATIVE18_SETTLEMENT")
+        if matches:
+            verify_native18_event(matches[0],*native18_accounting_source)
+            require(bounded_bytes(registry.directory/f"{matches[0]['sequence']:06d}.json") == encoded(matches[0]),
+                    "EXTERNAL_NATIVE18_SETTLEMENT")
+    else:
+        verify_native18_shared(registry,auth)
+    suffix = [(r,v) for r,v in zip(observed["runs"][5:], observed["receipts"][5:])
+              if not ("native18_recovery" in auth["external_cohort"] and r["id"] == NATIVE18_RUN)]
     remote = {v["nonce"]:(r,v) for r,v in suffix}
-    registry.reconcile(observed["runs"][5:])
+    registry.reconcile([r for r,v in suffix])
     pending, settled, reserved = None, {}, {}
     for entry in registry.entries[1:]:
+        if entry["kind"] == "NATIVE_READ_SETTLED":
+            continue  # Its unique fixed slot/hash was verified above, not a capture reservation.
         kind, nonce = entry.get("kind"), entry.get("nonce")
         require(kind in ("RESERVED", "RUN_ASSIGNED", "SETTLED") and nonce in remote, "EXTERNAL_FAMILY_CONFLICT")
         run, value = remote[nonce]
@@ -2857,11 +3227,62 @@ def reconcile_external_family(registry, journal, auth, observed):
     return pending
 
 
+def native18_accounting_host(auth_path, state_dir, budget_state_dir, cohort_input, predispatch_recovery, expected_master):
+    """Local bookkeeping before immutable v5 activation; no nonce/dispatch/data I/O."""
+    auth = bounded_json(auth_path,15000)
+    require(validate_authorization(auth) == NATIVE18_RECOVERY["prior_auth"]
+            and budget_state_dir is not None and cohort_input is not None and predispatch_recovery is not None,
+            "EXTERNAL_NATIVE18_ACCOUNTING_MODE")
+    code_pins = native_read_source(expected_master)
+    ex = auth["external_cohort"]
+    require(bounded_bytes(cohort_input,8192) == ex["input_csv"].encode(),"EXTERNAL_COHORT_HASH")
+    budget_path, state_path = Path(budget_state_dir).resolve(),Path(state_dir).resolve()
+    require(budget_path.is_dir() and state_path.is_dir() and not state_path.is_symlink()
+            and state_path == budget_path.parent/("external-cohort-"+ex["scope"]["namespace"])
+            and (state_path/f"{NATIVE18_RECOVERY['events']:06d}.json").is_file(),
+            "EXTERNAL_NAMESPACE")
+    family_path = budget_path.parent/("external-budget-"+CONTINUATION["auth"][:16])
+    require(family_path.is_dir() and not family_path.is_symlink()
+            and (family_path/f"{NATIVE18_RECOVERY['family_events']:06d}.json").is_file(),
+            "EXTERNAL_NATIVE18_PREFIX")
+    recovery = local_reject_recovery(predispatch_recovery,ex["prior_authorization"],budget_path)
+    global_journal = WorkJournal(budget_path,CONTINUATION["auth"],recovery=recovery)
+    family = journal = None
+    try:
+        verify_external_budget_journal(global_journal,auth,recovery)
+        observed = external_history(auth,allow_stopped=True,enforce_expiry=False,native18_accounting=True)
+        family = external_family_registry(budget_path,auth,state_path)
+        journal = external_journal(state_path,auth,observed["external_proof"])
+        require(len(journal.entries) == NATIVE18_RECOVERY["events"]
+                and journal.parent == NATIVE18_RECOVERY["cohort_event_sha256"],"EXTERNAL_NATIVE18_PREFIX")
+        global_journal.reconcile(observed["runs"][:5])
+        journal.reconcile(observed["cohort_runs"])
+        reconcile_external_family(family,journal,auth,observed,native18_accounting_source=(expected_master,code_pins))
+        require(external_proof(auth) == observed["external_proof"]
+                and native_read_source(expected_master) == code_pins
+                and campaign_runs(auth["workflow_run_floor"]) == observed["all_runs"],"EXTERNAL_CANONICAL_DRIFT")
+        entry = append_native18_settlement(family,expected_master,code_pins)
+        reconcile_external_family(family,journal,auth,observed,native18_accounting_source=(expected_master,code_pins))
+        return dict(status="NATIVE18_TYPED_SETTLEMENT_ONLY",native_run_id=NATIVE18_RUN,
+                    settlement_sha256=digest(encoded(entry)),examined=76,capture_allowed=False,
+                    actual_native_usage=NATIVE18_USAGE,actual_native_job_seconds=162,
+                    provider_gets=0,drive_requests=0,new_dispatches=0,source_admission=False)
+    finally:
+        try:
+            if journal is not None: journal.close()
+        finally:
+            try:
+                if family is not None: family.close()
+            finally:
+                global_journal.close()
+
+
+
 def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery, recovery_run, max_batches):
     from tools.alpaca_sip_private_backfill_v1 import external_cohort
     ex, h = auth["external_cohort"], validate_authorization(auth)
     specs = external_recoveries(auth)
-    require(recovery_run is None or "named_recovery" in ex and type(recovery_run) is int
+    require(recovery_run is None or bool(specs) and type(recovery_run) is int
             and recovery_run == specs[-1]["run_id"], "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     require(cohort_input is not None and budget_state_dir is not None and predispatch_recovery is not None,
             "EXTERNAL_HOST_INPUTS")
@@ -2881,9 +3302,9 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
         verify_external_budget_journal(global_journal, auth, recovery)
         frozen = external_proof(auth)
         family = external_family_registry(budget_path, auth, state_path,
-            first_proof=frozen if not ex["prior_epochs"] and "named_recovery" not in ex else None)
+            first_proof=frozen if not ex["prior_epochs"] and not specs else None)
         journal = external_journal(state_path, auth, frozen)
-        initial_proof = external_proof(external_variants(auth)[0]) if "named_recovery" in ex else frozen
+        initial_proof = external_proof(external_variants(auth)[0]) if specs else frozen
         binding = dict(scope=ex["scope"], genesis_sha256=external_genesis(ex["scope"]), **initial_proof)
         if journal.entries:
             first = journal.entries[0]
@@ -2895,7 +3316,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             # No provider/Drive I/O or dispatch; binding is this new namespace only.
             journal.append("EXTERNAL_COHORT_BOUND", **binding)
         settled_before = sum(e["kind"] == "SETTLED" and e.get("capture_auth_sha256") == h for e in family.entries)
-        if journal.revision and settled_before == 0:
+        if (journal.revision or getattr(journal,"native_revision",None)) and settled_before == 0:
             # Importing or repairing the first recovery still consumes its one
             # allowed batch. A crash must not turn that closure into a free slot.
             require(max_batches == 1, "EXTERNAL_RECOVERY_BOUNDARY")
@@ -2949,11 +3370,11 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             parent = settled_parent(journal, auth)
             require(parent["sha256"] == observed["parent_sha"]
                     and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND",
-                        "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+                        "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "EXTERNAL_NATIVE18_RECOVERY_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
             if observed.get("recovery_required") is not None:
                 require(max_batches == 1 and recovery_run == active_spec["run_id"]
                         and observed["examined"] == active_spec["examined"]
-                        and external_batch(observed["examined"], count) == active_spec.get("batch", 8),
+                        and external_batch(observed["examined"], count, auth) == active_spec.get("batch", 8),
                         "EXTERNAL_RECOVERY_BOUNDARY")
             nonce = PREFIX+os.urandom(12).hex()
             control = dict(authorization=auth, nonce=nonce, recovery_run=recovery_run,
@@ -2969,7 +3390,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
                           private_data_folder_id=auth["private_data_folder_id"], private_research_authorized="true",
                           noncommercial_terms_acknowledged="true", end_date=auth["end"],
-                          max_new_symbols=str(external_batch(observed["examined"], count)),
+                          max_new_symbols=str(external_batch(observed["examined"], count, auth)),
                           resume_file_id=parent["file_id"], resume_sha256=parent["sha256"] if parent["file_id"] else "",
                           campaign_control=raw.decode(), campaign_nonce=nonce)
             result = subprocess.run(["gh", "workflow", "run", WORKFLOW, "--repo", REPO, "--ref", "master", "--json"],
@@ -3351,6 +3772,8 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--authorization")
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
+    mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
+    parser.add_argument("--native18-deployed-master", help="Separately reviewed deployed Source for accounting-only import")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
@@ -3361,6 +3784,14 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.native18_settle_authorization:
+            require(not any((args.recovery_run,args.account_permission_reference,args.continuation_receipt,args.max_batches))
+                    and args.native18_deployed_master is not None,"EXTERNAL_NATIVE18_ACCOUNTING_MODE")
+            result = native18_accounting_host(args.native18_settle_authorization,args.state_dir,
+                args.budget_state_dir,args.cohort_input,args.predispatch_recovery,args.native18_deployed_master)
+            print(json.dumps(result,sort_keys=True))
+            return 0
+        require(args.native18_deployed_master is None,"EXTERNAL_NATIVE18_ACCOUNTING_MODE")
         if args.native_read_control:
             require(not any((args.recovery_run,args.account_permission_reference,args.predispatch_recovery,
                 args.continuation_receipt,args.cohort_input,args.budget_state_dir,args.max_batches)), "NATIVE_READ_MODE")

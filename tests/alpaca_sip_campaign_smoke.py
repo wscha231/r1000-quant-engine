@@ -3586,4 +3586,379 @@ class NativeReadExact6ScopeDecisionTests(unittest.TestCase):
         self.assertFalse(result['capture_allowed']);self.assertEqual(result['dispatch_reservation'],1)
 
 
+
+# Frozen non-price native meter from run39103855450/artifact12127433913.
+# It contains counters/proof references only, no supplier original or credential.
+FROZEN_NATIVE18_METER = json.loads(r'''{"active_seconds_reservation":900,"allowance":{"drive_bytes":16000000,"drive_requests":16,"provider_gets":0,"storage_bytes":0},"budget_accounting":{"controlled_used_before_native":{"drive_bytes":842810550,"drive_requests":5269,"provider_gets":542,"storage_bytes":79426031},"external_diagnostics_status":"UNKNOWN_NOT_ZERO","scope":"ORIGINAL17_AND_NEW_CONTROLLED_NATIVE_NOT_TOTAL_PLATFORM_COST","total_platform_cost_verified":false},"capture_allowed":false,"capture_usage_before":{"drive_bytes":842810550,"drive_requests":5269,"provider_gets":542,"storage_bytes":79426031},"dispatch_reservation":1,"economic_authority":false,"examined_before":76,"failed_meter_sha256":"231d256890c209ef5dace024a25cfafc5d6a8714abded3a8cca76f2752818814","failed_run_id":39085031884,"finalized":true,"nonce":"r1000-993-20261015-d823a3d72ee18bb3b41cd454","observed_google_body_bytes":4726,"parent_checkpoint_sha256":"efcea3356688118392fa71612ee2702c4b9ea436ad88bdfdab917ef60e373cfd","pending_external_read_accounting":{"basis":"EXPLICIT_EXACT6_SCOPE_DECISION","decision_sha256":"d8688230eb773fee432bcc8c7dbe180daf49bd9b882f503b2e683fad644f2768","observation_sha256":"c0c9de188852ac7cea996ab506f27e514cfe976f4c467ec4e782303ed5ca7e2f","reference":"https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6246458080","status":"UNKNOWN_NOT_ZERO","usage":{"drive_bytes":null,"drive_requests":null,"provider_gets":0,"storage_bytes":0}},"pending_external_read_proof_sha256":"e25fca3a43a14d8d44b6615a758cce55fd8c665dbafd6bf653b639a6d3400b1d","pit_verified":false,"reason":null,"result":{"absence_proven":false,"candidate_count":0,"failed_request_body_hash_known":false,"files_count":1,"owner_sha256":"08e29aa6cca772e9319b2aab20ad9fdba5dd0d8fce08a90b9fdbf3253fe9a94e","positive_control_verified":true},"run_attempt":1,"run_id":39103855450,"schema":"a1-native-drive-read-meter-v1","source_admission":false,"source_pins":{".github/workflows/alpaca_sip_private_backfill_v1.yml":"ef76f00eea26b6a65d2fd4722d07042824ddc7267b3d62f157882771fbe68c44","tools/alpaca_sip_campaign.py":"ff122b3f1934703c1e606ebe5bed8c6b4bfc1019b699f5d96bc0d112cc37abd3","tools/alpaca_sip_private_backfill_v1.py":"229fffc8f6fda45fe228efa81b58b71908070b3979aee74d37665d4a1aacacf7","tools/configure_macro_research_drive.py":"51c6210ae63f4e7522d5d73d8eb90c5c03348736a9638461772d116fcf51d2fc","tools/macro_history_sources.py":"029ae7337618211c1520adc78c9199831ed739918070c6b29204e9110aa9ab08","tools/twelve_private_capture.py":"2cfe64847cb6a9d4777247968832dbdf5737eafc1ed5f47a2e7b6877bc27bdac"},"source_sha":"a549c27b1cdd002bdaaa7dd6ab5dfc44fef0aaad","status":"COMPLETE","subsequent_capture_requires_separate_native_meter_settlement":true,"task_key":"R1000-SOURCE39085031884-NATIVE-METERED-READ-PATH-20261018","transfer_definition":"HTTP_BODIES_PLUS_65536_RESERVED_OVERHEAD_PER_GOOGLE_REQUEST","usage":{"drive_bytes":529014,"drive_requests":8,"provider_gets":0,"storage_bytes":0}}''')
+
+
+class Native18SealedEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.value=copy.deepcopy(FROZEN_NATIVE18_METER)
+        self.run=dict(id=c.NATIVE18_RUN,run_attempt=1,status="completed",conclusion="success",
+            head_sha=c.NATIVE18_MASTER,head_branch="master",event="workflow_dispatch",
+            created_at="2026-10-18T06:23:17Z",
+            display_title="a1-sip "+self.value["nonce"]+" native-read39085031884")
+        self.jobs=dict(total_count=2,jobs=[
+            dict(id=117605461102,name="offline",started_at="2026-10-18T06:23:23Z",
+                 completed_at="2026-10-18T06:24:47Z",status="completed",conclusion="success"),
+            dict(id=117605710106,name="reconcile",started_at="2026-10-18T06:24:50Z",
+                 completed_at="2026-10-18T06:26:08Z",status="completed",conclusion="success")])
+
+    def test_exact_typed_native_receipt_and_actual_jobs_not_reservation(self):
+        result=c.validate_native18_evidence(self.run,self.value,self.jobs)
+        self.assertEqual(c.digest(c.encoded(self.value)),c.NATIVE18_METER)
+        self.assertEqual(result["usage"],dict(provider_gets=0,drive_requests=8,drive_bytes=529014,storage_bytes=0))
+        self.assertEqual(result["active_seconds"],162);self.assertEqual(result["reserved_active_seconds"],900)
+        self.assertEqual(4726+8*65536,529014)
+        self.assertIsNone(self.value["pending_external_read_accounting"]["usage"]["drive_requests"])
+
+    def test_changed_meter_owner_cp_source_or_capture_schema_cannot_rebind(self):
+        changes=(
+            lambda m:m.update(schema="a1-sip-campaign-meter-v1"),
+            lambda m:m.update(parent_checkpoint_sha256="0"*64),
+            lambda m:m["result"].update(owner_sha256="0"*64),
+            lambda m:m["result"].update(absence_proven=True),
+            lambda m:m.update(source_sha="0"*40),
+            lambda m:m["usage"].update(drive_requests=0),
+            lambda m:m.update(active_seconds_reservation=162),
+            lambda m:m["pending_external_read_accounting"]["usage"].update(drive_bytes=0))
+        for mutate in changes:
+            value=copy.deepcopy(self.value);mutate(value)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):
+                c.validate_native18_evidence(self.run,value,self.jobs)
+
+    def test_foreign_run_retry_source_and_missing_or_changed_job_clocks_refuse(self):
+        for key,value in (("id",c.NATIVE18_RUN+1),("run_attempt",2),("run_attempt",True),
+                          ("head_sha","4"*40),("conclusion","failure"),("created_at",None)):
+            run=dict(self.run,**{key:value})
+            with self.subTest(key=key,value=value),self.assertRaises(c.Refused):
+                c.validate_native18_evidence(run,self.value,self.jobs)
+        for mutation in (lambda j:j["jobs"].pop(),
+                         lambda j:j["jobs"][0].update(started_at=None),
+                         lambda j:j["jobs"][0].update(completed_at="2026-10-18T06:24:48Z"),
+                         lambda j:j["jobs"].append(dict(j["jobs"][0])),
+                         lambda j:j["jobs"][1].update(conclusion="failure")):
+            jobs=copy.deepcopy(self.jobs);mutation(jobs)
+            with self.subTest(mutation=mutation),self.assertRaises(c.Refused):
+                c.validate_native18_evidence(self.run,self.value,jobs)
+
+    def test_artifact_slot_is_not_a_capture_artifact_or_generic_native_run(self):
+        artifact=dict(id=12127433913,name="a1-native-drive-read-meter",expired=False,size_in_bytes=1724,
+                      digest="sha256:b178147404e094b4652c5a56ed9d0a33db3cc58012816bb00eb037c33619b402")
+        def gh(path):
+            return self.jobs if "/jobs?" in path else dict(total_count=1,artifacts=[artifact])
+        def download(argv,**kw):
+            directory=Path(argv[argv.index("--dir")+1])
+            (directory/"native_read_meter.json").write_bytes(c.encoded(self.value))
+            return SimpleNamespace(returncode=0)
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(c.subprocess,"run",side_effect=download):
+            value,evidence=c.native18_receipt_for_run(self.run)
+            self.assertEqual(evidence["active_seconds"],162);self.assertEqual(value,self.value)
+        for key,value in (("id",1),("name","a1-campaign-meter"),("expired",True),("digest","sha256:"+"0"*64)):
+            wrong=dict(artifact,**{key:value})
+            with patch.object(c,"gh_json",return_value=dict(total_count=1,artifacts=[wrong])), \
+                 patch.object(c.subprocess,"run") as process,self.assertRaises(c.Refused):
+                c.native18_receipt_for_run(self.run)
+            process.assert_not_called()
+
+    def test_accounting_cli_mixed_with_dispatch_inputs_refuses_before_any_action(self):
+        argv=["campaign","--native18-settle-authorization","fixture.json","--state-dir","fixture-state",
+              "--native18-deployed-master","4"*40,"--max-batches","1"]
+        with patch("sys.argv",argv),patch("sys.stdout",new=io.StringIO()), \
+             patch.object(c,"native18_accounting_host") as host:
+            self.assertEqual(c.main(),2);host.assert_not_called()
+
+    def test_missing_native_cohort_never_creates_an_empty_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);budget=root/"budget";budget.mkdir()
+            missing=root/"external-cohort-top500-20261017"
+            a=dict(external_cohort=dict(input_csv="ticker\nVLO\n",scope=dict(namespace="top500-20261017")))
+            with patch.object(c,"bounded_json",return_value=a), \
+                 patch.object(c,"validate_authorization",return_value=c.NATIVE18_RECOVERY["prior_auth"]), \
+                 patch.object(c,"native_read_source",return_value={p:"a"*64 for p in c.PINS}), \
+                 patch.object(c,"bounded_bytes",return_value=b"ticker\nVLO\n"), \
+                 patch.object(c,"local_reject_recovery") as recovery,patch.object(c,"WorkJournal") as journal:
+                with self.assertRaises(c.Refused):
+                    c.native18_accounting_host("fixture-auth",missing,budget,"fixture-csv","fixture-recovery","4"*40)
+            recovery.assert_not_called();journal.assert_not_called();self.assertFalse(missing.exists())
+
+
+class Native18TypedSettlementTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.path=Path(self.tmp.name)/"family"
+        self.pins={p:c.digest((c.ROOT/p).read_bytes()) for p in c.PINS}
+        self.journal=c.WorkJournal(self.path,c.external_family_genesis())
+        self.addCleanup(self.journal.close)
+        for i in range(37):
+            self.journal.append("SETTLED",run_id=c.NATIVE18_RECOVERY["run_id"] if i==36 else i,
+                                synthetic_offline_prefix=True)
+        self.originals={p.name:p.read_bytes() for p in self.path.glob("*.json")}
+        patcher=patch.dict(c.NATIVE18_RECOVERY,family_event_sha256=self.journal.parent)
+        patcher.start();self.addCleanup(patcher.stop)
+
+    def append(self):
+        return c.append_native18_settlement(self.journal,"4"*40,self.pins)
+
+    def test_typed_once_only_append_preserves37_and_has_no_fake_capture_reservation(self):
+        event=self.append();before={p.name:p.read_bytes() for p in self.path.glob("*.json")}
+        self.assertEqual(event,self.append());self.assertEqual(len(self.journal.entries),38)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in self.path.glob("*.json")})
+        self.assertTrue(all((self.path/k).read_bytes()==v for k,v in self.originals.items()))
+        self.assertEqual(event["kind"],"NATIVE_READ_SETTLED")
+        self.assertEqual(event["usage"],c.NATIVE18_USAGE);self.assertEqual(event["active_seconds"],162)
+        self.assertEqual(event["reserved_active_seconds"],900)
+        self.assertEqual(event["unknown_storage_bytes_still_charged"],302101)
+        self.assertNotIn("nonce",event);self.assertNotIn("receipt",event)
+        auth=dict(expected_master="4"*40,code_pins=self.pins,external_cohort=dict(
+            native18_recovery=dict(settlement_sha256=c.digest(c.encoded(event)))))
+        c.verify_native18_shared(self.journal,auth)
+        self.journal.close()
+        self.journal=c.WorkJournal(self.path,c.external_family_genesis())
+        self.assertEqual(c.append_native18_settlement(self.journal,"4"*40,self.pins),event)
+
+    def test_missing_old_prefix_tampered_or_duplicate_native_event_refuses(self):
+        self.journal.parent="0"*64
+        with self.assertRaises(c.Refused):self.append()
+        self.journal.parent=c.NATIVE18_RECOVERY["family_event_sha256"]
+        event=self.append()
+        bad=copy.deepcopy(event);bad["usage"]["drive_requests"]=0
+        with self.assertRaises(c.Refused):c.verify_native18_event(bad,"4"*40,self.pins)
+        with self.assertRaises(c.Refused):c.verify_native18_event(event,"5"*40,self.pins)
+        with self.assertRaises(c.Refused):c.verify_native18_event(event,"4"*40,self.pins,"0"*64)
+        self.journal.append("NATIVE_READ_SETTLED",**c.native18_event_payload("4"*40,self.pins))
+        with self.assertRaises(c.Refused):self.append()
+
+    def test_real_append_precedes_owner_consent_no_predicted_self_hash(self):
+        event=self.append();sha=c.digest(c.encoded(event))
+        auth=dict(expected_master="4"*40,code_pins=self.pins,
+                  external_cohort=dict(native18_recovery=dict(settlement_sha256=sha)))
+        clock=c.utc().isoformat()
+        comment=dict(created_at=clock,updated_at=clock,
+                     body="A1_SIP_NATIVE18_SETTLEMENT "+json.dumps(event))
+        self.assertEqual(c.native18_consent_event(auth,comment),event)
+        for update in (dict(body=""),dict(updated_at="2026-10-18T06:00:00Z"),
+                       dict(created_at="2026-10-18T06:26:08Z",updated_at="2026-10-18T06:26:08Z")):
+            with self.subTest(update=update),self.assertRaises(c.Refused):
+                c.native18_consent_event(auth,dict(comment,**update))
+        self.assertEqual(c.digest(c.encoded(event)),sha)
+
+
+class Native18ControllerCollectorTests(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        path=Path(__file__).with_name("alpaca_sip_private_backfill_v1_smoke.py")
+        spec=importlib.util.spec_from_file_location("storage_quarantine_fixture",path)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        self.f=module.UncertainStorageQuarantineTests()
+        self.f.setUp();self.addCleanup(self.f.doCleanups)
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        patcher=patch.dict(c.NATIVE18_RECOVERY,checkpoint_sha256=self.f.prefix["sha256"])
+        patcher.start();self.addCleanup(patcher.stop)
+
+    def meter(self):
+        info=identity()
+        info.update(cohort_scope=self.f.scope,auth_sha256=self.f.evidence["authorization_sha256"],
+            external_proof_sha256=self.f.evidence["external_proof_sha256"],
+            native18_settlement_sha256=self.f.evidence["native_settlement_sha256"],
+            run_id=self.f.evidence["recovery_run_id"],recovery_run=c.NATIVE18_RECOVERY["run_id"],
+            parent_checkpoint_sha256=self.f.prefix["sha256"],examined_before=76,source_sha="c"*40)
+        return c.RuntimeMeter(dict(c.CONTINUED_LIMITS),Path(self.tmp.name)/"meter",
+            (c.utc()+timedelta(seconds=60)).isoformat(),info,opener=Opener(),limits=c.CONTINUED_LIMITS)
+
+    def test_full_collector_readback_advances_held_only_and_preserves_76_valid(self):
+        m=self.meter()
+        ref=self.f.hold(on_group=lambda d,s,r:c.verify_new_group(d,self.f.drive.folder,s,r,m))
+        m.finish("COMPLETE")
+        value=c.bounded_json(m.journal)
+        self.assertEqual(value["new_states"],dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=4))
+        self.assertEqual(value["rows_verified"],0);self.assertEqual(value["usage"]["provider_gets"],0)
+        self.assertEqual(value["examined_before"],76);self.assertEqual(value["examined_after"],80)
+        self.assertEqual(value["checkpoint_sha256"],ref["sha256"])
+        self.assertFalse(value["source_admission"]);self.assertFalse(value["pit_verified"])
+        self.assertEqual(len(self.f.restore(ref)[1]),76)
+        self.assertEqual(value["uncertain_storage_hold"]["evidence"],self.f.evidence)
+
+    def test_wrong_canonical_proof_or_run_cannot_verify_a_valid_hashed_hold(self):
+        m=self.meter();m.identity["external_proof_sha256"]="0"*64
+        with self.assertRaises(c.Refused):
+            self.f.hold(on_group=lambda d,s,r:c.verify_new_group(d,self.f.drive.folder,s,r,m))
+        self.assertEqual(m.examined,76);self.assertEqual(m.states["VALID_COLLECTED"],0)
+        self.assertEqual(m.states["QUARANTINED"],0)
+        m.finish("BLOCKED","SYNTHETIC_BAD_HOLD_PROOF")
+        self.assertEqual(self.f.restore(self.f.prefix)[2],[])
+
+
+
+class Native18RecoveryHistoryTests(unittest.TestCase):
+    """Synthetic17+native18+successor metadata through the real history reducer."""
+    def setUp(self):
+        self.base=ExternalCohortTests();self.base.setUp();self.addCleanup(self.base.doCleanups)
+        self.addCleanup(patch.stopall)
+        patch.dict(c.CONTINUATION,first="2026-10-17T02:08:51Z").start()
+        self.old=copy.deepcopy(self.base.new)
+        self.names=["ZQ%03d"%i for i in range(76)]+["VLO","MFG","BP","BTI"]+["SPGI"]+["ZQ%03d"%i for i in range(81,417)]
+        raw="ticker\n"+"\n".join(self.names)+"\n"
+        self.scope=dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
+                        namespace="top500-20261017",input_sha256=c.digest(raw.encode()))
+        patch.dict(cap.STORAGE_QUARANTINE,input_sha256=self.scope["input_sha256"],
+                   owner_sha256=c.CONTINUATION["bindings"]["owner_sha256"]).start()
+        self.old.update(expected_master="4"*40,account_permission_reference=self.base.reference+"2")
+        self.old["external_cohort"]=dict(self.old["external_cohort"],scope=self.scope,input_csv=raw,
+            prior_epochs=[self.base.new],proof_reference=self.old["account_permission_reference"])
+        oldhash=c.validate_authorization(self.old)
+        patch.dict(c.NATIVE18_RECOVERY,prior_auth=oldhash).start()
+        patch.object(c,"NATIVE18_PRIOR_SOURCE",dict(expected_master=self.old["expected_master"],
+            code_pins=self.old["code_pins"],proof_reference=self.old["external_cohort"]["proof_reference"])).start()
+        self.proofs={}
+        def proof_for(a,clock="2026-10-17T02:08:52Z"):
+            h=c.validate_authorization(a)
+            value=dict(proof_sha256=c.digest(c.encoded(dict(fixture_auth=h))),
+                proof_updated_utc=clock,expires_at_utc="2026-10-19T02:08:51Z")
+            self.proofs[h]=value
+            return value
+        proof_for(self.base.new);proof_for(self.old)
+        self.runs=copy.deepcopy(self.base.old.runs);self.values=copy.deepcopy(self.base.old.receipts)
+        for run in self.runs:run["created_at"]=c.CONTINUATION["first"]
+        self.seconds={run["id"]:s for run,s in zip(self.runs,[27,159,215,206,265])}
+        used=dict(c.CONTINUATION["used"])
+        current,parent=0,c.external_genesis(self.scope)
+        for index in range(12):
+            previous=index==0
+            a=self.base.new if previous else self.old
+            scope=a["external_cohort"]["scope"];h=c.validate_authorization(a);proof=self.proofs[h]
+            if previous:
+                before,after,oldparent=0,4,c.external_genesis(scope)
+                usage=dict(provider_gets=8,drive_requests=322,drive_bytes=100070480,storage_bytes=5905975)
+            else:
+                before=current
+                after=before+([8]*6+[4]*4+[12])[index-1]
+                oldparent=parent
+                usage=(dict(provider_gets=46,drive_requests=219,drive_bytes=41735070,storage_bytes=3516056)
+                    if index==11 else dict(provider_gets=40,drive_requests=330,drive_bytes=70000000,storage_bytes=7000000))
+            runid=c.NATIVE18_RECOVERY["run_id"] if index==11 else index+6
+            nonce=c.PREFIX+format(index+10,"024x")
+            cp=c.NATIVE18_RECOVERY["checkpoint_sha256"] if index==11 else c.digest(c.encoded(dict(fixture_cp=runid)))
+            run=dict(id=runid,display_title="a1-sip "+nonce,head_sha=a["expected_master"],
+                head_branch="master",created_at="2026-10-17T04:08:51Z",status="completed",
+                conclusion="failure" if index==11 else "success",run_attempt=1,event="workflow_dispatch")
+            value=dict(self.base.old.receipts[-1],auth_sha256=h,source_sha=a["expected_master"],
+                nonce=nonce,run_id=runid,status="BLOCKED" if index==11 else "COMPLETE",preflight_only=False,
+                reason="HTTP_ERROR" if index==11 else None,parent_checkpoint_sha256=oldparent,
+                checkpoint_sha256=cp,examined_before=before,examined_after=after,cohort_scope=scope,
+                rows_verified=2*(after-before),new_states=dict(VALID_COLLECTED=after-before,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                external_proof_sha256=proof["proof_sha256"],recovery_run=None,
+                allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},usage=usage,
+                account_permission_reference_sha256=c.digest(a["external_cohort"]["proof_reference"].encode()),
+                account_permission_record_sha256=proof["proof_sha256"],confirmed_storage_bytes=usage["storage_bytes"])
+            if index==11:value["last_transport_failure"]=dict(http_status=502,method="POST",phase="HEADER_OPEN",
+                request_category="DRIVE_CREATE",request_ordinal=265)
+            self.runs.append(run);self.values.append(value);self.seconds[runid]=697 if index==11 else 200
+            used={k:used[k]+usage[k] for k in used}
+            if not previous:current,parent=after,cp
+        assert used==c.NATIVE18_CAPTURE_USED and current==76
+        failedsha=c.digest(c.encoded(self.values[-1]))
+        patch.dict(c.NATIVE18_RECOVERY,receipt_sha256=failedsha).start()
+        patch.dict(cap.STORAGE_QUARANTINE,failed_meter_sha256=failedsha).start()
+        self.native=copy.deepcopy(FROZEN_NATIVE18_METER)
+        self.native.update(failed_meter_sha256=failedsha)
+        self.native["result"]["owner_sha256"]=c.CONTINUATION["bindings"]["owner_sha256"]
+        nativesha=c.digest(c.encoded(self.native))
+        patch.object(c,"NATIVE18_METER",nativesha).start()
+        patch.dict(cap.STORAGE_QUARANTINE,native_meter_sha256=nativesha).start()
+        self.nr=dict(id=c.NATIVE18_RUN,run_attempt=1,status="completed",conclusion="success",
+            head_sha=c.NATIVE18_MASTER,head_branch="master",event="workflow_dispatch",
+            created_at="2026-10-18T06:23:17Z",display_title="a1-sip "+self.native["nonce"]+" native-read39085031884")
+        self.jobs=Native18SealedEvidenceTests();self.jobs.setUp();self.jobs=self.jobs.jobs
+        self.runs.append(self.nr)
+        self.new=copy.deepcopy(self.old);self.new.update(schema="r1000-sip-external-cohort-authorization-v5",
+            expected_master="c"*40,account_permission_reference=self.base.reference+"3")
+        self.event=dict(sequence=38,kind="NATIVE_READ_SETTLED",auth_sha256=c.external_family_genesis(),
+            previous_sha256=c.NATIVE18_RECOVERY["family_event_sha256"],recorded_utc=c.utc().isoformat(),
+            **c.native18_event_payload(self.new["expected_master"],self.new["code_pins"]))
+        self.new["external_cohort"].update(proof_reference=self.new["account_permission_reference"],
+            native18_recovery=dict(settlement_sha256=c.digest(c.encoded(self.event))))
+        self.newproof=proof_for(self.new,c.utc().isoformat())
+
+    def observe(self,a=None,current=None,recovery=None,accounting=False,enforce=True):
+        a=a or self.new;values={v["run_id"]:v for v in self.values}
+        with patch.object(c,"external_proof",side_effect=lambda x:self.proofs[c.validate_authorization(x)]), \
+             patch.object(c,"campaign_runs",return_value=self.runs), \
+             patch.object(c,"receipt_for_run",side_effect=lambda r,*args,**kw:values[r["id"]]), \
+             patch.object(c,"job_seconds",side_effect=lambda r:self.seconds[r["id"]]), \
+             patch.object(c,"native18_receipt_for_run",side_effect=lambda r:
+                 (self.native,c.validate_native18_evidence(r,self.native,self.jobs))):
+            return c.external_history(a,current_run=current,
+                nonce=self.runs[-1]["display_title"][7:] if current else None,recovery_run=recovery,
+                allow_stopped=current is None,enforce_expiry=enforce,native18_accounting=accounting)
+
+    def test_old17_plus_typed_native18_cost_time_and_checkpoint_preserved(self):
+        got=self.observe()
+        self.assertEqual(got["used"],dict(provider_gets=542,drive_requests=5277,drive_bytes=843339564,storage_bytes=79426031))
+        self.assertEqual(got["active_seconds"],3931);self.assertEqual(len(got["runs"]),18)
+        self.assertEqual(got["examined"],76);self.assertEqual(got["parent_sha"],c.NATIVE18_RECOVERY["checkpoint_sha256"])
+        self.assertEqual(len(got["cohort_receipts"]),11)
+        self.assertEqual(got["recovery_required"],c.NATIVE18_RECOVERY["run_id"])
+        before=self.observe(self.old,accounting=True)
+        self.assertEqual(before["used"],c.NATIVE18_CAPTURE_USED);self.assertEqual(before["active_seconds"],3769)
+        self.assertEqual(len(before["all_runs"]),18);self.assertEqual(len(before["runs"]),17)
+        with self.assertRaises(c.Refused):self.observe(self.old)
+
+    def test_missing_duplicate_native_changed_old_budget_and_expiry_refuse(self):
+        original=copy.deepcopy(self.runs)
+        self.runs=self.runs[:-1]
+        with self.assertRaises(c.Refused):self.observe()
+        self.runs=original+[dict(original[-1])]
+        with self.assertRaises(c.Refused):self.observe()
+        self.runs=original
+        self.values[-1]["usage"]["storage_bytes"]-=302101
+        with self.assertRaises(c.Refused):self.observe()
+        self.values[-1]["usage"]["storage_bytes"]+=302101
+        utc=c.utc
+        with patch.object(c,"utc",side_effect=lambda v=None:utc(v) if v is not None else utc("2026-10-19T02:08:51Z")):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_EXPIRED"):self.observe()
+            self.assertEqual(self.observe(enforce=False)["examined"],76)
+
+    def test_four_held_successor_is_not_price_success_and_failed_successor_cannot_retry(self):
+        before=self.observe();runid=c.NATIVE18_RUN+1;nonce=c.PREFIX+"f"*24
+        run=dict(self.nr,id=runid,head_sha=self.new["expected_master"],created_at=self.newproof["proof_updated_utc"],
+                 display_title="a1-sip "+nonce)
+        evidence=dict(cap.STORAGE_QUARANTINE,authorization_sha256=c.validate_authorization(self.new),
+            external_proof_sha256=self.newproof["proof_sha256"],
+            native_settlement_sha256=self.new["external_cohort"]["native18_recovery"]["settlement_sha256"],
+            recovery_run_id=runid)
+        value=dict(self.values[-1],run_id=runid,nonce=nonce,auth_sha256=c.validate_authorization(self.new),
+            source_sha=self.new["expected_master"],status="COMPLETE",reason=None,recovery_run=c.NATIVE18_RECOVERY["run_id"],
+            examined_before=76,examined_after=80,parent_checkpoint_sha256=c.NATIVE18_RECOVERY["checkpoint_sha256"],
+            checkpoint_sha256="a"*64,rows_verified=0,new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=4),
+            allowance=before["remaining"],usage=dict(provider_gets=0,drive_requests=20,drive_bytes=1500000,storage_bytes=6000),
+            confirmed_storage_bytes=6000,external_proof_sha256=self.newproof["proof_sha256"],
+            account_permission_reference_sha256=c.digest(self.new["external_cohort"]["proof_reference"].encode()),
+            account_permission_record_sha256=self.newproof["proof_sha256"],
+            native18_settlement_sha256=self.new["external_cohort"]["native18_recovery"]["settlement_sha256"],
+            uncertain_storage_hold=dict(evidence=evidence,marker_sha256="b"*64,checkpoint_sha256="a"*64))
+        value.pop("last_transport_failure",None)
+        self.runs.append(run);self.values.append(value);self.seconds[runid]=20
+        got=self.observe()
+        self.assertEqual(got["examined"],80);self.assertIsNone(got["recovery_required"])
+        self.assertEqual(got["used"]["provider_gets"],542)
+        for changed in (dict(rows_verified=8),dict(new_states=dict(VALID_COLLECTED=4,VERIFIED_NO_DATA=0,QUARANTINED=0)),
+                        dict(usage=dict(value["usage"],provider_gets=1))):
+            old=copy.deepcopy(value);value.update(changed)
+            with self.subTest(changed=changed),self.assertRaises(c.Refused):self.observe()
+            value.clear();value.update(old)
+        value.update(status="BLOCKED",reason="HTTP_ERROR",examined_after=76,
+            checkpoint_sha256=value["parent_checkpoint_sha256"],new_states=dict(VALID_COLLECTED=0,VERIFIED_NO_DATA=0,QUARANTINED=0))
+        value.pop("uncertain_storage_hold")
+        run["conclusion"]="failure"
+        # A stopped receipt may be accounted; it is not another named recovery.
+        self.assertEqual(self.observe()["examined"],76)
+        with self.assertRaises(c.Refused):self.observe(recovery=runid)
+        self.runs.append(dict(run,id=runid+1,status="in_progress",conclusion=None,
+                              display_title="a1-sip "+c.PREFIX+"a"*24))
+        with self.assertRaises(c.Refused):
+            self.observe(current=runid+1,recovery=c.NATIVE18_RECOVERY["run_id"])
+
+
 if __name__=='__main__': unittest.main()

@@ -796,6 +796,145 @@ class ExternalDiscoveryTests(unittest.TestCase):
                          get=lambda *a,**kw:self.fail('Provider before validation'),external=external)
 
 
+class UncertainStorageQuarantineTests(unittest.TestCase):
+    """Synthetic source/Drive bytes. This fixture is never a real held receipt."""
+    def setUp(self):
+        import copy
+        from types import SimpleNamespace
+        self.drive = FakePrivateDrive()
+        self.names = (["ZQ%03d"%i for i in range(76)]+["VLO","MFG","BP","BTI"]+
+                      ["SPGI"]+["ZQ%03d"%i for i in range(81,417)])
+        self.csv = "ticker\n"+"\n".join(self.names)+"\n"
+        self.scope = dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
+                          namespace="top500-20261017",input_sha256=cap.digest(self.csv.encode()))
+        self.args = SimpleNamespace(start=cap.MIN_START,end="2026-10-14",max_new_symbols=32,
+            private_root_folder_id=self.drive.root_id,private_data_folder_id=self.drive.folder,
+            resume_file_id="",resume_sha256="")
+        self.env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED="true",ALPACA_NONCOMMERCIAL_ACKNOWLEDGED="true",
+            GITHUB_REPOSITORY=cap.REPOSITORY,GITHUB_REF="refs/heads/master",GITHUB_SHA="c"*40,
+            GITHUB_RUN_ID="39103855451",ALPACA_API_KEY="fixture-key",ALPACA_API_SECRET="fixture-secret")
+        self.calls = []
+        self.addCleanup(patch.stopall)
+        patch.dict("os.environ",self.env,clear=True).start()
+        patch.object(cap.time,"sleep").start()
+        pages = cap.request_pages
+        patch.object(cap,"request_pages",side_effect=lambda *a,**kw:
+            pages(*a,**dict(kw,pause=lambda _:None))).start()
+        for count in (32,32,12):
+            self.args.max_new_symbols=count
+            with contextlib.redirect_stdout(io.StringIO()):
+                result=cap._collect(self.args,drive_factory=lambda *a:self.drive,get=self.get,
+                    external=dict(input_csv=self.csv,scope=self.scope))
+            self.prefix=result["checkpoint"]
+            self.args.resume_file_id=self.prefix["file_id"];self.args.resume_sha256=self.prefix["sha256"]
+        patch.dict(cap.STORAGE_QUARANTINE,checkpoint_sha256=self.prefix["sha256"],
+                   input_sha256=self.scope["input_sha256"]).start()
+        self.evidence = dict(copy.deepcopy(cap.STORAGE_QUARANTINE),authorization_sha256="d"*64,
+            external_proof_sha256="e"*64,native_settlement_sha256="f"*64,recovery_run_id=39103855451)
+        self.originals=dict(self.drive.objects);self.calls.clear()
+        self.args.max_new_symbols=4
+
+    def get(self,url,**kw):
+        self.calls.append(url)
+        if "/v2/assets/" in url:
+            symbol=url.rsplit("/",1)[1]
+            return cap.encoded(dict(id="00000000-0000-0000-0000-000000000001",symbol=symbol,
+                exchange="NYSE",status="active",**{"class":"us_equity"}))
+        symbols=parse_qs(urlparse(url).query)["symbols"][0].split(",")
+        return cap.encoded(dict(bars={s:[bar()] for s in symbols},next_page_token=None))
+
+    def hold(self,on_group=None):
+        with contextlib.redirect_stdout(io.StringIO()):
+            result=cap._collect(self.args,drive_factory=lambda *a:self.drive,
+                get=lambda *a,**kw:self.fail("Provider I/O for unknown storage"),
+                on_group=on_group,expected_examined=76,
+                external=dict(input_csv=self.csv,scope=self.scope,storage_quarantine=self.evidence))
+        return result["checkpoint"]
+
+    def restore(self,ref):
+        return cap.resume_state(self.drive,self.drive.folder,ref["file_id"],ref["sha256"],
+                                self.scope["input_sha256"],self.args.start,self.args.end,scope=self.scope)
+
+    def test_marker_and_checkpoint_restore_without_old_pack_or_provider_call(self):
+        with patch.object(cap,"capture_one_group",side_effect=AssertionError("old body regeneration")), \
+             patch.object(cap.gzip,"compress",side_effect=AssertionError("unknown normalized body regeneration")), \
+             patch.object(cap,"precheck_assets",side_effect=AssertionError("asset I/O")):
+            ref=self.hold()
+        restored=self.restore(ref)
+        self.assertEqual(restored[:3],(self.names[:80],self.names[:76],self.names[76:80]))
+        self.assertEqual(self.calls,[])
+        self.assertTrue(all(self.drive.objects[k]==v for k,v in self.originals.items()))
+        additions=[v for k,v in self.drive.objects.items() if k not in self.originals]
+        self.assertEqual(len(additions),2)
+        state=cap.decode(self.drive.read(ref["file_id"]))
+        marker=cap.decode(self.drive.read(state["last_objects"][0]["file_id"]))
+        self.assertEqual(marker["status"],"HELD_UNCERTAIN_STORAGE")
+        self.assertFalse(marker["uncertain_storage"]["absence_proven"])
+        self.assertFalse(marker["uncertain_storage"]["failed_request_body_hash_known"])
+        self.assertFalse(marker["source_admission"]);self.assertFalse(marker["original_price_bytes_retained"])
+        self.assertEqual(state["last_collected"],[]);self.assertEqual(state["last_no_bars"],[])
+        self.assertTrue(all(not raw.startswith((b"PK",b"\x1f\x8b")) for raw in additions))
+
+    def test_next_fixed_group_starts_after_four_held_and_restores_full_chain(self):
+        ref=self.hold();self.calls.clear()
+        self.args.resume_file_id=ref["file_id"];self.args.resume_sha256=ref["sha256"]
+        with contextlib.redirect_stdout(io.StringIO()):
+            result=cap._collect(self.args,drive_factory=lambda *a:self.drive,get=self.get,
+                expected_examined=80,external=dict(input_csv=self.csv,scope=self.scope))
+        examined,done,held,_=self.restore(result["checkpoint"])
+        self.assertEqual(examined,self.names[:84]);self.assertEqual(held,self.names[76:80])
+        self.assertEqual(done,self.names[:76]+self.names[80:84])
+        self.assertTrue(any("/assets/SPGI" in u for u in self.calls))
+        self.assertTrue(all(not any(symbol in u for symbol in self.names[76:80]) for u in self.calls))
+        self.assertTrue(all(self.drive.objects[k]==v for k,v in self.originals.items()))
+
+    def test_foreign_identity_and_unselected_group_fail_before_new_storage(self):
+        import copy
+        mutations=(lambda e:e.update(native_run_id=1),lambda e:e.update(owner_sha256="0"*64),
+            lambda e:e.update(native_meter_sha256="0"*64),lambda e:e.update(failed_meter_sha256="0"*64),
+            lambda e:e.update(checkpoint_sha256="0"*64),lambda e:e.update(symbols=list(reversed(e["symbols"]))),
+            lambda e:e.update(absence_proven=True),lambda e:e.update(unknown_storage_bytes_still_charged=0),
+            lambda e:e.update(recovery_run_id=True),lambda e:e.update(input_sha256="0"*64))
+        original=copy.deepcopy(self.evidence)
+        for mutate in mutations:
+            self.evidence=copy.deepcopy(original);mutate(self.evidence);before=self.drive.write_count
+            with self.subTest(mutate=mutate),self.assertRaises(Refused):self.hold()
+            self.assertEqual(self.drive.write_count,before)
+        self.evidence=original;self.args.max_new_symbols=5
+        with self.assertRaisesRegex(Refused,"STORAGE_QUARANTINE_PREFIX"):self.hold()
+
+    def test_fully_rehashed_marker_or_membership_forgery_is_not_admitted(self):
+        import copy
+        ref=self.hold();original=cap.decode(self.drive.read(ref["file_id"]))
+        marker=cap.decode(self.drive.read(original["last_objects"][0]["file_id"]))
+        mutations=(
+            lambda m,s:m["uncertain_storage"].update(absence_proven=True),
+            lambda m,s:m["uncertain_storage"].update(owner_sha256="0"*64),
+            lambda m,s:m.update(source_admission=True),
+            lambda m,s:m.update(reason="BAR_VALUE"),
+            lambda m,s:m.update(symbols=list(reversed(m["symbols"]))),
+            lambda m,s:s.update(last_no_bars=s["last_held"],last_held=[]),
+            lambda m,s:s.update(completed=s["examined"],held=[]),
+            lambda m,s:s.update(previous_checkpoint=None))
+        for mutate in mutations:
+            m,s=copy.deepcopy(marker),copy.deepcopy(original);mutate(m,s)
+            s["last_objects"]=[cap.persist_object(self.drive,self.drive.folder,cap.encoded(m),".json")]
+            bad=cap.persist_object(self.drive,self.drive.folder,cap.encoded(s),".json")
+            with self.subTest(mutate=mutate),self.assertRaises(Refused):self.restore(bad)
+
+    def test_checkpoint_write_failure_does_not_advance_or_turn_hold_into_prices(self):
+        before=dict(self.drive.objects);write=self.drive.write
+        def fail_checkpoint(folder,raw,extension):
+            if cap.decode(raw).get("last_status")=="HELD_UNCERTAIN_STORAGE":
+                raise Refused("SYNTHETIC_UNKNOWN_NEW_MARKER_POST")
+            return write(folder,raw,extension)
+        with patch.object(self.drive,"write",side_effect=fail_checkpoint),self.assertRaises(Refused):self.hold()
+        self.assertEqual(self.restore(self.prefix)[:3],(self.names[:76],self.names[:76],[]))
+        self.assertEqual(self.calls,[])
+        self.assertTrue(all(self.drive.objects[k]==v for k,v in before.items()))
+
+
+
 def load_tests(loader, standard_tests, pattern):
     import importlib.util
     path = Path(__file__).with_name('alpaca_sip_campaign_smoke.py')
