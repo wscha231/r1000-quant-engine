@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 import os
 import importlib
 import inspect
-import marshal
 import math
 from pathlib import Path
 import re
@@ -153,8 +152,25 @@ def _module_stamp():
         require(total <= backend.MAX_TOTAL, "RUNTIME_SOURCE_BYTE_BUDGET")
         compiled = compile(raw, filename, "exec", dont_inherit=True, optimize=sys.flags.optimize)
         syntax = ast.parse(raw)
+        definitions = {}
+        definition_nodes = [(syntax, "")]
+        while definition_nodes:
+            node, prefix = definition_nodes.pop()
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                definitions.setdefault(prefix + node.name, []).append(node)
+                continue
+            if isinstance(node, ast.ClassDef):
+                definition_nodes.extend((child, prefix + node.name + ".") for child in node.body)
+            else:
+                definition_nodes.extend((child, prefix) for child in ast.iter_child_nodes(node))
         aliases = {}
-        for node in ast.walk(syntax):
+        syntax_nodes = list(syntax.body)
+        while syntax_nodes:
+            node = syntax_nodes.pop()
+            if isinstance(node, ast.Try):
+                syntax_nodes.extend(node.body + node.orelse + node.finalbody)
+                for handler in node.handlers:
+                    syntax_nodes.extend(handler.body)
             if isinstance(node, ast.ImportFrom):
                 imported = node.module
                 if node.level:
@@ -171,6 +187,8 @@ def _module_stamp():
                 expected.setdefault(code.co_qualname, []).append(code)
         bindings = {}
         for qualified, alternatives in expected.items():
+            if qualified not in definitions:
+                continue  # Interpreter-generated annotation/comprehension helpers are not global definitions.
             owner = module
             value = None
             for part in qualified.split("."):
@@ -180,6 +198,7 @@ def _module_stamp():
                     break
             if isinstance(value, (staticmethod, classmethod)):
                 value = value.__func__
+            require(value is not None, "LOADED_SOURCE_CALLABLE_MISSING")
             functions = [value.fget, value.fset, value.fdel] if isinstance(value, property) else [value]
             for position, function in enumerate(functions):
                 if function is None:
@@ -215,7 +234,7 @@ def _module_stamp():
                             codes.extend(c for c in code.co_consts if isinstance(c, CodeType))
                         require(matches, "LOADED_WRAPPER_CODE_MISMATCH")
                         wrappers.append({"id": id(function),
-                            "code_sha256": backend.digest(marshal.dumps(function.__code__)),
+                            "code_sha256": _code_hash(function.__code__),
                             "closure": [_runtime_value(c.cell_contents) for c in function.__closure__ or ()]})
                     else:
                         require(type(function).__module__ == "functools", "RUNTIME_WRAPPER_REFUSED")
@@ -224,9 +243,28 @@ def _module_stamp():
                 require(isinstance(function, FunctionType) and function.__globals__ is vars(module)
                         and any(function.__code__ == code for code in alternatives),
                         "LOADED_SOURCE_CODE_MISMATCH")
+                declared = next((node for node in definitions.get(qualified, [])
+                    if min([node.lineno] + [d.lineno for d in node.decorator_list])
+                    == function.__code__.co_firstlineno), None)
+                require(declared is not None, "RUNTIME_DEFINITION_UNAVAILABLE")
+                defaults = function.__defaults__ or ()
+                kwdefaults = function.__kwdefaults__ or {}
+                require(len(defaults) == len(declared.args.defaults) and set(kwdefaults) ==
+                        {arg.arg for arg, expr in zip(declared.args.kwonlyargs, declared.args.kw_defaults)
+                         if expr is not None}, "LOADED_SOURCE_DEFAULT_MISMATCH")
+                pairs = list(zip(defaults, declared.args.defaults)) + [
+                    (kwdefaults[arg.arg], expr) for arg, expr in
+                    zip(declared.args.kwonlyargs, declared.args.kw_defaults) if expr is not None]
+                for actual, expression in pairs:
+                    try:
+                        literal = ast.literal_eval(expression)
+                    except (ValueError, TypeError, SyntaxError):
+                        continue  # Nonliteral state remains explicitly live-hashed.
+                    require(_runtime_value(actual) == _runtime_value(literal),
+                            "LOADED_SOURCE_DEFAULT_MISMATCH")
                 bindings[qualified + ":" + str(position)] = {
                     "callable_id": id(wrapper), "code_id": id(function.__code__),
-                    "executed_code_sha256": backend.digest(marshal.dumps(function.__code__)),
+                    "executed_code_sha256": _code_hash(function.__code__),
                     "wrappers": wrappers,
                     "defaults": _runtime_value(function.__defaults__),
                     "kwdefaults": _runtime_value(function.__kwdefaults__)}
@@ -260,7 +298,9 @@ def _runtime_value(value, depth=0):
     if value is None or type(value) in (bool, int, float, str):
         return value
     if isinstance(value, FunctionType):
-        return {"function_id": id(value), "code_sha256": backend.digest(marshal.dumps(value.__code__))}
+        return {"function_id": id(value), "code_sha256": _code_hash(value.__code__)}
+    if isinstance(value, Path):
+        return {"path_value": str(value)}
     if isinstance(value, (bytes, bytearray)):
         require(len(value) <= backend.MAX_FILE, "RUNTIME_DEFAULT_BUDGET")
         return {"bytes_sha256": backend.digest(bytes(value))}
@@ -279,6 +319,40 @@ def _runtime_value(value, depth=0):
         return {type(value).__name__: sorted(backend.digest(backend.canonical(_runtime_value(v, depth + 1)))
                                            for v in value)}
     return {"type": type(value).__module__ + "." + type(value).__qualname__, "identity": id(value)}
+
+
+def _code_hash(code, depth=0):
+    """Stable public code structure; marshal reference/intern flags are not code."""
+    require(depth <= 32, "RUNTIME_CODE_DEPTH_BUDGET")
+    def constant(value):
+        if isinstance(value, CodeType):
+            return {"code": _code_hash(value, depth + 1)}
+        if isinstance(value, bytes):
+            return {"bytes": value.hex()}
+        if isinstance(value, tuple):
+            return {"tuple": [constant(v) for v in value]}
+        if isinstance(value, frozenset):
+            return {"frozenset": sorted(backend.digest(backend.canonical(constant(v))) for v in value)}
+        if isinstance(value, slice):
+            return {"slice": [constant(value.start), constant(value.stop), constant(value.step)]}
+        if value is Ellipsis:
+            return {"ellipsis": True}
+        if value is NotImplemented:
+            return {"not_implemented": True}
+        if isinstance(value, float):
+            return {"float": value.hex()}
+        if isinstance(value, complex):
+            return {"complex": [value.real.hex(), value.imag.hex()]}
+        require(value is None or type(value) in (bool, int, str), "RUNTIME_CODE_CONSTANT_REFUSED")
+        return value
+    return backend.digest(backend.canonical({
+        "layout": [code.co_argcount, code.co_posonlyargcount, code.co_kwonlyargcount,
+                   code.co_nlocals, code.co_stacksize, code.co_flags, code.co_firstlineno],
+        "filename": code.co_filename, "qualname": code.co_qualname,
+        "bytecode": code.co_code.hex(), "linetable": code.co_linetable.hex(),
+        "exceptions": code.co_exceptiontable.hex(), "constants": constant(code.co_consts),
+        "names": code.co_names, "locals": code.co_varnames,
+        "free": code.co_freevars, "cells": code.co_cellvars}))
 
 
 def _security(bundle, trusted_root, output):

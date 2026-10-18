@@ -65,6 +65,12 @@ are retained separately; cached stale code, in-place replacement and reload
 cannot silently reuse a prior proof. The controller's own test instrumentation
 is outside this consumer stamp. This remains a trusted-process protocol, not
 a sandbox against hostile threads or a full interpreter/native-library closure.
+Literal signature defaults/constants are checked against source; nonliteral
+initialization state is recorded as live state, not authenticated by reexecuting
+module initialization. Expected source callables must be present. Import-alias
+exceptions are limited to explicit module/try-block imports; function/class or
+conditional-local imports cannot authorize global replacement. Code digests use
+public structural code fields, not interpreter-dependent marshal reference flags.
 A changed input/config/code/dependency creates
 a distinct bounded intent, rather than relabeling an old result as a new PASS.
 Repository Python/config hashing is conservative; even an unrelated included

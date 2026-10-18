@@ -344,8 +344,12 @@ class QueueTests(unittest.TestCase):
                 queue._module_stamp()
             module.value = keep
             module.value.__defaults__ = (5,)
-            self.assertNotEqual(queue._module_stamp(), first)
+            with self.assertRaisesRegex(queue.Error, "SOURCE_DEFAULT_MISMATCH"):
+                queue._module_stamp()
             module.value.__defaults__ = (1,)
+            source.write_bytes(original.replace(b"value(x=1)", b"value(x=2)"))
+            with self.assertRaisesRegex(queue.Error, "SOURCE_DEFAULT_MISMATCH"):
+                queue._module_stamp()
             source.write_bytes(original.replace(b"LIMIT = 1", b"LIMIT = 2"))
             with self.assertRaisesRegex(queue.Error, "SOURCE_CONSTANT_MISMATCH"):
                 queue._module_stamp()
@@ -354,6 +358,19 @@ class QueueTests(unittest.TestCase):
             exec(compile(original, str(source), "exec", dont_inherit=True), vars(module))  # Reload same object.
             self.assertEqual(id(module), old_id)
             self.assertNotEqual(queue._module_stamp(), first)
+            source.write_bytes(original + b"\ndef added():\n return 2\n")
+            with self.assertRaisesRegex(queue.Error, "CALLABLE_MISSING"):
+                queue._module_stamp()
+            disguised = (b"def choose(x=0):\n return 1\n"
+                         b"def local_only():\n from math import sin as choose\n return choose(0)\n")
+            source.write_bytes(disguised)
+            module.__dict__.clear()
+            module.__dict__.update(__name__=name, __file__=str(source), __package__="")
+            exec(compile(disguised, str(source), "exec", dont_inherit=True), vars(module))
+            import math
+            module.choose = math.sin
+            with self.assertRaisesRegex(queue.Error, "SOURCE_CODE_MISMATCH"):
+                queue._module_stamp()
 
     def test_batch_boundary_expires_earlier_case_before_proof(self):
         instant = [datetime.fromisoformat(CUTOFF.replace("Z", "+00:00"))]
