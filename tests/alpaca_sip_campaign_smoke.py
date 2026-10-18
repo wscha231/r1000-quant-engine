@@ -4540,6 +4540,45 @@ class LiveRunRefusalCorrectionTests(unittest.TestCase):
         return dict(id=id,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
             user=dict(type='User',id=123),created_at=clock,updated_at=clock,body=tag+json.dumps(record))
 
+    def test_first_corrective_host_reaches_one_bounded_post_after_bound_parent(self):
+        """Host dispatch boundary; the separate real-journal test proves both barriers."""
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);budget=root/'canonical-journal';budget.mkdir()
+            state=root/('external-cohort-'+self.a['external_cohort']['scope']['namespace']);state.mkdir()
+            inp=root/'input.csv';inp.write_bytes(self.a['external_cohort']['input_csv'].encode())
+            class Journal:
+                def __init__(this,entries):this.entries=entries;this.directory=state;this.refusal_revision={'fixture':True}
+                def reconcile(this,runs):pass
+                def close(this):pass
+                def append(this,kind,**data):this.entries.append(dict(kind=kind,**data))
+            binding=dict(scope=self.a['external_cohort']['scope'],
+                genesis_sha256=c.external_genesis(self.a['external_cohort']['scope']),**self.proof)
+            first=dict(kind='EXTERNAL_COHORT_BOUND',recorded_utc=self.proof['proof_updated_utc'],**binding)
+            journal=Journal([first,dict(kind='REFUSAL_SOURCE_BOUND')]);family=Journal([])
+            observed=dict(self.o,cohort_runs=[self.refused]);posts=[]
+            def post(args,**kw):
+                self.assertEqual(args[1:3],['workflow','run'])
+                data=json.loads(kw['input']);posts.append(data)
+                self.assertEqual(data['max_new_symbols'],'32')
+                self.assertEqual(data['resume_sha256'],self.s.CP)
+                self.assertEqual(json.loads(data['campaign_control'])['authorization'],self.a)
+                return SimpleNamespace(returncode=1)  # Unknown POST retains both reservations.
+            with patch.object(c,'local_reject_recovery',return_value={}), \
+                 patch.object(c,'WorkJournal',return_value=Journal([])),patch.object(c,'verify_external_budget_journal'), \
+                 patch.object(c,'external_proof',return_value=self.proof), \
+                 patch.object(c,'external_family_registry',return_value=family), \
+                 patch.object(c,'external_journal',return_value=journal), \
+                 patch.object(c,'external_history',return_value=observed), \
+                 patch.object(c,'reconcile_external_family',return_value=None),patch.object(c,'bind_source_revision') as bind, \
+                 patch.object(c,'external_deployed'),patch.object(c,'campaign_runs',return_value=observed['runs']), \
+                 patch.object(c,'settled_parent',return_value=dict(file_id='fixture-cp128',sha256=self.s.CP)), \
+                 patch.object(c.subprocess,'run',side_effect=post), \
+                 self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+                c.external_host(self.a,state,inp,budget,root/'unused',None,16)
+            bind.assert_called_once();self.assertEqual(len(posts),1)
+            self.assertEqual(journal.entries[-1]['kind'],'RESERVED')
+            self.assertEqual(family.entries[-1]['kind'],'RESERVED')
+
     def test_sealed_closure_is_not_meter_and_rebound_hash_or_null_clock_refuses(self):
         grant=self.comment(self.s.grant_record(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope']),
                            'A1_SIP_NO_METER_REFUSAL_AUTHORIZATION ')

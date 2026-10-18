@@ -3543,7 +3543,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             require(parent["sha256"] == observed["parent_sha"]
                     and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND",
                         "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "EXTERNAL_NATIVE18_RECOVERY_BOUND",
-                        "SOURCE_REVISION_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+                        "SOURCE_REVISION_BOUND", "REFUSAL_SOURCE_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
             if observed.get("recovery_required") is not None:
                 require(max_batches == 1 and recovery_run == active_spec["run_id"]
                         and observed["examined"] == active_spec["examined"]

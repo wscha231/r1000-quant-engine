@@ -898,6 +898,10 @@ seven-pin authority separately from cb2b/native38. No arbitrary revision chain.
 
 Only then bind actual new protected Source/pins/OWNER/full proof at cohort25 then
 family52, before a new reservation or nonce. Canonical history retains all runs.
+The host's settled-parent boundary accepts that verified REFUSAL_SOURCE_BOUND
+tail only after the existing binding routine validates and syncs both events.
+The regression exercises the first v7 host through its bounded dispatch boundary;
+binding-only and worker-only tests cannot establish that host path is reachable.
 The original21-run calibration,4938/38262/486 and same38748s maximum remain
 immutable. Explicitly booked live cost is5123s/22 completed dispatches; a new
 worker has23 including its own verified id/nonce/head/attempt/status. Neither
