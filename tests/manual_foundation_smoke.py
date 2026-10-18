@@ -154,6 +154,8 @@ class ManualTests(unittest.TestCase):
         # Keep the new registered programs and their actual local adapters
         # available so missing production pins fail the strict oracle below.
         paths.update({
+            'tests/research_price_incremental_plan_smoke.py',
+            'tools/research_price_incremental_plan.py',
             'tests/research_path_connection_smoke.py',
             'tests/research_risk_connection_smoke.py',
             'tests/research_backend_connection_smoke.py',
@@ -3262,6 +3264,67 @@ class ManualTests(unittest.TestCase):
                         self.assertEqual(child.returncode, 2, child.stdout + child.stderr)
                         self.assertEqual(json.loads(child.stdout)['reason'], 'missing_dependency')
                         self.assertEqual(child.stderr, '')
+                finally:
+                    target.write_bytes(original)
+                    for path, raw in controls.items():
+                        (self.root / path).write_bytes(raw)
+
+    def test_a6_price_child_and_adapter_bind_actual_execution_and_rehashed_omissions(self):
+        names = ('tests/research_price_incremental_plan_smoke.py',
+                 'tools/research_price_incremental_plan.py')
+        controls = {p: (self.root / p).read_bytes()
+                    for p in (manual.MANIFEST, manual.CATALOG)}
+        prefix = [sys.executable, '-B'] + (['-O'] if sys.flags.optimize else [])
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', PYTHONPATH=str(self.root))
+        proof_code = ('import runpy,sys,unittest; '
+                      'ns=runpy.run_path(sys.argv[1],run_name="supplied_price_proof"); '
+                      'suite=unittest.TestSuite([ns["PriceIncrementalTests"]('
+                      '"test_numeric_equal_closes_skip_actual_delta")]); '
+                      'r=unittest.TextTestRunner().run(suite); '
+                      'raise SystemExit(0 if r.wasSuccessful() else 1)')
+
+        def proof():
+            return subprocess.run(prefix + ['-c', proof_code,
+                str(self.root / names[0])], cwd=self.root, env=env,
+                capture_output=True, text=True, timeout=30)
+
+        for name in names:
+            with self.subTest(path=name):
+                target = self.root / name
+                original = target.read_bytes()
+                try:
+                    self.assertIn(name, manual.A6_FIXED_PROOF_PROGRAMS)
+                    packet, scope = self.packet('A6_INDEPENDENT_QA')
+                    self.assertIn(name, packet['dependencies'])
+                    good = proof()
+                    self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+                    target.write_bytes(original + b'\nraise RuntimeError("unreviewed-price-proof")\n')
+                    bad = proof()
+                    self.assertNotEqual(bad.returncode, 0)
+                    self.assertIn('unreviewed-price-proof', bad.stderr)
+                    self.rejected(self.bind(packet), scope, 'dependency_bytes_changed:' + name)
+                    rebound = copy.deepcopy(packet)
+                    rebound['dependencies'][name] = hashlib.sha256(target.read_bytes()).hexdigest()
+                    self.rejected(self.bind(rebound), scope, 'wrong_dependency')
+                    target.write_bytes(original)
+                    for deleted in (False, True):
+                        omitted, omitted_scope = copy.deepcopy(packet), copy.deepcopy(scope)
+                        del omitted['dependencies'][name]
+                        del omitted_scope['dependencies'][name]
+                        if deleted:
+                            target.unlink()
+                        self.rebind_schema_fixture(omitted, omitted_scope)
+                        self.rejected(omitted, omitted_scope, 'missing_dependency')
+                        refused = self.cli_fixture(omitted, omitted_scope)
+                        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                        self.assertEqual(json.loads(refused.stdout)['reason'], 'missing_dependency')
+                        target.write_bytes(original)
+                    fresh, fresh_scope = self.packet('A6_INDEPENDENT_QA')
+                    result = self.validate(fresh, fresh_scope)
+                    self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+                    self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+                    self.assertFalse(result['completed_task'])
+                    self.assertFalse(result['economic_authority'])
                 finally:
                     target.write_bytes(original)
                     for path, raw in controls.items():

@@ -287,7 +287,6 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/research_path_connection_smoke.py", []),
     ("tests/research_risk_connection_smoke.py", []),
     ("tests/research_backend_connection_smoke.py", []),
-    ("tests/research_price_incremental_plan_smoke.py", []),
 ]
 
 

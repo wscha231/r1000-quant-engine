@@ -94,10 +94,13 @@ outside this local adapter. It cannot authorize collection or activate cron.
 Focused Native invocation: `python -B tests/research_price_incremental_plan_smoke.py`
 and the same interpreter with `-O -B`. These are synthetic supplied-calendar and
 price fixtures exercising the real existing `plan_delta` API. No provider/Drive
-calls. The suite is registered exactly once in `tools/run_pr_validation.py`
-`DEFAULT_TESTS`, after the backend connection suite. Actual hosted execution of
-this entry must be read from the successor-head CI evidence; registration or a
-generic green check alone is not claimed as focused-suite PASS.
+calls. The already registered backend connection suite includes this real child
+suite unconditionally through standard `unittest.load_tests`; its original tests
+stay. An absent, empty or import-failing child fails the caller. The frozen
+Tier-1 runner, workflow, default238 entries and protected publication pins are
+unchanged. Both child and adapter paths are fixed A6 proof dependencies. Actual
+hosted backend PASS plus its child18 inclusion line is required before claiming
+hosted focused coverage. Local proof/fixture checks do not substitute for it.
 
 The preserved PRICE_UPDATE_STATUS audit (SHA256
 `75013b241a4418eb590d07db0bf14d6469f0da105b744289fe4baca7a0ba53cf`)
