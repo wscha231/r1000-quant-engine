@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import copy
+import contextlib
 import hashlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -496,6 +499,55 @@ except r.BundleError as error:
         result = json.loads(run.stdout)
         self.assertEqual(result["calls"], ["build_research_path", "build_risk_connection"])
         self.assertTrue(result["publication"]["readback_verified"])
+
+
+class PriceChildHookTests(unittest.TestCase):
+    def test_missing_empty_and_import_failing_child_refuse(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "tests/research_price_incremental_plan_smoke.py"
+            path.parent.mkdir()
+            with patch.dict(load_tests.__globals__, ROOT=root), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(FileNotFoundError):
+                    load_tests(unittest.defaultTestLoader, unittest.TestSuite(), None)
+                path.write_text("# no test cases\n", encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "PRICE_CHILD_SUITE_EMPTY"):
+                    load_tests(unittest.defaultTestLoader, unittest.TestSuite(), None)
+                path.write_text("raise RuntimeError('PRICE_CHILD_IMPORT_FAILED')\n", encoding="utf-8")
+                with self.assertRaisesRegex(RuntimeError, "PRICE_CHILD_IMPORT_FAILED"):
+                    load_tests(unittest.defaultTestLoader, unittest.TestSuite(), None)
+
+    def test_failed_child_fails_caller_and_preserves_standard_tests(self):
+        seen = []
+        standard = unittest.TestSuite([unittest.FunctionTestCase(lambda: seen.append("standard"))])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "tests/research_price_incremental_plan_smoke.py"
+            path.parent.mkdir()
+            path.write_text("import unittest\nclass FailedChild(unittest.TestCase):\n"
+                            "    def test_probe(self): self.fail('PRICE_CHILD_FAILURE')\n", encoding="utf-8")
+            with patch.dict(load_tests.__globals__, ROOT=root), contextlib.redirect_stdout(io.StringIO()):
+                suite = load_tests(unittest.defaultTestLoader, standard, None)
+            result = unittest.TextTestRunner(stream=io.StringIO()).run(suite)
+        self.assertEqual(seen, ["standard"])
+        self.assertEqual(result.testsRun, 2)
+        self.assertEqual(len(result.failures), 1)
+        self.assertFalse(result.wasSuccessful())
+
+
+def load_tests(loader, standard_tests, pattern):
+    # Extend the existing registered entry; retain its complete original suite.
+    path = ROOT / "tests/research_price_incremental_plan_smoke.py"
+    spec = importlib.util.spec_from_file_location("research_price_incremental_plan_registered", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    child_tests = loader.loadTestsFromModule(module)
+    count = child_tests.countTestCases()
+    if count == 0:
+        raise RuntimeError("PRICE_CHILD_SUITE_EMPTY")
+    standard_tests.addTests(child_tests)
+    print(f"research_price_incremental_plan_smoke: {count} child tests", flush=True)
+    return standard_tests
 
 
 if __name__ == "__main__":

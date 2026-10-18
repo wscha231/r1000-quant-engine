@@ -404,6 +404,8 @@ A6_FIXED_PROOF_INPUTS = (
     'research/control_plane/matured_outcome_cohort_v1.schema.json',
 )
 A6_FIXED_PROOF_PROGRAMS = (
+    'tests/research_price_incremental_plan_smoke.py',
+    'tools/research_price_incremental_plan.py',
     'tests/research_path_connection_smoke.py',
     'tests/research_risk_connection_smoke.py',
     'tests/research_backend_connection_smoke.py',
