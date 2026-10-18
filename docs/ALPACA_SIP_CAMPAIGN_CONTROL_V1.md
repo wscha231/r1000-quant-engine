@@ -843,8 +843,10 @@ Future execution binds an actually approved protected master, the complete
 current seven pins including `tools/alpaca_sip_source_revision.py`, a new real
 immutable OWNER locator/full authorization/proof and a fresh single-use nonce.
 Only the two current self-locator fields leave the detached consent commitment;
-the actual returned URL remains in the full runtime hash. created_at==updated_at
-is mandatory. Old six-pin authorizations remain valid historical evidence;
+the actual returned URL remains in the full runtime hash. Both OWNER clocks
+must be actual UTC strings and created_at==updated_at is mandatory. Missing
+or null clocks cannot use the runtime clock's current-time fallback. Old
+six-pin authorizations remain valid historical evidence;
 current external worker/deployment requires the transitive seventh pin.
 The workflow changes only its two sparse source bundles.
 

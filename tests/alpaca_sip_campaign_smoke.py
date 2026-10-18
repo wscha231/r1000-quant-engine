@@ -2066,7 +2066,10 @@ class ExternalCohortTests(unittest.TestCase):
                 refresh_token='fixture-refresh',expiry='2030-01-01T00:00:00Z'))+'\n')
         original_meter=c.RuntimeMeter;original_pages=cap.request_pages
         path=self.root/'worker-meter'
+        # Historical six-pin authority exercises retained worker semantics;
+        # current seven-pin deployment is tested separately below.
         with patch.dict(os.environ,env,clear=True),patch.object(c,'external_history',return_value=observed), \
+             patch.object(c,'verify_worker_source'), \
              patch.object(c,'campaign_runs',return_value=observed['runs']), \
              patch.object(c,'external_proof',return_value=dict(proof,proof_sha256='0'*64) if drift else proof), \
              patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=7100)), \
@@ -2315,6 +2318,7 @@ class NamedExternalRecoveryTests(unittest.TestCase):
             GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID=str(active['id']),
             INPUT_CAMPAIGN_NONCE=control['nonce'])
         with patch.dict(os.environ,env),patch.object(c,'campaign_runs',return_value=runs), \
+             patch.object(c,'verify_worker_source'), \
              patch.object(c,'receipt_for_run',side_effect=self.base.old.receipts+self.values), \
              patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*3), \
              patch.object(c,'external_proof',side_effect=lambda a:self.proofs[c.validate_authorization(a)]), \
@@ -2449,6 +2453,8 @@ class NamedExternalRecoveryTests(unittest.TestCase):
         def context():
             from contextlib import ExitStack
             stack=ExitStack();stack.enter_context(patch.dict(os.environ,env))
+            # Retained six-pin recovery fixture; not current deployment proof.
+            stack.enter_context(patch.object(c,'verify_worker_source'))
             stack.enter_context(patch.object(c,'campaign_runs',return_value=runs))
             stack.enter_context(patch.object(c,'receipt_for_run',side_effect=self.base.old.receipts+self.values))
             stack.enter_context(patch.object(c,'job_seconds',side_effect=[27,159,215,206,265]+[10]*4))
@@ -4263,6 +4269,19 @@ class SourceRevisionCP128Tests(unittest.TestCase):
                        lambda a:a["external_cohort"].update(unknown_transition={})]:
             bad=copy.deepcopy(self.new);change(bad)
             with self.subTest(change=change),self.assertRaises(c.Refused):c.validate_authorization(bad)
+        env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF="refs/heads/master",
+            GITHUB_SHA=self.new["expected_master"],GITHUB_EVENT_NAME="workflow_dispatch",GITHUB_RUN_ATTEMPT="1")
+        with patch.dict(os.environ,env,clear=True):
+            c.verify_worker_source(self.new)
+            for remove in (True,False):
+                bad=copy.deepcopy(self.new)
+                if remove:bad["code_pins"].pop(c.REVISION_MODULE)
+                else:bad["code_pins"][c.REVISION_MODULE]="0"*64
+                with self.subTest(remove=remove),self.assertRaises(c.Refused):c.verify_worker_source(bad)
+        with patch.dict(os.environ,dict(env,GITHUB_SHA=self.old["expected_master"]),clear=True):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_CODE_PINS"):c.verify_worker_source(self.old)
+        with patch.object(c,"gh_json",side_effect=AssertionError("No remote reads for old six pins")):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_CODE_PINS"):c.external_deployed(self.old)
 
     def test_actual_model_stays_false_and_only_exact_time_exception_is_accepted(self):
         before=copy.deepcopy(self.o);forecast=c.external_forecast(self.new,self.o)
@@ -4298,8 +4317,16 @@ class SourceRevisionCP128Tests(unittest.TestCase):
             created_at=clock,updated_at=clock,body="A1_SIP_EXTERNAL_COHORT_CONSENT "+json.dumps(record))
         with patch.object(c,"gh_json",return_value=comment):proof=c.external_proof(self.new)
         self.assertIn("proof_sha256",proof)
-        with patch.object(c,"gh_json",return_value=dict(comment,updated_at=(c.utc()+timedelta(seconds=1)).isoformat())):
-            with self.assertRaisesRegex(c.Refused,"EXTERNAL_SOURCE_REVISION_PROOF"):c.external_proof(self.new)
+        mutations=[lambda x:x.update(updated_at=(c.utc()+timedelta(seconds=1)).isoformat()),
+                   lambda x:x.pop("created_at"),lambda x:x.pop("updated_at"),
+                   lambda x:(x.pop("created_at"),x.pop("updated_at")),
+                   lambda x:x.update(created_at=None),lambda x:x.update(updated_at=None),
+                   lambda x:x.update(created_at=None,updated_at=None),
+                   lambda x:x.update(created_at=1,updated_at=1)]
+        for mutate in mutations:
+            bad=copy.deepcopy(comment);mutate(bad)
+            with self.subTest(comment=bad),patch.object(c,"gh_json",return_value=bad):
+                with self.assertRaisesRegex(c.Refused,"EXTERNAL_SOURCE_REVISION_PROOF"):c.external_proof(self.new)
 
     def test_first_capture_marker_is_bound_and_cannot_repeat(self):
         forecast=c.external_forecast(self.new,self.o)

@@ -2244,7 +2244,8 @@ def external_proof(auth):
     record = decode(lines[0])
     require(isinstance(record, dict) and encoded(record) == encoded(expected), "EXTERNAL_PROOF")
     if has_source_revision(auth):
-        require(comment.get("created_at") == comment.get("updated_at"),"EXTERNAL_SOURCE_REVISION_PROOF")
+        require(isinstance(comment.get("created_at"), str) and isinstance(comment.get("updated_at"), str)
+                and comment["created_at"] == comment["updated_at"],"EXTERNAL_SOURCE_REVISION_PROOF")
     elif "native18_recovery" in auth["external_cohort"]:
         native18_consent_event(auth,comment)
     created, updated = utc(comment.get("created_at")), utc(comment.get("updated_at"))
