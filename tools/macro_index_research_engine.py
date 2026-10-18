@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import stat
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,11 @@ from tools.macro_technical_study import technical_features, labels, archive_rele
 
 PRICE_IDS = ('SP500', 'NASDAQCOM', 'NASDAQ100')
 MACRO_IDS = ('UNRATE', 'PAYEMS', 'CPIAUCSL')
+RESOURCE_LIMITS = dict(max_seconds=300, max_rss_bytes=1073741824)
+# Exact legacy descriptions are provenance declarations, not substring rules.
+PRICE_CALENDAR_RULES = frozenset(('XNYS',
+    'XNYS; pre-1996 full historical calendar completeness not certified; no imputation',
+    'XNYS; excluded non-session source dates recorded in source manifest; gaps never filled'))
 LIMITS = dict(research_only=True, historical_pit_certified=False, source_admitted=False,
               full_lake_chain_verified=False, net_er=False, portfolio_backtest=False,
               selector_eligible=False, model_promoted=False, economic_activation=False,
@@ -53,7 +59,22 @@ def encoded(value):
     return (json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False) + '\n').encode()
 
 
-def read_json(raw):
+def read_json(raw, budget=None):
+    budget = budget or Budget(RESOURCE_LIMITS)
+    budget.check(allocation=len(raw)*64)
+    # Bound depth and container expansion before json.loads allocates objects.
+    text = raw.decode('utf-8-sig'); depth = 0; quoted = escaped = False
+    for i, ch in enumerate(text):
+        if i % 4096 == 0:
+            budget.check()
+        if quoted:
+            if escaped: escaped = False
+            elif ch == '\\': escaped = True
+            elif ch == '"': quoted = False
+        elif ch == '"': quoted = True
+        elif ch in '[{':
+            depth += 1; need(depth <= 64, 'JSON_DEPTH')
+        elif ch in ']}': depth -= 1
     def pairs(items):
         result = {}
         for k, v in items:
@@ -62,7 +83,15 @@ def read_json(raw):
         return result
     def invalid(_):
         raise ValueError('NONFINITE_JSON')
-    return json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid)
+    def number(value):
+        need(len(value) <= 128, 'JSON_NUMBER_BUDGET')
+        n = float(value); need(math.isfinite(n), 'NONFINITE_JSON'); return n
+    def integer(value):
+        need(len(value) <= 128, 'JSON_NUMBER_BUDGET'); return int(value)
+    result = json.loads(text, object_pairs_hook=pairs, parse_constant=invalid,
+                        parse_float=number, parse_int=integer)
+    budget.check(); need(type(result) is dict, 'JSON_OBJECT_REQUIRED')
+    return result
 
 
 def instant(value):
@@ -105,12 +134,13 @@ class Budget:
     def __init__(self, config):
         self.start = timer.monotonic(); self.config = config
 
-    def check(self):
+    def check(self, allocation=0):
         need(timer.monotonic()-self.start <= self.config['max_seconds'], 'RUNTIME_BUDGET')
-        need(peak_rss() < self.config['max_rss_bytes'], 'MEMORY_BUDGET')
+        need(peak_rss()+allocation < self.config['max_rss_bytes'], 'MEMORY_BUDGET')
 
 
 def validate_config(c):
+    need(type(c) is dict, 'CONFIG_OBJECT_REQUIRED')
     need(c.get('schema') == 'macro-index-research-config-v1', 'CONFIG_SCHEMA')
     fixed = dict(horizons=[21, 63, 126, 252], entry_delay=1, min_train=504, macro_min_train=60, initial=756,
                  fold_size=252, comparison_start='2016-01-01', primary_metric='oos_mse_improvement',
@@ -122,17 +152,40 @@ def validate_config(c):
     need(instant(c['preregistered_at_utc']) <= instant(c['as_of']), 'PREREGISTRATION_CLOCK')
 
 
-def verified_file(path, expected_hash, count=None):
+def verified_file(path, expected_hash, count=None, *, budget=None, retain=True):
+    budget = budget or Budget(RESOURCE_LIMITS); budget.check()
     p = Path(path)
     need(p.is_file() and not p.is_symlink(), 'INPUT_PATH')
-    raw = p.read_bytes()
-    need(sha(raw) == expected_hash, 'INPUT_HASH')
-    need(count is None or len(raw) == count, 'INPUT_BYTES')
-    return raw
+    size = p.stat().st_size
+    need(count is None or type(count) is int and size == count, 'INPUT_BYTES')
+    # The parse reservation includes retained bytes, decoded strings, rows and
+    # Python object overhead; raw source proofs are hashed without retention.
+    budget.check(allocation=size*64 if retain else 65536)
+    flags = os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(p, flags)
+    digest = hashlib.sha256(); parts = []; total = 0
+    try:
+        opened = os.fstat(fd)
+        need(stat.S_ISREG(opened.st_mode) and opened.st_size == size, 'INPUT_PATH_CHANGED')
+        while True:
+            budget.check(); chunk = os.read(fd, min(65536, size-total+1))
+            if not chunk: break
+            total += len(chunk); need(total <= size, 'INPUT_BYTES_CHANGED')
+            digest.update(chunk)
+            if retain: parts.append(chunk)
+        need(total == size and os.fstat(fd).st_size == size, 'INPUT_BYTES_CHANGED')
+    finally:
+        os.close(fd)
+    budget.check(); need(digest.hexdigest() == expected_hash, 'INPUT_HASH')
+    return b''.join(parts) if retain else None
 
 
-def price_frame(raw):
-    rows = list(csv.reader(io.StringIO(raw.decode('utf-8-sig'))))
+def price_frame(raw, budget=None):
+    budget = budget or Budget(RESOURCE_LIMITS); budget.check(allocation=len(raw)*64)
+    rows = []
+    for i, row in enumerate(csv.reader(io.StringIO(raw.decode('utf-8-sig')))):
+        if i % 256 == 0: budget.check()
+        rows.append(row)
     need(bool(rows) and len(rows[0]) == len(set(rows[0])), 'CSV_HEADER')
     need('date' in rows[0] and 'close' in rows[0], 'PRICE_COLUMNS')
     need(all(len(r) == len(rows[0]) for r in rows[1:]), 'CSV_ROW')
@@ -142,31 +195,38 @@ def price_frame(raw):
     need(days.is_unique and days.is_monotonic_increasing, 'PRICE_ORDER_DUPLICATE')
     values = pd.to_numeric(frame.close, errors='raise').to_numpy(float)
     need(np.isfinite(values).all() and (values > 0).all(), 'PRICE_NONFINITE_NONPOSITIVE')
+    budget.check()
     return pd.Series(values, index=days, name='close')
 
 
-def load_inputs(manifest, config):
+def load_inputs(manifest, config, budget=None):
+    budget = budget or Budget(config); budget.check()
+    need(type(manifest) is dict, 'MANIFEST_OBJECT_REQUIRED')
     need(manifest.get('schema') == 'macro-index-research-input-v1', 'MANIFEST_SCHEMA')
     rows = manifest.get('datasets', [])
-    need(len(rows) == 6 and {r.get('dataset_id') for r in rows} == set(PRICE_IDS+MACRO_IDS), 'DATASET_SET')
+    need(type(rows) is list and len(rows) == 6 and all(type(r) is dict for r in rows) and
+         {r.get('dataset_id') for r in rows} == set(PRICE_IDS+MACRO_IDS), 'DATASET_SET')
     prices, macros, audit, bindings = {}, {}, {}, []
     raw_cache = {}
     for r in rows:
+        budget.check()
         sid = r['dataset_id']
         need(all(k in r and r[k] is not None and r[k] != '' for k in REQUIRED), 'MANIFEST_METADATA')
         need(r['rights_status'] == 'PRIVATE_RESEARCH_REFERENCE_ONLY' and
              r['purpose_limit'] == 'EXPLORATORY_RESEARCH_ONLY', 'PURPOSE_RIGHTS_BOUNDARY')
-        need(type(r['calendar_or_period_rule']) is str and
-             ('XNYS' in r['calendar_or_period_rule'] or r['calendar_or_period_rule'] == 'MONTHLY_ALFRED_VINTAGE'), 'CALENDAR_RULE')
-        need(instant(r['retrieved_at_utc']) <= instant(config['as_of']), 'FUTURE_RETRIEVAL')
+        rule = r['calendar_or_period_rule']
+        need(type(rule) is str and (rule in PRICE_CALENDAR_RULES if sid in PRICE_IDS else
+             rule == 'MONTHLY_ALFRED_VINTAGE'), 'CALENDAR_RULE')
+        retrieved = instant(r['retrieved_at_utc'])
+        need(retrieved <= instant(config['as_of']), 'FUTURE_RETRIEVAL')
         code = r['producer_or_normalizer_code_sha']
         need(type(code) is str and len(code) in (40, 64) and all(ch in '0123456789abcdef' for ch in code), 'NORMALIZER_HASH')
-        raw = verified_file(r['path'], r['sha256'], r['byte_count'])
-        verified_file(r['source_file_path'], r['source_file_sha256'])
+        raw = verified_file(r['path'], r['sha256'], r['byte_count'], budget=budget)
+        verified_file(r['source_file_path'], r['source_file_sha256'], budget=budget, retain=False)
         bindings.append({k:r[k] for k in REQUIRED})
         if sid in PRICE_IDS:
             need(r['identity_type'] == 'PRICE_INDEX' and r['frequency'] == 'daily', 'PRICE_IDENTITY')
-            price = price_frame(raw)
+            price = price_frame(raw, budget)
             need(price.index[-1].date() <= instant(config['as_of']).date(), 'FUTURE_PRICE')
             need(len(price) == r['row_count'], 'PRICE_ROWS')
             need(str(price.index[0].date()) == r['date_start'] and str(price.index[-1].date()) == r['date_end'], 'PRICE_RANGE')
@@ -174,7 +234,11 @@ def load_inputs(manifest, config):
         else:
             need(r['identity_type'] == 'MACRO_SERIES' and r['frequency'] == 'monthly', 'MACRO_IDENTITY')
             if r['sha256'] not in raw_cache:
-                raw_cache[r['sha256']] = [read_json(line) for line in raw.splitlines() if line.strip()]
+                parsed = []
+                for line in io.BytesIO(raw):
+                    budget.check()
+                    if line.strip(): parsed.append(read_json(line, budget))
+                raw_cache[r['sha256']] = parsed
             all_records = raw_cache[r['sha256']]
             need(all(x.get('series') in MACRO_IDS for x in all_records), 'UNKNOWN_MACRO_IDENTITY')
             records = [x for x in all_records if x['series'] == sid]
@@ -188,10 +252,18 @@ def load_inputs(manifest, config):
                 need(obs <= vintage <= instant(config['as_of']).date(), 'FUTURE_MACRO')
                 conservative = pd.Timestamp(datetime.combine(vintage+timedelta(days=1), time(), ZoneInfo('America/New_York')))
                 need(instant(x['available_at']) >= conservative and instant(x['available_at']) <= instant(config['as_of']), 'MACRO_AVAILABILITY')
+                need(instant(x['available_at']) <= retrieved, 'MACRO_AFTER_RETRIEVAL')
                 need(date_value(x['realtime_end']) >= vintage, 'VINTAGE_END')
                 need(x['value'] is None or type(x['value']) in (int, float) and math.isfinite(x['value']), 'MACRO_NONFINITE')
                 if x.get('published_at') is not None:
                     need(instant(x['published_at']) <= instant(x['available_at']), 'PUBLICATION_CLOCK')
+                budget.check()
+            intervals = {}
+            for x in records: intervals.setdefault(x['observation_date'], []).append(x)
+            for revisions in intervals.values():
+                ordered = sorted(revisions, key=lambda x:x['vintage_date'])
+                need(all(date_value(a['realtime_end']) < date_value(b['vintage_date'])
+                         for a,b in zip(ordered, ordered[1:])), 'OVERLAPPING_VINTAGE_INTERVALS')
             macros[sid] = records
             audit[sid] = dict(rows=len(records), missing_values=sum(x['value'] is None for x in records),
                              source_order_sorted=keys == sorted(keys), frequency='monthly', revisions_retained=True)
@@ -199,6 +271,11 @@ def load_inputs(manifest, config):
     need(len(schedule) > 0 and (schedule.market_close <= instant(config['as_of'])).all(), 'UNCOMPLETED_SESSION')
     sessions = pd.DatetimeIndex(schedule.index).tz_localize(None)
     for sid, price in prices.items():
+        latest = str(price.index[-1].date())
+        last_session = mcal.get_calendar('NYSE').schedule(start_date=latest, end_date=latest)
+        need(len(last_session) == 1, 'PRICE_OBSERVATION_NOT_SESSION')
+        retrieved = instant(next(r['retrieved_at_utc'] for r in rows if r['dataset_id'] == sid))
+        need(last_session.market_close.iloc[0] <= retrieved, 'PRICE_AFTER_RETRIEVAL')
         window = price.loc[config['start']:config['end']]
         extra = window.index.difference(sessions)
         need(len(extra) == 0, 'OFF_CALENDAR_PRICE')
@@ -224,7 +301,7 @@ def load_inputs(manifest, config):
         for x in records:
             eligible = opens.index[opens >= instant(x['available_at'])]
             need(len(eligible) > 0 and x.get('effective_session') == str(eligible[0].date()), 'EFFECTIVE_SESSION')
-    return prices, macros, schedule, audit, bindings
+    budget.check(); return prices, macros, schedule, audit, bindings
 
 
 def macro_features(macros, schedule):
@@ -282,6 +359,65 @@ def evaluate_pinned(feature, target, horizon, config, start, train_start=0, kind
     return result, predictions
 
 
+def paired_oos_plan(long, short, target, config, first, short_start, kind='continuous'):
+    """Check the frozen grid before either paired fit, never choose a new grid.
+
+    Warmup is feature availability; purge is label maturity; min_train is a
+    count of eligible rows. Their sum cannot be replaced by config.initial.
+    """
+    purge = max(config['horizons'])+config['entry_delay']
+    minimum = config['macro_min_train'] if kind == 'release' else config['min_train']
+    p = np.arange(len(target)); y = target.to_numpy(float)
+    a, b = long.to_numpy(float), short.to_numpy(float)
+    valid = np.isfinite(y); short_valid = np.isfinite(b) & (p >= short_start)
+    first_feature = int(np.flatnonzero(short_valid)[0]) if short_valid.any() else None
+    plan = dict(status='SHARED_OOS_VERIFIED', first_test_position=first,
+        configured_initial=config['initial'], training_purge_sessions=purge,
+        boundary_moved=False, warmup_sessions=None if first_feature is None else first_feature-short_start,
+        first_fold_structural_minimum_offset=None if first_feature is None else
+            first_feature-short_start+purge+minimum, folds=[])
+    # A wholly unobservable final label tail is not a scheduled scored fold.
+    # Interior missing folds remain on the fixed grid and refuse the pair.
+    stop = int(np.flatnonzero(valid)[-1])+1 if valid.any() else first
+    for start in range(first, stop, config['fold_size']):
+        train = (p+purge < start) & valid
+        ta, tb = train & np.isfinite(a), train & short_valid
+        test = (p >= start) & (p < start+config['fold_size']) & valid
+        xa, xb = test & np.isfinite(a), test & short_valid
+        reasons = []
+        if ta.sum() < minimum or tb.sum() < minimum: reasons.append('MINIMUM_TRAIN_SAMPLES')
+        if not np.array_equal(xa, xb): reasons.append('UNMATCHED_TEST_COVERAGE')
+        if not test.any(): reasons.append('NO_MATURE_TEST_LABELS')
+        if ta.sum() >= minimum and tb.sum() >= minimum and (np.std(a[ta]) < 1e-12 or np.std(b[tb]) < 1e-12):
+            reasons.append('TRAIN_FEATURE_VARIANCE')
+        plan['folds'].append(dict(first_test_position=start, required_train_samples=minimum,
+            long_train_samples=int(ta.sum()), short_train_samples=int(tb.sum()),
+            long_test_samples=int(xa.sum()), short_test_samples=int(xb.sum()), reasons=reasons))
+        if reasons: plan['status'] = 'BLOCKED_SHARED_OOS_COVERAGE'
+    if not plan['folds']: plan['status'] = 'BLOCKED_SHARED_OOS_COVERAGE'
+    return plan
+
+
+def evaluate_shared_pair(long, short, target, horizon, config, first, short_start, kind='continuous'):
+    plan = paired_oos_plan(long, short, target, config, first, short_start, kind)
+    if plan['status'] != 'SHARED_OOS_VERIFIED':
+        # Keep both declared hypotheses/counts, with no fitting or intersection
+        # rescue. Old exposed outputs remain bound to their original code.
+        blank = pd.Series(np.nan, index=long.index)
+        a, ap = evaluate_pinned(blank, target, horizon, config, first, kind=kind)
+        b, bp = evaluate_pinned(blank, target, horizon, config, first, short_start, kind)
+        a.update(status=plan['status'], shared_oos_plan=plan)
+        b.update(status=plan['status'], shared_oos_plan=plan)
+        return a, ap, b, bp, plan
+    a, ap = evaluate_pinned(long, target, horizon, config, first, kind=kind)
+    b, bp = evaluate_pinned(short, target, horizon, config, first, short_start, kind)
+    grid = [row['first_test_position'] for row in plan['folds']]
+    need([f['first_test_position'] for f in a['folds']] == grid and
+         [f['first_test_position'] for f in b['folds']] == grid and
+         [r['position'] for r in ap] == [r['position'] for r in bp], 'SHARED_OOS_POSTFIT_MISMATCH')
+    return a, ap, b, bp, plan
+
+
 def drawdowns(close, asset):
     episodes = []; peak = trough = None; active = False
     for pos, value in enumerate(close):
@@ -332,14 +468,17 @@ def paired_comparison(short, long, block=253):
     counts = np.r_[weights, weights[:block]]
     sums = np.r_[0., np.cumsum(extended)]; total = np.r_[0., np.cumsum(counts)]
     starts = rng.integers(0, span, size=(1000, math.ceil(span/block)))
-    denominators = (total[starts+block]-total[starts]).sum(axis=1)
+    lengths = np.full(starts.shape[1], block)
+    lengths[-1] = span-block*(starts.shape[1]-1)
+    denominators = (total[starts+lengths]-total[starts]).sum(axis=1)
     valid = denominators > 0
-    draws = (sums[starts+block]-sums[starts]).sum(axis=1)[valid]/denominators[valid]
+    draws = (sums[starts+lengths]-sums[starts]).sum(axis=1)[valid]/denominators[valid]
     need(len(draws) >= 950, 'BOOTSTRAP_COVERAGE')
     low, high = np.quantile(draws, [.025, .975])
     reversal = float(x.mean())*float(y.mean()) < 0
     material = reversal or ((low > 0 or high < 0) and abs(mean) >= .2*pooled)
-    result.update(delta=mean, original_session_span=span, short_mean=float(x.mean()), long_mean=float(y.mean()), ci95=[float(low), float(high)],
+    result.update(delta=mean, original_session_span=span, sampled_sessions_per_draw=span,
+                  short_mean=float(x.mean()), long_mean=float(y.mean()), ci95=[float(low), float(high)],
                   pooled_oos_sd=pooled, sign_reversal=reversal,
                   status='MATERIAL_EXPLORATORY' if material else 'NO_MATERIAL_CHANGE_DETECTED')
     return result
@@ -354,7 +493,7 @@ def feature_views(close, benchmark, macro, comparison_start):
 
 
 def study(manifest, config, budget):
-    prices, macros, schedule, coverage, bindings = load_inputs(manifest, config); budget.check()
+    prices, macros, schedule, coverage, bindings = load_inputs(manifest, config, budget); budget.check()
     macro, events = macro_features(macros, schedule); budget.check()
     sessions = schedule.index
     short_start = int(sessions.searchsorted(pd.Timestamp(config['comparison_start'])))
@@ -371,19 +510,24 @@ def study(manifest, config, budget):
             kind = 'release' if name.startswith('macro_change_') else kinds.get(name, 'continuous')
             for horizon in config['horizons']:
                 target = labels(close, horizon, entry_delay=config['entry_delay'])
-                row, pred = evaluate_pinned(feature, target, horizon, config, first_test, kind=kind)
+                if sid == 'SP500':
+                    row, pred, original, old_pred, plan = evaluate_shared_pair(feature, short_features[name],
+                        target, horizon, config, first_test, short_start, kind)
+                else:
+                    row, pred = evaluate_pinned(feature, target, horizon, config, first_test, kind=kind)
                 row.update(asset=sid, feature=name, benchmark=reference, training_view='1996_EXTENSION',
                            historically_exposed_family=sid != 'NASDAQ100', eligible_for_selector=False)
                 results.append(row)
                 append_predictions(predictions, pred, asset=sid, feature=name, horizon=horizon, view='1996_EXTENSION')
                 if sid == 'SP500':
-                    original, old_pred = evaluate_pinned(short_features[name], target, horizon, config, first_test, short_start, kind)
                     original.update(asset=sid, feature=name, benchmark=reference, training_view='2016_TRUNCATED_REFERENCE',
                                     historically_exposed_family=True, eligible_for_selector=False)
                     results.append(original)
                     append_predictions(predictions, old_pred, asset=sid, feature=name, horizon=horizon, view='2016_TRUNCATED_REFERENCE')
                     short_dates, long_dates = set(p['date'] for p in old_pred), set(p['date'] for p in pred)
-                    comparison = (dict(status='INDETERMINATE_SPARSE_MONTHLY_RELEASES', matched_rows=len(short_dates & long_dates),
+                    comparison = (dict(status=plan['status'], matched_rows=0, shared_oos_plan=plan)
+                        if plan['status'] != 'SHARED_OOS_VERIFIED' else
+                        dict(status='INDETERMINATE_SPARSE_MONTHLY_RELEASES', matched_rows=len(short_dates & long_dates),
                                        short_only_rows=len(short_dates-long_dates), long_only_rows=len(long_dates-short_dates),
                                        block_sessions=253, bootstrap_draws=0) if kind == 'release' else paired_comparison(old_pred, pred))
                     comparisons.append(dict(asset=sid, feature=name, horizon=horizon, **comparison))
@@ -407,6 +551,8 @@ def study(manifest, config, budget):
         input_bindings=bindings, calendar_sha256=sha(schedule.to_csv().encode()),
         first_test_session=str(sessions[first_test].date()), training_purge_sessions=253,
         fixed_feature_count=24, metrics=results, comparisons=comparisons,
+        shared_oos_status=('BLOCKED_SHARED_OOS_COVERAGE' if any(
+            r['status'] == 'BLOCKED_SHARED_OOS_COVERAGE' for r in comparisons) else 'SHARED_OOS_VERIFIED'),
         increment_1996_2015=increment, macro_event_count=len(events),
         multiple_testing='Existing BY adjustment over all384 declared comparisons including insufficient families; exploratory prior-exposed holdout',
         short_arm_scope='2016-01-01 truncated local reference with fresh technical warmup; not exact reproduction of old FRED2016-09-12 study or its336 results',
@@ -431,11 +577,13 @@ def append_predictions(chunks, rows, **identity):
 
 
 def run(manifest_path, manifest_sha, config_path, config_sha, output):
+    budget = Budget(RESOURCE_LIMITS)
     output = Path(output).resolve()
     need(not output.exists() and not output.is_relative_to(ROOT), 'NEW_EXTERNAL_OUTPUT_REQUIRED')
-    manifest_raw = verified_file(manifest_path, manifest_sha); config_raw = verified_file(config_path, config_sha)
-    manifest, config = read_json(manifest_raw), read_json(config_raw); validate_config(config)
-    budget = Budget(config)
+    manifest_raw = verified_file(manifest_path, manifest_sha, budget=budget)
+    config_raw = verified_file(config_path, config_sha, budget=budget)
+    manifest, config = read_json(manifest_raw, budget), read_json(config_raw, budget); validate_config(config)
+    budget.config = config; budget.check()
     result, predictions, events, dd, relative = study(manifest, config, budget)
     code_files = ('tools/macro_index_research_engine.py', 'tools/macro_technical_study.py', 'tools/macro_history_sources.py',
                   'docs/macro_indicator_registry.json')
@@ -449,6 +597,7 @@ def run(manifest_path, manifest_sha, config_path, config_sha, output):
     receipt = dict(schema='macro-index-research-receipt-v1', status='COMPLETED_RESEARCH_REFERENCE_ONLY',
         code_sha=code_sha, code_file_sha256=code, config_sha256=config_sha, manifest_sha256=manifest_sha,
         dependencies=dependencies, calendar_sha256=result['calendar_sha256'],
+        shared_oos_status=result.get('shared_oos_status', 'NOT_EVALUATED'),
         output_sha256={name:sha(raw) for name,raw in files.items()}, input_bindings=result['input_bindings'], limits=LIMITS)
     files['receipt.json'] = encoded(receipt)
     budget.check()
@@ -475,7 +624,7 @@ def main(argv=None):
     try:
         result = run(args.manifest, args.manifest_sha256, args.config, args.config_sha256, args.output)
         print(json.dumps(result, sort_keys=True)); return 0
-    except (ValueError, OSError, KeyError, TypeError, OverflowError):
+    except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError, MemoryError, csv.Error):
         # Never print paths, source rows, provider responses or partially scored metrics.
         print(json.dumps(dict(status='BLOCKED_RESEARCH_RUN', completed=False))); return 2
 

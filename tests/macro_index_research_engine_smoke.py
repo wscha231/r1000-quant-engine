@@ -1,12 +1,15 @@
 """Explicit standalone H1 acceptance tests; not registered in the common runner."""
 import copy
+import contextlib
 from datetime import datetime, time, timedelta
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -20,6 +23,36 @@ def config():
         min_train=504, macro_min_train=60, initial=756, fold_size=252, comparison_start='2016-01-01',
         primary_metric='oos_mse_improvement', max_seconds=300, max_rss_bytes=1073741824,
         prior_exposed_families=336, parameter_search=False, preregistered_at_utc='2026-10-17T13:00:00+00:00')
+
+
+def input_fixture(root):
+    c=config();c['end']='2016-03-31'
+    days=engine.mcal.get_calendar('NYSE').schedule(start_date='1996-01-02',end_date='1996-02-15').index
+    rows=[]
+    for sid in engine.PRICE_IDS:
+        p=root/(sid+'.csv');p.write_bytes(pd.DataFrame({'date':days.strftime('%Y-%m-%d'),'close':np.arange(len(days))+100.}).to_csv(index=False).encode())
+        rows.append(dict(dataset_id=sid,path=str(p),sha256=engine.sha(p.read_bytes()),byte_count=p.stat().st_size,
+            row_count=len(days),identity_type='PRICE_INDEX',source_name='FIXTURE',source_url_or_drive_object_id='fixture',
+            source_file_path=str(p),source_file_sha256=engine.sha(p.read_bytes()),frequency='daily',units='PRICE_INDEX',
+            calendar_or_period_rule='XNYS',date_start=str(days[0].date()),date_end=str(days[-1].date()),
+            observation_clock_definition='fixture',availability_clock_definition='fixture',vintage_policy='fixture',
+            retrieved_at_utc=c['as_of'],rights_status='PRIVATE_RESEARCH_REFERENCE_ONLY',
+            purpose_limit='EXPLORATORY_RESEARCH_ONLY',producer_or_normalizer_code_sha='0'*40))
+    records=[dict(series=sid,observation_date='1996-01-01',vintage_date='1996-02-02',
+        available_at='1996-02-03T05:00:00+00:00',effective_session='1996-02-05',realtime_end='9999-12-31',
+        value=1.,published_at=None,evidence='alfred_date_archive') for sid in engine.MACRO_IDS]
+    p=root/'macro.jsonl'
+    for sid in engine.MACRO_IDS:
+        rows.append(dict(rows[0],dataset_id=sid,path=str(p),source_file_path=str(p),identity_type='MACRO_SERIES',
+            frequency='monthly',calendar_or_period_rule='MONTHLY_ALFRED_VINTAGE',date_start='1996-01-01',date_end='1996-01-01'))
+    manifest=dict(schema='macro-index-research-input-v1',datasets=rows)
+    def refresh():
+        p.write_bytes(b''.join(engine.encoded(x) for x in records))
+        for row in rows[3:]:
+            row.update(sha256=engine.sha(p.read_bytes()),source_file_sha256=engine.sha(p.read_bytes()),byte_count=p.stat().st_size,
+                       row_count=sum(x['series']==row['dataset_id'] for x in records))
+    refresh()
+    return c,manifest,records,refresh
 
 
 class EngineTests(unittest.TestCase):
@@ -184,6 +217,133 @@ class EngineTests(unittest.TestCase):
             with patch.object(engine,'study',side_effect=ValueError('fixture refusal')):
                 with self.assertRaises(ValueError):engine.run(manifest,engine.sha(manifest.read_bytes()),conf,engine.sha(conf.read_bytes()),p/'failed')
             self.assertFalse((p/'failed').exists())
+
+    def test_fixed_first_fold_is_blocked_without_moving_boundary_or_minimum(self):
+        idx=pd.bdate_range('2000-01-03',periods=2500);positions=np.arange(len(idx));short_start=1000
+        x=pd.Series(np.sin(positions/37),index=idx);short=x.copy();short.iloc[:short_start+240]=np.nan
+        y=pd.Series(np.cos(positions/53)/100,index=idx);c=config();first=short_start+c['initial']
+        long_result,_=engine.evaluate_pinned(x,y,21,c,first)
+        short_result,_=engine.evaluate_pinned(short,y,21,c,first,short_start)
+        self.assertEqual(long_result['folds'][0]['first_test_position'],first)
+        self.assertGreater(short_result['folds'][0]['first_test_position'],first)
+        plan=engine.paired_oos_plan(x,short,y,c,first,short_start)
+        self.assertEqual(plan['status'],'BLOCKED_SHARED_OOS_COVERAGE')
+        self.assertEqual(plan['first_test_position'],1756)
+        self.assertEqual(plan['folds'][0]['short_train_samples'],263)
+        self.assertEqual(plan['folds'][0]['required_train_samples'],504)
+        self.assertEqual(plan['first_fold_structural_minimum_offset'],997)
+        with patch.object(engine.np.linalg,'lstsq',side_effect=AssertionError('blocked pair must not fit')):
+            a,ap,b,bp,detail=engine.evaluate_shared_pair(x,short,y,21,c,first,short_start)
+        self.assertEqual((ap,bp),([],[]));self.assertEqual(a['status'],plan['status']);self.assertEqual(b['status'],plan['status'])
+        self.assertFalse(detail['boundary_moved']);self.assertEqual(c,config())
+
+    def test_sufficient_shared_grid_preserves_first_fold_and_rejects_missing_coverage(self):
+        idx=pd.bdate_range('2000-01-03',periods=2400);p=np.arange(len(idx));x=pd.Series(np.sin(p/37),index=idx)
+        short=x.copy();short.iloc[:1240]=np.nan;y=pd.Series(np.cos(p/53)/100,index=idx);c=config();first=1997
+        a,ap,b,bp,plan=engine.evaluate_shared_pair(x,short,y,21,c,first,1000)
+        self.assertEqual(plan['status'],'SHARED_OOS_VERIFIED');self.assertEqual(a['folds'][0]['first_test_position'],first)
+        self.assertEqual(b['folds'][0]['n_train'],504);self.assertEqual([r['date'] for r in ap],[r['date'] for r in bp])
+        mature=y.copy();mature.iloc[-253:]=np.nan
+        aa,aap,bb,bbp,tail=engine.evaluate_shared_pair(x,short,mature,21,c,first,1000)
+        self.assertEqual(tail['status'],'SHARED_OOS_VERIFIED');self.assertEqual([r['date'] for r in aap],[r['date'] for r in bbp])
+        self.assertEqual(aa['folds'][0]['first_test_position'],first)
+        short.iloc[first+1]=np.nan
+        self.assertEqual(engine.paired_oos_plan(x,short,y,c,first,1000)['status'],'BLOCKED_SHARED_OOS_COVERAGE')
+
+    def test_calendar_rules_are_exact_and_dataset_typed(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,_,_=input_fixture(Path(d));engine.load_inputs(m,c)
+            for index,rule in ((0,'MONTHLY_ALFRED_VINTAGE'),(0,'NOT_XNYS'),(0,'XNYS invented'),(3,'XNYS'),(3,'NOT_XNYS')):
+                wrong=copy.deepcopy(m);wrong['datasets'][index]['calendar_or_period_rule']=rule
+                with self.subTest(index=index,rule=rule),self.assertRaisesRegex(ValueError,'CALENDAR_RULE'):engine.load_inputs(wrong,c)
+
+    def test_null_macro_pairs_remain_sparse_without_invented_values(self):
+        schedule=engine.mcal.get_calendar('NYSE').schedule(start_date='2020-01-02',end_date='2020-04-15')
+        rows=[]
+        for obs,vintage,value in (('2019-12-01','2020-01-03',2.),('2020-01-01','2020-02-07',None),('2020-02-01','2020-03-06',5.)):
+            available=datetime.combine(datetime.fromisoformat(vintage).date()+timedelta(days=1),time(),ZoneInfo('America/New_York'))
+            rows.append(dict(series='UNRATE',observation_date=obs,vintage_date=vintage,value=value,
+                evidence='alfred_date_archive',available_at=available.isoformat(),realtime_end='9999-12-31'))
+        original=copy.deepcopy(rows);features,events=engine.macro_features({'UNRATE':rows},schedule)
+        self.assertTrue(features['macro_change_UNRATE'].isna().all());self.assertEqual(events,[]);self.assertEqual(rows,original)
+        rows[0]['value']=None;rows[1]['value']=3.
+        features,events=engine.macro_features({'UNRATE':rows},schedule)
+        self.assertEqual(features['macro_change_UNRATE'].notna().sum(),1);self.assertEqual(events[0]['value'],2.)
+        with tempfile.TemporaryDirectory() as d:
+            c,m,records,refresh=input_fixture(Path(d));records[0]['value']=None;refresh()
+            _,_,_,audit,_=engine.load_inputs(m,c);self.assertEqual(audit['UNRATE']['missing_values'],1)
+
+    def test_cli_malformed_objects_and_depth_are_redacted(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);p=root/'private-manifest';q=root/'private-config';valid=engine.encoded(config())
+            invalid=(b'[]',b'1',b'"private-path"',b'{"x":'+b'['*1100+b'0'+b']'*1100+b'}')
+            for raw in invalid:
+                for target in ('manifest','config'):
+                    p.write_bytes(raw if target=='manifest' else b'{}');q.write_bytes(raw if target=='config' else valid)
+                    output=io.StringIO();error=io.StringIO()
+                    with contextlib.redirect_stdout(output),contextlib.redirect_stderr(error):
+                        result=engine.main(['--manifest',str(p),'--manifest-sha256',engine.sha(p.read_bytes()),'--config',str(q),
+                            '--config-sha256',engine.sha(q.read_bytes()),'--output',str(root/'out')])
+                    self.assertEqual(result,2);self.assertEqual(json.loads(output.getvalue()),dict(status='BLOCKED_RESEARCH_RUN',completed=False))
+                    self.assertEqual(error.getvalue(),'');self.assertNotIn('private',output.getvalue());self.assertFalse((root/'out').exists())
+
+    def test_input_and_parser_budget_precede_allocation_and_check_during_parsing(self):
+        budget=engine.Budget(config())
+        with patch.object(Path,'is_file',return_value=True),patch.object(Path,'is_symlink',return_value=False),\
+             patch.object(Path,'stat',return_value=SimpleNamespace(st_size=1073741825,st_mode=0o100644)),\
+             patch.object(engine.os,'open') as opened:
+            with self.assertRaisesRegex(ValueError,'MEMORY_BUDGET'):engine.verified_file('fixture','0'*64,budget=budget)
+            opened.assert_not_called()
+        with patch.object(engine.timer,'monotonic',return_value=budget.start+301):
+            with self.assertRaisesRegex(ValueError,'RUNTIME_BUDGET'):engine.read_json(b'{}',budget=budget)
+        raw=b'{"rows":['+b'0,'*5000+b'0]}'
+        with patch.object(engine.timer,'monotonic',side_effect=[budget.start]*3+[budget.start+301]*50):
+            with self.assertRaisesRegex(ValueError,'RUNTIME_BUDGET'):engine.read_json(raw,budget=budget)
+
+    def test_retrieval_bounds_price_close_and_macro_availability(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,_,_=input_fixture(Path(d));engine.load_inputs(m,c)
+            for index,clock,reason in ((0,'1996-02-15T20:59:59Z','PRICE_AFTER_RETRIEVAL'),
+                                       (3,'1996-02-03T04:59:59Z','MACRO_AFTER_RETRIEVAL')):
+                wrong=copy.deepcopy(m);wrong['datasets'][index]['retrieved_at_utc']=clock
+                with self.assertRaisesRegex(ValueError,reason):engine.load_inputs(wrong,c)
+            wrong=copy.deepcopy(m);wrong['datasets'][0]['retrieved_at_utc']='1996-02-15T21:00:00Z'
+            engine.load_inputs(wrong,c)
+
+    def test_early_close_retrieval_uses_actual_session_and_aware_clocks(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,_,_=input_fixture(Path(d));p=Path(m['datasets'][0]['path'])
+            raw=p.read_bytes()+b'2016-11-25,999\n';p.write_bytes(raw)
+            row=m['datasets'][0];row.update(sha256=engine.sha(raw),source_file_sha256=engine.sha(raw),
+                byte_count=len(raw),row_count=row['row_count']+1,date_end='2016-11-25',retrieved_at_utc='2016-11-25T13:00:00-05:00')
+            engine.load_inputs(m,c)
+            row['retrieved_at_utc']='2016-11-25T17:59:59Z'
+            with self.assertRaisesRegex(ValueError,'PRICE_AFTER_RETRIEVAL'):engine.load_inputs(m,c)
+            row['retrieved_at_utc']='2016-11-25T18:00:00'
+            with self.assertRaisesRegex(ValueError,'AWARE_CLOCK_REQUIRED'):engine.load_inputs(m,c)
+
+    def test_bootstrap_draws_trim_original_span_with_fixed_seed(self):
+        n=760;p=np.arange(n);dates=pd.bdate_range('2000-01-03',periods=n)
+        a=[dict(date=str(d.date()),position=i,mse_improvement=float(np.sin(i/71))) for i,d in enumerate(dates)]
+        b=[dict(r,mse_improvement=r['mse_improvement']+float(i/n)) for i,r in enumerate(a)]
+        got=engine.paired_comparison(a,b);rng=np.random.default_rng(0);starts=rng.integers(0,n,size=(1000,4))
+        draws=np.array([np.concatenate([(np.arange(s,s+253)%n) for s in row])[:n].mean()/n for row in starts])
+        np.testing.assert_allclose(got['ci95'],np.quantile(draws,[.025,.975]),rtol=1e-12)
+        self.assertEqual(got['sampled_sessions_per_draw'],760);self.assertEqual(got['bootstrap_draws'],1000)
+
+    def test_alfred_vintage_intervals_are_inclusive_and_nonoverlapping(self):
+        with tempfile.TemporaryDirectory() as d:
+            c,m,records,refresh=input_fixture(Path(d));original=copy.deepcopy(records[0])
+            second=dict(original,vintage_date='1996-02-06',available_at='1996-02-07T05:00:00Z',effective_session='1996-02-07',value=2.)
+            records.append(second);refresh()
+            with self.assertRaisesRegex(ValueError,'OVERLAPPING_VINTAGE_INTERVALS'):engine.load_inputs(m,c)
+            records[0]['realtime_end']='1996-02-05';refresh();engine.load_inputs(m,c)
+            records[0]['realtime_end']='1996-02-06';refresh()
+            with self.assertRaisesRegex(ValueError,'OVERLAPPING_VINTAGE_INTERVALS'):engine.load_inputs(m,c)
+            records[0]['realtime_end']='1996-02-01';refresh()
+            with self.assertRaisesRegex(ValueError,'VINTAGE_END'):engine.load_inputs(m,c)
+            records[0]=original;records[-1]=copy.deepcopy(original);refresh()
+            with self.assertRaisesRegex(ValueError,'MACRO_DUPLICATE'):engine.load_inputs(m,c)
 
 
 if __name__=='__main__':

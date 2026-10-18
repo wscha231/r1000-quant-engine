@@ -19,6 +19,14 @@ Macro identity_type is MACRO_SERIES, frequency monthly, calendar rule
 MONTHLY_ALFRED_VINTAGE. All rows require rights_status
 PRIVATE_RESEARCH_REFERENCE_ONLY and purpose_limit EXPLORATORY_RESEARCH_ONLY;
 these labels constrain use and do not certify supplier rights or PIT admission.
+Calendar rules are dataset-typed exact values, including only the two explicit
+legacy XNYS descriptions in the code; substring/NOT_XNYS or price/macro rule
+substitution is refused. Price last-session close (including early closes) and
+every macro availability must be at or before the aware retrieval clock, which
+must be at or before as_of. ALFRED intervals are inclusive: each revision's
+realtime_end must be strictly before the next vintage of the same observation.
+Null macro values remain missing release samples; the unchanged shared release
+function already refuses differencing either null member. They are not zeros.
 
 Config schema `macro-index-research-config-v1` fixes start1996-01-01,
 comparison_start2016-01-01, horizons21/63/126/252, entry_delay1, min_train504,
@@ -36,8 +44,20 @@ No train normalization, baseline or regression fit sees test rows. Monthly
 release-only features use the existing study's60-release minimum, frozen before
 actual results; technical features retain504. No daily macro replication is used.
 
-The shared OOS grid begins756 XNYS sessions after2016-01-01. SP500's1996
-and2016 training arms use identical test boundaries and labels. The2016 arm
+The declared OOS grid remains756 XNYS sessions after2016-01-01. Before any
+SP500 paired fit, the engine checks the entire mature fixed fold grid for both
+arms' eligible training counts, train variance and identical test coverage.
+With purge253/min_train504, even zero warmup leaves only503 short-arm train
+rows at that first boundary;240-session warmup leaves263. A gap-free technical
+arm would structurally need offset997, but the engine does not adopt that
+offset, change the frozen config, lower minima or inspect scores to choose a
+boundary. Such a comparison returns BLOCKED_SHARED_OOS_COVERAGE for both
+declared arms, including per-fold counts/reasons and no fits/predictions. All
+declared hypotheses remain in the family count. No intersecting later dates
+rescues an invalid first fold. If the fixed grid is feasible, actual first fold
+and full scored-position parity are checked after fitting. Immature final label
+tails are not scored; wholly missing interior folds still refuse the pair.
+The2016 arm
 separately masks pre2016 prices and benchmark before computing technical warmup.
 It is a2016-01-01 truncated reference, not exact reproduction of the prior
 FRED2016-09-12 input or its336 results. Sparse macro sample shortfalls retain
@@ -52,6 +72,8 @@ requires a baseline-relative mean sign reversal, or95% paired interval excluding
 zero and absolute difference >=0.2 pooled per-date improvement SD. Fewer than
 three blocks is INDETERMINATE. Existing BY adjustment covers all384 declared
 comparisons including insufficient families. No feature is selected or promoted.
+Each bootstrap draw is trimmed to exactly the original session span, including
+unscored gaps, without changing seed0,1000 draws or253-session blocks.
 
 Outputs: metrics JSON/CSV, predictions, original-clock macro events, drawdown
 episodes (including unrecovered censoring and gap counts), and common-date
@@ -59,6 +81,21 @@ relative price performance. The deterministic receipt binds inputs, code,
 dependencies, calendar and output hashes. Runtime wall time/peak resident memory
 is separate. A budget/input failure publishes no completed output directory.
 The output directory must be new and external to the repository.
+The unchanged300s/1GiB limits start before manifest/config I/O. Files are hashed
+in bounded chunks with deadline/RSS checks; raw source proofs are not retained.
+Retained parse inputs reserve a conservative64x byte expansion within the same
+RSS ceiling before reading. JSON depth64 and finite bounded numeric tokens,
+CSV row iteration and JSONL per-record checks bound parsing. This can refuse
+an input well below1GiB rather than allowing whole-object expansion past the
+ceiling. Lists/scalars/deep or malformed JSON and allocation/parser refusals
+produce only the redacted BLOCKED_RESEARCH_RUN CLI response.
+
+The original frozen config, manifest,384-comparison outputs and4 historical
+SHADOW labels are retained under their original hashes. The original shared-OOS
+claim is superseded by this integrity finding, not repaired by relabelling old
+results. No384-run repetition or retuning accompanies this H1 correction. All
+four old labels' direction accuracy was at or below its training-mean baseline;
+that negative limitation remains, and no alpha/economic claim is added.
 
 These are current-vintage FREE_PROXY price-index and isolated ALFRED reference
 diagnostics, excluding dividends and execution costs. The existing336 families
