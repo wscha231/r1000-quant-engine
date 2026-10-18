@@ -16,15 +16,22 @@
   }
   function render() {
     const message = document.getElementById('project-results-status');
+    const researchState = document.getElementById('research-data-state');
     if (!packet) {
       message.textContent = '연구 결과를 불러올 수 없습니다. 다음 갱신 때 다시 확인합니다.';
+      if (researchState) researchState.textContent = '자료 연결 확인 필요';
       document.getElementById('project-source-cards').replaceChildren();
       document.getElementById('research-results-body').replaceChildren();
       document.getElementById('project-diagnostics').replaceChildren();
       return;
     }
     const fresh = current();
-    message.textContent = `검사 대상 종가 ${packet.expected_us_session} · 결과 수집 ${packet.generated_at.slice(0,16).replace('T',' ')} UTC${fresh ? '' : ' · 최신성 확인 필요'}`;
+    const verifiedSources = packet.sources.filter(source => source.status === 'VERIFIED_ARTIFACT').length;
+    const sourceSummary = packet.sources.length === 0 ? '출처 자료 확인 필요' :
+      verifiedSources === packet.sources.length ? `출처 ${verifiedSources}/${packet.sources.length} 검증` :
+        `출처 ${verifiedSources}/${packet.sources.length} 검증 · 일부 자료 확인 필요`;
+    if (researchState) researchState.textContent = sourceSummary;
+    message.textContent = `${sourceSummary} · 검사 대상 종가 ${packet.expected_us_session} · 결과 수집 ${packet.generated_at.slice(0,16).replace('T',' ')} UTC${fresh ? '' : ' · 최신성 확인 필요'}`;
     document.getElementById('project-source-cards').innerHTML = packet.sources.map(source => {
       const link = Number.isSafeInteger(source.run_id) && source.run_id > 0
         ? `<a href="https://github.com/wscha231/r1000-quant-engine/actions/runs/${source.run_id}" target="_blank" rel="noopener noreferrer">처리 내역 보기 ↗</a>` : '';
