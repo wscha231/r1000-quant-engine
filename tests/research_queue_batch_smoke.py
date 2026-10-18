@@ -217,6 +217,9 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(second["rows"][0]["status"], "SKIP_UNCHANGED")
         self.assertEqual(second["rows"][0]["publication"]["acceptance"]["state"],
                          "LOCAL_READBACK_ACCEPTED")
+        second["rows"][0]["publication"]["acceptance"]["state"] = "FORGED_AGAIN"
+        third = session.run(self.save())
+        self.assertEqual(third["rows"][0]["status"], "SKIP_UNCHANGED")
 
     def test_progress_cap_and_changed_loaded_module_do_not_reinvoke(self):
         session, _ = self.run_one()

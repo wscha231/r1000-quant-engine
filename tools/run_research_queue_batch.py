@@ -317,7 +317,7 @@ class QueueSession:
                     row.update(status="REVIEW_DUE", reason=str(error))
                 else:
                     row.update(status="SKIP_UNCHANGED", reason="LIVE_RETURN_AND_FRESH_READBACK",
-                               publication=proof["publication"])
+                               publication=copy.deepcopy(proof["publication"]))
                 continue
             if key in self.reservations or (self.output / ("intent-" + key)).exists() \
                     or (self.output / ("research-" + key)).exists():
