@@ -47,6 +47,8 @@ Closes must be positive finite numbers; boolean, missing, duplicate, off-calenda
 pre-close, future, or conflicting rows refuse. Original row clocks must precede
 the envelope's corresponding clocks. This is an explicit normalized supplied-byte
 contract, not a parser for arbitrary provider responses or a Source admission.
+Before/after envelope and overlapping-row clocks must not regress; changed
+prices with identical original clocks are conflicting vintages and refuse.
 Failure schema `supplied-price-source-failure-v1` contains exact subject scope
 and three original clocks. No provider error text or credentials are needed.
 

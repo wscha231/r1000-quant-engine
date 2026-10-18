@@ -44,7 +44,7 @@ class Fixture:
     def price(self, days=('2026-10-16', '2026-10-19'), *, last=102, observed=NOW, expiry=EXPIRY):
         return dict(schema='supplied-daily-close-inventory-v1', **copy.deepcopy(self.scope), **clocks(observed),
                     expires_at=expiry, bars=[dict(session=d, close=100 if i == 0 else last,
-                        **clocks(FRIDAY if d == '2026-10-16' else NOW)) for i, d in enumerate(days)])
+                        **clocks(FRIDAY if d == '2026-10-16' else observed)) for i, d in enumerate(days)])
 
     def context(self, price, **changes):
         out = dict(security_id=self.identity['security_id'], issuer_id=self.identity['issuer_id'],
@@ -141,7 +141,7 @@ class PriceIncrementalTests(unittest.TestCase):
         self.assertEqual(len(rows[1]['missing_sessions']), 2)
 
     def test_real_delta_api_price_only(self):
-        f = Fixture(); prior = f.price(last=101); current = f.price(last=102)
+        f = Fixture(); prior = f.price(last=101, observed='2026-10-19T20:10:00Z'); current = f.price(last=102)
         f.bind(current, prior, f.context(current), f.context(prior))
         with patch.object(intake, 'plan_delta', wraps=intake.plan_delta) as api:
             out = f.run(); r = out['rows'][0]['delta']['result']
@@ -195,6 +195,18 @@ class PriceIncrementalTests(unittest.TestCase):
         with self.assertRaises(h.PricePlanError): f.run(subjects=[f.subject, f.subject])
         p = f.price(); p['bars'].append(copy.deepcopy(p['bars'][-1])); f.bind(p)
         self.assertEqual(f.run()['rows'][0]['reason'], 'DUPLICATE_OR_UNORDERED_SESSION')
+
+    def test_prior_after_clock_regression_and_same_vintage_conflict(self):
+        for mode in ('envelope', 'row', 'same_vintage'):
+            f = Fixture(); before = f.price(); after = f.price()
+            if mode == 'envelope': after.update(clocks('2026-10-19T20:10:00Z')); after['bars'][-1].update(clocks('2026-10-19T20:10:00Z'))
+            elif mode == 'row': after['bars'][-1].update(clocks('2026-10-19T20:10:00Z'))
+            else: after['bars'][-1]['close'] = 103
+            f.bind(after, before, f.context(after), f.context(before))
+            with patch.object(intake, 'plan_delta', side_effect=AssertionError('invalid transition reached API')):
+                row = f.run()['rows'][0]
+            self.assertEqual(row['status'], 'CONFLICTING')
+            self.assertEqual(row['reason'], 'CONFLICTING_PRICE_VINTAGE' if mode == 'same_vintage' else 'PRICE_TIME_REGRESSION')
 
 
 if __name__ == '__main__':

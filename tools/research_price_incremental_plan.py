@@ -131,6 +131,19 @@ def price_fingerprint(value):
     }))
 
 
+def check_transition(before, after):
+    """An older capture or conflicting same-clock vintage cannot replace truth."""
+    need(all(intake.stamp(before[k]) <= intake.stamp(after[k]) for k in CLOCK), 'PRICE_TIME_REGRESSION')
+    old = {bar['session']: bar for bar in before['bars']}
+    for bar in after['bars']:
+        prior = old.get(bar['session'])
+        if prior is None:
+            continue
+        need(all(intake.stamp(prior[k]) <= intake.stamp(bar[k]) for k in CLOCK), 'PRICE_TIME_REGRESSION')
+        same_clocks = all(intake.stamp(prior[k]) == intake.stamp(bar[k]) for k in CLOCK)
+        need(not same_clocks or prior['close'] == bar['close'], 'CONFLICTING_PRICE_VINTAGE')
+
+
 def failure_for(subject, memory, cutoff):
     sha = subject['failure_sha256']
     if sha is None:
@@ -210,6 +223,8 @@ def plan_incremental(inventory_raw, inventory_sha256, *, artifact_resolver, cuto
             before = None
             if subject['prior_sha256'] is not None:
                 before, _ = prices(subject['prior_sha256'], subject, artifact_resolver, sessions, inventory_seen)
+                if current is not None:
+                    check_transition(before, current)
             missing = sorted(set(expected) - bars.keys())
             expired = current is not None and intake.stamp(current['expires_at']) <= limit
             status = 'BLOCKED' if failure else 'MISSING' if not bars else 'STALE' if missing or expired else 'FRESH'
@@ -225,7 +240,7 @@ def plan_incremental(inventory_raw, inventory_sha256, *, artifact_resolver, cuto
                     row['delta'] = {'status': 'BLOCKED', 'reason': str(exc), 'result': None}
         except (PricePlanError, intake.IntakeError) as exc:
             row['reason'] = str(exc)
-            if str(exc) in {'IDENTITY_MISMATCH', 'SCOPE_MISMATCH', 'DUPLICATE_OR_UNORDERED_SESSION', 'PRICE_NUMBER', 'CLOCK_OR_FUTURE', 'PRICE_CLOSE_CLOCK'}:
+            if str(exc) in {'IDENTITY_MISMATCH', 'SCOPE_MISMATCH', 'DUPLICATE_OR_UNORDERED_SESSION', 'PRICE_NUMBER', 'CLOCK_OR_FUTURE', 'PRICE_CLOSE_CLOCK', 'PRICE_TIME_REGRESSION', 'CONFLICTING_PRICE_VINTAGE'}:
                 row['status'] = 'CONFLICTING'
         results.append(row)
     return {'schema': SCHEMA, 'inventory_sha256': inventory_sha256, 'cutoff': cutoff,
