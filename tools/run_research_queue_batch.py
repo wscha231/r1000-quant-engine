@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import copy
+import dataclasses
 from datetime import datetime, timezone
 import os
+import importlib
+import inspect
+import marshal
+import math
 from pathlib import Path
 import re
 import sys
 import threading
 import time
-from types import MappingProxyType
+from types import CodeType, FunctionType, MappingProxyType
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,19 +109,19 @@ def _read_publication(publication):
 def _code_snapshot():
     """Conservative repository Python/config inventory, not interpreter closure."""
     hashes = {}
-    size = count = 0
+    size = count = walked = 0
     for parent, dirs, files in os.walk(ROOT, followlinks=False):
         dirs[:] = sorted(d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache"})
-        count += len(dirs)
-        require(count <= 8192, "CODE_INVENTORY_BUDGET")
+        walked += len(dirs) + len(files)
+        require(walked <= 32768, "CODE_TRAVERSAL_BUDGET")
         for directory in dirs:
             backend._no_links(Path(parent) / directory)
         for name in sorted(files):
             path = Path(parent) / name
-            count += 1
-            require(count <= 8192, "CODE_INVENTORY_BUDGET")
             if path.suffix.lower() not in {".py", ".json", ".yaml", ".yml", ".toml"}:
                 continue
+            count += 1
+            require(count <= 8192, "CODE_INVENTORY_BUDGET")
             raw = backend._read(path, backend.MAX_FILE)
             size += len(raw)
             require(size <= MAX_INPUT_BYTES, "CODE_BYTE_BUDGET")
@@ -125,13 +131,154 @@ def _code_snapshot():
 
 
 def _module_stamp():
-    # Issued after the actual C/D imports, retained only in this process.
+    """Bind consumer callables to compiled source, then their live code/defaults.
+
+    Controller instrumentation is outside this consumer stamp. This is not an
+    interpreter/native-library closure or a hostile-process sandbox.
+    """
+    for name in ("research.research_path_connection_v1", "tools.research_risk_connection"):
+        importlib.import_module(name)
     modules = {}
+    total = 0
     for name, module in tuple(sys.modules.items()):
         filename = getattr(module, "__file__", None)
-        if isinstance(filename, str) and ROOT in Path(filename).resolve().parents:
-            modules[name] = id(module)
+        if not isinstance(filename, str) or name == __name__ or name.startswith("tests."):
+            continue
+        path = Path(filename).resolve()
+        if ROOT not in path.parents or path.suffix != ".py" or "tests" in path.relative_to(ROOT).parts:
+            continue
+        require(len(modules) < 256, "RUNTIME_MODULE_BUDGET")
+        raw = backend._read(path, backend.MAX_FILE)
+        total += len(raw)
+        require(total <= backend.MAX_TOTAL, "RUNTIME_SOURCE_BYTE_BUDGET")
+        compiled = compile(raw, filename, "exec", dont_inherit=True, optimize=sys.flags.optimize)
+        syntax = ast.parse(raw)
+        aliases = {}
+        for node in ast.walk(syntax):
+            if isinstance(node, ast.ImportFrom):
+                imported = node.module
+                if node.level:
+                    imported = importlib.util.resolve_name("." * node.level + (imported or ""),
+                                                           module.__package__)
+                for alias in node.names:
+                    aliases.setdefault(alias.asname or alias.name, []).append((imported, alias.name))
+        expected = {}
+        pending = [compiled]
+        while pending:
+            code = pending.pop()
+            pending.extend(c for c in code.co_consts if isinstance(c, CodeType))
+            if code.co_flags & inspect.CO_NEWLOCALS and "<" not in code.co_qualname:
+                expected.setdefault(code.co_qualname, []).append(code)
+        bindings = {}
+        for qualified, alternatives in expected.items():
+            owner = module
+            value = None
+            for part in qualified.split("."):
+                value = vars(owner).get(part)
+                owner = value
+                if value is None:
+                    break
+            if isinstance(value, (staticmethod, classmethod)):
+                value = value.__func__
+            functions = [value.fget, value.fset, value.fdel] if isinstance(value, property) else [value]
+            for position, function in enumerate(functions):
+                if function is None:
+                    continue
+                wrapper = function
+                # A source-declared import can legitimately replace a compiled
+                # fallback definition. Its owning repository module is checked
+                # independently below; bind the actual alias, never silently
+                # accept an arbitrary foreign replacement.
+                imported_alias = next(((origin, symbol) for origin, symbol in aliases.get(qualified, [])
+                    if origin in sys.modules and vars(sys.modules[origin]).get(symbol) is function), None)
+                if imported_alias is not None:
+                    bindings[qualified + ":" + str(position)] = {
+                        "import_alias": list(imported_alias), "callable_id": id(function),
+                        "code": _runtime_value(function)}
+                    continue
+                wrappers = []
+                while hasattr(function, "__wrapped__"):
+                    require(len(wrappers) < 8, "RUNTIME_WRAPPER_BUDGET")
+                    if isinstance(function, FunctionType):
+                        actual_globals = function.__globals__
+                        actual_path = backend._absolute(actual_globals.get("__file__"), exists=True)
+                        require(ROOT in actual_path.parents, "RUNTIME_WRAPPER_OUTSIDE_SCOPE")
+                        wrapper_raw = backend._read(actual_path, backend.MAX_FILE)
+                        total += len(wrapper_raw)
+                        require(total <= backend.MAX_TOTAL, "RUNTIME_SOURCE_BYTE_BUDGET")
+                        codes = [compile(wrapper_raw, str(actual_path), "exec", dont_inherit=True,
+                                         optimize=sys.flags.optimize)]
+                        matches = False
+                        while codes:
+                            code = codes.pop()
+                            matches |= function.__code__ == code
+                            codes.extend(c for c in code.co_consts if isinstance(c, CodeType))
+                        require(matches, "LOADED_WRAPPER_CODE_MISMATCH")
+                        wrappers.append({"id": id(function),
+                            "code_sha256": backend.digest(marshal.dumps(function.__code__)),
+                            "closure": [_runtime_value(c.cell_contents) for c in function.__closure__ or ()]})
+                    else:
+                        require(type(function).__module__ == "functools", "RUNTIME_WRAPPER_REFUSED")
+                        wrappers.append({"id": id(function), "type": type(function).__qualname__})
+                    function = function.__wrapped__
+                require(isinstance(function, FunctionType) and function.__globals__ is vars(module)
+                        and any(function.__code__ == code for code in alternatives),
+                        "LOADED_SOURCE_CODE_MISMATCH")
+                bindings[qualified + ":" + str(position)] = {
+                    "callable_id": id(wrapper), "code_id": id(function.__code__),
+                    "executed_code_sha256": backend.digest(marshal.dumps(function.__code__)),
+                    "wrappers": wrappers,
+                    "defaults": _runtime_value(function.__defaults__),
+                    "kwdefaults": _runtime_value(function.__kwdefaults__)}
+        # Literal module constants and class field defaults also expose stale
+        # cached configuration when only data, rather than a function, changed.
+        for scope, namespace in [(syntax, vars(module))] + [
+                (node, vars(vars(module)[node.name])) for node in syntax.body
+                if isinstance(node, ast.ClassDef) and isinstance(vars(module).get(node.name), type)]:
+            for node in scope.body:
+                targets = node.targets if isinstance(node, ast.Assign) else (
+                    [node.target] if isinstance(node, ast.AnnAssign) else [])
+                for target in targets:
+                    if not isinstance(target, ast.Name) or (not isinstance(scope, ast.ClassDef)
+                            and (not target.id.isupper() or re.search("SECRET|PASSWORD|TOKEN|API_KEY", target.id))):
+                        continue
+                    try:
+                        literal = ast.literal_eval(node.value)
+                    except (ValueError, TypeError, SyntaxError):
+                        continue
+                    require(target.id in namespace and namespace[target.id] == literal,
+                            "LOADED_SOURCE_CONSTANT_MISMATCH")
+        modules[name] = {"module_id": id(module), "source_sha256": backend.digest(raw),
+                         "bindings_sha256": backend.digest(backend.canonical(bindings))}
     return modules
+
+
+def _runtime_value(value, depth=0):
+    require(depth <= 8, "RUNTIME_DEFAULT_DEPTH_BUDGET")
+    if type(value) is float and not math.isfinite(value):
+        return {"nonfinite_float": value.hex()}
+    if value is None or type(value) in (bool, int, float, str):
+        return value
+    if isinstance(value, FunctionType):
+        return {"function_id": id(value), "code_sha256": backend.digest(marshal.dumps(value.__code__))}
+    if isinstance(value, (bytes, bytearray)):
+        require(len(value) <= backend.MAX_FILE, "RUNTIME_DEFAULT_BUDGET")
+        return {"bytes_sha256": backend.digest(bytes(value))}
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {"dataclass": type(value).__module__ + "." + type(value).__qualname__,
+                "fields": {field.name: _runtime_value(getattr(value, field.name), depth + 1)
+                           for field in dataclasses.fields(value)}}
+    if isinstance(value, (list, tuple, dict)):
+        require(len(value) <= 512, "RUNTIME_DEFAULT_BUDGET")
+        if isinstance(value, dict):
+            return {"dict_pairs": [[_runtime_value(k, depth + 1), _runtime_value(v, depth + 1)]
+                                   for k, v in value.items()]}
+        return {type(value).__name__: [_runtime_value(v, depth + 1) for v in value]}
+    if isinstance(value, (set, frozenset)):
+        require(len(value) <= 512, "RUNTIME_DEFAULT_BUDGET")
+        return {type(value).__name__: sorted(backend.digest(backend.canonical(_runtime_value(v, depth + 1)))
+                                           for v in value)}
+    return {"type": type(value).__module__ + "." + type(value).__qualname__, "identity": id(value)}
 
 
 def _security(bundle, trusted_root, output):
@@ -317,6 +464,12 @@ class QueueSession:
             if _due(case, bundle):
                 row.update(status="REVIEW_DUE", reason="CLOCK_EXPIRED_DURING_PREFLIGHT")
                 continue
+            try:
+                runtime_before = _module_stamp()
+            except Error as error:
+                row.update(status="REVIEW_DUE", reason=str(error))
+                continue
+            self._guard()
             fingerprint = backend.digest(backend.canonical({"bundle": backend.digest(body),
                 "inputs": inputs, "code": snapshot}))
             key = backend.digest(backend.canonical([case["case_id"], fingerprint]))
@@ -324,7 +477,7 @@ class QueueSession:
             proof = self.proofs.get(key)
             if proof is not None:
                 try:
-                    require(proof["modules"] == _module_stamp(), "LOADED_MODULES_CHANGED")
+                    require(proof["modules"] == runtime_before, "LOADED_MODULES_CHANGED")
                     _read_publication(proof["publication"])
                     require(not _due(case, bundle), "CLOCK_EXPIRED_DURING_READBACK")
                 except Error as error:
@@ -382,12 +535,36 @@ class QueueSession:
                   "rows": rows, "attempts_reserved": len(self.reservations),
                   "input_bytes_reserved": self.used_bytes,
                   "acceptance_restorable_from_disk": False, "authority": backend._closed(),
-                  "validated_er": None, "A5_eligible_input": False}
+                  "validated_er": None, "A5_eligible_input": False,
+                  "progress_state": "PREPARED_ONLY"}
+        cases = {case["case_id"]: (case, bundle) for case, _, _, bundle, _, _ in prepared}
+        def revalidate_all():
+            changed = False
+            for row in rows:
+                if row["status"] not in {"RAN_LOCAL_RESEARCH", "SKIP_UNCHANGED"}:
+                    continue
+                case, bundle = cases[row["case_id"]]
+                if _due(case, bundle):
+                    row.update(status="REVIEW_DUE", reason="CLOCK_EXPIRED_AT_BATCH_BOUNDARY",
+                               publication=None)
+                    key = backend.digest(backend.canonical([row["case_id"], row["fingerprint"]]))
+                    candidates.pop(key, None)
+                    self.proofs.pop(key, None)
+                    changed = True
+            return changed
+        revalidate_all()  # Later cases may have crossed an earlier case's clock.
         self._guard()
         self.progress_count += 1
         progress = _publish(self.output, "progress-" + str(self.progress_count), report)
         self._guard()
+        if revalidate_all():
+            # Stored progress was only preparation. Do not accept it, reconstruct
+            # it, retry publication, or mint any new batch proof after late expiry.
+            report.update(progress_state="UNACCEPTED_DUE_AFTER_PUBLICATION",
+                          local_progress_acceptance=None)
+            return report
         self.proofs.update(candidates)  # Only after actual progress return/readback.
+        report["progress_state"] = "LOCAL_READBACK_ACCEPTED"
         report["local_progress_acceptance"] = progress
         return report
 

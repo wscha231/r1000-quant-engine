@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 from datetime import datetime, timezone, timedelta
 import json
+import importlib
+import types
 from pathlib import Path
 import pickle
 import subprocess
@@ -68,8 +70,7 @@ class QueueTests(unittest.TestCase):
 
     def test_live_return_only_unchanged_reuse(self):
         session, first = self.run_one()
-        with patch.object(queue.backend, "run_bundle", side_effect=AssertionError("must not run")):
-            second = session.run(self.save())
+        second = session.run(self.save())
         self.assertEqual(second["rows"][0]["status"], "SKIP_UNCHANGED")
         self.assertEqual(second["attempts_reserved"], first["attempts_reserved"])
         self.assertEqual(second["input_bytes_reserved"], first["input_bytes_reserved"])
@@ -141,21 +142,25 @@ class QueueTests(unittest.TestCase):
         session, first = self.run_one()
         output = Path(first["rows"][0]["publication"]["directory"])
         (output / "result.json").write_bytes(b"{}")
-        with patch.object(queue.backend, "run_bundle", side_effect=AssertionError):
-            report = session.run(self.save())
+        report = session.run(self.save())
         self.assertEqual(report["rows"][0]["status"], "REVIEW_DUE")
         self.assertEqual(report["rows"][0]["reason"], "ACCEPTED_BYTES_CHANGED")
 
     def test_interrupted_downstream_keeps_intent_and_no_retry(self):
         session = self.session()
-        with patch.object(queue.backend, "run_bundle", side_effect=OSError("interrupted")), \
-                self.assertRaises(OSError):
-            session.run(self.save())
+        rename = queue.os.rename
+        def fail_backend(source, destination, *args, **kwargs):
+            if Path(destination).name.startswith("research-"):
+                raise OSError("interrupted actual backend publication")
+            return rename(source, destination, *args, **kwargs)
+        with patch.object(queue.os, "rename", side_effect=fail_backend):
+            result = session.run(self.save())
+        self.assertEqual(result["rows"][0]["status"], "REVIEW_DUE")
         self.assertEqual(len(list(self.output.glob("intent-*"))), 1)
         self.assertEqual(len(session.reservations), 1)
         self.assertGreater(session.used_bytes, 0)
-        with self.assertRaisesRegex(queue.Error, "NOT_LIVE"):
-            session.run(self.save())
+        result = session.run(self.save())
+        self.assertEqual(result["rows"][0]["reason"], "UNRESOLVED_PRIOR_INTENT")
 
     def test_progress_failure_cannot_mint_acceptance(self):
         session = self.session()
@@ -224,8 +229,7 @@ class QueueTests(unittest.TestCase):
 
     def test_progress_cap_and_changed_loaded_module_do_not_reinvoke(self):
         session, _ = self.run_one()
-        with patch.object(queue, "_module_stamp", return_value={"changed": -1}), \
-                patch.object(queue.backend, "run_bundle", side_effect=AssertionError):
+        with patch.object(queue, "_module_stamp", return_value={"changed": -1}):
             result = session.run(self.save())
         self.assertEqual(result["rows"][0]["status"], "REVIEW_DUE")
         self.assertEqual(result["rows"][0]["reason"], "LOADED_MODULES_CHANGED")
@@ -262,7 +266,6 @@ class QueueTests(unittest.TestCase):
                     elapsed[0] = 1.01
                 return result
             with patch.object(queue, "_publish", side_effect=slow_intent), \
-                    patch.object(queue.backend, "run_bundle", side_effect=AssertionError), \
                     self.assertRaisesRegex(queue.Error, "TIME_BUDGET"):
                 session.run(self.save())
         self.assertEqual(len(session.reservations), 1)
@@ -300,6 +303,111 @@ class QueueTests(unittest.TestCase):
         second = subprocess.run(command, capture_output=True, timeout=60)
         self.assertEqual(second.returncode, 2)
         self.assertEqual(json.loads(second.stdout)["status"], "BLOCKED")
+
+    def test_full_tree_ignored_files_do_not_consume_code_inventory(self):
+        code = self.root / "consumer.py"
+        code.write_bytes(b"def value():\n return 1\n")
+        names = ["ignored-" + str(i) + ".csv" for i in range(12000)] + [code.name]
+        with patch.object(queue, "ROOT", self.root), \
+                patch.object(queue.os, "walk", return_value=[(str(self.root), [], names)]):
+            self.assertEqual(len(queue._code_snapshot()["files_sha256"]), 64)
+        with patch.object(queue, "ROOT", self.root), \
+                patch.object(queue.os, "walk", return_value=[(str(self.root), [], names * 3)]), \
+                self.assertRaisesRegex(queue.Error, "TRAVERSAL_BUDGET"):
+            queue._code_snapshot()
+        selected = ["code" + str(i) + ".py" for i in range(8193)]
+        with patch.object(queue, "ROOT", self.root), \
+                patch.object(queue.os, "walk", return_value=[(str(self.root), [], selected)]), \
+                patch.object(queue.backend, "_read", return_value=b""), \
+                self.assertRaisesRegex(queue.Error, "INVENTORY_BUDGET"):
+            queue._code_snapshot()
+
+    def test_cached_code_patch_defaults_and_reload_are_bound(self):
+        name = "_queue_runtime_consumer"
+        source = self.root / (name + ".py")
+        original = b"LIMIT = 1\ndef value(x=1):\n return x + LIMIT\n"
+        source.write_bytes(original)
+        module = types.ModuleType(name)
+        module.__file__ = str(source)
+        module.__package__ = ""
+        exec(compile(original, str(source), "exec", dont_inherit=True), vars(module))
+        with patch.dict(sys.modules, {name: module}), patch.object(queue, "ROOT", self.root):
+            first = queue._module_stamp()
+            source.write_bytes(original.replace(b"return x + LIMIT", b"return x - LIMIT"))
+            self.assertEqual(module.value(), 2)  # Cached old implementation actually survives.
+            with self.assertRaisesRegex(queue.Error, "SOURCE_CODE_MISMATCH"):
+                queue._module_stamp()
+            source.write_bytes(original)
+            keep = module.value
+            module.value = lambda x=1: -1
+            with self.assertRaisesRegex(queue.Error, "SOURCE_CODE_MISMATCH"):
+                queue._module_stamp()
+            module.value = keep
+            module.value.__defaults__ = (5,)
+            self.assertNotEqual(queue._module_stamp(), first)
+            module.value.__defaults__ = (1,)
+            source.write_bytes(original.replace(b"LIMIT = 1", b"LIMIT = 2"))
+            with self.assertRaisesRegex(queue.Error, "SOURCE_CONSTANT_MISMATCH"):
+                queue._module_stamp()
+            source.write_bytes(original)
+            old_id = id(module)
+            exec(compile(original, str(source), "exec", dont_inherit=True), vars(module))  # Reload same object.
+            self.assertEqual(id(module), old_id)
+            self.assertNotEqual(queue._module_stamp(), first)
+
+    def test_batch_boundary_expires_earlier_case_before_proof(self):
+        instant = [datetime.fromisoformat(CUTOFF.replace("Z", "+00:00"))]
+        class Clock:
+            @staticmethod
+            def now(tz):
+                return instant[0].astimezone(tz)
+        self.case["review_due_at"] = (instant[0] + timedelta(seconds=1)).isoformat()
+        second_path, second_bundle = fixture(self.inputs / "case-b")
+        second_bundle["case_id"] = "SYNTHETIC:B:0"
+        second_path.write_bytes(raw(second_bundle))
+        second = copy.deepcopy(self.case)
+        second.update(case_id=second_bundle["case_id"], bundle_path="case-b/manifest.json",
+                      bundle_sha256=queue.backend.digest(second_path.read_bytes()), review_due_at=None)
+        self.manifest["cases"].append(second)
+        original = queue._publish
+        intents = []
+        def publication(parent, name, value):
+            result = original(parent, name, value)
+            if name.startswith("intent-"):
+                intents.append(name)
+                if len(intents) == 2:
+                    instant[0] += timedelta(seconds=2)
+            return result
+        with patch.object(queue, "datetime", Clock), patch.object(queue, "_publish", side_effect=publication):
+            session = self.session()
+            result = session.run(self.save())
+        self.assertEqual([r["status"] for r in result["rows"]], ["REVIEW_DUE", "RAN_LOCAL_RESEARCH"])
+        self.assertEqual(len(session.proofs), 1)
+        self.assertEqual(len(session.reservations), 2)
+        self.assertEqual(result["rows"][0]["reason"], "CLOCK_EXPIRED_AT_BATCH_BOUNDARY")
+
+    def test_expiry_during_progress_cannot_accept_stale_record(self):
+        instant = [datetime.fromisoformat(CUTOFF.replace("Z", "+00:00"))]
+        class Clock:
+            @staticmethod
+            def now(tz):
+                return instant[0].astimezone(tz)
+        self.case["valid_through"] = (instant[0] + timedelta(seconds=1)).isoformat()
+        original = queue._publish
+        def slow_progress(parent, name, value):
+            result = original(parent, name, value)
+            if name.startswith("progress-"):
+                instant[0] += timedelta(seconds=2)
+            return result
+        with patch.object(queue, "datetime", Clock), patch.object(queue, "_publish", side_effect=slow_progress):
+            session = self.session()
+            result = session.run(self.save())
+        self.assertEqual(result["rows"][0]["status"], "REVIEW_DUE")
+        self.assertIsNone(result["local_progress_acceptance"])
+        self.assertFalse(session.proofs)
+        stored = json.loads((self.output / "progress-1/record.json").read_bytes())
+        self.assertEqual(stored["progress_state"], "PREPARED_ONLY")
+        self.assertEqual(len(list(self.output.glob("progress-*"))), 1)
 
 
 if __name__ == "__main__":

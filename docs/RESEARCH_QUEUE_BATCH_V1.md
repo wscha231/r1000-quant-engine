@@ -57,8 +57,15 @@ reconstructs that acceptance from disk, a result status or a hash.
 only after the queue's progress record also passes atomic publication/readback.
 Repeated `session.run(manifest_path)` can reuse unchanged results. Current case
 and descriptor expiry, correction/source-failure/outcome flags, exact bundle,
-actual descriptor hashes, repository Python/config bytes and loaded repository
-module identities are rechecked. A changed input/config/code/dependency creates
+actual descriptor hashes, repository Python/config bytes and loaded consumer
+implementations are rechecked. Consumer source-defined callable code must match
+the current compiled source before execution. Live callable/code identities,
+executed-code hashes, defaults and source-declared decorator/import bindings
+are retained separately; cached stale code, in-place replacement and reload
+cannot silently reuse a prior proof. The controller's own test instrumentation
+is outside this consumer stamp. This remains a trusted-process protocol, not
+a sandbox against hostile threads or a full interpreter/native-library closure.
+A changed input/config/code/dependency creates
 a distinct bounded intent, rather than relabeling an old result as a new PASS.
 Repository Python/config hashing is conservative; even an unrelated included
 file change invalidates reuse. This is not authenticated remote HEAD evidence
@@ -81,7 +88,10 @@ Caller limits can only lower defaults: 16 cases per batch, 16 total attempts,
 limits, not collection campaign quotas. Input reservation counts original
 case bytes, not all local filesystem I/O: wrapper preflight and backend reads
 are separate; code/config inventory additionally has a fixed 64 MiB/8192-file
-bound per scan. Progress JSON is at most 4 MiB. Backend physical output uses its
+bound per scan. Only inventoried suffixes consume that file cap; ignored files
+and directories have a separate 32,768-entry traversal cap. Consumer runtime
+source binding is additionally limited to 256 modules/32 MiB source and eight
+decorator/default nesting levels. Progress JSON is at most 4 MiB. Backend physical output uses its
 unchanged separately bounded three-file publication protocol.
 
 The lifetime check is cooperative before/after a synchronous backend call;
@@ -100,6 +110,14 @@ poison the session; retained artifacts require owner inspection. A lost return
 within a live session makes its existing intent REVIEW_DUE, never a blind retry.
 No mutable latest alias, reset counter or automatically reconstructed completion
 ledger is used. Local fsync/readback is not Drive durability or power-loss proof.
+
+Every successful/reused row is rechecked for expiry before progress and after
+its publication/readback, including earlier cases while later cases ran.
+Pre-publication expiry marks that row REVIEW_DUE and removes its candidate
+proof. If expiry crosses during publication, the stored record stays explicitly
+PREPARED_ONLY; the returned report marks due rows, returns no progress acceptance
+and mints no new batch proofs. There is no publication retry or overwrite to
+repair a stale record. Other accepted backend outputs remain inspectable.
 
 ```python
 from pathlib import Path
