@@ -874,3 +874,35 @@ excluded or unmeasured platform/host costs remain UNKNOWN_NOT_ZERO. The known
 486s arithmetic deficit is not a measurement of that new work or a guarantee
 of completion. No scheduler, provider primitive, economic admission or broker
 state changes.
+
+## Exact pre-capture refusal39171354230 and corrective Source
+
+The live v6 worker includes itself in canonical history: host21 versus worker22.
+The original guard required21 even in that worker. Run39171354230 attempt1 on
+a20432fa refused before RuntimeMeter/OwnerDrive, with no meter artifact. This is
+not an API entitlement/rate-limit failure or a completed price/no-data result.
+The terminal jobs consumed102+83=185 seconds and one real dispatch. Keep the
+missing-meter observation, reserved allowance and every prior byte until the
+separate typed closure is complete. Absence of a meter alone never proves zero.
+
+The closure validates the exact f57d authorization, old complete seven pins,
+nonce, published pre-I/O code, fixed terminal job clocks, original log SHA2d363781
+and empty artifact set. It creates no RuntimeMeter or price-state receipt.
+An actual immutable OWNER closure grant authorizes only that refusal. Under the
+existing exclusive locks, cohort24 then family51 are file/directory-synced;
+interrupted publication revalidates and completes the identical pair once.
+The sealed receipt preserves these actual event hashes and clocks. Publish it
+as a second immutable OWNER record; its real locator and SHA enter bounded v7
+authorization. Reconstruct the full old f57d/OWNER6255779963/proof543884/a20432
+seven-pin authority separately from cb2b/native38. No arbitrary revision chain.
+
+Only then bind actual new protected Source/pins/OWNER/full proof at cohort25 then
+family52, before a new reservation or nonce. Canonical history retains all runs.
+The original21-run calibration,4938/38262/486 and same38748s maximum remain
+immutable. Explicitly booked live cost is5123s/22 completed dispatches; a new
+worker has23 including its own verified id/nonce/head/attempt/status. Neither
+trimming current history nor accepting an unbound21-or22/23 predicate is allowed.
+Only this fixed refusal is excluded from price samples, while185s/+1 dispatch
+stay charged. Normal hard caps, live next-job reservation, non-time forecast
+terms and original2026-10-19T02:08:51Z expiry still stop execution. Keep fits=false,
+original unknown302101B storage and unmeasured platform costs UNKNOWN_NOT_ZERO.

@@ -4236,6 +4236,7 @@ class SourceRevisionCP128Tests(unittest.TestCase):
     def setUp(self):
         self.f=TypedCohortForecastTests();self.f.setUp();self.addCleanup(self.f.doCleanups)
         self.s=c._revision_module();self.old=copy.deepcopy(self.f.a);self.o=copy.deepcopy(self.f.o)
+        self.o["runs"]=[dict(id=i,status="completed") for i in self.s.BASIS_IDS]
         oldhash=c.validate_authorization(self.old)
         self.o["parent_sha"]=self.o["cohort_receipts"][-1]["checkpoint_sha256"]
         replacements=dict(OLD_SOURCE=self.old["expected_master"],OLD_AUTH=oldhash,
@@ -4408,6 +4409,223 @@ class SourceRevisionCP128Tests(unittest.TestCase):
         with patch.object(c,"sync_native18_settlement",side_effect=OSError("synthetic fsync")):
             with self.assertRaises(OSError):c.bind_source_revision(j,family,self.new,obs)
 
+
+
+class LiveRunRefusalCorrectionTests(unittest.TestCase):
+    """Synthetic authority with actual21/22/23 history shape; no external I/O."""
+    def setUp(self):
+        self.base=SourceRevisionCP128Tests();self.base.setUp();self.addCleanup(self.base.doCleanups)
+        self.s=self.base.s;self.v6=copy.deepcopy(self.base.new);self.o=copy.deepcopy(self.base.o)
+        for key,value in dict(V6_AUTH=c.validate_authorization(self.v6),V6_SOURCE=self.v6['expected_master'],
+            V6_PINS=self.v6['code_pins'],V6_REFERENCE=self.v6['account_permission_reference'],V6_PROOF='f'*64).items():
+            p=patch.object(self.s,key,value);p.start();self.addCleanup(p.stop)
+        self.a=copy.deepcopy(self.v6);self.a.update(schema='r1000-sip-external-cohort-authorization-v7',
+            expected_master='e'*40,account_permission_reference=self.v6['account_permission_reference']+'2')
+        self.a['external_cohort'].update(proof_reference=self.a['account_permission_reference'],
+            source_revision=dict(policy_sha256=self.s.policy_hash(c),refusal_closure_sha256='b'*64,refusal_closure_comment_id=12345))
+        self.refused=dict(id=self.s.REFUSAL_RUN,head_sha=self.s.V6_SOURCE,run_attempt=1,
+            display_title='a1-sip '+self.s.REFUSAL_NONCE,status='completed',conclusion='failure',created_at='2026-10-18T22:14:28Z')
+        self.admin=self.s.refusal_value(c,self.a['external_cohort']['scope'])
+        self.o['runs'].append(self.refused);self.o['active_seconds']=5123
+        self.o['cohort_receipts'].append(self.admin);self.o['cohort_durations'].append(185)
+        self.proof=dict(proof_sha256='a'*64,proof_updated_utc=c.utc().isoformat(),expires_at_utc='2026-10-19T02:08:51+00:00')
+        self.o.update(external_proof=self.proof,first=c.utc(c.CONTINUATION['first']))
+        self.nonce=c.PREFIX+'e'*24
+        self.current=dict(id=999,run_attempt=1,head_sha=self.a['expected_master'],display_title='a1-sip '+self.nonce,
+            status='in_progress',conclusion=None,created_at=c.utc().isoformat())
+
+    def live(self):
+        o=copy.deepcopy(self.o);o['runs'].append(self.current)
+        o.update(current_run=self.current['id'],current_nonce=self.nonce)
+        return o
+
+    def test_exact_v6_authority_reconstruction_and_capacity(self):
+        self.assertEqual(c.external_previous(self.a),self.v6)
+        self.assertEqual(c.validate_authorization(self.v6),self.s.V6_AUTH)
+        self.assertEqual(c.external_transitions(self.a)[-1]['kind'],'CORRECTIVE_SOURCE')
+        self.assertLessEqual(len(c.encoded(self.a)),15000)
+        self.assertLessEqual(len(c.encoded(c.external_proof_record(self.a))),4096)
+        for change in [lambda a:a['external_cohort']['source_revision'].update(extra=True),
+                       lambda a:a.update(private_root_folder_id='foreign-root-123'),
+                       lambda a:a['code_pins'].pop(c.REVISION_MODULE)]:
+            a=copy.deepcopy(self.a);change(a)
+            with self.assertRaises(c.Refused):c.validate_authorization(a)
+
+    def test_host22_and_worker23_keep_full_canonical_lists_and_same_marker(self):
+        before=copy.deepcopy(self.o);host=c.external_forecast(self.a,self.o)
+        live=self.live();worker=c.external_forecast(self.a,live)
+        self.assertEqual(host,worker);self.assertFalse(host['fits'])
+        a=self.s.time_acceptance(c,self.a,self.o,host)
+        b=self.s.time_acceptance(c,self.a,live,worker)
+        self.assertEqual(a,b);self.assertEqual(a['live_active_seconds'],5123)
+        self.assertEqual((len(self.o['runs']),len(live['runs'])),(22,23))
+        self.assertEqual(before,self.o)
+        self.assertNotIn('new_states',self.admin);self.assertNotIn('rows_verified',self.admin)
+        self.assertTrue(self.admin['not_runtime_meter'])
+        progress=c.external_progress(self.a,self.o,'VERIFIED')
+        self.assertEqual(progress['workflow_dispatches'],22);self.assertEqual(progress['active_seconds'],5123)
+        self.assertEqual(progress['rows_verified'],sum(r['rows_verified'] for r in self.base.o['cohort_receipts']))
+        self.assertEqual(progress['states']['VALID_COLLECTED'],124)
+
+    def test_original_host21_worker22_boundary_requires_the_bound_current(self):
+        host=copy.deepcopy(self.base.o)
+        expected=self.s.time_acceptance(c,self.v6,host,c.external_forecast(self.v6,host))
+        live=copy.deepcopy(host);r=copy.deepcopy(self.refused)
+        r.update(status='in_progress',conclusion=None,created_at=c.utc().isoformat())
+        live.update(current_run=self.s.REFUSAL_RUN,current_nonce=self.s.REFUSAL_NONCE,external_proof=self.base.proof)
+        live['runs'].append(r)
+        self.assertEqual(expected,self.s.time_acceptance(c,self.v6,live,c.external_forecast(self.v6,live)))
+        live['current_run']=None
+        with self.assertRaises(c.Refused):self.s.time_acceptance(c,self.v6,live,c.external_forecast(self.v6,live))
+
+    def test_refusal_needs_exact_source_control_terminal_jobs_log_and_empty_artifacts(self):
+        control=dict(authorization=self.v6,nonce=self.s.REFUSAL_NONCE,preflight_only=False,recovery_run=None,
+            external_binding=dict(proof_sha256=self.s.V6_PROOF,proof_updated_utc='2026-10-18T22:11:24+00:00',
+                                  expires_at_utc='2026-10-19T02:08:51+00:00'))
+        log=('INPUT_CAMPAIGN_CONTROL: '+json.dumps(control)+'\n'+
+             '{"status": "BLOCKED", "code": "EXTERNAL_TIME_FORECAST_ACCEPTANCE", "source_admission": false}\n'+
+             'No artifacts will be uploaded\n\n').encode()
+        blobs={p:(c.ROOT/p).read_bytes() for p in self.s.V6_PINS}
+        jobs=dict(total_count=2,jobs=[dict(id=117804908535,name='offline',status='completed',conclusion='success',
+            started_at='2026-10-18T22:14:31Z',completed_at='2026-10-18T22:16:13Z'),
+            dict(id=117805290762,name='capture',status='completed',conclusion='failure',
+            started_at='2026-10-18T22:16:16Z',completed_at='2026-10-18T22:17:39Z')])
+        artifacts=dict(total_count=0,artifacts=[])
+        with patch.object(self.s,'REFUSAL_LOG',c.digest(log)):
+            value=self.s.verify_refusal(c,self.v6,self.refused,jobs,artifacts,blobs,log)
+            self.assertTrue(value['not_runtime_meter']);self.assertEqual(value['active_seconds'],185)
+            for field,bad in [('run',dict(self.refused,run_attempt=2)),('run',dict(self.refused,display_title='foreign')),
+                ('jobs',dict(jobs,total_count=1)),('artifacts',dict(total_count=1,artifacts=[{}])),
+                ('blobs',dict(blobs,**{c.REVISION_MODULE:b'foreign source'})),('log',log+b'changed')]:
+                values=dict(run=self.refused,jobs=jobs,artifacts=artifacts,source_blobs=blobs,log=log)
+                values['source_blobs' if field=='blobs' else field]=bad
+                with self.subTest(field=field),self.assertRaises(c.Refused):self.s.verify_refusal(c,self.v6,**values)
+
+    def test_foreign_current_duplicate_future_cost_reset_and_expiry_refuse(self):
+        live=self.live();forecast=c.external_forecast(self.a,live)
+        mutations=[lambda x:x.update(current_run=998),lambda x:x.update(current_nonce=c.PREFIX+'d'*24),
+            lambda x:x['runs'][-1].update(head_sha='d'*40),lambda x:x['runs'][-1].update(run_attempt=2),
+            lambda x:x['runs'][-1].update(status='completed',conclusion='success'),
+            lambda x:x['runs'].append(copy.deepcopy(x['runs'][-1])),lambda x:x['runs'].pop(21),
+            lambda x:x.update(active_seconds=4938),lambda x:x['cohort_durations'].__setitem__(-1,0),
+            lambda x:x['cohort_receipts'][-1]['usage'].update(provider_gets=1)]
+        for mutate in mutations:
+            bad=copy.deepcopy(live);mutate(bad)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):self.s.time_acceptance(c,self.a,bad,forecast)
+        with patch.object(c,'active_limit',return_value=5123+7799):
+            with self.assertRaises(c.Refused):self.s.time_acceptance(c,self.a,live,forecast)
+        clock=c.utc
+        with patch.object(c,'utc',side_effect=lambda x=None:clock(x) if x is not None else clock('2026-10-19T02:08:51Z')):
+            with self.assertRaises(c.Refused):self.s.time_acceptance(c,self.a,live,forecast)
+
+    def test_actual_worker_current_shape_reaches_meter_only_after_valid_guard(self):
+        class ReachedMeter(Exception):pass
+        live=self.live();args=SimpleNamespace(private_root_folder_id=self.a['private_root_folder_id'],
+            private_data_folder_id=self.a['private_data_folder_id'],start=self.a['start'],end=self.a['end'],
+            max_new_symbols=32,resume_sha256=live['parent_sha'])
+        control=dict(authorization=self.a,nonce=self.nonce,recovery_run=None,preflight_only=False,external_binding=self.proof)
+        env=dict(GITHUB_RUN_ID='999',INPUT_CAMPAIGN_NONCE=self.nonce,ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')
+        from tools import twelve_private_capture as drive
+        with patch.dict(os.environ,env,clear=True),patch.object(c,'verify_worker_source'), \
+             patch.object(c,'external_history',return_value=live),patch.object(c,'external_proof',return_value=self.proof), \
+             patch.object(c,'campaign_runs',return_value=live['runs']), \
+             patch.object(c,'worker_deadline',return_value=c.utc()+timedelta(seconds=90)), \
+             patch.object(c,'RuntimeMeter',side_effect=ReachedMeter) as meter, \
+             patch.object(drive,'OwnerDrive',side_effect=AssertionError('No data I/O')) as owner:
+            with self.assertRaises(ReachedMeter):c.external_worker(args,control,Path('not-created'))
+            meter.assert_called_once();owner.assert_not_called()
+
+    def comment(self,record,tag,id=345):
+        clock=c.utc().isoformat()
+        return dict(id=id,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
+            user=dict(type='User',id=123),created_at=clock,updated_at=clock,body=tag+json.dumps(record))
+
+    def test_sealed_closure_is_not_meter_and_rebound_hash_or_null_clock_refuses(self):
+        grant=self.comment(self.s.grant_record(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope']),
+                           'A1_SIP_NO_METER_REFUSAL_AUTHORIZATION ')
+        payload=self.s.closure_payload(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope'],grant)
+        clock=c.utc().isoformat();receipt=dict(schema='a1-sip-exact-no-meter-refusal-receipt-v1',payload=payload)
+        for field,family in [('cohort_event',False),('family_event',True)]:
+            e=self.s.closure_entry(c,payload,clock,family)
+            receipt[field]=dict(recorded_utc=clock,sha256=c.digest(c.encoded(e)))
+        seal=self.comment(receipt,'A1_SIP_NO_METER_REFUSAL_CLOSED ',12345)
+        a=copy.deepcopy(self.a);a['external_cohort']['source_revision']['refusal_closure_sha256']=c.digest(c.encoded(receipt))
+        self.s.verify_closure_receipt(c,a,receipt,grant,seal)
+        for bad in [dict(grant,created_at=None,updated_at=None),dict(grant,updated_at=(c.utc()+timedelta(seconds=1)).isoformat())]:
+            with self.assertRaises(c.Refused):self.s.verify_closure_receipt(c,a,receipt,bad,seal)
+        bad=copy.deepcopy(receipt);bad['payload']['actual_job_seconds']=0
+        a['external_cohort']['source_revision']['refusal_closure_sha256']=c.digest(c.encoded(bad))
+        badseal=self.comment(bad,'A1_SIP_NO_METER_REFUSAL_CLOSED ',12345)
+        with self.assertRaises(c.Refused):self.s.verify_closure_receipt(c,a,bad,grant,badseal)
+        event=self.s.closure_entry(c,payload,clock)
+        binding=self.s.correction_binding(c,self.a,self.proof)
+        wrong=dict(event,sequence=25,kind='REFUSAL_SOURCE_BOUND',**binding)
+        with self.assertRaises(c.Refused):self.s.verify_correction_entry(c,wrong,binding,receipt)
+
+    def test_accounting_closure_once_preserves_prefix_and_requires_both_barriers(self):
+        j,family,native,binding=self.base.make_pair()
+        c.bind_source_revision(j,family,self.v6,dict(self.base.o,external_proof=self.base.proof))
+        for target in (j,family):
+            data=dict(nonce=self.s.REFUSAL_NONCE,remaining=self.o['remaining'],parent_checkpoint_sha256=self.s.CP)
+            if target is family:data.update(capture_auth_sha256=self.s.V6_AUTH,scope=self.a['external_cohort']['scope'])
+            target.append('RESERVED',**data)
+            data=dict(nonce=self.s.REFUSAL_NONCE,run_id=self.s.REFUSAL_RUN)
+            if target is family:data.update(capture_auth_sha256=self.s.V6_AUTH,scope=self.a['external_cohort']['scope'])
+            target.append('RUN_ASSIGNED',**data)
+        for name,val in [('COHORT23',j.parent),('FAMILY50',family.parent)]:
+            p=patch.object(self.s,name,val);p.start();self.addCleanup(p.stop)
+        root=j.directory.parent;j.close();family.close()
+        state=root/('external-cohort-'+self.a['external_cohort']['scope']['namespace'])
+        j.directory.rename(state)
+        fdir=family.directory;budget=root/'canonical-journal';budget.mkdir()
+        before={p:p.read_bytes() for d in [state,fdir] for p in d.glob('*.json')}
+        grant=self.comment(self.s.grant_record(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope']),
+                           'A1_SIP_NO_METER_REFUSAL_AUTHORIZATION ')
+        authpath=root/'old-auth.json';authpath.write_bytes(c.encoded(self.v6))
+        grantpath=root/'grant.json';grantpath.write_bytes(c.encoded(dict(source_sha=self.a['expected_master'],
+            code_pins=self.a['code_pins'],grant_reference=f'https://github.com/{c.REPO}/issues/448#issuecomment-345')))
+        inp=root/'input.csv';inp.write_bytes(self.a['external_cohort']['input_csv'].encode())
+        args=SimpleNamespace(authorization=authpath,refusal_close_authorization=grantpath,recovery_run=None,max_batches=None,
+            account_permission_reference=None,continuation_receipt=None,native18_deployed_master=None,
+            budget_state_dir=budget,state_dir=state,cohort_input=inp,predispatch_recovery=root/'unused')
+        obs=copy.deepcopy(self.o);obs['external_proof']=self.base.proof
+        obs['epoch_proofs']={c.validate_authorization(v):self.base.proof for v in c.external_variants(self.v6)}
+        real_journal=c.WorkJournal
+        class Global:
+            def close(self):pass
+        def factory(directory,*a,**kw):
+            return Global() if Path(directory)==budget else real_journal(directory,*a,**kw)
+        with patch.object(c,'WorkJournal',side_effect=factory),patch.object(c,'external_deployed'), \
+             patch.object(c,'gh_json',return_value=grant),patch.object(c,'local_reject_recovery',return_value={}), \
+             patch.object(c,'verify_external_budget_journal'),patch.object(c,'external_history',return_value=obs), \
+             patch.object(c,'external_family_registry',side_effect=lambda *a,**kw:real_journal(fdir,c.external_family_genesis())), \
+             patch.object(c,'external_journal',side_effect=lambda directory,a,proof,**kw:real_journal(directory,
+                 c.validate_authorization(a),native_revision=native,source_revision=binding)), \
+             patch.object(c,'campaign_runs',return_value=obs['runs']), \
+             patch.object(c,'RuntimeMeter',side_effect=AssertionError('No meter issuance')):
+            result=c.refusal_accounting_host(args)
+            self.assertEqual(result['actual_active_seconds'],5123)
+            self.assertEqual(result['actual_dispatches'],22)
+            saved={p:p.read_bytes() for d in [state,fdir] for p in d.glob('*.json')}
+            again=c.refusal_accounting_host(args)
+            self.assertEqual(result,again);self.assertEqual(saved,{p:p.read_bytes() for p in saved})
+        self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
+        receipt=c.bounded_json(root/'REFUSAL_CLOSURE_RECEIPT.private.json')
+        seal=self.comment(receipt,'A1_SIP_NO_METER_REFUSAL_CLOSED ',12345)
+        a=copy.deepcopy(self.a);a['external_cohort']['source_revision']['refusal_closure_sha256']=c.digest(c.encoded(receipt))
+        self.s.verify_closure_receipt(c,a,receipt,grant,seal)
+        correction=self.s.correction_binding(c,a,self.proof)
+        oldbinding=self.s.binding(c,self.v6,self.base.proof)
+        corrected=real_journal(state,c.validate_authorization(a),native_revision=native,source_revision=oldbinding,
+            refusal_revision=correction,refusal_closure=receipt);self.addCleanup(corrected.close)
+        shared=real_journal(fdir,c.external_family_genesis());self.addCleanup(shared.close)
+        # The cohort directory barrier must complete before family52 exists.
+        with patch.object(c,'sync_native18_settlement',side_effect=c.Refused('EXTERNAL_NATIVE18_DURABILITY')):
+            with self.assertRaises(c.Refused):c.bind_source_revision(corrected,shared,a,dict(obs,external_proof=self.proof))
+        self.assertEqual((len(corrected.entries),len(shared.entries)),(24,51))
+        c.bind_source_revision(corrected,shared,a,dict(obs,external_proof=self.proof))
+        self.assertEqual((len(corrected.entries),len(shared.entries)),(25,52))
+        with self.assertRaises(c.Refused):corrected.append('REFUSAL_SOURCE_BOUND',**correction)
 
 
 if __name__=='__main__': unittest.main()
