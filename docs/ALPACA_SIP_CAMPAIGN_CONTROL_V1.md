@@ -30,11 +30,22 @@ Only shared event38 `NATIVE_READ_SETTLED` may follow the actual37-event family
 prefix27768663. It contains the exact native meter/source/proof/costs, original
 capture identity and the Source/pins that perform the import. No historical
 RESERVED, fake capture meter or capture SETTLED is manufactured. Only a durable
-fsynced valid append releases900 reserved seconds to162 actual seconds. An
-identical reopen verifies that same event; duplicate, foreign, noncanonical,
+valid append whose file and directory are both synced releases900 reserved
+seconds to162 actual seconds. An identical reopen verifies that same event;
+duplicate, foreign, noncanonical,
 changed or partial bytes refuse. Accounting may close after expiry; new
 reservations and activation cannot renew or extend the original48h window.
 Original17-event global and10-event CP76 cohort bytes are not rewritten.
+Both initial import and identical reopen/consumption re-fsync event38 itself,
+then flush the existing family directory: POSIX directory-fd fsync, or Windows
+writable directory handle plus FlushFileBuffers. Unsupported or failed
+open/flush/close refuses with
+EXTERNAL_NATIVE18_DURABILITY before returning a settlement hash or releasing
+the900s reservation. Preserve any created event38 bytes on interruption;
+reopen validates and flushes those same bytes rather than generating a new event.
+These primitives follow the [POSIX fsync contract](https://man7.org/linux/man-pages/man2/fsync.2.html)
+and Windows [directory handle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+and [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers) contracts.
 
 Freeze the actual event before producing a new immutable OWNER activation.
 The v5 external authorization adds only `native18_recovery`, containing the

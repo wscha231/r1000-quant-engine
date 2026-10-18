@@ -3701,6 +3701,61 @@ class Native18TypedSettlementTests(unittest.TestCase):
     def append(self):
         return c.append_native18_settlement(self.journal,"4"*40,self.pins)
 
+    def test_directory_failure_never_reports_settled_and_reopen_preserves_exact_event(self):
+        with patch.object(c,"sync_native18_settlement",create=True,
+                          side_effect=c.Refused("EXTERNAL_NATIVE18_DURABILITY")) as barrier:
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                self.append()
+            barrier.assert_called_once_with(self.path/"000038.json")
+        raw=(self.path/"000038.json").read_bytes()
+        self.assertEqual(len(self.journal.entries),38)
+        self.assertTrue(all((self.path/k).read_bytes()==v for k,v in self.originals.items()))
+        self.journal.close();self.journal=c.WorkJournal(self.path,c.external_family_genesis())
+        with patch.object(c,"sync_native18_settlement",create=True,
+                          side_effect=c.Refused("EXTERNAL_NATIVE18_DURABILITY")):
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                self.append()
+        event=self.append()
+        self.assertEqual(c.encoded(event),raw)
+        self.assertEqual(len(list(self.path.glob("*.json"))),38)
+
+    def test_existing_event_cannot_release_reservation_without_directory_barrier(self):
+        event=self.append()
+        auth=dict(expected_master="4"*40,code_pins=self.pins,external_cohort=dict(
+            native18_recovery=dict(settlement_sha256=c.digest(c.encoded(event)))))
+        before={p.name:p.read_bytes() for p in self.path.glob("*.json")}
+        with patch.object(c,"sync_native18_settlement",side_effect=c.Refused("EXTERNAL_NATIVE18_DURABILITY")):
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                c.verify_native18_shared(self.journal,auth)
+        self.assertEqual(before,{p.name:p.read_bytes() for p in self.path.glob("*.json")})
+
+    def test_platform_directory_barrier_on_existing_scratch_family(self):
+        self.append()
+        c.sync_native18_settlement(self.path/"000038.json")
+        self.assertTrue(all((self.path/k).read_bytes()==v for k,v in self.originals.items()))
+
+    def test_existing_event_file_fsync_failure_blocks_import_and_consumption(self):
+        event=self.append();raw=c.encoded(event)
+        auth=dict(expected_master="4"*40,code_pins=self.pins,external_cohort=dict(
+            native18_recovery=dict(settlement_sha256=c.digest(raw))))
+        with patch.object(c.os,"fsync",side_effect=OSError("synthetic file flush failure")):
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                self.append()
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                c.verify_native18_shared(self.journal,auth)
+        self.assertEqual((self.path/"000038.json").read_bytes(),raw)
+        self.assertEqual(c.encoded(self.append()),raw)
+
+    @unittest.skipUnless(os.name=="posix","requires actual POSIX directory descriptor")
+    def test_directory_fsync_failure_closes_descriptor_and_refuses(self):
+        self.append()
+        original_close=c.os.close
+        with patch.object(c.os,"fsync",side_effect=[None,OSError("synthetic directory flush failure")]), \
+             patch.object(c.os,"close",wraps=original_close) as closed:
+            with self.assertRaisesRegex(c.Refused,"EXTERNAL_NATIVE18_DURABILITY"):
+                c.sync_native18_settlement(self.path/"000038.json")
+        closed.assert_called_once()
+
     def test_typed_once_only_append_preserves37_and_has_no_fake_capture_reservation(self):
         event=self.append();before={p.name:p.read_bytes() for p in self.path.glob("*.json")}
         self.assertEqual(event,self.append());self.assertEqual(len(self.journal.entries),38)

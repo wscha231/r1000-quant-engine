@@ -2392,6 +2392,43 @@ def native18_consent_event(auth,comment):
     return entry
 
 
+def sync_native18_settlement(path):
+    """Flush event38 data and its directory, including a previously interrupted import."""
+    try:
+        # A failed prior file-fsync may leave complete visible bytes on reopen.
+        with path.open("r+b") as handle:
+            os.fsync(handle.fileno())
+        directory = path.parent
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes as w
+            kernel = ctypes.WinDLL("kernel32",use_last_error=True)
+            kernel.CreateFileW.argtypes = [w.LPCWSTR,w.DWORD,w.DWORD,w.LPVOID,w.DWORD,w.DWORD,w.HANDLE]
+            kernel.CreateFileW.restype = w.HANDLE
+            kernel.FlushFileBuffers.argtypes = [w.HANDLE]
+            kernel.FlushFileBuffers.restype = w.BOOL
+            kernel.CloseHandle.argtypes = [w.HANDLE]
+            kernel.CloseHandle.restype = w.BOOL
+            # GENERIC_WRITE, shared read/write/delete, OPEN_EXISTING, directory handle.
+            handle = kernel.CreateFileW(str(directory),0x40000000,7,None,3,0x02000000,None)
+            if handle == w.HANDLE(-1).value:
+                raise OSError
+            try:
+                if not kernel.FlushFileBuffers(handle):
+                    raise OSError
+            finally:
+                if not kernel.CloseHandle(handle):
+                    raise OSError
+        else:
+            handle = os.open(directory,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+            try:
+                os.fsync(handle)
+            finally:
+                os.close(handle)
+    except (OSError,AttributeError):
+        raise Refused("EXTERNAL_NATIVE18_DURABILITY") from None
+
+
 def verify_native18_shared(registry,auth):
     matches = [e for e in registry.entries if e["kind"] == "NATIVE_READ_SETTLED"]
     if "native18_recovery" not in auth["external_cohort"]:
@@ -2403,6 +2440,7 @@ def verify_native18_shared(registry,auth):
                          auth["external_cohort"]["native18_recovery"]["settlement_sha256"])
     path = registry.directory/f"{entry['sequence']:06d}.json"
     require(bounded_bytes(path) == encoded(entry),"EXTERNAL_NATIVE18_SETTLEMENT")
+    sync_native18_settlement(path)
 
 
 def append_native18_settlement(registry,source_sha,code_pins):
@@ -2412,16 +2450,19 @@ def append_native18_settlement(registry,source_sha,code_pins):
         require(len(matches) == 1 and len(registry.entries) == NATIVE18_RECOVERY["family_events"]+1,
                 "EXTERNAL_NATIVE18_SETTLEMENT")
         verify_native18_event(matches[0],source_sha,code_pins)
-        require(bounded_bytes(registry.directory/f"{matches[0]['sequence']:06d}.json") == encoded(matches[0]),
+        path = registry.directory/f"{matches[0]['sequence']:06d}.json"
+        require(bounded_bytes(path) == encoded(matches[0]),
                 "EXTERNAL_NATIVE18_SETTLEMENT")
+        sync_native18_settlement(path)
         return matches[0]
     require(len(registry.entries) == NATIVE18_RECOVERY["family_events"]
             and registry.parent == NATIVE18_RECOVERY["family_event_sha256"]
             and registry.entries[-1].get("kind") == "SETTLED"
             and registry.entries[-1].get("run_id") == NATIVE18_RECOVERY["run_id"],
             "EXTERNAL_NATIVE18_PREFIX")
-    # The900s reservation is not released until this durable fsynced append.
+    # Both file contents and the containing directory must be durable first.
     registry.append("NATIVE_READ_SETTLED",**native18_event_payload(source_sha,code_pins))
+    sync_native18_settlement(registry.directory/f"{registry.entries[-1]['sequence']:06d}.json")
     return registry.entries[-1]
 
 
