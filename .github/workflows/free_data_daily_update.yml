@@ -236,3 +236,37 @@ jobs:
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
           rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+
+  etf116_eod_research:
+    name: ETF116 research-only isolated EOD (disabled)
+    if: ${{ false && vars.ETF116_RESEARCH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: etf116-research-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Read only code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing calculation dependencies
+        run: python -m pip install -r requirements_github.txt
+      - name: Offline guarded contract tests
+        run: |
+          python tests/etf116_research_backend_smoke.py
+          python -O tests/etf116_research_backend_smoke.py
+      - name: Fail closed without approved A1 daily TR original and source rights
+        run: |
+          echo 'ETF116_SOURCE_INPUT_REQUIRED: not authorized to publish research' >&2
+          exit 2
+      # DO NOT add target-book, broker-ledger, trading, rclone writes, web scrape,
+      # GDRIVE OAuth, `continue-on-error`, permissions write or release steps here.
+      # Later T3 PR must replace terminal guard only after accepted source+rights,
+      # private COPY Sheet readback, successful 2-session dry-run and A6.

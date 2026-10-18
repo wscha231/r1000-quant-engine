@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-19 — ETF research adapters preserve component boundaries
+
+- Missing RF must block excess-return ratios without erasing independent
+  volatility/MDD. Optional SPY errors need explicit typed refusal and must not
+  erase valid subject research. RAW/SPLIT_ADJUSTED closes are not daily TR.
+- Reusing the holdings normalizer must not turn its copied as-of into an
+  unverified issuer publication time. Keep missing release clocks null.
+- A test glob can exit successfully after selecting zero cases. Invoke the
+  native ETF child suite through the existing registered caller and require a
+  nonempty suite; preserve the protected test registry and publication pins.
+- Native wiring and a private connector Sheet test do not prove actual A1 TR,
+  Actions service-account rights or automatic operation. See
+  [ETF116 H1](ETF116_RESEARCH_BACKEND_H1.md).
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
