@@ -396,6 +396,20 @@ class EngineTests(unittest.TestCase):
                     date_end='1996-02-15' if day<'1996' else day)
                 with self.assertRaisesRegex(ValueError,'OFF_CALENDAR_PRICE|PRICE_OBSERVATION_NOT_SESSION'):engine.load_inputs(m,c)
 
+    def test_coalesced_revision_admission_preserves_original_clock_order(self):
+        schedule=engine.mcal.get_calendar('NYSE').schedule(start_date='2020-01-02',end_date='2020-02-14')
+        base=dict(series='UNRATE',observation_date='2019-12-01',vintage_date='2020-01-03',value=1.,
+            evidence='alfred_date_archive',available_at='2020-01-04T05:00:00Z',effective_session='2020-01-06',realtime_end='9999-12-31')
+        old=dict(base,observation_date='2020-01-01',vintage_date='2020-02-07',value=3.,
+            available_at='2020-02-08T05:00:00Z',effective_session='2020-02-10',realtime_end='2020-02-07')
+        new=dict(old,vintage_date='2020-02-08',value=5.,available_at='2020-02-09T05:00:00Z',realtime_end='9999-12-31')
+        rows=[base,old,new];original=copy.deepcopy(rows)
+        a,events=engine.macro_features({'UNRATE':rows},schedule)
+        b,reverse=engine.macro_features({'UNRATE':list(reversed(rows))},schedule)
+        pd.testing.assert_series_equal(a['macro_change_UNRATE'],b['macro_change_UNRATE'])
+        self.assertEqual(a['macro_change_UNRATE'].loc['2020-02-10'],4.);self.assertEqual(events,reverse)
+        self.assertEqual(events[0]['vintage_date'],'2020-02-08');self.assertEqual(rows,original)
+
 
 if __name__=='__main__':
     unittest.main(verbosity=2)

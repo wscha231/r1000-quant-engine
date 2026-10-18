@@ -328,10 +328,12 @@ def macro_features(macros, schedule):
             admitted.append((gate, r))
         # Only this derived adapter view changes the eligibility clock. Original
         # availability remains intact in source objects, bindings and events.
+        admitted.sort(key=lambda item:(item[0], instant(item[1]['available_at']),
+                                       item[1]['observation_date'], item[1]['vintage_date']))
         gated = [dict(r, available_at=gate.isoformat()) for gate,r in admitted]
         feature = archive_release_changes(gated, sessions, close_times, 'monthly')
         features['macro_change_'+sid] = feature
-        ordered = sorted(admitted, key=lambda x:(x[0], x[1]['observation_date']))
+        ordered = admitted
         state, gates, cursor = {}, {}, 0
         for day, cutoff in zip(sessions, close_times):
             while cursor < len(ordered) and ordered[cursor][0] <= cutoff:

@@ -34,6 +34,8 @@ drawdowns stop at the last finite observation, not an unobserved calendar tail.
 Macro admission uses the same next-eligible-open effective session as validation.
 An internal derived-clock view gates the reused release helper; original source
 availability is unchanged and events expose both available_at and admitted_at.
+Coalesced admission clocks preserve original availability/vintage order in both
+the shared-helper view and event replay, independent of physical source order.
 
 Config schema `macro-index-research-config-v1` fixes start1996-01-01,
 comparison_start2016-01-01, horizons21/63/126/252, entry_delay1, min_train504,
