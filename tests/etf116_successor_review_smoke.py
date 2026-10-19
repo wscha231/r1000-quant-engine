@@ -172,7 +172,8 @@ class SuccessorReviewTests(unittest.TestCase):
 
     def validate(self, day='2026-10-16', available='2026-10-16T20:00:00Z'):
         row = {'ticker': 'SPY', 'date': day, 'tr_index': 100., 'basis': 'NAV_TR_INDEX',
-               'available_at_utc': available, 'source_sha256': '1' * 64}
+               'available_at_utc': available, 'source_sha256': '1' * 64,
+               'total_return_series_sha256':'a'*64,'total_return_methodology_sha256':'b'*64}
         return validate_series([row], [day], ticker='SPY', asof=day,
                                decision_at='2026-12-01T00:00:00Z')
 
@@ -240,7 +241,8 @@ class SuccessorReviewTests(unittest.TestCase):
     def test_future_listing_and_prelisting_rows_refuse_daily_returns(self):
         from tools.etf116_research_metrics_h1 import compute_horizons
         rows=[{'ticker':'SPY','date':day,'tr_index':100.+i,'basis':'NAV_TR_INDEX',
-               'available_at_utc':'2026-10-18T00:00:00Z','source_sha256':'1'*64}
+               'available_at_utc':'2026-10-18T00:00:00Z','source_sha256':'1'*64,
+               'total_return_series_sha256':'a'*64,'total_return_methodology_sha256':'b'*64}
               for i,day in enumerate(['2026-10-15','2026-10-16'])]
         for listing, reason in [('2026-10-20','LISTING_AFTER_ASOF'),
                                 ('2026-10-16','OBSERVATION_BEFORE_LISTING')]:
@@ -268,6 +270,111 @@ class SuccessorReviewTests(unittest.TestCase):
             self.assertEqual(result['holdings_refresh_due'], due)
             self.assertFalse(result['dispatch_performed'])
             self.assertFalse(result['publish_enabled'])
+
+    def test_holdings_future_review_requires_trusted_clock(self):
+        from tools.etf_top3_holdings_overlay_h1 import build_lookthrough, OverlayError
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        fixture=HostedP2Regression();rows=fixture.holdings();seed=fixture.seed()
+        with self.assertRaisesRegex(OverlayError,'HOLDINGS_FUTURE_REVIEW'):
+            build_lookthrough(rows,seed,reviewed_at_utc='2099-01-01T00:00:00Z')
+        with self.assertRaisesRegex(OverlayError,'HOLDINGS_FUTURE_REVIEW'):
+            build_lookthrough(rows,seed,reviewed_at_utc='2026-10-18T14:00:01Z',
+                              evaluation_time=datetime(2026,10,18,14,tzinfo=timezone.utc))
+        for clock in (datetime(2026,10,18), '2099-01-01T00:00:00Z'):
+            with self.assertRaisesRegex(OverlayError,'EVALUATION_CLOCK_INVALID'):
+                build_lookthrough(rows,seed,reviewed_at_utc='2026-10-18T14:00:00Z',evaluation_time=clock)
+        result=build_lookthrough(rows,seed,reviewed_at_utc='2026-10-18T14:00:00Z',
+                                evaluation_time=datetime(2026,10,18,14,tzinfo=timezone.utc))
+        self.assertEqual(result['status'],'RESEARCH_TAGS_PREPARED_ONLY')
+
+    def holdings_cli(self, rows, *, observed='2026-10-18T14:00:00Z'):
+        import csv, io, os, subprocess, tempfile
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        root=Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as td:
+            base=Path(td);source=base/'input.csv';output=base/'output.json';seed=base/'seed'
+            text=io.StringIO(newline='');writer=csv.DictWriter(text,fieldnames=list(rows[0]))
+            writer.writeheader();writer.writerows(rows);source.write_text(text.getvalue())
+            seed.write_text('\n'.join(HostedP2Regression().seed()))
+            result=subprocess.run([sys.executable,*(['-O'] if sys.flags.optimize else []),
+                str(root/'tools/run_etf_top3_research_lookthrough_h1.py'),'--holdings',str(source),
+                '--seed-tickers',str(seed),'--observed-at',observed,'--output',str(output)],
+                env={**os.environ,'ETF116_EVALUATION_TIME':'2099-01-02T00:00:00Z'},
+                capture_output=True,timeout=10)
+            self.assertEqual(result.returncode,2)
+            self.assertFalse(output.exists())
+            self.assertNotIn(b'Traceback',result.stderr)
+            return result.stdout+result.stderr
+
+    def test_holdings_cli_cannot_override_trusted_clock(self):
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        rows=HostedP2Regression().holdings()
+        for row in rows:
+            row['holdings_asof']='2099-01-01';row['published_at_utc']='2099-01-01T00:00:00Z'
+        self.assertIn(b'HOLDINGS_FUTURE_REVIEW',self.holdings_cli(rows,observed='2099-01-02T00:00:00Z'))
+
+    def test_holdings_credentials_refuse_without_persisting_or_logging(self):
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        from tools.etf116_research_backend import prepare_holdings
+        from tools.etf_top3_holdings_overlay_h1 import OverlayError
+        fixture=HostedP2Regression()
+        for suffix in ('?access_token=CONTRACT_FAKE_SECRET','#CONTRACT_FAKE_SECRET'):
+            rows=fixture.holdings();rows[0]['source_url']+=suffix
+            with self.assertRaisesRegex(OverlayError,'SOURCE_URL_CREDENTIAL'):
+                prepare_holdings(rows,fixture.seed(),decision_at='2026-10-18T14:00:00Z')
+            self.assertNotIn(b'CONTRACT_FAKE_SECRET',self.holdings_cli(rows))
+        rows=fixture.holdings();rows[0]['source_url']='https://user:CONTRACT_FAKE_SECRET@example.test/holdings'
+        self.assertNotIn(b'CONTRACT_FAKE_SECRET',self.holdings_cli(rows))
+
+    def test_holdings_snapshot_rejects_mixed_source_and_publication(self):
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        from tools.etf_top3_holdings_overlay_h1 import build_lookthrough, OverlayError
+        fixture=HostedP2Regression()
+        for field,value,code in [('source_url','https://other.test/holdings','MIXED_SOURCE'),
+                                 ('published_at_utc','2026-10-17T00:00:00Z','MIXED_PUBLICATION')]:
+            rows=fixture.holdings();rows[0][field]=value
+            with self.assertRaisesRegex(OverlayError,code):
+                build_lookthrough(rows,fixture.seed(),reviewed_at_utc='2026-10-18T14:00:00Z')
+        rows=fixture.holdings()
+        for row in rows:row['published_at_utc']='2026-10-17T00:00:00Z'
+        rows[0]['published_at_utc']='2026-10-17T00:00:01Z'
+        with self.assertRaisesRegex(OverlayError,'MIXED_PUBLICATION'):
+            build_lookthrough(rows,fixture.seed(),reviewed_at_utc='2026-10-18T14:00:00Z')
+
+    def test_holdings_equivalent_publication_and_separate_funds_pass(self):
+        from tests.etf116_hosted_p2_regression import HostedP2Regression
+        from tools.etf116_research_backend import prepare_holdings
+        fixture=HostedP2Regression();rows=fixture.holdings()
+        for row in rows:
+            row['source_url']='https://example.test/'+row['etf']
+            row['published_at_utc']='2026-10-17T00:00:00Z'
+        rows[0]['published_at_utc']='2026-10-16T20:00:00-04:00'
+        result=prepare_holdings(rows,fixture.seed(),decision_at='2026-10-18T14:00:00Z')
+        self.assertTrue(result['provenance_time_complete'])
+        self.assertEqual(len(result['normalized_holdings']),30)
+        self.assertFalse(result['eligible_for_pit'])
+
+    def test_tr_series_definition_must_be_present_and_stable(self):
+        from tests.etf116_delta_regression import DeltaRegression
+        fixture=DeltaRegression();fixture.setUp()
+        for field in ('total_return_series_sha256','total_return_methodology_sha256'):
+            for value,reason in [(None,'TR_IDENTITY_MISSING'),('c'*64,'MIXED_TR_IDENTITY')]:
+                rows=[dict(r) for r in fixture.rows];rows[-1][field]=value
+                with self.subTest(field=field,value=value), self.assertRaisesRegex(RefuseInput,reason):
+                    fixture.compute(tr_rows=rows)
+        result=fixture.compute()
+        self.assertEqual(result['total_return_series_sha256'],'a'*64)
+        self.assertEqual(result['total_return_methodology_sha256'],'b'*64)
+        self.assertIsNotNone(result['horizons']['12']['cagr'])
+        self.assertEqual(result['blocked_daily_intervals'],0)
+
+    def test_optional_benchmark_mixed_identity_is_explicitly_blocked(self):
+        from tests.etf116_delta_regression import DeltaRegression
+        fixture=DeltaRegression();fixture.setUp();spy=fixture.series('SPY')
+        spy[-1]['total_return_methodology_sha256']='c'*64
+        result=fixture.compute(benchmark_rows=spy)['horizons']['12']
+        self.assertEqual(result['benchmark_status'],'BLOCKED_OPTIONAL_BENCHMARK_SERIES_MIXED_TR_IDENTITY')
+        self.assertIsNotNone(result['cagr'])
 
 
 if __name__ == '__main__':

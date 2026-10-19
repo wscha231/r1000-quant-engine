@@ -11,6 +11,7 @@ import hashlib
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 TOP3 = ('GARP','QUAL','SPMO')
 TICKER = re.compile(r'^[A-Z][A-Z0-9.-]{0,10}$')
@@ -40,15 +41,38 @@ def parse_timestamp(s):
     return dt.astimezone(timezone.utc)
 
 
+def validate_source_url(value):
+    # Provenance artifacts must never copy URL credentials. Reject all query
+    # and fragment data, rather than guessing a complete list of token names.
+    require(type(value) is str and not any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value),
+            'SOURCE_URL_INVALID')
+    try:
+        parsed = urlsplit(value)
+        valid = (parsed.scheme == 'https' and bool(parsed.hostname)
+                 and parsed.username is None and parsed.password is None
+                 and not parsed.query and not parsed.fragment
+                 and '?' not in value and '#' not in value and '\\' not in value)
+        parsed.port  # Validate malformed ports without retaining their value.
+    except ValueError:
+        raise OverlayError('SOURCE_URL_INVALID') from None
+    require(valid, 'SOURCE_URL_CREDENTIAL_OR_AMBIGUOUS_PROVENANCE')
+    return value
+
+
 def build_lookthrough(records: list[dict[str, Any]], seed_symbols: list[str], *,
-                     reviewed_at_utc: str, expected_top_n: int=10) -> dict[str, Any]:
+                     reviewed_at_utc: str, expected_top_n: int=10,
+                     evaluation_time: datetime | None=None) -> dict[str, Any]:
     """Only accepts real dated ETF holding *snapshots*; cannot invent as-of.
 
     `published_at_utc` is a provider-observed publication/availability clock,
     not merely when a research sheet was exported. Missing = blocked for PIT.
     Currently recorded ETFIQ holdings have NO verified published timestamp.
     """
+    evaluated = evaluation_time if evaluation_time is not None else datetime.now(timezone.utc)
+    require(isinstance(evaluated, datetime) and evaluated.tzinfo is not None
+            and evaluated.utcoffset() is not None, 'EVALUATION_CLOCK_INVALID')
     review=parse_timestamp(reviewed_at_utc)
+    require(review <= evaluated.astimezone(timezone.utc), 'HOLDINGS_FUTURE_REVIEW')
     require(type(expected_top_n) is int and expected_top_n > 0, 'TOP_N_INVALID')
     require(isinstance(records,list) and len(records)==len(TOP3)*expected_top_n,'TOP3_NUMBER_WRONG')
     require(isinstance(seed_symbols,list)
@@ -73,8 +97,7 @@ def build_lookthrough(records: list[dict[str, Any]], seed_symbols: list[str], *,
         require(type(w) in (float,int) and 0 < w <= 100,'BAD_HOLDING_WEIGHT')
         asof=parse_date(rec.get('holdings_asof'))
         require(asof <= review.date(),'HOLDINGS_FUTURE_ASOF')
-        url=rec.get('source_url')
-        require(type(url) is str and url.startswith('https://'),'SOURCE_URL_NOT_AUTHENTICATED')
+        validate_source_url(rec.get('source_url'))
         available=rec.get('published_at_utc')
         if available:
             stamp=parse_timestamp(available)
@@ -84,6 +107,9 @@ def build_lookthrough(records: list[dict[str, Any]], seed_symbols: list[str], *,
     require(all(set(ranks)==set(range(1,expected_top_n+1)) for ranks in byfund.values()),'ETF_TOP10_INCOMPLETE')
     for ranks in byfund.values():
         require(len({r['holdings_asof'] for r in ranks.values()}) == 1, 'ETF_SNAPSHOT_MIXED_ASOF')
+        require(len({r['source_url'] for r in ranks.values()}) == 1, 'ETF_SNAPSHOT_MIXED_SOURCE')
+        require(len({parse_timestamp(r['published_at_utc']) if r.get('published_at_utc') else None
+                     for r in ranks.values()}) == 1, 'ETF_SNAPSHOT_MIXED_PUBLICATION')
         require(sum(r['weight_pct'] for r in ranks.values()) <= 100.0,
                 'ETF_TOP_HOLDINGS_WEIGHT_EXCEEDS_FUND')
     result=[]

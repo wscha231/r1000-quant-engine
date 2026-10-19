@@ -117,6 +117,7 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
     sources: set[str] = set()
     per_day_source: list[tuple[str,str]] = []
     bases: set[str] = set()
+    identities: set[tuple[str, str]] = set()
     for row in rows:
         require(isinstance(row, dict) and row.get('ticker') == ticker, 'SERIES_IDENTITY_CONFLICT')
         dt = row.get('date')
@@ -138,9 +139,15 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
         require(type(source) is str and len(source) == 64 and all(k in '0123456789abcdef' for k in source),
                 'SOURCE_DIGEST_MISSING')
         sources.add(source)
+        identity = tuple(row.get(k) for k in
+                         ('total_return_series_sha256', 'total_return_methodology_sha256'))
+        require(all(type(s) is str and len(s) == 64 and all(c in '0123456789abcdef' for c in s)
+                    for s in identity), 'SERIES_TR_IDENTITY_MISSING')
+        identities.add(identity)
         per_day_source.append((dt, source))
         entries[dt] = float(value)
     require(len(bases) <= 1, 'SERIES_MIXED_TR_BASIS')
+    require(len(identities) <= 1, 'SERIES_MIXED_TR_IDENTITY')
     # Each incremental NYSE date may reference distinct immutable raw bytes.
     # Pin the entire dated source-map; never require one file SHA for 10 years.
     dated_sources = sorted(per_day_source)
@@ -148,7 +155,9 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
                      if dated_sources else None)
     return {'ticker': ticker, 'basis': next(iter(bases)) if bases else None,
             'observations': entries, 'source_digest': composite_sha,
-            'source_objects': len(sources), 'rights_allowed': rights_allowed}
+            'source_objects': len(sources), 'rights_allowed': rights_allowed,
+            'total_return_series_sha256': next(iter(identities))[0] if identities else None,
+            'total_return_methodology_sha256': next(iter(identities))[1] if identities else None}
 
 
 def anchor_session(sessions: list[str], day: date) -> str | None:
@@ -295,6 +304,8 @@ def compute_horizons(*, ticker: str, asof: str, decision_at: str,
         d(issuer_listing_date)
     report = {'ticker':ticker,'asof':asof,'series_basis':series['basis'],
               'candidate_source_sha256':series['source_digest'],
+              'total_return_series_sha256':series['total_return_series_sha256'],
+              'total_return_methodology_sha256':series['total_return_methodology_sha256'],
               'source_rights_verified':source_rights_verified,
               'research_only':True,'a1_source_admitted':False,
               'portfolio_approval':False,'rank_promotion':False,

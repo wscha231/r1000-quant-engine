@@ -151,3 +151,24 @@ in this Draft preparation.
 EOD run_at must not exceed the trusted evaluation clock (UTC now in the CLI; an explicit trusted API argument is available for replay/tests and is never read from JSON). Its canonical run clock is hashed/retained, and prepare itself revalidates the fixed116 identity. A fabricated future run/close cannot prepare a not-yet-completed session.
 
 The standalone JSON runner also requires source decision<=one captured trusted evaluation clock before candidate output. Default CLI evaluation is UTC now; only an explicit caller-owned API argument supports replay. JSON/environment values cannot override it, and evaluated time is not added to the deterministic candidate hash. Pure compute_horizons remains a replay calculation API.
+
+Holdings review has the same trusted current-time boundary before preparing any
+output. Explicit aware API replay time is separate from the observed/reviewed
+timestamp and is unavailable through CLI/JSON/environment. Provenance URLs must
+be plain valid HTTPS without userinfo, query, fragment, whitespace or backslash;
+credential-bearing/ambiguous URLs refuse with a static diagnostic before either
+the lookthrough or normalized artifact can be written. Each fund snapshot must
+have one source URL and one canonical publication instant (or all missing), in
+addition to one as-of date. Equivalent offsets identify the same release.
+
+Every supplied TR row must declare `total_return_series_sha256` and
+`total_return_methodology_sha256`, constant within that ticker's series. The
+series hash identifies the upstream definition including provider, instrument,
+currency and index base/normalization; it is not a daily raw-object hash or a
+caller permission flag. Changes require a separately reconciled source series,
+never direct division across incompatible index levels. Distinct daily immutable
+source hashes remain allowed. Both identities are retained in the metric result;
+the Reader adapter requires them in the immutable manifest source and copies
+them into every row. Missing identity refuses; malformed optional SPY retains
+its explicit comparison-blocked reason. These declarations are research input
+validation and do not provide Source/PIT approval.

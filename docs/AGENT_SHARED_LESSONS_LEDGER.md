@@ -7467,3 +7467,18 @@ and validate the fixed116 identity at the API entry as well as in the CLI.
 Apply that current/evaluation boundary to the standalone dated-JSON runner too,
 not to pure replay math. Pass one trusted clock through H3 metadata and H1 run;
 keep candidate hashing time-independent so exact-source rederivation is stable.
+
+### 2026-10-19 — Bind holdings releases and TR series before artifact output
+
+Observed/reviewed holdings timestamps are input claims, not a trusted upper
+clock. Bound them to UTC now or an explicit aware API replay time; CLI inputs
+and environment cannot select that evaluation. Reject URL userinfo and all
+query/fragment data before copying provenance into either output projection;
+use static diagnostics without echoing the rejected URL. Within each ETF's
+dated top10 snapshot, require one source and one canonical publication instant
+(or all missing), rather than joining conflicting releases by as-of alone.
+Daily raw hashes may differ, but one ticker's total-return levels must have a
+constant explicit upstream series-definition hash and methodology hash. Pin
+provider/instrument/currency/base normalization in that definition, propagate
+both hashes from the immutable Reader manifest to every row, and retain them
+in results. A broad NAV/market basis alone cannot authorize index splicing.

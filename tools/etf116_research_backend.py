@@ -15,12 +15,13 @@ from tools.etf116_research_metrics_h1 import BASIS, d, require
 from tools.etf_top3_holdings_overlay_h1 import TOP3, build_lookthrough
 
 
-def prepare_holdings(records, seed_symbols, *, decision_at):
+def prepare_holdings(records, seed_symbols, *, decision_at, evaluation_time=None):
     """Normalize one dated top10 snapshot per ETF without claiming PIT time."""
     import pandas as pd
     from tools.run_etf_holdings_refresh import normalize_holding_rows
 
-    overlay = build_lookthrough(records, seed_symbols, reviewed_at_utc=decision_at)
+    overlay = build_lookthrough(records, seed_symbols, reviewed_at_utc=decision_at,
+                               evaluation_time=evaluation_time)
     grouped = defaultdict(list)
     for row in records:
         grouped[row['etf']].append(row)
@@ -74,6 +75,7 @@ def read_total_return_component(reader, *, dataset_id, generation, ticker,
     basis = source.get('total_return_basis')
     require(type(basis) is str and basis in BASIS, 'EXPLICIT_DAILY_TR_BASIS_REQUIRED')
     methodology_hash = sha(source.get('total_return_methodology_sha256'))
+    series_hash = sha(source.get('total_return_series_sha256'))
     files = matches[0].get('files')
     require(isinstance(files, list), 'TR_FILES_NOT_LIST')
     identities = [r.get('instrument') for r in files if isinstance(r, dict)
@@ -90,11 +92,14 @@ def read_total_return_component(reader, *, dataset_id, generation, ticker,
     receipt = json.loads(result.receipt_bytes)
     rows = [{'ticker': ticker, 'date': r['session_date'], 'tr_index': r['close'],
              'basis': basis, 'available_at_utc': r['available_from'],
-             'source_sha256': receipt['receipt_sha256']} for r in result.rows]
+             'source_sha256': receipt['receipt_sha256'],
+             'total_return_series_sha256': series_hash,
+             'total_return_methodology_sha256': methodology_hash} for r in result.rows]
     return {'rows': rows, 'reader_receipt': receipt,
             'reader_receipt_bytes_sha256': hashlib.sha256(result.receipt_bytes).hexdigest(),
             'source_reference_kind': 'READER_RECEIPT_SHA256_NOT_PROVIDER_BYTES',
             'total_return_methodology_sha256': methodology_hash,
+            'total_return_series_sha256': series_hash,
             'research_only': True, 'a1_source_admitted': False,
             'sheet_publisher_allowed': False, 'economic_authority': False}
 

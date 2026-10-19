@@ -29,6 +29,8 @@ class DeltaRegression(unittest.TestCase):
     def series(self, ticker):
         return [dict(ticker=ticker, date=s, tr_index=100 + i * .1 + (i % 3) * .2,
                      basis='NAV_TR_INDEX', source_sha256=f'{i+1:064x}',
+                     total_return_series_sha256='a'*64,
+                     total_return_methodology_sha256='b'*64,
                      available_at_utc='2026-10-18T13:00:00Z')
                 for i, s in enumerate(self.sessions)]
 

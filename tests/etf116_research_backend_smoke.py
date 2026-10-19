@@ -39,6 +39,7 @@ class NativeETFIntegration(unittest.TestCase):
         source = self.fixture.spec['source']
         source['total_return_basis'] = 'NAV_TR_INDEX'
         source['total_return_methodology_sha256'] = '5' * 64
+        source['total_return_series_sha256'] = '6' * 64
         for entry in self.fixture.spec['files']:
             entry['instrument']['adjustment_basis'] = 'TOTAL_RETURN'
 
@@ -63,6 +64,8 @@ class NativeETFIntegration(unittest.TestCase):
         self.assertEqual(receipt['status'], 'VERIFIED_RESEARCH_BYTES')
         self.assertEqual(receipt['raw_source_sha256'], ['4' * 64])
         self.assertEqual(result['rows'][0]['source_sha256'], receipt['receipt_sha256'])
+        self.assertTrue(all(r['total_return_series_sha256']=='6'*64
+                            and r['total_return_methodology_sha256']=='5'*64 for r in result['rows']))
         self.assertEqual(result['source_reference_kind'], 'READER_RECEIPT_SHA256_NOT_PROVIDER_BYTES')
         self.assertFalse(result['a1_source_admitted'])
         self.assertFalse(result['economic_authority'])
@@ -76,6 +79,11 @@ class NativeETFIntegration(unittest.TestCase):
     def test_missing_nav_market_declaration_refuses(self):
         self.fixture.spec['source'].pop('total_return_basis')
         with self.assertRaisesRegex(RefuseInput, 'EXPLICIT_DAILY_TR_BASIS_REQUIRED'):
+            self.read()
+
+    def test_reader_requires_explicit_stable_series_definition(self):
+        self.fixture.spec['source'].pop('total_return_series_sha256')
+        with self.assertRaises(ValueError):
             self.read()
 
     def test_reader_expired_generation_still_refuses(self):
