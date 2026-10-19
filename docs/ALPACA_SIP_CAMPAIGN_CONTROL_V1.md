@@ -1,5 +1,38 @@
 # Finite private SIP campaign control
 
+## Typed cohort forecast correction (preparation only)
+
+At CP128, the existing gate correctly stopped before a new reservation:
+its forecast exceeded remaining resources even though actual caps were not
+exhausted. A one-time held4 readback was normalized into recurring32-price
+work; a1009-name quadratic envelope was then linearly scaled to417 names.
+The proposed correction consumes the already validated same-scope history,
+requires exact authorization/source/proof and contiguous receipt bindings,
+and separates only the strictly verified native18 held recovery. Generic
+zero-row, no-data, quarantined, expensive, failed12 and short16 price samples
+remain in the price envelope. Missing durations, unmeasurable zero progress,
+mixed/foreign recovery proof or insufficient price samples refuse prediction.
+
+All incurred held/native/failed costs, including302101B uncertain storage,
+stay fully charged in the shared ledger. Classification changes prediction
+samples only; it never refunds, skips a canonical run or creates price work.
+The external horizon uses the actual frozen cohort and existing batch schedule.
+It keeps the largest observed32-name equivalent, nonnegative growth slope,
+full-prefix metadata cost,1.25 margin, exact arithmetic with upward rounding,
+conservative full-batch byte/time bounds even for the final short batch,
+and the resource/time/dispatch fits gate. The original1009 forecast function
+is unchanged. This model is conservative, not a duration or completion promise.
+
+Retained snapshot differences bind six ordered durations274/305/275/255/380/372s
+to their receipt hashes;2915 prior seconds+162 native seconds+1861 cohort
+seconds=4938 actual seconds. This derivation is not a fresh remote timing read.
+The corrected CP128 projection is5730857188B transfer and38748 active seconds
+for289 remaining names/10 batches. Actual remaining active budget is38262s:
+the corrected result still returns fits=false, short486s. No value was tuned
+to fit. New code/CI/a Draft PR cannot raise caps, extend the original48h window,
+rebind a deployed authorization, or authorize another dispatch. Protected
+application and runtime identity reconciliation remain separate decisions.
+
 ## Sealed native18 accounting and four uncertain-storage holds (candidate)
 
 This contract prepares one reviewed successor for failed run39085031884 and
@@ -790,3 +823,90 @@ includes an imported or repaired settlement; a new failure cannot authorize
 another POST. All earlier costs, shared accounting, original48h and existing
 9GiB/12h/40 caps remain. Source/PIT, supplier-rights and economic flags stay
 false; Work B/Main and the fixed993 campaign remain separate.
+
+## CP128 Source revision and exact human time-forecast acceptance — 2026-10-19
+
+The human request with SHA256
+`bba8f690d5395eecd8a3fa946c7b405e00b14dd1f3ca4d4883ca4aedb558cdbb`
+accepts the explained CP128 conservative time projection. It does not increase
+any actual limit or restart/extend the original48h. All counters, the43200s
+actual active limit,40 dispatches and expiry2026-10-19T02:08:51Z remain.
+
+The v6 same-cohort Source revision reconstructs and verifies the exact v5
+authorization `cb2b3b73f2a0edd08a6ff40942d537ca21f5c125bc8ef2cb57e907ad8079dd81`.
+Its existing OWNER6251201164, proof5c87, deployed18571 six pins, native event38
+ac54, CP128 f618/receiptbb54 and family47 a584/cohort20 0414 are immutable
+historical authorities. They are not reinterpreted as new-source evidence.
+There is no second native settlement, old POST retry or new cohort genesis.
+
+Future execution binds an actually approved protected master, the complete
+current seven pins including `tools/alpaca_sip_source_revision.py`, a new real
+immutable OWNER locator/full authorization/proof and a fresh single-use nonce.
+Only the two current self-locator fields leave the detached consent commitment;
+the actual returned URL remains in the full runtime hash. Both OWNER clocks
+must be actual UTC strings and created_at==updated_at is mandatory. Missing
+or null clocks cannot use the runtime clock's current-time fallback. Old
+six-pin authorizations remain valid historical evidence;
+current external worker/deployment requires the transitive seventh pin.
+The workflow changes only its two sparse source bundles.
+
+One typed SOURCE_REVISION_BOUND event follows the exact closed cohort20 and
+family47 prefixes. Exclusive existing locks and no unsettled capture are
+prerequisites. Cohort event21 is written/file+directory-synced before family48.
+Neither reservation nor dispatch can precede both durable barriers. A complete
+visible first event after a crash is revalidated and re-flushed before the
+identical second event; wrong, reordered, repeated or conflicting binding
+refuses. Every preceding byte and302101B unknown storage charge remains.
+
+At examined128 only, the same six canonical receipt hashes/durations and
+unchanged forecast model may accept its time term when projected time is no
+greater than38748s. Original actual4938s/remaining38262s/deficit486s stay bound.
+The projection must remain honestly fits=false. All non-time projected costs
+must fit, the7800s next-job reserve must fit, and actual caps/expiry remain hard
+stops. Changed samples/costs/checkpoint, a larger time projection, expired window
+or a new failure cannot use this exception. At CP256 and later, normal forecast
+gates apply. The first new worker receipt binds the one-time acceptance; later
+receipts cannot repeat it.
+
+New linking work is not a free native diagnostic. Existing job execution and
+provider/Google request definitions still determine actual charged costs;
+excluded or unmeasured platform/host costs remain UNKNOWN_NOT_ZERO. The known
+486s arithmetic deficit is not a measurement of that new work or a guarantee
+of completion. No scheduler, provider primitive, economic admission or broker
+state changes.
+
+## Exact pre-capture refusal39171354230 and corrective Source
+
+The live v6 worker includes itself in canonical history: host21 versus worker22.
+The original guard required21 even in that worker. Run39171354230 attempt1 on
+a20432fa refused before RuntimeMeter/OwnerDrive, with no meter artifact. This is
+not an API entitlement/rate-limit failure or a completed price/no-data result.
+The terminal jobs consumed102+83=185 seconds and one real dispatch. Keep the
+missing-meter observation, reserved allowance and every prior byte until the
+separate typed closure is complete. Absence of a meter alone never proves zero.
+
+The closure validates the exact f57d authorization, old complete seven pins,
+nonce, published pre-I/O code, fixed terminal job clocks, original log SHA2d363781
+and empty artifact set. It creates no RuntimeMeter or price-state receipt.
+An actual immutable OWNER closure grant authorizes only that refusal. Under the
+existing exclusive locks, cohort24 then family51 are file/directory-synced;
+interrupted publication revalidates and completes the identical pair once.
+The sealed receipt preserves these actual event hashes and clocks. Publish it
+as a second immutable OWNER record; its real locator and SHA enter bounded v7
+authorization. Reconstruct the full old f57d/OWNER6255779963/proof543884/a20432
+seven-pin authority separately from cb2b/native38. No arbitrary revision chain.
+
+Only then bind actual new protected Source/pins/OWNER/full proof at cohort25 then
+family52, before a new reservation or nonce. Canonical history retains all runs.
+The host's settled-parent boundary accepts that verified REFUSAL_SOURCE_BOUND
+tail only after the existing binding routine validates and syncs both events.
+The regression exercises the first v7 host through its bounded dispatch boundary;
+binding-only and worker-only tests cannot establish that host path is reachable.
+The original21-run calibration,4938/38262/486 and same38748s maximum remain
+immutable. Explicitly booked live cost is5123s/22 completed dispatches; a new
+worker has23 including its own verified id/nonce/head/attempt/status. Neither
+trimming current history nor accepting an unbound21-or22/23 predicate is allowed.
+Only this fixed refusal is excluded from price samples, while185s/+1 dispatch
+stay charged. Normal hard caps, live next-job reservation, non-time forecast
+terms and original2026-10-19T02:08:51Z expiry still stop execution. Keep fits=false,
+original unknown302101B storage and unmeasured platform costs UNKNOWN_NOT_ZERO.
