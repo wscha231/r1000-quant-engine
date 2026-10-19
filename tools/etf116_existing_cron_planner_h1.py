@@ -22,6 +22,7 @@ def plan_existing_trigger(*, session: str, close_utc: str, now_utc: str,
         d(prior_eod_processed_session)
     if prior_holdings_refresh_session:
         d(prior_holdings_refresh_session)
+        require(prior_holdings_refresh_session <= session, 'HOLDINGS_REFRESH_FUTURE_CHECKPOINT')
     base={'session':session,'job':'etf116_eod_research',
           'new_cron_created':False,'connected_to_broker_replay':False,
           'dispatch_performed':False,'economic_authority':False,

@@ -7421,3 +7421,12 @@ canonical CSV rather than arbitrary ten-name stand-ins; no runtime bypass.
 Independent A6 applied the same absent-vs-malformed rule to listing-date maps:
 only an absent key defaults to an empty map; supplied null/false/list/scalar
 values must refuse instead of erasing untrusted metadata.
+
+### 2026-10-19 — Validate checkpoint rollback and direct-row close timing
+
+A future weekly holdings checkpoint is not evidence that this week's work is
+complete. Reject it before planning, including disabled mode. Direct offline
+daily-close TR rows need the same close boundary as the existing Reader: reuse
+its NYSE holiday/half-day helper for same-date availability, cache by session,
+and refuse missing calendar evidence. A next-UTC-day release is conservative;
+never infer a same-day close from the date alone or guess16:00 ET on a half day.

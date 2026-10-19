@@ -17,6 +17,7 @@ import math
 import statistics
 from bisect import bisect_right
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from typing import Any
 
 HORIZONS_M = (1, 3, 6, 12, 24, 36, 60, 120)
@@ -77,6 +78,16 @@ def official_session_dates(rows: list[str], *, asof: str) -> list[str]:
     return rows
 
 
+@lru_cache(maxsize=8192)
+def verified_session_close(session: str) -> datetime:
+    """Reuse the existing Reader's offline NYSE holiday/half-day authority."""
+    from tools.research_data_access import _session_close, ContractError
+    try:
+        return _session_close(d(session))
+    except ContractError:
+        raise RefuseInput('SERIES_SESSION_CLOSE_UNVERIFIED') from None
+
+
 def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
                     ticker: str, asof: str, decision_at: str,
                     rights_allowed: bool = False) -> dict[str, Any]:
@@ -101,6 +112,10 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
         require(type(value) in (int, float) and math.isfinite(value) and value > 0, 'SERIES_BAD_TR_VALUE')
         availability = ts(row.get('available_at_utc'))
         require(availability.date() >= d(dt), 'SERIES_AVAILABLE_BEFORE_OBSERVATION')
+        # Next-UTC-day release is conservatively after a NYSE close. Same-date
+        # release needs the actual existing calendar, never a guessed16:00 ET.
+        if availability.date() == d(dt):
+            require(availability >= verified_session_close(dt), 'SERIES_AVAILABLE_BEFORE_SESSION_CLOSE')
         require(availability <= dec, 'SERIES_DATA_NOT_AVAILABLE_BY_REVIEW')
         source = row.get('source_sha256')
         require(type(source) is str and len(source) == 64 and all(k in '0123456789abcdef' for k in source),

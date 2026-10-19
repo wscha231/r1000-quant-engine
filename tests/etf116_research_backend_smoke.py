@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from tests.etf116_delta_regression import DeltaRegression
 from tests.etf116_hosted_p2_regression import HostedP2Regression
+from tests.etf116_successor_review_smoke import SuccessorReviewTests
 from tests import research_data_access_smoke as reader_fixtures
 from tools.etf116_research_backend import (
     prepare_holdings, read_total_return_component, classify_spmo_nav_reference,

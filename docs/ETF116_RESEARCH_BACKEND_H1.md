@@ -106,6 +106,12 @@ The seed file is unchanged; input lists must match its frozen symbol identity.
 Independent A6 also rejects supplied malformed/null listing-date maps rather
 than coalescing falsey values into an absent optional map.
 
+The current-master successor review also rejects future holdings-refresh
+checkpoints before planning a week. Same-date daily TR availability must follow
+the actual NYSE close from the existing Reader's offline holiday/half-day helper;
+midnight or a guessed regular close is insufficient. A next-UTC-day release is
+conservatively after session close. Calendar failures refuse same-date inputs.
+
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,
 original immutable bytes, distributions/splits and availability are not newly
