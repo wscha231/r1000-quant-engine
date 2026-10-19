@@ -41,9 +41,317 @@ VALIDITY_AUTHORITY="9f0324979fe4acc890c8a3f5365a46281a1be62bb38f9ca54bb556b3de5e
 VALIDITY_START="2026-10-19T02:59:53Z"
 VALIDITY_END="2026-10-20T02:59:53Z"
 
+V8_SOURCE="961ea35b3f181a896400641ebe273a15bae3b2bd"
+V8_AUTH="6e651b15b28180da5c47f5a024c45e695fdf0ebe1b5823f57ecd400a7cf03b08"
+V8_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6259707455"
+V8_PROOF="4bd9bd7e37d5e31191200ad9073c8845847ca5dec5564d1852b58d9068ef0a48"
+V8_VALIDITY_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6259704299"
+V8_PINS=dict(V7_PINS,**{
+ "tools/alpaca_sip_campaign.py":"b0ca0e097f9aebe1ac45267347935b93a510c236cfdb9a09e5db8cf1da13070f",
+ "tools/alpaca_sip_source_revision.py":"e349cef5dcd03571d2f8eb475fcdce11b09ea5de53b471322c4ef330ed3c3d2f"})
+CONTROL_RUN=39200269684
+CONTROL_NONCE="r1000-993-20261015-02ca5e0ce9216525f2cec7f0"
+CONTROL_NONCE_SHA="05c4c2a67b0e9a780de4cc2eb9748d21639f51d0e851bf5a7d2823086bad1e71"
+CONTROL_LOG="53b73d35027bfed9d33b46160f8d9457db42875f1003e28c326ec3bd34e4468f"
+CONTROL_JOBS_RAW="91af4dbaa0ac678b2bafec0cf2a2098c2b687a4bdfd1bf378bcc2021a0011cf9"
+CONTROL_JOBS_CANON="500c429ca641c8a167de3667899ad9e0cd4a30a4b851d0d505effdefbc4deb6b"
+CONTROL_COHORT28="8afbd092114ec40d979b1decbdc161c666dbc6a5702fc07eb29f817293d38b67"
+CONTROL_FAMILY55="cb9546196cff09222012ea0921a314646da25533cdd8f4e15ee76f9a2c7fccda"
+CONTROL_COHORT26="6b6650a41c08fefd49f77f14d9b7e5425c3b815712903de16069518c79edbb25"
+CONTROL_FAMILY53="53f60f1694f7efbe63405c3e335ab1cff870267cc489173484fb8633f0314aae"
+CONTROL_SCHEMA="a1-sip-exact-control-read-refusal-evidence-v1"
+
+
+def control_corrective(auth):
+    return auth.get("schema")=="r1000-sip-external-cohort-authorization-v9"
+
+
+def control_value(c,scope):
+    return dict(schema=CONTROL_SCHEMA,not_runtime_meter=True,run_id=CONTROL_RUN,run_attempt=1,
+        auth_sha256=V8_AUTH,source_sha=V8_SOURCE,nonce=CONTROL_NONCE,cohort_scope=scope,
+        parent_checkpoint_sha256=CP,checkpoint_sha256=CP,examined_before=128,examined_after=128,
+        allowance={k:c.CONTINUED_LIMITS[k]-USED[k] for k in c.LIMITS},usage={k:0 for k in c.LIMITS},
+        status="PRE_CAPTURE_REFUSED",reason="EXTERNAL_REFUSAL_LOG",active_seconds=195,
+        original_meter_observation="MISSING",failure_log_sha256=CONTROL_LOG,
+        terminal_jobs_raw_sha256=CONTROL_JOBS_RAW,terminal_jobs_canonical_sha256=CONTROL_JOBS_CANON,
+        original_transport_or_digest_cause="UNKNOWN",zero_io_basis="PINNED_CODE_ORDER_AND_ACTUAL_CONTROL_LOG",
+        absence_of_meter_is_zero_io_basis=False,packet_trace_available=False,platform_costs="UNKNOWN_NOT_ZERO")
+
+
+def verify_control_metadata(c,auth,run,jobs,artifacts,blobs):
+    c.require(c.validate_authorization(auth)==V8_AUTH and auth["expected_master"]==V8_SOURCE
+        and auth["code_pins"]==V8_PINS,"EXTERNAL_CONTROL_REFUSAL_AUTHORITY")
+    c.require(type(run.get("id")) is int and run["id"]==CONTROL_RUN and type(run.get("run_attempt")) is int
+        and run["run_attempt"]==1 and run.get("head_sha")==V8_SOURCE and run.get("head_branch")=="master"
+        and run.get("event")=="workflow_dispatch" and run.get("display_title")=="a1-sip "+CONTROL_NONCE
+        and run.get("status")=="completed" and run.get("conclusion")=="failure"
+        and isinstance(run.get("created_at"),str) and c.utc("2026-10-19T04:32:08Z")<=c.utc(run["created_at"])
+            <=c.utc("2026-10-19T04:35:58Z") and c.digest(CONTROL_NONCE.encode())==CONTROL_NONCE_SHA,
+        "EXTERNAL_CONTROL_REFUSAL_RUN")
+    expected=[(117891606529,"offline","success","2026-10-19T04:35:58Z","2026-10-19T04:37:53Z"),
+              (117892085699,"capture","failure","2026-10-19T04:37:55Z","2026-10-19T04:39:15Z")]
+    c.require(isinstance(jobs,dict) and jobs.get("total_count")==2 and isinstance(jobs.get("jobs"),list)
+        and len(jobs["jobs"])==2 and c.digest(c.encoded(jobs))==CONTROL_JOBS_CANON
+        and [(j.get("id"),j.get("name"),j.get("conclusion"),j.get("started_at"),j.get("completed_at"))
+             for j in jobs["jobs"]]==expected and all(j.get("status")=="completed" for j in jobs["jobs"])
+        and artifacts.get("total_count")==0 and artifacts.get("artifacts")==[],"EXTERNAL_CONTROL_REFUSAL_JOBS")
+    c.require(set(blobs)==set(V8_PINS) and all(c.digest(blobs[p])==h for p,h in V8_PINS.items()),
+              "EXTERNAL_CONTROL_REFUSAL_SOURCE")
+
+
+def verify_control_jobs(c,jobs,raw):
+    c.require(isinstance(raw,bytes) and len(raw)<=1_000_000 and c.digest(raw)==CONTROL_JOBS_RAW,
+              "EXTERNAL_CONTROL_REFUSAL_JOBS_RAW")
+    retained=c.decode(raw)
+    c.require(c.digest(c.encoded(retained))==CONTROL_JOBS_CANON and retained==jobs,
+              "EXTERNAL_CONTROL_REFUSAL_JOBS_CANONICAL")
+    return retained
+
+
+def verify_control_failure(c,auth,run,jobs,artifacts,blobs,log,raw_jobs):
+    jobs=verify_control_jobs(c,jobs,raw_jobs)
+    verify_control_metadata(c,auth,run,jobs,artifacts,blobs)
+    c.require(isinstance(log,bytes) and len(log)<=1_000_000 and c.digest(log)==CONTROL_LOG,
+              "EXTERNAL_CONTROL_REFUSAL_LOG")
+    text=log.decode("utf-8")
+    controls=[c.decode(line.split("INPUT_CAMPAIGN_CONTROL: ",1)[1]) for line in text.splitlines()
+              if "INPUT_CAMPAIGN_CONTROL: " in line]
+    c.require(controls and all(x==controls[0] for x in controls),"EXTERNAL_CONTROL_REFUSAL_CONTROL")
+    control=controls[0]
+    c.require(set(control)=={"authorization","nonce","preflight_only","recovery_run","external_binding"}
+        and c.encoded(control["authorization"])==c.encoded(auth) and control["nonce"]==CONTROL_NONCE
+        and control["preflight_only"] is False and control["recovery_run"] is None
+        and control["external_binding"]==dict(proof_sha256=V8_PROOF,proof_updated_utc="2026-10-19T04:32:08+00:00",
+                                              expires_at_utc=c.utc(VALIDITY_END).isoformat())
+        and text.count('{"status": "BLOCKED", "code": "EXTERNAL_REFUSAL_LOG", "source_admission": false}')==1
+        and "No artifacts will be uploaded" in text,"EXTERNAL_CONTROL_REFUSAL_CONTROL")
+    # Positive execution witness, not an inference from the absent artifact:
+    # exact deployed bytes + actual control/error body + the published call order.
+    import ast
+    tree=ast.parse(blobs["tools/alpaca_sip_campaign.py"].decode("utf-8"))
+    worker=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="external_worker")
+    history=[n.lineno for n in ast.walk(worker) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)
+             and n.func.id=="external_history"]
+    meters=[n.lineno for n in ast.walk(worker) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)
+            and n.func.id=="RuntimeMeter"]
+    c.require(len(history)==len(meters)==1 and history[0]<meters[0],"EXTERNAL_CONTROL_REFUSAL_IO_BOUNDARY")
+    return control_value(c,auth["external_cohort"]["scope"])
+
+
+def human_record(c,comment,tag):
+    c.require(isinstance(comment,dict) and type(comment.get("id")) is int and comment["id"]>0
+        and comment.get("issue_url")==f"https://api.github.com/repos/{c.REPO}/issues/448"
+        and comment.get("author_association")=="OWNER" and comment.get("user",{}).get("type")=="User"
+        and type(comment["user"].get("id")) is int and comment["user"]["id"]>0
+        and isinstance(comment.get("body"),str) and isinstance(comment.get("created_at"),str)
+        and comment["created_at"]==comment.get("updated_at")
+        and c.utc(VALIDITY_START)<=c.utc(comment["created_at"])<=c.utc()
+        and c.utc(comment["created_at"])<c.utc(VALIDITY_END),"EXTERNAL_CONTROL_REFUSAL_OWNER")
+    lines=[line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
+    c.require(len(lines)==1 and len(lines[0])<=4096,"EXTERNAL_CONTROL_REFUSAL_OWNER")
+    proof=dict(reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-{comment['id']}",
+        comment_id=comment["id"],author_id=comment["user"]["id"],created_at=comment["created_at"],
+        body_sha256=c.digest(comment["body"].encode()))
+    return c.decode(lines[0]),proof
+
+
+def control_grant_record(c,source,pins,scope):
+    c.require(isinstance(source,str) and c.re.fullmatch(r"[0-9a-f]{40}",source) and source!=V8_SOURCE
+        and set(pins)==set(V8_PINS) and all(isinstance(v,str) and c.re.fullmatch(r"[0-9a-f]{64}",v)
+        for v in pins.values()),"EXTERNAL_CONTROL_REFUSAL_SOURCE")
+    return dict(schema="a1-sip-exact-control-read-refusal-grant-v1",source_sha=source,
+        code_pins_sha256=c.digest(c.encoded(pins)),old_auth_sha256=V8_AUTH,old_source_sha=V8_SOURCE,
+        old_code_pins_sha256=c.digest(c.encoded(V8_PINS)),old_proof_sha256=V8_PROOF,
+        human_authority_sha256=VALIDITY_AUTHORITY,not_before_utc=VALIDITY_START,expires_at_utc=VALIDITY_END,
+        old_refusal_seal_sha256=V7_CLOSURE,original_log_canonical_sha256=REFUSAL_LOG,
+        control_refusal_evidence_sha256=c.digest(c.encoded(control_value(c,scope))),
+        run_id=CONTROL_RUN,run_attempt=1,nonce_sha256=CONTROL_NONCE_SHA,failure_log_sha256=CONTROL_LOG,
+        terminal_jobs_raw_sha256=CONTROL_JOBS_RAW,terminal_jobs_canonical_sha256=CONTROL_JOBS_CANON,
+        cohort28_sha256=CONTROL_COHORT28,family55_sha256=CONTROL_FAMILY55,
+        prior_cohort26_sha256=CONTROL_COHORT26,prior_family53_sha256=CONTROL_FAMILY53,
+        actual_job_seconds=195,actual_dispatches=1,not_runtime_meter=True,original_missing_meter_preserved=True,
+        original_failure_cause="UNKNOWN",io_nonentry_basis="PINNED_CODE_ORDER_AND_ACTUAL_CONTROL_LOG",
+        absence_of_meter_is_zero_io_basis=False,limits=c.CONTINUED_LIMITS,active_limit_seconds=43200,
+        dispatch_limit=40,unknown_storage_bytes_still_charged=302101,platform_costs="UNKNOWN_NOT_ZERO")
+
+
+def control_payload(c,source,pins,scope,grant):
+    value,proof=human_record(c,grant,"A1_SIP_CONTROL_READ_REFUSAL_AUTHORIZATION ")
+    c.require(value==control_grant_record(c,source,pins,scope),"EXTERNAL_CONTROL_REFUSAL_GRANT")
+    return dict(schema="a1-sip-exact-control-read-refusal-closed-v1",run_id=CONTROL_RUN,run_attempt=1,
+        nonce=CONTROL_NONCE,capture_auth_sha256=V8_AUTH,scope=scope,
+        control_refusal_evidence_sha256=value["control_refusal_evidence_sha256"],
+        grant_reference=proof["reference"],grant_proof_sha256=c.digest(c.encoded(proof)),
+        grant_created_at=proof["created_at"],grant_author_id=proof["author_id"],source_sha=source,
+        code_pins_sha256=c.digest(c.encoded(pins)),actual_job_seconds=195,actual_dispatches=1,
+        meter_observation="MISSING",not_runtime_meter=True,original_failure_cause="UNKNOWN",
+        platform_costs="UNKNOWN_NOT_ZERO")
+
+
+def control_closure_entry(c,payload,clock,family=False):
+    c.require(isinstance(clock,str) and c.utc(payload["grant_created_at"])<=c.utc(clock)<=c.utc()
+        and c.utc(VALIDITY_START)<=c.utc(clock)<c.utc(VALIDITY_END),"EXTERNAL_CONTROL_REFUSAL_CLOCK")
+    return dict(sequence=56 if family else 29,kind="CONTROL_READ_REFUSAL_CLOSED",
+        auth_sha256=c.external_family_genesis() if family else V8_AUTH,
+        previous_sha256=CONTROL_FAMILY55 if family else CONTROL_COHORT28,recorded_utc=clock,**payload)
+
+
+def verify_control_parent(c,auth,state,used,active,runs,proofs):
+    c.require(control_corrective(auth) and state["examined"]==128 and state["parent"]==CP
+        and used==USED and active==5318 and state["receipts"][-1]==control_value(c,auth["external_cohort"]["scope"])
+        and [r["id"] for r in runs]==BASIS_IDS+[REFUSAL_RUN,CONTROL_RUN]
+        and proofs.get(V8_AUTH,{}).get("proof_sha256")==V8_PROOF,"EXTERNAL_CONTROL_SOURCE_PARENT")
+
+
+def control_source_binding(c,auth,proof,receipt):
+    return dict(schema="a1-sip-exact-control-read-source-bound-v1",prior_auth_sha256=V8_AUTH,
+        prior_source_sha=V8_SOURCE,prior_proof_sha256=V8_PROOF,closed_run_id=CONTROL_RUN,
+        closure_sha256=c.digest(c.encoded(receipt)),cohort29_sha256=receipt["cohort_event"]["sha256"],
+        family56_sha256=receipt["family_event"]["sha256"],checkpoint_sha256=CP,used=USED,
+        active_seconds=5318,dispatches=23,validity_authority_sha256=VALIDITY_AUTHORITY,
+        validity_not_before_utc=VALIDITY_START,validity_expires_at_utc=VALIDITY_END,
+        new_auth_sha256=c.validate_authorization(auth),new_source_sha=auth["expected_master"],
+        new_code_pins_sha256=c.digest(c.encoded(auth["code_pins"])),**proof)
+
+
+def verify_control_source_entry(c,entry,expected,receipt,family=False):
+    key="family_event" if family else "cohort_event"
+    c.require(set(entry)=={"sequence","kind","auth_sha256","previous_sha256","recorded_utc"}|set(expected)
+        and type(entry["sequence"]) is int and entry["sequence"]==(57 if family else 30)
+        and entry["kind"]=="CONTROL_SOURCE_BOUND"
+        and entry["auth_sha256"]==(c.external_family_genesis() if family else expected["new_auth_sha256"])
+        and entry["previous_sha256"]==receipt[key]["sha256"]
+        and all(entry[k]==v for k,v in expected.items()) and isinstance(entry["recorded_utc"],str)
+        and c.utc(receipt[key]["recorded_utc"])<=c.utc(expected["proof_updated_utc"])<=c.utc(entry["recorded_utc"])<=c.utc()
+        and c.utc(VALIDITY_START)<=c.utc(entry["recorded_utc"])<c.utc(VALIDITY_END)
+        and c.utc(expected["expires_at_utc"])==c.utc(VALIDITY_END),"EXTERNAL_CONTROL_SOURCE_BINDING")
+
+
+def verify_control_closure(c,auth,receipt,grant,seal):
+    sr=auth["external_cohort"]["source_revision"]
+    value,proof=human_record(c,seal,"A1_SIP_CONTROL_READ_REFUSAL_CLOSED ")
+    c.require(proof["reference"]==sr["control_refusal_reference"] and value==receipt
+        and c.digest(c.encoded(receipt))==sr["control_refusal_sha256"]
+        and set(receipt)=={"schema","payload","cohort_event","family_event"}
+        and receipt["schema"]=="a1-sip-exact-control-read-refusal-receipt-v1","EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+    payload=control_payload(c,auth["expected_master"],auth["code_pins"],auth["external_cohort"]["scope"],grant)
+    c.require(receipt["payload"]==payload and proof["author_id"]==payload["grant_author_id"],
+              "EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+    for key,family in (("cohort_event",False),("family_event",True)):
+        event=receipt[key]
+        c.require(set(event)=={"recorded_utc","sha256"} and c.digest(c.encoded(control_closure_entry(
+            c,payload,event["recorded_utc"],family)))==event["sha256"]
+            and c.utc(event["recorded_utc"])<=c.utc(proof["created_at"]),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+    c.require(c.utc(receipt["cohort_event"]["recorded_utc"])<=c.utc(receipt["family_event"]["recorded_utc"]),
+              "EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+    return receipt
+
 
 def renewed(auth):
-    return auth.get("schema")=="r1000-sip-external-cohort-authorization-v8"
+    return auth.get("schema") in ("r1000-sip-external-cohort-authorization-v8","r1000-sip-external-cohort-authorization-v9")
+
+
+def bind_control_revision(c,journal,family,auth,observed):
+    receipt=journal.control_closure;expected=journal.control_revision
+    c.require(control_corrective(auth) and expected==control_source_binding(c,auth,observed['external_proof'],receipt),
+              "EXTERNAL_CONTROL_SOURCE_BINDING")
+    if len(journal.entries)==29 or len(family.entries)==56:
+        require_window(c,auth)
+        verify_control_parent(c,auth,dict(examined=observed['examined'],parent=observed['parent_sha'],
+            receipts=observed['cohort_receipts']),observed['used'],observed['active_seconds'],observed['runs'],observed['epoch_proofs'])
+    family.control_revision,family.control_closure=expected,receipt
+    for target,is_family,slot,key in ((journal,False,29,'cohort_event'),(family,True,56,'family_event')):
+        c.require(len(target.entries)>=slot and target.entries[slot-1]==control_closure_entry(c,
+            receipt['payload'],receipt[key]['recorded_utc'],is_family),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+        c.sync_native18_settlement(target.directory/f'{slot:06d}.json')
+        if len(target.entries)==slot:
+            c.external_deployed(auth)
+            target.append('CONTROL_SOURCE_BOUND',**expected)
+        entry=target.entries[slot];verify_control_source_entry(c,entry,expected,receipt,is_family)
+        path=target.directory/f'{slot+1:06d}.json'
+        c.require(c.bounded_bytes(path)==c.encoded(entry),"EXTERNAL_CONTROL_SOURCE_BINDING")
+        c.sync_native18_settlement(path)
+
+
+def append_control_closure(c,journal,family,payload):
+    """Only this exact retained28/55 pair; a crash resumes the same append."""
+    c.require(len(journal.entries) in (28,29) and len(family.entries) in (55,56)
+        and (len(family.entries)!=56 or len(journal.entries)==29)
+        and c.digest(c.bounded_bytes(journal.directory/'000028.json'))==CONTROL_COHORT28
+        and c.digest(c.bounded_bytes(family.directory/'000055.json'))==CONTROL_FAMILY55
+        and c.digest(c.bounded_bytes(journal.directory/'000026.json'))==CONTROL_COHORT26
+        and c.digest(c.bounded_bytes(family.directory/'000053.json'))==CONTROL_FAMILY53,
+        'EXTERNAL_CONTROL_REFUSAL_PREFIX')
+    receipt=dict(schema='a1-sip-exact-control-read-refusal-receipt-v1',payload=payload)
+    for target,is_family,slot,key in ((journal,False,29,'cohort_event'),(family,True,56,'family_event')):
+        if len(target.entries)==slot-1:target.append('CONTROL_READ_REFUSAL_CLOSED',**payload)
+        entry=target.entries[slot-1]
+        c.require(entry==control_closure_entry(c,payload,entry['recorded_utc'],is_family),'EXTERNAL_CONTROL_REFUSAL_RECEIPT')
+        path=target.directory/f'{slot:06d}.json'
+        c.require(c.bounded_bytes(path)==c.encoded(entry),'EXTERNAL_CONTROL_REFUSAL_RECEIPT')
+        c.sync_native18_settlement(path)
+        receipt[key]=dict(recorded_utc=entry['recorded_utc'],sha256=c.digest(c.bounded_bytes(path)))
+    c.require(c.utc(receipt['cohort_event']['recorded_utc'])<=c.utc(receipt['family_event']['recorded_utc']),
+              'EXTERNAL_CONTROL_REFUSAL_CLOCK')
+    return receipt
+
+
+def control_accounting_host(c,args):
+    """Explicit exact-run bookkeeping; never creates a consent or dispatch."""
+    auth=c.bounded_json(args.authorization,15000);grant=c.bounded_json(args.control_refusal_close_authorization,4096)
+    c.require(c.validate_authorization(auth)==V8_AUTH and set(grant)=={'source_sha','code_pins','grant_reference'}
+        and args.control_refusal_log and args.control_refusal_jobs and args.budget_state_dir and args.cohort_input and args.predispatch_recovery
+        and not any((args.refusal_close_authorization,args.recovery_run,args.max_batches,args.account_permission_reference,
+                     args.continuation_receipt,args.native18_deployed_master)),'EXTERNAL_CONTROL_REFUSAL_ACCOUNTING')
+    c.external_deployed(dict(expected_master=grant['source_sha'],code_pins=grant['code_pins']))
+    ref=grant['grant_reference']
+    c.require(isinstance(ref,str) and c.re.fullmatch(
+        r'https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+',ref),'EXTERNAL_CONTROL_REFUSAL_GRANT')
+    comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{int(ref.rsplit('-',1)[1])}")
+    payload=control_payload(c,grant['source_sha'],grant['code_pins'],auth['external_cohort']['scope'],comment)
+    require_window(c,auth)
+    c.require(c.bounded_bytes(args.cohort_input,8192)==auth['external_cohort']['input_csv'].encode(),'EXTERNAL_COHORT_HASH')
+    budget=c.Path(args.budget_state_dir).resolve();state=c.Path(args.state_dir).resolve()
+    c.require(budget.is_dir() and state.is_dir() and not state.is_symlink() and state==budget.parent/(
+        'external-cohort-'+auth['external_cohort']['scope']['namespace']),'EXTERNAL_NAMESPACE')
+    recovery=c.local_reject_recovery(args.predispatch_recovery,auth['external_cohort']['prior_authorization'],budget)
+    global_journal=c.WorkJournal(budget,c.CONTINUATION['auth'],recovery=recovery);family=journal=None
+    try:
+        c.verify_external_budget_journal(global_journal,auth,recovery)
+        observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,control_accounting_log=args.control_refusal_log,
+                                    control_accounting_jobs=args.control_refusal_jobs)
+        family=c.external_family_registry(budget,auth,state)
+        journal=c.external_journal(state,auth,observed['external_proof'],epoch_proofs=observed['epoch_proofs'])
+        global_journal.reconcile(observed['runs'][:5]);journal.reconcile(observed['cohort_runs'])
+        # Reopening a partially durable closure validates both original prefixes
+        # before rebuilding its exact payload and clock; never a fresh nonce.
+        if len(journal.entries)==28 and len(family.entries)==55:
+            c.require(c.reconcile_external_family(family,journal,auth,observed,control_accounting=True)==CONTROL_NONCE,
+                      'EXTERNAL_CONTROL_REFUSAL_PREFIX')
+        c.require(c.external_proof(auth)==observed['external_proof'] and observed['external_proof']['proof_sha256']==V8_PROOF
+            and c.campaign_runs(auth['workflow_run_floor'])==observed['runs'],'EXTERNAL_CANONICAL_DRIFT')
+        c.external_deployed(dict(expected_master=grant['source_sha'],code_pins=grant['code_pins']))
+        receipt=append_control_closure(c,journal,family,payload)
+        journal.control_closure=receipt
+        c.require(c.reconcile_external_family(family,journal,auth,observed,control_accounting=True) is None,
+                  'EXTERNAL_CONTROL_REFUSAL_PREFIX')
+        path=c.Path(args.control_refusal_close_authorization).resolve().with_name('CONTROL_REFUSAL_CLOSURE_RECEIPT.private.json')
+        c.require(all(p not in path.parents for p in (budget,state,family.directory)),'EXTERNAL_CONTROL_REFUSAL_PATH')
+        raw=c.encoded(receipt)
+        if path.exists():c.require(c.bounded_bytes(path)==raw,'EXTERNAL_CONTROL_REFUSAL_RECEIPT')
+        else:
+            with path.open('xb') as f:f.write(raw);f.flush();c.os.fsync(f.fileno())
+        c.sync_native18_settlement(path)
+        return dict(status='EXACT_CONTROL_READ_REFUSAL_CLOSED',receipt_sha256=c.digest(raw),
+            actual_active_seconds=5318,actual_dispatches=23,new_price_subjects=0,original_meter_observation='MISSING',
+            original_failure_cause='UNKNOWN',not_runtime_meter=True)
+    finally:
+        try:
+            if journal is not None:journal.close()
+        finally:
+            try:
+                if family is not None:family.close()
+            finally:global_journal.close()
 
 
 def corrective(auth):
@@ -51,6 +359,7 @@ def corrective(auth):
 
 
 def corrective_auth(c,auth):
+    if control_corrective(auth):return corrective_auth(c,previous(c,auth))
     return previous(c,auth) if renewed(auth) else auth
 
 
@@ -144,12 +453,13 @@ def revision_recovery(c,auth,state,version,transitions,used,active,prior_runs,pr
         if transition.get("kind")=="SOURCE_REVISION":verify_transition(c,state,used,active)
         elif transition.get("kind")=="CORRECTIVE_SOURCE":verify_correction_state(c,state,used,active)
         elif transition.get("kind")=="VALIDITY_SOURCE":verify_validity_parent(c,auth,state,used,active,prior_runs,proofs)
+        elif transition.get("kind")=="CONTROL_SOURCE":verify_control_parent(c,auth,state,used,active,prior_runs,proofs)
         else:
             c.require(transition["run_id"] in state["named_failures"] and state["examined"]==transition["examined"]
                 and state["parent"]==transition["checkpoint_sha256"],"EXTERNAL_RECOVERY_PARENT")
             expected=transition["run_id"]
     elif version<len(transitions):
-        c.require(transitions[version].get("kind") in ("SOURCE_REVISION","CORRECTIVE_SOURCE","VALIDITY_SOURCE")
+        c.require(transitions[version].get("kind") in ("SOURCE_REVISION","CORRECTIVE_SOURCE","VALIDITY_SOURCE","CONTROL_SOURCE")
             or transitions[version]["run_id"] not in state["named_failures"],"EXTERNAL_AUTH_REVISION_ORDER")
     return expected
 
@@ -164,7 +474,7 @@ def refusal_value(c,scope):
 
 
 def is_refusal(value):
-    return isinstance(value,dict) and value.get("schema")==REFUSAL_SCHEMA
+    return isinstance(value,dict) and value.get("schema") in (REFUSAL_SCHEMA,CONTROL_SCHEMA)
 
 
 def price_observations(c,auth,observed):
@@ -174,7 +484,9 @@ def price_observations(c,auth,observed):
         c.require(not any(is_refusal(r) for r in receipts),"EXTERNAL_REFUSAL_EVIDENCE")
         return receipts,durations
     refs=[(r,t) for r,t in zip(receipts,durations) if is_refusal(r)]
-    c.require(refs==[(refusal_value(c,auth["external_cohort"]["scope"]),185)],"EXTERNAL_REFUSAL_EVIDENCE")
+    expected=[(refusal_value(c,auth["external_cohort"]["scope"]),185)]
+    if control_corrective(auth):expected.append((control_value(c,auth["external_cohort"]["scope"]),195))
+    c.require(refs==expected,"EXTERNAL_REFUSAL_EVIDENCE")
     pairs=[(r,t) for r,t in zip(receipts,durations) if not is_refusal(r)]
     return [r for r,t in pairs],[t for r,t in pairs]
 
@@ -182,22 +494,27 @@ def price_observations(c,auth,observed):
 def calibration_basis(c,auth,observed):
     runs=observed["runs"];current=observed.get("current_run")
     current_nonce=observed.get("current_nonce")
-    prior_count=22 if corrective(auth) else 21
+    prior_count=23 if control_corrective(auth) else 22 if corrective(auth) else 21
     c.require(len(runs)==prior_count+(current is not None)
         and [r["id"] for r in runs[:21]]==BASIS_IDS,"EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     if corrective(auth):
         r=runs[21]
         c.require(r.get("id")==REFUSAL_RUN and r.get("run_attempt")==1 and r.get("head_sha")==V6_SOURCE
             and r.get("display_title")=="a1-sip "+REFUSAL_NONCE and r.get("status")=="completed"
-            and r.get("conclusion")=="failure" and observed["active_seconds"]==5123,
+            and r.get("conclusion")=="failure" and observed["active_seconds"]==(5318 if control_corrective(auth) else 5123),
             "EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     else:
         c.require(observed["active_seconds"]==4938,"EXTERNAL_TIME_FORECAST_ACCEPTANCE")
+    if control_corrective(auth):
+        r=runs[22]
+        c.require(r.get("id")==CONTROL_RUN and r.get("run_attempt")==1 and r.get("head_sha")==V8_SOURCE
+            and r.get("display_title")=="a1-sip "+CONTROL_NONCE and r.get("status")=="completed"
+            and r.get("conclusion")=="failure","EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     if current is not None:
         r=runs[-1]
         c.require(isinstance(observed.get("external_proof"),dict)
             and isinstance(observed["external_proof"].get("proof_updated_utc"),str),"EXTERNAL_TIME_FORECAST_ACCEPTANCE")
-        c.require(type(current) is int and current>0 and current not in BASIS_IDS+[REFUSAL_RUN]
+        c.require(type(current) is int and current>0 and current not in BASIS_IDS+[REFUSAL_RUN,CONTROL_RUN]
                 if corrective(auth) else type(current) is int and current==REFUSAL_RUN,
                 "EXTERNAL_TIME_FORECAST_ACCEPTANCE")
         c.require(r.get("id")==current and r.get("run_attempt")==1 and r.get("head_sha")==auth["expected_master"]
@@ -210,7 +527,7 @@ def calibration_basis(c,auth,observed):
     return dict(runs=runs[:21],active_seconds=4938,cohort_receipts=receipts,cohort_durations=durations)
 
 
-def verify_refusal(c,auth,run,jobs,artifacts,source_blobs,log):
+def verify_refusal_metadata(c,auth,run,jobs,artifacts,source_blobs):
     c.require(c.validate_authorization(auth)==V6_AUTH and auth["code_pins"]==V6_PINS,
               "EXTERNAL_REFUSAL_AUTHORITY")
     c.require(type(run.get("id")) is int and run["id"]==REFUSAL_RUN and run.get("run_attempt")==1
@@ -225,10 +542,54 @@ def verify_refusal(c,auth,run,jobs,artifacts,source_blobs,log):
         and artifacts.get("total_count")==0 and artifacts.get("artifacts")==[],"EXTERNAL_REFUSAL_JOBS")
     c.require(set(source_blobs)==set(V6_PINS)
         and all(c.digest(source_blobs[p])==h for p,h in V6_PINS.items()),"EXTERNAL_REFUSAL_SOURCE")
-    # The sealed hash identifies the reviewed pre-RuntimeMeter guard path; it
-    # does not establish a packet trace or zero total platform cost.
+    return refusal_value(c,auth["external_cohort"]["scope"])
+
+
+def control_log_error(c,reason,returncode,byte_count,canonical_sha256=None,http_status=None):
+    error=c.Refused("EXTERNAL_REFUSAL_LOG_"+reason)
+    error.control_read_diagnostic=dict(schema="a1-safe-control-read-failure-v1",
+        category="GITHUB_HISTORICAL_REFUSAL_LOG",reason=reason,returncode=returncode,
+        stdout_bytes=byte_count,canonical_sha256=canonical_sha256,http_status=http_status,
+        target_run_id=REFUSAL_RUN,target_job_id=117805290762,expected_canonical_sha256=REFUSAL_LOG)
+    return error
+
+
+def canonical_refusal_log(c,log,returncode=0):
+    c.require(isinstance(log,bytes),"EXTERNAL_REFUSAL_LOG_REPRESENTATION")
+    if len(log)>1_000_000:raise control_log_error(c,"OVERSIZE",returncode,len(log))
     canonical=log.replace(b"\r\n",b"\n").rstrip(b"\n")+b"\n\n"
-    c.require(len(canonical)<=1_000_000 and c.digest(canonical)==REFUSAL_LOG,"EXTERNAL_REFUSAL_LOG")
+    if c.digest(canonical)!=REFUSAL_LOG:
+        raise control_log_error(c,"DIGEST",returncode,len(log),c.digest(canonical))
+    return canonical
+
+
+def refusal_log_result(c,result):
+    c.require(type(result.returncode) is int and isinstance(result.stdout,bytes),"EXTERNAL_REFUSAL_LOG_REPRESENTATION")
+    if result.returncode:
+        # The production invocation discards stderr before buffering. Its HTTP
+        # status was not observed; never infer it from a later/caller response.
+        raise control_log_error(c,"TRANSPORT",result.returncode,len(result.stdout),http_status=None)
+    canonical_refusal_log(c,result.stdout,result.returncode)
+    return result.stdout
+
+
+def verify_sealed_refusal(c,auth,run,jobs,artifacts,source_blobs,receipt,prior_proof):
+    prior=corrective_auth(c,auth)
+    c.require(c.validate_authorization(prior)==V7_AUTH and prior_proof.get("proof_sha256")==V7_PROOF
+        and c.digest(c.encoded(receipt))==V7_CLOSURE
+        and receipt["payload"]["source_sha"]==V7_SOURCE
+        and receipt["payload"]["code_pins_sha256"]==c.digest(c.encoded(V7_PINS)),"EXTERNAL_SEALED_REFUSAL")
+    old=previous(c,prior)
+    value=verify_refusal_metadata(c,old,run,jobs,artifacts,source_blobs)
+    c.require(value["log_sha256"]==REFUSAL_LOG
+        and receipt["payload"]["refusal_evidence_sha256"]==c.digest(c.encoded(value)),"EXTERNAL_SEALED_REFUSAL")
+    return value
+
+
+def verify_refusal(c,auth,run,jobs,artifacts,source_blobs,log):
+    verify_refusal_metadata(c,auth,run,jobs,artifacts,source_blobs)
+    # Preserve the exact BOM-bearing canonical hash; this is not a packet trace.
+    canonical=canonical_refusal_log(c,log)
     text=canonical.decode("utf-8")
     controls=[c.decode(line.split("INPUT_CAMPAIGN_CONTROL: ",1)[1]) for line in text.splitlines()
               if "INPUT_CAMPAIGN_CONTROL: " in line]
@@ -384,6 +745,11 @@ def policy_hash(c):
 
 
 def previous(c, auth):
+    if control_corrective(auth):
+        ex=dict(auth["external_cohort"],source_revision=dict(validity_reference=V8_VALIDITY_REFERENCE),
+                proof_reference=V8_REFERENCE)
+        return dict(auth,schema="r1000-sip-external-cohort-authorization-v8",expected_master=V8_SOURCE,
+                    code_pins=dict(V8_PINS),account_permission_reference=V8_REFERENCE,external_cohort=ex)
     if renewed(auth):
         ex=dict(auth["external_cohort"])
         ex["source_revision"]=dict(policy_sha256=policy_hash(c),refusal_closure_sha256=V7_CLOSURE,
@@ -407,6 +773,17 @@ def previous(c, auth):
 
 def validate(c, auth):
     ex = auth["external_cohort"]
+    if control_corrective(auth):
+        sr=ex.get("source_revision",{})
+        pattern=r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+"
+        c.require(set(sr)=={"control_refusal_reference","control_refusal_sha256"}
+            and isinstance(sr["control_refusal_reference"],str) and c.re.fullmatch(pattern,sr["control_refusal_reference"])
+            and isinstance(sr["control_refusal_sha256"],str) and c.re.fullmatch(r"[0-9a-f]{64}",sr["control_refusal_sha256"])
+            and c.validate_authorization(previous(c,auth))==V8_AUTH and auth["expected_master"]!=V8_SOURCE
+            and isinstance(ex["proof_reference"],str) and ex["proof_reference"]!=V8_REFERENCE
+            and auth["account_permission_reference"]==ex["proof_reference"] and c.re.fullmatch(pattern,ex["proof_reference"])
+            and len(c.encoded(auth))<=15000,"EXTERNAL_CONTROL_SOURCE_AUTHORIZATION")
+        return
     if renewed(auth):
         sr=ex.get("source_revision",{})
         c.require(set(sr)=={"validity_reference"} and isinstance(sr["validity_reference"],str)
@@ -452,6 +829,16 @@ def commitment(c, auth):
 
 
 def proof_record(c, auth):
+    if control_corrective(auth):
+        record=proof_record(c,previous(c,auth))
+        record.update(schema="a1-sip-external-cohort-consent-v6",expected_master=auth["expected_master"],
+            code_pins_sha256=c.digest(c.encoded(auth["code_pins"])),authorization_commitment_sha256=commitment(c,auth),
+            control_source=dict(prior_auth_sha256=V8_AUTH,prior_source_sha=V8_SOURCE,prior_owner_reference=V8_REFERENCE,
+                prior_proof_sha256=V8_PROOF,closure_reference=auth["external_cohort"]["source_revision"]["control_refusal_reference"],
+                closure_sha256=auth["external_cohort"]["source_revision"]["control_refusal_sha256"],
+                validity_grant_is_ancestor=True,closed_run_id=CONTROL_RUN,original_failure_cause="UNKNOWN",
+                actual_control_seconds=195,actual_control_dispatches=1,prior_active_seconds=5318,prior_dispatches=23))
+        return record
     if renewed(auth):
         record=proof_record(c,previous(c,auth))
         record.pop("source_revision");record.pop("corrective_source")
@@ -543,6 +930,9 @@ def time_acceptance(c, auth, observed, forecast, *, canonical_run=None):
     if renewed(auth):
         result.update(validity_authority_sha256=VALIDITY_AUTHORITY,validity_not_before_utc=VALIDITY_START,
                       validity_expires_at_utc=VALIDITY_END)
+    if control_corrective(auth):
+        result.update(live_active_seconds=5318,live_prior_dispatches=23,
+            control_refusal_closure_sha256=auth["external_cohort"]["source_revision"]["control_refusal_sha256"])
     return result
 
 
@@ -770,7 +1160,7 @@ def external_progress(c, auth, observed, status):
     return result
 
 
-def verify_external_proof(c, auth, expected, comment, grant=None):
+def verify_external_proof(c, auth, expected, comment, grant=None, control_link=None):
     """Execution consent for THIS input, explicitly no fabricated supplier rights."""
     reference = auth['external_cohort']['proof_reference']
     comment_id = int(reference.rsplit('-', 1)[1])
@@ -788,8 +1178,16 @@ def verify_external_proof(c, auth, expected, comment, grant=None):
     created, updated = (c.utc(comment.get('created_at')), c.utc(comment.get('updated_at')))
     c.require(c.utc(c.CONTINUATION['first']) <= created <= updated <= c.utc() and updated < c.utc(expected['expires_at_utc']), 'EXTERNAL_PROOF_CLOCK')
     if renewed(auth):
-        grant_proof = verify_validity_grant(c, auth, grant)
+        ancestor=previous(c,auth) if control_corrective(auth) else auth
+        grant_proof = verify_validity_grant(c, ancestor, grant)
         c.require(grant_proof['author_id'] == author['id'] and c.utc(grant_proof['created_at']) <= created and (c.utc(VALIDITY_START) <= created < c.utc(VALIDITY_END)), 'EXTERNAL_VALIDITY_PROOF')
+        if control_corrective(auth):
+            c.require(isinstance(control_link,dict) and control_link.get("prior_proof",{}).get("proof_sha256")==V8_PROOF
+                and c.validate_authorization(ancestor)==V8_AUTH
+                and control_link["seal_proof"]["author_id"]==author["id"]
+                and c.utc(control_link["seal_proof"]["created_at"])<=created
+                and c.digest(c.encoded(control_link["receipt"]))==auth["external_cohort"]["source_revision"]["control_refusal_sha256"],
+                "EXTERNAL_CONTROL_SOURCE_PROOF")
     proof = dict(reference=reference, comment_id=comment_id, author_id=author['id'], created_at=created.isoformat(), updated_at=updated.isoformat(), body_sha256=c.digest(comment['body'].encode()), record=record)
     return dict(proof_sha256=c.digest(c.encoded(proof)), proof_updated_utc=updated.isoformat(), expires_at_utc=expected['expires_at_utc'])
 
@@ -829,3 +1227,82 @@ def external_genesis(c, scope):
 
 def external_family_genesis(c):
     return c.digest(c.encoded(dict(schema='a1-external-budget-genesis-v1', task_key=c.TASK, prior_auth_sha256=c.CONTINUATION['auth'], prior_event_sha256=c.CONTINUATION['event'], first=c.CONTINUATION['first'], limits=c.CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
+
+
+def verify_orphan_inventory(c, evidence):
+    c.require(isinstance(evidence, dict) and set(evidence) == {'schema', 'observed_at_utc', 'window', 'files_count', 'has_more', 'entries'} and (evidence['schema'] == 'a1-bounded-orphan-inventory-v1') and (evidence['window'] == [c.DRIVE_RECOVERY['window_start'], c.DRIVE_RECOVERY['window_end']]) and (evidence['files_count'] is None or (type(evidence['files_count']) is int and 0 <= evidence['files_count'] <= 1000000)) and (type(evidence['has_more']) is bool) and isinstance(evidence['entries'], list) and (len(evidence['entries']) <= 8) and isinstance(evidence['observed_at_utc'], str) and (c.utc(c.DRIVE_RECOVERY['window_end']) <= c.utc(evidence['observed_at_utc']) <= c.utc()), 'EXTERNAL_ORPHAN_DIAGNOSTIC')
+    for row in evidence['entries']:
+        c.require(isinstance(row, dict) and set(row) == {'kind', 'sha256', 'bytes', 'created_at_utc'} and (row['kind'] in {'RAW', 'NORMALIZED', 'JSON', 'OTHER'}) and (row['sha256'] is None or (isinstance(row['sha256'], str) and c.re.fullmatch('[0-9a-f]{64}', row['sha256']))) and (row['bytes'] is None or (type(row['bytes']) is int and 0 <= row['bytes'] <= 16000000)) and (row['created_at_utc'] is None or c.utc(c.DRIVE_RECOVERY['window_start']) <= c.utc(row['created_at_utc']) <= c.utc()), 'EXTERNAL_ORPHAN_DIAGNOSTIC')
+
+
+def verify_drive_reuse(c, reuse, identity):
+    material = isinstance(reuse, dict) and 'materialization' in reuse
+    spec = c.MATERIALIZATION_RECOVERY if material else c.DRIVE_RECOVERY
+    c.require(isinstance(reuse, dict) and set(reuse) == {'failed_run_id', 'capture_source_sha', 'derivation_source_sha', 'raw_sha256', 'normalized_sha256', 'external_proof_sha256', 'derivation_run_id', 'derivation_auth_sha256', 'parent_checkpoint_sha256', 'derived_at_utc', 'failed_run_observation_window'} | ({'materialization'} if material else set()) and (reuse['failed_run_id'] == spec['run_id']) and (type(reuse['failed_run_id']) is int) and (reuse['capture_source_sha'] == c.DRIVE_RECOVERY['master']) and (reuse['derivation_source_sha'] == identity['source_sha']) and (type(reuse['derivation_run_id']) is int) and (reuse['derivation_run_id'] == identity['run_id']) and (reuse['derivation_auth_sha256'] == identity['auth_sha256']) and (reuse['external_proof_sha256'] == identity['external_proof_sha256']) and (reuse['parent_checkpoint_sha256'] == c.DRIVE_RECOVERY['checkpoint_sha256']) and (reuse['failed_run_observation_window'] == [c.DRIVE_RECOVERY['window_start'], c.DRIVE_RECOVERY['window_end']]) and all((isinstance(reuse[k], str) and c.re.fullmatch('[0-9a-f]{64}', reuse[k]) for k in ('raw_sha256', 'normalized_sha256'))) and isinstance(reuse['derived_at_utc'], str) and (c.utc(c.DRIVE_RECOVERY['window_end']) <= c.utc(reuse['derived_at_utc']) <= c.utc()), 'EXTERNAL_ORPHAN_PROVENANCE')
+    if material:
+        data = reuse['materialization']
+        evidence = identity.get('orphan_inventory')
+        c.verify_orphan_inventory(evidence)
+        entries = evidence['entries']
+        originals = [row for row in entries if row['kind'] == 'RAW']
+        normalized = [row for row in entries if row['kind'] == 'NORMALIZED']
+        c.require(evidence['has_more'] is False and evidence['files_count'] == len(entries) and (1 <= len(entries) <= 8) and (len(originals) == 1) and (len(normalized) <= 1) and all((row['kind'] != 'OTHER' and row['sha256'] is not None and (row['bytes'] is not None) and (0 < row['bytes'] < 16000000) and (row['created_at_utc'] is not None) and (c.utc(c.DRIVE_RECOVERY['window_start']) <= c.utc(row['created_at_utc']) <= c.utc(c.DRIVE_RECOVERY['window_end'])) for row in entries)) and (originals[0]['sha256'] == reuse['raw_sha256']) and (originals[0]['bytes'] == c.DRIVE_RECOVERY['raw_bytes']) and (not normalized or normalized[0]['sha256'] == reuse['normalized_sha256']), 'EXTERNAL_ORPHAN_INVENTORY_CLOSURE')
+        c.require(isinstance(data, dict) and set(data) == {'capture_failed_run_id', 'rows_sha256', 'codec', 'mode', 'created_at_utc', 'lookup_observed_at_utc', 'inventory_sha256', 'original_create_outcome'} and (data['capture_failed_run_id'] == c.DRIVE_RECOVERY['run_id']) and (type(data['capture_failed_run_id']) is int) and isinstance(data['rows_sha256'], str) and c.re.fullmatch('[0-9a-f]{64}', data['rows_sha256']) and (data['mode'] in {'EXISTING_VERIFIED', 'DERIVED_NEW'}) and (data['codec'] in {'EXISTING_GZIP_VERIFIED', 'GZIP_FILENAME_EMPTY_MTIME0_LEVEL9'}) and (data['codec'] == {'DERIVED_NEW': 'GZIP_FILENAME_EMPTY_MTIME0_LEVEL9', 'EXISTING_VERIFIED': 'EXISTING_GZIP_VERIFIED'}[data['mode']]) and (data['original_create_outcome'] == 'UNKNOWN') and (data['inventory_sha256'] == c.digest(c.encoded(evidence))) and isinstance(data['created_at_utc'], str) and isinstance(data['lookup_observed_at_utc'], str) and (c.utc(evidence['observed_at_utc']) <= c.utc(data['lookup_observed_at_utc'])) and (c.utc(data['created_at_utc']) <= c.utc(data['lookup_observed_at_utc']) <= c.utc(reuse['derived_at_utc'])) and (not normalized or (data['mode'] == 'EXISTING_VERIFIED' and c.utc(data['created_at_utc']) == c.utc(normalized[0]['created_at_utc']))) and (normalized or data['mode'] != 'EXISTING_VERIFIED' or (not c.utc(c.DRIVE_RECOVERY['window_start']) <= c.utc(data['created_at_utc']) <= c.utc(c.DRIVE_RECOVERY['window_end']))) and (data['mode'] != 'DERIVED_NEW' or c.utc(evidence['observed_at_utc']) <= c.utc(data['created_at_utc'])), 'EXTERNAL_MATERIAL_PROVENANCE')
+
+
+def validate_external_authorization(c, auth):
+    if c.has_source_revision(auth):
+        return c._revision_module(auth).validate(c._module(), auth)
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    ex = auth['external_cohort']
+    revised = isinstance(ex, dict) and 'named_recovery' in ex
+    drive_revised = isinstance(ex, dict) and 'drive_recovery' in ex
+    material_revised = isinstance(ex, dict) and 'materialization_recovery' in ex
+    native_revised = isinstance(ex, dict) and 'native18_recovery' in ex
+    c.require(isinstance(ex, dict) and set(ex) == {'scope', 'input_csv', 'intake_manifest_sha256', 'receipt_dedupe_sha256', 'prior_authorization', 'prior_epochs', 'proof_reference'} | ({'named_recovery'} if revised else set()) | ({'drive_recovery'} if drive_revised else set()) | ({'materialization_recovery'} if material_revised else set()) | ({'native18_recovery'} if native_revised else set()), 'EXTERNAL_AUTHORIZATION')
+    scope = cap.external_scope(ex['scope'])
+    c.require(isinstance(ex['input_csv'], str), 'EXTERNAL_COHORT_SCHEMA')
+    raw = ex['input_csv'].encode('utf-8')
+    names = cap.external_cohort(raw)
+    c.require(c.digest(raw) == scope['input_sha256'], 'EXTERNAL_COHORT_HASH')
+    for key in ('intake_manifest_sha256', 'receipt_dedupe_sha256'):
+        c.require(isinstance(ex[key], str) and c.re.fullmatch('[0-9a-f]{64}', ex[key]), 'EXTERNAL_INPUT_PROOF')
+    prior = ex['prior_authorization']
+    c.require(isinstance(prior, dict) and set(prior) == c.AUTH_FIELDS and (c.validate_authorization(prior) == c.CONTINUATION['auth']), 'EXTERNAL_BUDGET_ORIGIN')
+    fixed = c.AUTH_FIELDS - {'schema', 'limits', 'expected_master', 'code_pins', 'account_permission_reference', 'owner_permission_id', 'credential_binding'}
+    c.require(all((auth[k] == prior[k] for k in fixed)) and auth['expected_master'] != prior['expected_master'] and (auth['owner_permission_id'] is None or c.digest(auth['owner_permission_id'].encode()) == c.CONTINUATION['bindings']['owner_sha256']) and (auth['credential_binding'] == c.CONTINUATION['bindings']['credential_binding']) and (prior['owner_permission_id'] in (None, auth['owner_permission_id'])) and (prior['credential_binding'] in (None, auth['credential_binding'])), 'EXTERNAL_BUDGET_ORIGIN')
+    c.require(isinstance(ex['proof_reference'], str) and c.re.fullmatch('https://github\\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+', ex['proof_reference']) and (auth['account_permission_reference'] == ex['proof_reference']), 'EXTERNAL_PROOF_REFERENCE')
+    epochs = ex['prior_epochs']
+    c.require(isinstance(epochs, list) and len(epochs) <= 1, 'EXTERNAL_EPOCH_LIMIT')
+    for previous in epochs:
+        c.require(isinstance(previous, dict) and isinstance(previous.get('external_cohort'), dict) and (previous['external_cohort'].get('prior_epochs') == []), 'EXTERNAL_EPOCH_LIMIT')
+        c.validate_authorization(previous)
+        old = previous['external_cohort']
+        c.require(old['prior_authorization'] == prior and old['scope']['namespace'] != scope['namespace'] and all((auth[k] == previous[k] for k in fixed)) and set(names).isdisjoint(cap.external_cohort(old['input_csv'].encode())), 'EXTERNAL_RECOLLECTION')
+    c.require(c.digest(cap.SEED.read_bytes().replace(b'\r\n', b'\n')) == c.SEED_SHA, 'CAMPAIGN_SEED')
+    c.require(set(names).isdisjoint(cap.cohort(cap.SEED.read_bytes())[:c.CONTINUATION['examined']]), 'EXTERNAL_RECOLLECTION')
+    c.require(len(c.encoded(auth)) <= 15000, 'CAMPAIGN_CONTROL_SIZE')
+    if native_revised:
+        previous = c.external_previous(auth)
+        c.require(isinstance(ex['native18_recovery'], dict) and set(ex['native18_recovery']) == {'settlement_sha256'} and isinstance(ex['native18_recovery']['settlement_sha256'], str) and c.re.fullmatch('[0-9a-f]{64}', ex['native18_recovery']['settlement_sha256']) and (not (revised or drive_revised or material_revised)) and (len(ex['prior_epochs']) == 1) and (scope == dict(task_key='R1000-DISCOVERY-EXPANSION-INTAKE-20261017', namespace='top500-20261017', input_sha256=cap.STORAGE_QUARANTINE['input_sha256'])) and (len(names) == 417) and (names[76:80] == ['VLO', 'MFG', 'BP', 'BTI']) and (c.validate_authorization(previous) == c.NATIVE18_RECOVERY['prior_auth']) and (auth['expected_master'] not in (previous['expected_master'], c.NATIVE18_MASTER)) and (ex['proof_reference'] != previous['external_cohort']['proof_reference']), 'EXTERNAL_NATIVE18_RECOVERY')
+    elif material_revised:
+        recovery = ex['materialization_recovery']
+        c.require(drive_revised and revised and isinstance(recovery, dict) and (set(recovery) == {'prior_capture_source', 'failed_run_id', 'failed_receipt_sha256', 'checkpoint_sha256', 'examined'}), 'EXTERNAL_MATERIAL_RECOVERY')
+        source = recovery['prior_capture_source']
+        c.require(isinstance(source, dict) and set(source) == {'expected_master', 'code_pins', 'proof_reference'} and (ex['prior_epochs'] == []), 'EXTERNAL_MATERIAL_RECOVERY')
+        previous = c.external_previous(auth)
+        c.require(c.validate_authorization(previous) == c.MATERIALIZATION_RECOVERY['prior_auth'] and previous['expected_master'] == c.MATERIALIZATION_RECOVERY['master'] and all((recovery[k] == c.MATERIALIZATION_RECOVERY[v] and type(recovery[k]) is type(c.MATERIALIZATION_RECOVERY[v]) for k, v in (('failed_run_id', 'run_id'), ('failed_receipt_sha256', 'receipt_sha256'), ('checkpoint_sha256', 'checkpoint_sha256'), ('examined', 'examined')))) and all((ex[k] == previous['external_cohort'][k] for k in ex if k not in ('materialization_recovery', 'proof_reference'))) and all((auth[k] == previous[k] for k in c.AUTH_FIELDS - {'schema', 'expected_master', 'code_pins', 'account_permission_reference'})) and (auth['expected_master'] != previous['expected_master']) and (ex['proof_reference'] != previous['external_cohort']['proof_reference']), 'EXTERNAL_MATERIAL_RECOVERY')
+    elif drive_revised:
+        recovery = ex['drive_recovery']
+        c.require(revised and isinstance(recovery, dict) and (set(recovery) == {'prior_capture_source', 'failed_run_id', 'failed_receipt_sha256', 'checkpoint_sha256', 'examined'}), 'EXTERNAL_DRIVE_RECOVERY')
+        source = recovery['prior_capture_source']
+        c.require(isinstance(source, dict) and set(source) == {'expected_master', 'code_pins', 'proof_reference'} and (ex['prior_epochs'] == []), 'EXTERNAL_DRIVE_RECOVERY')
+        previous = c.external_previous(auth)
+        c.require(c.validate_authorization(previous) == c.DRIVE_RECOVERY['prior_auth'] and previous['expected_master'] == c.DRIVE_RECOVERY['master'] and all((recovery[k] == c.DRIVE_RECOVERY[v] and type(recovery[k]) is type(c.DRIVE_RECOVERY[v]) for k, v in (('failed_run_id', 'run_id'), ('failed_receipt_sha256', 'receipt_sha256'), ('checkpoint_sha256', 'checkpoint_sha256'), ('examined', 'examined')))) and all((ex[k] == previous['external_cohort'][k] for k in ex if k not in ('drive_recovery', 'proof_reference'))) and all((auth[k] == previous[k] for k in c.AUTH_FIELDS - {'schema', 'expected_master', 'code_pins', 'account_permission_reference'})) and (auth['expected_master'] != previous['expected_master']) and (ex['proof_reference'] != previous['external_cohort']['proof_reference']), 'EXTERNAL_DRIVE_RECOVERY')
+    elif revised:
+        recovery = ex['named_recovery']
+        c.require(isinstance(recovery, dict) and set(recovery) == {'prior_capture_source', 'failed_run_id', 'failed_receipt_sha256', 'checkpoint_sha256', 'examined'}, 'EXTERNAL_NAMED_RECOVERY')
+        source = recovery['prior_capture_source']
+        c.require(isinstance(source, dict) and set(source) == {'expected_master', 'code_pins', 'proof_reference'} and (ex['prior_epochs'] == []), 'EXTERNAL_NAMED_RECOVERY')
+        previous = c.external_previous(auth)
+        c.require(c.validate_authorization(previous) == c.NAMED_RECOVERY['prior_auth'] and all((recovery[k] == c.NAMED_RECOVERY[v] and type(recovery[k]) is type(c.NAMED_RECOVERY[v]) for k, v in (('failed_run_id', 'run_id'), ('failed_receipt_sha256', 'receipt_sha256'), ('checkpoint_sha256', 'checkpoint_sha256'), ('examined', 'examined')))) and all((ex[k] == previous['external_cohort'][k] for k in ex if k not in ('named_recovery', 'proof_reference'))) and all((auth[k] == previous[k] for k in c.AUTH_FIELDS - {'schema', 'expected_master', 'code_pins', 'account_permission_reference'})) and (auth['expected_master'] != previous['expected_master']) and (ex['proof_reference'] != previous['external_cohort']['proof_reference']), 'EXTERNAL_NAMED_RECOVERY')
