@@ -149,3 +149,5 @@ master18571 runtime/merge hold is preserved. No merge or activation is included
 in this Draft preparation.
 
 EOD run_at must not exceed the trusted evaluation clock (UTC now in the CLI; an explicit trusted API argument is available for replay/tests and is never read from JSON). Its canonical run clock is hashed/retained, and prepare itself revalidates the fixed116 identity. A fabricated future run/close cannot prepare a not-yet-completed session.
+
+The standalone JSON runner also requires source decision<=one captured trusted evaluation clock before candidate output. Default CLI evaluation is UTC now; only an explicit caller-owned API argument supports replay. JSON/environment values cannot override it, and evaluated time is not added to the deterministic candidate hash. Pure compute_horizons remains a replay calculation API.

@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
@@ -18,23 +19,28 @@ from tools.etf116_research_metrics_h1 import (compute_horizons, canonical_hash, 
 from tools.etf116_eod_gate import validate_universe, EXPECTED_UNIVERSE_SHA256
 
 
-def validate_metadata(input_obj):
+def validate_metadata(input_obj, *, evaluation_time=None):
     require(isinstance(input_obj, dict), 'OFFLINE_INPUT_NOT_OBJECT')
     require(input_obj.get('schema') == 'etf116-metrics-candidate-input-v1', 'OFFLINE_INPUT_SCHEMA')
     require(input_obj.get('scope_sha256') == EXPECTED_UNIVERSE_SHA256, 'OFFLINE_FROZEN_SCOPE_HASH')
     session = input_obj.get('session')
     day = d(session)
     decision = ts(input_obj.get('decision_at_utc'))
+    evaluated = evaluation_time if evaluation_time is not None else datetime.now(timezone.utc)
+    require(isinstance(evaluated, datetime) and evaluated.tzinfo is not None
+            and evaluated.utcoffset() is not None, 'OFFLINE_EVALUATION_CLOCK')
+    require(decision <= evaluated, 'OFFLINE_FUTURE_DECISION')
     require(day <= decision.date(), 'SERIES_REVIEW_BEFORE_ASOF')
     official_session_dates(input_obj.get('verified_nyse_sessions'), asof=session)
     require(decision >= verified_session_close(session), 'OFFLINE_DECISION_BEFORE_SESSION_CLOSE')
 
 
-def run(input_path: Path, frozen_path: Path, out_path: Path):
+def run(input_path: Path, frozen_path: Path, out_path: Path, *, evaluation_time=None):
+    evaluated = evaluation_time if evaluation_time is not None else datetime.now(timezone.utc)
     frozen=validate_universe(frozen_path.read_text(encoding='utf-8').splitlines())
     source_bytes=input_path.read_bytes()
     input_obj=json.loads(source_bytes)
-    validate_metadata(input_obj)
+    validate_metadata(input_obj, evaluation_time=evaluated)
     if input_obj.get('schema')!='etf116-metrics-candidate-input-v1':
         raise RefuseInput('OFFLINE_INPUT_SCHEMA')
     if input_obj.get('scope_sha256')!=EXPECTED_UNIVERSE_SHA256:
@@ -95,6 +101,12 @@ def main():
     p.add_argument('--input',required=True);p.add_argument('--frozen',required=True)
     p.add_argument('--output',required=True)
     a=p.parse_args()
-    print(json.dumps(run(Path(a.input),Path(a.frozen),Path(a.output)),sort_keys=True))
+    try:
+        result = run(Path(a.input),Path(a.frozen),Path(a.output))
+    except (OSError, ValueError, RecursionError, KeyError, TypeError, AttributeError):
+        print('BLOCKED_ETF116_OFFLINE_INPUT')
+        return 2
+    print(json.dumps(result,sort_keys=True))
+    return 0
 
-if __name__=='__main__':main()
+if __name__=='__main__':raise SystemExit(main())

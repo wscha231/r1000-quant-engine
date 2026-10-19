@@ -11,6 +11,45 @@ from tools.etf116_existing_cron_planner_h1 import plan_existing_trigger
 
 
 class SuccessorReviewTests(unittest.TestCase):
+    def offline_packet(self):
+        from tools import run_etf116_offline_research_h1 as runner
+        return {'schema':'etf116-metrics-candidate-input-v1','scope_sha256':runner.EXPECTED_UNIVERSE_SHA256,
+                'session':'2026-10-16','decision_at_utc':'2026-10-18T14:00:00Z',
+                'verified_nyse_sessions':['2026-10-15','2026-10-16'],'source_candidate_rows':{}}
+
+    def test_offline_future_decision_requires_trusted_evaluation(self):
+        import json, tempfile
+        from tools import run_etf116_offline_research_h1 as runner
+        packet = self.offline_packet()
+        packet['evaluation_time'] = '2099-01-01T00:00:00Z'
+        with tempfile.TemporaryDirectory() as td:
+            source,output = Path(td)/'input.json',Path(td)/'output.json'
+            source.write_text(json.dumps(packet))
+            frozen = Path(__file__).resolve().parents[1]/'research/etf116_v1/frozen_tickers.txt'
+            with self.assertRaisesRegex(RefuseInput, 'OFFLINE_FUTURE_DECISION'):
+                runner.run(source,frozen,output,evaluation_time=datetime(2026,10,17,tzinfo=timezone.utc))
+            self.assertFalse(output.exists())
+            runner.run(source,frozen,output,evaluation_time=datetime(2026,10,18,14,tzinfo=timezone.utc))
+            self.assertFalse(json.loads(output.read_text())['economic_authority'])
+
+    def test_offline_cli_ignores_json_and_environment_future_clock(self):
+        import json, tempfile, subprocess
+        from tools import run_etf116_offline_research_h1 as runner
+        packet = self.offline_packet()
+        packet.update(decision_at_utc='2099-01-01T00:00:00Z', evaluation_time='2099-01-02T00:00:00Z')
+        with tempfile.TemporaryDirectory() as td:
+            source,output = Path(td)/'input.json',Path(td)/'output.json';source.write_text(json.dumps(packet))
+            root=Path(__file__).resolve().parents[1];frozen=root/'research/etf116_v1/frozen_tickers.txt'
+            with patch.dict('os.environ',{'ETF116_EVALUATION_TIME':'2099-01-02T00:00:00Z'}):
+                with self.assertRaisesRegex(RefuseInput,'OFFLINE_FUTURE_DECISION'):
+                    runner.run(source,frozen,output)
+                result=subprocess.run([sys.executable,*(['-O'] if sys.flags.optimize else []),
+                    str(root/'tools/run_etf116_offline_research_h1.py'),'--input',str(source),
+                    '--frozen',str(frozen),'--output',str(output)],capture_output=True,timeout=5)
+            self.assertEqual(result.returncode,2)
+            self.assertNotIn(b'Traceback',result.stderr)
+            self.assertFalse(output.exists())
+
     def eod_packet(self):
         from tests.etf116_hosted_p2_regression import HostedP2Regression
         return HostedP2Regression().packet()

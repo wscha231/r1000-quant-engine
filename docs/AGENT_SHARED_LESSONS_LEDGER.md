@@ -7463,3 +7463,7 @@ An actual calendar close can still lie in the future. Reject packet run_at after
 the trusted current/replay evaluation instant; never take that clock from JSON.
 Bind the canonical run clock into provenance, preserve same-session conflicts,
 and validate the fixed116 identity at the API entry as well as in the CLI.
+
+Apply that current/evaluation boundary to the standalone dated-JSON runner too,
+not to pure replay math. Pass one trusted clock through H3 metadata and H1 run;
+keep candidate hashing time-independent so exact-source rederivation is stable.
