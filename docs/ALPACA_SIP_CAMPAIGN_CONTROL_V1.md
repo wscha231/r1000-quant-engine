@@ -950,3 +950,10 @@ UNKNOWN_NOT_ZERO remain. This grant neither refunds costs nor guarantees that
 all289 pending names fit. Any actual cap, new failure, unsettled/ambiguous POST
 or the exact new end stops the bounded continuation; no automatic renewal,
 old POST retry, native/orphan repeat, collector/workflow change or admission.
+
+Historical first-v8 receipt verification uses that canonical run's actual
+creation clock, bound to its id/head/attempt and immutable OWNER proof. A6
+reproduced a current-clock expiry check incorrectly preventing terminal
+accounting after the fixed end. Separating that receipt check permits exact
+settlement after expiry while new host/worker authorization still checks the
+current clock and refuses at the exact end. It grants no late provider I/O.

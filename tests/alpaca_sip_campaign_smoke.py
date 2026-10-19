@@ -4815,6 +4815,20 @@ class Human24hValidityTests(unittest.TestCase):
             self.assertEqual(c.worker_deadline(1001,c.utc(c.CONTINUATION['first']),c.utc(self.s.VALIDITY_END)),c.utc(self.s.VALIDITY_END))
             self.assertEqual(c.worker_deadline(1001,c.utc(c.CONTINUATION['first'])),c.utc(c.CONTINUATION['first'])+timedelta(hours=48))
 
+    def test_terminal_historical_marker_after_fixed_end_uses_actual_run_clock_only(self):
+        observed=self.observed();observed['epoch_proofs'][c.validate_authorization(self.a)]=self.proof
+        marker=self.s.time_acceptance(c,self.a,observed,c.external_forecast(self.a,observed))
+        value=dict(examined_before=128,run_id=1001,source_revision_policy_sha256=self.s.policy_hash(c),
+                   time_forecast_exception=marker)
+        run=dict(id=1001,run_attempt=1,head_sha=self.a['expected_master'],created_at=self.now.isoformat())
+        self.now=c.utc(self.s.VALIDITY_END)+timedelta(seconds=1)
+        self.s.verify_marker(c,self.a,value,observed,run)
+        with self.assertRaises(c.Refused):self.s.require_window(c,self.a)
+        with self.assertRaises(c.Refused):self.s.time_acceptance(c,self.a,observed,c.external_forecast(self.a,observed))
+        for bad in [None,dict(run,id=1002),dict(run,head_sha='0'*40),dict(run,run_attempt=2),
+                    dict(run,created_at=self.s.VALIDITY_END),dict(run,created_at='2026-10-19T02:30:00Z')]:
+            with self.subTest(run=bad),self.assertRaises(c.Refused):self.s.verify_marker(c,self.a,value,observed,bad)
+
     def closed_pair(self):
         """Retained v6/v7 prefixes built at their original clock, never renewed."""
         current=self.now;self.now=c.utc('2026-10-18T22:30:00Z')

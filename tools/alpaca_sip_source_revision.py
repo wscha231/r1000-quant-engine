@@ -510,9 +510,14 @@ def verify_entry(c, entry, expected, family=False):
         "EXTERNAL_SOURCE_REVISION_BINDING")
 
 
-def time_acceptance(c, auth, observed, forecast):
+def time_acceptance(c, auth, observed, forecast, *, canonical_run=None):
     c.require(c.has_source_revision(auth),"EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     validate(c,auth)
+    clock=c.utc()
+    if canonical_run is not None:
+        c.require(renewed(auth),"EXTERNAL_VALIDITY_RUN_CLOCK")
+        verify_validity_run(c,auth,canonical_run,observed["epoch_proofs"][c.validate_authorization(auth)])
+        clock=c.utc(canonical_run["created_at"])
     basis=calibration_basis(c,auth,observed)
     c.require(observed["examined"] == 128 and observed["parent_sha"] == CP
         and observed["used"] == USED and basis["active_seconds"] == 4938
@@ -527,7 +532,7 @@ def time_acceptance(c, auth, observed, forecast):
         and all(forecast["projected"][k] <= observed["remaining"][k] for k in c.LIMITS)
         and len(observed["runs"])+forecast["dispatches"]-(observed.get("current_run") is not None) <= 40
         and observed["active_seconds"]+7800 <= c.active_limit(auth)
-        and (not renewed(auth) or c.utc(VALIDITY_START)<=c.utc()) and c.utc()<expiry(c,auth),
+        and (not renewed(auth) or c.utc(VALIDITY_START)<=clock) and clock<expiry(c,auth),
         "EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     result=dict(schema=POLICY["schema"],policy_sha256=policy_hash(c),checkpoint_sha256=CP,
                 original_forecast_seconds=38748,accepted_forecast_seconds=forecast["active_seconds"],
@@ -547,10 +552,15 @@ def verify_transition(c, state, used, active):
         and used == USED and active == 4938,"EXTERNAL_SOURCE_REVISION_PARENT")
 
 
-def verify_marker(c, auth, value, observed):
+def verify_marker(c, auth, value, observed, run=None):
     c.require(value.get("source_revision_policy_sha256") == policy_hash(c),"EXTERNAL_SOURCE_REVISION_RECEIPT")
     if value["examined_before"] == 128:
-        expected = time_acceptance(c,auth,observed,c.external_forecast(auth,observed))
+        if renewed(auth):
+            c.require(isinstance(run,dict) and type(run.get("id")) is int and run["id"]==value.get("run_id")
+                and run.get("head_sha")==auth["expected_master"] and run.get("run_attempt")==1,
+                "EXTERNAL_VALIDITY_RUN_CLOCK")
+        expected = time_acceptance(c,auth,observed,c.external_forecast(auth,observed),
+                                   canonical_run=run if renewed(auth) else None)
         c.require(value.get("time_forecast_exception") == expected,"EXTERNAL_TIME_FORECAST_ACCEPTANCE")
     else:
         c.require("time_forecast_exception" not in value,"EXTERNAL_TIME_FORECAST_ACCEPTANCE")

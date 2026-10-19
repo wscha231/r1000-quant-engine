@@ -2531,7 +2531,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 prefix = dict(examined=state["examined"],parent_sha=state["parent"],used=dict(used),
                     remaining={k:CONTINUED_LIMITS[k]-used[k] for k in LIMITS},active_seconds=active,
                     runs=previous[:index],cohort_receipts=state["receipts"],cohort_durations=state["durations"],epoch_proofs=proofs)
-                _revision_module().verify_marker(_module(),a,value,prefix)
+                _revision_module().verify_marker(_module(),a,value,prefix,run)
             state.update(parent=value["checkpoint_sha256"], examined=value["examined_after"])
             state["runs"].append(run); state["receipts"].append(value)
             named_failure = named_failed_receipt(run, value, epoch)
