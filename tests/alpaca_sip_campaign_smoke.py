@@ -3855,6 +3855,10 @@ class Native18ControllerCollectorTests(unittest.TestCase):
 class Native18RecoveryHistoryTests(unittest.TestCase):
     """Synthetic17+native18+successor metadata through the real history reducer."""
     def setUp(self):
+        # A finite historical fixture must not acquire the test runner's date.
+        clock=c.utc
+        frozen=patch.object(c,'utc',side_effect=lambda value=None:clock(value) if value is not None else clock('2026-10-18T22:30:00Z'))
+        frozen.start();self.addCleanup(frozen.stop)
         self.base=ExternalCohortTests();self.base.setUp();self.addCleanup(self.base.doCleanups)
         self.addCleanup(patch.stopall)
         patch.dict(c.CONTINUATION,first="2026-10-17T02:08:51Z").start()
@@ -4665,6 +4669,245 @@ class LiveRunRefusalCorrectionTests(unittest.TestCase):
         c.bind_source_revision(corrected,shared,a,dict(obs,external_proof=self.proof))
         self.assertEqual((len(corrected.entries),len(shared.entries)),(25,52))
         with self.assertRaises(c.Refused):corrected.append('REFUSAL_SOURCE_BOUND',**correction)
+
+
+class Human24hValidityTests(unittest.TestCase):
+    """Synthetic prospective consent; production dates/caps stay fixed."""
+    def setUp(self):
+        self.p=LiveRunRefusalCorrectionTests();self.p.setUp();self.addCleanup(self.p.doCleanups)
+        self.s=self.p.s;self.v7=copy.deepcopy(self.p.a)
+        for name,value in dict(V7_AUTH=c.validate_authorization(self.v7),V7_SOURCE=self.v7['expected_master'],
+            V7_PINS=self.v7['code_pins'],V7_REFERENCE=self.v7['account_permission_reference'],V7_PROOF=self.p.proof['proof_sha256'],
+            V7_CLOSURE=self.v7['external_cohort']['source_revision']['refusal_closure_sha256'],
+            V7_CLOSURE_COMMENT=self.v7['external_cohort']['source_revision']['refusal_closure_comment_id']).items():
+            patcher=patch.object(self.s,name,value);patcher.start();self.addCleanup(patcher.stop)
+        self.a=copy.deepcopy(self.v7);self.grant_id=7000000001
+        self.grant_ref=f'https://github.com/{c.REPO}/issues/448#issuecomment-{self.grant_id}'
+        self.a.update(schema='r1000-sip-external-cohort-authorization-v8',expected_master='f'*40,
+                      account_permission_reference=self.grant_ref)
+        self.a['external_cohort'].update(proof_reference=self.grant_ref,source_revision={'validity_reference':self.grant_ref})
+        clock=c.utc;self.now=clock('2026-10-19T03:05:00Z')
+        patcher=patch.object(c,'utc',side_effect=lambda value=None:clock(value) if value is not None else self.now)
+        patcher.start();self.addCleanup(patcher.stop)
+        self.server_calls=[];self.issue()
+
+    def comment(self,value,tag,id,clock):
+        return dict(id=id,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',author_association='OWNER',
+            user=dict(type='User',id=123),created_at=clock,updated_at=clock,body=tag+json.dumps(value,separators=(',',':')))
+
+    def issue(self):
+        record=self.s.validity_record(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope'])
+        self.grant=self.comment(record,'A1_SIP_HUMAN24H_VALIDITY ',self.grant_id,
+            (c.utc(self.s.VALIDITY_START)+timedelta(seconds=1)).isoformat())
+        terms=c.external_proof_record(self.a)
+        self.server_calls.append('POST complete terms')
+        returned_id=9000000000+len(self.server_calls)  # Allocated by the fixture server after the body exists.
+        self.owner=self.comment(terms,'A1_SIP_EXTERNAL_COHORT_CONSENT ',returned_id,
+            (c.utc(self.s.VALIDITY_START)+timedelta(seconds=2)).isoformat())
+        self.a['account_permission_reference']=f'https://github.com/{c.REPO}/issues/448#issuecomment-{returned_id}'
+        self.a['external_cohort']['proof_reference']=self.a['account_permission_reference']
+        with self.proof_context():self.proof=c.external_proof(self.a)
+        self.grant_proof=self.s.verify_validity_grant(c,self.a,self.grant)
+
+    def proof_context(self,grant=None,owner=None):
+        comments={self.grant_id:grant or self.grant,self.owner['id']:owner or self.owner}
+        return patch.object(c,'gh_json',side_effect=lambda path:comments[int(path.rsplit('/',1)[1])])
+
+    def observed(self,live=False):
+        result=copy.deepcopy(self.p.o);result['external_proof']=self.proof
+        result['epoch_proofs'].update({self.s.V7_AUTH:self.p.proof,self.s.V6_AUTH:self.p.base.proof})
+        if live:
+            self.nonce=c.PREFIX+'b'*24
+            run=dict(id=1001,run_attempt=1,head_sha=self.a['expected_master'],display_title='a1-sip '+self.nonce,
+                created_at=self.now.isoformat(),status='in_progress',conclusion=None)
+            result['runs'].append(run);result.update(current_run=1001,current_nonce=self.nonce)
+        return result
+
+    def test_exact_old_full_authority_capacity_and_fixed_prospective_window(self):
+        self.assertEqual(c.external_previous(self.a),self.v7)
+        self.assertEqual(c.validate_authorization(self.v7),self.s.V7_AUTH)
+        self.assertEqual(self.s.VALIDITY_START,'2026-10-19T02:59:53Z')
+        self.assertEqual(self.s.VALIDITY_END,'2026-10-20T02:59:53Z')
+        self.assertEqual(c.utc(self.s.VALIDITY_END)-c.utc(self.s.VALIDITY_START),timedelta(hours=24))
+        self.assertLessEqual(len(c.encoded(self.a)),15000)
+        self.assertLessEqual(len(c.encoded(c.external_proof_record(self.a))),4096)
+        self.assertLessEqual(len(c.encoded(self.s.validity_record(c,self.a['expected_master'],self.a['code_pins'],self.a['external_cohort']['scope']))),4096)
+        for change in [lambda a:a['external_cohort']['source_revision'].update(expires_at_utc='2099-01-01T00:00:00Z'),
+            lambda a:a['limits'].update(provider_gets=2001),lambda a:a.update(end='2026-10-15'),
+            lambda a:a['external_cohort']['scope'].update(namespace='foreign'),lambda a:a['code_pins'].pop(c.REVISION_MODULE)]:
+            bad=copy.deepcopy(self.a);change(bad)
+            with self.subTest(change=change),self.assertRaises(c.Refused):c.validate_authorization(bad)
+
+    def test_before_approval_expired_gap_exact_end_and_old_authority_still_refuse(self):
+        for when in ['2026-10-19T02:08:50Z','2026-10-19T02:08:51Z','2026-10-19T02:59:52Z',self.s.VALIDITY_END,'2026-10-20T03:00:00Z']:
+            self.now=c.utc(when)
+            with self.subTest(when=when),self.assertRaises(c.Refused):self.s.require_window(c,self.a)
+        for when in [self.s.VALIDITY_START,'2026-10-20T02:59:52Z']:
+            self.now=c.utc(when);self.s.require_window(c,self.a)
+        self.now=c.utc('2026-10-19T03:05:00Z')
+        with self.assertRaises(c.Refused):self.s.require_window(c,self.v7)
+
+    def test_real_returned_locator_full_proof_and_no_edit_clock_binding(self):
+        before=c.validate_authorization(self.a);commitment=self.s.commitment(c,self.a);proof=self.proof
+        self.issue()
+        self.assertNotEqual(c.validate_authorization(self.a),before)
+        self.assertEqual(self.s.commitment(c,self.a),commitment)
+        self.assertNotEqual(self.proof['proof_sha256'],proof['proof_sha256'])
+        self.assertEqual(c.external_previous(self.a),self.v7)
+        for bad in [dict(self.grant,created_at=None,updated_at=None),dict(self.grant,updated_at=self.now.isoformat()),
+                    dict(self.grant,created_at='2026-10-19T02:59:52Z',updated_at='2026-10-19T02:59:52Z'),
+                    dict(self.grant,created_at='2099-01-01T00:00:00Z',updated_at='2099-01-01T00:00:00Z'),
+                    dict(self.grant,user=dict(type='User',id=124))]:
+            with self.subTest(bad=bad),self.proof_context(grant=bad),self.assertRaises(c.Refused):c.external_proof(self.a)
+        changed=dict(self.owner,updated_at=self.now.isoformat())
+        with self.proof_context(owner=changed),self.assertRaises(c.Refused):c.external_proof(self.a)
+
+    def test_canonical_version_jump_only_at_exact_closed_debited_parent(self):
+        observed=self.observed();state=dict(examined=128,parent=self.s.CP,receipts=observed['cohort_receipts'],version=2,named_failures=set())
+        transitions=c.external_transitions(self.a)
+        self.assertIsNone(self.s.revision_recovery(c,self.a,state,4,transitions,observed['used'],5123,observed['runs'],observed['epoch_proofs']))
+        for mutate in [lambda x:x.update(examined=127),lambda x:x.update(parent='0'*64),
+                       lambda x:x.update(version=1),lambda x:x.update(version=5)]:
+            bad=copy.deepcopy(state);mutate(bad)
+            with self.subTest(mutate=mutate),self.assertRaises(c.Refused):
+                self.s.revision_recovery(c,self.a,bad,4,transitions,observed['used'],5123,observed['runs'],observed['epoch_proofs'])
+        for active in [4938,5122,5124]:
+            with self.subTest(active=active),self.assertRaises(c.Refused):
+                self.s.revision_recovery(c,self.a,state,4,transitions,observed['used'],active,observed['runs'],observed['epoch_proofs'])
+        used=dict(observed['used'],provider_gets=0)
+        with self.assertRaises(c.Refused):self.s.verify_validity_parent(c,self.a,state,used,5123,observed['runs'],observed['epoch_proofs'])
+        self.assertIsNone(self.s.revision_recovery(c,self.a,dict(state,version=4),4,transitions,used,6000,[],{}))
+
+    def test_live_worker23_retains_original_clock_and_reaches_meter_with_new_deadline(self):
+        class ReachedMeter(Exception):pass
+        observed=self.observed(True);first=c.utc(c.CONTINUATION['first'])
+        observed['first']=first
+        args=SimpleNamespace(private_root_folder_id=self.a['private_root_folder_id'],private_data_folder_id=self.a['private_data_folder_id'],
+            start=self.a['start'],end=self.a['end'],max_new_symbols=32,resume_sha256=observed['parent_sha'])
+        control=dict(authorization=self.a,nonce=self.nonce,recovery_run=None,preflight_only=False,external_binding=self.proof)
+        env=dict(GITHUB_RUN_ID='1001',INPUT_CAMPAIGN_NONCE=self.nonce,ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')
+        with patch.dict(os.environ,env,clear=True),patch.object(c,'verify_worker_source'), \
+             patch.object(c,'external_history',return_value=observed),patch.object(c,'external_proof',return_value=self.proof), \
+             patch.object(c,'campaign_runs',return_value=observed['runs']), \
+             patch.object(c,'worker_deadline',return_value=self.now+timedelta(seconds=90)) as deadline, \
+             patch.object(c,'RuntimeMeter',side_effect=ReachedMeter) as meter, \
+             patch.object(drive_module,'OwnerDrive',side_effect=AssertionError('No data I/O')) as owner:
+            with self.assertRaises(ReachedMeter):c.external_worker(args,control,Path('not-created'))
+        deadline.assert_called_once_with(1001,first,c.utc(self.s.VALIDITY_END));meter.assert_called_once();owner.assert_not_called()
+        identity=meter.call_args.args[3]
+        self.assertEqual(identity['validity_authority_sha256'],self.s.VALIDITY_AUTHORITY)
+        self.assertEqual(identity['validity_expires_at_utc'],self.s.VALIDITY_END)
+        self.assertFalse(identity['time_forecast_exception']['forecast_fits'])
+        self.assertEqual(observed['active_seconds'],5123);self.assertEqual(len(observed['runs']),23)
+        self.assertEqual(first,c.utc('2026-10-17T02:08:51Z'))
+
+    def test_run_clocks_receipt_binding_and_actual_job_deadline_clamp(self):
+        observed=self.observed(True);run=observed['runs'][-1]
+        value=dict(validity_authority_sha256=self.s.VALIDITY_AUTHORITY,validity_not_before_utc=self.s.VALIDITY_START,
+                   validity_expires_at_utc=self.s.VALIDITY_END)
+        self.s.verify_validity_run(c,self.a,run,self.proof,value)
+        for when in ['2026-10-19T02:30:00Z',self.s.VALIDITY_END,'2099-01-01T00:00:00Z']:
+            with self.subTest(when=when),self.assertRaises(c.Refused):self.s.verify_validity_run(c,self.a,dict(run,created_at=when),self.proof,value)
+        with self.assertRaises(c.Refused):self.s.verify_validity_run(c,self.a,run,self.proof,dict(value,validity_authority_sha256='0'*64))
+        self.now=c.utc(self.s.VALIDITY_END)-timedelta(seconds=1)
+        jobs=dict(total_count=1,jobs=[dict(name='capture',status='in_progress',started_at=(self.now-timedelta(seconds=59)).isoformat())])
+        with patch.object(c,'gh_json',return_value=jobs):
+            self.assertEqual(c.worker_deadline(1001,c.utc(c.CONTINUATION['first']),c.utc(self.s.VALIDITY_END)),c.utc(self.s.VALIDITY_END))
+            self.assertEqual(c.worker_deadline(1001,c.utc(c.CONTINUATION['first'])),c.utc(c.CONTINUATION['first'])+timedelta(hours=48))
+
+    def closed_pair(self):
+        """Retained v6/v7 prefixes built at their original clock, never renewed."""
+        current=self.now;self.now=c.utc('2026-10-18T22:30:00Z')
+        j,family,native,source=self.p.base.make_pair()
+        c.bind_source_revision(j,family,self.p.v6,dict(self.p.base.o,external_proof=self.p.base.proof))
+        for target in (j,family):
+            data=dict(nonce=self.s.REFUSAL_NONCE,remaining=self.p.o['remaining'],parent_checkpoint_sha256=self.s.CP)
+            if target is family:data.update(capture_auth_sha256=self.s.V6_AUTH,scope=self.a['external_cohort']['scope'])
+            target.append('RESERVED',**data)
+            data=dict(nonce=self.s.REFUSAL_NONCE,run_id=self.s.REFUSAL_RUN)
+            if target is family:data.update(capture_auth_sha256=self.s.V6_AUTH,scope=self.a['external_cohort']['scope'])
+            target.append('RUN_ASSIGNED',**data)
+        for name,value in [('COHORT23',j.parent),('FAMILY50',family.parent)]:
+            patcher=patch.object(self.s,name,value);patcher.start();self.addCleanup(patcher.stop)
+        grant=self.p.comment(self.s.grant_record(c,self.v7['expected_master'],self.v7['code_pins'],self.a['external_cohort']['scope']),
+                             'A1_SIP_NO_METER_REFUSAL_AUTHORIZATION ')
+        payload=self.s.closure_payload(c,self.v7['expected_master'],self.v7['code_pins'],self.a['external_cohort']['scope'],grant)
+        receipt=dict(schema='a1-sip-exact-no-meter-refusal-receipt-v1',payload=payload)
+        for target,field in [(j,'cohort_event'),(family,'family_event')]:
+            target.append('NO_METER_REFUSAL_CLOSED',**payload)
+            receipt[field]=dict(recorded_utc=target.entries[-1]['recorded_utc'],sha256=target.parent)
+        self.v7['external_cohort']['source_revision']['refusal_closure_sha256']=c.digest(c.encoded(receipt))
+        for name,value in [('V7_CLOSURE',c.digest(c.encoded(receipt))),('V7_AUTH',c.validate_authorization(self.v7))]:
+            patcher=patch.object(self.s,name,value);patcher.start();self.addCleanup(patcher.stop)
+        correction=self.s.correction_binding(c,self.v7,self.p.proof)
+        path=j.directory;j.close()
+        kw=dict(native_revision=native,source_revision=source,refusal_revision=correction,refusal_closure=receipt)
+        j=c.WorkJournal(path,self.s.V7_AUTH,**kw)
+        c.bind_source_revision(j,family,self.v7,dict(self.p.o,external_proof=self.p.proof))
+        self.assertEqual((len(j.entries),len(family.entries)),(25,52))
+        for name,value in [('V7_COHORT',j.parent),('V7_FAMILY',family.parent)]:
+            patcher=patch.object(self.s,name,value);patcher.start();self.addCleanup(patcher.stop)
+        prefix={p:p.read_bytes() for directory in [j.directory,family.directory] for p in directory.glob('*.json')}
+        j.close();self.now=current;self.issue()
+        kw['validity_revision']=self.s.validity_binding(c,self.a,self.proof,self.grant_proof)
+        j=c.WorkJournal(path,c.validate_authorization(self.a),**kw);self.addCleanup(j.close)
+        return j,family,kw,prefix
+
+    def test_two_new_durable_barriers_reopen_once_and_preserve_every_old_byte(self):
+        j,family,kw,prefix=self.closed_pair();observed=self.observed()
+        def fail_cohort(path):
+            if Path(path).parent==j.directory and Path(path).name=='000026.json':raise c.Refused('SYNTHETIC_BARRIER')
+        with patch.object(c,'validity_grant_proof',return_value=self.grant_proof):
+            with patch.object(c,'sync_native18_settlement',side_effect=fail_cohort),self.assertRaisesRegex(c.Refused,'SYNTHETIC_BARRIER'):
+                c.bind_source_revision(j,family,self.a,observed)
+            self.assertEqual((len(j.entries),len(family.entries)),(26,52))
+            path=j.directory;j.close();j=c.WorkJournal(path,c.validate_authorization(self.a),**kw);self.addCleanup(j.close)
+            def fail_family(path):
+                if Path(path).parent==family.directory and Path(path).name=='000053.json':raise c.Refused('SYNTHETIC_BARRIER')
+            with patch.object(c,'sync_native18_settlement',side_effect=fail_family),self.assertRaisesRegex(c.Refused,'SYNTHETIC_BARRIER'):
+                c.bind_source_revision(j,family,self.a,observed)
+            self.assertEqual((len(j.entries),len(family.entries)),(26,53))
+            family_path=family.directory;family.close();family=c.WorkJournal(family_path,c.external_family_genesis());self.addCleanup(family.close)
+            c.bind_source_revision(j,family,self.a,observed)
+            after={p:p.read_bytes() for directory in [j.directory,family.directory] for p in directory.glob('*.json')}
+            c.bind_source_revision(j,family,self.a,observed)
+            self.assertEqual(after,{p:p.read_bytes() for p in after})
+        self.assertTrue(all(p.read_bytes()==raw for p,raw in prefix.items()))
+        self.assertEqual((len(j.entries),len(family.entries)),(26,53))
+        with self.assertRaises(c.Refused):j.append('VALIDITY_SOURCE_BOUND',**j.validity_revision)
+        bad=copy.deepcopy(j.entries[25]);bad['new_expiry_utc']='2099-01-01T00:00:00Z'
+        with self.assertRaises(c.Refused):self.s.verify_validity_entry(c,bad,j.validity_revision)
+
+    def test_first_v8_host_reaches_one_exact32_post_after_new_bound_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);budget=root/'canonical-journal';budget.mkdir()
+            state=root/('external-cohort-'+self.a['external_cohort']['scope']['namespace']);state.mkdir()
+            inp=root/'input.csv';inp.write_bytes(self.a['external_cohort']['input_csv'].encode())
+            class Journal:
+                def __init__(this,entries):this.entries=entries;this.directory=state;this.validity_revision={'fixture':True}
+                def reconcile(this,runs):pass
+                def close(this):pass
+                def append(this,kind,**data):this.entries.append(dict(kind=kind,**data))
+            first=dict(kind='EXTERNAL_COHORT_BOUND',recorded_utc=self.proof['proof_updated_utc'],
+                scope=self.a['external_cohort']['scope'],genesis_sha256=c.external_genesis(self.a['external_cohort']['scope']),**self.proof)
+            journal=Journal([first,dict(kind='VALIDITY_SOURCE_BOUND')]);family=Journal([])
+            observed=dict(self.observed(),cohort_runs=[self.p.refused]);posts=[]
+            def post(args,**kw):
+                self.assertEqual(args[1:3],['workflow','run']);data=json.loads(kw['input']);posts.append(data)
+                self.assertEqual(data['max_new_symbols'],'32');self.assertEqual(data['resume_sha256'],self.s.CP)
+                self.assertEqual(json.loads(data['campaign_control'])['authorization'],self.a)
+                return SimpleNamespace(returncode=1)
+            with patch.object(c,'local_reject_recovery',return_value={}),patch.object(c,'WorkJournal',return_value=Journal([])), \
+                 patch.object(c,'verify_external_budget_journal'),patch.object(c,'external_proof',return_value=self.proof), \
+                 patch.object(c,'external_family_registry',return_value=family),patch.object(c,'external_journal',return_value=journal), \
+                 patch.object(c,'external_history',return_value=observed),patch.object(c,'reconcile_external_family',return_value=None), \
+                 patch.object(c,'bind_source_revision'),patch.object(c,'external_deployed'), \
+                 patch.object(c,'campaign_runs',return_value=observed['runs']), \
+                 patch.object(c,'settled_parent',return_value=dict(file_id='fixture-cp128',sha256=self.s.CP)), \
+                 patch.object(c.subprocess,'run',side_effect=post),self.assertRaisesRegex(c.Refused,'CAMPAIGN_DISPATCH_UNCERTAIN'):
+                c.external_host(self.a,state,inp,budget,root/'unused',None,16)
+            self.assertEqual(len(posts),1);self.assertEqual(journal.entries[-1]['kind'],'RESERVED')
+            self.assertEqual(family.entries[-1]['kind'],'RESERVED')
 
 
 if __name__=='__main__': unittest.main()
