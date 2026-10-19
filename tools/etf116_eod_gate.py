@@ -162,7 +162,7 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
             if prior_receipt.get("input_digest") == digest:
                 normalized = {k:v for k,v in prior_receipt.items() if k not in ("schema", "receipt_sha256")}
                 normalized["state"] = "PREPARED_ONLY"
-                require(normalized == proposal, "PRIOR_RECEIPT_CONTENT_MISMATCH")
+                require(canonical_bytes(normalized) == canonical_bytes(proposal), "PRIOR_RECEIPT_CONTENT_MISMATCH")
                 return seal_receipt(dict(proposal, state="SKIP_UNCHANGED"))
             raise GateError("SAME_SESSION_CONFLICT_BLOCKED")
         try:

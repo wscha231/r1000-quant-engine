@@ -7455,3 +7455,4 @@ the current proposal. ETF EOD has no approved accepted-anchor verifier wired in;
 therefore even a hash-valid adjacent PREPARED receipt must refuse advancement.
 Absent prior means independent research preparation only, never accepted genesis.
 Do not borrow paper/macro acceptance namespaces or invent a caller approval flag.
+Exact receipt content uses canonical JSON bytes: Python dict equality treats false and zero as equal and cannot enforce immutable typed evidence.

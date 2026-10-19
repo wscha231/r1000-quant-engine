@@ -91,6 +91,16 @@ class SuccessorReviewTests(unittest.TestCase):
         self.assertEqual(third['non_publishable_rows'], first['non_publishable_rows'])
         self.assertFalse(third['publish_enabled'])
 
+    def test_eod_resealed_bool_cannot_equal_integer_receipt_content(self):
+        from tools import etf116_eod_gate as gate
+        frozen, packet = self.eod_packet()
+        first = gate.prepare(packet, frozen)
+        corrupt = {k:v for k,v in first.items() if k != 'receipt_sha256'}
+        self.assertEqual(corrupt['verified_count'], 0)
+        corrupt['verified_count'] = False
+        with self.assertRaisesRegex(gate.GateError, 'PRIOR_RECEIPT_CONTENT_MISMATCH'):
+            gate.prepare(packet, frozen, gate.seal_receipt(corrupt))
+
     def validate(self, day='2026-10-16', available='2026-10-16T20:00:00Z'):
         row = {'ticker': 'SPY', 'date': day, 'tr_index': 100., 'basis': 'NAV_TR_INDEX',
                'available_at_utc': available, 'source_sha256': '1' * 64}
