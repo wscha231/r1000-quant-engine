@@ -20,12 +20,10 @@ REVIEW = '2026-10-18T14:00:00Z'
 
 class DeltaRegression(unittest.TestCase):
     def setUp(self):
-        day, end = date(2025, 10, 16), date(2026, 10, 16)
-        self.sessions = []
-        while day <= end:
-            if day.weekday() < 5:
-                self.sessions.append(day.isoformat())
-            day += timedelta(days=1)
+        # A verified-session fixture must exclude actual NYSE holidays too.
+        import pandas_market_calendars as mcal
+        self.sessions = [stamp.date().isoformat() for stamp in
+            mcal.get_calendar('NYSE').schedule(start_date='2025-10-16', end_date='2026-10-16').index]
         self.rows = self.series('GARP')
 
     def series(self, ticker):

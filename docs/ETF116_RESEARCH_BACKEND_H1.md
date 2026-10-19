@@ -110,7 +110,12 @@ The current-master successor review also rejects future holdings-refresh
 checkpoints before planning a week. Same-date daily TR availability must follow
 the actual NYSE close from the existing Reader's offline holiday/half-day helper;
 midnight or a guessed regular close is insufficient. A next-UTC-day release is
-conservatively after session close. Calendar failures refuse same-date inputs.
+conservatively after session close. Every claimed date is checked with the same
+calendar even for next-day release, and adjacent claimed dates must be actual
+consecutive NYSE sessions. Packet-level schema/clock/grid/pre-close errors refuse
+before ticker recovery. Verified listing dates reject future listing and all
+pre-listing observations, including the separate daily-return output and optional
+SPY basis. Calendar failures refuse; no guessed holiday/weekdays-only grid.
 
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,

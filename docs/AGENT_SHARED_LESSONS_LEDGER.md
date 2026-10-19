@@ -7430,3 +7430,10 @@ daily-close TR rows need the same close boundary as the existing Reader: reuse
 its NYSE holiday/half-day helper for same-date availability, cache by session,
 and refuse missing calendar evidence. A next-UTC-day release is conservative;
 never infer a same-day close from the date alone or guess16:00 ET on a half day.
+
+Follow-up review also required every claimed date and adjacent NYSE session,
+not merely same-day releases. Validate shared packet session/decision/grid before
+ticker error recovery; otherwise malformed/pre-close packets can become hashed
+all-blocked artifacts. Verified listing dates protect daily-return rows too,
+including optional benchmark input. Synthetic calendar fixtures must use the
+actual NYSE grid when the production boundary is strengthened.

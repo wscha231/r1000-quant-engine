@@ -43,9 +43,50 @@ class SuccessorReviewTests(unittest.TestCase):
                 self.validate()
         verified_session_close.cache_clear()
 
-    def test_conservative_next_day_release_does_not_invent_a_close(self):
-        with patch('tools.etf116_research_metrics_h1.verified_session_close', side_effect=AssertionError('NO_GUESS')):
+    def test_next_day_release_still_verifies_calendar(self):
+        with patch('tools.etf116_research_metrics_h1.verified_session_close', wraps=verified_session_close) as close:
             self.validate(available='2026-10-17T00:00:00Z')
+            self.assertGreaterEqual(close.call_count, 1)
+
+    def test_later_available_holiday_observation_refuses(self):
+        row = {'ticker':'SPY','date':'2026-12-25','tr_index':100.,'basis':'NAV_TR_INDEX',
+               'available_at_utc':'2026-12-26T00:00:00Z','source_sha256':'1'*64}
+        with self.assertRaisesRegex(RefuseInput, 'SESSION_CLOSE_UNVERIFIED'):
+            validate_series([row],['2026-12-25'],ticker='SPY',asof='2026-12-25',
+                            decision_at='2026-12-27T00:00:00Z')
+
+    def test_bad_shared_metadata_refuses_before_any_output(self):
+        import json, tempfile
+        from tools import run_etf116_offline_research_h1 as runner
+        packet={'schema':'etf116-metrics-candidate-input-v1','scope_sha256':runner.EXPECTED_UNIVERSE_SHA256,
+                'session':'2026-10-16','decision_at_utc':'2026-10-18T00:00:00Z',
+                'verified_nyse_sessions':['2026-10-15','2026-10-16'],'source_candidate_rows':{}}
+        for key, bad in [('session','garbage'),('decision_at_utc','garbage'),
+                         ('verified_nyse_sessions',['2026-10-16','2026-10-15']),
+                         ('verified_nyse_sessions',['2026-10-15','2026-10-16','2026-12-25']),
+                         ('decision_at_utc','2026-10-16T00:00:00Z')]:
+            with tempfile.TemporaryDirectory() as td, self.subTest(key=key,bad=bad):
+                source, output=Path(td)/'in',Path(td)/'out'
+                source.write_text(json.dumps(dict(packet,**{key:bad})))
+                with self.assertRaises(RefuseInput):
+                    runner.run(source,Path(__file__).resolve().parents[1]/'research/etf116_v1/frozen_tickers.txt',output)
+                self.assertFalse(output.exists())
+
+    def test_missing_real_session_in_claimed_grid_refuses(self):
+        from tools.etf116_research_metrics_h1 import official_session_dates
+        with self.assertRaisesRegex(RefuseInput, 'CALENDAR_MISSING_NYSE_SESSION'):
+            official_session_dates(['2026-10-14','2026-10-16'], asof='2026-10-16')
+
+    def test_future_listing_and_prelisting_rows_refuse_daily_returns(self):
+        from tools.etf116_research_metrics_h1 import compute_horizons
+        rows=[{'ticker':'SPY','date':day,'tr_index':100.+i,'basis':'NAV_TR_INDEX',
+               'available_at_utc':'2026-10-18T00:00:00Z','source_sha256':'1'*64}
+              for i,day in enumerate(['2026-10-15','2026-10-16'])]
+        for listing, reason in [('2026-10-20','LISTING_AFTER_ASOF'),
+                                ('2026-10-16','OBSERVATION_BEFORE_LISTING')]:
+            with self.subTest(listing=listing), self.assertRaisesRegex(RefuseInput,reason):
+                compute_horizons(ticker='SPY',asof='2026-10-16',decision_at='2026-10-18T00:00:00Z',
+                    official_sessions=['2026-10-15','2026-10-16'],tr_rows=rows,issuer_listing_date=listing)
 
     def planner(self, checkpoint, enabled=True):
         return plan_existing_trigger(session='2026-10-16', close_utc='2026-10-16T20:00:00Z',

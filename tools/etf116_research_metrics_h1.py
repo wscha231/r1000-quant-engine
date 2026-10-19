@@ -16,7 +16,7 @@ import json
 import math
 import statistics
 from bisect import bisect_right
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta, time
 from functools import lru_cache
 from typing import Any
 
@@ -71,9 +71,12 @@ def official_session_dates(rows: list[str], *, asof: str) -> list[str]:
     end = d(asof)
     require(isinstance(rows, list) and bool(rows), 'CALENDAR_EMPTY')
     require(len(rows) == len(set(rows)) and rows == sorted(rows), 'CALENDAR_UNSORTED_OR_DUPLICATE')
-    for s in rows:
+    for i, s in enumerate(rows):
         day = d(s)
         require(day.weekday() < 5 and day <= end, 'CALENDAR_INVALID_SESSION')
+        verified_session_close(s)
+        if i:
+            require(verified_previous_session(s) == rows[i-1], 'CALENDAR_MISSING_NYSE_SESSION')
     require(rows[-1] == asof, 'CALENDAR_ASOF_SESSION_MISSING')
     return rows
 
@@ -88,12 +91,27 @@ def verified_session_close(session: str) -> datetime:
         raise RefuseInput('SERIES_SESSION_CLOSE_UNVERIFIED') from None
 
 
+@lru_cache(maxsize=8192)
+def verified_previous_session(session: str) -> str:
+    from r1000_legacy_input_guard import latest_completed_close
+    try:
+        previous, _, _ = latest_completed_close(datetime.combine(
+            d(session) - timedelta(days=1), time.max, timezone.utc))
+        return previous
+    except Exception:
+        raise RefuseInput('SERIES_SESSION_CLOSE_UNVERIFIED') from None
+
+
 def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
                     ticker: str, asof: str, decision_at: str,
-                    rights_allowed: bool = False) -> dict[str, Any]:
+                    rights_allowed: bool = False,
+                    issuer_listing_date: str | None = None) -> dict[str, Any]:
     require(isinstance(rows, list), 'SERIES_NOT_LIST')
+    official_session_dates(sessions, asof=asof)
     dec = ts(decision_at)
     require(d(asof) <= dec.date(), 'SERIES_REVIEW_BEFORE_ASOF')
+    if issuer_listing_date is not None:
+        require(d(issuer_listing_date) <= d(asof), 'SERIES_LISTING_AFTER_ASOF')
     all_sessions = set(sessions)
     entries: dict[str, float] = {}
     sources: set[str] = set()
@@ -104,6 +122,8 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
         dt = row.get('date')
         d(dt)
         require(dt in all_sessions and dt <= asof, 'SERIES_INVALID_SESSION')
+        if issuer_listing_date is not None:
+            require(dt >= issuer_listing_date, 'SERIES_OBSERVATION_BEFORE_LISTING')
         require(dt not in entries, 'SERIES_DUPLICATE_SESSION')
         basis = row.get('basis')
         require(type(basis) is str and basis in BASIS, 'SERIES_NOT_TOTAL_RETURN_INDEX')
@@ -112,10 +132,7 @@ def validate_series(rows: list[dict[str, Any]], sessions: list[str], *,
         require(type(value) in (int, float) and math.isfinite(value) and value > 0, 'SERIES_BAD_TR_VALUE')
         availability = ts(row.get('available_at_utc'))
         require(availability.date() >= d(dt), 'SERIES_AVAILABLE_BEFORE_OBSERVATION')
-        # Next-UTC-day release is conservatively after a NYSE close. Same-date
-        # release needs the actual existing calendar, never a guessed16:00 ET.
-        if availability.date() == d(dt):
-            require(availability >= verified_session_close(dt), 'SERIES_AVAILABLE_BEFORE_SESSION_CLOSE')
+        require(availability >= verified_session_close(dt), 'SERIES_AVAILABLE_BEFORE_SESSION_CLOSE')
         require(availability <= dec, 'SERIES_DATA_NOT_AVAILABLE_BY_REVIEW')
         source = row.get('source_sha256')
         require(type(source) is str and len(source) == 64 and all(k in '0123456789abcdef' for k in source),
@@ -257,17 +274,20 @@ def compute_horizons(*, ticker: str, asof: str, decision_at: str,
                      benchmark_rows: list[dict[str, Any]] | None = None,
                      source_rights_verified: bool = False,
                      benchmark_source_rights_verified: bool = False,
-                     benchmark_present: bool = False) -> dict[str, Any]:
+                     benchmark_present: bool = False,
+                     benchmark_listing_date: str | None = None) -> dict[str, Any]:
     official_session_dates(official_sessions, asof=asof)
     series = validate_series(tr_rows, official_sessions, ticker=ticker, asof=asof,
-                             decision_at=decision_at, rights_allowed=source_rights_verified)
+                             decision_at=decision_at, rights_allowed=source_rights_verified,
+                             issuer_listing_date=issuer_listing_date)
     bench = None
     benchmark_input_status = None
     if benchmark_rows is not None or benchmark_present:
         try:
             bench = validate_series(benchmark_rows, official_sessions, ticker='SPY',
                                     asof=asof, decision_at=decision_at,
-                                    rights_allowed=benchmark_source_rights_verified)
+                                    rights_allowed=benchmark_source_rights_verified,
+                                    issuer_listing_date=benchmark_listing_date)
         except RefuseInput as exc:
             # SPY is an optional comparison; invalid subject input still refuses.
             benchmark_input_status = 'BLOCKED_OPTIONAL_BENCHMARK_' + str(exc)

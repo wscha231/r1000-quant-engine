@@ -12,15 +12,29 @@ import sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
-from tools.etf116_research_metrics_h1 import compute_horizons, canonical_hash, RefuseInput
+from tools.etf116_research_metrics_h1 import (compute_horizons, canonical_hash, RefuseInput,
+    d, ts, require, official_session_dates, verified_session_close)
 
 from tools.etf116_eod_gate import validate_universe, EXPECTED_UNIVERSE_SHA256
+
+
+def validate_metadata(input_obj):
+    require(isinstance(input_obj, dict), 'OFFLINE_INPUT_NOT_OBJECT')
+    require(input_obj.get('schema') == 'etf116-metrics-candidate-input-v1', 'OFFLINE_INPUT_SCHEMA')
+    require(input_obj.get('scope_sha256') == EXPECTED_UNIVERSE_SHA256, 'OFFLINE_FROZEN_SCOPE_HASH')
+    session = input_obj.get('session')
+    day = d(session)
+    decision = ts(input_obj.get('decision_at_utc'))
+    require(day <= decision.date(), 'SERIES_REVIEW_BEFORE_ASOF')
+    official_session_dates(input_obj.get('verified_nyse_sessions'), asof=session)
+    require(decision >= verified_session_close(session), 'OFFLINE_DECISION_BEFORE_SESSION_CLOSE')
 
 
 def run(input_path: Path, frozen_path: Path, out_path: Path):
     frozen=validate_universe(frozen_path.read_text(encoding='utf-8').splitlines())
     source_bytes=input_path.read_bytes()
     input_obj=json.loads(source_bytes)
+    validate_metadata(input_obj)
     if input_obj.get('schema')!='etf116-metrics-candidate-input-v1':
         raise RefuseInput('OFFLINE_INPUT_SCHEMA')
     if input_obj.get('scope_sha256')!=EXPECTED_UNIVERSE_SHA256:
@@ -49,6 +63,7 @@ def run(input_path: Path, frozen_path: Path, out_path: Path):
                 issuer_listing_date=issuer_dates.get(ticker),rf_rows=rf,
                 benchmark_rows=bench if ticker!='SPY' else None,
                 benchmark_present=ticker!='SPY' and 'SPY' in candidates,
+                benchmark_listing_date=issuer_dates.get('SPY'),
                 source_rights_verified=False,benchmark_source_rights_verified=False)
         except RefuseInput as exc:
             status[ticker]={'ticker':ticker,'state':'BLOCKED_RESEARCH_INPUT',
