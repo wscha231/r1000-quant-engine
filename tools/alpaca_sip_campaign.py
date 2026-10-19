@@ -114,7 +114,8 @@ def _module():
 def _revision_module(auth=None):
     if auth is not None:
         require(digest(encoded(auth)) in ("f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74",
-                "e161e75af88243b1220d2677bbac83ef2f6f4a7f36202ce13299d0d3033fc07e")
+                "e161e75af88243b1220d2677bbac83ef2f6f4a7f36202ce13299d0d3033fc07e",
+                "6e651b15b28180da5c47f5a024c45e695fdf0ebe1b5823f57ecd400a7cf03b08")
                 or digest(bounded_bytes(ROOT/REVISION_MODULE,262144).replace(b"\r\n",b"\n"))
                 == auth["code_pins"].get(REVISION_MODULE),"CAMPAIGN_CODE_DRIFT")
     from tools import alpaca_sip_source_revision
@@ -226,7 +227,9 @@ def validate_authorization(auth):
     require(not (continued and external), "CAMPAIGN_AUTHORIZATION")
     require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | (
             {"external_cohort"} if external else {"continuation"} if continued else set())
-            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v8" if has_source_revision(auth)
+            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v9" if has_source_revision(auth)
+                                       and "control_refusal_reference" in auth["external_cohort"]["source_revision"] else
+                                       "r1000-sip-external-cohort-authorization-v8" if has_source_revision(auth)
                                        and "validity_reference" in auth["external_cohort"]["source_revision"] else
                                        "r1000-sip-external-cohort-authorization-v7" if has_source_revision(auth)
                                        and "refusal_closure_sha256" in auth["external_cohort"]["source_revision"] else
@@ -1044,7 +1047,7 @@ class WorkJournal:
     """
     def __init__(self, directory, auth_hash, recovery=None, continuation=None, revision=None, drive_revision=None,
                  material_revision=None, native_revision=None, source_revision=None, refusal_revision=None, refusal_closure=None,
-                 validity_revision=None):
+                 validity_revision=None, control_revision=None, control_closure=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -1070,6 +1073,7 @@ class WorkJournal:
         self.source_revision = source_revision
         self.refusal_revision, self.refusal_closure = refusal_revision, refusal_closure
         self.validity_revision=validity_revision
+        self.control_revision,self.control_closure=control_revision,control_closure
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -1077,7 +1081,8 @@ class WorkJournal:
                 raw = bounded_bytes(path)
                 entry = decode(raw)
                 require(entry.get("previous_sha256") == self.parent
-                        and entry.get("auth_sha256") == (_revision_module().V7_AUTH if validity_revision and index==25 else _revision_module().V6_AUTH
+                        and entry.get("auth_sha256") == (_revision_module().V8_AUTH if control_revision and 26<=index<=29 else
+                            _revision_module().V7_AUTH if validity_revision and index==25 else _revision_module().V6_AUTH
                             if refusal_revision and 20 < index <= 24 else _revision_module().OLD_AUTH
                             if source_revision and 10 < index <= 20 else NATIVE18_RECOVERY["prior_auth"]
                             if native_revision and index <= NATIVE18_RECOVERY["events"] else
@@ -1161,6 +1166,12 @@ class WorkJournal:
                 if validity_revision and index==26:
                     require(raw==encoded(entry),"EXTERNAL_VALIDITY_BINDING")
                     _revision_module().verify_validity_entry(_module(),entry,validity_revision)
+                if control_revision and index==29:
+                    require(raw==encoded(entry) and entry==_revision_module().control_closure_entry(_module(),
+                        control_closure["payload"],control_closure["cohort_event"]["recorded_utc"]),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+                if control_revision and index==30:
+                    require(raw==encoded(entry),"EXTERNAL_CONTROL_SOURCE_BINDING")
+                    _revision_module().verify_control_source_entry(_module(),entry,control_revision,control_closure)
                 if continuation and index == CONTINUATION["events"]:
                     require(self.parent == CONTINUATION["event"] and entry.get("kind") == "SETTLED",
                             "CAMPAIGN_CONTINUATION_PREFIX")
@@ -1212,6 +1223,13 @@ class WorkJournal:
             _revision_module().verify_correction_entry(_module(),entry,self.refusal_revision,self.refusal_closure)
         if kind=="VALIDITY_SOURCE_BOUND" and self.validity_revision:
             _revision_module().verify_validity_entry(_module(),entry,self.validity_revision)
+        if kind=="CONTROL_READ_REFUSAL_CLOSED":
+            require(entry==_revision_module().control_closure_entry(_module(),data,entry["recorded_utc"],
+                self.auth_hash==external_family_genesis()),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+        if kind=="CONTROL_SOURCE_BOUND":
+            require(self.control_revision is not None,"EXTERNAL_CONTROL_SOURCE_BINDING")
+            _revision_module().verify_control_source_entry(_module(),entry,self.control_revision,self.control_closure,
+                self.auth_hash==external_family_genesis())
         if kind == "SOURCE_REVISION_BOUND" and self.source_revision:
             require(len(self.entries) == 20 and data == self.source_revision,"EXTERNAL_SOURCE_REVISION_BINDING")
             _revision_module().verify_entry(_module(),entry,self.source_revision)
@@ -1291,87 +1309,11 @@ def verify_worker_source(auth):
 
 
 def verify_orphan_inventory(evidence):
-    require(isinstance(evidence, dict) and set(evidence) ==
-            {"schema", "observed_at_utc", "window", "files_count", "has_more", "entries"}
-            and evidence["schema"] == "a1-bounded-orphan-inventory-v1"
-            and evidence["window"] == [DRIVE_RECOVERY["window_start"], DRIVE_RECOVERY["window_end"]]
-            and (evidence["files_count"] is None or type(evidence["files_count"]) is int
-                 and 0 <= evidence["files_count"] <= 1_000_000)
-            and type(evidence["has_more"]) is bool and isinstance(evidence["entries"], list)
-            and len(evidence["entries"]) <= 8
-            and isinstance(evidence["observed_at_utc"], str)
-            and utc(DRIVE_RECOVERY["window_end"]) <= utc(evidence["observed_at_utc"]) <= utc(),
-            "EXTERNAL_ORPHAN_DIAGNOSTIC")
-    for row in evidence["entries"]:
-        require(isinstance(row, dict) and set(row) == {"kind", "sha256", "bytes", "created_at_utc"}
-                and row["kind"] in {"RAW", "NORMALIZED", "JSON", "OTHER"}
-                and (row["sha256"] is None or isinstance(row["sha256"], str)
-                     and re.fullmatch(r"[0-9a-f]{64}", row["sha256"]))
-                and (row["bytes"] is None or type(row["bytes"]) is int and 0 <= row["bytes"] <= 16_000_000)
-                and (row["created_at_utc"] is None or
-                     utc(DRIVE_RECOVERY["window_start"]) <= utc(row["created_at_utc"]) <= utc()),
-                "EXTERNAL_ORPHAN_DIAGNOSTIC")
+    return _revision_module().verify_orphan_inventory(_module(),evidence)
 
 
-def verify_drive_reuse(reuse, identity):
-    material = isinstance(reuse, dict) and "materialization" in reuse
-    spec = MATERIALIZATION_RECOVERY if material else DRIVE_RECOVERY
-    require(isinstance(reuse, dict) and set(reuse) == {
-        "failed_run_id", "capture_source_sha", "derivation_source_sha", "raw_sha256", "normalized_sha256",
-        "external_proof_sha256", "derivation_run_id", "derivation_auth_sha256", "parent_checkpoint_sha256",
-        "derived_at_utc", "failed_run_observation_window"} | ({"materialization"} if material else set())
-        and reuse["failed_run_id"] == spec["run_id"]
-        and type(reuse["failed_run_id"]) is int
-        and reuse["capture_source_sha"] == DRIVE_RECOVERY["master"]
-        and reuse["derivation_source_sha"] == identity["source_sha"]
-        and type(reuse["derivation_run_id"]) is int and reuse["derivation_run_id"] == identity["run_id"]
-        and reuse["derivation_auth_sha256"] == identity["auth_sha256"]
-        and reuse["external_proof_sha256"] == identity["external_proof_sha256"]
-        and reuse["parent_checkpoint_sha256"] == DRIVE_RECOVERY["checkpoint_sha256"]
-        and reuse["failed_run_observation_window"] == [DRIVE_RECOVERY["window_start"], DRIVE_RECOVERY["window_end"]]
-        and all(isinstance(reuse[k], str) and re.fullmatch(r"[0-9a-f]{64}", reuse[k])
-                for k in ("raw_sha256", "normalized_sha256"))
-        and isinstance(reuse["derived_at_utc"], str)
-        and utc(DRIVE_RECOVERY["window_end"]) <= utc(reuse["derived_at_utc"]) <= utc(), "EXTERNAL_ORPHAN_PROVENANCE")
-    if material:
-        data = reuse["materialization"]
-        evidence = identity.get("orphan_inventory")
-        verify_orphan_inventory(evidence)
-        entries = evidence["entries"]
-        originals = [row for row in entries if row["kind"] == "RAW"]
-        normalized = [row for row in entries if row["kind"] == "NORMALIZED"]
-        require(evidence["has_more"] is False and evidence["files_count"] == len(entries)
-                and 1 <= len(entries) <= 8 and len(originals) == 1 and len(normalized) <= 1
-                and all(row["kind"] != "OTHER" and row["sha256"] is not None
-                        and row["bytes"] is not None and 0 < row["bytes"] < 16_000_000
-                        and row["created_at_utc"] is not None
-                        and utc(DRIVE_RECOVERY["window_start"]) <= utc(row["created_at_utc"])
-                            <= utc(DRIVE_RECOVERY["window_end"]) for row in entries)
-                and originals[0]["sha256"] == reuse["raw_sha256"]
-                and originals[0]["bytes"] == DRIVE_RECOVERY["raw_bytes"]
-                and (not normalized or normalized[0]["sha256"] == reuse["normalized_sha256"]),
-                "EXTERNAL_ORPHAN_INVENTORY_CLOSURE")
-        require(isinstance(data, dict) and set(data) == {"capture_failed_run_id", "rows_sha256", "codec", "mode",
-                "created_at_utc", "lookup_observed_at_utc", "inventory_sha256", "original_create_outcome"}
-                and data["capture_failed_run_id"] == DRIVE_RECOVERY["run_id"]
-                and type(data["capture_failed_run_id"]) is int
-                and isinstance(data["rows_sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", data["rows_sha256"])
-                and data["mode"] in {"EXISTING_VERIFIED", "DERIVED_NEW"}
-                and data["codec"] in {"EXISTING_GZIP_VERIFIED", "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9"}
-                and data["codec"] == {"DERIVED_NEW":"GZIP_FILENAME_EMPTY_MTIME0_LEVEL9",
-                                      "EXISTING_VERIFIED":"EXISTING_GZIP_VERIFIED"}[data["mode"]]
-                and data["original_create_outcome"] == "UNKNOWN"
-                and data["inventory_sha256"] == digest(encoded(evidence))
-                and isinstance(data["created_at_utc"], str) and isinstance(data["lookup_observed_at_utc"], str)
-                and utc(evidence["observed_at_utc"]) <= utc(data["lookup_observed_at_utc"])
-                and utc(data["created_at_utc"]) <= utc(data["lookup_observed_at_utc"])
-                    <= utc(reuse["derived_at_utc"])
-                and (not normalized or data["mode"] == "EXISTING_VERIFIED"
-                     and utc(data["created_at_utc"]) == utc(normalized[0]["created_at_utc"]))
-                and (normalized or data["mode"] != "EXISTING_VERIFIED" or not
-                     utc(DRIVE_RECOVERY["window_start"]) <= utc(data["created_at_utc"]) <= utc(DRIVE_RECOVERY["window_end"]))
-                and (data["mode"] != "DERIVED_NEW" or utc(evidence["observed_at_utc"]) <= utc(data["created_at_utc"])),
-                "EXTERNAL_MATERIAL_PROVENANCE")
+def verify_drive_reuse(reuse,identity):
+    return _revision_module().verify_drive_reuse(_module(),reuse,identity)
 
 
 def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False):
@@ -1972,137 +1914,7 @@ def external_genesis(scope):
 
 
 def validate_external_authorization(auth):
-    if has_source_revision(auth):
-        return _revision_module(auth).validate(_module(),auth)
-    from tools import alpaca_sip_private_backfill_v1 as cap
-    ex = auth["external_cohort"]
-    revised = isinstance(ex, dict) and "named_recovery" in ex
-    drive_revised = isinstance(ex, dict) and "drive_recovery" in ex
-    material_revised = isinstance(ex, dict) and "materialization_recovery" in ex
-    native_revised = isinstance(ex, dict) and "native18_recovery" in ex
-    require(isinstance(ex, dict) and set(ex) == {"scope", "input_csv", "intake_manifest_sha256",
-            "receipt_dedupe_sha256", "prior_authorization", "prior_epochs", "proof_reference"}
-            | ({"named_recovery"} if revised else set())
-            | ({"drive_recovery"} if drive_revised else set())
-            | ({"materialization_recovery"} if material_revised else set())
-            | ({"native18_recovery"} if native_revised else set()), "EXTERNAL_AUTHORIZATION")
-    scope = cap.external_scope(ex["scope"])
-    require(isinstance(ex["input_csv"], str), "EXTERNAL_COHORT_SCHEMA")
-    raw = ex["input_csv"].encode("utf-8")
-    names = cap.external_cohort(raw)
-    require(digest(raw) == scope["input_sha256"], "EXTERNAL_COHORT_HASH")
-    for key in ("intake_manifest_sha256", "receipt_dedupe_sha256"):
-        require(isinstance(ex[key], str) and re.fullmatch(r"[0-9a-f]{64}", ex[key]), "EXTERNAL_INPUT_PROOF")
-    prior = ex["prior_authorization"]
-    require(isinstance(prior, dict) and set(prior) == AUTH_FIELDS
-            and validate_authorization(prior) == CONTINUATION["auth"], "EXTERNAL_BUDGET_ORIGIN")
-    fixed = AUTH_FIELDS - {"schema", "limits", "expected_master", "code_pins", "account_permission_reference",
-                           "owner_permission_id", "credential_binding"}
-    require(all(auth[k] == prior[k] for k in fixed)
-            and auth["expected_master"] != prior["expected_master"]
-            and (auth["owner_permission_id"] is None or
-                 digest(auth["owner_permission_id"].encode()) == CONTINUATION["bindings"]["owner_sha256"])
-            and auth["credential_binding"] == CONTINUATION["bindings"]["credential_binding"]
-            and prior["owner_permission_id"] in (None, auth["owner_permission_id"])
-            and prior["credential_binding"] in (None, auth["credential_binding"]), "EXTERNAL_BUDGET_ORIGIN")
-    require(isinstance(ex["proof_reference"], str) and re.fullmatch(
-        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+", ex["proof_reference"])
-        and auth["account_permission_reference"] == ex["proof_reference"], "EXTERNAL_PROOF_REFERENCE")
-    # Two bounded epochs: the explicit discovery input, then the deduplicated
-    # market-cap input. Refuse recursive cycles/extra epochs before recursing.
-    epochs = ex["prior_epochs"]
-    require(isinstance(epochs, list) and len(epochs) <= 1, "EXTERNAL_EPOCH_LIMIT")
-    for previous in epochs:
-        require(isinstance(previous, dict) and isinstance(previous.get("external_cohort"), dict)
-                and previous["external_cohort"].get("prior_epochs") == [], "EXTERNAL_EPOCH_LIMIT")
-        validate_authorization(previous)
-        old = previous["external_cohort"]
-        require(old["prior_authorization"] == prior and old["scope"]["namespace"] != scope["namespace"]
-                and all(auth[k] == previous[k] for k in fixed)
-                and set(names).isdisjoint(cap.external_cohort(old["input_csv"].encode())), "EXTERNAL_RECOLLECTION")
-    # These144 names have already been examined in the original immutable chain.
-    # Existing no-data observations remain retained rather than being retried.
-    require(digest(cap.SEED.read_bytes().replace(b"\r\n", b"\n")) == SEED_SHA, "CAMPAIGN_SEED")
-    require(set(names).isdisjoint(cap.cohort(cap.SEED.read_bytes())[:CONTINUATION["examined"]]),
-            "EXTERNAL_RECOLLECTION")
-    require(len(encoded(auth)) <= 15000, "CAMPAIGN_CONTROL_SIZE")
-    if native_revised:
-        previous = external_previous(auth)
-        require(isinstance(ex["native18_recovery"],dict) and set(ex["native18_recovery"]) == {"settlement_sha256"}
-                and isinstance(ex["native18_recovery"]["settlement_sha256"],str)
-                and re.fullmatch(r"[0-9a-f]{64}",ex["native18_recovery"]["settlement_sha256"])
-                and not (revised or drive_revised or material_revised)
-                and len(ex["prior_epochs"]) == 1
-                and scope == dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
-                    namespace="top500-20261017",
-                    input_sha256=cap.STORAGE_QUARANTINE["input_sha256"])
-                and len(names) == 417 and names[76:80] == ["VLO","MFG","BP","BTI"]
-                and validate_authorization(previous) == NATIVE18_RECOVERY["prior_auth"]
-                and auth["expected_master"] not in (previous["expected_master"], NATIVE18_MASTER)
-                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
-                "EXTERNAL_NATIVE18_RECOVERY")
-    elif material_revised:
-        recovery = ex["materialization_recovery"]
-        require(drive_revised and revised and isinstance(recovery, dict) and set(recovery) ==
-                {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
-                "EXTERNAL_MATERIAL_RECOVERY")
-        source = recovery["prior_capture_source"]
-        require(isinstance(source, dict) and set(source) == {"expected_master", "code_pins", "proof_reference"}
-                and ex["prior_epochs"] == [], "EXTERNAL_MATERIAL_RECOVERY")
-        previous = external_previous(auth)
-        require(validate_authorization(previous) == MATERIALIZATION_RECOVERY["prior_auth"]
-                and previous["expected_master"] == MATERIALIZATION_RECOVERY["master"]
-                and all(recovery[k] == MATERIALIZATION_RECOVERY[v] and type(recovery[k]) is type(MATERIALIZATION_RECOVERY[v])
-                        for k,v in (("failed_run_id","run_id"),("failed_receipt_sha256","receipt_sha256"),
-                                    ("checkpoint_sha256","checkpoint_sha256"),("examined","examined")))
-                and all(ex[k] == previous["external_cohort"][k] for k in ex
-                        if k not in ("materialization_recovery", "proof_reference"))
-                and all(auth[k] == previous[k] for k in AUTH_FIELDS
-                        - {"schema", "expected_master", "code_pins", "account_permission_reference"})
-                and auth["expected_master"] != previous["expected_master"]
-                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
-                "EXTERNAL_MATERIAL_RECOVERY")
-    elif drive_revised:
-        recovery = ex["drive_recovery"]
-        require(revised and isinstance(recovery, dict) and set(recovery) ==
-                {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
-                "EXTERNAL_DRIVE_RECOVERY")
-        source = recovery["prior_capture_source"]
-        require(isinstance(source, dict) and set(source) == {"expected_master", "code_pins", "proof_reference"}
-                and ex["prior_epochs"] == [], "EXTERNAL_DRIVE_RECOVERY")
-        previous = external_previous(auth)
-        require(validate_authorization(previous) == DRIVE_RECOVERY["prior_auth"]
-                and previous["expected_master"] == DRIVE_RECOVERY["master"]
-                and all(recovery[k] == DRIVE_RECOVERY[v] and type(recovery[k]) is type(DRIVE_RECOVERY[v])
-                        for k,v in (("failed_run_id","run_id"),("failed_receipt_sha256","receipt_sha256"),
-                                    ("checkpoint_sha256","checkpoint_sha256"),("examined","examined")))
-                and all(ex[k] == previous["external_cohort"][k] for k in ex
-                        if k not in ("drive_recovery", "proof_reference"))
-                and all(auth[k] == previous[k] for k in AUTH_FIELDS
-                        - {"schema", "expected_master", "code_pins", "account_permission_reference"})
-                and auth["expected_master"] != previous["expected_master"]
-                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
-                "EXTERNAL_DRIVE_RECOVERY")
-    elif revised:
-        recovery = ex["named_recovery"]
-        require(isinstance(recovery, dict) and set(recovery) ==
-                {"prior_capture_source", "failed_run_id", "failed_receipt_sha256", "checkpoint_sha256", "examined"},
-                "EXTERNAL_NAMED_RECOVERY")
-        source = recovery["prior_capture_source"]
-        require(isinstance(source, dict) and set(source) == {"expected_master", "code_pins", "proof_reference"}
-                and ex["prior_epochs"] == [], "EXTERNAL_NAMED_RECOVERY")
-        previous = external_previous(auth)
-        require(validate_authorization(previous) == NAMED_RECOVERY["prior_auth"]
-                and all(recovery[k] == NAMED_RECOVERY[v] and type(recovery[k]) is type(NAMED_RECOVERY[v])
-                        for k,v in (("failed_run_id","run_id"),("failed_receipt_sha256","receipt_sha256"),
-                                    ("checkpoint_sha256","checkpoint_sha256"),("examined","examined")))
-                and all(ex[k] == previous["external_cohort"][k] for k in ex
-                        if k not in ("named_recovery", "proof_reference"))
-                and all(auth[k] == previous[k] for k in AUTH_FIELDS
-                        - {"schema", "expected_master", "code_pins", "account_permission_reference"})
-                and auth["expected_master"] != previous["expected_master"]
-                and ex["proof_reference"] != previous["external_cohort"]["proof_reference"],
-                "EXTERNAL_NAMED_RECOVERY")
+    return _revision_module().validate_external_authorization(_module(),auth)
 
 
 def external_previous(auth):
@@ -2164,7 +1976,8 @@ def external_revision(auth, proof):
 def external_transitions(auth):
     return external_recoveries(auth)+([_revision_module().SPEC] if has_source_revision(auth) else [])+(
         [dict(kind="CORRECTIVE_SOURCE")] if has_source_revision(auth) and _revision_module().corrective(auth) else [])+(
-        [dict(kind="VALIDITY_SOURCE")] if has_source_revision(auth) and _revision_module().renewed(auth) else [])
+        [dict(kind="VALIDITY_SOURCE")] if has_source_revision(auth) and _revision_module().renewed(auth) else [])+(
+        [dict(kind="CONTROL_SOURCE")] if has_source_revision(auth) and _revision_module().control_corrective(auth) else [])
 
 
 def external_journal(directory, auth, proof, *, epoch_proofs=None):
@@ -2197,15 +2010,20 @@ def external_journal(directory, auth, proof, *, epoch_proofs=None):
                 "EXTERNAL_NATIVE18_PREFIX")
     source = source_binding(auth,proof,epoch_proofs) if has_source_revision(auth) else None
     corrective = has_source_revision(auth) and _revision_module().corrective(auth)
+    control=control_closure_for_auth(auth) if has_source_revision(auth) and _revision_module().control_corrective(auth) else None
     return WorkJournal(directory, validate_authorization(auth), revision=revision,
                        drive_revision=drive_revision, material_revision=material_revision, native_revision=native_revision,
                        source_revision=source,refusal_revision=corrective_binding(auth,proof,epoch_proofs) if corrective else None,
                        refusal_closure=refusal_closure_for_auth(auth) if corrective else None,
-                       validity_revision=_revision_module().validity_binding(_module(),auth,proof,validity_grant_proof(auth))
-                           if has_source_revision(auth) and _revision_module().renewed(auth) else None)
+                       validity_revision=validity_binding(auth,proof,epoch_proofs)
+                           if has_source_revision(auth) and _revision_module().renewed(auth) else None,
+                       control_revision=_revision_module().control_source_binding(_module(),auth,proof,control) if control else None,
+                       control_closure=control)
 
 
 def active_external_revision(journal):
+    if getattr(journal,"control_revision",None):
+        return journal.control_revision,None,"CONTROL_SOURCE_BOUND"
     if getattr(journal,"validity_revision",None):
         return journal.validity_revision,None,"VALIDITY_SOURCE_BOUND"
     if getattr(journal,"refusal_revision",None):
@@ -2238,7 +2056,11 @@ def external_proof(auth):
     expected=external_proof_record(auth)
     comment=gh_json(f"repos/{REPO}/issues/comments/{int(auth['external_cohort']['proof_reference'].rsplit('-',1)[1])}")
     grant=validity_grant_comment(auth) if _revision_module().renewed(auth) else None
-    return _revision_module().verify_external_proof(_module(),auth,expected,comment,grant)
+    link=None
+    if _revision_module().control_corrective(auth):
+        link=control_closure_for_auth(auth,envelope=True)
+        link["prior_proof"]=external_proof(external_previous(auth))
+    return _revision_module().verify_external_proof(_module(),auth,expected,comment,grant,link)
 
 
 def external_batch(examined,count,auth=None):
@@ -2339,6 +2161,7 @@ def sync_native18_settlement(path):
 
 
 def verify_native18_shared(registry,auth):
+    if has_source_revision(auth) and _revision_module().control_corrective(auth):auth=external_previous(auth)
     if has_source_revision(auth) and _revision_module().renewed(auth):auth=external_previous(auth)
     if has_source_revision(auth):
         auth = external_previous(auth)
@@ -2382,7 +2205,7 @@ def append_native18_settlement(registry,source_sha,code_pins):
 
 
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
-                     native_read_run=None, native18_accounting=False, refusal_accounting=False):
+                     native_read_run=None, native18_accounting=False, refusal_accounting=False, control_accounting_log=None):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2421,17 +2244,33 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
             and allow_stopped and len(runs)==22,"EXTERNAL_REFUSAL_ACCOUNTING")
     if corrective:
         refusal_closure_for_auth(auth)
+    sr=_revision_module();control=has_source_revision(auth) and sr.control_corrective(auth)
+    if control_accounting_log is not None:
+        require(auth_hash==sr.V8_AUTH and current_run is None and recovery_run is None and allow_stopped
+            and not refusal_accounting and not native18_accounting and native_read_run is None
+            and len(runs)==23,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
     used, active = {k: 0 for k in LIMITS}, 0
     local = [dict(parent=external_genesis(a["external_cohort"]["scope"]), examined=0,
                   receipts=[], runs=[], durations=[], version=0, named_failures=set()) for a in epochs]
     old_parent, old_examined = INITIAL_SHA, 16
     receipts, durations, epoch_index = [], [], 0
     for index, run in enumerate(previous):
+        if (control or control_accounting_log is not None) and run.get("id")==sr.CONTROL_RUN:
+            state=local[-1];old=external_previous(auth) if control else auth
+            require(index==22,"EXTERNAL_CONTROL_REFUSAL_PREFIX")
+            sr.verify_validity_parent(_module(),old,state,used,active,previous[:index],proofs)
+            require(proofs.get(sr.V8_AUTH,{}).get("proof_sha256")==sr.V8_PROOF,"EXTERNAL_CONTROL_PRIOR_PROOF")
+            value=control_failure_evidence(old,run,sealed_auth=auth if control else None,local_log=control_accounting_log)
+            state["version"]=4
+            state["runs"].append(run);state["receipts"].append(value);state["durations"].append(195)
+            receipts.append(value);durations.append(195);active+=195
+            continue
         if (corrective or refusal_accounting) and run.get("id")==_revision_module().REFUSAL_RUN:
             sr=_revision_module(); state=local[-1]
             require(index==21 and [r['id'] for r in previous[:21]]==sr.BASIS_IDS,"EXTERNAL_REFUSAL_PREFIX")
             sr.verify_transition(_module(),state,used,active)
-            value=refusal_evidence(external_previous(_revision_module().corrective_auth(_module(),auth)) if corrective else auth,run)
+            value=refusal_evidence(external_previous(_revision_module().corrective_auth(_module(),auth)) if corrective else auth,
+                                   run,sealed_auth=auth if corrective else None)
             state["version"]=2
             state["runs"].append(run);state["receipts"].append(value);state["durations"].append(185)
             receipts.append(value);durations.append(185);active+=185
@@ -2589,9 +2428,16 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
 _REFUSAL_EVIDENCE_CACHE = {}
 
 
-def refusal_evidence(auth,run):
+def refusal_evidence(auth,run,*,sealed_auth=None):
     sr=_revision_module()
-    key=digest(encoded(dict(auth=auth,run=run)))
+    seal=prior_proof=None
+    if sealed_auth is not None:
+        prior=sr.corrective_auth(_module(),sealed_auth)
+        require(validate_authorization(prior)==sr.V7_AUTH,"EXTERNAL_SEALED_REFUSAL")
+        seal=refusal_closure_for_auth(sealed_auth)
+        prior_proof=external_proof(prior)
+        require(prior_proof.get("proof_sha256")==sr.V7_PROOF,"EXTERNAL_SEALED_REFUSAL")
+    key=digest(encoded(dict(auth=auth,run=run,seal=seal,prior_proof=prior_proof)))
     if key not in _REFUSAL_EVIDENCE_CACHE:
         jobs=gh_json(f"repos/{REPO}/actions/runs/{sr.REFUSAL_RUN}/jobs?per_page=100")
         artifacts=gh_json(f"repos/{REPO}/actions/runs/{sr.REFUSAL_RUN}/artifacts?per_page=100")
@@ -2600,10 +2446,13 @@ def refusal_evidence(auth,run):
             data=gh_json(f"repos/{REPO}/contents/{path}?ref={sr.V6_SOURCE}")
             require(data.get("encoding")=="base64","EXTERNAL_REFUSAL_SOURCE")
             blobs[path]=base64.b64decode(data["content"])
-        result=subprocess.run(["gh","api",f"repos/{REPO}/actions/jobs/117805290762/logs"],
-            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=120)
-        require(result.returncode==0 and len(result.stdout)<=1_000_000,"EXTERNAL_REFUSAL_LOG")
-        _REFUSAL_EVIDENCE_CACHE[key]=sr.verify_refusal(_module(),auth,run,jobs,artifacts,blobs,result.stdout)
+        if sealed_auth is not None:
+            value=sr.verify_sealed_refusal(_module(),sealed_auth,run,jobs,artifacts,blobs,seal,prior_proof)
+        else:
+            result=subprocess.run(["gh","api",f"repos/{REPO}/actions/jobs/117805290762/logs"],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
+            value=sr.verify_refusal(_module(),auth,run,jobs,artifacts,blobs,sr.refusal_log_result(_module(),result))
+        _REFUSAL_EVIDENCE_CACHE[key]=value
     return _REFUSAL_EVIDENCE_CACHE[key]
 
 
@@ -2621,6 +2470,7 @@ def refusal_closure_for_auth(auth):
 
 def source_binding(auth,proof,epoch_proofs=None):
     sr=_revision_module()
+    if sr.control_corrective(auth):auth=external_previous(auth)
     if sr.renewed(auth):auth=external_previous(auth)
     if sr.corrective(auth):
         auth=external_previous(auth)
@@ -2630,21 +2480,68 @@ def source_binding(auth,proof,epoch_proofs=None):
 
 
 def validity_grant_comment(auth):
+    if _revision_module().control_corrective(auth):auth=external_previous(auth)
     ref=auth["external_cohort"]["source_revision"]["validity_reference"]
     return gh_json(f"repos/{REPO}/issues/comments/{int(ref.rsplit('-',1)[1])}")
 
 
 def validity_grant_proof(auth):
+    if _revision_module().control_corrective(auth):auth=external_previous(auth)
     return _revision_module().verify_validity_grant(_module(),auth,validity_grant_comment(auth))
 
 
 def corrective_binding(auth,proof,epoch_proofs=None):
     sr=_revision_module()
+    if sr.control_corrective(auth):auth=external_previous(auth)
     if sr.renewed(auth):
         auth=external_previous(auth)
         proof=epoch_proofs.get(sr.V7_AUTH) if epoch_proofs is not None else external_proof(auth)
         require(isinstance(proof,dict) and proof.get("proof_sha256")==sr.V7_PROOF,"EXTERNAL_VALIDITY_PRIOR_PROOF")
     return sr.correction_binding(_module(),auth,proof)
+
+
+def validity_binding(auth,proof,epoch_proofs=None):
+    sr=_revision_module()
+    if sr.control_corrective(auth):
+        auth=external_previous(auth)
+        proof=epoch_proofs.get(sr.V8_AUTH) if epoch_proofs is not None else external_proof(auth)
+        require(isinstance(proof,dict) and proof.get("proof_sha256")==sr.V8_PROOF,"EXTERNAL_CONTROL_PRIOR_PROOF")
+    return sr.validity_binding(_module(),auth,proof,validity_grant_proof(auth))
+
+
+def control_closure_for_auth(auth,*,envelope=False):
+    sr=_revision_module();field=auth["external_cohort"]["source_revision"]
+    ref=field["control_refusal_reference"]
+    seal=gh_json(f"repos/{REPO}/issues/comments/{int(ref.rsplit('-',1)[1])}")
+    receipt,seal_proof=sr.human_record(_module(),seal,"A1_SIP_CONTROL_READ_REFUSAL_CLOSED ")
+    grantref=receipt.get("payload",{}).get("grant_reference") if isinstance(receipt,dict) else None
+    require(isinstance(grantref,str) and re.fullmatch(
+        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",grantref),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+    grant=gh_json(f"repos/{REPO}/issues/comments/{int(grantref.rsplit('-',1)[1])}")
+    receipt=sr.verify_control_closure(_module(),auth,receipt,grant,seal)
+    return dict(receipt=receipt,seal_proof=seal_proof) if envelope else receipt
+
+
+def control_failure_evidence(auth,run,*,sealed_auth=None,local_log=None):
+    sr=_revision_module()
+    require(validate_authorization(auth)==sr.V8_AUTH,"EXTERNAL_CONTROL_REFUSAL_AUTHORITY")
+    jobs=gh_json(f"repos/{REPO}/actions/runs/{sr.CONTROL_RUN}/jobs?per_page=100")
+    artifacts=gh_json(f"repos/{REPO}/actions/runs/{sr.CONTROL_RUN}/artifacts?per_page=100")
+    blobs={}
+    for path in sr.V8_PINS:
+        blob=gh_json(f"repos/{REPO}/contents/{path}?ref={sr.V8_SOURCE}")
+        require(blob.get("encoding")=="base64" and isinstance(blob.get("content"),str),"EXTERNAL_CONTROL_REFUSAL_SOURCE")
+        blobs[path]=base64.b64decode(blob["content"],validate=False)
+    if sealed_auth is not None:
+        require(local_log is None and sr.control_corrective(sealed_auth)
+            and external_previous(sealed_auth)==auth,"EXTERNAL_CONTROL_REFUSAL_AUTHORITY")
+        receipt=control_closure_for_auth(sealed_auth)
+        sr.verify_control_metadata(_module(),auth,run,jobs,artifacts,blobs)
+        value=sr.control_value(_module(),auth["external_cohort"]["scope"])
+        require(receipt["payload"]["control_refusal_evidence_sha256"]==digest(encoded(value)),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+        return value
+    require(local_log is not None,"EXTERNAL_CONTROL_REFUSAL_LOG")
+    return sr.verify_control_failure(_module(),auth,run,jobs,artifacts,blobs,bounded_bytes(local_log,1_000_000))
 
 
 def orphan_inventory(drive, folder, meter):
@@ -2925,7 +2822,21 @@ def external_worker(args, control, journal):
             and (recovered is None or bool(specs)
                  and type(recovered) is int and recovered == specs[-1]["run_id"]), "EXTERNAL_RECOVERY_NOT_AUTHORIZED")
     run_id = int(os.environ["GITHUB_RUN_ID"])
-    observed = external_history(auth, run_id, nonce, recovered)
+    try:
+        observed = external_history(auth, run_id, nonce, recovered)
+    except Refused as exc:
+        diagnostic=getattr(exc,"control_read_diagnostic",None)
+        if diagnostic is not None:
+            try:
+                require(not Path(journal).exists(),"EXTERNAL_CONTROL_DIAGNOSTIC_CONFLICT")
+                atomic_json(Path(journal),dict(schema="a1-sip-pre-meter-control-failure-v1",
+                    run_id=run_id,run_attempt=1,source_sha=auth["expected_master"],auth_sha256=h,
+                    nonce=nonce,status="PRE_METER_CONTROL_REFUSED",not_runtime_meter=True,
+                    diagnostic=diagnostic,provider_usage_certified=False,source_admission=False,
+                    pit_verified=False,economic_authority=False))
+            except Exception:
+                raise Refused("EXTERNAL_CONTROL_DIAGNOSTIC_WRITE") from None
+        raise
     proof, ex = observed["external_proof"], auth["external_cohort"]
     scope = ex["scope"]
     names = cap.external_cohort(ex["input_csv"].encode())
@@ -3175,10 +3086,15 @@ def verify_external_prior_journals(registry, auth, observed):
             prior.close()
 
 
-def reconcile_external_family(registry, journal, auth, observed, *, native18_accounting_source=None):
+def reconcile_external_family(registry, journal, auth, observed, *, native18_accounting_source=None, control_accounting=False):
     """No later namespace can ignore an unobserved or partially logged POST."""
     h, scope = validate_authorization(auth), auth["external_cohort"]["scope"]
     versions = {validate_authorization(a) for a in external_variants(auth)}
+    if control_accounting:
+        sr=_revision_module()
+        require(h==sr.V8_AUTH and [r['id'] for r in observed['runs']]==sr.BASIS_IDS+[sr.REFUSAL_RUN,sr.CONTROL_RUN]
+            and observed['cohort_receipts'][-1]==sr.control_value(_module(),scope)
+            and observed['active_seconds']==5318,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
     if native18_accounting_source is not None:
         require(validate_authorization(auth) == NATIVE18_RECOVERY["prior_auth"]
                 and observed.get("native18_accounting") is True and observed.get("native18") is not None,
@@ -3197,6 +3113,18 @@ def reconcile_external_family(registry, journal, auth, observed, *, native18_acc
     registry.reconcile([r for r,v in suffix])
     pending, settled, reserved = None, {}, {}
     for entry in registry.entries[1:]:
+        if entry["kind"] in ("CONTROL_READ_REFUSAL_CLOSED","CONTROL_SOURCE_BOUND"):
+            sr=_revision_module();closure=journal.control_closure
+            require(closure is not None and (sr.control_corrective(auth) or control_accounting),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+            if entry["kind"]=="CONTROL_READ_REFUSAL_CLOSED":
+                require(entry==sr.control_closure_entry(_module(),closure['payload'],closure['family_event']['recorded_utc'],True)
+                    and pending==sr.CONTROL_NONCE,"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+                settled[pending]=entry;pending=None
+            else:
+                require(sr.control_corrective(auth),"EXTERNAL_CONTROL_SOURCE_BINDING")
+                sr.verify_control_source_entry(_module(),entry,journal.control_revision,closure,True)
+            require(bounded_bytes(registry.directory/f"{entry['sequence']:06d}.json")==encoded(entry),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+            continue
         if entry["kind"]=="VALIDITY_SOURCE_BOUND":
             require(_revision_module().renewed(auth),"EXTERNAL_VALIDITY_BINDING")
             _revision_module().verify_validity_entry(_module(),entry,journal.validity_revision,True)
@@ -3247,6 +3175,17 @@ def reconcile_external_family(registry, journal, auth, observed, *, native18_acc
     own_settled = {e["nonce"]:e for e in journal.entries if e["kind"] == "SETTLED"}
     for nonce in own_global:
         run, value = remote[nonce]
+        if value.get("schema")==_revision_module().CONTROL_SCHEMA:
+            sr=_revision_module();closure=journal.control_closure
+            if control_accounting and closure is None:
+                require(nonce==sr.CONTROL_NONCE and pending==nonce and nonce not in settled
+                    and len(journal.entries)==28 and journal.parent==sr.CONTROL_COHORT28
+                    and len(registry.entries)==55 and registry.parent==sr.CONTROL_FAMILY55,
+                    "EXTERNAL_CONTROL_REFUSAL_PREFIX")
+            else:
+                require(closure is not None and nonce in settled and journal.entries[28]==sr.control_closure_entry(
+                    _module(),closure['payload'],closure['cohort_event']['recorded_utc']),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
+            continue
         if has_source_revision(auth) and _revision_module().is_refusal(value):
             sr=_revision_module();closure=journal.refusal_closure
             require(nonce in settled and journal.entries[23]==sr.closure_entry(_module(),closure["payload"],
@@ -3327,7 +3266,7 @@ def native18_accounting_host(auth_path, state_dir, budget_state_dir, cohort_inpu
 
 def bind_validity_revision(journal,family,auth,observed):
     sr=_revision_module();expected=journal.validity_revision
-    require(expected==sr.validity_binding(_module(),auth,observed["external_proof"],validity_grant_proof(auth))
+    require(expected==validity_binding(auth,observed["external_proof"],observed.get("epoch_proofs"))
         and len(journal.entries)>=25 and len(family.entries)>=52
         and (len(journal.entries)>25 or len(family.entries)==52),"EXTERNAL_VALIDITY_BINDING")
     if len(journal.entries)==25 or len(family.entries)==52:
@@ -3361,6 +3300,7 @@ def bind_source_revision(journal, family, auth, observed):
             sr.verify_correction_entry(_module(),target.entries[slot],expected,closure,family_flag)
             sync_native18_settlement(target.directory/f"{slot+1:06d}.json")
         if sr.renewed(auth):bind_validity_revision(journal,family,auth,observed)
+        if sr.control_corrective(auth):sr.bind_control_revision(_module(),journal,family,auth,observed)
         return
     expected = sr.binding(_module(),auth,observed["external_proof"])
     if len(journal.entries) == 20:
@@ -3535,7 +3475,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             require(parent["sha256"] == observed["parent_sha"]
                     and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND",
                         "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "EXTERNAL_NATIVE18_RECOVERY_BOUND",
-                        "SOURCE_REVISION_BOUND", "REFUSAL_SOURCE_BOUND", "VALIDITY_SOURCE_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+                        "SOURCE_REVISION_BOUND", "REFUSAL_SOURCE_BOUND", "VALIDITY_SOURCE_BOUND", "CONTROL_SOURCE_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
             if observed.get("recovery_required") is not None:
                 require(max_batches == 1 and recovery_run == active_spec["run_id"]
                         and observed["examined"] == active_spec["examined"]
@@ -3940,6 +3880,8 @@ def main():
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
     parser.add_argument("--native18-deployed-master", help="Separately reviewed deployed Source for accounting-only import")
     parser.add_argument("--refusal-close-authorization", help="Exact39171354230 immutable no-meter closure grant")
+    parser.add_argument("--control-refusal-close-authorization", help="Exact39200269684 immutable control-read closure grant")
+    parser.add_argument("--control-refusal-log", help="Retained exact39200269684 original decoded failure log")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
@@ -3950,6 +3892,10 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.control_refusal_close_authorization:
+            require(args.authorization is not None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
+            print(json.dumps(_revision_module().control_accounting_host(_module(),args),sort_keys=True));return 0
+        require(args.control_refusal_log is None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
         if args.refusal_close_authorization:
             require(args.authorization is not None,"EXTERNAL_REFUSAL_ACCOUNTING")
             print(json.dumps(refusal_accounting_host(args),sort_keys=True));return 0

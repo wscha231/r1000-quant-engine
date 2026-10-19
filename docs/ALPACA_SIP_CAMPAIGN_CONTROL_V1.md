@@ -957,3 +957,59 @@ reproduced a current-clock expiry check incorrectly preventing terminal
 accounting after the fixed end. Separating that receipt check permits exact
 settlement after expiry while new host/worker authorization still checks the
 current clock and refuses at the exact end. It grants no late provider I/O.
+
+## Exact control-read failure39200269684 — H1 repair preparation
+
+Run39200269684 attempt1 on961ea35b failed before RuntimeMeter in historical
+refusal-log validation. The original subprocess status/stream/hash were not
+retained: its transport-versus-digest cause remains UNKNOWN. A later OWNER read
+matches the original BOM-bearing canonical2d363781 hash; that observation does
+not explain the failed worker's different credentials/time. Never strip that
+BOM, replace its hash, infer zero from a missing meter, or blindly retry a POST.
+
+The already sealed39171354230 closure b9e74efa is reusable only through its
+genuine immutable grant/seal, exact v7 authorization/proof1081d182, original
+v6 run/attempt/nonce/job/source seven pins and exact refusal-evidence digest.
+The returned evidence is byte-equivalent to original log verification. No
+caller flag, local A0 acknowledgement, current clock or unsealed/corrupt receipt
+substitutes for these checks. This removes a redundant historical log transport
+dependency, without changing any historical authority or hash.
+
+Future raw-log failures distinguish subprocess nonzero, stdout over1MB and
+canonical digest mismatch. The bounded diagnostic records only fixed reason,
+returncode, byte count, allowlisted HTTP status and canonical SHA as appropriate;
+never raw stderr, headers or private URLs. A pre-meter diagnostic saved at the
+existing artifact path uses its own non-meter schema, certifies no provider
+usage and cannot be admitted as a RuntimeMeter or generic zero-cost recovery.
+
+The separate v9 transition is only for this exact39200269684 failure: old
+6e651b15 full authority/proof4bd9bd7e/Source961ea35b, capturejob117892085699,
+failure log53b73d35, exact terminal jobs and actual115+80=195 seconds/+1 dispatch.
+Original meter remains MISSING, cause UNKNOWN, packet trace unavailable.
+Any zero-I/O statement requires both the exact deployed code order and positive
+actual execution/control evidence. The old5123s/22 stays booked until typed
+closure;5318s/23 is arithmetic until that publication succeeds. Unknown302101B,
+all old charges and every cap remain; no reservation is refunded.
+
+An actual immutable OWNER grant binds protected new Source/pins, fixed human24h
+authority and exact retained cohort28/family55 RUN_ASSIGNED plus26/53 validity
+barriers. The explicit accounting-only command requires the retained exact
+decoded failure log. It appends CONTROL_READ_REFUSAL_CLOSED at29 then56, with
+file/directory barriers and readback, never a RuntimeMeter, nonce or dispatch.
+A crash resumes only those identical events. The receipt is sealed by a separate
+immutable OWNER comment. Only its actual returned reference/hash enters v9;
+the complete consent body is created before its returned self-locator is bound.
+No predicted IDs, edits, expired-window execution or generic unmetered exception.
+
+Then CONTROL_SOURCE_BOUND at30 then57 binds current protected Source/pins/full
+authority/proof before any new reservation. The original validity grant remains
+an ancestor granting its original Source; it is not reinterpreted as a new-source
+grant. The same fixed exclusive2026-10-20T02:59:53Z end and43200s/40 limits apply.
+Both administrative failures retain their time/dispatch costs while excluded
+from price samples. Original21-run calibration/38748s maximum and fits=false
+remain. Tests/fixture events establish implementation only: this H1 preparation
+issues no real grant/seal/OWNER, closure, capture, Source/PIT or investment approval.
+
+Operational lesson: a shared error label cannot identify the original transport
+failure. Preserve safe diagnostics at the failure boundary, reuse authentic
+sealed evidence, and distinguish implementation verification from actual capture.
