@@ -910,3 +910,50 @@ Only this fixed refusal is excluded from price samples, while185s/+1 dispatch
 stay charged. Normal hard caps, live next-job reservation, non-time forecast
 terms and original2026-10-19T02:08:51Z expiry still stop execution. Keep fits=false,
 original unknown302101B storage and unmeasured platform costs UNKNOWN_NOT_ZERO.
+
+## Prospective human24h validity binding — 2026-10-19
+
+The separate human authority SHA256
+`9f0324979fe4acc890c8a3f5365a46281a1be62bb38f9ca54bb556b3de5e5233`
+authorizes only the fixed window2026-10-19T02:59:53Z through, exclusively,
+2026-10-20T02:59:53Z. Issuance time never moves that end. Original first-run
+time, original48h expiry, old grants and all previous journal bytes remain
+historical evidence. The expired gap has no execution authority.
+
+The bounded v8 continuation reconstructs the exact e161e75a v7 authorization,
+old0b02c6a0 Source/seven pins, OWNER6257183920/proof1081d182 and sealed refusal
+closure b9e74efa. Its compact source-revision field contains only an actual
+returned validity-grant URL. An immutable OWNER-authored
+`A1_SIP_HUMAN24H_VALIDITY` record binds the exact human request, fixed window,
+closed CP128, cohort25/family52, old authority/proof and current Source/pins.
+The subsequent real OWNER/current proof binds that actual grant and the same
+fixed end. Created/updated/observation clocks must be actual strings, ordered,
+within the new window and unedited. Placeholders, future clocks, a foreign
+author, silently changed historical authority or extra scope refuse.
+
+Under the existing exclusive locks, VALIDITY_SOURCE_BOUND is durably written
+at cohort26 and then family53. Reopen and interrupted-pair repair verify and
+re-flush the identical first event before the second; neither a nonce nor a
+reservation/dispatch may precede both barriers. The initial binding requires
+exact CP128, prior22 dispatches and5123 charged seconds. Already durable events
+can be validated to settle a terminal run after expiry, but cannot authorize
+another dispatch. The first v8 price transition may follow canonical version2
+directly as version4 only at that exact fully closed v7 administrative parent;
+no unverified version jump or missing prior capture is accepted.
+
+The worker deadline is bounded by both the unchanged job limit and the fixed
+new end. Its meter and canonical run bind the actual new authority/window.
+Provider2000, Drive50000, transfer9GiB, storage1GiB, active43200s and dispatch40
+caps and every existing debit remain unchanged. Original21-run calibration,
+38748s maximum forecast, fits=false, unknown302101B charge and platform
+UNKNOWN_NOT_ZERO remain. This grant neither refunds costs nor guarantees that
+all289 pending names fit. Any actual cap, new failure, unsettled/ambiguous POST
+or the exact new end stops the bounded continuation; no automatic renewal,
+old POST retry, native/orphan repeat, collector/workflow change or admission.
+
+Historical first-v8 receipt verification uses that canonical run's actual
+creation clock, bound to its id/head/attempt and immutable OWNER proof. A6
+reproduced a current-clock expiry check incorrectly preventing terminal
+accounting after the fixed end. Separating that receipt check permits exact
+settlement after expiry while new host/worker authorization still checks the
+current clock and refuses at the exact end. It grants no late provider I/O.
