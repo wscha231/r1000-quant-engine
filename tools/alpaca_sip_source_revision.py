@@ -99,7 +99,17 @@ def verify_control_metadata(c,auth,run,jobs,artifacts,blobs):
               "EXTERNAL_CONTROL_REFUSAL_SOURCE")
 
 
-def verify_control_failure(c,auth,run,jobs,artifacts,blobs,log):
+def verify_control_jobs(c,jobs,raw):
+    c.require(isinstance(raw,bytes) and len(raw)<=1_000_000 and c.digest(raw)==CONTROL_JOBS_RAW,
+              "EXTERNAL_CONTROL_REFUSAL_JOBS_RAW")
+    retained=c.decode(raw)
+    c.require(c.digest(c.encoded(retained))==CONTROL_JOBS_CANON and retained==jobs,
+              "EXTERNAL_CONTROL_REFUSAL_JOBS_CANONICAL")
+    return retained
+
+
+def verify_control_failure(c,auth,run,jobs,artifacts,blobs,log,raw_jobs):
+    jobs=verify_control_jobs(c,jobs,raw_jobs)
     verify_control_metadata(c,auth,run,jobs,artifacts,blobs)
     c.require(isinstance(log,bytes) and len(log)<=1_000_000 and c.digest(log)==CONTROL_LOG,
               "EXTERNAL_CONTROL_REFUSAL_LOG")
@@ -254,7 +264,9 @@ def bind_control_revision(c,journal,family,auth,observed):
         c.require(len(target.entries)>=slot and target.entries[slot-1]==control_closure_entry(c,
             receipt['payload'],receipt[key]['recorded_utc'],is_family),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
         c.sync_native18_settlement(target.directory/f'{slot:06d}.json')
-        if len(target.entries)==slot:target.append('CONTROL_SOURCE_BOUND',**expected)
+        if len(target.entries)==slot:
+            c.external_deployed(auth)
+            target.append('CONTROL_SOURCE_BOUND',**expected)
         entry=target.entries[slot];verify_control_source_entry(c,entry,expected,receipt,is_family)
         path=target.directory/f'{slot+1:06d}.json'
         c.require(c.bounded_bytes(path)==c.encoded(entry),"EXTERNAL_CONTROL_SOURCE_BINDING")
@@ -288,7 +300,7 @@ def control_accounting_host(c,args):
     """Explicit exact-run bookkeeping; never creates a consent or dispatch."""
     auth=c.bounded_json(args.authorization,15000);grant=c.bounded_json(args.control_refusal_close_authorization,4096)
     c.require(c.validate_authorization(auth)==V8_AUTH and set(grant)=={'source_sha','code_pins','grant_reference'}
-        and args.control_refusal_log and args.budget_state_dir and args.cohort_input and args.predispatch_recovery
+        and args.control_refusal_log and args.control_refusal_jobs and args.budget_state_dir and args.cohort_input and args.predispatch_recovery
         and not any((args.refusal_close_authorization,args.recovery_run,args.max_batches,args.account_permission_reference,
                      args.continuation_receipt,args.native18_deployed_master)),'EXTERNAL_CONTROL_REFUSAL_ACCOUNTING')
     c.external_deployed(dict(expected_master=grant['source_sha'],code_pins=grant['code_pins']))
@@ -306,7 +318,8 @@ def control_accounting_host(c,args):
     global_journal=c.WorkJournal(budget,c.CONTINUATION['auth'],recovery=recovery);family=journal=None
     try:
         c.verify_external_budget_journal(global_journal,auth,recovery)
-        observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,control_accounting_log=args.control_refusal_log)
+        observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,control_accounting_log=args.control_refusal_log,
+                                    control_accounting_jobs=args.control_refusal_jobs)
         family=c.external_family_registry(budget,auth,state)
         journal=c.external_journal(state,auth,observed['external_proof'],epoch_proofs=observed['epoch_proofs'])
         global_journal.reconcile(observed['runs'][:5]);journal.reconcile(observed['cohort_runs'])
@@ -553,11 +566,9 @@ def canonical_refusal_log(c,log,returncode=0):
 def refusal_log_result(c,result):
     c.require(type(result.returncode) is int and isinstance(result.stdout,bytes),"EXTERNAL_REFUSAL_LOG_REPRESENTATION")
     if result.returncode:
-        status=None
-        if isinstance(result.stderr,bytes):
-            match=c.re.search(rb"\bHTTP ([1-5][0-9]{2})\b",result.stderr[:4096])
-            if match:status=int(match[1])
-        raise control_log_error(c,"TRANSPORT",result.returncode,len(result.stdout),http_status=status)
+        # The production invocation discards stderr before buffering. Its HTTP
+        # status was not observed; never infer it from a later/caller response.
+        raise control_log_error(c,"TRANSPORT",result.returncode,len(result.stdout),http_status=None)
     canonical_refusal_log(c,result.stdout,result.returncode)
     return result.stdout
 

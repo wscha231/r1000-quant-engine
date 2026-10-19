@@ -7,6 +7,7 @@ from http.client import HTTPResponse
 import io
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -4976,24 +4977,26 @@ class ControlReadFailureTests(unittest.TestCase):
         log=('INPUT_CAMPAIGN_CONTROL: '+json.dumps(control)+'\n'+
              '{"status": "BLOCKED", "code": "EXTERNAL_REFUSAL_LOG", "source_admission": false}\nNo artifacts will be uploaded\n').encode()
         self.patch_value('CONTROL_LOG',c.digest(log));self.patch_value('CONTROL_JOBS_CANON',c.digest(c.encoded(jobs)))
+        self.raw_jobs=json.dumps(jobs,indent=2).encode()+b'\n'
+        self.patch_value('CONTROL_JOBS_RAW',c.digest(self.raw_jobs))
         return run,jobs,dict(total_count=0,artifacts=[]),blobs,log
 
     def test_positive_execution_evidence_exact_identifiers_and_missing_meter(self):
         run,jobs,artifacts,blobs,log=self.metadata()
-        value=self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,blobs,log)
+        value=self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,blobs,log,self.raw_jobs)
         self.assertEqual(value['active_seconds'],195);self.assertTrue(value['not_runtime_meter'])
         self.assertEqual(value['original_meter_observation'],'MISSING')
         self.assertFalse(value['absence_of_meter_is_zero_io_basis']);self.assertEqual(value['original_transport_or_digest_cause'],'UNKNOWN')
         for change in [dict(run,id=run['id']+1),dict(run,run_attempt=2),dict(run,head_sha='0'*40),
                        dict(run,display_title='a1-sip '+c.PREFIX+'0'*24),dict(run,created_at=None)]:
-            with self.subTest(run=change),self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,change,jobs,artifacts,blobs,log)
+            with self.subTest(run=change),self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,change,jobs,artifacts,blobs,log,self.raw_jobs)
         for bad in [b'',log+b'\n',log.replace(self.s.CONTROL_NONCE.encode(),b'foreign')]:
-            with self.subTest(log=len(bad)),self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,blobs,bad)
+            with self.subTest(log=len(bad)),self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,blobs,bad,self.raw_jobs)
         bad=copy.deepcopy(jobs);bad['jobs'][1]['id']+=1
-        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,bad,artifacts,blobs,log)
-        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,dict(total_count=1,artifacts=[{}]),blobs,log)
+        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,bad,artifacts,blobs,log,self.raw_jobs)
+        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,dict(total_count=1,artifacts=[{}]),blobs,log,self.raw_jobs)
         bad=dict(blobs);bad[c.REVISION_MODULE]+=b'\n'
-        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,bad,log)
+        with self.assertRaises(c.Refused):self.s.verify_control_failure(c,self.v8,run,jobs,artifacts,bad,log,self.raw_jobs)
 
     def pair(self):
         j,f,kw,prefix=self.p.closed_pair();self.patch_v8()
@@ -5044,7 +5047,7 @@ class ControlReadFailureTests(unittest.TestCase):
         observed['runs'].append(run);observed['cohort_receipts'].append(self.s.control_value(c,a['external_cohort']['scope']))
         observed.update(active_seconds=5318,external_proof=proof)
         observed['epoch_proofs'][self.s.V8_AUTH]=self.p.proof
-        self.s.bind_control_revision(c,j,f,a,observed)
+        with patch.object(c,'external_deployed'):self.s.bind_control_revision(c,j,f,a,observed)
         before={p:p.read_bytes() for d in (j.directory,f.directory) for p in d.glob('*.json')}
         self.s.bind_control_revision(c,j,f,a,observed)
         self.assertEqual((len(j.entries),len(f.entries)),(30,57));self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
@@ -5158,6 +5161,72 @@ class HistoricalControlDiagnosticTests(unittest.TestCase):
                 self.assertEqual(diagnostic['stdout_bytes'],len(result.stdout))
             self.assertEqual(s.refusal_log_result(c,SimpleNamespace(returncode=0,stdout=log,stderr=b'')),log)
         self.assertFalse(hasattr(c.Refused('EXTERNAL_REFUSAL_LOG'),'control_read_diagnostic'))
+
+
+class HostedThreeFindingsTests(unittest.TestCase):
+    def setUp(self):
+        self.f=ControlReadFailureTests();self.f.setUp();self.addCleanup(self.f.doCleanups)
+        self.s=self.f.s
+
+    def test_retained_raw_layout_and_same_bytes_canonical_are_both_required(self):
+        run,jobs,artifacts,blobs,log=self.f.metadata();raw=self.f.raw_jobs
+        self.assertEqual(self.s.verify_control_jobs(c,jobs,raw),jobs)
+        other=json.dumps(jobs,separators=(',',':')).encode()
+        self.assertEqual(c.decode(other),jobs);self.assertNotEqual(c.digest(raw),c.digest(other))
+        with self.assertRaisesRegex(c.Refused,'JOBS_RAW'):self.s.verify_control_failure(c,self.f.v8,run,jobs,artifacts,blobs,log,other)
+        with self.assertRaisesRegex(c.Refused,'JOBS_CANONICAL'):self.s.verify_control_jobs(c,dict(jobs,total_count=3),raw)
+        with patch.object(self.s,'CONTROL_JOBS_CANON','0'*64),self.assertRaisesRegex(c.Refused,'JOBS_CANONICAL'):
+            self.s.verify_control_jobs(c,jobs,raw)
+        with self.assertRaisesRegex(c.Refused,'JOBS_RAW'):self.s.verify_control_jobs(c,jobs,b'x'*1_000_001)
+
+    def test_live_head_drift_no_append_partial_repair_once_and_historical_no_remote(self):
+        j,f,kw,prefix=self.f.pair();a,receipt,proof,grant,seal,owner=self.f.issue(j,f)
+        kw.update(control_revision=self.s.control_source_binding(c,a,proof,receipt),control_closure=receipt)
+        path=j.directory;j.close();j=c.WorkJournal(path,c.validate_authorization(a),**kw);self.addCleanup(j.close)
+        o=self.f.p.observed();o['runs'].append(dict(id=self.s.CONTROL_RUN))
+        o['cohort_receipts'].append(self.s.control_value(c,a['external_cohort']['scope']))
+        o.update(active_seconds=5318,external_proof=proof);o['epoch_proofs'][self.s.V8_AUTH]=self.f.p.proof
+        before={p:p.read_bytes() for d in (j.directory,f.directory) for p in d.glob('*.json')}
+        with patch.object(c,'external_deployed',side_effect=c.Refused('CAMPAIGN_DEPLOYMENT_DRIFT')) as deployed:
+            with self.assertRaisesRegex(c.Refused,'DEPLOYMENT_DRIFT'):self.s.bind_control_revision(c,j,f,a,o)
+        deployed.assert_called_once_with(a);self.assertEqual((len(j.entries),len(f.entries)),(29,56))
+        self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
+        def barrier(path):
+            if Path(path).parent==j.directory and Path(path).name=='000030.json':raise c.Refused('FIXTURE_BARRIER')
+        with patch.object(c,'external_deployed') as deployed,patch.object(c,'sync_native18_settlement',side_effect=barrier):
+            with self.assertRaisesRegex(c.Refused,'FIXTURE_BARRIER'):self.s.bind_control_revision(c,j,f,a,o)
+        self.assertEqual((len(j.entries),len(f.entries)),(30,56));deployed.assert_called_once_with(a)
+        source30=j.entries[-1];j.close();j=c.WorkJournal(path,c.validate_authorization(a),**kw);self.addCleanup(j.close)
+        with patch.object(c,'external_deployed',side_effect=c.Refused('CAMPAIGN_DEPLOYMENT_DRIFT')) as deployed:
+            with self.assertRaisesRegex(c.Refused,'DEPLOYMENT_DRIFT'):self.s.bind_control_revision(c,j,f,a,o)
+        deployed.assert_called_once_with(a);self.assertEqual((len(j.entries),len(f.entries)),(30,56))
+        self.assertEqual(j.entries[-1],source30)
+        with patch.object(c,'external_deployed') as deployed:self.s.bind_control_revision(c,j,f,a,o)
+        deployed.assert_called_once_with(a);self.assertEqual((len(j.entries),len(f.entries)),(30,57))
+        self.f.p.now=c.utc(self.s.VALIDITY_END)+timedelta(seconds=1)
+        with patch.object(c,'external_deployed',side_effect=AssertionError('Historical validation has no live-master gate')):
+            self.s.bind_control_revision(c,j,f,a,o)
+        self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
+
+    def test_real_large_stderr_is_discarded_not_buffered_or_revealed(self):
+        import ast
+        tree=ast.parse((c.ROOT/'tools/alpaca_sip_campaign.py').read_text(encoding='utf-8'))
+        node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='refusal_evidence')
+        call=next(n for n in ast.walk(node) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute)
+                  and n.func.attr=='run')
+        keyword=next(k.value for k in call.keywords if k.arg=='stderr')
+        self.assertEqual(ast.unparse(keyword),'subprocess.DEVNULL')
+        # Execute the exact discard policy with a local child, not gh/provider.
+        result=c.subprocess.run([sys.executable,'-c',
+            'import sys; sys.stderr.write("private-token HTTP 403 private-url\\n"*300000); sys.exit(1)'],
+            stdout=c.subprocess.PIPE,stderr=c.subprocess.DEVNULL,timeout=15)
+        self.assertIsNone(result.stderr);self.assertEqual(result.stdout,b'')
+        with self.assertRaises(c.Refused) as caught:self.s.refusal_log_result(c,result)
+        diagnostic=caught.exception.control_read_diagnostic
+        self.assertEqual(diagnostic['reason'],'TRANSPORT');self.assertEqual(diagnostic['returncode'],1)
+        self.assertIsNone(diagnostic['http_status']);self.assertEqual(diagnostic['stdout_bytes'],0)
+        self.assertNotIn('private',json.dumps(diagnostic))
+        self.assertNotIn('403',json.dumps(diagnostic))
 
 
 if __name__=='__main__': unittest.main()

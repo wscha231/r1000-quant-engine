@@ -982,6 +982,10 @@ never raw stderr, headers or private URLs. A pre-meter diagnostic saved at the
 existing artifact path uses its own non-meter schema, certifies no provider
 usage and cannot be admitted as a RuntimeMeter or generic zero-cost recovery.
 
+The historical gh invocation discards stderr with DEVNULL before buffering;
+HTTP status is explicitly unobserved (None), while actual returncode and stdout
+byte count remain available. Slicing an already buffered PIPE is not a bound.
+
 The separate v9 transition is only for this exact39200269684 failure: old
 6e651b15 full authority/proof4bd9bd7e/Source961ea35b, capturejob117892085699,
 failure log53b73d35, exact terminal jobs and actual115+80=195 seconds/+1 dispatch.
@@ -993,8 +997,12 @@ all old charges and every cap remain; no reservation is refunded.
 
 An actual immutable OWNER grant binds protected new Source/pins, fixed human24h
 authority and exact retained cohort28/family55 RUN_ASSIGNED plus26/53 validity
-barriers. The explicit accounting-only command requires the retained exact
-decoded failure log. It appends CONTROL_READ_REFUSAL_CLOSED at29 then56, with
+barriers. The grant producer verifies bounded retained terminal-jobs bytes:
+raw SHA91af4dba and the decoded/canonical500c429c digest must both match those
+same bytes. The explicit accounting-only command requires that original jobs
+file and the exact decoded failure log; it repeats this verification before
+sealing any asserted raw hash. A layout change with identical JSON still refuses.
+It appends CONTROL_READ_REFUSAL_CLOSED at29 then56, with
 file/directory barriers and readback, never a RuntimeMeter, nonce or dispatch.
 A crash resumes only those identical events. The receipt is sealed by a separate
 immutable OWNER comment. Only its actual returned reference/hash enters v9;
@@ -1009,6 +1017,11 @@ Both administrative failures retain their time/dispatch costs while excluded
 from price samples. Original21-run calibration/38748s maximum and fits=false
 remain. Tests/fixture events establish implementation only: this H1 preparation
 issues no real grant/seal/OWNER, closure, capture, Source/PIT or investment approval.
+
+Before each new Source-binding append (including interrupted-pair completion),
+verify the actual deployed master and all seven pins. Head/pin drift leaves the
+unwritten event absent; restoration permits exact once-only repair. Already
+complete historical validation adds no live-master or current-window gate.
 
 Operational lesson: a shared error label cannot identify the original transport
 failure. Preserve safe diagnostics at the failure boundary, reuse authentic

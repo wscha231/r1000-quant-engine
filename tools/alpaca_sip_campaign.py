@@ -2205,7 +2205,8 @@ def append_native18_settlement(registry,source_sha,code_pins):
 
 
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
-                     native_read_run=None, native18_accounting=False, refusal_accounting=False, control_accounting_log=None):
+                     native_read_run=None, native18_accounting=False, refusal_accounting=False, control_accounting_log=None,
+                     control_accounting_jobs=None):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2245,6 +2246,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     if corrective:
         refusal_closure_for_auth(auth)
     sr=_revision_module();control=has_source_revision(auth) and sr.control_corrective(auth)
+    require((control_accounting_log is None)==(control_accounting_jobs is None),"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
     if control_accounting_log is not None:
         require(auth_hash==sr.V8_AUTH and current_run is None and recovery_run is None and allow_stopped
             and not refusal_accounting and not native18_accounting and native_read_run is None
@@ -2260,7 +2262,8 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
             require(index==22,"EXTERNAL_CONTROL_REFUSAL_PREFIX")
             sr.verify_validity_parent(_module(),old,state,used,active,previous[:index],proofs)
             require(proofs.get(sr.V8_AUTH,{}).get("proof_sha256")==sr.V8_PROOF,"EXTERNAL_CONTROL_PRIOR_PROOF")
-            value=control_failure_evidence(old,run,sealed_auth=auth if control else None,local_log=control_accounting_log)
+            value=control_failure_evidence(old,run,sealed_auth=auth if control else None,local_log=control_accounting_log,
+                                           local_jobs=control_accounting_jobs)
             state["version"]=4
             state["runs"].append(run);state["receipts"].append(value);state["durations"].append(195)
             receipts.append(value);durations.append(195);active+=195
@@ -2450,7 +2453,7 @@ def refusal_evidence(auth,run,*,sealed_auth=None):
             value=sr.verify_sealed_refusal(_module(),sealed_auth,run,jobs,artifacts,blobs,seal,prior_proof)
         else:
             result=subprocess.run(["gh","api",f"repos/{REPO}/actions/jobs/117805290762/logs"],
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=120)
             value=sr.verify_refusal(_module(),auth,run,jobs,artifacts,blobs,sr.refusal_log_result(_module(),result))
         _REFUSAL_EVIDENCE_CACHE[key]=value
     return _REFUSAL_EVIDENCE_CACHE[key]
@@ -2522,7 +2525,7 @@ def control_closure_for_auth(auth,*,envelope=False):
     return dict(receipt=receipt,seal_proof=seal_proof) if envelope else receipt
 
 
-def control_failure_evidence(auth,run,*,sealed_auth=None,local_log=None):
+def control_failure_evidence(auth,run,*,sealed_auth=None,local_log=None,local_jobs=None):
     sr=_revision_module()
     require(validate_authorization(auth)==sr.V8_AUTH,"EXTERNAL_CONTROL_REFUSAL_AUTHORITY")
     jobs=gh_json(f"repos/{REPO}/actions/runs/{sr.CONTROL_RUN}/jobs?per_page=100")
@@ -2533,15 +2536,16 @@ def control_failure_evidence(auth,run,*,sealed_auth=None,local_log=None):
         require(blob.get("encoding")=="base64" and isinstance(blob.get("content"),str),"EXTERNAL_CONTROL_REFUSAL_SOURCE")
         blobs[path]=base64.b64decode(blob["content"],validate=False)
     if sealed_auth is not None:
-        require(local_log is None and sr.control_corrective(sealed_auth)
+        require(local_log is None and local_jobs is None and sr.control_corrective(sealed_auth)
             and external_previous(sealed_auth)==auth,"EXTERNAL_CONTROL_REFUSAL_AUTHORITY")
         receipt=control_closure_for_auth(sealed_auth)
         sr.verify_control_metadata(_module(),auth,run,jobs,artifacts,blobs)
         value=sr.control_value(_module(),auth["external_cohort"]["scope"])
         require(receipt["payload"]["control_refusal_evidence_sha256"]==digest(encoded(value)),"EXTERNAL_CONTROL_REFUSAL_RECEIPT")
         return value
-    require(local_log is not None,"EXTERNAL_CONTROL_REFUSAL_LOG")
-    return sr.verify_control_failure(_module(),auth,run,jobs,artifacts,blobs,bounded_bytes(local_log,1_000_000))
+    require(local_log is not None and local_jobs is not None,"EXTERNAL_CONTROL_REFUSAL_LOG")
+    return sr.verify_control_failure(_module(),auth,run,jobs,artifacts,blobs,bounded_bytes(local_log,1_000_000),
+                                     bounded_bytes(local_jobs,1_000_000))
 
 
 def orphan_inventory(drive, folder, meter):
@@ -3882,6 +3886,7 @@ def main():
     parser.add_argument("--refusal-close-authorization", help="Exact39171354230 immutable no-meter closure grant")
     parser.add_argument("--control-refusal-close-authorization", help="Exact39200269684 immutable control-read closure grant")
     parser.add_argument("--control-refusal-log", help="Retained exact39200269684 original decoded failure log")
+    parser.add_argument("--control-refusal-jobs", help="Retained exact terminal jobs bytes; verify raw and canonical hashes")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
@@ -3895,7 +3900,7 @@ def main():
         if args.control_refusal_close_authorization:
             require(args.authorization is not None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
             print(json.dumps(_revision_module().control_accounting_host(_module(),args),sort_keys=True));return 0
-        require(args.control_refusal_log is None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
+        require(args.control_refusal_log is None and args.control_refusal_jobs is None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
         if args.refusal_close_authorization:
             require(args.authorization is not None,"EXTERNAL_REFUSAL_ACCOUNTING")
             print(json.dumps(refusal_accounting_host(args),sort_keys=True));return 0
