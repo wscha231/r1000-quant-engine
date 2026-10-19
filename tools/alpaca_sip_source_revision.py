@@ -4,6 +4,569 @@ The controller context preserves existing validation/mock seams during the bound
 source split; live external execution must pin this module transitively.
 """
 
+# Exact39235028468 diagnostic only. These are retained evidence hashes, not
+# authority to query. Keep this in the already pinned revision module.
+READ392_SCHEMA = "a1-native-drive-read-39235028468-v1"
+READ392_TASK = "R1000-A1-DRIVE-READ39235028468"
+READ392_AUTH = "2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e"
+READ392_CP = "56fbaa42a0627f747f742920697f24ae281fd468109324c95e7eb2634b810a04"
+READ392_CP_ID_SHA = "ea714ebd8f194d8c11b6462ff9dd8a4d63d0f942704adb0ab61d76093bbd80dd"
+READ392_METER = "0bb8ddf3efe3148a701071b3192afc519957c0af85bb7b02fcf092f7eabccbc0"
+READ392_COHORT = "87460c6bbe0269ca1bf12b7d5ee35742d7b6228a93e9b9a560fea4f4484c4cc8"
+READ392_FAMILY = "2b6ad59834b498d0935d3284404a5c74e1789a2497813452d80116e90cfe4ea0"
+READ392_WINDOW = ("2026-10-19T10:07:57Z","2026-10-19T10:15:00Z")
+READ392_USED = dict(provider_gets=968,drive_requests=9847,drive_bytes=1657932691,storage_bytes=131488371)
+READ392_ALLOWANCE = dict(provider_gets=0,drive_requests=16,drive_bytes=16000000,storage_bytes=0)
+READ392_FIELDS = "nextPageToken,files(id,name,size,parents,createdTime)"
+READ392_CHECK_FIELDS = "id,mimeType,trashed,shared,parents,permissions(id,type,role)"
+READ392_META_FIELDS = READ392_CHECK_FIELDS+",name,size,createdTime"
+
+
+def named_read_control(c,value,*,accounting=False):
+    c.require(isinstance(value,dict) and set(value)=={
+        "schema","task_key","authorization","expected_master","code_pins_sha256","nonce",
+        "checkpoint_file_id","grant_reference","human_authority_sha256","deployment"},
+        "NAMED_READ_CONTROL")
+    c.require(value["schema"]==READ392_SCHEMA and value["task_key"]==READ392_TASK
+        and c.validate_authorization(value["authorization"])==READ392_AUTH,"NAMED_READ_AUTH")
+    for key,length in (("expected_master",40),("human_authority_sha256",64)):
+        c.require(isinstance(value[key],str) and c.re.fullmatch("[0-9a-f]{"+str(length)+"}",value[key]),
+                  "NAMED_READ_CONTROL")
+    c.require(value["human_authority_sha256"] not in {VALIDITY_AUTHORITY,"0"*64}
+        and c.re.fullmatch(c.PREFIX+r"[0-9a-f]{24}",value["nonce"] or "")
+        and c.re.fullmatch(r"[A-Za-z0-9_-]{10,100}",value["checkpoint_file_id"] or "")
+        and c.digest(value["checkpoint_file_id"].encode())==READ392_CP_ID_SHA
+        and c.re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+                          value["grant_reference"] or "")
+        and isinstance(value["code_pins_sha256"],str)
+        and c.re.fullmatch(r"[0-9a-f]{64}",value["code_pins_sha256"]),
+        "NAMED_READ_AUTHORITY_UNSET")
+    deployment=value["deployment"]
+    c.require(isinstance(deployment,dict) and set(deployment)=={"pull_request","reviewed_head"}
+        and type(deployment["pull_request"]) is int and deployment["pull_request"]>0
+        and isinstance(deployment["reviewed_head"],str)
+        and c.re.fullmatch(r"[0-9a-f]{40}",deployment["reviewed_head"]),"NAMED_READ_DEPLOYMENT")
+    if not accounting:
+        c.require(c.utc(READ392_WINDOW[1])<=c.utc()<c.utc(VALIDITY_END),"CAMPAIGN_EXPIRED")
+    return value["authorization"]
+
+
+def named_read_terms(c,control):
+    auth=control["authorization"]
+    private=dict(root=auth["private_root_folder_id"],folder=auth["private_data_folder_id"],
+                 checkpoint=control["checkpoint_file_id"])
+    return dict(schema="a1-named-read39235028468-grant-v1",task_key=READ392_TASK,
+        source_sha=control["expected_master"],code_pins_sha256=control["code_pins_sha256"],
+        deployment=control["deployment"],nonce=control["nonce"],
+        human_authority_sha256=control["human_authority_sha256"],
+        validity_authority_sha256=VALIDITY_AUTHORITY,not_before_utc=VALIDITY_START,expires_at_utc=VALIDITY_END,
+        failed_run_id=39235028468,failed_run_attempt=1,failed_meter_sha256=READ392_METER,
+        capture_auth_sha256=READ392_AUTH,checkpoint_sha256=READ392_CP,checkpoint_bytes=5005,examined=296,
+        private_bindings_sha256=c.digest(c.encoded(private)),owner_sha256=c.CONTINUATION["bindings"]["owner_sha256"],
+        inventory_window=list(READ392_WINDOW),positive_page_size=2,inventory_page_size=8,pages_per_query=1,
+        max_candidate_media=1,candidate_media_limit=434796,candidate_size_is_heuristic=True,
+        allowance=dict(READ392_ALLOWANCE),active_seconds_reservation=900,dispatch_reservation=1,
+        usage_before=dict(READ392_USED),active_seconds_before=8736,dispatches_before=29,
+        original17_tail=c.CONTINUATION["event"],cohort48_tail=READ392_COHORT,family75_tail=READ392_FAMILY,
+        unknown_storage_still_charged=[302101,434796],past_diagnostics="UNKNOWN_NOT_ZERO",
+        total_platform_cost_verified=False,absence_proven=False,failed_request_body_hash_known=False,
+        capture_authorized=False,drive_data_write_authorized=False,failed_post_retry_authorized=False,
+        source_admission=False,pit_verified=False,economic_authority=False,budget_reset=False)
+
+
+def named_read_proof(c,control,*,accounting=False):
+    named_read_control(c,control,accounting=accounting)
+    comment_id=int(control["grant_reference"].rsplit("-",1)[1])
+    comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{comment_id}")
+    terms,proof=human_record(c,comment,"A1_SIP_NAMED_READ39235028468_AUTHORIZATION ")
+    c.require(comment["id"]==comment_id and c.encoded(terms)==c.encoded(named_read_terms(c,control))
+        and c.utc(READ392_WINDOW[1])<=c.utc(comment["created_at"]),"NAMED_READ_GRANT")
+    return c.digest(c.encoded(proof)),comment["created_at"]
+
+
+def named_read_deployed(c,control):
+    # The old six-pin helper alone does not close the revision-module import.
+    pins=c.native_read_source(control["expected_master"])
+    c.require(set(pins)==set(c.PINS),"NAMED_READ_CODE_PINS")
+    path=c.REVISION_MODULE
+    remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={control['expected_master']}")
+    local=c.digest(c.bounded_bytes(c.ROOT/path,262144).replace(b"\r\n",b"\n"))
+    c.require(remote.get("encoding")=="base64"
+        and c.digest(c.base64.b64decode(remote["content"]))==local,
+        "NAMED_READ_CODE_PINS")
+    pins=dict(pins,**{path:local})
+    c.require(set(pins)==set(V6_PINS) and c.digest(c.encoded(pins))==control["code_pins_sha256"],
+              "NAMED_READ_CODE_PINS")
+    number=control["deployment"]["pull_request"];head=control["deployment"]["reviewed_head"]
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/{number}")
+    c.require(pr.get("merged") is True and pr.get("draft") is False
+        and pr.get("base",{}).get("ref")=="master" and pr.get("head",{}).get("sha")==head
+        and pr.get("merge_commit_sha")==control["expected_master"],"NAMED_READ_PROTECTED_DEPLOYMENT")
+    # Squash may change the commit ID; the complete reviewed tree must survive.
+    reviewed=c.gh_json(f"repos/{c.REPO}/git/commits/{head}")
+    deployed=c.gh_json(f"repos/{c.REPO}/git/commits/{control['expected_master']}")
+    c.require(isinstance(reviewed.get("tree",{}).get("sha"),str)
+        and reviewed["tree"]["sha"]==deployed.get("tree",{}).get("sha"),"NAMED_READ_DEPLOYED_TREE")
+    checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
+    c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
+    for name in ("validate","offline","review_complete"):
+        selected=[x for x in checks["check_runs"] if x.get("name")==name]
+        c.require(len(selected)==1 and selected[0].get("head_sha")==head
+            and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
+            and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
+    # Hosting/review-complete protection is not replaced by a client assertion:
+    # require the real merged protected PR and its genuine repository signal.
+    return pins
+
+
+def named_read_prefix(c,runs,control,current):
+    c.require(isinstance(runs,list) and len(runs)==30 and runs[-1]==current
+        and [r.get("id") for r in runs[:-1]]==BASIS_IDS+[REFUSAL_RUN,CONTROL_RUN,
+            39225295971,39227056047,39228995303,39230864255,39232902584,39235028468]
+        and type(current.get("id")) is int and current["id"]>39235028468
+        and type(current.get("run_attempt")) is int and current["run_attempt"]==1
+        and current.get("head_sha")==control["expected_master"] and current.get("head_branch")=="master"
+        and current.get("event")=="workflow_dispatch"
+        and current.get("display_title")=="a1-sip "+control["nonce"]+" native-read39235028468"
+        and current.get("status") in {"in_progress","completed"},"NAMED_READ_SINGLE_USE")
+    c.require(all(control["nonce"] not in x.get("display_title","") for x in runs[:-1]),
+              "NAMED_READ_NONCE_REUSE")
+    return runs[:-1]
+
+
+def named_read_budget(c,observed):
+    c.require(len(observed["runs"])==29 and observed["runs"][-1]["id"]==39235028468
+        and observed["examined"]==296 and observed["parent_sha"]==READ392_CP
+        and c.digest(c.encoded(observed["receipts"][-1]))==READ392_METER
+        and observed["used"]==READ392_USED and observed["active_seconds"]==8736
+        and observed["first"]==c.utc(c.CONTINUATION["first"]),"NAMED_READ_CAPTURE_PREFIX")
+    c.require(all(READ392_USED[k]+READ392_ALLOWANCE[k]<=c.CONTINUED_LIMITS[k] for k in c.LIMITS)
+        and 8736+900<=43200 and 29+1<=40,"NAMED_READ_SHARED_BUDGET")
+
+
+def named_read_queries(folder):
+    return {
+        "name = '"+READ392_CP+".json' and '"+folder+"' in parents and trashed = false":"2",
+        "'"+folder+"' in parents and trashed = false and createdTime >= '"+READ392_WINDOW[0]
+        +"' and createdTime <= '"+READ392_WINDOW[1]+"'":"8"}
+
+
+def named_read_job_deadline(c,jobs):
+    c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2,"NAMED_READ_JOB")
+    offline=[j for j in jobs["jobs"] if j.get("name")=="offline" and j.get("status")=="completed"
+             and j.get("conclusion")=="success"]
+    active=[j for j in jobs["jobs"] if j.get("name")=="reconcile" and j.get("status")=="in_progress"]
+    c.require(len(offline)==len(active)==1 and isinstance(offline[0].get("completed_at"),str)
+        and isinstance(active[0].get("started_at"),str)
+        and c.utc(offline[0]["completed_at"])<=c.utc(active[0]["started_at"])<=c.utc()+c.timedelta(seconds=5),
+        "NAMED_READ_JOB_CLOCK")
+    return min(c.utc(active[0]["started_at"])+c.timedelta(seconds=300),c.utc(VALIDITY_END))
+
+
+def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
+    kwargs.setdefault("clock",c.utc)
+    class NamedReadMeter(c.RuntimeMeter):
+        def __init__(self):
+            self.result={};self.attempts=[];self.pending=None;self.seen=set()
+            auth=control["authorization"]
+            self.root=auth["private_root_folder_id"];self.folder=auth["private_data_folder_id"]
+            self.cp_id=control["checkpoint_file_id"];self.candidate_id=None
+            self.media_sizes={self.cp_id:5005};self.queries=named_read_queries(self.folder)
+            self.refresh_needed=refresh_needed
+            super().__init__(*args,**kwargs)
+
+        def save(self):
+            c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v1",**self.identity,
+                usage=self.used,allowance=self.allowance,status=self.status,reason=self.reason,
+                finalized=self.finalized,transfer_definition=c.METRIC,attempts=self.attempts,
+                observed_google_body_bytes=self.observed_google_body_bytes,result=self.result,
+                capture_allowed=False,source_admission=False,pit_verified=False,economic_authority=False,
+                **({"last_transport_failure":self.last_transport_failure} if self.last_transport_failure else {})))
+            c.sync_native18_settlement(self.journal)
+
+        def reserve_storage(self,size):
+            raise c.Refused("NAMED_READ_WRITE_BLOCKED")
+
+        def debit(self,changes):
+            c.require(self.pending is not None and changes==dict(drive_requests=1,drive_bytes=self.pending["reservation"]),
+                      "NAMED_READ_DEBIT")
+            self.attempts.append(self.pending)
+            try:super().debit(changes)
+            except BaseException:
+                self.attempts.pop()
+                raise
+
+        def perform(self,url,*,method="GET",body=None,**kw):
+            from urllib.parse import parse_qsl,urlsplit
+            p=urlsplit(url);pairs=parse_qsl(p.query,keep_blank_values=True);q=dict(pairs)
+            allowed=False;kind=None;limit=2_000_000;key=(p.netloc,p.path,tuple(sorted(q.items())),method)
+            c.require(not p.fragment and len(pairs)==len(q),"NAMED_READ_ENDPOINT")
+            if url=="https://oauth2.googleapis.com/token" and method=="POST" and self.refresh_needed:
+                allowed=True;kind="OAUTH";limit=65536
+                c.require(isinstance(body,bytes) and 0<len(body)<=65536,"NAMED_READ_OAUTH_BODY")
+            elif p.scheme=="https" and p.netloc=="www.googleapis.com" and method=="GET" and body is None:
+                if p.path=="/drive/v3/about":
+                    allowed=q=={"fields":"user(permissionId),storageQuota"};kind="ABOUT"
+                elif p.path=="/drive/v3/files":
+                    allowed=set(q)=={"q","pageSize","fields"} and self.queries.get(q.get("q"))==q.get("pageSize") \
+                        and q.get("fields")==READ392_FIELDS
+                    kind="POSITIVE_LIST" if q.get("pageSize")=="2" else "WINDOW_LIST"
+                elif p.path.startswith("/drive/v3/files/"):
+                    file_id=p.path.removeprefix("/drive/v3/files/")
+                    if q=={"alt":"media"}:
+                        allowed=file_id in self.media_sizes;kind="CP_MEDIA" if file_id==self.cp_id else "CANDIDATE_MEDIA"
+                        if allowed:limit=self.media_sizes[file_id]
+                    else:
+                        expected=READ392_CHECK_FIELDS if file_id in {self.root,self.folder} else READ392_META_FIELDS
+                        allowed=file_id in {self.root,self.folder,self.cp_id,self.candidate_id} and q=={"fields":expected}
+                        kind="METADATA"
+            c.require(allowed and key not in self.seen,"NAMED_READ_ENDPOINT")
+            supplied=kw.get("limit",limit)
+            c.require(type(supplied) is int and supplied>0,"NAMED_READ_RESPONSE_BOUND")
+            kw["limit"]=min(supplied,limit)
+            self.seen.add(key)
+            attempt=dict(ordinal=len(self.attempts)+1,kind=kind,limit=kw["limit"],
+                request_body_bytes=len(body or b""),reservation=kw["limit"]+1+len(body or b"")+65536,
+                status="RESERVED",response_bytes=None)
+            self.pending=attempt
+            try:
+                raw=super().perform(url,method=method,body=body,**kw)
+                attempt.update(status="COMPLETE",response_bytes=len(raw))
+                self.save()
+                return raw
+            except BaseException:
+                # The underlying meter retains a full reservation on transport
+                # failure. A missing/nonfinal artifact never becomes a zero use.
+                raise
+            finally:self.pending=None
+
+    return NamedReadMeter()
+
+
+def named_read_item(c,item,folder):
+    c.require(isinstance(item,dict) and set(item)=={"id","name","size","parents","createdTime"}
+        and isinstance(item["id"],str) and c.re.fullmatch(r"[A-Za-z0-9_-]{10,100}",item["id"])
+        and isinstance(item["name"],str) and c.re.fullmatch(r"[0-9a-f]{64}\.(?:zip|jsonl\.gz|json)",item["name"])
+        and isinstance(item["size"],str) and c.re.fullmatch(r"[1-9][0-9]{0,7}",item["size"])
+        and int(item["size"])<=16_000_000 and item["parents"]==[folder]
+        and isinstance(item["createdTime"],str) and c.utc(item["createdTime"])<=c.utc(),
+        "NAMED_READ_ITEM")
+    return item
+
+
+def named_read_metadata(c,drive,file_id,folder):
+    info=drive.get("files/"+file_id,{"fields":READ392_META_FIELDS})
+    c.require(isinstance(info,dict) and info.get("id")==file_id and info.get("trashed") is False
+        and info.get("shared") is False and info.get("mimeType")!="application/vnd.google-apps.folder"
+        and info.get("permissions")==[dict(id=drive.owner,type="user",role="owner")],
+        "NAMED_READ_PRIVATE_OBJECT")
+    item={k:info.get(k) for k in ("id","name","size","parents","createdTime")}
+    return named_read_item(c,item,folder)
+
+
+def named_read_content(c,raw,item,auth):
+    # Inspect content identity only. No reconstruction, recovery or PIT inference.
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    import io,zipfile,gzip
+    names=cap.external_cohort(auth["external_cohort"]["input_csv"].encode())[296:300]
+    role="UNKNOWN";identity_verified=False
+    try:
+        if item["name"].endswith(".zip"):
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                entries=z.infolist()
+                c.require(0<len(entries)<=2*cap.MAX_PAGES+1 and len({i.filename for i in entries})==len(entries)
+                    and all(c.re.fullmatch(r"[0-9a-f]{64}\.json|capture\.json",i.filename) for i in entries)
+                    and sum(i.file_size for i in entries)<=128_000_000,"NAMED_READ_CONTENT")
+                manifest=next((i for i in entries if i.filename=="capture.json"),None)
+                c.require(manifest is not None and manifest.file_size<=65536,"NAMED_READ_CONTENT")
+                value=c.decode(z.read(manifest))
+            identity_verified=isinstance(value,dict) and value.get("source")==cap.SOURCE \
+                and value.get("source_sha")==auth["expected_master"] and value.get("symbols")==names \
+                and value.get("cohort_scope")==auth["external_cohort"]["scope"] \
+                and value.get("start")=="2016-01-04" and value.get("end")=="2026-10-14"
+            role="RAW_ARCHIVE"
+        elif item["name"].endswith(".jsonl.gz"):
+            with gzip.GzipFile(fileobj=io.BytesIO(raw)) as f:
+                decoded=f.read(16_000_001)
+            c.require(len(decoded)<=16_000_000,"NAMED_READ_CONTENT")
+            rows=[c.decode(line) for line in decoded.splitlines()]
+            identity_verified=bool(rows) and all(isinstance(x,dict) and x.get("ticker") in names
+                and x.get("adjustment") in {"raw","split"} for x in rows)
+            role="NORMALIZED"
+        else:
+            value=c.decode(raw);role="JSON"
+            identity_verified=isinstance(value,dict) and value.get("cohort_scope")==auth["external_cohort"]["scope"] \
+                and value.get("source_sha")==auth["expected_master"] and value.get("symbols")==names
+    except c.Refused:raise
+    except Exception:raise c.Refused("NAMED_READ_CONTENT") from None
+    return dict(role=role,content_identity_verified=identity_verified,failed_post_equivalence_verified=False)
+
+
+def named_read_objects(c,drive,control,meter):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    auth=control["authorization"];folder=auth["private_data_folder_id"]
+    c.require(c.digest(drive.owner.encode())==c.CONTINUATION["bindings"]["owner_sha256"],"NAMED_READ_OWNER")
+    drive.check(folder,auth["private_root_folder_id"])
+    cp_meta=named_read_metadata(c,drive,control["checkpoint_file_id"],folder)
+    c.require(cp_meta["name"]==READ392_CP+".json" and cp_meta["size"]=="5005","NAMED_READ_CP_METADATA")
+    raw=drive.read(control["checkpoint_file_id"],5005)
+    c.require(len(raw)==5005 and c.digest(raw)==READ392_CP,"NAMED_READ_CP_HASH")
+    cp=c.decode(raw)
+    c.require(isinstance(cp,dict) and cp.get("examined")==cap.external_cohort(
+        auth["external_cohort"]["input_csv"].encode())[:296]
+        and cp.get("cohort_scope")==auth["external_cohort"]["scope"],"NAMED_READ_CP_CONTENT")
+    def listed(query):
+        result=c.credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+
+            c.urlencode(dict(q=query,pageSize=meter.queries[query],fields=READ392_FIELDS))),(drive.token,))
+        c.require(isinstance(result,dict) and set(result)=={"files"} and isinstance(result["files"],list),
+                  "NAMED_READ_LIST_INCOMPLETE")
+        return result["files"]
+    positive,window=meter.queries
+    items=listed(positive)
+    c.require(items==[cp_meta],"NAMED_READ_POSITIVE_CONTROL")
+    items=listed(window)
+    c.require(len(items)<=8,"NAMED_READ_LIST_INCOMPLETE")
+    seen=set();candidates=[]
+    for item in items:
+        named_read_item(c,item,folder)
+        c.require(item["id"] not in seen and c.utc(READ392_WINDOW[0])<=c.utc(item["createdTime"])<=c.utc(READ392_WINDOW[1]),
+                  "NAMED_READ_INVENTORY_IDENTITY")
+        seen.add(item["id"])
+        if item["size"]=="434796":candidates.append(item)
+    c.require(len(candidates)<=1,"NAMED_READ_DUPLICATE_CANDIDATE")
+    # If the positive object is in the inclusive window it must also be listed.
+    if c.utc(READ392_WINDOW[0])<=c.utc(cp_meta["createdTime"])<=c.utc(READ392_WINDOW[1]):
+        c.require(cp_meta in items,"NAMED_READ_LIST_INCOMPLETE")
+    result=dict(positive_control_verified=True,positive_server_created_at=cp_meta["createdTime"],
+        files_count=len(items),inventory_sha256=c.digest(c.encoded(items)),candidate_count=len(candidates),
+        owner_sha256=c.digest(drive.owner.encode()),absence_proven=False,failed_request_body_hash_known=False,
+        failed_post_equivalence_verified=False,origin_status="UNKNOWN")
+    # Private diagnostic bytes are never included in the public meter artifact.
+    c.atomic_json(meter.journal.parent/"named_read_objects.private.json",dict(positive=cp_meta,files=items))
+    if candidates:
+        item=candidates[0];meter.candidate_id=item["id"];meter.media_sizes[item["id"]]=434796
+        actual=named_read_metadata(c,drive,item["id"],folder)
+        c.require(actual==item,"NAMED_READ_CANDIDATE_METADATA")
+        body=drive.read(item["id"],434796)
+        c.require(len(body)==434796 and c.digest(body)==item["name"][:64],"NAMED_READ_CANDIDATE_HASH")
+        result.update(candidate_sha256=c.digest(body),candidate_bytes=len(body),
+            candidate_server_created_at=item["createdTime"],**named_read_content(c,body,item,auth))
+    meter.result=result;meter.save()
+    return result
+
+
+def named_read_worker(c,control,state_dir):
+    from tools.twelve_private_capture import OwnerDrive
+    auth=named_read_control(c,control)
+    c.require(c.os.getenv("GITHUB_REPOSITORY")==c.REPO and c.os.getenv("GITHUB_REF")=="refs/heads/master"
+        and c.os.getenv("GITHUB_SHA")==control["expected_master"] and c.os.getenv("GITHUB_RUN_ATTEMPT")=="1"
+        and c.os.getenv("INPUT_NATIVE_READ_ONLY")=="true"
+        and c.os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED")=="true"
+        and c.os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED")=="true"
+        and c.os.getenv("INPUT_CAMPAIGN_NONCE")==control["nonce"]
+        and c.os.getenv("INPUT_PRIVATE_ROOT_FOLDER_ID")==auth["private_root_folder_id"]
+        and c.os.getenv("INPUT_PRIVATE_DATA_FOLDER_ID")==auth["private_data_folder_id"],"NAMED_READ_CONTEXT")
+    proof,created=named_read_proof(c,control)
+    source_pins=named_read_deployed(c,control)
+    current=c.gh_json(f"repos/{c.REPO}/actions/runs/{int(c.os.environ['GITHUB_RUN_ID'])}")
+    c.require(current.get("status")=="in_progress" and isinstance(current.get("created_at"),str)
+        and c.utc(created)<=c.utc(current["created_at"])<c.utc(VALIDITY_END),"NAMED_READ_RUN_CLOCK")
+    observed=c.external_history(auth,allow_stopped=True,named_read_context=(control,current))
+    named_read_budget(c,observed)
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{current['id']}/jobs?per_page=100")
+    deadline=named_read_job_deadline(c,jobs)
+    directory=c.Path(state_dir);directory.mkdir(exist_ok=False)
+    identity=dict(task_key=READ392_TASK,run_id=current["id"],run_attempt=1,nonce=control["nonce"],
+        control_sha256=c.digest(c.encoded(control)),grant_proof_sha256=proof,
+        source_sha=control["expected_master"],source_pins=source_pins,
+        parent_checkpoint_sha256=READ392_CP,examined_before=296,failed_run_id=39235028468,
+        failed_meter_sha256=READ392_METER,usage_before=dict(READ392_USED),
+        active_seconds_before=8736,dispatches_before=29,active_seconds_reservation=900,dispatch_reservation=1)
+    # Only inspect whether the existing OwnerDrive bootstrap needs a refresh;
+    # no credential value is emitted, copied to metadata or sent to GitHub.
+    config=c.configparser.ConfigParser(interpolation=None)
+    try:
+        config.read_string(c.os.environ.get("MACRO_DRIVE_CONFIG",""))
+        token=c.decode(config["gdrive"]["token"])
+        expiry=token.get("expiry",token.get("Expiry"))
+        c.require(isinstance(expiry,str),"DRIVE_CONFIGURATION")
+        refresh_needed=c.utc(expiry)<=c.utc()+c.timedelta(seconds=60)
+    except Exception:raise c.Refused("DRIVE_CONFIGURATION") from None
+    meter=named_read_meter(c,READ392_ALLOWANCE,directory/"native_read_meter.json",deadline.isoformat(),
+        identity,limits=c.CONTINUED_LIMITS,control=control,refresh_needed=refresh_needed)
+    try:
+        with meter.process_deadline(),c.tempfile.TemporaryDirectory(prefix="a1-named-read-") as temp:
+            drive=OwnerDrive(auth["private_root_folder_id"],temp,meter=meter)
+            named_read_objects(c,drive,control,meter)
+        meter.finish("COMPLETE")
+    except c.Refused as exc:
+        meter.finish("BLOCKED",str(exc));raise
+    except Exception:
+        meter.finish("BLOCKED","NAMED_READ_INTERNAL")
+        raise c.Refused("NAMED_READ_INTERNAL") from None
+    return dict(status="NAMED_READ_COMPLETE",capture_allowed=False,source_admission=False)
+
+
+def named_read_cost(c,control,run,value,jobs):
+    c.require(isinstance(value,dict) and value.get("schema")=="a1-named-read39235028468-meter-v1"
+        and value.get("task_key")==READ392_TASK
+        and value.get("control_sha256")==c.digest(c.encoded(control))
+        and value.get("run_id")==run["id"] and type(value.get("run_id")) is int
+        and type(value.get("run_attempt")) is int and value["run_attempt"]==1
+        and value.get("nonce")==control["nonce"] and value.get("source_sha")==control["expected_master"]
+        and isinstance(value.get("source_pins"),dict) and set(value["source_pins"])==set(V6_PINS)
+        and c.digest(c.encoded(value["source_pins"]))==control["code_pins_sha256"]
+        and value.get("parent_checkpoint_sha256")==READ392_CP and value.get("examined_before")==296
+        and value.get("failed_run_id")==39235028468 and value.get("failed_meter_sha256")==READ392_METER
+        and value.get("usage_before")==READ392_USED and value.get("active_seconds_before")==8736
+        and value.get("dispatches_before")==29 and value.get("active_seconds_reservation")==900
+        and value.get("dispatch_reservation")==1 and value.get("finalized") is True
+        and value.get("status") in {"COMPLETE","BLOCKED"} and value.get("transfer_definition")==c.METRIC
+        and c.encoded(value.get("allowance"))==c.encoded(READ392_ALLOWANCE)
+        and all(value.get(k) is False for k in ("capture_allowed","source_admission","pit_verified","economic_authority")),
+        "NAMED_READ_COST_RECEIPT")
+    usage=value.get("usage");attempts=value.get("attempts")
+    c.require(isinstance(usage,dict) and set(usage)==set(c.LIMITS)
+        and all(type(usage[k]) is int and 0<=usage[k]<=READ392_ALLOWANCE[k] for k in c.LIMITS)
+        and isinstance(attempts,list) and len(attempts)==usage["drive_requests"],"NAMED_READ_COST_COUNTER")
+    charged=0;observed=0;pending=False
+    for i,a in enumerate(attempts,1):
+        c.require(isinstance(a,dict) and set(a)=={"ordinal","kind","limit","request_body_bytes","reservation","status","response_bytes"}
+            and type(a["ordinal"]) is int and a["ordinal"]==i
+            and a["kind"] in {"OAUTH","ABOUT","POSITIVE_LIST","WINDOW_LIST","METADATA","CP_MEDIA","CANDIDATE_MEDIA"}
+            and type(a["limit"]) is int and 0<a["limit"]<=
+                (65536 if a["kind"]=="OAUTH" else 5005 if a["kind"]=="CP_MEDIA" else 434796
+                 if a["kind"]=="CANDIDATE_MEDIA" else 2_000_000)
+            and type(a["request_body_bytes"]) is int and 0<=a["request_body_bytes"]<=65536
+            and (a["kind"]=="OAUTH" or a["request_body_bytes"]==0)
+            and type(a["reservation"]) is int
+            and a["reservation"]==a["limit"]+1+a["request_body_bytes"]+65536,"NAMED_READ_COST_ATTEMPT")
+        if a["status"]=="COMPLETE":
+            c.require(not pending and type(a["response_bytes"]) is int
+                and 0<a["response_bytes"]<=a["limit"],"NAMED_READ_COST_ATTEMPT")
+            observed+=a["request_body_bytes"]+a["response_bytes"]
+            charged+=a["request_body_bytes"]+a["response_bytes"]+65536
+        else:
+            c.require(a["status"]=="RESERVED" and a["response_bytes"] is None and i==len(attempts)
+                and value["status"]=="BLOCKED","NAMED_READ_COST_ATTEMPT")
+            pending=True;charged+=a["reservation"]
+    c.require(charged==usage["drive_bytes"] and observed==value.get("observed_google_body_bytes"),
+              "NAMED_READ_COST_CONSERVATION")
+    c.require(run.get("status")=="completed" and run.get("run_attempt")==1
+        and run.get("head_sha")==control["expected_master"] and run.get("head_branch")=="master"
+        and run.get("event")=="workflow_dispatch"
+        and run.get("display_title")=="a1-sip "+control["nonce"]+" native-read39235028468"
+        and isinstance(run.get("created_at"),str)
+        and run.get("conclusion")==("success" if value["status"]=="COMPLETE" else "failure"),
+        "NAMED_READ_COST_RUN")
+    c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2
+        and {j.get("name") for j in jobs["jobs"]}=={"offline","reconcile"},"NAMED_READ_COST_JOBS")
+    seconds=0
+    for j in jobs["jobs"]:
+        c.require(j.get("status")=="completed" and isinstance(j.get("started_at"),str)
+            and isinstance(j.get("completed_at"),str) and c.utc(run["created_at"])<=c.utc(j["started_at"])
+            <=c.utc(j["completed_at"]),"NAMED_READ_COST_CLOCK")
+        seconds+=c.math.ceil((c.utc(j["completed_at"])-c.utc(j["started_at"])).total_seconds())
+    c.require(0<seconds<=900,"NAMED_READ_COST_CLOCK")
+    result=value.get("result")
+    c.require(isinstance(result,dict) and (not result or all(result.get(k) is False for k in
+        ("absence_proven","failed_request_body_hash_known","failed_post_equivalence_verified"))),
+        "NAMED_READ_COST_ORIGIN")
+    if value["status"]=="COMPLETE":
+        c.require(result.get("positive_control_verified") is True and result.get("origin_status")=="UNKNOWN"
+            and type(result.get("candidate_count")) is int and 0<=result["candidate_count"]<=1,
+            "NAMED_READ_COST_ORIGIN")
+    return dict(schema="a1-named-read39235028468-cost-settlement-v1",run_id=run["id"],run_attempt=1,
+        source_sha=control["expected_master"],control_sha256=c.digest(c.encoded(control)),
+        meter_sha256=c.digest(c.encoded(value)),grant_proof_sha256=value.get("grant_proof_sha256"),
+        checkpoint_sha256=READ392_CP,failed_meter_sha256=READ392_METER,
+        usage=dict(usage),usage_after={k:READ392_USED[k]+usage[k] for k in c.LIMITS},
+        active_seconds=seconds,active_seconds_after=8736+seconds,dispatches=1,dispatches_after=30,
+        unknown_storage_bytes_still_charged=[302101,434796],absence_proven=False,
+        failed_request_body_hash_known=False,failed_post_equivalence_verified=False,
+        source_admission=False,pit_verified=False,economic_authority=False,total_platform_cost_verified=False)
+
+
+def named_read_append_cost(c,registry,payload):
+    # Called only under the existing family writer lock after canonical proof.
+    entries=registry.entries
+    c.require(registry.lock_owned and len(entries) in {75,76},"NAMED_READ_SETTLEMENT_PREFIX")
+    tail=registry.directory/"000075.json"
+    c.require(c.digest(c.bounded_bytes(tail))==READ392_FAMILY
+        and entries[74].get("kind")=="SETTLED" and entries[74].get("run_id")==39235028468,
+        "NAMED_READ_SETTLEMENT_PREFIX")
+    if len(entries)==75:
+        c.require(registry.parent==READ392_FAMILY,"NAMED_READ_SETTLEMENT_PREFIX")
+        registry.append("NAMED_READ39235028468_SETTLED",**payload)
+    entry=registry.entries[-1]
+    c.require(entry.get("kind")=="NAMED_READ39235028468_SETTLED" and entry.get("previous_sha256")==READ392_FAMILY
+        and {k:entry.get(k) for k in payload}==payload
+        and set(entry)==set(payload)|{"sequence","kind","auth_sha256","previous_sha256","recorded_utc"},
+        "NAMED_READ_SETTLEMENT_CONFLICT")
+    path=registry.directory/"000076.json"
+    c.require(c.bounded_bytes(path)==c.encoded(entry),"NAMED_READ_SETTLEMENT_BYTES")
+    # Reflush both barriers even when recovering a visible interrupted append.
+    c.sync_native18_settlement(path)
+    return entry
+
+
+def named_read_frozen_prefix(c,directory,count,tail):
+    c.require(directory.is_dir() and not directory.is_symlink()
+        and sorted(p.name for p in directory.glob("*.json"))==[f"{i:06d}.json" for i in range(1,count+1)],
+        "NAMED_READ_JOURNAL_PREFIX")
+    previous=None
+    for i in range(1,count+1):
+        path=directory/f"{i:06d}.json"
+        raw=c.bounded_bytes(path);entry=c.decode(raw)
+        c.require(not path.is_symlink() and isinstance(entry,dict) and type(entry.get("sequence")) is int
+            and entry["sequence"]==i and entry.get("previous_sha256")==previous,"NAMED_READ_JOURNAL_PREFIX")
+        previous=c.digest(raw)
+    c.require(previous==tail,"NAMED_READ_JOURNAL_PREFIX")
+
+
+def named_read_settle_host(c,args):
+    control=c.bounded_json(args.native392_settle_control,16384)
+    auth=named_read_control(c,control,accounting=True)
+    proof,_=named_read_proof(c,control,accounting=True)
+    named_read_deployed(c,control)
+    run=c.gh_json(f"repos/{c.REPO}/actions/runs/{args.native392_run_id}")
+    observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
+    named_read_budget(c,observed)
+    artifacts=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/artifacts?per_page=100")
+    c.require(artifacts.get("total_count")==len(artifacts.get("artifacts",[]))<=100,"NAMED_READ_ARTIFACT")
+    selected=[a for a in artifacts["artifacts"] if a.get("name")=="a1-native-drive-read-meter"]
+    c.require(len(selected)==1 and selected[0].get("expired") is False
+        and type(selected[0].get("id")) is int and type(selected[0].get("size_in_bytes")) is int
+        and 0<selected[0]["size_in_bytes"]<=65536,"NAMED_READ_ARTIFACT")
+    with c.tempfile.TemporaryDirectory(prefix="a1-named-cost-") as temp:
+        result=c.subprocess.run(["gh","run","download",str(run["id"]),"--repo",c.REPO,
+            "--name","a1-native-drive-read-meter","--dir",temp],
+            stdout=c.subprocess.DEVNULL,stderr=c.subprocess.DEVNULL,timeout=45)
+        files=list(c.Path(temp).iterdir())
+        c.require(result.returncode==0 and len(files)==1 and files[0].name=="native_read_meter.json"
+            and not files[0].is_symlink(),"NAMED_READ_ARTIFACT")
+        value=c.bounded_json(files[0])
+    c.require(value.get("grant_proof_sha256")==proof,"NAMED_READ_COST_GRANT")
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/jobs?per_page=100")
+    payload=named_read_cost(c,control,run,value,jobs)
+    payload["artifact_id"]=selected[0]["id"]
+    # Do not synthesize a missing original/capture/cohort journal or settlement.
+    budget=c.Path(args.budget_state_dir).resolve();state=c.Path(args.state_dir).resolve()
+    c.require(state==budget.parent/"external-cohort-top500-20261017","NAMED_READ_JOURNAL_PREFIX")
+    named_read_frozen_prefix(c,budget,17,c.CONTINUATION["event"])
+    named_read_frozen_prefix(c,state,48,READ392_COHORT)
+    registry=c.external_family_registry(budget,auth,state)
+    try:
+        # All remote reads before this final complete canonical-history check.
+        final_proof,_=named_read_proof(c,control,accounting=True)
+        named_read_deployed(c,control)
+        fresh=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
+        named_read_budget(c,fresh)
+        c.require(final_proof==proof,"NAMED_READ_COST_GRANT")
+        return named_read_append_cost(c,registry,payload)
+    finally:registry.close()
+
+
 V6_SOURCE="a20432fad51576309116bf620a60cdcd1503af55"
 V6_AUTH="f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74"
 V6_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6255779963"
