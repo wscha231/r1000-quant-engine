@@ -30,6 +30,12 @@ predict IDs, edit a consent comment or issue a nonce/grant during T2 preparation
 The compact control carries `code_pins_sha256`, avoiding duplication of the
 large unchanged historical authorization inside the existing16384-byte limit.
 Private root/folder/checkpoint IDs stay in private control and retained evidence.
+For this new case, the job's control/root/folder/resume-ID environment values
+are explicitly blank: runner step environment blocks are public before a later
+mask could take effect. The existing premeter step reads the bounded genuine
+`GITHUB_EVENT_PATH` inputs into its private control file. The worker rechecks
+that event's exact control, nonce, root, folder and research flags before any
+OAuth/Drive call. Old native/capture input routing remains unchanged.
 
 The original first canonical run, original48h observation and all spent costs
 remain fixed. The separate9f window still ends exclusively at

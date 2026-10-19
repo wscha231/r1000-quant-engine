@@ -106,13 +106,13 @@ jobs:
     env:
       A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
       ALPACA_NONCOMMERCIAL_ACKNOWLEDGED: ${{ inputs.noncommercial_terms_acknowledged }}
-      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ inputs.private_root_folder_id }}
-      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ inputs.private_data_folder_id }}
+      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ !(inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1') && inputs.private_root_folder_id || '' }}
+      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ !(inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1') && inputs.private_data_folder_id || '' }}
       INPUT_END_DATE: ${{ inputs.end_date }}
       INPUT_MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
-      INPUT_RESUME_FILE_ID: ${{ inputs.resume_file_id }}
+      INPUT_RESUME_FILE_ID: ${{ !(inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1') && inputs.resume_file_id || '' }}
       INPUT_RESUME_SHA256: ${{ inputs.resume_sha256 }}
-      INPUT_CAMPAIGN_CONTROL: ${{ inputs.campaign_control }}
+      INPUT_CAMPAIGN_CONTROL: ${{ !(inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1') && inputs.campaign_control || '' }}
       INPUT_CAMPAIGN_NONCE: ${{ inputs.campaign_nonce }}
       INPUT_NATIVE_READ_ONLY: ${{ inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39085031884-v1' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1') && 'true' || 'false' }}
     steps:
@@ -145,15 +145,19 @@ jobs:
           from tools.twelve_private_capture import decode, require
           from tools.alpaca_sip_campaign import atomic_json
           raw = os.environ['INPUT_CAMPAIGN_CONTROL'].encode()
-          require(0 < len(raw) <= 16384, 'CAMPAIGN_CONTROL_SIZE')
-          value = decode(raw)
+          if not raw and os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
+              from tools.alpaca_sip_campaign import native_read_control_from_event
+              value = native_read_control_from_event()
+          else:
+              require(0 < len(raw) <= 16384, 'CAMPAIGN_CONTROL_SIZE')
+              value = decode(raw)
           require(isinstance(value, dict) and ('schema' not in value or value['schema'] in (
               'a1-native-drive-read-39085031884-v1', 'a1-native-drive-read-39235028468-v1')),
               'CAMPAIGN_CONTROL_SCHEMA')
           atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', value)
           if os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
               from tools.alpaca_sip_campaign import native_read_route_control
-              native_read_route_control(decode(raw))
+              native_read_route_control(value)
           PY
       - name: Reconcile exact failed Drive POST with native metered reads
         if: env.INPUT_NATIVE_READ_ONLY == 'true'

@@ -3337,7 +3337,7 @@ class NativeRead39085031884Tests(unittest.TestCase):
         self.assertNotIn('secrets.ALPACA_API_KEY',read);self.assertNotIn('secrets.ALPACA_API_SECRET',read)
         self.assertIn('a1-native-drive-read-meter',read);self.assertIn('native_read_meter.json',read)
         self.assertIn("&& 5 || 120",text);self.assertIn("if: env.INPUT_NATIVE_READ_ONLY != 'true'",text)
-        self.assertIn('native_read_route_control(decode(raw))',text)
+        self.assertIn('native_read_route_control(value)',text)
 
     def test_accounting_proof_requires_owner_exact_record_and_clock(self):
         pending=self.control['pending_external_read_accounting']
@@ -5258,6 +5258,13 @@ class NamedRead39235028468Tests(unittest.TestCase):
             INPUT_PRIVATE_DATA_FOLDER_ID="fixture-data-123",MACRO_DRIVE_CONFIG="[gdrive]\ntype=drive\ntoken="+
                 json.dumps(dict(access_token="fixture-access",refresh_token="fixture-refresh",
                     expiry="2030-01-01T00:00:00Z"))+"\n")
+        self.event_path=self.root/"private-event.json"
+        inputs=dict(campaign_control=c.encoded(self.control).decode(),campaign_nonce=self.control["nonce"],
+            private_root_folder_id="fixture-root-123",private_data_folder_id="fixture-data-123",
+            private_research_authorized="true",noncommercial_terms_acknowledged="true")
+        self.event_path.write_bytes(c.encoded(dict(inputs=inputs)))
+        self.env.update(GITHUB_EVENT_PATH=str(self.event_path),INPUT_PRIVATE_ROOT_FOLDER_ID="",
+            INPUT_PRIVATE_DATA_FOLDER_ID="",INPUT_RESUME_FILE_ID="",INPUT_CAMPAIGN_CONTROL="")
         self.run=dict(id=40000000000,run_attempt=1,head_sha="4"*40,head_branch="master",
             event="workflow_dispatch",display_title="a1-sip "+self.control["nonce"]+" native-read39235028468",
             status="completed",conclusion="success",created_at="2026-10-19T10:30:00Z")
@@ -5615,11 +5622,63 @@ class NamedRead39235028468Tests(unittest.TestCase):
             pr["draft"]=False;checks["check_runs"][2]["conclusion"]="skipped"
             with self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
 
+
+    def test_private_event_is_bound_to_control_and_never_exported_as_job_env(self):
+        with patch.dict(os.environ,self.env,clear=True):
+            self.assertEqual(c.native_read_control_from_event(),self.control)
+        original=c.bounded_json(self.event_path)
+        for key,replacement in (("private_root_folder_id","fixture-other-123"),
+                                ("private_data_folder_id","fixture-other-123"),
+                                ("campaign_nonce",c.PREFIX+"b"*24),
+                                ("private_research_authorized","false"),
+                                ("noncommercial_terms_acknowledged",1),
+                                ("campaign_control","{}")):
+            value=copy.deepcopy(original);value["inputs"][key]=replacement
+            self.event_path.write_bytes(c.encoded(value))
+            with self.subTest(key=key),patch.dict(os.environ,self.env,clear=True),\
+                 patch.object(c,"gh_json",side_effect=AssertionError("Proof lookup before actual event binding")),\
+                 patch.object(drive_module,"OwnerDrive") as constructor,self.assertRaises(c.Refused):
+                self.s.named_read_worker(c,self.control,str(self.root/"denied-worker"))
+            constructor.assert_not_called()
+        self.event_path.write_bytes(c.encoded(original))
+        for key in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID","INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID"):
+            env=dict(self.env,**{key:"PRIVATE_CANARY"})
+            with patch.dict(os.environ,env,clear=True),self.assertRaises(c.Refused):
+                c.native_read_control_from_event()
+
+    def test_private_event_raw_bounds_and_expected_control_binding(self):
+        original=self.event_path.read_bytes()
+        for raw in (b"x"*65537,c.encoded(dict(inputs=dict(campaign_control="x"*16385))),b'{}'):
+            self.event_path.write_bytes(raw)
+            with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+                c.native_read_control_from_event()
+        self.event_path.write_bytes(original)
+        wrong=copy.deepcopy(self.control);wrong["nonce"]=c.PREFIX+"b"*24
+        with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+            self.s.named_read_event_control(c,wrong)
+
+    def test_actual_workflow_premeter_block_reads_private_event_silently(self):
+        text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
+        block=text.split("- name: Prepare bounded control metadata before credentials",1)[1]
+        block=block.split("- name: Reconcile exact failed Drive POST",1)[0]
+        body=block.split("python - <<'PY'\n",1)[1].rsplit("          PY",1)[0]
+        program="\n".join(line[10:] for line in body.splitlines())
+        directory=self.root/"premeter";directory.mkdir()
+        env=dict(self.env,RUNNER_TEMP=str(directory))
+        with patch.dict(os.environ,env,clear=True),patch("sys.stdout",new_callable=io.StringIO) as output:
+            exec(compile(program,"<actual-workflow-premeter>","exec"),{})
+        self.assertEqual(output.getvalue(),"")
+        self.assertEqual(c.bounded_json(directory/"campaign_control.json"),self.control)
+        for key in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID","INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID"):
+            line=next(line for line in text.splitlines() if line.strip().startswith(key+":"))
+            self.assertIn("${{ !(",line);self.assertIn("&& inputs.",line)
+            self.assertTrue(line.endswith("|| '' }}"))
+
     def test_workflow_new_schema_has_read_only_route_and_unknown_schema_refusal(self):
         text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
-        self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v1'"),4)
+        self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v1'"),8)
         self.assertIn("CAMPAIGN_CONTROL_SCHEMA",text)
-        self.assertIn("native_read_route_control(decode(raw))",text)
+        self.assertIn("native_read_route_control(value)",text)
         self.assertIn("if: env.INPUT_NATIVE_READ_ONLY != 'true'",text)
         self.assertIn("' native-read39235028468'",text)
 

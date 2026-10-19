@@ -3842,6 +3842,10 @@ def native_read_route_control(value):
     return native_read_control(value)
 
 
+def native_read_control_from_event():
+    return _revision_module().named_read_event_control(_module())
+
+
 def native_read_worker(control_path, state_dir):
     """Isolated reviewed-master diagnostic. Never invokes a collector/host."""
     from tools.twelve_private_capture import OwnerDrive

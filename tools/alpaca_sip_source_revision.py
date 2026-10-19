@@ -355,17 +355,36 @@ def named_read_objects(c,drive,control,meter):
     return result
 
 
+def named_read_event_control(c,expected=None):
+    # Do not put private control/IDs in Actions step env: it is logged before
+    # a later add-mask command can protect it. Read the genuine runner event.
+    event=c.bounded_json(c.os.environ.get("GITHUB_EVENT_PATH",""),65536)
+    inputs=event.get("inputs") if isinstance(event,dict) else None
+    c.require(isinstance(inputs,dict) and isinstance(inputs.get("campaign_control"),str)
+        and 0<len(inputs["campaign_control"].encode())<=16384,"NAMED_READ_EVENT")
+    value=c.decode(inputs["campaign_control"])
+    auth=named_read_control(c,value)
+    c.require((expected is None or c.encoded(value)==c.encoded(expected))
+        and inputs.get("campaign_nonce")==value["nonce"]
+        and inputs.get("private_root_folder_id")==auth["private_root_folder_id"]
+        and inputs.get("private_data_folder_id")==auth["private_data_folder_id"]
+        and all(inputs.get(k) is True or inputs.get(k)=="true" for k in
+            ("private_research_authorized","noncommercial_terms_acknowledged")),"NAMED_READ_EVENT_BINDING")
+    c.require(not any(c.os.getenv(k) for k in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID",
+        "INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID")),"NAMED_READ_PRIVATE_ENV")
+    return value
+
+
 def named_read_worker(c,control,state_dir):
     from tools.twelve_private_capture import OwnerDrive
     auth=named_read_control(c,control)
+    named_read_event_control(c,control)
     c.require(c.os.getenv("GITHUB_REPOSITORY")==c.REPO and c.os.getenv("GITHUB_REF")=="refs/heads/master"
         and c.os.getenv("GITHUB_SHA")==control["expected_master"] and c.os.getenv("GITHUB_RUN_ATTEMPT")=="1"
         and c.os.getenv("INPUT_NATIVE_READ_ONLY")=="true"
         and c.os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED")=="true"
         and c.os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED")=="true"
-        and c.os.getenv("INPUT_CAMPAIGN_NONCE")==control["nonce"]
-        and c.os.getenv("INPUT_PRIVATE_ROOT_FOLDER_ID")==auth["private_root_folder_id"]
-        and c.os.getenv("INPUT_PRIVATE_DATA_FOLDER_ID")==auth["private_data_folder_id"],"NAMED_READ_CONTEXT")
+        and c.os.getenv("INPUT_CAMPAIGN_NONCE")==control["nonce"],"NAMED_READ_CONTEXT")
     proof,created=named_read_proof(c,control)
     source_pins=named_read_deployed(c,control)
     current=c.gh_json(f"repos/{c.REPO}/actions/runs/{int(c.os.environ['GITHUB_RUN_ID'])}")
