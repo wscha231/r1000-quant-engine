@@ -113,7 +113,8 @@ def _module():
 
 def _revision_module(auth=None):
     if auth is not None:
-        require(digest(bounded_bytes(ROOT/REVISION_MODULE,262144).replace(b"\r\n",b"\n"))
+        require(digest(encoded(auth)) == "f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74"
+                or digest(bounded_bytes(ROOT/REVISION_MODULE,262144).replace(b"\r\n",b"\n"))
                 == auth["code_pins"].get(REVISION_MODULE),"CAMPAIGN_CODE_DRIFT")
     from tools import alpaca_sip_source_revision
     return alpaca_sip_source_revision
@@ -224,7 +225,9 @@ def validate_authorization(auth):
     require(not (continued and external), "CAMPAIGN_AUTHORIZATION")
     require(isinstance(auth, dict) and set(auth) == AUTH_FIELDS | (
             {"external_cohort"} if external else {"continuation"} if continued else set())
-            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v6" if has_source_revision(auth) else
+            and auth.get("schema") == ("r1000-sip-external-cohort-authorization-v7" if has_source_revision(auth)
+                                       and "refusal_closure_sha256" in auth["external_cohort"]["source_revision"] else
+                                       "r1000-sip-external-cohort-authorization-v6" if has_source_revision(auth) else
                                        "r1000-sip-external-cohort-authorization-v5" if native_revised else
                                        "r1000-sip-external-cohort-authorization-v4" if material_revised else
                                        "r1000-sip-external-cohort-authorization-v3" if drive_revised else
@@ -1037,7 +1040,7 @@ class WorkJournal:
     a complete rollback to an older valid prefix.
     """
     def __init__(self, directory, auth_hash, recovery=None, continuation=None, revision=None, drive_revision=None,
-                 material_revision=None, native_revision=None, source_revision=None):
+                 material_revision=None, native_revision=None, source_revision=None, refusal_revision=None, refusal_closure=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         require(not self.directory.is_symlink(), "CAMPAIGN_JOURNAL_PATH")
@@ -1061,6 +1064,7 @@ class WorkJournal:
         self.material_revision = material_revision
         self.native_revision = native_revision
         self.source_revision = source_revision
+        self.refusal_revision, self.refusal_closure = refusal_revision, refusal_closure
         try:
             for index, path in enumerate(sorted(self.directory.glob("*.json")), 1):
                 require(path.name == f"{index:06d}.json" and not path.is_symlink(),
@@ -1068,7 +1072,8 @@ class WorkJournal:
                 raw = bounded_bytes(path)
                 entry = decode(raw)
                 require(entry.get("previous_sha256") == self.parent
-                        and entry.get("auth_sha256") == (_revision_module().OLD_AUTH
+                        and entry.get("auth_sha256") == (_revision_module().V6_AUTH
+                            if refusal_revision and 20 < index <= 24 else _revision_module().OLD_AUTH
                             if source_revision and 10 < index <= 20 else NATIVE18_RECOVERY["prior_auth"]
                             if native_revision and index <= NATIVE18_RECOVERY["events"] else
                             recovery["binding"]["prior_auth_sha256"]
@@ -1142,6 +1147,12 @@ class WorkJournal:
                 if source_revision and index == 21:
                     require(raw == encoded(entry),"EXTERNAL_SOURCE_REVISION_BINDING")
                     _revision_module().verify_entry(_module(),entry,source_revision)
+                if refusal_revision and index == 24:
+                    require(raw == encoded(entry) and entry == _revision_module().closure_entry(_module(),
+                        refusal_closure["payload"],refusal_closure["cohort_event"]["recorded_utc"]),"EXTERNAL_REFUSAL_RECEIPT")
+                if refusal_revision and index == 25:
+                    require(raw == encoded(entry),"EXTERNAL_CORRECTIVE_BINDING")
+                    _revision_module().verify_correction_entry(_module(),entry,refusal_revision,refusal_closure)
                 if continuation and index == CONTINUATION["events"]:
                     require(self.parent == CONTINUATION["event"] and entry.get("kind") == "SETTLED",
                             "CAMPAIGN_CONTINUATION_PREFIX")
@@ -1186,6 +1197,11 @@ class WorkJournal:
         entry = dict(sequence=len(self.entries) + 1, kind=kind,
                      auth_sha256=self.auth_hash, previous_sha256=self.parent,
                      recorded_utc=utc().isoformat(), **data)
+        if kind == "NO_METER_REFUSAL_CLOSED":
+            sr=_revision_module();family=self.auth_hash==external_family_genesis()
+            require(entry==sr.closure_entry(_module(),data,entry["recorded_utc"],family),"EXTERNAL_REFUSAL_RECEIPT")
+        if kind == "REFUSAL_SOURCE_BOUND" and self.refusal_revision:
+            _revision_module().verify_correction_entry(_module(),entry,self.refusal_revision,self.refusal_closure)
         if kind == "SOURCE_REVISION_BOUND" and self.source_revision:
             require(len(self.entries) == 20 and data == self.source_revision,"EXTERNAL_SOURCE_REVISION_BINDING")
             _revision_module().verify_entry(_module(),entry,self.source_revision)
@@ -2138,7 +2154,8 @@ def external_revision(auth, proof):
 
 
 def external_transitions(auth):
-    return external_recoveries(auth)+([_revision_module().SPEC] if has_source_revision(auth) else [])
+    return external_recoveries(auth)+([_revision_module().SPEC] if has_source_revision(auth) else [])+(
+        [dict(kind="CORRECTIVE_SOURCE")] if has_source_revision(auth) and _revision_module().corrective(auth) else [])
 
 
 def external_journal(directory, auth, proof, *, epoch_proofs=None):
@@ -2169,13 +2186,17 @@ def external_journal(directory, auth, proof, *, epoch_proofs=None):
         require(Path(directory).is_dir() and not Path(directory).is_symlink()
                 and (Path(directory)/f"{NATIVE18_RECOVERY['events']:06d}.json").is_file(),
                 "EXTERNAL_NATIVE18_PREFIX")
-    source = _revision_module().binding(_module(),auth,proof) if has_source_revision(auth) else None
+    source = source_binding(auth,proof,epoch_proofs) if has_source_revision(auth) else None
+    corrective = has_source_revision(auth) and _revision_module().corrective(auth)
     return WorkJournal(directory, validate_authorization(auth), revision=revision,
                        drive_revision=drive_revision, material_revision=material_revision, native_revision=native_revision,
-                       source_revision=source)
+                       source_revision=source,refusal_revision=_revision_module().correction_binding(_module(),auth,proof) if corrective else None,
+                       refusal_closure=refusal_closure_for_auth(auth) if corrective else None)
 
 
 def active_external_revision(journal):
+    if getattr(journal,"refusal_revision",None):
+        return journal.refusal_revision,None,"REFUSAL_SOURCE_BOUND"
     if getattr(journal,"source_revision",None):
         return journal.source_revision,None,"SOURCE_REVISION_BOUND"
     for field, spec, kind in (("native_revision", NATIVE18_RECOVERY, "EXTERNAL_NATIVE18_RECOVERY_BOUND"),
@@ -2210,16 +2231,7 @@ def named_failed_receipt(run, value, auth):
 
 
 def native18_consent_commitment(auth):
-    """Detached v5 consent only; never replaces the full runtime auth SHA."""
-    require(auth.get("schema") == "r1000-sip-external-cohort-authorization-v5"
-            and isinstance(auth.get("external_cohort"),dict)
-            and "native18_recovery" in auth["external_cohort"], "EXTERNAL_NATIVE18_RECOVERY")
-    projected = dict(auth, external_cohort=dict(auth["external_cohort"]))
-    self_locator = dict(schema="a1-sip-current-owner-self-locator-v1")
-    projected["account_permission_reference"] = self_locator
-    projected["external_cohort"]["proof_reference"] = self_locator
-    return digest(encoded(dict(schema="a1-sip-native18-consent-commitment-v1",
-                               authorization=projected)))
+    return _revision_module().native18_consent_commitment(_module(),auth)
 
 
 def external_proof_record(auth):
@@ -2267,60 +2279,8 @@ def external_batch(examined, count, auth=None):
     return min(32, count-examined, 128-(examined % 128))
 
 
-def validate_native18_evidence(run, value, jobs):
-    """Validate the exact completed diagnostic, never a capture-shaped substitute."""
-    require(isinstance(value, dict) and digest(encoded(value)) == NATIVE18_METER
-            and value.get("schema") == "a1-native-drive-read-meter-v1"
-            and value.get("run_id") == NATIVE18_RUN and type(value.get("run_id")) is int
-            and value.get("run_attempt") == 1 and value.get("source_sha") == NATIVE18_MASTER
-            and value.get("finalized") is True and value.get("status") == "COMPLETE"
-            and value.get("usage") == NATIVE18_USAGE
-            and all(type(v) is int for v in value["usage"].values())
-            and value.get("observed_google_body_bytes") == 4726
-            and value.get("transfer_definition") == METRIC
-            and value.get("active_seconds_reservation") == 900 and value.get("dispatch_reservation") == 1
-            and value.get("failed_run_id") == NATIVE18_RECOVERY["run_id"]
-            and value.get("failed_meter_sha256") == NATIVE18_RECOVERY["receipt_sha256"]
-            and value.get("parent_checkpoint_sha256") == NATIVE18_RECOVERY["checkpoint_sha256"]
-            and value.get("examined_before") == 76
-            and value.get("pending_external_read_proof_sha256") ==
-                "e25fca3a43a14d8d44b6615a758cce55fd8c665dbafd6bf653b639a6d3400b1d"
-            and value.get("result") == dict(positive_control_verified=True, files_count=1, candidate_count=0,
-                owner_sha256=CONTINUATION["bindings"]["owner_sha256"],
-                absence_proven=False, failed_request_body_hash_known=False)
-            and all(value.get(k) is False for k in
-                    ("capture_allowed", "source_admission", "pit_verified", "economic_authority"))
-            and value.get("subsequent_capture_requires_separate_native_meter_settlement") is True,
-            "EXTERNAL_NATIVE18_METER")
-    pending = value.get("pending_external_read_accounting")
-    require(isinstance(pending, dict) and pending.get("basis") == NATIVE_READ_SCOPE_BASIS
-            and pending.get("status") == "UNKNOWN_NOT_ZERO"
-            and pending.get("usage") == dict(provider_gets=0,storage_bytes=0,drive_requests=None,drive_bytes=None),
-            "EXTERNAL_NATIVE18_UNKNOWN")
-    require(run.get("id") == NATIVE18_RUN and type(run.get("id")) is int
-            and run.get("run_attempt") == 1 and type(run.get("run_attempt")) is int
-            and run.get("status") == "completed" and run.get("conclusion") == "success"
-            and run.get("head_sha") == NATIVE18_MASTER and run.get("head_branch") == "master"
-            and run.get("event") == "workflow_dispatch"
-            and run.get("display_title") == "a1-sip "+value["nonce"]+" native-read39085031884"
-            and run.get("created_at") == "2026-10-18T06:23:17Z",
-            "EXTERNAL_NATIVE18_RUN")
-    expected = [
-        (117605461102,"offline","2026-10-18T06:23:23Z","2026-10-18T06:24:47Z"),
-        (117605710106,"reconcile","2026-10-18T06:24:50Z","2026-10-18T06:26:08Z")]
-    require(isinstance(jobs, dict) and jobs.get("total_count") == 2
-            and isinstance(jobs.get("jobs"), list) and len(jobs["jobs"]) == 2,
-            "EXTERNAL_NATIVE18_JOBS")
-    actual = sorted(jobs["jobs"],key=lambda j:j.get("id",0))
-    require([(j.get("id"),j.get("name"),j.get("started_at"),j.get("completed_at")) for j in actual] == expected
-            and all(j.get("status") == "completed" and j.get("conclusion") == "success" for j in actual),
-            "EXTERNAL_NATIVE18_JOBS")
-    seconds = sum((utc(j["completed_at"])-utc(j["started_at"])).total_seconds() for j in actual)
-    require(seconds == 162 and seconds <= value["active_seconds_reservation"], "EXTERNAL_NATIVE18_JOBS")
-    return dict(meter_sha256=NATIVE18_METER,run_id=NATIVE18_RUN,source_sha=NATIVE18_MASTER,
-                usage=dict(NATIVE18_USAGE),active_seconds=162,dispatches=1,reserved_active_seconds=900,
-                checkpoint_sha256=NATIVE18_RECOVERY["checkpoint_sha256"],
-                pending_external_read_proof_sha256=value["pending_external_read_proof_sha256"])
+def validate_native18_evidence(run,value,jobs):
+    return _revision_module().validate_native18_evidence(_module(),run,value,jobs)
 
 
 def native18_receipt_for_run(run):
@@ -2354,24 +2314,8 @@ def external_family_genesis():
         first=CONTINUATION["first"], limits=CONTINUED_LIMITS, active_seconds_limit=43200, dispatch_limit=40)))
 
 
-def native18_event_payload(source_sha, code_pins):
-    require(isinstance(source_sha,str) and re.fullmatch(r"[0-9a-f]{40}",source_sha)
-            and source_sha not in (NATIVE18_MASTER,NATIVE18_PRIOR_SOURCE["expected_master"])
-            and isinstance(code_pins,dict) and set(code_pins) == set(PINS)
-            and all(isinstance(h,str) and re.fullmatch(r"[0-9a-f]{64}",h) for h in code_pins.values()),
-            "EXTERNAL_NATIVE18_SOURCE")
-    from tools.alpaca_sip_private_backfill_v1 import STORAGE_QUARANTINE
-    scope = dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
-                 namespace="top500-20261017",input_sha256=STORAGE_QUARANTINE["input_sha256"])
-    return dict(schema="a1-native18-shared-settlement-v1",
-        capture_auth_sha256=NATIVE18_RECOVERY["prior_auth"],scope=scope,
-        run_id=NATIVE18_RUN,source_sha=NATIVE18_MASTER,meter_sha256=NATIVE18_METER,
-        usage=dict(NATIVE18_USAGE),active_seconds=162,reserved_active_seconds=900,dispatches=1,
-        checkpoint_sha256=NATIVE18_RECOVERY["checkpoint_sha256"],
-        pending_external_read_proof_sha256="e25fca3a43a14d8d44b6615a758cce55fd8c665dbafd6bf653b639a6d3400b1d",
-        unknown_storage_bytes_still_charged=302101,absence_proven=False,
-        failed_request_body_hash_known=False,total_platform_cost_verified=False,
-        settled_by_source_sha=source_sha,settled_by_code_pins_sha256=digest(encoded(code_pins)))
+def native18_event_payload(source_sha,code_pins):
+    return _revision_module().native18_event_payload(_module(),source_sha,code_pins)
 
 
 def verify_native18_event(entry, source_sha, code_pins, expected_sha=None):
@@ -2442,6 +2386,8 @@ def sync_native18_settlement(path):
 def verify_native18_shared(registry,auth):
     if has_source_revision(auth):
         auth = external_previous(auth)
+        if has_source_revision(auth):
+            auth = external_previous(auth)
     matches = [e for e in registry.entries if e["kind"] == "NATIVE_READ_SETTLED"]
     if "native18_recovery" not in auth["external_cohort"]:
         require(not matches,"EXTERNAL_NATIVE18_UNAUTHORIZED")
@@ -2480,7 +2426,7 @@ def append_native18_settlement(registry,source_sha,code_pins):
 
 
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
-                     native_read_run=None, native18_accounting=False):
+                     native_read_run=None, native18_accounting=False, refusal_accounting=False):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2513,12 +2459,26 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 and runs[-1]["display_title"] == "a1-sip " + nonce and runs[-1].get("run_attempt") == 1
                 and runs[-1].get("head_sha") == auth["expected_master"], "CAMPAIGN_SINGLE_USE")
     previous = runs[:-1] if current_run is not None else runs
+    corrective = has_source_revision(auth) and _revision_module().corrective(auth)
+    require(not refusal_accounting or auth_hash == _revision_module().V6_AUTH and current_run is None
+            and allow_stopped and len(runs)==22,"EXTERNAL_REFUSAL_ACCOUNTING")
+    if corrective:
+        refusal_closure_for_auth(auth)
     used, active = {k: 0 for k in LIMITS}, 0
     local = [dict(parent=external_genesis(a["external_cohort"]["scope"]), examined=0,
                   receipts=[], runs=[], durations=[], version=0, named_failures=set()) for a in epochs]
     old_parent, old_examined = INITIAL_SHA, 16
     receipts, durations, epoch_index = [], [], 0
     for index, run in enumerate(previous):
+        if (corrective or refusal_accounting) and run.get("id")==_revision_module().REFUSAL_RUN:
+            sr=_revision_module(); state=local[-1]
+            require(index==21 and [r['id'] for r in previous[:21]]==sr.BASIS_IDS,"EXTERNAL_REFUSAL_PREFIX")
+            sr.verify_transition(_module(),state,used,active)
+            value=refusal_evidence(external_previous(auth) if corrective else auth,run)
+            state["version"]=2
+            state["runs"].append(run);state["receipts"].append(value);state["durations"].append(185)
+            receipts.append(value);durations.append(185);active+=185
+            continue
         if run.get("id") == NATIVE18_RUN and "native18_recovery" in ex:
             require(index == 17 and native18 is None and active == 3769 and used == NATIVE18_CAPTURE_USED
                     and local[-1]["examined"] == 76
@@ -2561,13 +2521,15 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 transition = transitions[version-1]
                 if transition.get("kind") == "SOURCE_REVISION":
                     _revision_module().verify_transition(_module(),state,used,active)
+                elif transition.get("kind") == "CORRECTIVE_SOURCE":
+                    _revision_module().verify_correction_state(_module(),state,used,active)
                 else:
                     require(transition["run_id"] in state["named_failures"]
                         and state["examined"] == transition["examined"]
                         and state["parent"] == transition["checkpoint_sha256"], "EXTERNAL_RECOVERY_PARENT")
                     expected_recovery = transition["run_id"]
             elif version < len(transitions):
-                require(transitions[version].get("kind") == "SOURCE_REVISION" or
+                require(transitions[version].get("kind") in ("SOURCE_REVISION","CORRECTIVE_SOURCE") or
                         transitions[version]["run_id"] not in state["named_failures"], "EXTERNAL_AUTH_REVISION_ORDER")
             state["version"] = version
             scope = a["external_cohort"]["scope"]
@@ -2669,6 +2631,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     if len(epochs) > 1:
         require(local[0]["examined"] == len(cap.external_cohort(epochs[0]["external_cohort"]["input_csv"].encode())), "EXTERNAL_EPOCH_INCOMPLETE")
     return dict(runs=runs, receipts=receipts, used=used, active_seconds=active, first=first,
+                current_run=current_run,current_nonce=nonce,
                 durations=durations, bindings=CONTINUATION["bindings"], external_proof=proofs[auth_hash],
                 epoch_proofs=proofs, parent_sha=state["parent"], examined=state["examined"],
                 cohort_runs=state["runs"], cohort_receipts=state["receipts"], cohort_durations=state["durations"],
@@ -2676,6 +2639,47 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS},
                 native18=native18, native18_accounting=native18_accounting,
                 all_runs=all_runs if native18_accounting else runs)
+
+
+_REFUSAL_EVIDENCE_CACHE = {}
+
+
+def refusal_evidence(auth,run):
+    sr=_revision_module()
+    key=digest(encoded(dict(auth=auth,run=run)))
+    if key not in _REFUSAL_EVIDENCE_CACHE:
+        jobs=gh_json(f"repos/{REPO}/actions/runs/{sr.REFUSAL_RUN}/jobs?per_page=100")
+        artifacts=gh_json(f"repos/{REPO}/actions/runs/{sr.REFUSAL_RUN}/artifacts?per_page=100")
+        blobs={}
+        for path in sr.V6_PINS:
+            data=gh_json(f"repos/{REPO}/contents/{path}?ref={sr.V6_SOURCE}")
+            require(data.get("encoding")=="base64","EXTERNAL_REFUSAL_SOURCE")
+            blobs[path]=base64.b64decode(data["content"])
+        result=subprocess.run(["gh","api",f"repos/{REPO}/actions/jobs/117805290762/logs"],
+            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=120)
+        require(result.returncode==0 and len(result.stdout)<=1_000_000,"EXTERNAL_REFUSAL_LOG")
+        _REFUSAL_EVIDENCE_CACHE[key]=sr.verify_refusal(_module(),auth,run,jobs,artifacts,blobs,result.stdout)
+    return _REFUSAL_EVIDENCE_CACHE[key]
+
+
+def refusal_closure_for_auth(auth):
+    sr=_revision_module();field=auth["external_cohort"]["source_revision"]
+    comment=gh_json(f"repos/{REPO}/issues/comments/{field['refusal_closure_comment_id']}")
+    receipt,_=sr.immutable_record(_module(),comment,"A1_SIP_NO_METER_REFUSAL_CLOSED ")
+    require(isinstance(receipt,dict) and isinstance(receipt.get("payload"),dict)
+        and isinstance(receipt["payload"].get("grant_reference"),str) and re.fullmatch(
+            r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",receipt["payload"]["grant_reference"]),"EXTERNAL_REFUSAL_RECEIPT")
+    grant=gh_json(f"repos/{REPO}/issues/comments/{int(receipt['payload']['grant_reference'].rsplit('-',1)[1])}")
+    return sr.verify_closure_receipt(_module(),auth,receipt,grant,comment)
+
+
+def source_binding(auth,proof,epoch_proofs=None):
+    sr=_revision_module()
+    if sr.corrective(auth):
+        auth=external_previous(auth)
+        proof=epoch_proofs.get(sr.V6_AUTH) if epoch_proofs is not None else external_proof(auth)
+        require(isinstance(proof,dict) and proof.get("proof_sha256")==sr.V6_PROOF,"EXTERNAL_CORRECTIVE_SOURCE")
+    return sr.binding(_module(),auth,proof)
 
 
 def orphan_inventory(drive, folder, meter):
@@ -3040,18 +3044,7 @@ def external_worker(args, control, journal):
 
 
 def external_progress(auth, observed, status):
-    from tools.alpaca_sip_private_backfill_v1 import external_cohort
-    receipts = observed["cohort_receipts"]
-    return dict(task_key=auth["external_cohort"]["scope"]["task_key"], budget_task_key=TASK, status=status,
-                cohort_scope=auth["external_cohort"]["scope"], examined=observed["examined"],
-                cohort_count=len(external_cohort(auth["external_cohort"]["input_csv"].encode())),
-                states={k: sum(r["new_states"][k] for r in receipts) for k in
-                        ("VALID_COLLECTED", "VERIFIED_NO_DATA", "QUARANTINED")},
-                rows_verified=sum(r["rows_verified"] for r in receipts), charged_usage=observed["used"],
-                remaining=observed["remaining"], active_seconds=observed["active_seconds"],
-                workflow_dispatches=len(observed["runs"]), checkpoint_sha256=observed["parent_sha"],
-                first_canonical_utc=observed["first"].isoformat(), source_admission=False,
-                pit_verified=False, economic_authority=False)
+    return _revision_module().external_progress(_module(),auth,observed,status)
 
 
 def verify_external_budget_journal(journal, auth, recovery):
@@ -3239,10 +3232,20 @@ def reconcile_external_family(registry, journal, auth, observed, *, native18_acc
         if entry["kind"] == "SOURCE_REVISION_BOUND":
             require(has_source_revision(auth),"EXTERNAL_SOURCE_REVISION_BINDING")
             _revision_module().verify_entry(_module(),entry,
-                _revision_module().binding(_module(),auth,observed["external_proof"]),family=True)
+                source_binding(auth,observed["external_proof"],observed.get("epoch_proofs")),family=True)
             path = registry.directory/f"{entry['sequence']:06d}.json"
             require(bounded_bytes(path) == encoded(entry),"EXTERNAL_SOURCE_REVISION_BINDING")
             sync_native18_settlement(path)
+            continue
+        if entry["kind"] in ("NO_METER_REFUSAL_CLOSED","REFUSAL_SOURCE_BOUND"):
+            sr=_revision_module();require(sr.corrective(auth),"EXTERNAL_REFUSAL_RECEIPT")
+            closure=journal.refusal_closure
+            if entry["kind"]=="NO_METER_REFUSAL_CLOSED":
+                require(entry==sr.closure_entry(_module(),closure["payload"],closure["family_event"]["recorded_utc"],True)
+                        and pending==sr.REFUSAL_NONCE,"EXTERNAL_REFUSAL_RECEIPT")
+                settled[pending]=entry;pending=None
+            else:
+                sr.verify_correction_entry(_module(),entry,journal.refusal_revision,closure,True)
             continue
         if entry["kind"] == "NATIVE_READ_SETTLED":
             continue  # Its unique fixed slot/hash was verified above, not a capture reservation.
@@ -3272,6 +3275,11 @@ def reconcile_external_family(registry, journal, auth, observed, *, native18_acc
     own_settled = {e["nonce"]:e for e in journal.entries if e["kind"] == "SETTLED"}
     for nonce in own_global:
         run, value = remote[nonce]
+        if has_source_revision(auth) and _revision_module().is_refusal(value):
+            sr=_revision_module();closure=journal.refusal_closure
+            require(nonce in settled and journal.entries[23]==sr.closure_entry(_module(),closure["payload"],
+                closure["cohort_event"]["recorded_utc"]),"EXTERNAL_REFUSAL_RECEIPT")
+            continue
         if nonce in settled:
             require(nonce in own_settled, "EXTERNAL_FAMILY_ORPHAN")
         if nonce in own_settled:
@@ -3350,6 +3358,18 @@ def bind_source_revision(journal, family, auth, observed):
     if not has_source_revision(auth):
         return
     sr = _revision_module()
+    if sr.corrective(auth):
+        expected=sr.correction_binding(_module(),auth,observed["external_proof"])
+        closure=journal.refusal_closure
+        for target,family_flag,slot in ((journal,False,24),(family,True,51)):
+            event=sr.closure_entry(_module(),closure["payload"],closure["family_event" if family_flag else "cohort_event"]["recorded_utc"],family_flag)
+            require(len(target.entries)>=slot and target.entries[slot-1]==event,"EXTERNAL_REFUSAL_RECEIPT")
+            sync_native18_settlement(target.directory/f"{slot:06d}.json")
+            if len(target.entries)==slot:
+                target.append("REFUSAL_SOURCE_BOUND",**expected)
+            sr.verify_correction_entry(_module(),target.entries[slot],expected,closure,family_flag)
+            sync_native18_settlement(target.directory/f"{slot+1:06d}.json")
+        return
     expected = sr.binding(_module(),auth,observed["external_proof"])
     if len(journal.entries) == 20:
         sr.verify_transition(_module(),dict(examined=observed["examined"],parent=observed["parent_sha"],
@@ -3367,6 +3387,62 @@ def bind_source_revision(journal, family, auth, observed):
     require(len(family.entries) >= 48,"EXTERNAL_SOURCE_REVISION_PREFIX")
     sr.verify_entry(_module(),family.entries[47],expected,family=True)
     sync_native18_settlement(family.directory/"000048.json")
+
+
+def refusal_accounting_host(args):
+    """Exact known pre-capture refusal; never emits a RuntimeMeter or dispatch."""
+    sr=_revision_module();auth=bounded_json(args.authorization,15000)
+    grant=bounded_json(args.refusal_close_authorization,4096)
+    require(set(grant)=={"source_sha","code_pins","grant_reference"}
+            and validate_authorization(auth)==sr.V6_AUTH and not args.recovery_run
+            and not any((args.max_batches,args.account_permission_reference,args.continuation_receipt,args.native18_deployed_master))
+            and args.budget_state_dir and args.cohort_input
+            and args.predispatch_recovery,"EXTERNAL_REFUSAL_ACCOUNTING")
+    external_deployed(dict(expected_master=grant["source_sha"],code_pins=grant["code_pins"]))
+    require(isinstance(grant["grant_reference"],str) and re.fullmatch(
+        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",grant["grant_reference"]),"EXTERNAL_REFUSAL_GRANT")
+    comment=gh_json(f"repos/{REPO}/issues/comments/{int(grant['grant_reference'].rsplit('-',1)[1])}")
+    payload=sr.closure_payload(_module(),grant["source_sha"],grant["code_pins"],auth["external_cohort"]["scope"],comment)
+    require(bounded_bytes(args.cohort_input,8192)==auth["external_cohort"]["input_csv"].encode(),"EXTERNAL_COHORT_HASH")
+    budget=Path(args.budget_state_dir).resolve();state=Path(args.state_dir).resolve()
+    require(state==budget.parent/("external-cohort-"+auth["external_cohort"]["scope"]["namespace"]),"EXTERNAL_NAMESPACE")
+    recovery=local_reject_recovery(args.predispatch_recovery,auth["external_cohort"]["prior_authorization"],budget)
+    g=WorkJournal(budget,CONTINUATION["auth"],recovery=recovery);family=journal=None
+    try:
+        verify_external_budget_journal(g,auth,recovery)
+        observed=external_history(auth,allow_stopped=True,enforce_expiry=False,refusal_accounting=True)
+        family=external_family_registry(budget,auth,state)
+        journal=external_journal(state,auth,observed["external_proof"],epoch_proofs=observed.get("epoch_proofs"))
+        require(len(journal.entries) in (23,24) and len(family.entries) in (50,51)
+            and digest(bounded_bytes(state/"000023.json"))==sr.COHORT23
+            and digest(bounded_bytes(family.directory/"000050.json"))==sr.FAMILY50
+            and (len(family.entries)!=51 or len(journal.entries)==24),"EXTERNAL_REFUSAL_PREFIX")
+        require(campaign_runs(auth["workflow_run_floor"])==observed["runs"],"EXTERNAL_CANONICAL_DRIFT")
+        receipt=dict(schema="a1-sip-exact-no-meter-refusal-receipt-v1",payload=payload)
+        for target,is_family,slot,field in ((journal,False,24,"cohort_event"),(family,True,51,"family_event")):
+            if len(target.entries)==slot-1:
+                target.append("NO_METER_REFUSAL_CLOSED",**payload)
+            entry=target.entries[slot-1]
+            require(entry==sr.closure_entry(_module(),payload,entry["recorded_utc"],is_family),"EXTERNAL_REFUSAL_RECEIPT")
+            path=target.directory/f"{slot:06d}.json";sync_native18_settlement(path)
+            receipt[field]=dict(recorded_utc=entry["recorded_utc"],sha256=digest(bounded_bytes(path)))
+        require(utc(receipt["cohort_event"]["recorded_utc"])<=utc(receipt["family_event"]["recorded_utc"]),"EXTERNAL_REFUSAL_CLOCK")
+        path=Path(args.refusal_close_authorization).resolve().with_name("REFUSAL_CLOSURE_RECEIPT.private.json")
+        require(all(p not in path.parents for p in (budget,state,family.directory)),"EXTERNAL_REFUSAL_PATH")
+        raw=encoded(receipt)
+        if path.exists():require(bounded_bytes(path)==raw,"EXTERNAL_REFUSAL_RECEIPT")
+        else:
+            with path.open("xb") as f:f.write(raw);f.flush();os.fsync(f.fileno())
+        sync_native18_settlement(path)
+        return dict(status="EXACT_PRE_CAPTURE_REFUSAL_CLOSED",receipt_sha256=digest(raw),
+            actual_active_seconds=5123,actual_dispatches=22,new_price_subjects=0)
+    finally:
+        try:
+            if journal is not None:journal.close()
+        finally:
+            try:
+                if family is not None:family.close()
+            finally:g.close()
 
 
 def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery, recovery_run, max_batches):
@@ -3467,7 +3543,7 @@ def external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_r
             require(parent["sha256"] == observed["parent_sha"]
                     and journal.entries[-1]["kind"] in ("EXTERNAL_COHORT_BOUND", "EXTERNAL_RECOVERY_BOUND",
                         "EXTERNAL_DRIVE_RECOVERY_BOUND", "EXTERNAL_MATERIALIZATION_BOUND", "EXTERNAL_NATIVE18_RECOVERY_BOUND",
-                        "SOURCE_REVISION_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
+                        "SOURCE_REVISION_BOUND", "REFUSAL_SOURCE_BOUND", "SETTLED"), "CAMPAIGN_LOCAL_PARENT")
             if observed.get("recovery_required") is not None:
                 require(max_batches == 1 and recovery_run == active_spec["run_id"]
                         and observed["examined"] == active_spec["examined"]
@@ -3871,6 +3947,7 @@ def main():
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
     parser.add_argument("--native18-deployed-master", help="Separately reviewed deployed Source for accounting-only import")
+    parser.add_argument("--refusal-close-authorization", help="Exact39171354230 immutable no-meter closure grant")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--recovery-run", type=int)
     parser.add_argument("--account-permission-reference")
@@ -3881,6 +3958,9 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.refusal_close_authorization:
+            require(args.authorization is not None,"EXTERNAL_REFUSAL_ACCOUNTING")
+            print(json.dumps(refusal_accounting_host(args),sort_keys=True));return 0
         if args.native18_settle_authorization:
             require(not any((args.recovery_run,args.account_permission_reference,args.continuation_receipt,args.max_batches))
                     and args.native18_deployed_master is not None,"EXTERNAL_NATIVE18_ACCOUNTING_MODE")
