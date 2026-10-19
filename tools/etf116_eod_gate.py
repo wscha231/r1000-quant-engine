@@ -21,6 +21,7 @@ from tools.etf116_research_metrics_h1 import (
 )
 
 SCHEMA = "etf116-eod-tr-packet-v1"
+RECEIPT_SCHEMA = "etf116-eod-prepared-receipt-v1"
 EXPECTED_UNIVERSE_SHA256 = "7ae2a5f1a679423ace1602dd2628f2853ea85b0496a4ecfea0df720dfe0530cc"
 STATUS = {"VERIFIED", "BLOCKED", "STALE", "INELIGIBLE"}
 BASIS = {"NAV_TR_INDEX", "MARKET_TR_INDEX"}
@@ -55,6 +56,33 @@ def canonical_bytes(obj):
 
 def sha(obj):
     return hashlib.sha256(canonical_bytes(obj)).hexdigest()
+
+def seal_receipt(value):
+    value = dict(value, schema=RECEIPT_SCHEMA)
+    return dict(value, receipt_sha256=sha(value))
+
+def validate_prior_receipt(value):
+    require(isinstance(value, dict) and value.get("schema") == RECEIPT_SCHEMA, "PRIOR_RECEIPT_SCHEMA")
+    require(value.get("state") in ("PREPARED_ONLY", "SKIP_UNCHANGED")
+            and value.get("publish_enabled") is False, "PRIOR_RECEIPT_STATE")
+    require(value.get("scope_sha256") == EXPECTED_UNIVERSE_SHA256, "PRIOR_RECEIPT_SCOPE")
+    for key in ("input_digest", "rights_receipt_sha256", "receipt_sha256"):
+        require(isinstance(value.get(key), str) and SHA_RE.fullmatch(value[key]), "PRIOR_RECEIPT_DIGEST")
+    require(isinstance(value.get("source_id"), str) and 2 <= len(value["source_id"]) <= 128,
+            "PRIOR_RECEIPT_SOURCE")
+    day = value.get("session")
+    date(day, "prior_session")
+    try:
+        require(timestamp(value.get("official_nyse_close_utc"), "prior_close") == verified_session_close(day),
+                "PRIOR_RECEIPT_CLOSE")
+        digest = sha({k:v for k,v in value.items() if k != "receipt_sha256"})
+    except RefuseInput:
+        raise GateError("PRIOR_RECEIPT_CLOSE") from None
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, GateError): raise
+        raise GateError("PRIOR_RECEIPT_CONTENT") from None
+    require(digest == value["receipt_sha256"], "PRIOR_RECEIPT_CONTENT_HASH")
+    return day
 
 def validate_universe(lines):
     tickers = [line.strip() for line in lines if line.strip()]
@@ -122,25 +150,30 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
         good.append({"ticker":t,"asof":session,"tr_index":value,"basis":basis,
                      "source_sha256":evidence,"available_at_utc":observed.isoformat()})
     digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity})
+    proposal = {"state":"PREPARED_ONLY","session":session,"scope_sha256":EXPECTED_UNIVERSE_SHA256,
+            "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"verified_count":len(good),"blocked_count":len(bad),
+            "verified_rows":good,"non_publishable_rows":bad,
+            "publish_enabled":False,"source_id":source,
+            "next_gate":"INTEGRATE_IN_APPROVED_REPO_LANE_AND_VERIFY_GOOGLE_SHEETS_WRITE"}
     if prior_receipt is not None:
-        require(isinstance(prior_receipt, dict), "PRIOR_RECEIPT_INVALID")
-        prev_s = prior_receipt.get("session")
-        date(prev_s, "prior_session")
+        prev_s = validate_prior_receipt(prior_receipt)
         require(prev_s <= session, "SESSION_ROLLBACK_BLOCKED")
         if prev_s == session:
             if prior_receipt.get("input_digest") == digest:
-                return {"state":"SKIP_UNCHANGED","session":session,"input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"publish_enabled":False}
+                normalized = {k:v for k,v in prior_receipt.items() if k not in ("schema", "receipt_sha256")}
+                normalized["state"] = "PREPARED_ONLY"
+                require(normalized == proposal, "PRIOR_RECEIPT_CONTENT_MISMATCH")
+                return seal_receipt(dict(proposal, state="SKIP_UNCHANGED"))
             raise GateError("SAME_SESSION_CONFLICT_BLOCKED")
         try:
             expected_prior = verified_previous_session(session)
         except RefuseInput:
             raise GateError("NYSE_SESSION_CLOSE_UNVERIFIED") from None
         require(prev_s == expected_prior, "EOD_MISSING_NYSE_SESSION")
-    return {"state":"PREPARED_ONLY","session":session,"scope_sha256":EXPECTED_UNIVERSE_SHA256,
-            "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"verified_count":len(good),"blocked_count":len(bad),
-            "verified_rows":good,"non_publishable_rows":bad,
-            "publish_enabled":False,"source_id":source,
-            "next_gate":"INTEGRATE_IN_APPROVED_REPO_LANE_AND_VERIFY_GOOGLE_SHEETS_WRITE"}
+        # This pure candidate producer has no accepted EOD anchor verifier.
+        # A hash-valid PREPARED receipt must never stand in for completed state.
+        raise GateError("EOD_PRIOR_ACCEPTANCE_NOT_VERIFIED")
+    return seal_receipt(proposal)
 
 def main():
     p = argparse.ArgumentParser(description="ETF116 fail-closed EOD research preflight (no writes outside --output)")

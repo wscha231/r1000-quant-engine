@@ -50,12 +50,46 @@ class SuccessorReviewTests(unittest.TestCase):
     def test_eod_prior_checkpoint_requires_immediately_previous_session(self):
         from tools import etf116_eod_gate as gate
         frozen, packet = self.eod_packet()
+        def prior(day):
+            old = dict(packet, session=day, official_nyse_close_utc=day+'T20:00:00Z')
+            return gate.prepare(old, frozen)
         with self.assertRaisesRegex(gate.GateError, 'EOD_MISSING_NYSE_SESSION'):
-            gate.prepare(packet, frozen, {'session':'2026-10-14'})
-        self.assertEqual(gate.prepare(packet, frozen, {'session':'2026-10-15'})['state'], 'PREPARED_ONLY')
+            gate.prepare(packet, frozen, prior('2026-10-14'))
+        with self.assertRaisesRegex(gate.GateError, 'EOD_PRIOR_ACCEPTANCE_NOT_VERIFIED'):
+            gate.prepare(packet, frozen, prior('2026-10-15'))
+        friday = gate.prepare(packet, frozen)
         packet.update(session='2026-10-19', official_nyse_close_utc='2026-10-19T20:00:00Z',
                       run_at_utc='2026-10-19T23:30:00Z')
-        self.assertEqual(gate.prepare(packet, frozen, {'session':'2026-10-16'})['state'], 'PREPARED_ONLY')
+        with self.assertRaisesRegex(gate.GateError, 'EOD_PRIOR_ACCEPTANCE_NOT_VERIFIED'):
+            gate.prepare(packet, frozen, friday)
+
+    def test_eod_prior_receipt_requires_schema_state_scope_and_content(self):
+        from tools import etf116_eod_gate as gate
+        frozen, packet = self.eod_packet()
+        with self.assertRaisesRegex(gate.GateError, 'PRIOR_RECEIPT_SCHEMA'):
+            gate.prepare(packet, frozen, {'session':'2026-10-15'})
+        first = gate.prepare(packet, frozen)
+        for key, value in [('schema','wrong'),('state','ACCEPTED'),('scope_sha256','0'*64),
+                           ('publish_enabled',True),('input_digest','bad'),
+                           ('rights_receipt_sha256',None),('source_id',None),
+                           ('official_nyse_close_utc','2026-10-16T00:00:00Z'),
+                           ('blocked_count',0)]:
+            with self.subTest(key=key), self.assertRaises(gate.GateError):
+                gate.prepare(packet, frozen, dict(first, **{key:value}))
+
+    def test_eod_same_session_resealed_corruption_and_repeat_skip(self):
+        from tools import etf116_eod_gate as gate
+        frozen, packet = self.eod_packet()
+        first = gate.prepare(packet, frozen)
+        corrupt = {k:v for k,v in first.items() if k != 'receipt_sha256'}
+        corrupt['blocked_count'] = 0
+        with self.assertRaisesRegex(gate.GateError, 'PRIOR_RECEIPT_CONTENT_MISMATCH'):
+            gate.prepare(packet, frozen, gate.seal_receipt(corrupt))
+        second = gate.prepare(packet, frozen, first)
+        third = gate.prepare(packet, frozen, second)
+        self.assertEqual(second, third)
+        self.assertEqual(third['non_publishable_rows'], first['non_publishable_rows'])
+        self.assertFalse(third['publish_enabled'])
 
     def validate(self, day='2026-10-16', available='2026-10-16T20:00:00Z'):
         row = {'ticker': 'SPY', 'date': day, 'tr_index': 100., 'basis': 'NAV_TR_INDEX',

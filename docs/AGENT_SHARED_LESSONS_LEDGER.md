@@ -7445,3 +7445,13 @@ close. Reuse the shared verified Reader/calendar helper, require exact instant
 equality, preserve each accepted row availability clock, and refuse advancing
 a checkpoint across a missing real session. Weekend/holiday gaps follow the
 existing NYSE previous-session helper; do not create a second calendar engine.
+
+### 2026-10-19 — Research receipts cannot certify a completed EOD session
+
+A preceding date alone is not a processed checkpoint. Validate versioned schema,
+state/scope/input/rights/close/source/content identity before reusing a receipt.
+Retain the complete candidate on repeated same-session SKIP and compare it with
+the current proposal. ETF EOD has no approved accepted-anchor verifier wired in;
+therefore even a hash-valid adjacent PREPARED receipt must refuse advancement.
+Absent prior means independent research preparation only, never accepted genesis.
+Do not borrow paper/macro acceptance namespaces or invent a caller approval flag.

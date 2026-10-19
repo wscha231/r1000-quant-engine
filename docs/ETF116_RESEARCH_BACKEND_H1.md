@@ -120,6 +120,16 @@ EOD intake also requires its claimed close instant to equal that shared verified
 NYSE close, retains canonical availability on every verified row, and requires
 the immediately preceding NYSE session when advancing a prior EOD checkpoint.
 Same-date attestations cannot fabricate midnight closes or skip a real session.
+Prior research receipts require a versioned schema, research-only state, fixed
+scope, input/rights/content hashes, source identity and actual close. Same-session
+reuse also compares the complete prepared content, and repeated SKIP retains it.
+An earlier PREPARED receipt is never an accepted completed-session checkpoint:
+the repository has no approved ETF EOD accepted-anchor verifier connected here,
+so even an adjacent hash-valid research receipt refuses
+EOD_PRIOR_ACCEPTANCE_NOT_VERIFIED. An absent prior prepares an independent research
+candidate only, not an accepted genesis or chronological completion. Unsealed
+legacy receipts refuse; no automatic migration or paper/macro anchor substitution.
+H3's separate immutable candidate chain remains available for research history.
 
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,
