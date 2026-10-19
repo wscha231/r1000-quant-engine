@@ -20,6 +20,11 @@ READ392_ALLOWANCE = dict(provider_gets=0,drive_requests=16,drive_bytes=16000000,
 READ392_FIELDS = "nextPageToken,files(id,name,size,parents,createdTime)"
 READ392_CHECK_FIELDS = "id,mimeType,trashed,shared,parents,permissions(id,type,role)"
 READ392_META_FIELDS = READ392_CHECK_FIELDS+",name,size,createdTime"
+# Existing protected gate bytes at reviewed base3c6c216; never infer new trust
+# from the candidate HEAD or update the protected gate/runner to satisfy this.
+READ392_GATE_PINS={
+    ".github/workflows/review_complete_gate.yml":"58494e4941c3bc2084229df5ae239d28889e9385a07989a215813e442e9ced23",
+    "tools/check_pr_review_complete.py":"583f1056460ac29ca27cdeb7d8fab9524d9b354ab2de4ca64427544177262ae2"}
 
 
 def named_read_control(c,value,*,accounting=False):
@@ -84,28 +89,117 @@ def named_read_proof(c,control,*,accounting=False):
     return c.digest(c.encoded(proof)),comment["created_at"]
 
 
-def named_read_deployed(c,control):
-    # The old six-pin helper alone does not close the revision-module import.
-    pins=c.native_read_source(control["expected_master"])
-    c.require(set(pins)==set(c.PINS),"NAMED_READ_CODE_PINS")
-    path=c.REVISION_MODULE
-    remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={control['expected_master']}")
-    local=c.digest(c.bounded_bytes(c.ROOT/path,262144).replace(b"\r\n",b"\n"))
-    c.require(remote.get("encoding")=="base64"
-        and c.digest(c.base64.b64decode(remote["content"]))==local,
-        "NAMED_READ_CODE_PINS")
-    pins=dict(pins,**{path:local})
+def named_read_gate_log(c,job_id):
+    # Existing genuine gate output is the link missing from custom check metadata:
+    # GitHub may put checks created by different workflows in the same head suite.
+    with c.tempfile.TemporaryFile() as output:
+        try:
+            result=c.subprocess.run(["gh","api",f"repos/{c.REPO}/actions/jobs/{job_id}/logs"],
+                stdout=output,stderr=c.subprocess.DEVNULL,timeout=45)
+        except Exception:raise c.Refused("NAMED_READ_GATE_LOG") from None
+        c.require(result.returncode==0,"NAMED_READ_GATE_LOG")
+        output.seek(0);raw=output.read(2_000_001)
+    c.require(len(raw)<=2_000_000,"NAMED_READ_GATE_LOG")
+    try:return raw.decode("utf-8")
+    except UnicodeError:raise c.Refused("NAMED_READ_GATE_LOG") from None
+
+
+def named_read_gate(c,control,check):
+    # These are the existing trusted gate bytes at reviewed base3c6c216, not
+    # newly trusted PR/runner pins. A changed protected implementation must stop.
+    output=check.get("output",{})
+    evidence=("ATTESTED_EXACT_HEAD_REVIEW","MAINTAINER_BOUND_CLEAN_REACTION")
+    summaries={"Evidence: "+e+"\n\nFailures: none\n\nUnresolved conversations are enforced separately by master branch protection." for e in evidence}
+    c.require(type(check.get("id")) is int and type(check.get("check_suite",{}).get("id")) is int
+        and output.get("title")=="PASS_REVIEW_COMPLETE" and output.get("summary") in summaries
+        and isinstance(check.get("started_at"),str) and isinstance(check.get("completed_at"),str),
+        "NAMED_READ_GATE_PROVENANCE")
+    started=c.utc(check["started_at"]);completed=c.utc(check["completed_at"])
+    c.require(started<=completed,"NAMED_READ_GATE_PROVENANCE")
+    query=c.urlencode(dict(created=(started-c.timedelta(hours=1)).isoformat()+".."+completed.isoformat(),per_page=100))
+    runs=c.gh_json(f"repos/{c.REPO}/actions/workflows/317164841/runs?{query}")
+    c.require(isinstance(runs.get("workflow_runs"),list)
+        and runs.get("total_count")==len(runs["workflow_runs"])<=100,"NAMED_READ_GATE_PROVENANCE")
+    candidates=[r for r in runs["workflow_runs"] if r.get("workflow_id")==317164841
+        and r.get("path")==".github/workflows/review_complete_gate.yml"
+        and r.get("event") in {"issue_comment","workflow_dispatch"}
+        and r.get("status")=="completed" and r.get("conclusion")=="success"
+        and r.get("repository",{}).get("full_name")==c.REPO and r.get("head_repository",{}).get("full_name")==c.REPO
+        and isinstance(r.get("created_at"),str) and isinstance(r.get("updated_at"),str)
+        and c.utc(r["created_at"])<=started<=completed<=c.utc(r["updated_at"])]
+    c.require(0<len(candidates)<=5,"NAMED_READ_GATE_PROVENANCE")
+    proofs=[]
+    for run in candidates:
+        c.require(type(run.get("id")) is int and type(run.get("run_attempt")) is int
+            and run["run_attempt"]>=1 and c.re.fullmatch("[0-9a-f]{40}",run.get("head_sha", "")),
+            "NAMED_READ_GATE_PROVENANCE")
+        jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/jobs?per_page=100")
+        c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==1,"NAMED_READ_GATE_PROVENANCE")
+        job=jobs["jobs"][0]
+        c.require(type(job.get("id")) is int and job.get("run_id")==run["id"]
+            and job.get("name")=="evaluate" and job.get("status")=="completed" and job.get("conclusion")=="success"
+            and isinstance(job.get("started_at"),str) and isinstance(job.get("completed_at"),str)
+            and c.utc(job["started_at"])<=started<=completed<=c.utc(job["completed_at"]),"NAMED_READ_GATE_PROVENANCE")
+        for name in ("Checkout trusted gate implementation","Resolve trusted head observation and maintainer attestation",
+                     "Evaluate Codex review evidence for current head","Publish required review_complete check on PR head"):
+            steps=[s for s in job.get("steps",[]) if s.get("name")==name]
+            c.require(len(steps)==1 and steps[0].get("status")=="completed"
+                and steps[0].get("conclusion")=="success","NAMED_READ_GATE_PROVENANCE")
+        text="\n".join(line.partition(" ")[2] for line in named_read_gate_log(c,job["id"]).splitlines())
+        records=[]
+        for match in c.re.finditer(r"(?m)^\{",text):
+            try:records.append(c.json.JSONDecoder().raw_decode(text,match.start())[0])
+            except ValueError:continue
+        published=[r for r in records if isinstance(r,dict) and r.get("id")==check["id"] and r.get("name")=="review_complete"]
+        if not published:continue
+        c.require(len(published)==1 and all(published[0].get(k)==check.get(k) for k in
+            ("head_sha","status","conclusion","check_suite","output")),"NAMED_READ_GATE_PROVENANCE")
+        evaluations=[r for r in records if isinstance(r,dict) and r.get("schema_version")=="run287-review-complete-gate-v2"]
+        c.require(len(evaluations)==1,"NAMED_READ_GATE_PROVENANCE")
+        result=evaluations[0]
+        c.require(result.get("status")=="PASS_REVIEW_COMPLETE" and result.get("passed") is True
+            and result.get("head_sha")==control["deployment"]["reviewed_head"]
+            and result.get("pull_request_number")==control["deployment"]["pull_request"]
+            and result.get("evidence_type") in evidence and result.get("failures")==[],"NAMED_READ_GATE_PROVENANCE")
+        checkouts=c.re.findall(r"(?m)^\[command\].*git log -1 --format=%H\n([0-9a-f]{40})$",text)
+        c.require(len(checkouts)==1,"NAMED_READ_GATE_PROVENANCE")
+        for ref in {run["head_sha"],checkouts[0]}:
+            for path,sha in READ392_GATE_PINS.items():
+                remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={ref}")
+                c.require(remote.get("encoding")=="base64"
+                    and c.digest(c.base64.b64decode(remote.get("content","")))==sha,"NAMED_READ_GATE_PROVENANCE")
+        proofs.append((run["id"],job["id"]))
+    c.require(len(proofs)==1,"NAMED_READ_GATE_PROVENANCE")
+
+
+def named_read_deployed(c,control,*,accounting=False):
+    # A new read still needs the live tip. Historical cost import/reflush binds
+    # only the actual immutable deployment; unrelated master changes are not it.
+    if not accounting:
+        branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+        c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==control["expected_master"],
+                  "CAMPAIGN_MASTER_DRIFT")
+    pins={}
+    for path in V6_PINS:
+        remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={control['expected_master']}")
+        local=c.digest(c.bounded_bytes(c.ROOT/path,262144).replace(b"\r\n",b"\n"))
+        c.require(remote.get("encoding")=="base64"
+            and c.digest(c.base64.b64decode(remote.get("content","")))==local,"NAMED_READ_CODE_PINS")
+        pins[path]=local
     c.require(set(pins)==set(V6_PINS) and c.digest(c.encoded(pins))==control["code_pins_sha256"],
               "NAMED_READ_CODE_PINS")
     number=control["deployment"]["pull_request"];head=control["deployment"]["reviewed_head"]
     pr=c.gh_json(f"repos/{c.REPO}/pulls/{number}")
     c.require(pr.get("merged") is True and pr.get("draft") is False
-        and pr.get("base",{}).get("ref")=="master" and pr.get("head",{}).get("sha")==head
+        and pr.get("number")==number and pr.get("base",{}).get("ref")=="master"
+        and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO
+        and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO and pr.get("head",{}).get("sha")==head
         and pr.get("merge_commit_sha")==control["expected_master"],"NAMED_READ_PROTECTED_DEPLOYMENT")
     # Squash may change the commit ID; the complete reviewed tree must survive.
     reviewed=c.gh_json(f"repos/{c.REPO}/git/commits/{head}")
     deployed=c.gh_json(f"repos/{c.REPO}/git/commits/{control['expected_master']}")
     c.require(isinstance(reviewed.get("tree",{}).get("sha"),str)
+        and c.re.fullmatch("[0-9a-f]{40}",reviewed["tree"]["sha"])
         and reviewed["tree"]["sha"]==deployed.get("tree",{}).get("sha"),"NAMED_READ_DEPLOYED_TREE")
     checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
     c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
@@ -114,8 +208,13 @@ def named_read_deployed(c,control):
         c.require(len(selected)==1 and selected[0].get("head_sha")==head
             and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
             and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
+        if name=="review_complete":named_read_gate(c,control,selected[0])
     # Hosting/review-complete protection is not replaced by a client assertion:
     # require the real merged protected PR and its genuine repository signal.
+    if not accounting:
+        branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+        c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==control["expected_master"],
+                  "CAMPAIGN_MASTER_DRIFT")
     return pins
 
 
@@ -547,7 +646,7 @@ def named_read_settle_host(c,args):
     control=c.bounded_json(args.native392_settle_control,16384)
     auth=named_read_control(c,control,accounting=True)
     proof,_=named_read_proof(c,control,accounting=True)
-    named_read_deployed(c,control)
+    named_read_deployed(c,control,accounting=True)
     run=c.gh_json(f"repos/{c.REPO}/actions/runs/{args.native392_run_id}")
     observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
     named_read_budget(c,observed)
@@ -578,7 +677,7 @@ def named_read_settle_host(c,args):
     try:
         # All remote reads before this final complete canonical-history check.
         final_proof,_=named_read_proof(c,control,accounting=True)
-        named_read_deployed(c,control)
+        named_read_deployed(c,control,accounting=True)
         fresh=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
         named_read_budget(c,fresh)
         c.require(final_proof==proof,"NAMED_READ_COST_GRANT")

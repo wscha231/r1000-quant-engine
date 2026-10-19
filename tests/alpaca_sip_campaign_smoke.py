@@ -5275,7 +5275,7 @@ class NamedRead39235028468Tests(unittest.TestCase):
     def make_meter(self,server,**kwargs):
         ident=dict(task_key=self.s.READ392_TASK,run_id=self.run["id"],run_attempt=1,
             nonce=self.control["nonce"],control_sha256=c.digest(c.encoded(self.control)),grant_proof_sha256="b"*64,
-            source_sha=self.control["expected_master"],source_pins={p:"a"*64 for p in self.s.V6_PINS},
+            source_sha=self.control["expected_master"],source_pins=getattr(self,"deployment_pins",{p:"a"*64 for p in self.s.V6_PINS}),
             parent_checkpoint_sha256=self.s.READ392_CP,examined_before=296,failed_run_id=39235028468,
             failed_meter_sha256=self.s.READ392_METER,usage_before=self.s.READ392_USED,
             active_seconds_before=8736,dispatches_before=29,active_seconds_reservation=900,dispatch_reservation=1)
@@ -5518,8 +5518,12 @@ class NamedRead39235028468Tests(unittest.TestCase):
                 with self.assertRaises(c.Refused):self.s.named_read_budget(c,bad)
 
     def test_transitive_revision_pin_is_required(self):
-        with patch.object(c,"native_read_source",return_value={p:"a"*64 for p in c.PINS}),\
-             patch.object(c,"gh_json",return_value=dict(encoding="base64",content=c.base64.b64encode(b"wrong").decode())):
+        gh=self.deployment_fixture()
+        def wrong(path):
+            if "/contents/"+c.REVISION_MODULE in path:
+                return dict(encoding="base64",content=c.base64.b64encode(b"wrong").decode())
+            return gh(path)
+        with patch.object(c,"gh_json",side_effect=wrong):
             with self.assertRaisesRegex(c.Refused,"NAMED_READ_CODE_PINS"):
                 self.s.named_read_deployed(c,self.control)
 
@@ -5602,25 +5606,178 @@ class NamedRead39235028468Tests(unittest.TestCase):
         receipt=c.bounded_json(self.root/"worker-positive/native_read_meter.json")
         self.assertTrue(receipt["finalized"]);self.assertEqual(receipt["usage"]["provider_gets"],0)
 
-    def test_genuine_deployment_requires_merged_exact_tree_and_real_checks(self):
-        pins={p:"a"*64 for p in c.PINS}
-        revision_hash=c.digest(c.bounded_bytes(c.ROOT/c.REVISION_MODULE,262144).replace(b"\r\n",b"\n"))
-        self.control["code_pins_sha256"]=c.digest(c.encoded(dict(pins,**{c.REVISION_MODULE:revision_hash})))
-        pr=dict(merged=True,draft=False,base=dict(ref="master"),head=dict(sha="5"*40),merge_commit_sha="4"*40)
-        checks=dict(total_count=3,check_runs=[dict(name=n,head_sha="5"*40,status="completed",conclusion="success",
-            app=dict(slug="github-actions")) for n in ("validate","offline","review_complete")])
+    def deployment_fixture(self):
+        # Saved genuine gate shapes (649/39223863645), isolated synthetic IDs.
+        self.trusted_gate_bytes={p:("isolated-fixture:"+p).encode() for p in self.s.READ392_GATE_PINS}
+        patch.object(self.s,"READ392_GATE_PINS",{p:c.digest(b) for p,b in self.trusted_gate_bytes.items()}).start()
+        self.deployment_pins={p:c.digest((c.ROOT/p).read_bytes().replace(b"\r\n",b"\n")) for p in self.s.V6_PINS}
+        self.control["code_pins_sha256"]=c.digest(c.encoded(self.deployment_pins))
+        event=c.bounded_json(self.event_path);event["inputs"]["campaign_control"]=c.encoded(self.control).decode()
+        self.event_path.write_bytes(c.encoded(event))
+        self.pr=dict(number=123,merged=True,draft=False,base=dict(ref="master",repo=dict(full_name=c.REPO)),
+            head=dict(sha="5"*40,repo=dict(full_name=c.REPO)),merge_commit_sha="4"*40)
+        self.branch=dict(protected=True,commit=dict(sha="4"*40))
+        self.tree=dict(tree=dict(sha="6"*40))
+        self.checks=dict(total_count=3,check_runs=[dict(id=100+i,name=n,head_sha="5"*40,status="completed",conclusion="success",
+            app=dict(slug="github-actions"),check_suite=dict(id=200+i),started_at="2026-10-19T10:25:41Z",
+            completed_at="2026-10-19T10:25:41Z") for i,n in enumerate(("validate","offline","review_complete"))])
+        self.checks["check_runs"][2]["output"]=dict(title="PASS_REVIEW_COMPLETE",summary=
+            "Evidence: ATTESTED_EXACT_HEAD_REVIEW\n\nFailures: none\n\n"
+            "Unresolved conversations are enforced separately by master branch protection.")
+        self.gate=dict(id=301,workflow_id=317164841,path=".github/workflows/review_complete_gate.yml",
+            event="issue_comment",status="completed",conclusion="success",run_attempt=1,head_sha="7"*40,
+            check_suite_id=401,repository=dict(full_name=c.REPO),head_repository=dict(full_name=c.REPO),
+            created_at="2026-10-19T10:25:33Z",updated_at="2026-10-19T10:25:44Z")
+        self.gate_jobs=dict(total_count=1,jobs=[dict(id=501,run_id=301,name="evaluate",status="completed",conclusion="success",
+            started_at="2026-10-19T10:25:35Z",completed_at="2026-10-19T10:25:43Z",steps=[dict(name=n,status="completed",conclusion="success") for n in (
+                "Checkout trusted gate implementation","Resolve trusted head observation and maintainer attestation",
+                "Evaluate Codex review evidence for current head","Publish required review_complete check on PR head")])])
+        self.evaluation=dict(schema_version="run287-review-complete-gate-v2",status="PASS_REVIEW_COMPLETE",passed=True,
+            pull_request_number=123,head_sha="5"*40,evidence_type="ATTESTED_EXACT_HEAD_REVIEW",failures=[])
+        self.published=copy.deepcopy(self.checks["check_runs"][2])
+        def log():
+            text="[command]/usr/bin/git log -1 --format=%H\n"+"7"*40+"\n"+json.dumps(self.evaluation,indent=2)+"\n"+json.dumps(self.published)+"\n"
+            return "\n".join("2026-10-19T10:25:41.0000000Z "+line for line in text.splitlines())
+        self.gate_log=log
+        self.github_reads=[]
         def gh(path):
+            self.github_reads.append(path)
+            if path.endswith("/branches/master"):return self.branch
             if "/contents/" in path:
-                return dict(encoding="base64",content=c.base64.b64encode((c.ROOT/c.REVISION_MODULE).read_bytes()).decode())
-            if "/pulls/" in path:return pr
-            if "check-runs" in path:return checks
-            return dict(tree=dict(sha="6"*40))
-        with patch.object(c,"native_read_source",return_value=pins),patch.object(c,"gh_json",side_effect=gh):
-            self.assertEqual(set(self.s.named_read_deployed(c,self.control)),set(self.s.V6_PINS))
-            pr["draft"]=True
+                file=path.split("/contents/",1)[1].split("?ref=",1)[0]
+                raw=self.trusted_gate_bytes[file] if file in self.trusted_gate_bytes else (c.ROOT/file).read_bytes().replace(b"\r\n",b"\n")
+                return dict(encoding="base64",content=c.base64.b64encode(raw).decode())
+            if path.endswith("/pulls/123"):return self.pr
+            if "/git/commits/" in path:return self.tree
+            if "/check-runs?" in path:return self.checks
+            if "/actions/workflows/317164841/runs?" in path:return dict(total_count=1,workflow_runs=[self.gate])
+            if path.endswith("/actions/runs/301/jobs?per_page=100"):return self.gate_jobs
+            raise AssertionError("Unexpected GitHub read: "+path)
+        return gh
+
+    def test_genuine_deployment_requires_merged_exact_tree_and_real_checks(self):
+        gh=self.deployment_fixture()
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            self.assertEqual(self.s.named_read_deployed(c,self.control),self.deployment_pins)
+            self.pr["draft"]=True
             with self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
-            pr["draft"]=False;checks["check_runs"][2]["conclusion"]="skipped"
+            self.pr["draft"]=False;self.checks["check_runs"][2]["conclusion"]="skipped"
             with self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
+
+    def test_same_app_named_success_is_not_a_gate_proof_and_denies_before_oauth(self):
+        gh=self.deployment_fixture();self.gate["path"]=".github/workflows/other.yml"
+        with patch.dict(os.environ,self.env,clear=True),patch.object(c,"gh_json",side_effect=gh),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-19T10:20:00Z")),\
+             patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()),\
+             patch.object(drive_module,"OwnerDrive") as owner,patch.object(c,"build_opener") as opener,\
+             self.assertRaises(c.Refused):
+            self.s.named_read_worker(c,self.control,str(self.root/"forged"))
+        owner.assert_not_called();opener.assert_not_called()
+
+    def test_gate_rejects_wrong_workflow_run_job_head_evaluation_and_publication(self):
+        gh=self.deployment_fixture()
+        objects=[self.gate,self.gate_jobs,self.evaluation,self.published,self.checks,self.tree,self.pr]
+        snapshots=copy.deepcopy(objects)
+        mutations=[lambda:self.gate.update(workflow_id=999),lambda:self.gate.update(event="pull_request"),
+            lambda:self.gate["repository"].update(full_name="other/repo"),lambda:self.gate.update(status="in_progress"),
+            lambda:self.gate_jobs["jobs"][0].update(run_id=999),lambda:self.gate_jobs["jobs"][0].update(conclusion="failure"),
+            lambda:self.gate_jobs["jobs"][0]["steps"].pop(),lambda:self.evaluation.update(head_sha="0"*40),
+            lambda:self.evaluation.update(pull_request_number=999),lambda:self.evaluation.update(passed=False),
+            lambda:self.evaluation.update(failures=["missing_maintainer_attestation"]),
+            lambda:self.evaluation.update(evidence_type="LOCAL_A6"),lambda:self.published.update(id=999),
+            lambda:self.published["check_suite"].update(id=999),lambda:self.published["output"].update(summary="forged"),
+            lambda:self.checks["check_runs"][2].update(check_suite={}),lambda:self.tree["tree"].update(sha="bad"),
+            lambda:self.pr["head"].update(sha="0"*40)]
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            for index,mutate in enumerate(mutations):
+                for obj,original in zip(objects,snapshots):obj.clear();obj.update(copy.deepcopy(original))
+                mutate()
+                with self.subTest(case=index),self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
+
+    def test_new_read_denies_master_advance_but_historical_proof_uses_frozen_source(self):
+        gh=self.deployment_fixture();self.branch["commit"]["sha"]="9"*40
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):self.s.named_read_deployed(c,self.control)
+            self.github_reads.clear()
+            self.assertEqual(self.s.named_read_deployed(c,self.control,accounting=True),self.deployment_pins)
+            self.assertFalse(any(p.endswith("/branches/master") for p in self.github_reads))
+            self.assertTrue(all("?ref="+"4"*40 in p or "?ref="+"7"*40 in p for p in self.github_reads if "/contents/" in p))
+
+    def test_gate_rejects_missing_malformed_log_or_changed_trusted_implementation(self):
+        gh=self.deployment_fixture()
+        with patch.object(c,"gh_json",side_effect=gh):
+            for text in ("", "malformed",json.dumps(self.evaluation),self.gate_log().replace("7"*40,"bad-sha")):
+                with patch.object(self.s,"named_read_gate_log",return_value=text),self.assertRaises(c.Refused):
+                    self.s.named_read_deployed(c,self.control)
+            self.trusted_gate_bytes[".github/workflows/review_complete_gate.yml"]=b"unreviewed gate replacement"
+            with patch.object(self.s,"named_read_gate_log",return_value=self.gate_log()),self.assertRaises(c.Refused):
+                self.s.named_read_deployed(c,self.control)
+
+    def test_workflow_worker_token_has_only_required_read_permissions(self):
+        text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
+        block=text.split("\npermissions:\n",1)[1].split("\nconcurrency:",1)[0]
+        self.assertEqual(dict(line.strip().split(": ") for line in block.splitlines()),
+            {"contents":"read","actions":"read","issues":"read","checks":"read"})
+        self.assertIn("GH_TOKEN: ${{ github.token }}",text)
+
+    def test_historical_settle_host_reopen_reflush_keeps_old_bytes_after_master_advance(self):
+        gh=self.deployment_fixture();self.branch["commit"]["sha"]="9"*40
+        _,value,_,_=self.read_objects()
+        budget=self.root/"original";state=self.root/"external-cohort-top500-20261017"
+        original=c.WorkJournal(budget,"a"*64);cohort=c.WorkJournal(state,"b"*64)
+        registry=c.WorkJournal(self.root/"family-settle","f"*64)
+        for target,count in ((original,17),(cohort,48),(registry,74)):
+            for i in range(count):target.append("FIXTURE",index=i)
+        registry.append("SETTLED",run_id=39235028468)
+        family_tail=registry.parent;original_tail=original.parent;cohort_tail=cohort.parent
+        original.close();cohort.close();self.addCleanup(lambda:registry.close())
+        before={p:p.read_bytes() for directory in (budget,state,registry.directory) for p in directory.glob("*.json")}
+        control_path=self.root/"historical-control.json";control_path.write_bytes(c.encoded(self.control))
+        args=SimpleNamespace(native392_settle_control=control_path,native392_run_id=self.run["id"],
+            budget_state_dir=budget,state_dir=state)
+        observed=dict(runs=[{}]*29,examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        def metadata(path):
+            if path.endswith("/actions/runs/40000000000"):return self.run
+            if path.endswith("/actions/runs/40000000000/jobs?per_page=100"):return self.jobs
+            if path.endswith("/artifacts?per_page=100"):
+                return dict(total_count=1,artifacts=[dict(name="a1-native-drive-read-meter",id=601,expired=False,size_in_bytes=1000)])
+            return gh(path)
+        def download(argv,**kwargs):
+            Path(argv[argv.index("--dir")+1],"native_read_meter.json").write_bytes(c.encoded(value))
+            return SimpleNamespace(returncode=0)
+        with patch.object(c,"gh_json",side_effect=metadata),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-19T10:20:00Z")),\
+             patch.object(c,"external_history",return_value=observed),patch.object(self.s,"named_read_budget"),\
+             patch.dict(c.CONTINUATION,event=original_tail),patch.object(self.s,"READ392_COHORT",cohort_tail),\
+             patch.object(self.s,"READ392_FAMILY",family_tail),patch.object(c,"external_family_registry",side_effect=lambda *a:registry),\
+             patch.object(c.subprocess,"run",side_effect=download):
+            # The event was written, but a file/directory barrier failed.
+            with patch.object(c,"sync_native18_settlement",side_effect=c.Refused("SYNTHETIC_BARRIER")):
+                with self.assertRaisesRegex(c.Refused,"SYNTHETIC_BARRIER"):self.s.named_read_settle_host(c,args)
+            self.assertEqual(len(registry.entries),76)
+            appended=(registry.directory/"000076.json").read_bytes()
+            registry=c.WorkJournal(registry.directory,"f"*64)
+            with patch.object(c,"sync_native18_settlement",wraps=c.sync_native18_settlement) as barrier:
+                first=self.s.named_read_settle_host(c,args)
+                registry=c.WorkJournal(registry.directory,"f"*64)
+                self.assertEqual(self.s.named_read_settle_host(c,args),first)
+                self.assertEqual(barrier.call_count,2)
+            self.assertEqual(appended,(registry.directory/"000076.json").read_bytes())
+            self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
+            self.assertEqual(first["usage_after"],{k:self.s.READ392_USED[k]+value["usage"][k] for k in c.LIMITS})
+            self.assertFalse(any(p.endswith("/branches/master") for p in self.github_reads))
+
+    def test_gate_log_is_bounded_and_suppresses_raw_errors(self):
+        def output(argv,**kw):
+            self.assertEqual(argv[-1],f"repos/{c.REPO}/actions/jobs/501/logs")
+            self.assertIs(kw["stderr"],c.subprocess.DEVNULL)
+            kw["stdout"].write(b"x"*2_000_001);return SimpleNamespace(returncode=0)
+        with patch.object(c.subprocess,"run",side_effect=output),self.assertRaisesRegex(c.Refused,"NAMED_READ_GATE_LOG"):
+            self.s.named_read_gate_log(c,501)
+        with patch.object(c.subprocess,"run",side_effect=OSError("PRIVATE_CANARY")),self.assertRaisesRegex(c.Refused,"NAMED_READ_GATE_LOG") as error:
+            self.s.named_read_gate_log(c,501)
+        self.assertTrue(error.exception.__suppress_context__)
 
 
     def test_private_event_is_bound_to_control_and_never_exported_as_job_env(self):
