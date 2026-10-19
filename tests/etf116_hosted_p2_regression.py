@@ -86,15 +86,14 @@ class HostedP2Regression(unittest.TestCase):
         self.assertEqual(second['rights_receipt_sha256'], packet['rights_receipt_sha256'])
         self.assertFalse(second['publish_enabled'])
 
-    def test_close_change_conflicts_and_is_retained(self):
+    def test_fabricated_close_cannot_override_verified_calendar(self):
         frozen, packet = self.packet()
         first = gate.prepare(packet, frozen)
         packet['official_nyse_close_utc'] = '2026-10-16T19:00:00Z'
-        changed = gate.prepare(packet, frozen)
-        self.assertNotEqual(first['input_digest'], changed['input_digest'])
-        self.assertEqual(changed['official_nyse_close_utc'], '2026-10-16T19:00:00+00:00')
-        with self.assertRaisesRegex(gate.GateError, 'SAME_SESSION_CONFLICT_BLOCKED'):
-            gate.prepare(packet, frozen, first)
+        for prior in (None, first):
+            with self.subTest(prior=prior is not None), self.assertRaisesRegex(
+                    gate.GateError, 'OFFICIAL_SESSION_CLOSE_MISMATCH'):
+                gate.prepare(packet, frozen, prior)
 
     def test_equivalent_close_instant_retained_on_skip(self):
         frozen, packet = self.packet()

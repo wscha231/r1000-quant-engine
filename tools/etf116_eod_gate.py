@@ -11,8 +11,14 @@ import hashlib
 import json
 import math
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+from tools.etf116_research_metrics_h1 import (
+    RefuseInput, verified_session_close, verified_previous_session,
+)
 
 SCHEMA = "etf116-eod-tr-packet-v1"
 EXPECTED_UNIVERSE_SHA256 = "7ae2a5f1a679423ace1602dd2628f2853ea85b0496a4ecfea0df720dfe0530cc"
@@ -73,6 +79,11 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
     run_at = timestamp(packet.get("run_at_utc"), "run_at")
     require(run_at >= close + timedelta(minutes=30), "SESSION_NOT_READY_30MIN_DELAY")
     require(close.date().isoformat() == session, "SESSION_CLOSE_DATE_MISMATCH")
+    try:
+        actual_close = verified_session_close(session)
+    except RefuseInput:
+        raise GateError("NYSE_SESSION_CLOSE_UNVERIFIED") from None
+    require(close == actual_close, "OFFICIAL_SESSION_CLOSE_MISMATCH")
     close_identity = close.isoformat()
     require(close <= run_at, "FUTURE_SESSION")
     require(packet.get("nyse_session_verified") is True, "NYSE_CALENDAR_NOT_VERIFIED")
@@ -108,7 +119,8 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
         require(close <= observed <= run_at, t + "_FUTURE_OR_PREMATURE_SOURCE")
         evidence = r.get("source_sha256")
         require(isinstance(evidence, str) and SHA_RE.fullmatch(evidence), t + "_SOURCE_DIGEST_MISSING")
-        good.append({"ticker":t,"asof":session,"tr_index":value,"basis":basis,"source_sha256":evidence})
+        good.append({"ticker":t,"asof":session,"tr_index":value,"basis":basis,
+                     "source_sha256":evidence,"available_at_utc":observed.isoformat()})
     digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity})
     if prior_receipt is not None:
         require(isinstance(prior_receipt, dict), "PRIOR_RECEIPT_INVALID")
@@ -119,6 +131,11 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
             if prior_receipt.get("input_digest") == digest:
                 return {"state":"SKIP_UNCHANGED","session":session,"input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"publish_enabled":False}
             raise GateError("SAME_SESSION_CONFLICT_BLOCKED")
+        try:
+            expected_prior = verified_previous_session(session)
+        except RefuseInput:
+            raise GateError("NYSE_SESSION_CLOSE_UNVERIFIED") from None
+        require(prev_s == expected_prior, "EOD_MISSING_NYSE_SESSION")
     return {"state":"PREPARED_ONLY","session":session,"scope_sha256":EXPECTED_UNIVERSE_SHA256,
             "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"verified_count":len(good),"blocked_count":len(bad),
             "verified_rows":good,"non_publishable_rows":bad,

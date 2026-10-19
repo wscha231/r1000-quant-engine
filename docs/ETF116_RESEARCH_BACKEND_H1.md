@@ -116,6 +116,10 @@ consecutive NYSE sessions. Packet-level schema/clock/grid/pre-close errors refus
 before ticker recovery. Verified listing dates reject future listing and all
 pre-listing observations, including the separate daily-return output and optional
 SPY basis. Calendar failures refuse; no guessed holiday/weekdays-only grid.
+EOD intake also requires its claimed close instant to equal that shared verified
+NYSE close, retains canonical availability on every verified row, and requires
+the immediately preceding NYSE session when advancing a prior EOD checkpoint.
+Same-date attestations cannot fabricate midnight closes or skip a real session.
 
 At preparation, admitted actual daily TR remains0/116. Existing vendor-return
 research cells are preserved and are not described as absent. Source rights,

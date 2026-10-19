@@ -7437,3 +7437,11 @@ ticker error recovery; otherwise malformed/pre-close packets can become hashed
 all-blocked artifacts. Verified listing dates protect daily-return rows too,
 including optional benchmark input. Synthetic calendar fixtures must use the
 actual NYSE grid when the production boundary is strengthened.
+
+### 2026-10-19 — Verify EOD close instants and checkpoint adjacency
+
+A same-date claimed close and a caller boolean do not prove the actual NYSE
+close. Reuse the shared verified Reader/calendar helper, require exact instant
+equality, preserve each accepted row availability clock, and refuse advancing
+a checkpoint across a missing real session. Weekend/holiday gaps follow the
+existing NYSE previous-session helper; do not create a second calendar engine.
