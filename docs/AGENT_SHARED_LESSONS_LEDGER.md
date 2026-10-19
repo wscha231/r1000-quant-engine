@@ -7456,3 +7456,10 @@ therefore even a hash-valid adjacent PREPARED receipt must refuse advancement.
 Absent prior means independent research preparation only, never accepted genesis.
 Do not borrow paper/macro acceptance namespaces or invent a caller approval flag.
 Exact receipt content uses canonical JSON bytes: Python dict equality treats false and zero as equal and cannot enforce immutable typed evidence.
+
+### 2026-10-19 — Compare packet clocks with a trusted evaluation clock
+
+An actual calendar close can still lie in the future. Reject packet run_at after
+the trusted current/replay evaluation instant; never take that clock from JSON.
+Bind the canonical run clock into provenance, preserve same-session conflicts,
+and validate the fixed116 identity at the API entry as well as in the CLI.

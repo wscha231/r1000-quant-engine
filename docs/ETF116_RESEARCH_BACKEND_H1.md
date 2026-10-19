@@ -147,3 +147,5 @@ private-copy write/readback; two real completed-session positive end-to-end
 trials; frozen-head CI, independent A6 and protected review. Source's active
 master18571 runtime/merge hold is preserved. No merge or activation is included
 in this Draft preparation.
+
+EOD run_at must not exceed the trusted evaluation clock (UTC now in the CLI; an explicit trusted API argument is available for replay/tests and is never read from JSON). Its canonical run clock is hashed/retained, and prepare itself revalidates the fixed116 identity. A fabricated future run/close cannot prepare a not-yet-completed session.

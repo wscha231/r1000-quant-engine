@@ -1,5 +1,6 @@
 """New exact-successor review boundaries; synthetic rows, no service calls."""
 from pathlib import Path
+from datetime import datetime, timezone
 import sys
 import unittest
 from unittest.mock import patch
@@ -30,7 +31,7 @@ class SuccessorReviewTests(unittest.TestCase):
         frozen, packet = self.eod_packet()
         packet.update(session='2026-11-27', official_nyse_close_utc='2026-11-27T18:00:00Z',
                       run_at_utc='2026-11-27T18:30:00Z')
-        self.assertEqual(gate.prepare(packet, frozen)['state'], 'PREPARED_ONLY')
+        self.assertEqual(gate.prepare(packet, frozen, evaluation_time=datetime(2026,12,1,tzinfo=timezone.utc))['state'], 'PREPARED_ONLY')
         with patch.object(gate, 'verified_session_close', side_effect=RefuseInput('FIXTURE')):
             with self.assertRaisesRegex(gate.GateError, 'NYSE_SESSION_CLOSE_UNVERIFIED'):
                 gate.prepare(packet, frozen)
@@ -61,7 +62,36 @@ class SuccessorReviewTests(unittest.TestCase):
         packet.update(session='2026-10-19', official_nyse_close_utc='2026-10-19T20:00:00Z',
                       run_at_utc='2026-10-19T23:30:00Z')
         with self.assertRaisesRegex(gate.GateError, 'EOD_PRIOR_ACCEPTANCE_NOT_VERIFIED'):
-            gate.prepare(packet, frozen, friday)
+            gate.prepare(packet, frozen, friday, evaluation_time=datetime(2026,10,20,tzinfo=timezone.utc))
+
+    def test_eod_future_run_clock_is_not_an_evaluation_clock(self):
+        from tools import etf116_eod_gate as gate
+        frozen, packet = self.eod_packet()
+        evaluated = datetime(2026,10,16,19,tzinfo=timezone.utc)
+        packet['run_at_utc'] = '2026-10-16T20:30:00Z'
+        packet['evaluation_time'] = '2099-01-01T00:00:00Z'  # ignored untrusted field
+        with self.assertRaisesRegex(gate.GateError, 'FUTURE_RUN_CLOCK'):
+            gate.prepare(packet, frozen, evaluation_time=evaluated)
+        evaluated = datetime(2026,10,16,20,30,tzinfo=timezone.utc)
+        first = gate.prepare(packet, frozen, evaluation_time=evaluated)
+        self.assertEqual(first['run_at_utc'], '2026-10-16T20:30:00+00:00')
+        packet['run_at_utc'] = '2026-10-16T20:31:00Z'
+        with self.assertRaisesRegex(gate.GateError, 'FUTURE_RUN_CLOCK'):
+            gate.prepare(packet, frozen, evaluation_time=evaluated)
+        with self.assertRaisesRegex(gate.GateError, 'SAME_SESSION_CONFLICT_BLOCKED'):
+            gate.prepare(packet, frozen, first, evaluation_time=datetime(2026,10,17,tzinfo=timezone.utc))
+
+    def test_eod_default_clock_and_fixed_scope_cannot_be_supplied_in_packet(self):
+        from tools import etf116_eod_gate as gate
+        frozen, packet = self.eod_packet()
+        packet['run_at_utc'] = '2099-01-01T00:00:00Z'
+        with self.assertRaisesRegex(gate.GateError, 'FUTURE_RUN_CLOCK'):
+            gate.prepare(packet, frozen)
+        altered = frozen.copy();altered[-1] = 'ZZZZ'
+        for row,ticker in zip(packet['rows'],altered): row['ticker'] = ticker
+        packet['run_at_utc'] = '2026-10-17T23:30:00Z'
+        with self.assertRaisesRegex(gate.GateError, 'UNIVERSE_SHA_MISMATCH'):
+            gate.prepare(packet, altered)
 
     def test_eod_prior_receipt_requires_schema_state_scope_and_content(self):
         from tools import etf116_eod_gate as gate

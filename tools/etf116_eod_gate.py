@@ -93,12 +93,16 @@ def validate_universe(lines):
     require(digest == EXPECTED_UNIVERSE_SHA256, "UNIVERSE_SHA_MISMATCH")
     return tickers
 
-def prepare(packet, frozen_tickers, prior_receipt=None):
+def prepare(packet, frozen_tickers, prior_receipt=None, *, evaluation_time=None):
     """Validate one licensed-provider upstream packet and return a read-only proposal.
 
     All input is untrusted. This method deliberately makes NO service-account,
     market-data, GitHub, Drive, or Sheets calls and never writes a current pointer.
     """
+    evaluated = evaluation_time if evaluation_time is not None else datetime.now(timezone.utc)
+    require(isinstance(evaluated, datetime) and evaluated.tzinfo is not None
+            and evaluated.utcoffset() is not None, "EVALUATION_CLOCK_INVALID")
+    frozen_tickers = validate_universe(frozen_tickers)
     require(isinstance(packet, dict) and packet.get("schema") == SCHEMA, "PACKET_SCHEMA")
     require(packet.get("scope_sha256") == EXPECTED_UNIVERSE_SHA256, "PACKET_SCOPE_SHA")
     session = packet.get("session")
@@ -112,6 +116,7 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
     except RefuseInput:
         raise GateError("NYSE_SESSION_CLOSE_UNVERIFIED") from None
     require(close == actual_close, "OFFICIAL_SESSION_CLOSE_MISMATCH")
+    require(run_at <= evaluated, "FUTURE_RUN_CLOCK")
     close_identity = close.isoformat()
     require(close <= run_at, "FUTURE_SESSION")
     require(packet.get("nyse_session_verified") is True, "NYSE_CALENDAR_NOT_VERIFIED")
@@ -149,9 +154,9 @@ def prepare(packet, frozen_tickers, prior_receipt=None):
         require(isinstance(evidence, str) and SHA_RE.fullmatch(evidence), t + "_SOURCE_DIGEST_MISSING")
         good.append({"ticker":t,"asof":session,"tr_index":value,"basis":basis,
                      "source_sha256":evidence,"available_at_utc":observed.isoformat()})
-    digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity})
+    digest = sha({"schema":SCHEMA,"session":session,"rows":rows,"source_id":source,"basis":basis,"scope_sha256":EXPECTED_UNIVERSE_SHA256,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"run_at_utc":run_at.isoformat()})
     proposal = {"state":"PREPARED_ONLY","session":session,"scope_sha256":EXPECTED_UNIVERSE_SHA256,
-            "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"verified_count":len(good),"blocked_count":len(bad),
+            "input_digest":digest,"rights_receipt_sha256":receipt,"official_nyse_close_utc":close_identity,"run_at_utc":run_at.isoformat(),"verified_count":len(good),"blocked_count":len(bad),
             "verified_rows":good,"non_publishable_rows":bad,
             "publish_enabled":False,"source_id":source,
             "next_gate":"INTEGRATE_IN_APPROVED_REPO_LANE_AND_VERIFY_GOOGLE_SHEETS_WRITE"}
