@@ -54,33 +54,56 @@ jobs:
         env:
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
         run: |
+          set -euo pipefail
+          mkdir -p outputs/free_data_daily_update
+          ARGS=(
+            --output outputs/free_data_daily_update/market_gate.json
+            --min-close-age-minutes 90
+            --max-close-age-hours 18
+          )
+          case "${FORCE_RUN,,}" in
+            true) ARGS+=(--force) ;;
+            false|"") ;;
+            *) echo "::error::invalid force_run boolean" >&2; exit 2 ;;
+          esac
+          python tools/run_daily_market_session_gate.py "${ARGS[@]}"
           python - <<'PY'
-          from datetime import datetime, timedelta, timezone
+          import hashlib
+          import json
           import os
-          import pandas as pd
-          import pandas_market_calendars as mcal
+          from pathlib import Path
 
-          force = str(os.environ.get("FORCE_RUN", "false")).lower() == "true"
-          now = datetime.now(timezone.utc)
-          cal = mcal.get_calendar("NYSE")
-          sched = cal.schedule(start_date=(now - timedelta(days=5)).date(), end_date=now.date())
-          ready = force
-          last_close = ""
-          if not sched.empty:
-              close = sched["market_close"].max()
-              if isinstance(close, pd.Timestamp):
-                  close_utc = close.to_pydatetime()
-                  if close_utc.tzinfo is None:
-                      close_utc = close_utc.replace(tzinfo=timezone.utc)
-                  last_close = close_utc.isoformat()
-                  ready = ready or (timedelta(0) <= now - close_utc <= timedelta(hours=18))
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              handle.write(f"MARKET_READY={'yes' if ready else 'no'}\n")
-              handle.write(f"LAST_NYSE_CLOSE_UTC={last_close}\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-              handle.write(f"ready={'yes' if ready else 'no'}\n")
-              handle.write(f"last_close={last_close}\n")
-          print(f"[market] ready={ready} force={force} last_close={last_close}")
+          path = Path("outputs/free_data_daily_update/market_gate.json")
+          raw = path.read_bytes()
+          gate = json.loads(raw)
+          if type(gate.get("ready")) is not bool or gate.get("calendar") != "NYSE":
+              raise SystemExit("invalid_nyse_market_gate_receipt")
+          reason = gate.get("status", "")
+          state = (
+              "READY_VALIDATION_REQUIRED" if gate["ready"] else
+              "WAITING" if reason == "SKIP_CLOSE_SETTLEMENT_BUFFER" else
+              "SKIPPED"
+          )
+          receipt = {
+              "schema_version": "r1000-free-data-a7-market-disposition-v1",
+              "status": state,
+              "reason_code": reason,
+              "candidate_session_date": gate.get("session_date") or None,
+              "latest_completed_session_date": gate.get("latest_completed_session_date") or None,
+              "checked_at_utc": gate["checked_at_utc"],
+              "market_gate_sha256": hashlib.sha256(raw).hexdigest(),
+              "source_head_sha": os.environ.get("GITHUB_SHA", ""),
+              "workflow_run_id": os.environ.get("GITHUB_RUN_ID", ""),
+              "data_receipts_verified": False,
+              "current_portfolio_verified": False,
+              "investment_publication_allowed": False,
+          }
+          Path("outputs/free_data_daily_update/operating_status.json").write_text(
+              json.dumps(receipt, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"[a7] status={state} reason={reason} "
+                f"session={receipt['candidate_session_date']}")
           PY
 
       - name: Restore GitHub cache
@@ -209,6 +232,9 @@ jobs:
             data_pit/free/coverage_audit.json
             data/catalog.json
             manifests/free_data/latest_manifest.json
+            outputs/free_data_daily_update/market_gate.json
+            outputs/free_data_daily_update/operating_status.json
+          if-no-files-found: error
           retention-days: 90
 
       - name: Sync daily validation to Google Drive
