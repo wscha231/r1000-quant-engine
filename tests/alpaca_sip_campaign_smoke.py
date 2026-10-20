@@ -6397,6 +6397,9 @@ class NamedRead392CorrectiveSourceTests(unittest.TestCase):
             self.assertEqual(c.native_read_route_control(self.control),self.a)
             self.assertEqual(c.native_read_control_from_event(),self.control)
 
+    def test_actual_workflow_embedded_premeter_accepts_v3_without_secret_environment(self):
+        NamedRead39235028468Tests.test_actual_workflow_premeter_block_reads_private_event_silently(self)
+
     def test_same_single_use_history_and_accounting_after_expiry_remain(self):
         NamedRead39235028468Tests.test_exclusive_context_and_actual29_prefix(self)
         result,value,m,server=self.read_objects()

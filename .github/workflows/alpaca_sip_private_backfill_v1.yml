@@ -154,7 +154,7 @@ jobs:
               value = decode(raw)
           require(isinstance(value, dict) and ('schema' not in value or value['schema'] in (
               'a1-native-drive-read-39085031884-v1', 'a1-native-drive-read-39235028468-v1',
-              'a1-native-drive-read-39235028468-v2')),
+              'a1-native-drive-read-39235028468-v2', 'a1-native-drive-read-39235028468-v3')),
               'CAMPAIGN_CONTROL_SCHEMA')
           atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', value)
           if os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
