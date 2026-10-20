@@ -28,7 +28,7 @@ def reference(file_id, sha):
 def require_capture_identity(cohort_ref):
     m.require(isinstance(cohort_ref, dict) and {'file_id', 'sha256'} <= set(cohort_ref),
               'SOURCE_FIELDS')
-    reference(cohort_ref['file_id'], cohort_ref['sha256'])
+    m.require(reference(cohort_ref['file_id'], cohort_ref['sha256']) is not None, 'SOURCE_FIELDS')
     m.require(cohort_ref['sha256'] != BAD_IDENTITY_SCOPE_SHA, 'CURRENT_IDENTITY_MISMATCH')
 
 

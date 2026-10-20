@@ -14,6 +14,8 @@
   The actual capture caller performs account and Drive preflight before collect;
   apply the shared pure precheck there too, before credentials or provider use.
   Verify both the native caller and real CLI with no external credentials.
+  An optional reference parser may return None for empty fields; a present
+  capture-scope object must require a non-None result before provider preflight.
   This correction is separate from Source650 runtime renewal and authorizes no
   provider collection, Drive write, source admission or economic mutation.
 

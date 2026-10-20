@@ -180,6 +180,22 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)['reason'], 'CURRENT_IDENTITY_MISMATCH')
         self.assertEqual(result.stderr, '')
 
+    def test_present_empty_reference_refuses_but_none_preserves_pilot_preflight(self):
+        env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true', TWELVE_KEY_NAME='TWELVE_API_KEY',
+                   TWELVE_API_KEY='offline-credential-canary')
+        for file_id, sha in (('', ''), (None, None), (0, False)):
+            with self.subTest(file_id=file_id, sha=sha), patch.dict(os.environ, env, clear=True), \
+                    patch.object(m, 'twelve') as fetch, patch.object(m, 'OwnerDrive') as drive:
+                with self.assertRaisesRegex(m.Refused, '^SOURCE_FIELDS$'):
+                    m.run(True, dict(file_id=file_id, sha256=sha))
+                fetch.assert_not_called()
+                drive.assert_not_called()
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(m, 'twelve', side_effect=RuntimeError('OFFLINE_PILOT_BOUNDARY')) as fetch:
+            with self.assertRaisesRegex(RuntimeError, '^OFFLINE_PILOT_BOUNDARY$'):
+                m.run(True, None)
+            fetch.assert_called_once_with('/api_usage', {}, 'offline-credential-canary')
+
     def test_scope_must_partition_targets_and_preserve_unknowns(self):
         for mutation in ('duplicate', 'missing', 'identity', 'pit'):
             value = copy.deepcopy(self.value)
