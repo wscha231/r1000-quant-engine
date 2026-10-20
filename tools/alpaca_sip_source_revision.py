@@ -8,7 +8,14 @@ source split; live external execution must pin this module transitively.
 # authority to query. Keep this in the already pinned revision module.
 READ392_SCHEMA = "a1-native-drive-read-39235028468-v1"
 READ392_V2_SCHEMA = "a1-native-drive-read-39235028468-v2"
+READ392_V3_SCHEMA = "a1-native-drive-read-39235028468-v3"
 READ392_V2_DEPLOYMENT_PR = 650
+# Actual immutable publication, not a forecast or a new execution window.
+READ392_V3_ORIGIN = dict(pull_request=650,
+    reviewed_head="e15290fe117c2f62993a742d9a769dcda8f50265",
+    source_sha="33c276e06a4bdf26acb15c26d14d68ccb3f165ac",
+    tree_sha="07402a43ea79feef3287aaec560e418f7172bacd",
+    merged_at_utc="2026-10-20T09:59:28Z")
 # Direct user decision retained in the existing Work A preparation packet.
 # This is execution-scope evidence, not supplier rights or a runtime grant.
 READ392_V2_AUTHORITY = "e6eeea2b9cd592d1edee7694f38dbd9f352f9e7c47e1a3fffa680d256cda1958"
@@ -33,30 +40,42 @@ READ392_GATE_PINS={
     "tools/check_pr_review_complete.py":"583f1056460ac29ca27cdeb7d8fab9524d9b354ab2de4ca64427544177262ae2"}
 
 
+def named_read_version(control):
+    return {READ392_SCHEMA:1,READ392_V2_SCHEMA:2,READ392_V3_SCHEMA:3}.get(control.get("schema"),0)
+
+
 def named_read_window(c,control):
     if control.get("schema")==READ392_SCHEMA:
         return VALIDITY_START,VALIDITY_END
-    c.require(control.get("schema")==READ392_V2_SCHEMA,"NAMED_READ_AUTH")
+    version=named_read_version(control)
+    c.require(version in (2,3),"NAMED_READ_AUTH")
     deployment=control.get("deployment")
     c.require(isinstance(deployment,dict) and type(deployment.get("pull_request")) is int
-        and deployment["pull_request"]==READ392_V2_DEPLOYMENT_PR,"NAMED_READ_DEPLOYMENT_SCOPE")
+        and (deployment["pull_request"]==READ392_V2_DEPLOYMENT_PR if version==2 else
+            deployment["pull_request"]>READ392_V3_ORIGIN["pull_request"]
+            and c.encoded(control.get("window_origin"))==c.encoded(READ392_V3_ORIGIN)),"NAMED_READ_DEPLOYMENT_SCOPE")
     window=control.get("deployment_window")
     c.require(isinstance(window,dict) and set(window)=={"deployed_at_utc","expires_at_utc"}
         and all(isinstance(window[k],str) for k in window),"NAMED_READ_DEPLOYMENT_WINDOW")
     start,end=c.utc(window["deployed_at_utc"]),c.utc(window["expires_at_utc"])
     c.require(start>=c.utc(READ392_WINDOW[1]) and end-start==c.timedelta(seconds=86400),
               "NAMED_READ_DEPLOYMENT_WINDOW")
+    if version==3:
+        c.require(window["deployed_at_utc"]==READ392_V3_ORIGIN["merged_at_utc"],
+                  "NAMED_READ_DEPLOYMENT_WINDOW")
     return window["deployed_at_utc"],window["expires_at_utc"]
 
 
 def named_read_control(c,value,*,accounting=False):
-    successor=isinstance(value,dict) and value.get("schema")==READ392_V2_SCHEMA
+    version=named_read_version(value) if isinstance(value,dict) else 0
+    successor=version>=2
     c.require(isinstance(value,dict) and set(value)=={
         "schema","task_key","authorization","expected_master","code_pins_sha256","nonce",
         "checkpoint_file_id","grant_reference","human_authority_sha256","deployment"}
-        | ({"deployment_window"} if successor else set()),
+        | ({"deployment_window"} if successor else set())
+        | ({"window_origin"} if version==3 else set()),
         "NAMED_READ_CONTROL")
-    c.require(value["schema"] in {READ392_SCHEMA,READ392_V2_SCHEMA} and value["task_key"]==READ392_TASK
+    c.require(version in (1,2,3) and value["task_key"]==READ392_TASK
         and c.validate_authorization(value["authorization"])==READ392_AUTH,"NAMED_READ_AUTH")
     for key,length in (("expected_master",40),("human_authority_sha256",64)):
         c.require(isinstance(value[key],str) and c.re.fullmatch("[0-9a-f]{"+str(length)+"}",value[key]),
@@ -87,9 +106,9 @@ def named_read_terms(c,control):
     auth=control["authorization"]
     private=dict(root=auth["private_root_folder_id"],folder=auth["private_data_folder_id"],
                  checkpoint=control["checkpoint_file_id"])
-    successor=control["schema"]==READ392_V2_SCHEMA
+    version=named_read_version(control);successor=version>=2
     start,end=named_read_window(c,control)
-    result=dict(schema="a1-named-read39235028468-grant-v2" if successor else "a1-named-read39235028468-grant-v1",task_key=READ392_TASK,
+    result=dict(schema="a1-named-read39235028468-grant-v"+str(version),task_key=READ392_TASK,
         source_sha=control["expected_master"],code_pins_sha256=control["code_pins_sha256"],
         deployment=control["deployment"],nonce=control["nonce"],
         human_authority_sha256=control["human_authority_sha256"],
@@ -111,6 +130,8 @@ def named_read_terms(c,control):
         result.update(window_basis="ACTUAL_PROTECTED_PR_MERGED_AT_PLUS_86400_SECONDS",
             next_collection_priority_input_sha256=READ392_V2_INPUT,
             price_capture_requires_separate_typed_continuation=True)
+    if version==3:
+        result["window_origin"]=dict(control["window_origin"])
     return result
 
 
@@ -118,12 +139,18 @@ def named_read_proof(c,control,*,accounting=False):
     named_read_control(c,control,accounting=accounting)
     comment_id=int(control["grant_reference"].rsplit("-",1)[1])
     comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{comment_id}")
-    successor=control["schema"]==READ392_V2_SCHEMA
+    version=named_read_version(control);successor=version>=2
     terms,proof=human_record(c,comment,
-        "A1_SIP_NAMED_READ39235028468_V2_AUTHORIZATION " if successor else "A1_SIP_NAMED_READ39235028468_AUTHORIZATION ",
+        "A1_SIP_NAMED_READ39235028468_V"+str(version)+"_AUTHORIZATION " if successor else "A1_SIP_NAMED_READ39235028468_AUTHORIZATION ",
         window=named_read_window(c,control) if successor else None)
     c.require(comment["id"]==comment_id and c.encoded(terms)==c.encoded(named_read_terms(c,control))
         and c.utc(READ392_WINDOW[1])<=c.utc(comment["created_at"]),"NAMED_READ_GRANT")
+    if version==3:
+        pr=c.gh_json(f"repos/{c.REPO}/pulls/{control['deployment']['pull_request']}")
+        c.require(pr.get("merged") is True and pr.get("merge_commit_sha")==control["expected_master"]
+            and pr.get("head",{}).get("sha")==control["deployment"]["reviewed_head"]
+            and isinstance(pr.get("merged_at"),str)
+            and c.utc(pr["merged_at"])<=c.utc(comment["created_at"]),"NAMED_READ_GRANT_DEPLOYMENT")
     return c.digest(c.encoded(proof)),comment["created_at"]
 
 
@@ -210,6 +237,37 @@ def named_read_gate(c,control,check):
     c.require(len(proofs)==1,"NAMED_READ_GATE_PROVENANCE")
 
 
+def named_read_checks(c,control):
+    head=control["deployment"]["reviewed_head"]
+    checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
+    c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
+    for name in ("validate","offline","review_complete"):
+        selected=[x for x in checks["check_runs"] if x.get("name")==name]
+        c.require(len(selected)==1 and selected[0].get("head_sha")==head
+            and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
+            and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
+        if name=="review_complete":named_read_gate(c,control,selected[0])
+
+
+def named_read_origin(c,control):
+    # Preserve the real650 clock while independently reviewing corrective code.
+    origin=control["window_origin"]
+    c.require(c.encoded(origin)==c.encoded(READ392_V3_ORIGIN),"NAMED_READ_WINDOW_ORIGIN")
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/{origin['pull_request']}")
+    c.require(pr.get("merged") is True and pr.get("draft") is False
+        and pr.get("number")==origin["pull_request"]
+        and pr.get("base",{}).get("ref")=="master"
+        and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO
+        and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO
+        and pr.get("head",{}).get("sha")==origin["reviewed_head"]
+        and pr.get("merge_commit_sha")==origin["source_sha"]
+        and pr.get("merged_at")==origin["merged_at_utc"],"NAMED_READ_WINDOW_ORIGIN")
+    for ref in (origin["reviewed_head"],origin["source_sha"]):
+        commit=c.gh_json(f"repos/{c.REPO}/git/commits/{ref}")
+        c.require(commit.get("tree",{}).get("sha")==origin["tree_sha"],"NAMED_READ_WINDOW_ORIGIN")
+    named_read_checks(c,dict(deployment=dict(pull_request=origin["pull_request"],reviewed_head=origin["reviewed_head"])))
+
+
 def named_read_deployed(c,control,*,accounting=False):
     # A new read still needs the live tip. Historical cost import/reflush binds
     # only the actual immutable deployment; unrelated master changes are not it.
@@ -233,24 +291,23 @@ def named_read_deployed(c,control,*,accounting=False):
         and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO
         and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO and pr.get("head",{}).get("sha")==head
         and pr.get("merge_commit_sha")==control["expected_master"],"NAMED_READ_PROTECTED_DEPLOYMENT")
-    if control["schema"]==READ392_V2_SCHEMA:
+    if named_read_version(control)>=2:
         start,end=named_read_window(c,control)
-        c.require(pr.get("merged_at")==start and c.utc(start)<=c.utc(),
-                  "NAMED_READ_DEPLOYMENT_WINDOW")
+        if named_read_version(control)==3:
+            named_read_origin(c,control)
+            c.require(isinstance(pr.get("merged_at"),str)
+                and c.utc(start)<=c.utc(pr["merged_at"])<c.utc(end)
+                and c.utc(pr["merged_at"])<=c.utc(),"NAMED_READ_DEPLOYMENT_WINDOW")
+        else:
+            c.require(pr.get("merged_at")==start and c.utc(start)<=c.utc(),
+                      "NAMED_READ_DEPLOYMENT_WINDOW")
     # Squash may change the commit ID; the complete reviewed tree must survive.
     reviewed=c.gh_json(f"repos/{c.REPO}/git/commits/{head}")
     deployed=c.gh_json(f"repos/{c.REPO}/git/commits/{control['expected_master']}")
     c.require(isinstance(reviewed.get("tree",{}).get("sha"),str)
         and c.re.fullmatch("[0-9a-f]{40}",reviewed["tree"]["sha"])
         and reviewed["tree"]["sha"]==deployed.get("tree",{}).get("sha"),"NAMED_READ_DEPLOYED_TREE")
-    checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
-    c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
-    for name in ("validate","offline","review_complete"):
-        selected=[x for x in checks["check_runs"] if x.get("name")==name]
-        c.require(len(selected)==1 and selected[0].get("head_sha")==head
-            and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
-            and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
-        if name=="review_complete":named_read_gate(c,control,selected[0])
+    named_read_checks(c,control)
     # Hosting/review-complete protection is not replaced by a client assertion:
     # require the real merged protected PR and its genuine repository signal.
     if not accounting:
@@ -344,8 +401,7 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
                 raise
 
         def write_snapshot(self):
-            c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v2"
-                if control["schema"]==READ392_V2_SCHEMA else "a1-named-read39235028468-meter-v1",**self.identity,
+            c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v"+str(named_read_version(control)),**self.identity,
                 usage=self.used,allowance=self.allowance,status=self.status,reason=self.reason,
                 finalized=self.finalized,transfer_definition=c.METRIC,attempts=self.attempts,
                 observed_google_body_bytes=self.observed_google_body_bytes,result=self.result,
@@ -568,7 +624,7 @@ def named_read_worker(c,control,state_dir):
     # Historical capture clocks stay unchanged. Only this reviewed diagnostic
     # uses its independently proved deployment window, never a price worker.
     observed=c.external_history(auth,allow_stopped=True,
-        enforce_expiry=control["schema"]!=READ392_V2_SCHEMA,named_read_context=(control,current))
+        enforce_expiry=named_read_version(control)<2,named_read_context=(control,current))
     named_read_budget(c,observed)
     jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{current['id']}/jobs?per_page=100")
     deadline=named_read_job_deadline(c,jobs,control=control)
@@ -612,8 +668,8 @@ def named_read_worker(c,control,state_dir):
 
 
 def named_read_cost(c,control,run,value,jobs):
-    successor=control["schema"]==READ392_V2_SCHEMA
-    schema="a1-named-read39235028468-meter-v2" if successor else "a1-named-read39235028468-meter-v1"
+    version=named_read_version(control);successor=version>=2
+    schema="a1-named-read39235028468-meter-v"+str(version)
     c.require(isinstance(value,dict) and value.get("schema")==schema
         and value.get("task_key")==READ392_TASK
         and value.get("control_sha256")==c.digest(c.encoded(control))
@@ -698,8 +754,7 @@ def named_read_cost(c,control,run,value,jobs):
         # Cleanup may finish after expiry. Retain those actual failed costs;
         # the transport deadline already forbids new reads beyond the window.
         c.require(c.utc(start)<=c.utc(run["created_at"])<c.utc(end),"NAMED_READ_COST_CLOCK")
-    return dict(schema="a1-named-read39235028468-cost-settlement-v2" if successor
-                else "a1-named-read39235028468-cost-settlement-v1",run_id=run["id"],run_attempt=1,
+    return dict(schema="a1-named-read39235028468-cost-settlement-v"+str(version),run_id=run["id"],run_attempt=1,
         source_sha=control["expected_master"],control_sha256=c.digest(c.encoded(control)),
         meter_sha256=c.digest(c.encoded(value)),grant_proof_sha256=value.get("grant_proof_sha256"),
         checkpoint_sha256=READ392_CP,failed_meter_sha256=READ392_METER,

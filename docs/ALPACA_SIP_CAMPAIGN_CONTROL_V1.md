@@ -1,5 +1,42 @@
 # Finite private SIP campaign control
 
+## Exact historical authorization / corrective Read392 v3 — 2026-10-21
+
+The real frozen v9 authorization `2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e`
+was refused by the revision loader before any request, despite passing the
+synthetic Read392 suites. Its exact canonical hash is now a historical-loader
+exception alongside the preserved v6/v7/v8 hashes. Changed authorization bytes
+with an old module pin still refuse. The original authorization, earlier pins,
+receipts, CP296 and all budget journals are immutable; this is validation of an
+existing historical record, not permission to execute its expired price path.
+
+The separately typed `a1-native-drive-read-39235028468-v3` distinguishes a
+corrective execution Source from the original window owner. Its `window_origin`
+is the actual protected PR650, reviewed HEAD e15290fe117c2f62993a742d9a769dcda8f50265,
+merge33c276e06a4bdf26acb15c26d14d68ccb3f165ac and tree07402a43ea79feef3287aaec560e418f7172bacd.
+That merge happened at2026-10-20T09:59:28Z. The exact end remains
+2026-10-21T09:59:28Z exclusive, even when corrective deployment is later.
+Both real merged trees and genuine review-complete proofs must verify.
+The corrective Source independently needs current protected master, seven pins,
+reviewed full tree, required CI and genuine exact-head review gate. Its actual
+merge must occur inside the original window. No future merge SHA is predicted.
+
+A fresh immutable `A1_SIP_NAMED_READ39235028468_V3_AUTHORIZATION` must follow the
+actual corrective deployment and bind its Source/pins/nonce, the original650
+window and the unchanged failed capture/CP296/usage. V3 grant/meter/cost schemas
+cannot substitute v1/v2. The historical29-run prefix and single thirtieth
+diagnostic slot are shared across versions. Keep provider0, Drive16 requests,
+transfer16000000B, storage0, active900s, dispatch1, the240s transport deadline,
+the60s finalization margin and both302101B+434796B uncertain storage charges.
+The old price authorization is not renewed, no failed POST is retried and no
+174-name price capture is enabled by this corrective read-only interface.
+
+Operational lesson: synthetic interface fixtures must be accompanied by an
+unmocked validation of the actual frozen authorization and its entire ancestor
+chain before deployment. Run that private local witness normal and optimized;
+publish only its digests/status, never the private IDs or authorization bytes.
+Code/CI pass is separate from actual-input and operation readiness.
+
 ## Deployment-bound Read392 v2 — 2026-10-20
 
 The original v1 and its exclusive 2026-10-20T02:59:53Z expiry are unchanged.

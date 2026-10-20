@@ -113,9 +113,12 @@ def _module():
 
 def _revision_module(auth=None):
     if auth is not None:
+        # Exact immutable historical records remain structurally verifiable;
+        # this never renews their execution window or accepts a changed record.
         require(digest(encoded(auth)) in ("f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74",
                 "e161e75af88243b1220d2677bbac83ef2f6f4a7f36202ce13299d0d3033fc07e",
-                "6e651b15b28180da5c47f5a024c45e695fdf0ebe1b5823f57ecd400a7cf03b08")
+                "6e651b15b28180da5c47f5a024c45e695fdf0ebe1b5823f57ecd400a7cf03b08",
+                "2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e")
                 or digest(bounded_bytes(ROOT/REVISION_MODULE,262144).replace(b"\r\n",b"\n"))
                 == auth["code_pins"].get(REVISION_MODULE),"CAMPAIGN_CODE_DRIFT")
     from tools import alpaca_sip_source_revision
@@ -3857,7 +3860,8 @@ def native_read_objects(drive, auth, meter):
 
 def native_read_route_control(value):
     if isinstance(value,dict) and value.get("schema") in {
-            "a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
+            "a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2",
+            "a1-native-drive-read-39235028468-v3"}:
         return _revision_module().named_read_control(_module(),value)
     return native_read_control(value)
 
@@ -3870,7 +3874,8 @@ def native_read_worker(control_path, state_dir):
     """Isolated reviewed-master diagnostic. Never invokes a collector/host."""
     from tools.twelve_private_capture import OwnerDrive
     control = bounded_json(control_path, 16384)
-    if control.get("schema") in {"a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
+    if control.get("schema") in {"a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2",
+                                 "a1-native-drive-read-39235028468-v3"}:
         return _revision_module().named_read_worker(_module(),control,state_dir)
     auth = native_read_control(control)  # Pending unknown accounting fails before any credentials.
     require(os.getenv("GITHUB_REPOSITORY") == REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
