@@ -386,6 +386,9 @@ def capture(drive, folders, key, rights, provider=twelve, pause=time.sleep,
 def run(capture_history=False, cohort_reference=None, resume_reference=None, max_new_symbols=32):
     require(cohort_reference is None or capture_history, 'SOURCE_FIELDS')
     require(os.environ.get('A1_PRIVATE_RESEARCH_AUTHORIZED') == 'true', 'USER_AUTHORIZATION_MISSING')
+    if cohort_reference is not None:
+        from tools.twelve_private_cohort import require_capture_identity
+        require_capture_identity(cohort_reference)
     selected = os.environ.get('TWELVE_KEY_NAME')
     require(selected in KEYS, 'KEY_SELECTION')
     key = os.environ.get(selected, '').strip()

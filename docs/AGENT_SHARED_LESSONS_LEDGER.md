@@ -11,6 +11,9 @@
   automatic identity/source approval. Preserve all ordinary successor checks.
 - Exercise fresh/resumed and renamed-subject counterexamples in the existing
   native cohort smoke suite, and register that suite in the PR validator.
+  The actual capture caller performs account and Drive preflight before collect;
+  apply the shared pure precheck there too, before credentials or provider use.
+  Verify both the native caller and real CLI with no external credentials.
   This correction is separate from Source650 runtime renewal and authorizes no
   provider collection, Drive write, source admission or economic mutation.
 

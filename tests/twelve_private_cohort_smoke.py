@@ -156,6 +156,30 @@ class CohortTests(unittest.TestCase):
         self.assertEqual((self.drive.objects, self.drive.parents, self.drive.free), before)
         self.assertEqual(self.progress, [])
 
+    def test_actual_run_refuses_bad_scope_before_account_or_drive_preflight(self):
+        ref = dict(self.ref, sha256=c.BAD_IDENTITY_SCOPE_SHA)
+        env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true', TWELVE_KEY_NAME='TWELVE_API_KEY',
+                   TWELVE_API_KEY='offline-credential-canary')
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(m, 'twelve') as fetch, \
+                patch.object(m, 'OwnerDrive') as drive, \
+                patch.object(c, 'collect') as collect:
+            with self.assertRaisesRegex(m.Refused, '^CURRENT_IDENTITY_MISMATCH$'):
+                m.run(True, ref)
+            fetch.assert_not_called()
+            drive.assert_not_called()
+            collect.assert_not_called()
+
+    def test_real_cli_quarantines_bad_scope_without_credentials_or_network(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'tools/twelve_private_capture.py'),
+            '--capture-history', '--cohort-file-id', 'fixture-scope-123',
+            '--cohort-sha256', c.BAD_IDENTITY_SCOPE_SHA],
+            env={'PATH': os.environ.get('PATH', ''), 'A1_PRIVATE_RESEARCH_AUTHORIZED': 'true'},
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)['reason'], 'CURRENT_IDENTITY_MISMATCH')
+        self.assertEqual(result.stderr, '')
+
     def test_scope_must_partition_targets_and_preserve_unknowns(self):
         for mutation in ('duplicate', 'missing', 'identity', 'pit'):
             value = copy.deepcopy(self.value)

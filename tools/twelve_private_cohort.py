@@ -25,6 +25,13 @@ def reference(file_id, sha):
     return dict(file_id=file_id, sha256=sha)
 
 
+def require_capture_identity(cohort_ref):
+    m.require(isinstance(cohort_ref, dict) and {'file_id', 'sha256'} <= set(cohort_ref),
+              'SOURCE_FIELDS')
+    reference(cohort_ref['file_id'], cohort_ref['sha256'])
+    m.require(cohort_ref['sha256'] != BAD_IDENTITY_SCOPE_SHA, 'CURRENT_IDENTITY_MISMATCH')
+
+
 def read(drive, ref, parent):
     m.require(isinstance(ref, dict) and {'file_id', 'sha256'} <= set(ref), 'SOURCE_FIELDS')
     reference(ref['file_id'], ref['sha256'])
@@ -216,7 +223,7 @@ def collect(drive, folders, key, rights, account, cohort_ref, resume_ref, maximu
     m.require(type(maximum) is int and 1 <= maximum <= 360, 'SOURCE_FIELDS')
     value = read(drive, cohort_ref, folders['00-control'])
     instruments = scope(value)
-    m.require(cohort_ref['sha256'] != BAD_IDENTITY_SCOPE_SHA, 'CURRENT_IDENTITY_MISMATCH')
+    require_capture_identity(cohort_ref)
     completed, quarantine = (resume_completed(drive, folders, resume_ref, cohort_ref, instruments,
                                               with_quarantine=True) if resume_ref
                              else (verify_initial(drive, folders, instruments), []))
