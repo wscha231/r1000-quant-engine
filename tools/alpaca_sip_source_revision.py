@@ -318,7 +318,9 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
             self.cp_id=control["checkpoint_file_id"];self.candidate_id=None
             self.media_sizes={self.cp_id:5005};self.queries=named_read_queries(self.folder)
             self.refresh_needed=refresh_needed
+            self.initial_save=True
             super().__init__(*args,**kwargs)
+            self.initial_save=False
 
         def save(self):
             # A signal or failed durability barrier may interrupt the caller.
@@ -330,6 +332,18 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
             # If its save fails, keep the matching conservative attempt too.
             if self.pending is not None and len(self.attempts)+1==self.used["drive_requests"]:
                 self.attempts=self.attempts+[dict(self.pending)]
+            try:self.write_snapshot()
+            except Exception:
+                if self.initial_save and self.pending is None and not self.attempts \
+                        and all(v==0 for v in self.used.values()):
+                    # Constructor has not returned: its caller cannot finalize
+                    # this object. Retry once as zero-I/O BLOCKED, never capture.
+                    self.initial_save=False
+                    try:self.finish("BLOCKED","NAMED_READ_METER_INIT")
+                    finally:raise c.Refused("NAMED_READ_METER_INIT") from None
+                raise
+
+        def write_snapshot(self):
             c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v2"
                 if control["schema"]==READ392_V2_SCHEMA else "a1-named-read39235028468-meter-v1",**self.identity,
                 usage=self.used,allowance=self.allowance,status=self.status,reason=self.reason,

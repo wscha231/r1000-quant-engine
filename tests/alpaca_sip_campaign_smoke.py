@@ -5548,6 +5548,31 @@ class NamedRead39235028468Tests(unittest.TestCase):
                     cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),c.bounded_json(m.journal),self.jobs)
                     self.assertEqual(cost["usage"]["drive_bytes"],65539 if phase=="COMPLETE" else 2065537)
 
+    def test_initial_meter_save_failure_records_blocked_zero_io_once(self):
+        original_fsync=c.os.fsync
+        for permanent in (False,True):
+            with self.subTest(permanent=permanent):
+                directory=self.root/("initial-permanent" if permanent else "initial-transient");directory.mkdir()
+                original_root=self.root;self.root=directory;calls=[];server=Opener()
+                def fsync(fd):
+                    calls.append(fd)
+                    if permanent or len(calls)==1:raise OSError("FIXTURE_INITIAL_SAVE")
+                    return original_fsync(fd)
+                try:
+                    with patch.object(c.os,"fsync",side_effect=fsync),self.assertRaisesRegex(c.Refused,"NAMED_READ_METER_INIT"):
+                        self.make_meter(server)
+                finally:self.root=original_root
+                files=list(directory.rglob("native_read_meter.json"))
+                self.assertEqual(server.calls,0);self.assertGreaterEqual(len(calls),2)
+                if permanent:
+                    self.assertEqual(files,[])
+                else:
+                    self.assertEqual(len(files),1);value=c.bounded_json(files[0])
+                    self.assertTrue(value["finalized"]);self.assertEqual(value["status"],"BLOCKED")
+                    self.assertEqual(value["attempts"],[]);self.assertEqual(value["usage"],{k:0 for k in c.LIMITS})
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                    self.assertEqual(cost["dispatches"],1);self.assertGreater(cost["active_seconds"],0)
+
     def test_complete_and_blocked_cost_survive_terminal_job_failures(self):
         result,value,m,server=self.read_objects();jobs=copy.deepcopy(self.jobs)
         jobs["jobs"][1]["steps"]=[dict(name="Reconcile exact failed Drive POST with native metered reads",
@@ -6178,6 +6203,7 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
 
     def test_v2_temporary_cleanup_refresh_and_terminal_settlement(self):
         NamedRead39235028468Tests.test_real_atomic_temporary_write_flush_and_fsync_failures_recover(self)
+        NamedRead39235028468Tests.test_initial_meter_save_failure_records_blocked_zero_io_once(self)
         NamedRead39235028468Tests.test_complete_and_blocked_cost_survive_terminal_job_failures(self)
         NamedRead39235028468Tests.test_token_refresh_crossing_sixty_seconds_is_admitted_once(self)
 

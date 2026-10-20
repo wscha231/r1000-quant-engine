@@ -63,6 +63,10 @@ meter retains actual costs even when later artifact/post-job work fails, is
 cancelled or times out. COMPLETE under a non-success run requires the exact
 successful read step and ordered later artifact step; clocks, identity, cost
 conservation and once-only import remain mandatory.
+An initial zero-I/O meter-save failure gets only one BLOCKED final-save attempt
+before fixed refusal; constructor failure cannot fall through to OwnerDrive.
+Permanent storage failure still leaves insufficient evidence, never a fabricated
+zero-cost import or permission to rerun the one-use diagnostic.
 
 The same one-use read allowance remains provider0, Drive16 attempts,
 transfer16,000,000B, storage0, active900s and one dispatch. The same actual
