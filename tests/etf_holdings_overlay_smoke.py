@@ -309,6 +309,17 @@ def test_refresh_preserves_existing_pit_history() -> None:
         assert payload["pit_rows_after_refresh"] == 2
 
 
+def test_etf116_native_registered_child_suite() -> None:
+    import unittest
+    from tests import etf116_research_backend_smoke
+    suite = unittest.defaultTestLoader.loadTestsFromModule(etf116_research_backend_smoke)
+    if suite.countTestCases() == 0:
+        raise RuntimeError("ETF116_NATIVE_SUITE_EMPTY")
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    if not result.wasSuccessful():
+        raise RuntimeError("ETF116_NATIVE_SUITE_FAILED")
+
+
 def main() -> None:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_") and callable(value)]
     for test in tests:

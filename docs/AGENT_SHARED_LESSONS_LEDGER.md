@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-19 — ETF research adapters preserve component boundaries
+
+- Missing RF must block excess-return ratios without erasing independent
+  volatility/MDD. Optional SPY errors need explicit typed refusal and must not
+  erase valid subject research. RAW/SPLIT_ADJUSTED closes are not daily TR.
+- Reusing the holdings normalizer must not turn its copied as-of into an
+  unverified issuer publication time. Keep missing release clocks null.
+- A test glob can exit successfully after selecting zero cases. Invoke the
+  native ETF child suite through the existing registered caller and require a
+  nonempty suite; preserve the protected test registry and publication pins.
+- Native wiring and a private connector Sheet test do not prove actual A1 TR,
+  Actions service-account rights or automatic operation. See
+  [ETF116 H1](ETF116_RESEARCH_BACKEND_H1.md).
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
@@ -7384,3 +7398,87 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+### 2026-10-19 — RF release is evaluated per return, rights per digest
+
+Hosted review of the otherwise green ETF integration found that a final review
+cutoff does not prove an RF rate was available on an earlier return date. Retain
+release clocks and choose an already available prior observation per session; a
+date-only API uses a conservative UTC-start cutoff. NYSE session close dates
+cannot slide into the next UTC day. Bind rights receipts into idempotency hashes
+and retain them in every prepared/unchanged proposal; changed evidence must
+conflict instead of inheriting an earlier same-session success.
+
+### 2026-10-19 — Bind all intake identities to the consumed snapshot
+
+An exact-close date check is insufficient when the close instant is omitted
+from idempotency provenance. Hash and retain canonical UTC close alongside
+rights. Distinguish supplied malformed/null SPY from absent optional input.
+Read holdings CSV once for both parsing and its raw hash; a concurrent source
+replacement cannot change the receipt. A supposedly fixed seed needs its exact
+symbol-set digest and1009 count, not just uniqueness. Tests use the existing
+canonical CSV rather than arbitrary ten-name stand-ins; no runtime bypass.
+Independent A6 applied the same absent-vs-malformed rule to listing-date maps:
+only an absent key defaults to an empty map; supplied null/false/list/scalar
+values must refuse instead of erasing untrusted metadata.
+
+### 2026-10-19 — Validate checkpoint rollback and direct-row close timing
+
+A future weekly holdings checkpoint is not evidence that this week's work is
+complete. Reject it before planning, including disabled mode. Direct offline
+daily-close TR rows need the same close boundary as the existing Reader: reuse
+its NYSE holiday/half-day helper for same-date availability, cache by session,
+and refuse missing calendar evidence. A next-UTC-day release is conservative;
+never infer a same-day close from the date alone or guess16:00 ET on a half day.
+
+Follow-up review also required every claimed date and adjacent NYSE session,
+not merely same-day releases. Validate shared packet session/decision/grid before
+ticker error recovery; otherwise malformed/pre-close packets can become hashed
+all-blocked artifacts. Verified listing dates protect daily-return rows too,
+including optional benchmark input. Synthetic calendar fixtures must use the
+actual NYSE grid when the production boundary is strengthened.
+
+### 2026-10-19 — Verify EOD close instants and checkpoint adjacency
+
+A same-date claimed close and a caller boolean do not prove the actual NYSE
+close. Reuse the shared verified Reader/calendar helper, require exact instant
+equality, preserve each accepted row availability clock, and refuse advancing
+a checkpoint across a missing real session. Weekend/holiday gaps follow the
+existing NYSE previous-session helper; do not create a second calendar engine.
+
+### 2026-10-19 — Research receipts cannot certify a completed EOD session
+
+A preceding date alone is not a processed checkpoint. Validate versioned schema,
+state/scope/input/rights/close/source/content identity before reusing a receipt.
+Retain the complete candidate on repeated same-session SKIP and compare it with
+the current proposal. ETF EOD has no approved accepted-anchor verifier wired in;
+therefore even a hash-valid adjacent PREPARED receipt must refuse advancement.
+Absent prior means independent research preparation only, never accepted genesis.
+Do not borrow paper/macro acceptance namespaces or invent a caller approval flag.
+Exact receipt content uses canonical JSON bytes: Python dict equality treats false and zero as equal and cannot enforce immutable typed evidence.
+
+### 2026-10-19 — Compare packet clocks with a trusted evaluation clock
+
+An actual calendar close can still lie in the future. Reject packet run_at after
+the trusted current/replay evaluation instant; never take that clock from JSON.
+Bind the canonical run clock into provenance, preserve same-session conflicts,
+and validate the fixed116 identity at the API entry as well as in the CLI.
+
+Apply that current/evaluation boundary to the standalone dated-JSON runner too,
+not to pure replay math. Pass one trusted clock through H3 metadata and H1 run;
+keep candidate hashing time-independent so exact-source rederivation is stable.
+
+### 2026-10-19 — Bind holdings releases and TR series before artifact output
+
+Observed/reviewed holdings timestamps are input claims, not a trusted upper
+clock. Bound them to UTC now or an explicit aware API replay time; CLI inputs
+and environment cannot select that evaluation. Reject URL userinfo and all
+query/fragment data before copying provenance into either output projection;
+use static diagnostics without echoing the rejected URL. Within each ETF's
+dated top10 snapshot, require one source and one canonical publication instant
+(or all missing), rather than joining conflicting releases by as-of alone.
+Daily raw hashes may differ, but one ticker's total-return levels must have a
+constant explicit upstream series-definition hash and methodology hash. Pin
+provider/instrument/currency/base normalization in that definition, propagate
+both hashes from the immutable Reader manifest to every row, and retain them
+in results. A broad NAV/market basis alone cannot authorize index splicing.
