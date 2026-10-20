@@ -3337,7 +3337,7 @@ class NativeRead39085031884Tests(unittest.TestCase):
         self.assertNotIn('secrets.ALPACA_API_KEY',read);self.assertNotIn('secrets.ALPACA_API_SECRET',read)
         self.assertIn('a1-native-drive-read-meter',read);self.assertIn('native_read_meter.json',read)
         self.assertIn("&& 5 || 120",text);self.assertIn("if: env.INPUT_NATIVE_READ_ONLY != 'true'",text)
-        self.assertIn('native_read_control(decode(raw))',text)
+        self.assertIn('native_read_route_control(value)',text)
 
     def test_accounting_proof_requires_owner_exact_record_and_clock(self):
         pending=self.control['pending_external_read_accounting']
@@ -5227,6 +5227,1028 @@ class HostedThreeFindingsTests(unittest.TestCase):
         self.assertIsNone(diagnostic['http_status']);self.assertEqual(diagnostic['stdout_bytes'],0)
         self.assertNotIn('private',json.dumps(diagnostic))
         self.assertNotIn('403',json.dumps(diagnostic))
+
+
+class NamedRead39235028468Tests(unittest.TestCase):
+    """New-case offline witnesses; no private identifiers or actual authority."""
+    def setUp(self):
+        self.s=c._revision_module();self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.clock=c.utc("2026-10-19T11:00:00Z");real_utc=c.utc
+        self.addCleanup(patch.stopall)
+        patch.object(c,"utc",side_effect=lambda value=None:real_utc(value) if value is not None else self.clock).start()
+        self.names=["ZZZ%03d"%i for i in range(417)]
+        self.scope=dict(task_key="R1000-SYNTHETIC",namespace="fixture392",input_sha256="f"*64)
+        self.a=dict(expected_master="1"*40,private_root_folder_id="fixture-root-123",
+            private_data_folder_id="fixture-data-123",external_cohort=dict(
+                input_csv="ticker\n"+"\n".join(self.names)+"\n",scope=self.scope))
+        self.raw=c.encoded(dict(examined=self.names[:296],cohort_scope=self.scope)).ljust(5005,b" ")
+        patch.object(self.s,"READ392_CP",c.digest(self.raw)).start()
+        patch.object(self.s,"READ392_CP_ID_SHA",c.digest(b"fixture-cp296-123")).start()
+        patch.object(c,"validate_authorization",return_value=self.s.READ392_AUTH).start()
+        patch.dict(c.CONTINUATION["bindings"],owner_sha256=c.digest(b"fixture-owner")).start()
+        self.control=dict(schema=self.s.READ392_SCHEMA,task_key=self.s.READ392_TASK,authorization=self.a,
+            expected_master="4"*40,code_pins_sha256=c.digest(c.encoded({p:"a"*64 for p in self.s.V6_PINS})),
+            nonce=c.PREFIX+"a"*24,checkpoint_file_id="fixture-cp296-123",
+            grant_reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-123456789",
+            human_authority_sha256="e"*64,deployment=dict(pull_request=123,reviewed_head="5"*40))
+        self.env=dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF="refs/heads/master",GITHUB_SHA="4"*40,
+            GITHUB_RUN_ID="40000000000",GITHUB_RUN_ATTEMPT="1",INPUT_NATIVE_READ_ONLY="true",
+            INPUT_CAMPAIGN_NONCE=self.control["nonce"],A1_PRIVATE_RESEARCH_AUTHORIZED="true",
+            ALPACA_NONCOMMERCIAL_ACKNOWLEDGED="true",INPUT_PRIVATE_ROOT_FOLDER_ID="fixture-root-123",
+            INPUT_PRIVATE_DATA_FOLDER_ID="fixture-data-123",MACRO_DRIVE_CONFIG="[gdrive]\ntype=drive\ntoken="+
+                json.dumps(dict(access_token="fixture-access",refresh_token="fixture-refresh",
+                    expiry="2030-01-01T00:00:00Z"))+"\n")
+        self.event_path=self.root/"private-event.json"
+        inputs=dict(campaign_control=c.encoded(self.control).decode(),campaign_nonce=self.control["nonce"],
+            private_root_folder_id="fixture-root-123",private_data_folder_id="fixture-data-123",
+            private_research_authorized="true",noncommercial_terms_acknowledged="true")
+        self.event_path.write_bytes(c.encoded(dict(inputs=inputs)))
+        self.env.update(GITHUB_EVENT_PATH=str(self.event_path),INPUT_PRIVATE_ROOT_FOLDER_ID="",
+            INPUT_PRIVATE_DATA_FOLDER_ID="",INPUT_RESUME_FILE_ID="",INPUT_CAMPAIGN_CONTROL="")
+        self.run=dict(id=40000000000,run_attempt=1,head_sha="4"*40,head_branch="master",
+            event="workflow_dispatch",display_title="a1-sip "+self.control["nonce"]+" native-read39235028468",
+            status="completed",conclusion="success",created_at="2026-10-19T10:30:00Z")
+        self.jobs=dict(total_count=2,jobs=[
+            dict(name="offline",status="completed",conclusion="success",started_at="2026-10-19T10:30:04Z",completed_at="2026-10-19T10:30:24Z"),
+            dict(name="reconcile",status="completed",started_at="2026-10-19T10:30:25Z",completed_at="2026-10-19T10:30:50Z")])
+
+    def make_meter(self,server,**kwargs):
+        ident=dict(task_key=self.s.READ392_TASK,run_id=self.run["id"],run_attempt=1,
+            nonce=self.control["nonce"],control_sha256=c.digest(c.encoded(self.control)),grant_proof_sha256="b"*64,
+            source_sha=self.control["expected_master"],source_pins=getattr(self,"deployment_pins",{p:"a"*64 for p in self.s.V6_PINS}),
+            parent_checkpoint_sha256=self.s.READ392_CP,examined_before=296,failed_run_id=39235028468,
+            failed_meter_sha256=self.s.READ392_METER,usage_before=self.s.READ392_USED,
+            active_seconds_before=8736,dispatches_before=29,active_seconds_reservation=900,dispatch_reservation=1)
+        directory=self.root/("meter-"+str(len(list(self.root.iterdir()))));directory.mkdir()
+        return self.s.named_read_meter(c,self.s.READ392_ALLOWANCE,directory/"native_read_meter.json",
+            "2026-10-19T11:05:00Z",ident,opener=server,limits=c.CONTINUED_LIMITS,
+            clock=lambda:c.utc(),control=self.control,**kwargs)
+
+    def server(self,mode=None):
+        case=self;s=self.s
+        class NamedServer(Server):
+            def __init__(self):
+                super().__init__();self.calls=0
+                self.cp=dict(id="fixture-cp296-123",name=s.READ392_CP+".json",size="5005",
+                    parents=["fixture-data-123"],createdTime="2026-10-19T10:14:30Z")
+                self.body=case.raw;self.candidate=None;self.candidate_body=None
+                if mode in {"candidate","candidate-over","candidate-badhash","two-candidates"}:
+                    body=c.encoded(dict(symbols=case.names[296:300],source_sha=case.a["expected_master"],
+                        cohort_scope=case.scope)).ljust(434796,b" ")
+                    self.candidate_body=body
+                    self.candidate=dict(id="fixture-candidate-123",name=c.digest(body)+".json",size="434796",
+                        parents=["fixture-data-123"],createdTime="2026-10-19T10:14:40Z")
+            def open(self,request,**kw):
+                self.calls+=1;p=urlsplit(request.full_url);q=parse_qs(p.query)
+                if p.path=="/token":
+                    self.requests.append(request.full_url)
+                    return Reply(c.encoded(dict(access_token="fixture-fresh",token_type="Bearer",expires_in=3600)))
+                if p.path=="/drive/v3/files":
+                    self.requests.append(request.full_url)
+                    positive=q["q"][0].startswith("name = ")
+                    items=[copy.deepcopy(self.cp)]
+                    if positive:
+                        if mode=="missing-positive":items=[]
+                        if mode=="duplicate-positive":items*=2
+                        if mode=="positive-clock":items[0]["createdTime"]="2026-10-19T10:14:31Z"
+                    else:
+                        if self.candidate:items.append(copy.deepcopy(self.candidate))
+                        if mode=="zero":items=[]
+                        if mode=="two-candidates":
+                            other=copy.deepcopy(self.candidate);other["id"]="fixture-candidate-456";items.append(other)
+                        if mode=="duplicate":items*=2
+                        if mode=="wrong-parent":items[0]["parents"]=["fixture-other-123"]
+                        if mode=="missing-clock":items[0].pop("createdTime")
+                        if mode=="future":items[0]["createdTime"]="2026-10-19T11:01:00Z"
+                        if mode=="old-clock":items[0]["createdTime"]="2026-10-19T09:00:00Z"
+                        if mode=="oversized":items*=9
+                        if mode=="bad-size":items[0]["size"]="0005005"
+                        if mode=="bad-name":items[0]["name"]="private arbitrary name"
+                    reply=dict(files=items)
+                    if mode=="paged" and not positive:reply["nextPageToken"]="secret-page"
+                    return Reply(c.encoded(reply))
+                file_id=p.path.rsplit("/",1)[-1]
+                if file_id in {"fixture-cp296-123","fixture-candidate-123"}:
+                    self.requests.append(request.full_url)
+                    item=self.cp if file_id=="fixture-cp296-123" else self.candidate
+                    body=self.body if file_id=="fixture-cp296-123" else self.candidate_body
+                    if q.get("alt")==["media"]:
+                        if mode=="candidate-over" and file_id!="fixture-cp296-123":body+=b"x"
+                        if mode=="candidate-badhash" and file_id!="fixture-cp296-123":body=b"x"+body[1:]
+                        return Reply(body)
+                    value=dict(item,mimeType="application/octet-stream",trashed=False,shared=False,
+                        permissions=[dict(id="fixture-owner",type="user",role="owner")])
+                    return Reply(c.encoded(value))
+                return super().open(request,**kw)
+        return NamedServer()
+
+    def read_objects(self,mode=None):
+        server=self.server(mode);meter=self.make_meter(server)
+        with patch.dict(os.environ,self.env,clear=True):
+            drive=drive_module.OwnerDrive("fixture-root-123",str(self.root),meter=meter)
+            result=self.s.named_read_objects(c,drive,self.control,meter)
+        meter.finish("COMPLETE")
+        return result,c.bounded_json(meter.journal),meter,server
+
+    def test_actual_transport_positive_and_unknown_origin(self):
+        result,value,m,server=self.read_objects()
+        self.assertTrue(result["positive_control_verified"])
+        self.assertEqual(value["usage"]["drive_requests"],7)
+        self.assertFalse(result["absence_proven"]);self.assertEqual(result["origin_status"],"UNKNOWN")
+        self.assertNotIn("fixture-cp",json.dumps(value));self.assertNotIn("fixture-data",json.dumps(value))
+        self.assertEqual(value["usage"]["provider_gets"],0);self.assertEqual(value["usage"]["storage_bytes"],0)
+        cost=self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+        self.assertEqual(cost["dispatches_after"],30);self.assertEqual(cost["active_seconds_after"],8781)
+        self.assertEqual(cost["unknown_storage_bytes_still_charged"],[302101,434796])
+
+    def test_candidate_hash_content_does_not_prove_old_post(self):
+        result,value,m,server=self.read_objects("candidate")
+        self.assertTrue(result["content_identity_verified"])
+        self.assertFalse(result["failed_post_equivalence_verified"]);self.assertFalse(result["failed_request_body_hash_known"])
+        self.assertEqual(result["candidate_bytes"],434796)
+        self.assertEqual(value["usage"]["drive_requests"],9)
+        self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+
+    def test_inventory_and_positive_counterexamples_stop_before_candidate_media(self):
+        for mode in ("missing-positive","duplicate-positive","positive-clock","paged","duplicate",
+                     "wrong-parent","missing-clock","future","old-clock","oversized","bad-size","bad-name","zero",
+                     "two-candidates"):
+            with self.subTest(mode=mode):
+                server=self.server(mode);m=self.make_meter(server)
+                with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+                    drive=drive_module.OwnerDrive("fixture-root-123",str(self.root),meter=m)
+                    self.s.named_read_objects(c,drive,self.control,m)
+                self.assertFalse(any("fixture-candidate" in u and "alt=media" in u for u in server.requests))
+
+    def test_true_empty_inventory_when_positive_is_outside_window_is_unknown(self):
+        server=self.server("zero");server.cp["createdTime"]="2026-10-19T10:00:00Z";m=self.make_meter(server)
+        with patch.dict(os.environ,self.env,clear=True):
+            drive=drive_module.OwnerDrive("fixture-root-123",str(self.root),meter=m)
+            result=self.s.named_read_objects(c,drive,self.control,m)
+        self.assertEqual(result["candidate_count"],0);self.assertFalse(result["absence_proven"])
+        self.assertFalse(result["failed_request_body_hash_known"])
+
+    def test_candidate_allocation_clamp_and_hash_failure(self):
+        for mode in ("candidate-over","candidate-badhash"):
+            with self.subTest(mode=mode):
+                with self.assertRaises(c.Refused):self.read_objects(mode)
+
+    def test_cp_hash_scope_and_order_are_independent(self):
+        for mode in ("hash","scope","order"):
+            server=self.server();m=self.make_meter(server)
+            if mode=="hash":server.body=b"x"+server.body[1:]
+            else:
+                cp=c.decode(server.body)
+                if mode=="scope":cp["cohort_scope"]["namespace"]="other"
+                else:cp["examined"][0:2]=list(reversed(cp["examined"][0:2]))
+                server.body=c.encoded(cp).ljust(5005,b" ")
+            with patch.object(self.s,"READ392_CP",c.digest(server.body) if mode!="hash" else self.s.READ392_CP):
+                server.cp["name"]=self.s.READ392_CP+".json"
+                with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+                    drive=drive_module.OwnerDrive("fixture-root-123",str(self.root),meter=m)
+                    self.s.named_read_objects(c,drive,self.control,m)
+
+    def test_endpoint_allowlist_denies_writes_provider_arbitrary_ids_and_queries(self):
+        base="https://www.googleapis.com/drive/v3/"
+        for url,kw in [
+            ("https://data.alpaca.markets/v2/stocks/bars",{}),
+            ("https://www.googleapis.com/upload/drive/v3/files",dict(method="POST",body=b"x")),
+            (base+"files/fixture-other-123?alt=media",{}),
+            (base+"files/fixture-root-123?alt=media",{}),
+            (base+"files/fixture-cp296-123?fields=*",{}),
+            (base+"files?pageSize=9&q=anything&fields=id",{}),
+            (base+"about?fields=user%28permissionId%29%2CstorageQuota#fragment",{}),
+            (base+"about?fields=user%28permissionId%29%2CstorageQuota&fields=x",{}),
+            ("https://oauth2.googleapis.com/token",dict(method="POST",body=b"x")),
+            (base+"files/fixture-cp296-123?alt=media",dict(method="DELETE"))]:
+            with self.subTest(url=url):
+                server=Opener();m=self.make_meter(server)
+                with self.assertRaises(c.Refused):m.perform(url,**kw)
+                self.assertEqual(server.calls,0);self.assertEqual(m.used["drive_requests"],0)
+                with self.assertRaises(c.Refused):m.reserve_storage(1)
+
+    def test_request_reservation_is_durable_before_first_oauth_attempt(self):
+        case=self
+        class First(Opener):
+            def open(self,request,**kw):
+                v=c.bounded_json(m.journal)
+                case.assertEqual(v["usage"]["drive_requests"],1)
+                case.assertEqual(v["attempts"][0]["status"],"RESERVED")
+                case.assertEqual(v["attempts"][0]["kind"],"OAUTH")
+                raise OSError("PRIVATE_TOKEN")
+        server=First();m=self.make_meter(server,refresh_needed=True)
+        with self.assertRaises(c.Refused):m.perform("https://oauth2.googleapis.com/token",method="POST",body=b"x",limit=65536)
+        m.finish("BLOCKED","NETWORK")
+        self.assertEqual(m.used["drive_bytes"],65536+1+1+65536)
+        run=dict(self.run,conclusion="failure")
+        cost=self.s.named_read_cost(c,self.control,run,c.bounded_json(m.journal),self.jobs)
+        self.assertEqual(cost["usage"]["drive_bytes"],131074)
+        with self.assertRaises(c.Refused):m.perform("https://oauth2.googleapis.com/token",method="POST",body=b"x")
+
+    def test_reservation_and_response_save_failures_keep_importable_cost(self):
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        original_atomic=c.atomic_json;original_sync=c.sync_native18_settlement
+        for phase in ("RESERVED","COMPLETE"):
+            for barrier in ("before_replace","after_replace","fsync"):
+                with self.subTest(phase=phase,barrier=barrier):
+                    server=Opener(b"abc");m=self.make_meter(server);fired=[]
+                    def fault(value):
+                        return not fired and bool(value["attempts"]) and value["attempts"][-1]["status"]==phase
+                    def atomic(path,value,**kwargs):
+                        hit=fault(value) and barrier!="fsync"
+                        if hit and barrier=="before_replace":
+                            fired.append(True);raise OSError("FIXTURE_ATOMIC_WRITE")
+                        original_atomic(path,value,**kwargs)
+                        if hit:
+                            fired.append(True);raise OSError("FIXTURE_AFTER_REPLACE")
+                    def sync(path):
+                        if barrier=="fsync" and fault(c.bounded_json(path)):
+                            fired.append(True);raise OSError("FIXTURE_FSYNC")
+                        original_sync(path)
+                    with patch.object(c,"atomic_json",side_effect=atomic),patch.object(c,"sync_native18_settlement",side_effect=sync):
+                        with self.assertRaises(OSError):m.perform(url)
+                        m.finish("BLOCKED","NAMED_READ_INTERNAL")
+                    self.assertEqual(fired,[True]);self.assertEqual(server.calls,int(phase=="COMPLETE"))
+                    value=c.bounded_json(m.journal)
+                    self.assertEqual(value["attempts"][0]["status"],phase)
+                    expected=65539 if phase=="COMPLETE" else 2065537
+                    self.assertEqual(value["usage"]["drive_bytes"],expected)
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                    self.assertEqual(cost["usage"]["drive_bytes"],expected)
+
+    def test_response_settlement_interruptions_publish_one_consistent_state(self):
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        for boundary in ("before_apply","during_apply","before_clear"):
+            with self.subTest(boundary=boundary):
+                server=Opener(b"abc");m=self.make_meter(server);fired=[];original_set=type(m).__setattr__
+                def assign(obj,name,value):
+                    stage=getattr(obj,"response_settlement",None)
+                    hit=(not fired and ((boundary=="before_apply" and name=="used" and stage is not None)
+                        or (boundary=="during_apply" and name=="observed_google_body_bytes" and stage is not None)
+                        or (boundary=="before_clear" and name=="response_settlement" and value is None and stage is not None)))
+                    if hit:
+                        fired.append(True);raise c.Refused("CAMPAIGN_DEADLINE")
+                    original_set(obj,name,value)
+                with patch.object(type(m),"__setattr__",new=assign):
+                    with self.assertRaisesRegex(c.Refused,"CAMPAIGN_DEADLINE"):m.perform(url)
+                    m.finish("BLOCKED","CAMPAIGN_DEADLINE")
+                self.assertEqual(fired,[True]);self.assertEqual(server.calls,1)
+                value=c.bounded_json(m.journal)
+                self.assertEqual(value["attempts"][0]["status"],"COMPLETE")
+                self.assertEqual(value["attempts"][0]["response_bytes"],3)
+                cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                self.assertEqual(cost["usage"]["drive_bytes"],65539)
+
+    def test_interrupted_debit_publication_keeps_pending_for_final_save(self):
+        server=Opener(b"abc");m=self.make_meter(server);original_set=type(m).__setattr__;fired=[]
+        def assign(obj,name,value):
+            original_set(obj,name,value)
+            if not fired and name=="used" and value["drive_requests"]==1:
+                fired.append(True);raise c.Refused("CAMPAIGN_DEADLINE")
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        with patch.object(type(m),"__setattr__",new=assign):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_DEADLINE"):m.perform(url)
+            m.finish("BLOCKED","CAMPAIGN_DEADLINE")
+        self.assertEqual(server.calls,0)
+        value=c.bounded_json(m.journal)
+        self.assertEqual(value["attempts"][0]["status"],"RESERVED")
+        cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+        self.assertEqual(cost["usage"]["drive_bytes"],2065537)
+        with self.assertRaisesRegex(c.Refused,"NAMED_READ_PENDING"):m.perform(url)
+
+    def test_real_atomic_temporary_write_flush_and_fsync_failures_recover(self):
+        original_factory=c.tempfile.NamedTemporaryFile;original_fsync=c.os.fsync
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        for phase in ("RESERVED","COMPLETE"):
+            for boundary in ("write","flush","fsync"):
+                with self.subTest(phase=phase,boundary=boundary):
+                    server=Opener(b"abc");m=self.make_meter(server);fired=[];owned=[]
+                    foreign=m.journal.with_name(m.journal.name+".new");foreign.write_bytes(b"UNKNOWN_EXISTING_TEMP")
+                    def fail(which):
+                        if not fired and which==boundary and m.attempts and m.attempts[-1]["status"]==phase:
+                            fired.append(True);raise OSError("FIXTURE_REAL_TEMP")
+                    class Faulty:
+                        def __init__(inner,handle):inner.handle=handle;inner.name=handle.name;owned.append(Path(inner.name))
+                        def __enter__(inner):return inner
+                        def __exit__(inner,*args):return inner.handle.__exit__(*args)
+                        def write(inner,raw):
+                            inner.handle.write(raw);fail("write")
+                        def flush(inner):
+                            inner.handle.flush();fail("flush")
+                        def fileno(inner):return inner.handle.fileno()
+                    def factory(*args,**kwargs):return Faulty(original_factory(*args,**kwargs))
+                    def fsync(fd):
+                        fail("fsync");return original_fsync(fd)
+                    with patch.object(c.tempfile,"NamedTemporaryFile",side_effect=factory),patch.object(c.os,"fsync",side_effect=fsync):
+                        with self.assertRaises(OSError):m.perform(url)
+                        m.finish("BLOCKED","NAMED_READ_INTERNAL")
+                    self.assertEqual(fired,[True]);self.assertEqual(foreign.read_bytes(),b"UNKNOWN_EXISTING_TEMP")
+                    self.assertTrue(owned);self.assertTrue(all(not p.exists() for p in owned))
+                    self.assertEqual(server.calls,int(phase=="COMPLETE"))
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),c.bounded_json(m.journal),self.jobs)
+                    self.assertEqual(cost["usage"]["drive_bytes"],65539 if phase=="COMPLETE" else 2065537)
+
+    def test_initial_meter_save_failure_records_blocked_zero_io_once(self):
+        original_fsync=c.os.fsync
+        for permanent in (False,True):
+            with self.subTest(permanent=permanent):
+                directory=self.root/("initial-permanent" if permanent else "initial-transient");directory.mkdir()
+                original_root=self.root;self.root=directory;calls=[];server=Opener()
+                def fsync(fd):
+                    calls.append(fd)
+                    if permanent or len(calls)==1:raise OSError("FIXTURE_INITIAL_SAVE")
+                    return original_fsync(fd)
+                try:
+                    with patch.object(c.os,"fsync",side_effect=fsync),self.assertRaisesRegex(c.Refused,"NAMED_READ_METER_INIT"):
+                        self.make_meter(server)
+                finally:self.root=original_root
+                files=list(directory.rglob("native_read_meter.json"))
+                self.assertEqual(server.calls,0);self.assertGreaterEqual(len(calls),2)
+                if permanent:
+                    self.assertEqual(files,[])
+                else:
+                    self.assertEqual(len(files),1);value=c.bounded_json(files[0])
+                    self.assertTrue(value["finalized"]);self.assertEqual(value["status"],"BLOCKED")
+                    self.assertEqual(value["attempts"],[]);self.assertEqual(value["usage"],{k:0 for k in c.LIMITS})
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                    self.assertEqual(cost["dispatches"],1);self.assertGreater(cost["active_seconds"],0)
+
+    def test_complete_and_blocked_cost_survive_terminal_job_failures(self):
+        result,value,m,server=self.read_objects();jobs=copy.deepcopy(self.jobs)
+        jobs["jobs"][1]["steps"]=[dict(name="Reconcile exact failed Drive POST with native metered reads",
+            status="completed",conclusion="success",started_at=jobs["jobs"][1]["started_at"],
+            completed_at=jobs["jobs"][1]["started_at"]),
+            dict(name="Preserve native read meter without original bytes or private IDs",status="completed",
+                 conclusion="failure",started_at=jobs["jobs"][1]["completed_at"])]
+        for conclusion in ("success","failure","cancelled","timed_out"):
+            with self.subTest(conclusion=conclusion):
+                cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion=conclusion),value,jobs)
+                self.assertEqual(cost["usage"],m.used)
+        for change in (lambda j:j["jobs"][1].pop("steps"),
+                       lambda j:j["jobs"][1]["steps"][0].update(conclusion="failure"),
+                       lambda j:j["jobs"][1]["steps"][1].update(started_at=jobs["jobs"][0]["started_at"])):
+            bad=copy.deepcopy(jobs);change(bad)
+            with self.assertRaisesRegex(c.Refused,"STEP_PROOF"):
+                self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,bad)
+        blocked=self.make_meter(Opener())
+        with self.assertRaises(c.Refused):
+            blocked.perform("https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota",limit=1)
+        blocked.finish("BLOCKED","RESPONSE_SIZE")
+        for conclusion in ("failure","cancelled","timed_out"):
+            cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion=conclusion),c.bounded_json(blocked.journal),self.jobs)
+            self.assertEqual(cost["usage"],blocked.used)
+        for meter in (value,c.bounded_json(blocked.journal)):
+            with self.assertRaisesRegex(c.Refused,"COST_RUN"):
+                self.s.named_read_cost(c,self.control,dict(self.run,conclusion="neutral"),meter,jobs)
+
+    def test_token_refresh_crossing_sixty_seconds_is_admitted_once(self):
+        self.env["MACRO_DRIVE_CONFIG"]=self.env["MACRO_DRIVE_CONFIG"].replace(
+            "2030-01-01T00:00:00Z",(self.clock+timedelta(seconds=61)).isoformat())+\
+            "client_id=fixture-client.apps.googleusercontent.com\nclient_secret=fixture-client-secret\n"
+        calls=[];case=self
+        class Moving(c.datetime):
+            @classmethod
+            def now(cls,*args,**kwargs):
+                value=case.clock+timedelta(seconds=2 if calls else 0);calls.append(value);return value
+        with patch.object(drive_module,"datetime",Moving):
+            NamedRead39235028468Tests.test_worker_positive_flow_keeps_collector_outside_read_path(self)
+        value=c.bounded_json(self.root/"worker-positive/native_read_meter.json")
+        self.assertEqual(sum(a["kind"]=="OAUTH" for a in value["attempts"]),1)
+        self.assertEqual(value["usage"]["provider_gets"],0)
+
+    def test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self):
+        current=dict(self.run,status="in_progress")
+        observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at=self.clock.isoformat())
+        for phase in ("history","jobs"):
+            for protection in (True,False):
+                with self.subTest(phase=phase,protection=protection):
+                    changed=[];reads=[];env=dict(self.env,MACRO_DRIVE_CONFIG="INVALID_SECRET_CONFIG")
+                    def history(*args,**kwargs):
+                        if phase=="history":changed.append(True)
+                        return observed
+                    def gh(path):
+                        reads.append(path)
+                        if path.endswith("/branches/master"):
+                            self.assertTrue(changed)
+                            return dict(protected=protection,commit=dict(sha="9"*40 if protection else self.control["expected_master"]))
+                        if path.endswith("/jobs?per_page=100"):
+                            if phase=="jobs":changed.append(True)
+                            return jobs
+                        return current
+                    with patch.dict(os.environ,env,clear=True),patch.object(c,"gh_json",side_effect=gh),\
+                         patch.object(self.s,"named_read_proof",return_value=("b"*64,self.run["created_at"])),\
+                         patch.object(self.s,"named_read_deployed",return_value={p:"a"*64 for p in self.s.V6_PINS}),\
+                         patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))),patch.object(c,"external_history",side_effect=history),\
+                         patch.object(drive_module,"OwnerDrive") as owner,patch.object(c,"build_opener") as opener,\
+                         self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):
+                        self.s.named_read_worker(c,self.control,str(self.root/("late-"+phase+str(protection))))
+                    owner.assert_not_called();opener.assert_not_called()
+                    self.assertTrue(reads[-1].endswith("/branches/master"))
+
+    def test_real_owner_bootstrap_is_metered_and_not_retried(self):
+        env=dict(self.env)
+        env["MACRO_DRIVE_CONFIG"]=env["MACRO_DRIVE_CONFIG"].replace("2030-01-01","2020-01-01")+\
+            "client_id=fixture-client.apps.googleusercontent.com\nclient_secret=fixture-client-secret\n"
+        server=self.server();m=self.make_meter(server,refresh_needed=True)
+        with patch.dict(os.environ,env,clear=True):
+            drive=drive_module.OwnerDrive("fixture-root-123",str(self.root),meter=m)
+            self.s.named_read_objects(c,drive,self.control,m)
+        self.assertEqual(m.attempts[0]["kind"],"OAUTH")
+        self.assertEqual(sum(a["kind"]=="OAUTH" for a in m.attempts),1)
+        self.assertNotIn("fixture-client-secret",m.journal.read_text())
+
+    def test_same_canonical_request_cannot_be_reordered_to_retry(self):
+        m=self.make_meter(Opener(b"abc"))
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        m.perform(url)
+        with self.assertRaises(c.Refused):m.perform(url.replace("%2C",","))
+        self.assertEqual(m.used["drive_requests"],1)
+
+    def test_budget_and_expiry_denied_before_transport(self):
+        server=Opener();m=self.make_meter(server);m.allowance["drive_requests"]=0
+        with self.assertRaises(c.Refused):m.perform("https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota")
+        self.assertEqual(server.calls,0)
+        with patch.object(c,"utc",return_value=self.clock+timedelta(days=1)):
+            with self.assertRaises(c.Refused):self.s.named_read_control(c,self.control)
+
+    def test_new_control_and_old_control_never_interchange(self):
+        self.s.named_read_control(c,self.control)
+        with self.assertRaises(c.Refused):c.native_read_control(self.control)
+        for key,value in (("schema","a1-native-drive-read-unknown-v1"),("checkpoint_file_id","fixture-wrong-123"),
+                          ("human_authority_sha256",self.s.VALIDITY_AUTHORITY),
+                          ("grant_reference","SYNTHETIC_NOT_APPROVAL")):
+            bad=copy.deepcopy(self.control);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.s.named_read_control(c,bad)
+
+    def test_new_deadline_uses_fixed_validity_without_relabeling_original_first(self):
+        jobs=copy.deepcopy(self.jobs)
+        jobs["jobs"][1].update(status="in_progress",started_at="2026-10-19T11:00:00Z")
+        self.assertEqual(self.s.named_read_job_deadline(c,jobs),self.clock+timedelta(seconds=240))
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        upload=workflow.split('- name: Preserve native read meter without original bytes or private IDs',1)[1].split('- name:',1)[0]
+        self.assertIn('timeout-minutes: 1',upload)
+        jobs["jobs"][1]["started_at"]=None
+        with self.assertRaises(c.Refused):self.s.named_read_job_deadline(c,jobs)
+        self.assertEqual(c.CONTINUATION["first"],"2026-10-17T02:08:51Z")
+
+    def test_missing_or_edited_owner_proof_stops_before_oauth(self):
+        terms=self.s.named_read_terms(c,self.control)
+        comment=dict(id=123456789,issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER",user=dict(type="User",id=123),
+            body="A1_SIP_NAMED_READ39235028468_AUTHORIZATION "+c.encoded(terms).decode(),
+            created_at="2026-10-19T10:20:00Z",updated_at="2026-10-19T10:20:00Z")
+        with patch.object(c,"gh_json",return_value=comment):self.s.named_read_proof(c,self.control)
+        for bad in ({},dict(comment,updated_at="2026-10-19T10:21:00Z"),
+                    dict(comment,author_association="CONTRIBUTOR"),dict(comment,body="old grant")):
+            with patch.dict(os.environ,self.env,clear=True),patch.object(c,"gh_json",return_value=bad),\
+                 patch.object(drive_module,"OwnerDrive") as constructor,self.assertRaises(c.Refused):
+                self.s.named_read_worker(c,self.control,str(self.root/"worker"))
+            constructor.assert_not_called()
+
+    def test_exclusive_context_and_actual29_prefix(self):
+        ids=self.s.BASIS_IDS+[self.s.REFUSAL_RUN,self.s.CONTROL_RUN,
+            39225295971,39227056047,39228995303,39230864255,39232902584,39235028468]
+        runs=[dict(id=i) for i in ids]+[self.run]
+        self.assertEqual(len(self.s.named_read_prefix(c,runs,self.control,self.run)),29)
+        for wrong in (runs[:-1],runs+[dict(id=1)],runs[:-2]+[dict(id=39085031884),self.run]):
+            with self.assertRaises(c.Refused):self.s.named_read_prefix(c,wrong,self.control,self.run)
+        observed=dict(runs=runs[:-1],examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=self.s.READ392_USED,active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        with patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))):
+            self.s.named_read_budget(c,observed)
+            for key,value in (("examined",76),("active_seconds",3769),("used",dict(self.s.READ392_USED,provider_gets=0))):
+                bad=dict(observed);bad[key]=value
+                with self.assertRaises(c.Refused):self.s.named_read_budget(c,bad)
+
+    def test_transitive_revision_pin_is_required(self):
+        gh=self.deployment_fixture()
+        def wrong(path):
+            if "/contents/"+c.REVISION_MODULE in path:
+                return dict(encoding="base64",content=c.base64.b64encode(b"wrong").decode())
+            return gh(path)
+        with patch.object(c,"gh_json",side_effect=wrong):
+            with self.assertRaisesRegex(c.Refused,"NAMED_READ_CODE_PINS"):
+                self.s.named_read_deployed(c,self.control)
+
+    def test_frozen_original_and_cohort_prefix_cannot_hide_a_missing_or_changed_event(self):
+        registry=c.WorkJournal(self.root/"prefix","f"*64)
+        self.addCleanup(registry.close)
+        for i in range(17):registry.append("FIXTURE",index=i)
+        self.s.named_read_frozen_prefix(c,registry.directory,17,registry.parent)
+        path=registry.directory/"000003.json";raw=path.read_bytes()
+        path.write_bytes(raw.replace(b'FIXTURE',b'ALTERED'))
+        with self.assertRaises(c.Refused):self.s.named_read_frozen_prefix(c,registry.directory,17,registry.parent)
+        path.write_bytes(raw);path.rename(registry.directory/"000003.hidden")
+        with self.assertRaises(c.Refused):self.s.named_read_frozen_prefix(c,registry.directory,17,registry.parent)
+
+    def test_no_missing_nonfinal_or_refunded_cost_receipt(self):
+        result,value,m,server=self.read_objects()
+        for mutate in (
+            lambda v:v.update(finalized=False),
+            lambda v:v.update(schema="a1-sip-campaign-meter-v1"),
+            lambda v:v["usage"].update(drive_bytes=0),
+            lambda v:v["attempts"][0].update(response_bytes=2000001),
+            lambda v:v["attempts"][0].update(reservation=0),
+            lambda v:v.update(observed_google_body_bytes=0),
+            lambda v:v["result"].update(absence_proven=True)):
+            bad=copy.deepcopy(value);mutate(bad)
+            with self.assertRaises(c.Refused):self.s.named_read_cost(c,self.control,self.run,bad,self.jobs)
+        with self.assertRaises(c.Refused):self.s.named_read_cost(c,self.control,self.run,{},self.jobs)
+
+    def test_once_only_cost_append_and_both_durability_barriers(self):
+        result,value,m,server=self.read_objects()
+        payload=self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+        registry=c.WorkJournal(self.root/"family","f"*64)
+        self.addCleanup(registry.close)
+        for i in range(74):registry.append("FIXTURE",index=i)
+        registry.append("SETTLED",run_id=39235028468)
+        with patch.object(self.s,"READ392_FAMILY",registry.parent):
+            with patch.object(c,"sync_native18_settlement",side_effect=c.Refused("EXTERNAL_NATIVE18_DURABILITY")):
+                with self.assertRaises(c.Refused):self.s.named_read_append_cost(c,registry,payload)
+            self.assertEqual(len(registry.entries),76)
+            with patch.object(c,"sync_native18_settlement",wraps=c.sync_native18_settlement) as sync:
+                first=self.s.named_read_append_cost(c,registry,payload)
+                self.assertEqual(self.s.named_read_append_cost(c,registry,payload),first)
+                self.assertEqual(sync.call_count,2)
+            self.assertEqual(len(registry.entries),76)
+            with self.assertRaises(c.Refused):
+                self.s.named_read_append_cost(c,registry,dict(payload,meter_sha256="0"*64))
+
+
+    def test_control_fits_original_bounded_input_with_real_sized_auth(self):
+        value=copy.deepcopy(self.control)
+        raw=c.encoded(value["authorization"])
+        value["authorization"]["fixture_padding"]="x"*(14924-len(raw)-21)
+        self.assertLessEqual(len(c.encoded(value)),16384)
+        self.assertLess(len(c.encoded(self.s.named_read_terms(c,self.control))),4096)
+
+    def test_worker_positive_flow_keeps_collector_outside_read_path(self):
+        server=self.server()
+        observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        current=dict(self.run,status="in_progress")
+        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at=self.clock.isoformat())
+        @c.contextmanager
+        def fixture_deadline(meter):
+            meter.alarm_active=True
+            try:yield
+            finally:meter.alarm_active=False
+        def gh(path):
+            if path.endswith("/branches/master"):return dict(protected=True,commit=dict(sha=self.control["expected_master"]))
+            if path.endswith("/jobs?per_page=100"):return jobs
+            return current
+        with patch.dict(os.environ,self.env,clear=True),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,self.run["created_at"])),\
+             patch.object(self.s,"named_read_deployed",return_value={p:"a"*64 for p in self.s.V6_PINS}),\
+             patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))),\
+             patch.object(c,"external_history",return_value=observed),patch.object(c,"gh_json",side_effect=gh),\
+             patch.object(c,"build_opener",return_value=server),\
+             patch.object(c.RuntimeMeter,"process_deadline",fixture_deadline),\
+             patch.object(cap,"run",side_effect=AssertionError("Collector invoked by read mode")):
+            result=self.s.named_read_worker(c,self.control,str(self.root/"worker-positive"))
+        self.assertEqual(result["status"],"NAMED_READ_COMPLETE")
+        receipt=c.bounded_json(self.root/"worker-positive/native_read_meter.json")
+        self.assertTrue(receipt["finalized"]);self.assertEqual(receipt["usage"]["provider_gets"],0)
+
+    def deployment_fixture(self):
+        # Saved genuine gate shapes (649/39223863645), isolated synthetic IDs.
+        self.trusted_gate_bytes={p:("isolated-fixture:"+p).encode() for p in self.s.READ392_GATE_PINS}
+        patch.object(self.s,"READ392_GATE_PINS",{p:c.digest(b) for p,b in self.trusted_gate_bytes.items()}).start()
+        self.deployment_pins={p:c.digest((c.ROOT/p).read_bytes().replace(b"\r\n",b"\n")) for p in self.s.V6_PINS}
+        self.control["code_pins_sha256"]=c.digest(c.encoded(self.deployment_pins))
+        event=c.bounded_json(self.event_path);event["inputs"]["campaign_control"]=c.encoded(self.control).decode()
+        self.event_path.write_bytes(c.encoded(event))
+        self.pr=dict(number=123,merged=True,draft=False,base=dict(ref="master",repo=dict(full_name=c.REPO)),
+            head=dict(sha="5"*40,repo=dict(full_name=c.REPO)),merge_commit_sha="4"*40)
+        self.branch=dict(protected=True,commit=dict(sha="4"*40))
+        self.tree=dict(tree=dict(sha="6"*40))
+        self.checks=dict(total_count=3,check_runs=[dict(id=100+i,name=n,head_sha="5"*40,status="completed",conclusion="success",
+            app=dict(slug="github-actions"),check_suite=dict(id=200+i),started_at="2026-10-19T10:25:41Z",
+            completed_at="2026-10-19T10:25:41Z") for i,n in enumerate(("validate","offline","review_complete"))])
+        self.checks["check_runs"][2]["output"]=dict(title="PASS_REVIEW_COMPLETE",summary=
+            "Evidence: ATTESTED_EXACT_HEAD_REVIEW\n\nFailures: none\n\n"
+            "Unresolved conversations are enforced separately by master branch protection.")
+        self.gate=dict(id=301,workflow_id=317164841,path=".github/workflows/review_complete_gate.yml",
+            event="issue_comment",status="completed",conclusion="success",run_attempt=1,head_sha="7"*40,
+            check_suite_id=401,repository=dict(full_name=c.REPO),head_repository=dict(full_name=c.REPO),
+            created_at="2026-10-19T10:25:33Z",updated_at="2026-10-19T10:25:44Z")
+        self.gate_jobs=dict(total_count=1,jobs=[dict(id=501,run_id=301,name="evaluate",status="completed",conclusion="success",
+            started_at="2026-10-19T10:25:35Z",completed_at="2026-10-19T10:25:43Z",steps=[dict(name=n,status="completed",conclusion="success") for n in (
+                "Checkout trusted gate implementation","Resolve trusted head observation and maintainer attestation",
+                "Evaluate Codex review evidence for current head","Publish required review_complete check on PR head")])])
+        self.evaluation=dict(schema_version="run287-review-complete-gate-v2",status="PASS_REVIEW_COMPLETE",passed=True,
+            pull_request_number=123,head_sha="5"*40,evidence_type="ATTESTED_EXACT_HEAD_REVIEW",failures=[])
+        self.published=copy.deepcopy(self.checks["check_runs"][2])
+        def log():
+            text="[command]/usr/bin/git log -1 --format=%H\n"+"7"*40+"\n"+json.dumps(self.evaluation,indent=2)+"\n"+json.dumps(self.published)+"\n"
+            return "\n".join("2026-10-19T10:25:41.0000000Z "+line for line in text.splitlines())
+        self.gate_log=log
+        self.github_reads=[]
+        def gh(path):
+            self.github_reads.append(path)
+            if path.endswith("/branches/master"):return self.branch
+            if "/contents/" in path:
+                file=path.split("/contents/",1)[1].split("?ref=",1)[0]
+                raw=self.trusted_gate_bytes[file] if file in self.trusted_gate_bytes else (c.ROOT/file).read_bytes().replace(b"\r\n",b"\n")
+                return dict(encoding="base64",content=c.base64.b64encode(raw).decode())
+            if path.endswith("/pulls/123"):return self.pr
+            if "/git/commits/" in path:return self.tree
+            if "/check-runs?" in path:return self.checks
+            if "/actions/workflows/317164841/runs?" in path:return dict(total_count=1,workflow_runs=[self.gate])
+            if path.endswith("/actions/runs/301/jobs?per_page=100"):return self.gate_jobs
+            raise AssertionError("Unexpected GitHub read: "+path)
+        return gh
+
+    def test_genuine_deployment_requires_merged_exact_tree_and_real_checks(self):
+        gh=self.deployment_fixture()
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            self.assertEqual(self.s.named_read_deployed(c,self.control),self.deployment_pins)
+            self.pr["draft"]=True
+            with self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
+            self.pr["draft"]=False;self.checks["check_runs"][2]["conclusion"]="skipped"
+            with self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
+
+    def test_same_app_named_success_is_not_a_gate_proof_and_denies_before_oauth(self):
+        gh=self.deployment_fixture();self.gate["path"]=".github/workflows/other.yml"
+        with patch.dict(os.environ,self.env,clear=True),patch.object(c,"gh_json",side_effect=gh),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-19T10:20:00Z")),\
+             patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()),\
+             patch.object(drive_module,"OwnerDrive") as owner,patch.object(c,"build_opener") as opener,\
+             self.assertRaises(c.Refused):
+            self.s.named_read_worker(c,self.control,str(self.root/"forged"))
+        owner.assert_not_called();opener.assert_not_called()
+
+    def test_gate_rejects_wrong_workflow_run_job_head_evaluation_and_publication(self):
+        gh=self.deployment_fixture()
+        objects=[self.gate,self.gate_jobs,self.evaluation,self.published,self.checks,self.tree,self.pr]
+        snapshots=copy.deepcopy(objects)
+        mutations=[lambda:self.gate.update(workflow_id=999),lambda:self.gate.update(event="pull_request"),
+            lambda:self.gate["repository"].update(full_name="other/repo"),lambda:self.gate.update(status="in_progress"),
+            lambda:self.gate_jobs["jobs"][0].update(run_id=999),lambda:self.gate_jobs["jobs"][0].update(conclusion="failure"),
+            lambda:self.gate_jobs["jobs"][0]["steps"].pop(),lambda:self.evaluation.update(head_sha="0"*40),
+            lambda:self.evaluation.update(pull_request_number=999),lambda:self.evaluation.update(passed=False),
+            lambda:self.evaluation.update(failures=["missing_maintainer_attestation"]),
+            lambda:self.evaluation.update(evidence_type="LOCAL_A6"),lambda:self.published.update(id=999),
+            lambda:self.published["check_suite"].update(id=999),lambda:self.published["output"].update(summary="forged"),
+            lambda:self.checks["check_runs"][2].update(check_suite={}),lambda:self.tree["tree"].update(sha="bad"),
+            lambda:self.pr["head"].update(sha="0"*40)]
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            for index,mutate in enumerate(mutations):
+                for obj,original in zip(objects,snapshots):obj.clear();obj.update(copy.deepcopy(original))
+                mutate()
+                with self.subTest(case=index),self.assertRaises(c.Refused):self.s.named_read_deployed(c,self.control)
+
+    def test_new_read_denies_master_advance_but_historical_proof_uses_frozen_source(self):
+        gh=self.deployment_fixture();self.branch["commit"]["sha"]="9"*40
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):self.s.named_read_deployed(c,self.control)
+            self.github_reads.clear()
+            self.assertEqual(self.s.named_read_deployed(c,self.control,accounting=True),self.deployment_pins)
+            self.assertFalse(any(p.endswith("/branches/master") for p in self.github_reads))
+            self.assertTrue(all("?ref="+"4"*40 in p or "?ref="+"7"*40 in p for p in self.github_reads if "/contents/" in p))
+
+    def test_gate_rejects_missing_malformed_log_or_changed_trusted_implementation(self):
+        gh=self.deployment_fixture()
+        with patch.object(c,"gh_json",side_effect=gh):
+            for text in ("", "malformed",json.dumps(self.evaluation),self.gate_log().replace("7"*40,"bad-sha")):
+                with patch.object(self.s,"named_read_gate_log",return_value=text),self.assertRaises(c.Refused):
+                    self.s.named_read_deployed(c,self.control)
+            self.trusted_gate_bytes[".github/workflows/review_complete_gate.yml"]=b"unreviewed gate replacement"
+            with patch.object(self.s,"named_read_gate_log",return_value=self.gate_log()),self.assertRaises(c.Refused):
+                self.s.named_read_deployed(c,self.control)
+
+    def test_workflow_worker_token_has_only_required_read_permissions(self):
+        text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
+        block=text.split("\npermissions:\n",1)[1].split("\nconcurrency:",1)[0]
+        self.assertEqual(dict(line.strip().split(": ") for line in block.splitlines()),
+            {"contents":"read","actions":"read","issues":"read","checks":"read"})
+        self.assertIn("GH_TOKEN: ${{ github.token }}",text)
+
+    def test_historical_settle_host_reopen_reflush_keeps_old_bytes_after_master_advance(self):
+        gh=self.deployment_fixture();self.branch["commit"]["sha"]="9"*40
+        _,value,_,_=self.read_objects()
+        budget=self.root/"original";state=self.root/"external-cohort-top500-20261017"
+        original=c.WorkJournal(budget,"a"*64);cohort=c.WorkJournal(state,"b"*64)
+        registry=c.WorkJournal(self.root/"family-settle","f"*64)
+        for target,count in ((original,17),(cohort,48),(registry,74)):
+            for i in range(count):target.append("FIXTURE",index=i)
+        registry.append("SETTLED",run_id=39235028468)
+        family_tail=registry.parent;original_tail=original.parent;cohort_tail=cohort.parent
+        original.close();cohort.close();self.addCleanup(lambda:registry.close())
+        before={p:p.read_bytes() for directory in (budget,state,registry.directory) for p in directory.glob("*.json")}
+        control_path=self.root/"historical-control.json";control_path.write_bytes(c.encoded(self.control))
+        args=SimpleNamespace(native392_settle_control=control_path,native392_run_id=self.run["id"],
+            budget_state_dir=budget,state_dir=state)
+        observed=dict(runs=[{}]*29,examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        def metadata(path):
+            if path.endswith("/actions/runs/40000000000"):return self.run
+            if path.endswith("/actions/runs/40000000000/jobs?per_page=100"):return self.jobs
+            if path.endswith("/artifacts?per_page=100"):
+                return dict(total_count=1,artifacts=[dict(name="a1-native-drive-read-meter",id=601,expired=False,size_in_bytes=1000)])
+            return gh(path)
+        def download(argv,**kwargs):
+            Path(argv[argv.index("--dir")+1],"native_read_meter.json").write_bytes(c.encoded(value))
+            return SimpleNamespace(returncode=0)
+        with patch.object(c,"gh_json",side_effect=metadata),patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-19T10:20:00Z")),\
+             patch.object(c,"external_history",return_value=observed),patch.object(self.s,"named_read_budget"),\
+             patch.dict(c.CONTINUATION,event=original_tail),patch.object(self.s,"READ392_COHORT",cohort_tail),\
+             patch.object(self.s,"READ392_FAMILY",family_tail),patch.object(c,"external_family_registry",side_effect=lambda *a:registry),\
+             patch.object(c.subprocess,"run",side_effect=download):
+            # The event was written, but a file/directory barrier failed.
+            with patch.object(c,"sync_native18_settlement",side_effect=c.Refused("SYNTHETIC_BARRIER")):
+                with self.assertRaisesRegex(c.Refused,"SYNTHETIC_BARRIER"):self.s.named_read_settle_host(c,args)
+            self.assertEqual(len(registry.entries),76)
+            appended=(registry.directory/"000076.json").read_bytes()
+            registry=c.WorkJournal(registry.directory,"f"*64)
+            with patch.object(c,"sync_native18_settlement",wraps=c.sync_native18_settlement) as barrier:
+                first=self.s.named_read_settle_host(c,args)
+                registry=c.WorkJournal(registry.directory,"f"*64)
+                self.assertEqual(self.s.named_read_settle_host(c,args),first)
+                self.assertEqual(barrier.call_count,2)
+            self.assertEqual(appended,(registry.directory/"000076.json").read_bytes())
+            self.assertTrue(all(p.read_bytes()==raw for p,raw in before.items()))
+            self.assertEqual(first["usage_after"],{k:self.s.READ392_USED[k]+value["usage"][k] for k in c.LIMITS})
+            self.assertFalse(any(p.endswith("/branches/master") for p in self.github_reads))
+
+    def test_gate_log_is_bounded_and_suppresses_raw_errors(self):
+        def output(argv,**kw):
+            self.assertEqual(argv[-1],f"repos/{c.REPO}/actions/jobs/501/logs")
+            self.assertIs(kw["stderr"],c.subprocess.DEVNULL)
+            kw["stdout"].write(b"x"*2_000_001);return SimpleNamespace(returncode=0)
+        with patch.object(c.subprocess,"run",side_effect=output),self.assertRaisesRegex(c.Refused,"NAMED_READ_GATE_LOG"):
+            self.s.named_read_gate_log(c,501)
+        with patch.object(c.subprocess,"run",side_effect=OSError("PRIVATE_CANARY")),self.assertRaisesRegex(c.Refused,"NAMED_READ_GATE_LOG") as error:
+            self.s.named_read_gate_log(c,501)
+        self.assertTrue(error.exception.__suppress_context__)
+
+
+    def test_private_event_is_bound_to_control_and_never_exported_as_job_env(self):
+        with patch.dict(os.environ,self.env,clear=True):
+            self.assertEqual(c.native_read_control_from_event(),self.control)
+        original=c.bounded_json(self.event_path)
+        for key,replacement in (("private_root_folder_id","fixture-other-123"),
+                                ("private_data_folder_id","fixture-other-123"),
+                                ("campaign_nonce",c.PREFIX+"b"*24),
+                                ("private_research_authorized","false"),
+                                ("noncommercial_terms_acknowledged",1),
+                                ("campaign_control","{}")):
+            value=copy.deepcopy(original);value["inputs"][key]=replacement
+            self.event_path.write_bytes(c.encoded(value))
+            with self.subTest(key=key),patch.dict(os.environ,self.env,clear=True),\
+                 patch.object(c,"gh_json",side_effect=AssertionError("Proof lookup before actual event binding")),\
+                 patch.object(drive_module,"OwnerDrive") as constructor,self.assertRaises(c.Refused):
+                self.s.named_read_worker(c,self.control,str(self.root/"denied-worker"))
+            constructor.assert_not_called()
+        self.event_path.write_bytes(c.encoded(original))
+        for key in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID","INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID"):
+            env=dict(self.env,**{key:"PRIVATE_CANARY"})
+            with patch.dict(os.environ,env,clear=True),self.assertRaises(c.Refused):
+                c.native_read_control_from_event()
+
+    def test_private_event_raw_bounds_and_expected_control_binding(self):
+        original=self.event_path.read_bytes()
+        for raw in (b"x"*65537,c.encoded(dict(inputs=dict(campaign_control="x"*16385))),b'{}'):
+            self.event_path.write_bytes(raw)
+            with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+                c.native_read_control_from_event()
+        self.event_path.write_bytes(original)
+        wrong=copy.deepcopy(self.control);wrong["nonce"]=c.PREFIX+"b"*24
+        with patch.dict(os.environ,self.env,clear=True),self.assertRaises(c.Refused):
+            self.s.named_read_event_control(c,wrong)
+
+    def test_actual_workflow_premeter_block_reads_private_event_silently(self):
+        text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
+        block=text.split("- name: Prepare bounded control metadata before credentials",1)[1]
+        block=block.split("- name: Reconcile exact failed Drive POST",1)[0]
+        body=block.split("python - <<'PY'\n",1)[1].rsplit("          PY",1)[0]
+        program="\n".join(line[10:] for line in body.splitlines())
+        directory=self.root/"premeter";directory.mkdir()
+        env=dict(self.env,RUNNER_TEMP=str(directory))
+        with patch.dict(os.environ,env,clear=True),patch("sys.stdout",new_callable=io.StringIO) as output:
+            exec(compile(program,"<actual-workflow-premeter>","exec"),{})
+        self.assertEqual(output.getvalue(),"")
+        self.assertEqual(c.bounded_json(directory/"campaign_control.json"),self.control)
+        for key in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID","INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID"):
+            line=next(line for line in text.splitlines() if line.strip().startswith(key+":"))
+            self.assertIn("${{ !(",line);self.assertIn("&& inputs.",line)
+            self.assertTrue(line.endswith("|| '' }}"))
+
+    def test_workflow_new_schema_has_read_only_route_and_unknown_schema_refusal(self):
+        text=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text(encoding="utf-8")
+        self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v1'"),8)
+        self.assertIn("CAMPAIGN_CONTROL_SCHEMA",text)
+        self.assertIn("native_read_route_control(value)",text)
+        self.assertIn("if: env.INPUT_NATIVE_READ_ONLY != 'true'",text)
+        self.assertIn("' native-read39235028468'",text)
+
+class NamedRead392DeploymentWindowTests(unittest.TestCase):
+    """Versioned renewal: real collector remains outside this read-only path."""
+    server=NamedRead39235028468Tests.server
+    read_objects=NamedRead39235028468Tests.read_objects
+
+    def deployment_fixture(self):
+        gh=NamedRead39235028468Tests.deployment_fixture(self)
+        patch.object(self.s,"named_read_gate_log",side_effect=lambda *a:self.gate_log()).start()
+        return gh
+
+    def setUp(self):
+        NamedRead39235028468Tests.setUp(self)
+        self.actual_deployment_pr=self.s.READ392_V2_DEPLOYMENT_PR
+        patch.object(self.s,"READ392_V2_DEPLOYMENT_PR",123).start()
+        self.clock=c.utc("2026-10-20T11:00:00Z")
+        self.control.update(schema=self.s.READ392_V2_SCHEMA,human_authority_sha256=self.s.READ392_V2_AUTHORITY,
+            deployment_window=dict(deployed_at_utc="2026-10-20T10:00:00Z",expires_at_utc="2026-10-21T10:00:00Z"))
+        self.run["created_at"]="2026-10-20T10:30:00Z"
+        for job in self.jobs["jobs"]:
+            for field in ("started_at","completed_at"):job[field]=job[field].replace("2026-10-19","2026-10-20")
+        self.bind_event()
+
+    def bind_event(self):
+        event=c.bounded_json(self.event_path)
+        event["inputs"]["campaign_control"]=c.encoded(self.control).decode()
+        self.event_path.write_bytes(c.encoded(event))
+
+    def make_meter(self,server,**kwargs):
+        ident=dict(task_key=self.s.READ392_TASK,run_id=self.run["id"],run_attempt=1,
+            nonce=self.control["nonce"],control_sha256=c.digest(c.encoded(self.control)),grant_proof_sha256="b"*64,
+            source_sha=self.control["expected_master"],source_pins=getattr(self,"deployment_pins",{p:"a"*64 for p in self.s.V6_PINS}),
+            parent_checkpoint_sha256=self.s.READ392_CP,examined_before=296,failed_run_id=39235028468,
+            failed_meter_sha256=self.s.READ392_METER,usage_before=self.s.READ392_USED,
+            active_seconds_before=8736,dispatches_before=29,active_seconds_reservation=900,dispatch_reservation=1)
+        directory=self.root/("meter-"+str(len(list(self.root.iterdir()))));directory.mkdir()
+        end=min(self.clock+timedelta(seconds=300),c.utc(self.control["deployment_window"]["expires_at_utc"]))
+        return self.s.named_read_meter(c,self.s.READ392_ALLOWANCE,directory/"native_read_meter.json",
+            end.isoformat(),ident,opener=server,limits=c.CONTINUED_LIMITS,
+            clock=lambda:c.utc(),control=self.control,**kwargs)
+
+    def owner_comment(self):
+        return dict(id=123456789,issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER",user=dict(type="User",id=123),
+            body="A1_SIP_NAMED_READ39235028468_V2_AUTHORIZATION "+c.encoded(self.s.named_read_terms(c,self.control)).decode(),
+            created_at="2026-10-20T10:20:00Z",updated_at="2026-10-20T10:20:00Z")
+
+    def test_expired_v1_not_resurrected_by_v2(self):
+        self.s.named_read_control(c,self.control)
+        old=copy.deepcopy(self.control);old["schema"]=self.s.READ392_SCHEMA;old.pop("deployment_window")
+        with self.assertRaisesRegex(c.Refused,"CAMPAIGN_EXPIRED"):self.s.named_read_control(c,old)
+        self.assertEqual(self.s.VALIDITY_END,"2026-10-20T02:59:53Z")
+        self.assertEqual(c.CONTINUATION["first"],"2026-10-17T02:08:51Z")
+
+    def test_only_actual_renewal_decision_hash_is_accepted(self):
+        for authority in (self.s.VALIDITY_AUTHORITY,"0"*64,"d"*64):
+            bad=copy.deepcopy(self.control);bad["human_authority_sha256"]=authority
+            with self.subTest(authority=authority),self.assertRaises(c.Refused):self.s.named_read_control(c,bad)
+
+    def test_window_shape_and_exact_24h_fail_before_credentials(self):
+        windows=[{},dict(deployed_at_utc="2026-10-20T10:00:00Z",expires_at_utc="2026-10-21T10:00:01Z"),
+            dict(deployed_at_utc="2026-10-20T10:00:00Z",expires_at_utc="2026-10-20T10:00:00Z"),
+            dict(deployed_at_utc="2026-10-21T10:00:00Z",expires_at_utc="2026-10-22T10:00:00Z"),
+            dict(deployed_at_utc="2026-10-19T10:00:00Z",expires_at_utc="2026-10-20T10:00:00Z")]
+        for window in windows:
+            bad=copy.deepcopy(self.control);bad["deployment_window"]=window
+            with self.subTest(window=window),patch.object(drive_module,"OwnerDrive") as owner,self.assertRaises(c.Refused):
+                self.s.named_read_worker(c,bad,str(self.root/"blocked"))
+            owner.assert_not_called()
+
+    def test_real_merged_at_binds_declared_window(self):
+        gh=self.deployment_fixture();self.pr["merged_at"]="2026-10-20T10:00:00Z"
+        with patch.object(c,"gh_json",side_effect=gh):self.s.named_read_deployed(c,self.control)
+        for merged in (None,"2026-10-20T09:59:59Z","2026-10-20T11:00:01Z"):
+            self.pr["merged_at"]=merged
+            with self.subTest(merged=merged),patch.object(c,"gh_json",side_effect=gh),self.assertRaisesRegex(c.Refused,"DEPLOYMENT_WINDOW"):
+                self.s.named_read_deployed(c,self.control)
+
+    def test_relabeling_merge_control_and_window_cannot_extend_time(self):
+        gh=self.deployment_fixture();self.pr["merged_at"]="2026-10-20T10:00:00Z"
+        self.control["deployment_window"]=dict(deployed_at_utc="2026-10-20T10:30:00Z",expires_at_utc="2026-10-21T10:30:00Z")
+        with patch.object(c,"gh_json",side_effect=gh),self.assertRaisesRegex(c.Refused,"DEPLOYMENT_WINDOW"):
+            self.s.named_read_deployed(c,self.control)
+
+    def test_v2_approval_is_bound_to_this_one_source_pr(self):
+        self.assertEqual(self.actual_deployment_pr,650)
+        self.control['deployment']['pull_request']=124
+        with patch.object(drive_module,'OwnerDrive') as owner,self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):
+            self.s.named_read_worker(c,self.control,str(self.root/'foreign-pr'))
+        owner.assert_not_called()
+
+    def test_unused_expired_window_cannot_rearm_on_later_genuine_source_pr(self):
+        gh=self.deployment_fixture()
+        self.clock=c.utc('2026-10-22T11:00:00Z')
+        self.pr.update(number=124,merged_at='2026-10-22T10:00:00Z')
+        self.control['deployment']['pull_request']=124
+        self.control['deployment_window']=dict(deployed_at_utc='2026-10-22T10:00:00Z',expires_at_utc='2026-10-23T10:00:00Z')
+        self.control['nonce']=c.PREFIX+'b'*24
+        def later(p):return self.pr if p.endswith('/pulls/124') else gh(p)
+        # Other source pins, full tree and genuine gate fixture still match.
+        with patch.object(c,'gh_json',side_effect=later),self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):
+            self.s.named_read_deployed(c,self.control)
+        with self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):self.s.named_read_control(c,self.control)
+
+    def test_v2_grant_is_new_immutable_and_after_actual_deployment(self):
+        comment=self.owner_comment()
+        with patch.object(c,"gh_json",return_value=comment):self.s.named_read_proof(c,self.control)
+        for bad in (dict(comment,updated_at="2026-10-20T10:21:00Z"),dict(comment,author_association="CONTRIBUTOR"),
+            dict(comment,body=comment["body"].replace("_V2_AUTHORIZATION","_AUTHORIZATION")),
+            dict(comment,created_at="2026-10-20T09:59:59Z",updated_at="2026-10-20T09:59:59Z")):
+            with patch.object(c,"gh_json",return_value=bad),self.assertRaises(c.Refused):self.s.named_read_proof(c,self.control)
+
+    def test_v2_terms_bind_priority_without_granting_capture(self):
+        terms=self.s.named_read_terms(c,self.control)
+        self.assertEqual(terms["schema"],"a1-named-read39235028468-grant-v2")
+        self.assertEqual(terms["next_collection_priority_input_sha256"],self.s.READ392_V2_INPUT)
+        self.assertEqual(terms["expires_at_utc"],"2026-10-21T10:00:00Z")
+        self.assertFalse(terms["capture_authorized"]);self.assertFalse(terms["budget_reset"])
+        self.assertEqual(terms["unknown_storage_still_charged"],[302101,434796])
+
+    def test_v2_control_and_terms_fit_original_wire_limits(self):
+        NamedRead39235028468Tests.test_control_fits_original_bounded_input_with_real_sized_auth(self)
+
+    def test_new_job_deadline_clamps_to_actual_24h_end(self):
+        self.clock=c.utc("2026-10-21T09:59:58Z")
+        jobs=copy.deepcopy(self.jobs)
+        jobs["jobs"][1].update(status="in_progress",started_at="2026-10-21T09:59:55Z")
+        self.assertEqual(self.s.named_read_job_deadline(c,jobs,control=self.control),c.utc("2026-10-21T10:00:00Z"))
+
+    def test_v2_meter_and_cost_cannot_be_substituted_with_v1(self):
+        result,value,m,server=self.read_objects()
+        self.assertEqual(value["schema"],"a1-named-read39235028468-meter-v2")
+        cost=self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+        self.assertEqual(cost["schema"],"a1-named-read39235028468-cost-settlement-v2")
+        bad=copy.deepcopy(value);bad["schema"]="a1-named-read39235028468-meter-v1"
+        with self.assertRaises(c.Refused):self.s.named_read_cost(c,self.control,self.run,bad,self.jobs)
+
+    def test_accounting_and_cleanup_after_expiry_preserve_spent_costs(self):
+        result,value,m,server=self.read_objects();comment=self.owner_comment()
+        self.clock=c.utc("2026-10-22T10:00:00Z")
+        with self.assertRaisesRegex(c.Refused,"CAMPAIGN_EXPIRED"):self.s.named_read_control(c,self.control)
+        self.s.named_read_control(c,self.control,accounting=True)
+        with patch.object(c,"gh_json",return_value=comment):self.s.named_read_proof(c,self.control,accounting=True)
+        jobs=copy.deepcopy(self.jobs)
+        jobs["jobs"][1].update(started_at="2026-10-21T09:59:50Z",completed_at="2026-10-21T10:00:15Z")
+        cost=self.s.named_read_cost(c,self.control,self.run,value,jobs)
+        self.assertEqual(cost["usage_after"]["drive_bytes"],self.s.READ392_USED["drive_bytes"]+m.used["drive_bytes"])
+
+    def test_v2_endpoint_allowlist_remains_read_only(self):
+        NamedRead39235028468Tests.test_endpoint_allowlist_denies_writes_provider_arbitrary_ids_and_queries(self)
+
+    def test_v2_save_failures_and_late_master_drift_remain_fail_closed(self):
+        NamedRead39235028468Tests.test_reservation_and_response_save_failures_keep_importable_cost(self)
+        NamedRead39235028468Tests.test_response_settlement_interruptions_publish_one_consistent_state(self)
+        NamedRead39235028468Tests.test_interrupted_debit_publication_keeps_pending_for_final_save(self)
+        NamedRead39235028468Tests.test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self)
+
+    def test_v2_temporary_cleanup_refresh_and_terminal_settlement(self):
+        NamedRead39235028468Tests.test_real_atomic_temporary_write_flush_and_fsync_failures_recover(self)
+        NamedRead39235028468Tests.test_initial_meter_save_failure_records_blocked_zero_io_once(self)
+        NamedRead39235028468Tests.test_complete_and_blocked_cost_survive_terminal_job_failures(self)
+        NamedRead39235028468Tests.test_token_refresh_crossing_sixty_seconds_is_admitted_once(self)
+
+    def test_v2_cost_append_remains_exactly_once(self):
+        NamedRead39235028468Tests.test_once_only_cost_append_and_both_durability_barriers(self)
+
+    def test_worker_proves_only_named_history_uses_new_window_and_provider_zero(self):
+        server=self.server();current=dict(self.run,status="in_progress")
+        observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at="2026-10-20T11:00:00Z")
+        def gh(p):
+            if p.endswith('/branches/master'):return dict(protected=True,commit=dict(sha=self.control['expected_master']))
+            return jobs if p.endswith('/jobs?per_page=100') else current
+        @c.contextmanager
+        def deadline(meter):
+            meter.alarm_active=True
+            try:yield
+            finally:meter.alarm_active=False
+        with patch.dict(os.environ,self.env,clear=True),patch.object(c,"gh_json",side_effect=gh),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-20T10:20:00Z")),\
+             patch.object(self.s,"named_read_deployed",return_value={p:"a"*64 for p in self.s.V6_PINS}),\
+             patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))),patch.object(c,"external_history",return_value=observed) as history,\
+             patch.object(c,"build_opener",return_value=server),patch.object(c.RuntimeMeter,"process_deadline",deadline),\
+             patch.object(cap,"run",side_effect=AssertionError('Provider capture in read-only mode')):
+            self.s.named_read_worker(c,self.control,str(self.root/'worker-v2'))
+        self.assertFalse(history.call_args.kwargs['enforce_expiry'])
+        self.assertEqual(history.call_args.kwargs['named_read_context'],(self.control,current))
+        meter=c.bounded_json(self.root/'worker-v2/native_read_meter.json')
+        self.assertEqual(meter['usage']['provider_gets'],0);self.assertEqual(meter['usage']['storage_bytes'],0)
+
+    def test_v2_route_and_event_do_not_accept_unversioned_renewal(self):
+        with patch.dict(os.environ,self.env,clear=True):
+            self.assertEqual(c.native_read_route_control(self.control),self.a)
+            self.assertEqual(c.native_read_control_from_event(),self.control)
+        bad=copy.deepcopy(self.control);bad['schema']='a1-native-drive-read-39235028468-v3'
+        with self.assertRaises(c.Refused):c.native_read_route_control(bad)
+
+    def test_v2_workflow_has_same_private_reconcile_boundary(self):
+        text=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v2'"),8)
+        self.assertIn("'a1-native-drive-read-39235028468-v2'))",text)
+        for key in ('INPUT_CAMPAIGN_CONTROL','INPUT_PRIVATE_ROOT_FOLDER_ID','INPUT_PRIVATE_DATA_FOLDER_ID','INPUT_RESUME_FILE_ID'):
+            line=next(line for line in text.splitlines() if line.strip().startswith(key+':'))
+            self.assertIn("39235028468-v2",line);self.assertTrue(line.endswith("|| '' }}"))
 
 
 if __name__=='__main__': unittest.main()

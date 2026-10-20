@@ -1,5 +1,172 @@
 # Finite private SIP campaign control
 
+## Deployment-bound Read392 v2 — 2026-10-20
+
+The original v1 and its exclusive 2026-10-20T02:59:53Z expiry are unchanged.
+The user explicitly approved a new24h window starting at actual reviewed
+Source deployment, retaining all incurred usage and existing caps, with the
+174 missing SPY-proxy equities prioritized next. The retained direct request,
+question and reply are frozen in Work A's `HUMAN_SCOPE.json`, SHA256
+`e6eeea2b9cd592d1edee7694f38dbd9f352f9e7c47e1a3fffa680d256cda1958`.
+This is user execution-scope evidence, not provider-rights certification,
+human code review or a protected merge grant. Protected publication still
+requires the existing final separate decision and genuine gate evidence.
+
+The versioned `a1-native-drive-read-39235028468-v2` control adds only
+`deployment_window` with actual `deployed_at_utc` and `expires_at_utc`.
+The interval must be exactly86400 seconds; before credentials the original
+protected deployment verifier requires the real merged PR's `merged_at` to
+equal the start. Its reviewed head, full tree, deployed master, seven pins
+and genuine review-complete workflow/log proof remain mandatory. A caller's
+clock, new grant, rerun, unrelated master or later activation cannot restart
+the24h window. V2 accepts only this existing Source PR650 as its deployment;
+a later genuine Source PR containing the same runtime bytes cannot re-arm an
+unused expired window with a new nonce/grant. Another deployment requires
+new direct-human authority and a separately versioned scope. The actual merged timestamp is unavailable in preparation and
+must never be predicted. Old schemas cannot acquire new clock fields.
+
+After actual deployment, create one fresh immutable OWNER record tagged
+`A1_SIP_NAMED_READ39235028468_V2_AUTHORIZATION` with the exact v2 terms.
+Its creation must follow the verified deployment and precede expiry; it binds
+the new direct-human scope SHA, source, private identity digest, nonce and
+the174-name priority input SHA256
+`b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329`.
+No grant, nonce or actual deployment clock is created by this document.
+
+Only the isolated named diagnostic may read historical capture accounting
+after old v1 expiry, once its own new control/grant/deployment window is
+verified. Ordinary capture, original48h history, original9f grant/expiry,
+CP296 and old typed receipts are unchanged. The worker deadline is the
+earlier of reconcile job start+240s and actual deployment+24h. The existing
+five-minute job retains sixty seconds for final save and meter upload.
+V2 meter/cost schemas are distinct and reject v1 substitution. Historical
+cost settlement may finish after expiry and retain cleanup/failure costs;
+this never permits another request or refunds an uncertain reservation.
+
+The final protected-master equality check follows history reconstruction and
+job lookup, immediately before credential parsing. A concurrent merge during
+those reads refuses before OwnerDrive bootstrap. Named-read response settlement
+publishes usage, observed body bytes and COMPLETE attempt status as one coherent
+snapshot before the durable write. Atomic-write/fsync failure or a deadline
+interrupt retains that snapshot for the BLOCKED final save; a pre-I/O debit
+failure retains the matching full reservation. Failed requests cannot continue
+with another endpoint. The shared meter's existing settlement arithmetic and
+capture deadline/budget policy are unchanged.
+
+Only this isolated meter uses unique owned temporary files, cleaned after a
+failed write/flush/fsync; an existing unknown `.new` is never removed or reused.
+The default atomic writer for collection/journals remains unchanged. OAuth's
+one conditional refresh allowance covers token expiry through the whole
+transport deadline plus OwnerDrive's60s threshold, including a mid-read crossing.
+No unconditional refresh or extra endpoint/retry is introduced. A final valid
+meter retains actual costs even when later artifact/post-job work fails, is
+cancelled or times out. COMPLETE under a non-success run requires the exact
+successful read step and ordered later artifact step; clocks, identity, cost
+conservation and once-only import remain mandatory.
+An initial zero-I/O meter-save failure gets only one BLOCKED final-save attempt
+before fixed refusal; constructor failure cannot fall through to OwnerDrive.
+Permanent storage failure still leaves insufficient evidence, never a fabricated
+zero-cost import or permission to rerun the one-use diagnostic.
+
+The same one-use read allowance remains provider0, Drive16 attempts,
+transfer16,000,000B, storage0, active900s and one dispatch. The same actual
+29-run frame and17/48/75 journals, prior968 provider GETs and both302101B/
+434796B unknown storage amounts remain charged. Private inputs still enter
+only via the bounded genuine event; public step environment values remain
+blank for both new-case versions. No original provider bytes are disclosed.
+
+The174 inputs are a separate preparation packet, ordered by Oct16 SPY
+holding weight, not a new market-cap ranking or official historical index.
+They exclude all646 previously price-collected tickers. Existing pending
+cohorts/seeds are not rewritten;35 candidates also appear in the old417's
+unprocessed suffix. A future price continuation must verify global prior
+receipts, overlap and typed diagnostic settlement before activating that
+separate namespace. Archived Twelve issuer conflicts/quarantines are not
+clean asset evidence. This read-only version does not implement or grant
+that continuation, retry an unknown CREATE, or admit Source/PIT/ER data.
+
+Operational lesson: explicit renewal of an expired execution window requires
+a new version bound to an actual protected deployment, not editing historical
+expiry constants or presenting an old grant as fresh authority.
+
+## Exact39235028468 read-only candidate — 2026-10-19
+
+This interface is preparation, not a query grant. Run39235028468/attempt1
+stopped on NETWORK during DRIVE_CREATE/POST/HEADER_OPEN; no HTTP status was
+observed. CP296 is `56fbaa42a0627f747f742920697f24ae281fd468109324c95e7eb2634b810a04`
+(5005 bytes), meter `0bb8ddf3efe3148a701071b3192afc519957c0af85bb7b02fcf092f7eabccbc0`.
+The failed object's original name, media/body SHA and multipart parents were
+not retained. Its 434796-byte unconfirmed storage reservation is a heuristic
+for a candidate, not evidence of object role or original request equivalence.
+Keep the prior 302101-byte uncertain reservation too.
+
+The new exact schema `a1-native-drive-read-39235028468-v1` uses the existing
+workflow's separate reconcile branch and `--native-read-control`. An unknown
+schema refuses before credentials. The old39085031884 route is unchanged.
+The new implementation resides in the existing pinned Source revision module;
+all seven runtime pins, including that module, are compared with the actual
+protected deployed Source and the genuine merged exact-tree PR/check records.
+No new runner/verifier/trust rule or collector is introduced.
+
+Before a future query, A0 must obtain the one final human decision covering
+supported protected deployment of the reviewed candidate and this one bounded
+read. Then bind the *returned actual* immutable OWNER comment via
+`A1_SIP_NAMED_READ39235028468_AUTHORIZATION` to `named_read_terms`, including
+the new direct-human authority SHA, actual deployed seven-pin digest, merged
+PR/reviewed head, exact private identity digest and single-use nonce. Neither
+this document nor the old9f validity authority grants the new query. Do not
+predict IDs, edit a consent comment or issue a nonce/grant during T2 preparation.
+The compact control carries `code_pins_sha256`, avoiding duplication of the
+large unchanged historical authorization inside the existing16384-byte limit.
+Private root/folder/checkpoint IDs stay in private control and retained evidence.
+For this new case, the job's control/root/folder/resume-ID environment values
+are explicitly blank: runner step environment blocks are public before a later
+mask could take effect. The existing premeter step reads the bounded genuine
+`GITHUB_EVENT_PATH` inputs into its private control file. The worker rechecks
+that event's exact control, nonce, root, folder and research flags before any
+OAuth/Drive call. Old native/capture input routing remains unchanged.
+
+The original first canonical run, original48h observation and all spent costs
+remain fixed. The separate9f window still ends exclusively at
+2026-10-20T02:59:53Z. Before this read the canonical frame is exactly29 runs,
+8736 job seconds, Provider968/Drive9847/transfer1657932691/storage131488371.
+Original17, cohort48 and family75 remain unchanged. Pending terms reserve
+Provider0, Google16 attempts, transfer16000000 bytes, storage0, active900s and
+one dispatch from the existing remaining caps. Past platform diagnostics stay
+UNKNOWN_NOT_ZERO; this does not certify total platform cost.
+
+Only a needed OAuth token POST may bootstrap, through the same conservative
+meter from its first attempt. No retry is permitted. Other endpoints are GET
+about, exact root/folder/object metadata, two exact LIST queries and bounded
+media IDs. The positive CP name LIST has pageSize2, one page. The same-owner
+folder inventory uses the inclusive10:07:57Z..10:15:00Z window, pageSize8,
+one page. Pagination, truncation, duplicates, absent clocks, wrong identity or
+more than one434796-byte candidate stop before candidate media. CP media is
+clamped5005B and candidate media434796B before allocation. Ordinary JSON/OAuth
+bounds remain enforced. No arbitrary ID, provider GET, upload, update or delete
+is allowed. Private inventory metadata is excluded from the public meter.
+
+The result preserves actual server clocks. No candidate remains UNKNOWN with
+absence_proven=false. A candidate's self-name hash and content identity still
+leave original failedPOST equivalence UNKNOWN. No recovery, price checkpoint
+advance, Source/PIT admission or economic authority follows from this read.
+
+`--native392-settle-control` with `--native392-run-id`, original
+`--budget-state-dir` and existing cohort `--state-dir` is a distinct accounting
+path, not a dispatcher. It downloads the actual typed read artifact, validates
+attempt reservations, actual terminal jobs, genuine grant and fresh complete
+canonical history, then imports exactly one family event76 under the existing
+family lock. A repeat accepts only the same payload and reflushes file plus
+directory durability; a conflict or missing/nonfinal meter stops, never invents
+zero use. Failed requests retain their full reservation. The capture/cohort
+journals and CP296 remain unchanged. Ordinary capture still refuses this new
+read until a separately reviewed future continuation accounts the typed event.
+
+Operational lesson: an ambiguous CREATE acknowledgement requires bounded
+read-only diagnosis; size, ticker or content-addressed name alone cannot identify
+the original request or justify re-uploading it. This lesson is recorded here
+because this task's explicit mutation scope excludes the shared lesson ledger.
+
 ## Typed cohort forecast correction (preparation only)
 
 At CP128, the existing gate correctly stopped before a new reservation:

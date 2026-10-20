@@ -205,10 +205,26 @@ def bounded_json(path, limit=65536):
     return decode(bounded_bytes(path, limit))
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, unique_temporary=False):
     path = Path(path)
     raw = encoded(value)
     require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
+    if unique_temporary:
+        # Isolated diagnostic meters may retry a final save after a failed
+        # write/fsync. Never reuse or delete a pre-existing unknown .new file.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent,
+                    prefix=path.name+".", suffix=".new", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return
     temporary = path.with_name(path.name + ".new")
     with temporary.open("xb") as handle:
         handle.write(raw)
@@ -535,11 +551,14 @@ class RuntimeMeter:
             raise Refused("NETWORK") from None
         require(all(not value or value.encode() not in raw for value in credentials), "CREDENTIAL_ECHO")
         if google:
-            # Unknown/failed/partial replies retain their entire reservation.
-            self.used["drive_bytes"] -= limit + 1 - len(raw)
-            self.observed_google_body_bytes += len(body or b"") + len(raw)
-            self.save()
+            self.settle_google_response(body, raw, limit)
         return raw
+
+    def settle_google_response(self, body, raw, limit):
+        # Unknown/failed/partial replies retain their entire reservation.
+        self.used["drive_bytes"] -= limit + 1 - len(raw)
+        self.observed_google_body_bytes += len(body or b"") + len(raw)
+        self.save()
 
     def finish(self, status, reason=None):
         require(status in ("COMPLETE", "BLOCKED"), "CAMPAIGN_STATUS")
@@ -2206,7 +2225,7 @@ def append_native18_settlement(registry,source_sha,code_pins):
 
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
                      native_read_run=None, native18_accounting=False, refusal_accounting=False, control_accounting_log=None,
-                     control_accounting_jobs=None):
+                     control_accounting_jobs=None, named_read_context=None):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2223,6 +2242,11 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     by_hash = dict(zip(hashes, variants))
     runs = campaign_runs(auth["workflow_run_floor"])
     all_runs, native18 = runs, None
+    if named_read_context is not None:
+        require(current_run is None and native_read_run is None and allow_stopped
+                and not any((native18_accounting,refusal_accounting,control_accounting_log)),
+                "NAMED_READ_HISTORY_MODE")
+        runs = _revision_module().named_read_prefix(_module(),runs,*named_read_context)
     if native18_accounting:
         require(auth_hash == NATIVE18_RECOVERY["prior_auth"] and current_run is None
                 and recovery_run is None and native_read_run is None and allow_stopped
@@ -3831,10 +3855,23 @@ def native_read_objects(drive, auth, meter):
     return result
 
 
+def native_read_route_control(value):
+    if isinstance(value,dict) and value.get("schema") in {
+            "a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
+        return _revision_module().named_read_control(_module(),value)
+    return native_read_control(value)
+
+
+def native_read_control_from_event():
+    return _revision_module().named_read_event_control(_module())
+
+
 def native_read_worker(control_path, state_dir):
     """Isolated reviewed-master diagnostic. Never invokes a collector/host."""
     from tools.twelve_private_capture import OwnerDrive
     control = bounded_json(control_path, 16384)
+    if control.get("schema") in {"a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
+        return _revision_module().named_read_worker(_module(),control,state_dir)
     auth = native_read_control(control)  # Pending unknown accounting fails before any credentials.
     require(os.getenv("GITHUB_REPOSITORY") == REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
             and os.getenv("INPUT_NATIVE_READ_ONLY") == "true"
@@ -3882,6 +3919,8 @@ def main():
     mode.add_argument("--authorization")
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
+    mode.add_argument("--native392-settle-control", help="Exact39235028468 actual read-cost import only; no dispatch")
+    parser.add_argument("--native392-run-id", type=int)
     parser.add_argument("--native18-deployed-master", help="Separately reviewed deployed Source for accounting-only import")
     parser.add_argument("--refusal-close-authorization", help="Exact39171354230 immutable no-meter closure grant")
     parser.add_argument("--control-refusal-close-authorization", help="Exact39200269684 immutable control-read closure grant")
@@ -3897,6 +3936,15 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.native392_settle_control:
+            require(args.native392_run_id is not None and args.budget_state_dir is not None
+                and not any((args.authorization,args.native_read_control,args.native18_settle_authorization,
+                    args.native18_deployed_master,args.refusal_close_authorization,args.control_refusal_close_authorization,
+                    args.control_refusal_log,args.control_refusal_jobs,args.recovery_run,args.account_permission_reference,
+                    args.predispatch_recovery,args.continuation_receipt,args.cohort_input,args.max_batches)),
+                "NAMED_READ_SETTLEMENT_MODE")
+            print(json.dumps(_revision_module().named_read_settle_host(_module(),args),sort_keys=True));return 0
+        require(args.native392_run_id is None,"NAMED_READ_SETTLEMENT_MODE")
         if args.control_refusal_close_authorization:
             require(args.authorization is not None,"EXTERNAL_CONTROL_REFUSAL_ACCOUNTING")
             print(json.dumps(_revision_module().control_accounting_host(_module(),args),sort_keys=True));return 0
