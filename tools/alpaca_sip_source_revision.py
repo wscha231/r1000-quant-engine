@@ -7,6 +7,11 @@ source split; live external execution must pin this module transitively.
 # Exact39235028468 diagnostic only. These are retained evidence hashes, not
 # authority to query. Keep this in the already pinned revision module.
 READ392_SCHEMA = "a1-native-drive-read-39235028468-v1"
+READ392_V2_SCHEMA = "a1-native-drive-read-39235028468-v2"
+# Direct user decision retained in the existing Work A preparation packet.
+# This is execution-scope evidence, not supplier rights or a runtime grant.
+READ392_V2_AUTHORITY = "e6eeea2b9cd592d1edee7694f38dbd9f352f9e7c47e1a3fffa680d256cda1958"
+READ392_V2_INPUT = "b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329"
 READ392_TASK = "R1000-A1-DRIVE-READ39235028468"
 READ392_AUTH = "2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e"
 READ392_CP = "56fbaa42a0627f747f742920697f24ae281fd468109324c95e7eb2634b810a04"
@@ -27,12 +32,27 @@ READ392_GATE_PINS={
     "tools/check_pr_review_complete.py":"583f1056460ac29ca27cdeb7d8fab9524d9b354ab2de4ca64427544177262ae2"}
 
 
+def named_read_window(c,control):
+    if control.get("schema")==READ392_SCHEMA:
+        return VALIDITY_START,VALIDITY_END
+    c.require(control.get("schema")==READ392_V2_SCHEMA,"NAMED_READ_AUTH")
+    window=control.get("deployment_window")
+    c.require(isinstance(window,dict) and set(window)=={"deployed_at_utc","expires_at_utc"}
+        and all(isinstance(window[k],str) for k in window),"NAMED_READ_DEPLOYMENT_WINDOW")
+    start,end=c.utc(window["deployed_at_utc"]),c.utc(window["expires_at_utc"])
+    c.require(start>=c.utc(READ392_WINDOW[1]) and end-start==c.timedelta(seconds=86400),
+              "NAMED_READ_DEPLOYMENT_WINDOW")
+    return window["deployed_at_utc"],window["expires_at_utc"]
+
+
 def named_read_control(c,value,*,accounting=False):
+    successor=isinstance(value,dict) and value.get("schema")==READ392_V2_SCHEMA
     c.require(isinstance(value,dict) and set(value)=={
         "schema","task_key","authorization","expected_master","code_pins_sha256","nonce",
-        "checkpoint_file_id","grant_reference","human_authority_sha256","deployment"},
+        "checkpoint_file_id","grant_reference","human_authority_sha256","deployment"}
+        | ({"deployment_window"} if successor else set()),
         "NAMED_READ_CONTROL")
-    c.require(value["schema"]==READ392_SCHEMA and value["task_key"]==READ392_TASK
+    c.require(value["schema"] in {READ392_SCHEMA,READ392_V2_SCHEMA} and value["task_key"]==READ392_TASK
         and c.validate_authorization(value["authorization"])==READ392_AUTH,"NAMED_READ_AUTH")
     for key,length in (("expected_master",40),("human_authority_sha256",64)):
         c.require(isinstance(value[key],str) and c.re.fullmatch("[0-9a-f]{"+str(length)+"}",value[key]),
@@ -51,8 +71,11 @@ def named_read_control(c,value,*,accounting=False):
         and type(deployment["pull_request"]) is int and deployment["pull_request"]>0
         and isinstance(deployment["reviewed_head"],str)
         and c.re.fullmatch(r"[0-9a-f]{40}",deployment["reviewed_head"]),"NAMED_READ_DEPLOYMENT")
+    if successor:
+        c.require(value["human_authority_sha256"]==READ392_V2_AUTHORITY,"NAMED_READ_AUTHORITY_UNSET")
+    start,end=named_read_window(c,value)
     if not accounting:
-        c.require(c.utc(READ392_WINDOW[1])<=c.utc()<c.utc(VALIDITY_END),"CAMPAIGN_EXPIRED")
+        c.require(max(c.utc(start),c.utc(READ392_WINDOW[1]))<=c.utc()<c.utc(end),"CAMPAIGN_EXPIRED")
     return value["authorization"]
 
 
@@ -60,11 +83,14 @@ def named_read_terms(c,control):
     auth=control["authorization"]
     private=dict(root=auth["private_root_folder_id"],folder=auth["private_data_folder_id"],
                  checkpoint=control["checkpoint_file_id"])
-    return dict(schema="a1-named-read39235028468-grant-v1",task_key=READ392_TASK,
+    successor=control["schema"]==READ392_V2_SCHEMA
+    start,end=named_read_window(c,control)
+    result=dict(schema="a1-named-read39235028468-grant-v2" if successor else "a1-named-read39235028468-grant-v1",task_key=READ392_TASK,
         source_sha=control["expected_master"],code_pins_sha256=control["code_pins_sha256"],
         deployment=control["deployment"],nonce=control["nonce"],
         human_authority_sha256=control["human_authority_sha256"],
-        validity_authority_sha256=VALIDITY_AUTHORITY,not_before_utc=VALIDITY_START,expires_at_utc=VALIDITY_END,
+        validity_authority_sha256=READ392_V2_AUTHORITY if successor else VALIDITY_AUTHORITY,
+        not_before_utc=start,expires_at_utc=end,
         failed_run_id=39235028468,failed_run_attempt=1,failed_meter_sha256=READ392_METER,
         capture_auth_sha256=READ392_AUTH,checkpoint_sha256=READ392_CP,checkpoint_bytes=5005,examined=296,
         private_bindings_sha256=c.digest(c.encoded(private)),owner_sha256=c.CONTINUATION["bindings"]["owner_sha256"],
@@ -77,13 +103,21 @@ def named_read_terms(c,control):
         total_platform_cost_verified=False,absence_proven=False,failed_request_body_hash_known=False,
         capture_authorized=False,drive_data_write_authorized=False,failed_post_retry_authorized=False,
         source_admission=False,pit_verified=False,economic_authority=False,budget_reset=False)
+    if successor:
+        result.update(window_basis="ACTUAL_PROTECTED_PR_MERGED_AT_PLUS_86400_SECONDS",
+            next_collection_priority_input_sha256=READ392_V2_INPUT,
+            price_capture_requires_separate_typed_continuation=True)
+    return result
 
 
 def named_read_proof(c,control,*,accounting=False):
     named_read_control(c,control,accounting=accounting)
     comment_id=int(control["grant_reference"].rsplit("-",1)[1])
     comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{comment_id}")
-    terms,proof=human_record(c,comment,"A1_SIP_NAMED_READ39235028468_AUTHORIZATION ")
+    successor=control["schema"]==READ392_V2_SCHEMA
+    terms,proof=human_record(c,comment,
+        "A1_SIP_NAMED_READ39235028468_V2_AUTHORIZATION " if successor else "A1_SIP_NAMED_READ39235028468_AUTHORIZATION ",
+        window=named_read_window(c,control) if successor else None)
     c.require(comment["id"]==comment_id and c.encoded(terms)==c.encoded(named_read_terms(c,control))
         and c.utc(READ392_WINDOW[1])<=c.utc(comment["created_at"]),"NAMED_READ_GRANT")
     return c.digest(c.encoded(proof)),comment["created_at"]
@@ -195,6 +229,10 @@ def named_read_deployed(c,control,*,accounting=False):
         and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO
         and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO and pr.get("head",{}).get("sha")==head
         and pr.get("merge_commit_sha")==control["expected_master"],"NAMED_READ_PROTECTED_DEPLOYMENT")
+    if control["schema"]==READ392_V2_SCHEMA:
+        start,end=named_read_window(c,control)
+        c.require(pr.get("merged_at")==start and c.utc(start)<=c.utc(),
+                  "NAMED_READ_DEPLOYMENT_WINDOW")
     # Squash may change the commit ID; the complete reviewed tree must survive.
     reviewed=c.gh_json(f"repos/{c.REPO}/git/commits/{head}")
     deployed=c.gh_json(f"repos/{c.REPO}/git/commits/{control['expected_master']}")
@@ -250,7 +288,7 @@ def named_read_queries(folder):
         +"' and createdTime <= '"+READ392_WINDOW[1]+"'":"8"}
 
 
-def named_read_job_deadline(c,jobs):
+def named_read_job_deadline(c,jobs,*,control=None):
     c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2,"NAMED_READ_JOB")
     offline=[j for j in jobs["jobs"] if j.get("name")=="offline" and j.get("status")=="completed"
              and j.get("conclusion")=="success"]
@@ -259,7 +297,8 @@ def named_read_job_deadline(c,jobs):
         and isinstance(active[0].get("started_at"),str)
         and c.utc(offline[0]["completed_at"])<=c.utc(active[0]["started_at"])<=c.utc()+c.timedelta(seconds=5),
         "NAMED_READ_JOB_CLOCK")
-    return min(c.utc(active[0]["started_at"])+c.timedelta(seconds=300),c.utc(VALIDITY_END))
+    end=named_read_window(c,control)[1] if control is not None else VALIDITY_END
+    return min(c.utc(active[0]["started_at"])+c.timedelta(seconds=300),c.utc(end))
 
 
 def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
@@ -275,7 +314,8 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
             super().__init__(*args,**kwargs)
 
         def save(self):
-            c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v1",**self.identity,
+            c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v2"
+                if control["schema"]==READ392_V2_SCHEMA else "a1-named-read39235028468-meter-v1",**self.identity,
                 usage=self.used,allowance=self.allowance,status=self.status,reason=self.reason,
                 finalized=self.finalized,transfer_definition=c.METRIC,attempts=self.attempts,
                 observed_google_body_bytes=self.observed_google_body_bytes,result=self.result,
@@ -487,12 +527,16 @@ def named_read_worker(c,control,state_dir):
     proof,created=named_read_proof(c,control)
     source_pins=named_read_deployed(c,control)
     current=c.gh_json(f"repos/{c.REPO}/actions/runs/{int(c.os.environ['GITHUB_RUN_ID'])}")
+    start,end=named_read_window(c,control)
     c.require(current.get("status")=="in_progress" and isinstance(current.get("created_at"),str)
-        and c.utc(created)<=c.utc(current["created_at"])<c.utc(VALIDITY_END),"NAMED_READ_RUN_CLOCK")
-    observed=c.external_history(auth,allow_stopped=True,named_read_context=(control,current))
+        and c.utc(start)<=c.utc(created)<=c.utc(current["created_at"])<c.utc(end),"NAMED_READ_RUN_CLOCK")
+    # Historical capture clocks stay unchanged. Only this reviewed diagnostic
+    # uses its independently proved deployment window, never a price worker.
+    observed=c.external_history(auth,allow_stopped=True,
+        enforce_expiry=control["schema"]!=READ392_V2_SCHEMA,named_read_context=(control,current))
     named_read_budget(c,observed)
     jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{current['id']}/jobs?per_page=100")
-    deadline=named_read_job_deadline(c,jobs)
+    deadline=named_read_job_deadline(c,jobs,control=control)
     directory=c.Path(state_dir);directory.mkdir(exist_ok=False)
     identity=dict(task_key=READ392_TASK,run_id=current["id"],run_attempt=1,nonce=control["nonce"],
         control_sha256=c.digest(c.encoded(control)),grant_proof_sha256=proof,
@@ -526,7 +570,9 @@ def named_read_worker(c,control,state_dir):
 
 
 def named_read_cost(c,control,run,value,jobs):
-    c.require(isinstance(value,dict) and value.get("schema")=="a1-named-read39235028468-meter-v1"
+    successor=control["schema"]==READ392_V2_SCHEMA
+    schema="a1-named-read39235028468-meter-v2" if successor else "a1-named-read39235028468-meter-v1"
+    c.require(isinstance(value,dict) and value.get("schema")==schema
         and value.get("task_key")==READ392_TASK
         and value.get("control_sha256")==c.digest(c.encoded(control))
         and value.get("run_id")==run["id"] and type(value.get("run_id")) is int
@@ -594,7 +640,13 @@ def named_read_cost(c,control,run,value,jobs):
         c.require(result.get("positive_control_verified") is True and result.get("origin_status")=="UNKNOWN"
             and type(result.get("candidate_count")) is int and 0<=result["candidate_count"]<=1,
             "NAMED_READ_COST_ORIGIN")
-    return dict(schema="a1-named-read39235028468-cost-settlement-v1",run_id=run["id"],run_attempt=1,
+    if successor:
+        start,end=named_read_window(c,control)
+        # Cleanup may finish after expiry. Retain those actual failed costs;
+        # the transport deadline already forbids new reads beyond the window.
+        c.require(c.utc(start)<=c.utc(run["created_at"])<c.utc(end),"NAMED_READ_COST_CLOCK")
+    return dict(schema="a1-named-read39235028468-cost-settlement-v2" if successor
+                else "a1-named-read39235028468-cost-settlement-v1",run_id=run["id"],run_attempt=1,
         source_sha=control["expected_master"],control_sha256=c.digest(c.encoded(control)),
         meter_sha256=c.digest(c.encoded(value)),grant_proof_sha256=value.get("grant_proof_sha256"),
         checkpoint_sha256=READ392_CP,failed_meter_sha256=READ392_METER,
@@ -819,15 +871,16 @@ def verify_control_failure(c,auth,run,jobs,artifacts,blobs,log,raw_jobs):
     return control_value(c,auth["external_cohort"]["scope"])
 
 
-def human_record(c,comment,tag):
+def human_record(c,comment,tag,*,window=None):
+    start,end=window if window is not None else (VALIDITY_START,VALIDITY_END)
     c.require(isinstance(comment,dict) and type(comment.get("id")) is int and comment["id"]>0
         and comment.get("issue_url")==f"https://api.github.com/repos/{c.REPO}/issues/448"
         and comment.get("author_association")=="OWNER" and comment.get("user",{}).get("type")=="User"
         and type(comment["user"].get("id")) is int and comment["user"]["id"]>0
         and isinstance(comment.get("body"),str) and isinstance(comment.get("created_at"),str)
         and comment["created_at"]==comment.get("updated_at")
-        and c.utc(VALIDITY_START)<=c.utc(comment["created_at"])<=c.utc()
-        and c.utc(comment["created_at"])<c.utc(VALIDITY_END),"EXTERNAL_CONTROL_REFUSAL_OWNER")
+        and c.utc(start)<=c.utc(comment["created_at"])<=c.utc()
+        and c.utc(comment["created_at"])<c.utc(end),"EXTERNAL_CONTROL_REFUSAL_OWNER")
     lines=[line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
     c.require(len(lines)==1 and len(lines[0])<=4096,"EXTERNAL_CONTROL_REFUSAL_OWNER")
     proof=dict(reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-{comment['id']}",

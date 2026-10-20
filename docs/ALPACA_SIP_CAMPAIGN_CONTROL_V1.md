@@ -1,5 +1,65 @@
 # Finite private SIP campaign control
 
+## Deployment-bound Read392 v2 — 2026-10-20
+
+The original v1 and its exclusive 2026-10-20T02:59:53Z expiry are unchanged.
+The user explicitly approved a new24h window starting at actual reviewed
+Source deployment, retaining all incurred usage and existing caps, with the
+174 missing SPY-proxy equities prioritized next. The retained direct request,
+question and reply are frozen in Work A's `HUMAN_SCOPE.json`, SHA256
+`e6eeea2b9cd592d1edee7694f38dbd9f352f9e7c47e1a3fffa680d256cda1958`.
+This is user execution-scope evidence, not provider-rights certification,
+human code review or a protected merge grant. Protected publication still
+requires the existing final separate decision and genuine gate evidence.
+
+The versioned `a1-native-drive-read-39235028468-v2` control adds only
+`deployment_window` with actual `deployed_at_utc` and `expires_at_utc`.
+The interval must be exactly86400 seconds; before credentials the original
+protected deployment verifier requires the real merged PR's `merged_at` to
+equal the start. Its reviewed head, full tree, deployed master, seven pins
+and genuine review-complete workflow/log proof remain mandatory. A caller's
+clock, new grant, rerun, unrelated master or later activation cannot restart
+the24h window. The actual merged timestamp is unavailable in preparation and
+must never be predicted. Old schemas cannot acquire new clock fields.
+
+After actual deployment, create one fresh immutable OWNER record tagged
+`A1_SIP_NAMED_READ39235028468_V2_AUTHORIZATION` with the exact v2 terms.
+Its creation must follow the verified deployment and precede expiry; it binds
+the new direct-human scope SHA, source, private identity digest, nonce and
+the174-name priority input SHA256
+`b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329`.
+No grant, nonce or actual deployment clock is created by this document.
+
+Only the isolated named diagnostic may read historical capture accounting
+after old v1 expiry, once its own new control/grant/deployment window is
+verified. Ordinary capture, original48h history, original9f grant/expiry,
+CP296 and old typed receipts are unchanged. The worker deadline is the
+earlier of the existing300s reconcile limit and actual deployment+24h.
+V2 meter/cost schemas are distinct and reject v1 substitution. Historical
+cost settlement may finish after expiry and retain cleanup/failure costs;
+this never permits another request or refunds an uncertain reservation.
+
+The same one-use read allowance remains provider0, Drive16 attempts,
+transfer16,000,000B, storage0, active900s and one dispatch. The same actual
+29-run frame and17/48/75 journals, prior968 provider GETs and both302101B/
+434796B unknown storage amounts remain charged. Private inputs still enter
+only via the bounded genuine event; public step environment values remain
+blank for both new-case versions. No original provider bytes are disclosed.
+
+The174 inputs are a separate preparation packet, ordered by Oct16 SPY
+holding weight, not a new market-cap ranking or official historical index.
+They exclude all646 previously price-collected tickers. Existing pending
+cohorts/seeds are not rewritten;35 candidates also appear in the old417's
+unprocessed suffix. A future price continuation must verify global prior
+receipts, overlap and typed diagnostic settlement before activating that
+separate namespace. Archived Twelve issuer conflicts/quarantines are not
+clean asset evidence. This read-only version does not implement or grant
+that continuation, retry an unknown CREATE, or admit Source/PIT/ER data.
+
+Operational lesson: explicit renewal of an expired execution window requires
+a new version bound to an actual protected deployment, not editing historical
+expiry constants or presenting an old grant as fresh authority.
+
 ## Exact39235028468 read-only candidate — 2026-10-19
 
 This interface is preparation, not a query grant. Run39235028468/attempt1

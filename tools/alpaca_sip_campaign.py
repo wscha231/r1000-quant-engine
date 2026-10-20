@@ -3837,7 +3837,8 @@ def native_read_objects(drive, auth, meter):
 
 
 def native_read_route_control(value):
-    if isinstance(value,dict) and value.get("schema") == "a1-native-drive-read-39235028468-v1":
+    if isinstance(value,dict) and value.get("schema") in {
+            "a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
         return _revision_module().named_read_control(_module(),value)
     return native_read_control(value)
 
@@ -3850,7 +3851,7 @@ def native_read_worker(control_path, state_dir):
     """Isolated reviewed-master diagnostic. Never invokes a collector/host."""
     from tools.twelve_private_capture import OwnerDrive
     control = bounded_json(control_path, 16384)
-    if control.get("schema") == "a1-native-drive-read-39235028468-v1":
+    if control.get("schema") in {"a1-native-drive-read-39235028468-v1","a1-native-drive-read-39235028468-v2"}:
         return _revision_module().named_read_worker(_module(),control,state_dir)
     auth = native_read_control(control)  # Pending unknown accounting fails before any credentials.
     require(os.getenv("GITHUB_REPOSITORY") == REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
