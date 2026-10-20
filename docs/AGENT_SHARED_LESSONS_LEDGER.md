@@ -1,5 +1,19 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-20 — Quarantine an immutable planned scope before provider calls
+
+- Current SEC issuer reconciliation found five ticker/name contradictions in
+  one uncollected Twelve scope (A, KKR, HBAN, MTB and S). This does not establish
+  corruption of the separately retained Twelve312 prices or historical PIT.
+- Refuse that exact immutable scope hash after its ordinary hash/schema checks,
+  before resume, initial-receipt restoration, provider usage or capture writes.
+  Do not remap tickers, rewrite original receipts, or treat another hash as
+  automatic identity/source approval. Preserve all ordinary successor checks.
+- Exercise fresh/resumed and renamed-subject counterexamples in the existing
+  native cohort smoke suite, and register that suite in the PR validator.
+  This correction is separate from Source650 runtime renewal and authorizes no
+  provider collection, Drive write, source admission or economic mutation.
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
