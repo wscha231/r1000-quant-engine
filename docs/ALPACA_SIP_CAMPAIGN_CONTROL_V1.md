@@ -37,7 +37,8 @@ Only the isolated named diagnostic may read historical capture accounting
 after old v1 expiry, once its own new control/grant/deployment window is
 verified. Ordinary capture, original48h history, original9f grant/expiry,
 CP296 and old typed receipts are unchanged. The worker deadline is the
-earlier of the existing300s reconcile limit and actual deployment+24h.
+earlier of reconcile job start+240s and actual deployment+24h. The existing
+five-minute job retains sixty seconds for final save and meter upload.
 V2 meter/cost schemas are distinct and reject v1 substitution. Historical
 cost settlement may finish after expiry and retain cleanup/failure costs;
 this never permits another request or refunds an uncertain reservation.
@@ -51,6 +52,17 @@ interrupt retains that snapshot for the BLOCKED final save; a pre-I/O debit
 failure retains the matching full reservation. Failed requests cannot continue
 with another endpoint. The shared meter's existing settlement arithmetic and
 capture deadline/budget policy are unchanged.
+
+Only this isolated meter uses unique owned temporary files, cleaned after a
+failed write/flush/fsync; an existing unknown `.new` is never removed or reused.
+The default atomic writer for collection/journals remains unchanged. OAuth's
+one conditional refresh allowance covers token expiry through the whole
+transport deadline plus OwnerDrive's60s threshold, including a mid-read crossing.
+No unconditional refresh or extra endpoint/retry is introduced. A final valid
+meter retains actual costs even when later artifact/post-job work fails, is
+cancelled or times out. COMPLETE under a non-success run requires the exact
+successful read step and ordered later artifact step; clocks, identity, cost
+conservation and once-only import remain mandatory.
 
 The same one-use read allowance remains provider0, Drive16 attempts,
 transfer16,000,000B, storage0, active900s and one dispatch. The same actual

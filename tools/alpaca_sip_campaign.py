@@ -205,10 +205,26 @@ def bounded_json(path, limit=65536):
     return decode(bounded_bytes(path, limit))
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, unique_temporary=False):
     path = Path(path)
     raw = encoded(value)
     require(len(raw) <= 65536, "CAMPAIGN_JOURNAL_SIZE")
+    if unique_temporary:
+        # Isolated diagnostic meters may retry a final save after a failed
+        # write/fsync. Never reuse or delete a pre-existing unknown .new file.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent,
+                    prefix=path.name+".", suffix=".new", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return
     temporary = path.with_name(path.name + ".new")
     with temporary.open("xb") as handle:
         handle.write(raw)

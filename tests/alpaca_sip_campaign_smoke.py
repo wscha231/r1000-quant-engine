@@ -5454,11 +5454,11 @@ class NamedRead39235028468Tests(unittest.TestCase):
                     server=Opener(b"abc");m=self.make_meter(server);fired=[]
                     def fault(value):
                         return not fired and bool(value["attempts"]) and value["attempts"][-1]["status"]==phase
-                    def atomic(path,value):
+                    def atomic(path,value,**kwargs):
                         hit=fault(value) and barrier!="fsync"
                         if hit and barrier=="before_replace":
                             fired.append(True);raise OSError("FIXTURE_ATOMIC_WRITE")
-                        original_atomic(path,value)
+                        original_atomic(path,value,**kwargs)
                         if hit:
                             fired.append(True);raise OSError("FIXTURE_AFTER_REPLACE")
                     def sync(path):
@@ -5515,6 +5515,81 @@ class NamedRead39235028468Tests(unittest.TestCase):
         cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
         self.assertEqual(cost["usage"]["drive_bytes"],2065537)
         with self.assertRaisesRegex(c.Refused,"NAMED_READ_PENDING"):m.perform(url)
+
+    def test_real_atomic_temporary_write_flush_and_fsync_failures_recover(self):
+        original_factory=c.tempfile.NamedTemporaryFile;original_fsync=c.os.fsync
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        for phase in ("RESERVED","COMPLETE"):
+            for boundary in ("write","flush","fsync"):
+                with self.subTest(phase=phase,boundary=boundary):
+                    server=Opener(b"abc");m=self.make_meter(server);fired=[];owned=[]
+                    foreign=m.journal.with_name(m.journal.name+".new");foreign.write_bytes(b"UNKNOWN_EXISTING_TEMP")
+                    def fail(which):
+                        if not fired and which==boundary and m.attempts and m.attempts[-1]["status"]==phase:
+                            fired.append(True);raise OSError("FIXTURE_REAL_TEMP")
+                    class Faulty:
+                        def __init__(inner,handle):inner.handle=handle;inner.name=handle.name;owned.append(Path(inner.name))
+                        def __enter__(inner):return inner
+                        def __exit__(inner,*args):return inner.handle.__exit__(*args)
+                        def write(inner,raw):
+                            inner.handle.write(raw);fail("write")
+                        def flush(inner):
+                            inner.handle.flush();fail("flush")
+                        def fileno(inner):return inner.handle.fileno()
+                    def factory(*args,**kwargs):return Faulty(original_factory(*args,**kwargs))
+                    def fsync(fd):
+                        fail("fsync");return original_fsync(fd)
+                    with patch.object(c.tempfile,"NamedTemporaryFile",side_effect=factory),patch.object(c.os,"fsync",side_effect=fsync):
+                        with self.assertRaises(OSError):m.perform(url)
+                        m.finish("BLOCKED","NAMED_READ_INTERNAL")
+                    self.assertEqual(fired,[True]);self.assertEqual(foreign.read_bytes(),b"UNKNOWN_EXISTING_TEMP")
+                    self.assertTrue(owned);self.assertTrue(all(not p.exists() for p in owned))
+                    self.assertEqual(server.calls,int(phase=="COMPLETE"))
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),c.bounded_json(m.journal),self.jobs)
+                    self.assertEqual(cost["usage"]["drive_bytes"],65539 if phase=="COMPLETE" else 2065537)
+
+    def test_complete_and_blocked_cost_survive_terminal_job_failures(self):
+        result,value,m,server=self.read_objects();jobs=copy.deepcopy(self.jobs)
+        jobs["jobs"][1]["steps"]=[dict(name="Reconcile exact failed Drive POST with native metered reads",
+            status="completed",conclusion="success",started_at=jobs["jobs"][1]["started_at"],
+            completed_at=jobs["jobs"][1]["started_at"]),
+            dict(name="Preserve native read meter without original bytes or private IDs",status="completed",
+                 conclusion="failure",started_at=jobs["jobs"][1]["completed_at"])]
+        for conclusion in ("success","failure","cancelled","timed_out"):
+            with self.subTest(conclusion=conclusion):
+                cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion=conclusion),value,jobs)
+                self.assertEqual(cost["usage"],m.used)
+        for change in (lambda j:j["jobs"][1].pop("steps"),
+                       lambda j:j["jobs"][1]["steps"][0].update(conclusion="failure"),
+                       lambda j:j["jobs"][1]["steps"][1].update(started_at=jobs["jobs"][0]["started_at"])):
+            bad=copy.deepcopy(jobs);change(bad)
+            with self.assertRaisesRegex(c.Refused,"STEP_PROOF"):
+                self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,bad)
+        blocked=self.make_meter(Opener())
+        with self.assertRaises(c.Refused):
+            blocked.perform("https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota",limit=1)
+        blocked.finish("BLOCKED","RESPONSE_SIZE")
+        for conclusion in ("failure","cancelled","timed_out"):
+            cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion=conclusion),c.bounded_json(blocked.journal),self.jobs)
+            self.assertEqual(cost["usage"],blocked.used)
+        for meter in (value,c.bounded_json(blocked.journal)):
+            with self.assertRaisesRegex(c.Refused,"COST_RUN"):
+                self.s.named_read_cost(c,self.control,dict(self.run,conclusion="neutral"),meter,jobs)
+
+    def test_token_refresh_crossing_sixty_seconds_is_admitted_once(self):
+        self.env["MACRO_DRIVE_CONFIG"]=self.env["MACRO_DRIVE_CONFIG"].replace(
+            "2030-01-01T00:00:00Z",(self.clock+timedelta(seconds=61)).isoformat())+\
+            "client_id=fixture-client.apps.googleusercontent.com\nclient_secret=fixture-client-secret\n"
+        calls=[];case=self
+        class Moving(c.datetime):
+            @classmethod
+            def now(cls,*args,**kwargs):
+                value=case.clock+timedelta(seconds=2 if calls else 0);calls.append(value);return value
+        with patch.object(drive_module,"datetime",Moving):
+            NamedRead39235028468Tests.test_worker_positive_flow_keeps_collector_outside_read_path(self)
+        value=c.bounded_json(self.root/"worker-positive/native_read_meter.json")
+        self.assertEqual(sum(a["kind"]=="OAUTH" for a in value["attempts"]),1)
+        self.assertEqual(value["usage"]["provider_gets"],0)
 
     def test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self):
         current=dict(self.run,status="in_progress")
@@ -5585,7 +5660,10 @@ class NamedRead39235028468Tests(unittest.TestCase):
     def test_new_deadline_uses_fixed_validity_without_relabeling_original_first(self):
         jobs=copy.deepcopy(self.jobs)
         jobs["jobs"][1].update(status="in_progress",started_at="2026-10-19T11:00:00Z")
-        self.assertEqual(self.s.named_read_job_deadline(c,jobs),self.clock+timedelta(seconds=300))
+        self.assertEqual(self.s.named_read_job_deadline(c,jobs),self.clock+timedelta(seconds=240))
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        upload=workflow.split('- name: Preserve native read meter without original bytes or private IDs',1)[1].split('- name:',1)[0]
+        self.assertIn('timeout-minutes: 1',upload)
         jobs["jobs"][1]["started_at"]=None
         with self.assertRaises(c.Refused):self.s.named_read_job_deadline(c,jobs)
         self.assertEqual(c.CONTINUATION["first"],"2026-10-17T02:08:51Z")
@@ -5686,7 +5764,7 @@ class NamedRead39235028468Tests(unittest.TestCase):
         observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
             receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
         current=dict(self.run,status="in_progress")
-        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at="2026-10-19T11:00:00Z")
+        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at=self.clock.isoformat())
         @c.contextmanager
         def fixture_deadline(meter):
             meter.alarm_active=True
@@ -5697,7 +5775,7 @@ class NamedRead39235028468Tests(unittest.TestCase):
             if path.endswith("/jobs?per_page=100"):return jobs
             return current
         with patch.dict(os.environ,self.env,clear=True),\
-             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-19T10:20:00Z")),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,self.run["created_at"])),\
              patch.object(self.s,"named_read_deployed",return_value={p:"a"*64 for p in self.s.V6_PINS}),\
              patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))),\
              patch.object(c,"external_history",return_value=observed),patch.object(c,"gh_json",side_effect=gh),\
@@ -6097,6 +6175,11 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
         NamedRead39235028468Tests.test_response_settlement_interruptions_publish_one_consistent_state(self)
         NamedRead39235028468Tests.test_interrupted_debit_publication_keeps_pending_for_final_save(self)
         NamedRead39235028468Tests.test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self)
+
+    def test_v2_temporary_cleanup_refresh_and_terminal_settlement(self):
+        NamedRead39235028468Tests.test_real_atomic_temporary_write_flush_and_fsync_failures_recover(self)
+        NamedRead39235028468Tests.test_complete_and_blocked_cost_survive_terminal_job_failures(self)
+        NamedRead39235028468Tests.test_token_refresh_crossing_sixty_seconds_is_admitted_once(self)
 
     def test_v2_cost_append_remains_exactly_once(self):
         NamedRead39235028468Tests.test_once_only_cost_append_and_both_durability_barriers(self)

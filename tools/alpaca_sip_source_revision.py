@@ -302,7 +302,9 @@ def named_read_job_deadline(c,jobs,*,control=None):
         and c.utc(offline[0]["completed_at"])<=c.utc(active[0]["started_at"])<=c.utc()+c.timedelta(seconds=5),
         "NAMED_READ_JOB_CLOCK")
     end=named_read_window(c,control)[1] if control is not None else VALIDITY_END
-    return min(c.utc(active[0]["started_at"])+c.timedelta(seconds=300),c.utc(end))
+    # Preserve sixty seconds of the existing five-minute job for final save
+    # and the always-run meter upload. This does not enlarge any time budget.
+    return min(c.utc(active[0]["started_at"])+c.timedelta(seconds=240),c.utc(end))
 
 
 def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
@@ -334,7 +336,8 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
                 finalized=self.finalized,transfer_definition=c.METRIC,attempts=self.attempts,
                 observed_google_body_bytes=self.observed_google_body_bytes,result=self.result,
                 capture_allowed=False,source_admission=False,pit_verified=False,economic_authority=False,
-                **({"last_transport_failure":self.last_transport_failure} if self.last_transport_failure else {})))
+                **({"last_transport_failure":self.last_transport_failure} if self.last_transport_failure else {})),
+                unique_temporary=True)
             c.sync_native18_settlement(self.journal)
 
         def reserve_storage(self,size):
@@ -575,7 +578,9 @@ def named_read_worker(c,control,state_dir):
         token=c.decode(config["gdrive"]["token"])
         expiry=token.get("expiry",token.get("Expiry"))
         c.require(isinstance(expiry,str),"DRIVE_CONFIGURATION")
-        refresh_needed=c.utc(expiry)<=c.utc()+c.timedelta(seconds=60)
+        # OwnerDrive rechecks expiry before every request. Cover the complete
+        # transport window, retaining the existing one-refresh endpoint key.
+        refresh_needed=c.utc(expiry)<=deadline+c.timedelta(seconds=60)
     except Exception:raise c.Refused("DRIVE_CONFIGURATION") from None
     meter=named_read_meter(c,READ392_ALLOWANCE,directory/"native_read_meter.json",deadline.isoformat(),
         identity,limits=c.CONTINUED_LIMITS,control=control,refresh_needed=refresh_needed)
@@ -644,7 +649,8 @@ def named_read_cost(c,control,run,value,jobs):
         and run.get("event")=="workflow_dispatch"
         and run.get("display_title")=="a1-sip "+control["nonce"]+" native-read39235028468"
         and isinstance(run.get("created_at"),str)
-        and run.get("conclusion")==("success" if value["status"]=="COMPLETE" else "failure"),
+        and run.get("conclusion") in {"success","failure","cancelled","timed_out"}
+        and (value["status"]=="COMPLETE" or run.get("conclusion")!="success"),
         "NAMED_READ_COST_RUN")
     c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2
         and {j.get("name") for j in jobs["jobs"]}=={"offline","reconcile"},"NAMED_READ_COST_JOBS")
@@ -655,6 +661,16 @@ def named_read_cost(c,control,run,value,jobs):
             <=c.utc(j["completed_at"]),"NAMED_READ_COST_CLOCK")
         seconds+=c.math.ceil((c.utc(j["completed_at"])-c.utc(j["started_at"])).total_seconds())
     c.require(0<seconds<=900,"NAMED_READ_COST_CLOCK")
+    if value["status"]=="COMPLETE" and run["conclusion"]!="success":
+        reconcile=next(j for j in jobs["jobs"] if j["name"]=="reconcile")
+        steps=reconcile.get("steps",[])
+        read=[s for s in steps if s.get("name")=="Reconcile exact failed Drive POST with native metered reads"]
+        upload=[s for s in steps if s.get("name")=="Preserve native read meter without original bytes or private IDs"]
+        c.require(len(read)==len(upload)==1 and read[0].get("status")=="completed"
+            and read[0].get("conclusion")=="success" and isinstance(read[0].get("started_at"),str)
+            and isinstance(read[0].get("completed_at"),str) and isinstance(upload[0].get("started_at"),str)
+            and c.utc(reconcile["started_at"])<=c.utc(read[0]["started_at"])<=c.utc(read[0]["completed_at"])
+            <=c.utc(upload[0]["started_at"])<=c.utc(reconcile["completed_at"]),"NAMED_READ_COST_STEP_PROOF")
     result=value.get("result")
     c.require(isinstance(result,dict) and (not result or all(result.get(k) is False for k in
         ("absence_proven","failed_request_body_hash_known","failed_post_equivalence_verified"))),

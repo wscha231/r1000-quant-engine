@@ -172,6 +172,7 @@ jobs:
             --state-dir "$RUNNER_TEMP/native-read-state"
       - name: Preserve native read meter without original bytes or private IDs
         if: always() && env.INPUT_NATIVE_READ_ONLY == 'true'
+        timeout-minutes: 1
         uses: actions/upload-artifact@v4
         with:
           name: a1-native-drive-read-meter
