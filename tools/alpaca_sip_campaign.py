@@ -535,11 +535,14 @@ class RuntimeMeter:
             raise Refused("NETWORK") from None
         require(all(not value or value.encode() not in raw for value in credentials), "CREDENTIAL_ECHO")
         if google:
-            # Unknown/failed/partial replies retain their entire reservation.
-            self.used["drive_bytes"] -= limit + 1 - len(raw)
-            self.observed_google_body_bytes += len(body or b"") + len(raw)
-            self.save()
+            self.settle_google_response(body, raw, limit)
         return raw
+
+    def settle_google_response(self, body, raw, limit):
+        # Unknown/failed/partial replies retain their entire reservation.
+        self.used["drive_bytes"] -= limit + 1 - len(raw)
+        self.observed_google_body_bytes += len(body or b"") + len(raw)
+        self.save()
 
     def finish(self, status, reason=None):
         require(status in ("COMPLETE", "BLOCKED"), "CAMPAIGN_STATUS")

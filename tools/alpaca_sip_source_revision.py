@@ -310,6 +310,7 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
     class NamedReadMeter(c.RuntimeMeter):
         def __init__(self):
             self.result={};self.attempts=[];self.pending=None;self.seen=set()
+            self.response_settlement=None
             auth=control["authorization"]
             self.root=auth["private_root_folder_id"];self.folder=auth["private_data_folder_id"]
             self.cp_id=control["checkpoint_file_id"];self.candidate_id=None
@@ -318,6 +319,15 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
             super().__init__(*args,**kwargs)
 
         def save(self):
+            # A signal or failed durability barrier may interrupt the caller.
+            # Publish one coherent settlement before serializing any state.
+            if self.response_settlement is not None:
+                self.used,self.observed_google_body_bytes,self.attempts=self.response_settlement
+                self.response_settlement=None
+            # RuntimeMeter publishes its complete debit dictionary at once.
+            # If its save fails, keep the matching conservative attempt too.
+            if self.pending is not None and len(self.attempts)+1==self.used["drive_requests"]:
+                self.attempts=self.attempts+[dict(self.pending)]
             c.atomic_json(self.journal,dict(schema="a1-named-read39235028468-meter-v2"
                 if control["schema"]==READ392_V2_SCHEMA else "a1-named-read39235028468-meter-v1",**self.identity,
                 usage=self.used,allowance=self.allowance,status=self.status,reason=self.reason,
@@ -333,14 +343,18 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
         def debit(self,changes):
             c.require(self.pending is not None and changes==dict(drive_requests=1,drive_bytes=self.pending["reservation"]),
                       "NAMED_READ_DEBIT")
-            self.attempts.append(self.pending)
-            try:super().debit(changes)
-            except BaseException:
-                self.attempts.pop()
-                raise
+            super().debit(changes)
+
+        def settle_google_response(self,body,raw,limit):
+            usage=dict(self.used);usage["drive_bytes"]-=limit+1-len(raw)
+            attempts=[dict(a) for a in self.attempts[:-1]]+[dict(self.attempts[-1],status="COMPLETE",response_bytes=len(raw))]
+            observed=self.observed_google_body_bytes+len(body or b"")+len(raw)
+            self.response_settlement=(usage,observed,attempts)
+            self.save()
 
         def perform(self,url,*,method="GET",body=None,**kw):
             from urllib.parse import parse_qsl,urlsplit
+            c.require(self.pending is None,"NAMED_READ_PENDING")
             p=urlsplit(url);pairs=parse_qsl(p.query,keep_blank_values=True);q=dict(pairs)
             allowed=False;kind=None;limit=2_000_000;key=(p.netloc,p.path,tuple(sorted(q.items())),method)
             c.require(not p.fragment and len(pairs)==len(q),"NAMED_READ_ENDPOINT")
@@ -374,14 +388,14 @@ def named_read_meter(c,*args,control,refresh_needed=False,**kwargs):
             self.pending=attempt
             try:
                 raw=super().perform(url,method=method,body=body,**kw)
-                attempt.update(status="COMPLETE",response_bytes=len(raw))
-                self.save()
-                return raw
             except BaseException:
                 # The underlying meter retains a full reservation on transport
-                # failure. A missing/nonfinal artifact never becomes a zero use.
+                # failure. Keep pending for a final save even if interrupted
+                # between publishing the debit and entering its save method.
                 raise
-            finally:self.pending=None
+            else:
+                self.pending=None
+                return raw
 
     return NamedReadMeter()
 
@@ -548,6 +562,11 @@ def named_read_worker(c,control,state_dir):
         parent_checkpoint_sha256=READ392_CP,examined_before=296,failed_run_id=39235028468,
         failed_meter_sha256=READ392_METER,usage_before=dict(READ392_USED),
         active_seconds_before=8736,dispatches_before=29,active_seconds_reservation=900,dispatch_reservation=1)
+    # History reconstruction and job lookups may outlive a concurrent merge.
+    # Recheck the protected tip after those reads, immediately before secrets.
+    branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+    c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==control["expected_master"],
+              "CAMPAIGN_MASTER_DRIFT")
     # Only inspect whether the existing OwnerDrive bootstrap needs a refresh;
     # no credential value is emitted, copied to metadata or sent to GitHub.
     config=c.configparser.ConfigParser(interpolation=None)

@@ -42,6 +42,16 @@ V2 meter/cost schemas are distinct and reject v1 substitution. Historical
 cost settlement may finish after expiry and retain cleanup/failure costs;
 this never permits another request or refunds an uncertain reservation.
 
+The final protected-master equality check follows history reconstruction and
+job lookup, immediately before credential parsing. A concurrent merge during
+those reads refuses before OwnerDrive bootstrap. Named-read response settlement
+publishes usage, observed body bytes and COMPLETE attempt status as one coherent
+snapshot before the durable write. Atomic-write/fsync failure or a deadline
+interrupt retains that snapshot for the BLOCKED final save; a pre-I/O debit
+failure retains the matching full reservation. Failed requests cannot continue
+with another endpoint. The shared meter's existing settlement arithmetic and
+capture deadline/budget policy are unchanged.
+
 The same one-use read allowance remains provider0, Drive16 attempts,
 transfer16,000,000B, storage0, active900s and one dispatch. The same actual
 29-run frame and17/48/75 journals, prior968 provider GETs and both302101B/

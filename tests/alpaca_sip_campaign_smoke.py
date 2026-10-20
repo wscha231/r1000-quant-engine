@@ -5445,6 +5445,108 @@ class NamedRead39235028468Tests(unittest.TestCase):
         self.assertEqual(cost["usage"]["drive_bytes"],131074)
         with self.assertRaises(c.Refused):m.perform("https://oauth2.googleapis.com/token",method="POST",body=b"x")
 
+    def test_reservation_and_response_save_failures_keep_importable_cost(self):
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        original_atomic=c.atomic_json;original_sync=c.sync_native18_settlement
+        for phase in ("RESERVED","COMPLETE"):
+            for barrier in ("before_replace","after_replace","fsync"):
+                with self.subTest(phase=phase,barrier=barrier):
+                    server=Opener(b"abc");m=self.make_meter(server);fired=[]
+                    def fault(value):
+                        return not fired and bool(value["attempts"]) and value["attempts"][-1]["status"]==phase
+                    def atomic(path,value):
+                        hit=fault(value) and barrier!="fsync"
+                        if hit and barrier=="before_replace":
+                            fired.append(True);raise OSError("FIXTURE_ATOMIC_WRITE")
+                        original_atomic(path,value)
+                        if hit:
+                            fired.append(True);raise OSError("FIXTURE_AFTER_REPLACE")
+                    def sync(path):
+                        if barrier=="fsync" and fault(c.bounded_json(path)):
+                            fired.append(True);raise OSError("FIXTURE_FSYNC")
+                        original_sync(path)
+                    with patch.object(c,"atomic_json",side_effect=atomic),patch.object(c,"sync_native18_settlement",side_effect=sync):
+                        with self.assertRaises(OSError):m.perform(url)
+                        m.finish("BLOCKED","NAMED_READ_INTERNAL")
+                    self.assertEqual(fired,[True]);self.assertEqual(server.calls,int(phase=="COMPLETE"))
+                    value=c.bounded_json(m.journal)
+                    self.assertEqual(value["attempts"][0]["status"],phase)
+                    expected=65539 if phase=="COMPLETE" else 2065537
+                    self.assertEqual(value["usage"]["drive_bytes"],expected)
+                    cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                    self.assertEqual(cost["usage"]["drive_bytes"],expected)
+
+    def test_response_settlement_interruptions_publish_one_consistent_state(self):
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        for boundary in ("before_apply","during_apply","before_clear"):
+            with self.subTest(boundary=boundary):
+                server=Opener(b"abc");m=self.make_meter(server);fired=[];original_set=type(m).__setattr__
+                def assign(obj,name,value):
+                    stage=getattr(obj,"response_settlement",None)
+                    hit=(not fired and ((boundary=="before_apply" and name=="used" and stage is not None)
+                        or (boundary=="during_apply" and name=="observed_google_body_bytes" and stage is not None)
+                        or (boundary=="before_clear" and name=="response_settlement" and value is None and stage is not None)))
+                    if hit:
+                        fired.append(True);raise c.Refused("CAMPAIGN_DEADLINE")
+                    original_set(obj,name,value)
+                with patch.object(type(m),"__setattr__",new=assign):
+                    with self.assertRaisesRegex(c.Refused,"CAMPAIGN_DEADLINE"):m.perform(url)
+                    m.finish("BLOCKED","CAMPAIGN_DEADLINE")
+                self.assertEqual(fired,[True]);self.assertEqual(server.calls,1)
+                value=c.bounded_json(m.journal)
+                self.assertEqual(value["attempts"][0]["status"],"COMPLETE")
+                self.assertEqual(value["attempts"][0]["response_bytes"],3)
+                cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+                self.assertEqual(cost["usage"]["drive_bytes"],65539)
+
+    def test_interrupted_debit_publication_keeps_pending_for_final_save(self):
+        server=Opener(b"abc");m=self.make_meter(server);original_set=type(m).__setattr__;fired=[]
+        def assign(obj,name,value):
+            original_set(obj,name,value)
+            if not fired and name=="used" and value["drive_requests"]==1:
+                fired.append(True);raise c.Refused("CAMPAIGN_DEADLINE")
+        url="https://www.googleapis.com/drive/v3/about?fields=user%28permissionId%29%2CstorageQuota"
+        with patch.object(type(m),"__setattr__",new=assign):
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_DEADLINE"):m.perform(url)
+            m.finish("BLOCKED","CAMPAIGN_DEADLINE")
+        self.assertEqual(server.calls,0)
+        value=c.bounded_json(m.journal)
+        self.assertEqual(value["attempts"][0]["status"],"RESERVED")
+        cost=self.s.named_read_cost(c,self.control,dict(self.run,conclusion="failure"),value,self.jobs)
+        self.assertEqual(cost["usage"]["drive_bytes"],2065537)
+        with self.assertRaisesRegex(c.Refused,"NAMED_READ_PENDING"):m.perform(url)
+
+    def test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self):
+        current=dict(self.run,status="in_progress")
+        observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
+            receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at=self.clock.isoformat())
+        for phase in ("history","jobs"):
+            for protection in (True,False):
+                with self.subTest(phase=phase,protection=protection):
+                    changed=[];reads=[];env=dict(self.env,MACRO_DRIVE_CONFIG="INVALID_SECRET_CONFIG")
+                    def history(*args,**kwargs):
+                        if phase=="history":changed.append(True)
+                        return observed
+                    def gh(path):
+                        reads.append(path)
+                        if path.endswith("/branches/master"):
+                            self.assertTrue(changed)
+                            return dict(protected=protection,commit=dict(sha="9"*40 if protection else self.control["expected_master"]))
+                        if path.endswith("/jobs?per_page=100"):
+                            if phase=="jobs":changed.append(True)
+                            return jobs
+                        return current
+                    with patch.dict(os.environ,env,clear=True),patch.object(c,"gh_json",side_effect=gh),\
+                         patch.object(self.s,"named_read_proof",return_value=("b"*64,self.run["created_at"])),\
+                         patch.object(self.s,"named_read_deployed",return_value={p:"a"*64 for p in self.s.V6_PINS}),\
+                         patch.object(self.s,"READ392_METER",c.digest(c.encoded({}))),patch.object(c,"external_history",side_effect=history),\
+                         patch.object(drive_module,"OwnerDrive") as owner,patch.object(c,"build_opener") as opener,\
+                         self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):
+                        self.s.named_read_worker(c,self.control,str(self.root/("late-"+phase+str(protection))))
+                    owner.assert_not_called();opener.assert_not_called()
+                    self.assertTrue(reads[-1].endswith("/branches/master"))
+
     def test_real_owner_bootstrap_is_metered_and_not_retried(self):
         env=dict(self.env)
         env["MACRO_DRIVE_CONFIG"]=env["MACRO_DRIVE_CONFIG"].replace("2030-01-01","2020-01-01")+\
@@ -5591,6 +5693,7 @@ class NamedRead39235028468Tests(unittest.TestCase):
             try:yield
             finally:meter.alarm_active=False
         def gh(path):
+            if path.endswith("/branches/master"):return dict(protected=True,commit=dict(sha=self.control["expected_master"]))
             if path.endswith("/jobs?per_page=100"):return jobs
             return current
         with patch.dict(os.environ,self.env,clear=True),\
@@ -5989,6 +6092,12 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
     def test_v2_endpoint_allowlist_remains_read_only(self):
         NamedRead39235028468Tests.test_endpoint_allowlist_denies_writes_provider_arbitrary_ids_and_queries(self)
 
+    def test_v2_save_failures_and_late_master_drift_remain_fail_closed(self):
+        NamedRead39235028468Tests.test_reservation_and_response_save_failures_keep_importable_cost(self)
+        NamedRead39235028468Tests.test_response_settlement_interruptions_publish_one_consistent_state(self)
+        NamedRead39235028468Tests.test_interrupted_debit_publication_keeps_pending_for_final_save(self)
+        NamedRead39235028468Tests.test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self)
+
     def test_v2_cost_append_remains_exactly_once(self):
         NamedRead39235028468Tests.test_once_only_cost_append_and_both_durability_barriers(self)
 
@@ -5997,7 +6106,9 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
         observed=dict(runs=[dict(id=1)]*28+[dict(id=39235028468)],examined=296,parent_sha=self.s.READ392_CP,
             receipts=[{}],used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
         jobs=copy.deepcopy(self.jobs);jobs["jobs"][1].update(status="in_progress",started_at="2026-10-20T11:00:00Z")
-        def gh(p):return jobs if p.endswith('/jobs?per_page=100') else current
+        def gh(p):
+            if p.endswith('/branches/master'):return dict(protected=True,commit=dict(sha=self.control['expected_master']))
+            return jobs if p.endswith('/jobs?per_page=100') else current
         @c.contextmanager
         def deadline(meter):
             meter.alarm_active=True
