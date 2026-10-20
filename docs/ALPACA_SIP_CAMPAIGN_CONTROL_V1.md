@@ -19,7 +19,10 @@ protected deployment verifier requires the real merged PR's `merged_at` to
 equal the start. Its reviewed head, full tree, deployed master, seven pins
 and genuine review-complete workflow/log proof remain mandatory. A caller's
 clock, new grant, rerun, unrelated master or later activation cannot restart
-the24h window. The actual merged timestamp is unavailable in preparation and
+the24h window. V2 accepts only this existing Source PR650 as its deployment;
+a later genuine Source PR containing the same runtime bytes cannot re-arm an
+unused expired window with a new nonce/grant. Another deployment requires
+new direct-human authority and a separately versioned scope. The actual merged timestamp is unavailable in preparation and
 must never be predicted. Old schemas cannot acquire new clock fields.
 
 After actual deployment, create one fresh immutable OWNER record tagged

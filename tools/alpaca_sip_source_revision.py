@@ -8,6 +8,7 @@ source split; live external execution must pin this module transitively.
 # authority to query. Keep this in the already pinned revision module.
 READ392_SCHEMA = "a1-native-drive-read-39235028468-v1"
 READ392_V2_SCHEMA = "a1-native-drive-read-39235028468-v2"
+READ392_V2_DEPLOYMENT_PR = 650
 # Direct user decision retained in the existing Work A preparation packet.
 # This is execution-scope evidence, not supplier rights or a runtime grant.
 READ392_V2_AUTHORITY = "e6eeea2b9cd592d1edee7694f38dbd9f352f9e7c47e1a3fffa680d256cda1958"
@@ -36,6 +37,9 @@ def named_read_window(c,control):
     if control.get("schema")==READ392_SCHEMA:
         return VALIDITY_START,VALIDITY_END
     c.require(control.get("schema")==READ392_V2_SCHEMA,"NAMED_READ_AUTH")
+    deployment=control.get("deployment")
+    c.require(isinstance(deployment,dict) and type(deployment.get("pull_request")) is int
+        and deployment["pull_request"]==READ392_V2_DEPLOYMENT_PR,"NAMED_READ_DEPLOYMENT_SCOPE")
     window=control.get("deployment_window")
     c.require(isinstance(window,dict) and set(window)=={"deployed_at_utc","expires_at_utc"}
         and all(isinstance(window[k],str) for k in window),"NAMED_READ_DEPLOYMENT_WINDOW")

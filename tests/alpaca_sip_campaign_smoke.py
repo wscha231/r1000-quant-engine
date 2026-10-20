@@ -5851,6 +5851,8 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
 
     def setUp(self):
         NamedRead39235028468Tests.setUp(self)
+        self.actual_deployment_pr=self.s.READ392_V2_DEPLOYMENT_PR
+        patch.object(self.s,"READ392_V2_DEPLOYMENT_PR",123).start()
         self.clock=c.utc("2026-10-20T11:00:00Z")
         self.control.update(schema=self.s.READ392_V2_SCHEMA,human_authority_sha256=self.s.READ392_V2_AUTHORITY,
             deployment_window=dict(deployed_at_utc="2026-10-20T10:00:00Z",expires_at_utc="2026-10-21T10:00:00Z"))
@@ -5919,6 +5921,26 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
         self.control["deployment_window"]=dict(deployed_at_utc="2026-10-20T10:30:00Z",expires_at_utc="2026-10-21T10:30:00Z")
         with patch.object(c,"gh_json",side_effect=gh),self.assertRaisesRegex(c.Refused,"DEPLOYMENT_WINDOW"):
             self.s.named_read_deployed(c,self.control)
+
+    def test_v2_approval_is_bound_to_this_one_source_pr(self):
+        self.assertEqual(self.actual_deployment_pr,650)
+        self.control['deployment']['pull_request']=124
+        with patch.object(drive_module,'OwnerDrive') as owner,self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):
+            self.s.named_read_worker(c,self.control,str(self.root/'foreign-pr'))
+        owner.assert_not_called()
+
+    def test_unused_expired_window_cannot_rearm_on_later_genuine_source_pr(self):
+        gh=self.deployment_fixture()
+        self.clock=c.utc('2026-10-22T11:00:00Z')
+        self.pr.update(number=124,merged_at='2026-10-22T10:00:00Z')
+        self.control['deployment']['pull_request']=124
+        self.control['deployment_window']=dict(deployed_at_utc='2026-10-22T10:00:00Z',expires_at_utc='2026-10-23T10:00:00Z')
+        self.control['nonce']=c.PREFIX+'b'*24
+        def later(p):return self.pr if p.endswith('/pulls/124') else gh(p)
+        # Other source pins, full tree and genuine gate fixture still match.
+        with patch.object(c,'gh_json',side_effect=later),self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):
+            self.s.named_read_deployed(c,self.control)
+        with self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):self.s.named_read_control(c,self.control)
 
     def test_v2_grant_is_new_immutable_and_after_actual_deployment(self):
         comment=self.owner_comment()
