@@ -928,6 +928,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/run_crisis_reentry_replay.py',
     'tools/run_crisis_signal_builder.py',
     'tools/run_daily_crisis_monitor.py',
+    'tools/run_orchestrator.py',
     'tools/run_daily_market_session_gate.py',
     'tools/run_daily_simulated_fill_ledger.py',
     'tools/run_data_freshness_contract.py',

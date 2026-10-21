@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
 from tools.run_daily_crisis_monitor import build_monitor  # noqa: E402
 from tools import run_daily_crisis_monitor as monitor
 from tools import daily_crisis_report_clock as clock
+from tools import run_orchestrator as consumer
 from tools.run287_crisis_policy import availability_records, component_availability
 
 
@@ -790,6 +791,175 @@ class MacroSnapshotInputTests(unittest.TestCase):
             self.assertEqual(list(Path(tmp).glob(".macro-*.tmp")),[])
 
 
+class OrchestratorRegimeInputTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.fixture=MacroSnapshotInputTests("test_valid_full_native_snapshot_is_research_only")
+        cls.now=cls.fixture.NOW
+        cls.valid=cls.fixture.compute()
+
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+        self.current=self.root/"cloud_results/macro_daily/latest.json"
+        self.current.parent.mkdir(parents=True)
+        cache=self.root/"outputs/regime_snapshot_cache.json";cache.parent.mkdir()
+        cache.write_text('{"regime_state":"bull","state":"bull"}')
+
+    def write(self,snapshot=None):
+        self.current.write_text(json.dumps(self.valid if snapshot is None else snapshot),encoding="utf-8")
+
+    def load(self,now=None,override=None):
+        with patch.object(consumer,"REPO_ROOT",self.root), \
+             patch.object(clock,"trusted_now",return_value=now or self.now):
+            return consumer.load_regime_state(override)
+
+    def refuse(self,snapshot):
+        self.write(snapshot)
+        with self.assertRaises(ValueError):self.load()
+
+    def test_valid_native_producer_roundtrip(self):
+        self.write(self.fixture.compute());self.assertEqual(self.load(),"bull")
+
+    def test_all_five_states_from_native_producer_windows(self):
+        for expected in ("deep_bear","bear","neutral","bull","strong_bull"):
+            frames=self.fixture.frames()
+            if expected in ("bear","deep_bear"):frames["SPY"].iloc[-1,0]=80
+            if expected=="deep_bear":frames["^VIX"].iloc[-1,0]=80
+            if expected=="neutral":frames["^VIX"].iloc[-1,0]=40
+            if expected=="strong_bull":frames["SPY"].iloc[-1,0]=150
+            snapshot=self.fixture.compute(self.fixture.bind(frames))
+            with self.subTest(expected=expected):
+                self.assertEqual(snapshot["regime_state"],expected)
+                self.write(snapshot);self.assertEqual(self.load(),expected)
+
+    def test_missing_current_does_not_use_old_bull_cache(self):
+        with self.assertRaises(ValueError):self.load()
+
+    def test_blocked_or_null_input_never_becomes_neutral_or_cached_bull(self):
+        for value in ("BLOCKED_INPUT","BLOCKED",None,"STALE"):
+            snapshot=copy.deepcopy(self.valid);snapshot["input_quality"]=value
+            snapshot["regime_state"]=None;self.refuse(snapshot)
+
+    def test_explicit_blocked_with_nonnull_label_is_refused(self):
+        snapshot=copy.deepcopy(self.valid);snapshot["input_quality"]="BLOCKED_INPUT"
+        self.refuse(snapshot)
+
+    def test_alternative_status_claim_cannot_override_producer_contract(self):
+        for key in ("status","input_status","state","market_regime"):
+            snapshot=copy.deepcopy(self.valid);snapshot[key]="BLOCKED";self.refuse(snapshot)
+
+    def test_null_unknown_and_nontext_label_refused(self):
+        for value in (None,"normal","BLOCKED",{},["bull"],True):
+            snapshot=copy.deepcopy(self.valid);snapshot["regime_state"]=value;self.refuse(snapshot)
+
+    def test_malformed_duplicate_nonfinite_and_deep_json_refused(self):
+        for raw in (b'[]',b'null',b'{',b'\xff',b'{"regime_state":"bull","regime_state":"bear"}',
+                    b'NaN',b'['*10000+b'0'+b']'*10000):
+            self.current.write_bytes(raw)
+            with self.assertRaises(ValueError):self.load()
+
+    def test_numeric_overflow_in_unknown_member_refused(self):
+        raw=json.dumps(self.valid).encode()
+        self.current.write_bytes(raw[:-1]+b',"unconsumed":1e999}')
+        with self.assertRaises(ValueError):self.load()
+
+    def test_numeric_nan_infinite_bool_and_missing_refused(self):
+        for value in (float("nan"),float("inf"),True,None,"100",10**1000):
+            snapshot=copy.deepcopy(self.valid);snapshot["spy_close"]=value;self.refuse(snapshot)
+
+    def test_ma_position_and_recomputed_regime_conflict_refused(self):
+        for key,value in (("spy_above_ma200",False),("regime_state","bear"),("vix_z_63d",8)):
+            snapshot=copy.deepcopy(self.valid);snapshot[key]=value;self.refuse(snapshot)
+
+    def test_old_session_cannot_be_reissued_by_current_asof(self):
+        snapshot=copy.deepcopy(self.valid);snapshot["report_session"]="2000-01-03"
+        for item in snapshot["source_clocks"].values():item["observation_date"]="2000-01-03"
+        self.refuse(snapshot)
+
+    def test_stale_snapshot_after_next_completed_session_refused(self):
+        self.write()
+        with self.assertRaises(ValueError):self.load(now=self.now+timedelta(days=1))
+
+    def test_future_issuance_or_asof_clock_conflict_refused(self):
+        self.write()
+        with self.assertRaises(ValueError):self.load(now=self.now-timedelta(minutes=1))
+        snapshot=copy.deepcopy(self.valid);snapshot["asof_date"]="2099-01-05";self.refuse(snapshot)
+
+    def test_missing_clock_or_future_collection_refused(self):
+        for value in (None,"2099-01-05T21:00:00Z"):
+            snapshot=copy.deepcopy(self.valid)
+            snapshot["source_clocks"]["SPY"]["collected_at_utc"]=value;self.refuse(snapshot)
+
+    def test_missing_schema_quality_or_authority_refused(self):
+        for key in ("schema","input_quality","source_authenticated"):
+            snapshot=copy.deepcopy(self.valid);snapshot.pop(key);self.refuse(snapshot)
+        snapshot=copy.deepcopy(self.valid);snapshot["orders_allowed"]=True;self.refuse(snapshot)
+
+    def test_oversize_and_nonregular_current_refused(self):
+        self.current.write_bytes(b' '* (128*1024+1))
+        with self.assertRaises(ValueError):self.load()
+        self.current.unlink();self.current.mkdir()
+        with self.assertRaises(ValueError):self.load()
+
+    def test_actual_invalid_producer_output_refused_with_old_cache_present(self):
+        frames=self.fixture.frames();frames["SPY"].iloc[-1,0]=float("nan")
+        self.refuse(self.fixture.compute(self.fixture.bind(frames)))
+
+    def test_invalid_main_stops_before_weight_load_composition_and_output(self):
+        self.write(dict(input_quality="BLOCKED_INPUT",regime_state=None))
+        out=self.root/"inspection";out.mkdir();old=out/"latest.json"
+        old.write_bytes(b'prior inspection; not a market-input fallback')
+        with patch.object(consumer,"REPO_ROOT",self.root), \
+             patch.object(sys,"argv",["orchestrator","--out-dir",str(out)]), \
+             patch.object(clock,"trusted_now",return_value=self.now), \
+             patch.object(consumer,"load_main_weights") as main, \
+             patch.object(consumer,"load_concentrated_weights") as conc, \
+             patch.object(consumer,"load_tactical_weights") as tact, \
+             patch.object(consumer,"compose_unified_portfolio") as compose, \
+             patch.object(consumer,"write_orchestrator_output") as write:
+            self.assertEqual(consumer.main(),2)
+            for action in (main,conc,tact,compose,write):action.assert_not_called()
+        self.assertEqual(old.read_bytes(),b'prior inspection; not a market-input fallback')
+        self.assertEqual(len(list(out.iterdir())),1)
+
+    def test_valid_auto_and_manual_cli_preserve_composition_and_close_authority(self):
+        for manual in (False,True):
+            self.write()
+            if manual:self.current.write_bytes(b'INVALID_AUTOMATIC_INPUT')
+            out=self.root/("manual" if manual else "automatic")
+            argv=["orchestrator","--out-dir",str(out)]+(["--regime","bull"] if manual else [])
+            expected=consumer.compose_unified_portfolio(main_weights={"WINNER":.1},
+                concentrated_weights={},tactical_weights={},regime_state="bull")
+            with patch.object(consumer,"REPO_ROOT",self.root), \
+                 patch.object(sys,"argv",argv), \
+                 patch.object(clock,"trusted_now",return_value=self.now), \
+                 patch.object(consumer,"load_main_weights",return_value={"WINNER":.1}), \
+                 patch.object(consumer,"load_concentrated_weights",return_value={}), \
+                 patch.object(consumer,"load_tactical_weights",return_value={}):
+                self.assertEqual(consumer.main(),0)
+            actual=clock.decode((out/"latest.json").read_bytes())
+            for key in ("unified_weights","cash_target","by_mandate_capacity"):
+                self.assertEqual(actual[key],expected[key])
+            meta=actual["regime_input"]
+            self.assertEqual(meta["mode"],"MANUAL_UNVERIFIED" if manual else "AUTOMATIC_RESEARCH_PROXY")
+            self.assertEqual(meta["authority"],"RESEARCH_ONLY")
+            for key,value in meta.items():
+                if key not in ("authority","mode"):self.assertIs(value,False)
+
+    def test_explicit_manual_override_preserves_legacy_string_contract(self):
+        self.assertEqual(self.load(override="custom-research-state"),"custom-research-state")
+
+    def test_smoke_is_registered(self):
+        from tools.run_pr_validation import DEFAULT_TESTS
+        self.assertIn(("tests/daily_crisis_monitor_long_crisis_smoke.py",[]),DEFAULT_TESTS)
+
+def run_orchestrator_regime_tests():
+    result = unittest.TextTestRunner(verbosity=2).run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(OrchestratorRegimeInputTests))
+    if not result.wasSuccessful():
+        raise RuntimeError("ORCHESTRATOR_REGIME_INPUT_FAILED")
+
 def run_macro_snapshot_tests():
     result=unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(MacroSnapshotInputTests))
     if not result.wasSuccessful():raise RuntimeError("MACRO_SNAPSHOT_INPUT_GUARD_FAILED")
@@ -806,6 +976,7 @@ if __name__ == "__main__":
     test_daily_crisis_monitor_blocks_unconfirmed_vix_only_cash_raise()
     run_currentness_tests()
     run_macro_snapshot_tests()
+    run_orchestrator_regime_tests()
     from daily_crisis_report_clock_smoke import run_tests
     run_tests()
     print("daily_crisis_monitor_long_crisis_smoke: PASS")

@@ -7506,3 +7506,29 @@ conflicting rows as blocked; historical as-of decisions remain supported.
 Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
 observation clock, source/PIT authentication, model fit, ER or A5 authority is
 introduced. Re-review the new exact head; the superseded review is not approval.
+
+## 2026-10-20 - Keep invalid macro inputs out of portfolio inspection
+
+- Validate every consumed price in MA/z-score windows: one earlier value in an
+  incompatible unit can corrupt a finite final reducer and invent market risk.
+- Replace the current blocked snapshot atomically before its independent dated
+  archive; archive errors must not preserve an old GREEN current pointer.
+- Missing/blocked/stale/future macro data never justify cached bull or neutral.
+  Share the producer's numeric/session contract and stop before weight loading,
+  composition and output. An explicit manual override remains unverified research.
+- Keep Native validation HEAD fixed during each identity-bound build. A commit
+  during B1 fixtures correctly raises code_identity_mutated_during_build; preserve
+  that failed run and rerun frozen bytes rather than relaxing the identity guard.
+
+## 2026-10-20 - Reuse registered smoke programs within frozen validation contracts
+
+- Adding a runner entry changes the fixed Manual proof inventory and the P0-4
+  protected publication bytes. A focused test passing alone does not verify
+  those registration consumers. Inspect the actual terminal CI failures first.
+- Run related consumer regressions through the existing registered macro smoke,
+  retain every case and its standalone compatibility entry, and keep the runner
+  byte-identical to the reviewed parent. Do not advance frozen verifier pins or
+  weaken inventory checks to admit an incidental test-registration change.
+- The new consumer runtime still needs its own separately reviewed fixed A6
+  dependency pin. Registry count and a passing fixture do not bind an imported
+  module that is absent from that inventory; keep proof acceptance pending.
