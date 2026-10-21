@@ -6434,4 +6434,65 @@ class HistoricalRevisionLoaderCompatibilityTests(unittest.TestCase):
         with self.assertRaises(c.Refused):c.validate_authorization(value)
 
 
+class GateLogPRTransportProbeTests(unittest.TestCase):
+    def _execute_probe(self, body=b'fixture trusted log', error=b'', returncode=0, timeout=False):
+        import contextlib, subprocess, textwrap
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        block=workflow.split('      - name: Observe fixed gate-log transport with the Actions read token\n',1)[1].split('\n  capture:',1)[0]
+        self.assertIn("if: github.event_name == 'pull_request'",block)
+        self.assertIn('GH_TOKEN: ${{ github.token }}',block)
+        self.assertNotIn('secrets.',block)
+        script=textwrap.dedent(block.split("python - <<'PY'\n",1)[1].split('\n          PY',1)[0])
+        calls=[]
+        def fake_run(args,**kwargs):
+            if args==['gh','--version']:
+                kwargs['stdout'].write(b'gh version 2.91.0 (fixture)\n')
+                return SimpleNamespace(returncode=0)
+            calls.append(args)
+            self.assertEqual(kwargs['timeout'],45)
+            kwargs['stdout'].write(body)
+            kwargs['stderr'].write(error)
+            if timeout:raise subprocess.TimeoutExpired(args,45)
+            return SimpleNamespace(returncode=returncode)
+        output=io.StringIO()
+        with patch('subprocess.run',side_effect=fake_run),contextlib.redirect_stdout(output):
+            with self.assertRaises(SystemExit) as raised:exec(compile(script,'workflow-gate-probe','exec'),{})
+        self.assertEqual(calls,[['gh','api','repos/wscha231/r1000-quant-engine/actions/jobs/'+str(i)+'/logs']
+                                for i in (118566905053,119037766237)])
+        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(rows),2)
+        for row in rows:
+            self.assertFalse(row['runtime_preflight'])
+            self.assertFalse(row['raw_or_headers_emitted'])
+            self.assertEqual((row['provider_requests'],row['drive_requests'],row['campaign_dispatches']),(0,0,0))
+        return rows,raised.exception.code,output.getvalue()
+
+    def test_success_reports_hashes_without_log_body(self):
+        body=b'SOURCE_LOG_PRIVATE_BODY_CANARY'
+        rows,failed,printed=self._execute_probe(body)
+        self.assertFalse(failed)
+        self.assertNotIn(body.decode(),printed)
+        self.assertTrue(all(r['reason']=='OK' and r['stdout_prefix_sha256']==c.digest(body) for r in rows))
+
+    def test_error_classifies_http_without_tokens_headers_or_redirect_urls(self):
+        error=b'gh: Resource not accessible by integration (HTTP 403) TOKEN_PRIVATE_CANARY Location: https://private.invalid/sas-secret'
+        rows,failed,printed=self._execute_probe(b'PRIVATE_RESPONSE_CANARY',error,1)
+        self.assertTrue(failed)
+        self.assertTrue(all(r['http_status']==403 and r['reason']=='INTEGRATION_FORBIDDEN' for r in rows))
+        for value in ('TOKEN_PRIVATE_CANARY','Location:','private.invalid','sas-secret','PRIVATE_RESPONSE_CANARY'):
+            self.assertNotIn(value,printed)
+
+    def test_body_size_encoding_timeout_and_rate_limit_remain_distinct_failures(self):
+        for body,error,code,timeout,expected in (
+                (b'x'*2000002,b'',0,False,'BODY_TOO_LARGE'),
+                (b'\xffPRIVATE_BINARY_CANARY',b'',0,False,'UTF8'),
+                (b'',b'',0,True,'TIMEOUT'),
+                (b'',b'gh: API rate limit exceeded (HTTP 403)',1,False,'RATE_LIMIT')):
+            with self.subTest(expected=expected):
+                rows,failed,printed=self._execute_probe(body,error,code,timeout)
+                self.assertTrue(failed)
+                self.assertTrue(all(r['reason']==expected for r in rows))
+                self.assertNotIn('PRIVATE_BINARY_CANARY',printed)
+
+
 if __name__=='__main__': unittest.main()

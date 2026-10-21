@@ -1230,3 +1230,20 @@ complete historical validation adds no live-master or current-window gate.
 Operational lesson: a shared error label cannot identify the original transport
 failure. Preserve safe diagnostics at the failure boundary, reuse authentic
 sealed evidence, and distinguish implementation verification from actual capture.
+
+### 2026-10-21 — Actions gate-log transport must be observed in its own context
+
+Actual diagnostic39544804083 on protected Source3d6de8f failed with
+NAMED_READ_GATE_LOG before Drive configuration, RuntimeMeter and OwnerDrive.
+The actual215 active job seconds and one dispatch remain charged observations;
+no missing meter is synthesized and no artifact absence proves zero I/O.
+The exact deployed code order and positive failure log are the zero-I/O basis.
+HTTP status/transport/encoding cause was not retained and stays UNKNOWN.
+
+A PR-only probe uses the unchanged Actions read token and exactly the genuine
+650/657 gate job-log endpoints. It reports only fixed classifications, bounded
+byte counts and prefix hashes. Raw stdout/stderr, headers, redirect URLs and
+tokens are never emitted. A failing probe fails its step. This changes no
+runtime guard, permission, single-use contract, campaign window or numeric cap.
+PR transport success is not proof that the earlier dispatch token succeeded.
+No capture/recovery dispatch or price admission is authorized by this probe.
