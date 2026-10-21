@@ -158,29 +158,33 @@ def load_tactical_weights(override: Optional[str]) -> dict:
 
 
 def load_regime_state(override: Optional[str]) -> str:
+    """A manual override is an unverified research choice, never A4/A5 authority.
+
+    Only the current producer report is eligible for automatic inspection.
+    An absent or blocked report cannot be replaced by an old cache or neutral.
+    """
     if override:
         return str(override)
-    candidates = [
-        "cloud_results/macro_daily/latest.json",
-        "outputs/regime_snapshot_cache.json",
-    ]
-    for p in candidates:
-        path = REPO_ROOT / p
-        if not path.exists():
-            continue
-        try:
-            d = json.loads(path.read_text())
-        except Exception:
-            continue
-        reg = d.get("regime_state") or d.get("state") or d.get("market_regime")
-        if reg:
-            return str(reg)
-    return "neutral"
+    from tools.macro_daily_snapshot import clock, current_snapshot_reasons
+    path = REPO_ROOT / "cloud_results/macro_daily/latest.json"
+    try:
+        snapshot = clock.decode(clock.bounded(path, limit=128*1024))
+        # Also refuse numeric overflow (e.g. 1e999) in any JSON member.
+        json.dumps(snapshot, allow_nan=False)
+        if type(snapshot) is dict and any(key in snapshot for key in
+                ("status", "input_status", "state", "market_regime")):
+            raise ValueError("REGIME_INPUT_STATUS_CONFLICT")
+        reasons = current_snapshot_reasons(snapshot, decision=clock.trusted_now())
+    except (OSError, clock.Blocked, ValueError, TypeError, RecursionError, OverflowError):
+        raise ValueError("REGIME_INPUT_UNAVAILABLE_OR_INVALID") from None
+    if reasons:
+        raise ValueError("REGIME_INPUT_BLOCKED: "+",".join(reasons))
+    return snapshot["regime_state"]
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--regime", default=None)
+    p.add_argument("--regime", default=None, help="unverified manual research override; no A4/A5/order authority")
     p.add_argument("--main-csv", default=None)
     p.add_argument("--concentrated-csv", default=None)
     p.add_argument("--tactical-csv", default=None)
@@ -188,7 +192,13 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
-    regime = load_regime_state(args.regime)
+    try:
+        regime = load_regime_state(args.regime)
+    except ValueError as exc:
+        # No portfolio composition/output on explicit failed upstream data.
+        # This CLI is inspection-only and this does not authorize orders.
+        print(f"[orchestrator] BLOCKED: {exc}")
+        return 2
     main_w = load_main_weights(args.main_csv)
     conc_w = load_concentrated_weights(args.concentrated_csv)
     tact_w = load_tactical_weights(args.tactical_csv)
@@ -205,6 +215,11 @@ def main() -> int:
         tactical_weights=tact_w,
         regime_state=regime,
     )
+    result["regime_input"] = dict(
+        mode="MANUAL_UNVERIFIED" if args.regime else "AUTOMATIC_RESEARCH_PROXY",
+        authority="RESEARCH_ONLY", source_authenticated=False,
+        historical_pit_certified=False, portfolio_mutation_allowed=False,
+        orders_allowed=False, production_activation_allowed=False)
     audit = audit_unified_portfolio(result)
 
     print()
