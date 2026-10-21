@@ -3193,6 +3193,7 @@ class ManualTests(unittest.TestCase):
             'data_static/run287_promotion_gate_contract.json',
             'docs/run287_chameleon_macro_risk_contract.json',
             'docs/run287_expected_return_challenger_contract.json',
+            'docs/run287_expected_return_v2_contract.json',
             'docs/run287_next_scheduled_artifact_gate_contract.json',
             'docs/run287_ohlcv_pattern_memory_contract.json',
             'docs/nav_metrics_v3_rf_optional_contract.json',

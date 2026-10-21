@@ -1,0 +1,73 @@
+{
+  "benchmark": {
+    "basis_must_match": true,
+    "identity": "SPY",
+    "return_unique_per_feature_date": true,
+    "source": "YF:SPY"
+  },
+  "decision_clock": {
+    "decision_must_not_exceed_observed_invocation_utc": true,
+    "observed_clock_source": "runtime_utc_snapshot_not_caller_input"
+  },
+  "entry_clock": "next_nyse_session",
+  "family_id": "future_expected_excess_return_multihorizon_v1",
+  "fields": {
+    "asset_id": "asset_id",
+    "benchmark_identity": "benchmark_identity",
+    "benchmark_label_end": "bench_r_12m_label_end_date",
+    "benchmark_return": "bench_r_12m",
+    "benchmark_return_basis": "benchmark_return_basis",
+    "benchmark_source": "benchmark_source",
+    "feature_date": "feature_date",
+    "issuer_id": "issuer_id",
+    "label_available_at": "label_12m_available_at",
+    "security_lifecycle_status": "security_lifecycle_status",
+    "stock_label_end": "r_12m_label_end_date",
+    "stock_return": "r_12m",
+    "stock_return_basis": "stock_return_basis"
+  },
+  "forward_price_intervals": 252,
+  "horizons_nyse_sessions": [
+    21,
+    63,
+    126,
+    252
+  ],
+  "identity": {
+    "canonical_untrimmed_input_required": true,
+    "duplicate_asset_feature_date_rejects_invocation": true,
+    "format": "[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}",
+    "reference": "research/candidate_registry_v1.py::_ID"
+  },
+  "label_end_rule": "future[252]_from_session_strictly_after_feature_date",
+  "lifecycle": {
+    "delisted_requires_external_terminal_proceeds_admission": true,
+    "retain_blocked_in_denominator": true,
+    "values": [
+      "ACTIVE",
+      "DELISTED",
+      "EXITED"
+    ]
+  },
+  "mode": "252_LABEL_AUDIT_ONLY",
+  "purge_and_windows": {
+    "embargo_nyse_sessions": 252,
+    "label_must_be_available_strictly_before_decision": true,
+    "same_session_after_close_available_is_not_early_access": true
+  },
+  "safety": {
+    "A5_eligible_input": false,
+    "fullrun_allowed": false,
+    "model_fit_allowed": false,
+    "orders_generated": false,
+    "portfolio_mutation_allowed": false,
+    "production_or_live_trading_enabled": false,
+    "research_only": true,
+    "scenario_probability_allowed": false,
+    "target_books_written": false,
+    "validated_er_allowed": false
+  },
+  "schema_version": "run287-er-v2-h1-252-label-only-v1",
+  "v1_contract_sha256": "ef61acafc2c42b86d75d85becea816a4bca8e05fbbc392e77fa92b075c728b63",
+  "version": "2026-10-21.1"
+}

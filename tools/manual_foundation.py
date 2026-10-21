@@ -331,6 +331,7 @@ A6_FIXED_PROOF_INPUTS = (
     "docs/run287_exact_packet_upstream_plan.json",
     "docs/run287_execution_cost_capacity_contract.json",
     "docs/run287_expected_return_challenger_contract.json",
+    "docs/run287_expected_return_v2_contract.json",
     "docs/run287_holding_risk_watch_contract.json",
     "docs/run287_multiple_testing_gate_contract.json",
     "docs/run287_next_scheduled_artifact_gate_contract.json",
