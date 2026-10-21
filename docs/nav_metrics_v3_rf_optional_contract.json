@@ -1,0 +1,25 @@
+{
+  "schema": "nav-metrics-v3-rf-optional-contract-v1",
+  "context_schema": "nav-measurement-context-v3-rf-optional",
+  "extends_context_schema": "nav-measurement-context-v2",
+  "extends_contract_git_blob": "40af3ad8bcc9dbf1c73ee9922e9cdfef575374a3",
+  "rf_absence": "Only an explicit risk_free:null under the v3 context permits partial raw measurement.",
+  "legacy": "The v2 schema still requires a valid complete RF object. Missing keys and malformed/future/hash-conflicting RF remain blocked under both versions.",
+  "partial_status": "research_partial_raw_only",
+  "rf_excess_result": null,
+  "rf_excess_reason": "RF_NOT_AVAILABLE",
+  "metric_admission_complete": false,
+  "economic_comparison_ready": false,
+  "retained_checks": [
+    "NAV",
+    "NYSE grid",
+    "anchor",
+    "flows",
+    "hash and availability",
+    "valuation receipt provenance",
+    "caller capital and anchor kind",
+    "OOS predecessor"
+  ],
+  "caller_publication": "Existing publishers remain COMPLETE-only. A broker full-scope diagnostic may retain partial raw results with incomplete admission and CLI exit 2; requested broker windows and weekly packages retain existing BLOCKED/null masking. No partial NAV curve or successful publication is emitted.",
+  "authority": "RESEARCH_ONLY: no source/PIT certification, selector, A5, Target, Paper, Broker, Fullrun or production approval."
+}

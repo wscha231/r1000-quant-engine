@@ -3195,6 +3195,7 @@ class ManualTests(unittest.TestCase):
             'docs/run287_expected_return_challenger_contract.json',
             'docs/run287_next_scheduled_artifact_gate_contract.json',
             'docs/run287_ohlcv_pattern_memory_contract.json',
+            'docs/nav_metrics_v3_rf_optional_contract.json',
             'docs/run287_same_close_target_contract.json',
             'docs/run287_sec_management_guidance_scout_contract.json',
             'docs/run287_sector_leadership_challenger_contract.json',

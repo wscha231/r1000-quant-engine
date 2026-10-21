@@ -58,8 +58,8 @@
       "source_kind": "PR",
       "capability": "Position-risk grid sidecar and shared broker evaluation",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-11T16:37:05.628813+00:00",
-      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#158": "9b52e4e3f6b488e2308cbf27cb886bad4783d111"
       },
@@ -82,7 +82,8 @@
       "evidence_refs": [
         "https://github.com/wscha231/r1000-quant-engine/pull/158",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "Reuse evaluator/account contracts; not a certified economic result."
@@ -98,9 +99,9 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "tools/run_broker_position_risk_grid_sweep.py": "d7fafc86c1a4340dfa9ab2e71805fa362a95a412163361d741312c06e8eb12f7",
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af",
-        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
-        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45",
+        "tools/run_broker_ledger_replay.py": "1ad3c871dafe949254fd854b5792c69ee309373b5c942df883569c1fcd750b01",
+        "tools/nav_metrics_v2.py": "84aa24337325dfb4b09eaae9a2cfaf5faf113a3546329fa4b6fb705e3978895c",
+        "tools/run_weekly_evaluation.py": "7508f85548d1d0a7553abd36a0fba11f02f00da1d5223f9cc51407f12dfff7d0",
         "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
         "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9",
         "tools/run_broker_position_risk_replay.py": "83b9853db57c7ea156ce2b66c40baa1f0f1629d333e4656d3bfb73929256b4ba",
@@ -162,8 +163,8 @@
       "source_kind": "PR",
       "capability": "Rejected delayed partial-resize replay / human delivery-delay lesson",
       "classification": "HISTORICAL_LESSON",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#267": "6dfb7b9d2c6d040cc5f30d030184cb6cdbc7a67f"
       },
@@ -186,7 +187,8 @@
       "evidence_refs": [
         "https://github.com/wscha231/r1000-quant-engine/pull/267",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "Preserve rejected lineage; do not rerun economics from a coordination label."
@@ -202,7 +204,7 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "docs/CODEX_RUN287_PARTIAL_RESIZE_CONFIRMATION_RESULT_20260713.md": "255db76caccfbaeae241b030492c35e3b34fd9dbfbd7c798512beeb918851d37",
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+        "tools/run_broker_ledger_replay.py": "1ad3c871dafe949254fd854b5792c69ee309373b5c942df883569c1fcd750b01"
       }
     },
     {
@@ -811,8 +813,8 @@
       "source_kind": "PR",
       "capability": "SEC-first changed-slice reassessment proposal bridge",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-11T14:40:40.449547+00:00",
-      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#577": "adf09912db4e06d86e659d16a047887d32ae42ff"
       },
@@ -835,7 +837,8 @@
       "evidence_refs": [
         "https://github.com/wscha231/r1000-quant-engine/pull/577",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "Proposal-only; no specialist dispatch, ER/scoring or canonical writer."
@@ -878,11 +881,11 @@
         "tools/eodhd_calendar_trends.py": "45835a01480231310c47f855d784ddfba26ea731a0ee4309edbb7324045f5107",
         "tools/etf_leadership_snapshot.py": "9fa8d66db01519fc3c8d36d3909b540e1303f96322789ee4ad1eb0770de587e4",
         "tools/free_market_context.py": "501c256479dacc948659e3dc316951641c222f87762fb0bc3c9937005ee24181",
-        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
+        "tools/nav_metrics_v2.py": "84aa24337325dfb4b09eaae9a2cfaf5faf113a3546329fa4b6fb705e3978895c",
         "tools/run_sec_institutional_signals.py": "cb1ed3bd92355db2c3f774ac0b93f553c302a540561866208c885f189b57e945",
         "tools/run_sec_ownership_signals.py": "a81c210d64945f236cc64e8bbc5af3b85014c963b7d6dbd8acd9ec604b7518b4",
         "tools/run_sec_submissions_collector.py": "81113d1b6b37014f45f9db711d04657342eae64291f6ba2761dd21b5c21e77a0",
-        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45"
+        "tools/run_weekly_evaluation.py": "7508f85548d1d0a7553abd36a0fba11f02f00da1d5223f9cc51407f12dfff7d0"
       }
     },
     {
@@ -891,8 +894,8 @@
       "source_kind": "PR",
       "capability": "Common bound NAV/account/execution-cost measurement",
       "classification": "REUSE_NOW",
-      "verified_at": "2026-10-11T13:06:50.661645+00:00",
-      "last_verified_master": "7c4d8969751d9d7b67662240d355f4d7f606f51e",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#578": "5cd07838cba5c6e8ec69d1d82319317a67153f9f"
       },
@@ -917,7 +920,8 @@
       "evidence_refs": [
         "https://github.com/wscha231/r1000-quant-engine/pull/578",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "Common evaluator/PIT/cost/capital/session identities required; no performance claim here."
@@ -933,9 +937,9 @@
       "do_not_repeat_refs": [],
       "dependency_hashes": {
         "tools/execution_cost_model.py": "1009ad85883b3f9ba8735988a5036cfcceea5657c983c384f6aa6c486f61e5eb",
-        "tools/nav_metrics_v2.py": "c02af0db9778adc3d1440466e0cc53635abbb0eaded7b705b36e126ad452d41a",
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af",
-        "tools/run_weekly_evaluation.py": "05154b5687d436205f9af330cd426c098edbbac4609cce05beeb380e3871da45",
+        "tools/nav_metrics_v2.py": "84aa24337325dfb4b09eaae9a2cfaf5faf113a3546329fa4b6fb705e3978895c",
+        "tools/run_broker_ledger_replay.py": "1ad3c871dafe949254fd854b5792c69ee309373b5c942df883569c1fcd750b01",
+        "tools/run_weekly_evaluation.py": "7508f85548d1d0a7553abd36a0fba11f02f00da1d5223f9cc51407f12dfff7d0",
         "tools/reserve_asset_policy.py": "c36f90fbff91a52d33745c8e435002b7eb12f3e08d3bdfd6f54bcb02dbbdebc9"
       }
     },
@@ -945,8 +949,8 @@
       "source_kind": "PR",
       "capability": "Current-master G1/G2/G3 modular boundaries",
       "classification": "SELECTIVE_PORT",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#582": "a37d50026850eb76e7454fa7ae02ad7a66d43319",
         "#583": "f7bd98b43209b4cebb0e0c78f17963b6aba3795d",
@@ -983,7 +987,8 @@
         "https://github.com/wscha231/r1000-quant-engine/pull/583",
         "https://github.com/wscha231/r1000-quant-engine/pull/584",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "No blind merge of old-base stack. G2 OFF; independent current-master parity first."
@@ -998,7 +1003,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+        "tools/run_broker_ledger_replay.py": "1ad3c871dafe949254fd854b5792c69ee309373b5c942df883569c1fcd750b01"
       }
     },
     {
@@ -1007,8 +1012,8 @@
       "source_kind": "PR",
       "capability": "All-LEGACY R0 runner/guard capability",
       "classification": "SELECTIVE_PORT",
-      "verified_at": "2026-10-09T03:12:15.701Z",
-      "last_verified_master": "11163fb3e30125359346102eb2b12c04aa52ae15",
+      "verified_at": "2026-10-21T10:17:28.620658+00:00",
+      "last_verified_master": "7352b98d5d7b8efdfd0aecb9e021a220c4164b0c",
       "source_heads": {
         "#586": "68bbaeb05fd965a1d1197295d2fa46205eb4f78c"
       },
@@ -1029,7 +1034,8 @@
       "evidence_refs": [
         "https://github.com/wscha231/r1000-quant-engine/pull/586",
         "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6072911534",
-        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961"
+        "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6073268961",
+        "https://github.com/wscha231/r1000-quant-engine/pull/654"
       ],
       "semantic_constraints": [
         "Preserve old July BLOCKED lineage; a separately admitted new generation does not repair it."
@@ -1044,7 +1050,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/run_broker_ledger_replay.py": "caa6618bfe5e9225dafc0aff16b21ea46f8e7810a5ea9cd7da464160ae2368af"
+        "tools/run_broker_ledger_replay.py": "1ad3c871dafe949254fd854b5792c69ee309373b5c942df883569c1fcd750b01"
       }
     },
     {

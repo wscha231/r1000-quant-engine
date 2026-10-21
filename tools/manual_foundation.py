@@ -336,6 +336,7 @@ A6_FIXED_PROOF_INPUTS = (
     "docs/run287_next_scheduled_artifact_gate_contract.json",
     "docs/run287_ohlcv_location_timing_challenger_contract.json",
     "docs/run287_ohlcv_pattern_memory_contract.json",
+    "docs/nav_metrics_v3_rf_optional_contract.json",
     "docs/run287_operating_scorecard_sources.json",
     "docs/run287_p0_3_authority_census/README.md",
     "docs/run287_p0_3_authority_census/branch_census.parquet",
