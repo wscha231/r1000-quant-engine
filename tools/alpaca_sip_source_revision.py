@@ -155,42 +155,45 @@ def named_read_proof(c,control,*,accounting=False):
 
 
 def named_read_gate_transport(c,job_id):
-    """Read genuine log bytes privately; observations never contain raw output.
-
-    File spooling has a process timeout, not a hard download/disk byte cap.
-    Only the bounded prefixes are loaded into memory or hashed. The caller
-    receives original bytes only after the full file-size and UTF-8 checks.
-    """
-    c.require(type(job_id) is int and job_id>0,"NAMED_READ_GATE_LOG_JOB")
-    record=dict(reason="CLI_HELP",returncode=None,http_status=None,
-        stdout_bytes=0,stderr_bytes=0,stdout_prefix_sha256=c.digest(b""),
-        stderr_prefix_sha256=c.digest(b""),stdout_utf8=False,
-        escape_flag=False,raw_or_headers_emitted=False,
-        prefix_read_limits=dict(stdout=2_000_001,stderr=8193),
-        hard_capture_byte_limit=None)
-    # Version numbers alone cannot establish flag support. Never retry a GET
-    # to detect the flag and never enable it for a terminal or caller-owned fd.
-    with c.tempfile.TemporaryFile() as help_output:
-        try:
-            result=c.subprocess.run(["gh","api","--help"],stdout=help_output,
-                stderr=c.subprocess.DEVNULL,timeout=10)
-            help_output.seek(0);help_raw=help_output.read(65_537)
-        except Exception:return b"",record
-        if result.returncode!=0 or len(help_raw)>65_536:return b"",record
-    flag=b"--allow-escape-sequences" in help_raw
-    record["escape_flag"]=flag
-    argv=["gh","api"]+(["--allow-escape-sequences"] if flag else [])+[
-        f"repos/{c.REPO}/actions/jobs/{job_id}/logs"]
+  """Private bounded prefixes; process deadline is not a hard disk/download cap."""
+  c.require(type(job_id) is int and job_id>0,"NAMED_READ_GATE_LOG_JOB")
+  record=dict(reason="CLI_HELP",returncode=None,http_status=None,
+    stdout_bytes=0,stderr_bytes=0,stdout_prefix_sha256=c.digest(b""),
+    stderr_prefix_sha256=c.digest(b""),stdout_utf8=False,
+    escape_flag=False,raw_or_headers_emitted=False,
+    prefix_read_limits=dict(stdout=2_000_001,stderr=8193),
+    hard_capture_byte_limit=None,timeout_budget_seconds=45,attempts=[])
+  deadline=c.time.monotonic()+45
+  with c.tempfile.TemporaryFile() as help_output:
+    try:
+      remaining=deadline-c.time.monotonic()
+      if remaining<=0:record["reason"]="TIMEOUT";return b"",record
+      result=c.subprocess.run(["gh","api","--help"],stdout=help_output,
+        stderr=c.subprocess.DEVNULL,timeout=min(10,remaining))
+      help_output.seek(0);help_raw=help_output.read(65_537)
+    except Exception:return b"",record
+    if result.returncode!=0 or len(help_raw)>65_536:return b"",record
+  flag=b"--allow-escape-sequences" in help_raw
+  record["escape_flag"]=flag
+  argv=["gh","api"]+(["--allow-escape-sequences"] if flag else [])+[
+    f"repos/{c.REPO}/actions/jobs/{job_id}/logs"]
+  for attempt in range(3):
+    remaining=deadline-c.time.monotonic()
+    if remaining<=0:
+      record["reason"]="TIMEOUT";return b"",record
+    record.update(returncode=None,stdout_utf8=False)
     with c.tempfile.TemporaryFile() as output,c.tempfile.TemporaryFile() as errors:
-        failure=None
-        try:
-            result=c.subprocess.run(argv,stdout=output,stderr=errors,timeout=45)
-            record["returncode"]=result.returncode
-        except c.subprocess.TimeoutExpired:failure="TIMEOUT"
-        except Exception:failure="PROCESS_ERROR"
-        output.seek(0,2);record["stdout_bytes"]=output.tell();output.seek(0)
-        errors.seek(0,2);record["stderr_bytes"]=errors.tell();errors.seek(0)
-        raw,error=output.read(2_000_001),errors.read(8193)
+      failure=None
+      remaining=deadline-c.time.monotonic()
+      if remaining<=0:record["reason"]="TIMEOUT";return b"",record
+      try:
+        result=c.subprocess.run(argv,stdout=output,stderr=errors,timeout=remaining)
+        record["returncode"]=result.returncode
+      except c.subprocess.TimeoutExpired:failure="TIMEOUT"
+      except Exception:failure="PROCESS_ERROR"
+      output.seek(0,2);record["stdout_bytes"]=output.tell();output.seek(0)
+      errors.seek(0,2);record["stderr_bytes"]=errors.tell();errors.seek(0)
+      raw,error=output.read(2_000_001),errors.read(8193)
     record["stdout_prefix_sha256"]=c.digest(raw)
     record["stderr_prefix_sha256"]=c.digest(error)
     status=c.re.search(rb"HTTP ([1-5][0-9]{2})",error)
@@ -198,21 +201,40 @@ def named_read_gate_transport(c,job_id):
     try:raw.decode("utf-8");record["stdout_utf8"]=True
     except UnicodeError:pass
     reason=(failure or ("STDERR_TOO_LARGE" if record["stderr_bytes"]>=8193 else
-        "BODY_TOO_LARGE" if record["stdout_bytes"]>2_000_000 else
-        "PROCESS_EXIT" if record["returncode"]!=0 else
-        "UTF8" if not record["stdout_utf8"] else "OK"))
+      "BODY_TOO_LARGE" if record["stdout_bytes"]>2_000_000 else
+      "UTF8" if not record["stdout_utf8"] else
+      "PROCESS_EXIT" if record["returncode"]!=0 else "OK"))
+    if deadline-c.time.monotonic()<0:reason="TIMEOUT"
     if reason=="PROCESS_EXIT":
-        if b"Resource not accessible by integration" in error:reason="INTEGRATION_FORBIDDEN"
-        elif b"API rate limit exceeded" in error:reason="RATE_LIMIT"
-        elif b"the response contains terminal escape sequences" in error:reason="CLI_ESCAPE_GUARD"
+      if b"Resource not accessible by integration" in error:reason="INTEGRATION_FORBIDDEN"
+      elif b"API rate limit exceeded" in error:reason="RATE_LIMIT"
+      elif b"the response contains terminal escape sequences" in error:reason="CLI_ESCAPE_GUARD"
+      elif any(marker in error.lower() for marker in (b"authentication required",b"gh auth login",
+          b"permission denied",b"not logged into",b"bad credentials")):reason="AUTH_OR_PERMISSION"
     record["reason"]=reason
-    return (raw if reason=="OK" else b""),record
+    record["attempts"].append(dict(attempt=attempt+1,**{k:record[k] for k in (
+      "reason","returncode","http_status","stdout_bytes","stderr_bytes",
+      "stdout_prefix_sha256","stderr_prefix_sha256","stdout_utf8")}))
+    if reason=="OK":return raw,record
+    retry=reason=="PROCESS_EXIT" and (record["http_status"] is None
+      or record["http_status"] in {500,502,503,504})
+    if not retry or attempt==2:return b"",record
+    delay=attempt+1
+    if deadline-c.time.monotonic()<=delay:
+      record["reason"]="TIMEOUT";return b"",record
+    c.time.sleep(delay)
+  return b"",record
 
 
 def named_read_gate_log(c,job_id):
     # Keep original ANSI/BOM/UTF-8 bytes: genuine gate parsing stays unchanged.
     raw,record=named_read_gate_transport(c,job_id)
-    if record["reason"]!="OK":raise c.Refused("NAMED_READ_GATE_LOG_"+record["reason"]) from None
+    if record["reason"]!="OK":
+        try:
+            print(c.json.dumps(dict(diagnostic="A1_GITHUB_GATE_LOG_TRANSPORT",job_id=job_id,**record),
+                sort_keys=True),file=c.sys.stderr,flush=True)
+        except Exception:pass
+        raise c.Refused("NAMED_READ_GATE_LOG_"+record["reason"]) from None
     return raw.decode("utf-8")
 
 
@@ -1133,32 +1155,17 @@ PRICE174_ACTIVE96=10430
 
 
 def price174_historical_source(c,auth):
-    # Historical provenance is not a comparison with newly corrected local code.
     c.require(price174_hash(c,auth)==PRICE174_ORIGIN_AUTH
         and auth["expected_master"]==PRICE174_ORIGIN
         and auth["deployment"]==dict(pull_request=662,reviewed_head=PRICE174_ORIGIN_HEAD)
         and auth["code_pins_sha256"]==PRICE174_ORIGIN_PINS,"PRICE174_ORIGIN")
-    pins={}
-    for path in V6_PINS:
-        value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={PRICE174_ORIGIN}")
-        c.require(value.get("encoding")=="base64","PRICE174_ORIGIN")
-        try:raw=c.base64.b64decode(value.get("content",""),validate=False)
-        except Exception:raise c.Refused("PRICE174_ORIGIN") from None
-        pins[path]=c.digest(raw)
-    c.require(c.digest(c.encoded(pins))==PRICE174_ORIGIN_PINS,"PRICE174_ORIGIN")
-    pr=c.gh_json(f"repos/{c.REPO}/pulls/662")
-    c.require(pr.get("merged") is True and pr.get("draft") is False
-        and pr.get("head",{}).get("sha")==PRICE174_ORIGIN_HEAD
-        and pr.get("merge_commit_sha")==PRICE174_ORIGIN
-        and pr.get("merged_at")==auth["execution_window"]["deployed_at_utc"],"PRICE174_ORIGIN")
-    for sha in (PRICE174_ORIGIN,PRICE174_ORIGIN_HEAD):
-        value=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
-        c.require(value.get("tree",{}).get("sha")==PRICE174_ORIGIN_TREE,"PRICE174_ORIGIN")
+    pr=price174_historical(c,662,PRICE174_ORIGIN,PRICE174_ORIGIN_HEAD,PRICE174_ORIGIN_TREE,
+        PRICE174_ORIGIN_PINS,"PRICE174_ORIGIN",strict=False)
+    c.require(pr.get("merged_at")==auth["execution_window"]["deployed_at_utc"],"PRICE174_ORIGIN")
     named_read_checks(c,dict(deployment=auth["deployment"]))
 
 
 def price174_execution_paths():
-    # All fixed non-cone sparse checkout files, plus the genuine review guards.
     return tuple(V6_PINS)+("data_static/iwb_holdings_seed.csv",
         "tests/alpaca_sip_campaign_smoke.py","tests/alpaca_sip_private_backfill_v1_smoke.py",
         "tests/api_credentials_check_smoke.py")+tuple(READ392_GATE_PINS)+(".gitattributes",
@@ -1219,8 +1226,6 @@ def price174_source_tip(c,transition,source_sha=None,*,live=False):
         price174_descendant(c,origin,sha)
         if sha!=origin:c.require(price174_tree(c,sha)==transition["pins"],"PRICE174_RUNTIME_PINS")
     if live:
-        # A queued run may use an earlier compatible tip; an unrelated Main
-        # change cannot change any file in its fixed sparse execution closure.
         price174_descendant(c,candidate,current)
         final=c.gh_json(f"repos/{c.REPO}/branches/master")
         c.require(final.get("protected") is True and final.get("commit",{}).get("sha")==current,
@@ -1235,9 +1240,12 @@ def price174_transition(c,auth,reference,*,historical=False):
         r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",reference),
         "PRICE174_TRANSITION_GRANT")
     ref=int(reference.rsplit("-",1)[1]);comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{ref}")
+    if isinstance(comment.get("body"),str) and comment["body"].startswith("A1_SP500174_PREMETER261_REBIND "):
+        c.require(not historical,"PRICE_PREMETER_NESTED")
+        return price174_premeter_transition(c,auth,reference,comment)
     if isinstance(comment.get("body"),str) and comment["body"].startswith("A1_SP500174_SOURCE_RECOVERY "):
-        c.require(not historical,"PRICE_RECOVERY_NESTED")
-        return price174_recovery_transition(c,auth,reference,comment)
+        c.require(not historical or reference==PRICE174_665_REFERENCE,"PRICE_RECOVERY_NESTED")
+        return price174_recovery_transition(c,auth,reference,comment,historical=historical)
     window=auth["execution_window"]
     terms,proof=human_record(c,comment,"A1_SP500174_SOURCE_TRANSITION ",
         window=(window["deployed_at_utc"],window["expires_at_utc"]))
@@ -1390,7 +1398,8 @@ def price174_authority(c,auth,*,accounting=False,source_transition_reference=Non
 
 def price174_prefix(c,runs,auth,old,transition=None):
     price174_auth(c,auth)
-    c.require(isinstance(runs,list) and 30<=len(runs)<=(38 if transition and transition.get("recovery") else 36) and runs[29].get("id")==READ30_RUN,
+    maximum=39 if transition and transition.get("premeter261") else 38 if transition and transition.get("recovery") else 36
+    c.require(isinstance(runs,list) and 30<=len(runs)<=maximum and runs[29].get("id")==READ30_RUN,
         "PRICE174_HISTORY")
     prefix=named_read_prefix(c,runs[:30],old,runs[29])
     if transition:
@@ -1398,6 +1407,9 @@ def price174_prefix(c,runs,auth,old,transition=None):
     if transition and transition.get("recovery"):
         c.require([r.get("id") for r in runs[33:35]]==[39609167399,PRICE174_RECOVERY_RUN],
             "PRICE_RECOVERY_PREFIX")
+    if transition and transition.get("premeter261"):
+        c.require(len(runs)>=36 and runs[35].get("id")==PRICE174_PREMETER_RUN,"PRICE_PREMETER_PREFIX")
+        c.require(not transition.get("settlement_only") or len(runs)==36,"PRICE_PREMETER_SETTLEMENT_ONLY")
     for index,run in enumerate(runs[30:]):
         c.require(type(run.get("id")) is int and run["id"]>READ30_RUN
             and type(run.get("run_attempt")) is int and run["run_attempt"]==1
@@ -1450,9 +1462,6 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
     observed=c.external_history(old["authorization"],allow_stopped=True,enforce_expiry=False,
         price174_context=(auth,old,transition) if transition else (auth,old))
     named_read_budget(c,observed)
-    # The authenticated original source cannot start another group until all
-    # four-name checkpoint/readback work has closed. Retain its unknown POST;
-    # no symbol in its possible prefix300 footprint belongs to this cohort.
     last=observed["receipts"][-1]
     c.require(last.get("status")=="BLOCKED" and last.get("examined_after")==296
         and last.get("checkpoint_sha256")==READ392_CP,"PRICE174_OLD_FAILURE")
@@ -1464,12 +1473,23 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
     window=auth["execution_window"];start,end=map(c.utc,(window["deployed_at_utc"],window["expires_at_utc"]))
     for index,run in enumerate(rows):
         applicable=price174_transition_at(transition,index)
-        recovering=bool(transition and transition.get("recovery") and index==5)
+        premeter=bool(transition and transition.get("premeter261"))
+        recovering=bool(transition and transition.get("recovery") and index==(6 if premeter else 5))
         c.require(start<=c.utc(run["created_at"])<end,"PRICE174_RUN_WINDOW")
         if current==run["id"]:
             c.require(run.get("status")=="in_progress" and run is rows[-1],"PRICE174_CURRENT")
             continue
         c.require(run.get("status")=="completed","CAMPAIGN_RUN_UNRESOLVED")
+        if premeter and index==5:
+            c.require(len(values)==5 and n==128 and parent==PRICE174_CP128
+                and used==PRICE174_RECOVERY_USED and active==11535,"PRICE_PREMETER_BASIS")
+            value=price174_premeter_failure(c,auth,run,applicable)
+            c.require(c.digest(c.encoded(value))==transition["terms"]["premeter_closure_sha256"],"PRICE_PREMETER_CLOSURE")
+            steps.append(dict(run=run,value=value,premeter261=True,
+                remaining={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},
+                active_remaining=43200-active,parent_sha=parent))
+            active+=value["active_seconds"]
+            continue
         source=run.get("head_sha") if transition and index>=3 else auth["expected_master"]
         value=c.receipt_for_run(run,price174_hash(c,auth),source,c.CONTINUED_LIMITS)
         if transition:
@@ -1497,7 +1517,8 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
             "PRICE174_RECEIPT")
         c.require(not values or values[-1]["status"]=="COMPLETE"
             and steps[-1]["run"].get("conclusion")=="success"
-            or recovering and steps[-1]["run"].get("id")==PRICE174_RECOVERY_RUN
+            or recovering and steps[-1]["run"].get("id")==(
+                PRICE174_PREMETER_RUN if premeter else PRICE174_RECOVERY_RUN)
             and c.digest(c.encoded(values[-1]))==PRICE174_RECOVERY_METER,"PRICE174_PRIOR_BLOCKED")
         seconds=price174_seconds(c,run);prior_active=active
         for k in c.LIMITS:used[k]+=value["usage"][k]
@@ -1519,8 +1540,8 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
             if value["status"]=="COMPLETE":
                 price174_reuse_evidence(c,value)
         values.append(value);durations.append(seconds)
-    eligible=bool(transition and transition.get("recovery") and len(values)==5
-        and steps[-1]["run"]["id"]==PRICE174_RECOVERY_RUN
+    eligible=bool(transition and transition.get("recovery") and not transition.get("settlement_only") and len(values)==5
+        and steps[-1]["run"]["id"]==(PRICE174_PREMETER_RUN if transition.get("premeter261") else PRICE174_RECOVERY_RUN)
         and c.digest(c.encoded(values[-1]))==PRICE174_RECOVERY_METER)
     c.require(current is None or n<174 and (not values or values[-1]["status"]=="COMPLETE"
         and steps[-1]["run"].get("conclusion")=="success" or eligible),"PRICE174_PRIOR_BLOCKED")
@@ -1603,7 +1624,6 @@ def price174_worker(c,args,control,journal):
         and c.utc(offline[0]["completed_at"])<=c.utc(capture[0]["started_at"])<=c.utc()+c.timedelta(seconds=5),
         "PRICE174_JOB_CLOCK")
     deadline=min(c.utc(capture[0]["started_at"])+c.timedelta(seconds=7100),c.utc(proof["expires_at_utc"]))
-    # All metadata/proof reads precede the last protected-tip check and credentials.
     c.require(c.campaign_runs(prior["workflow_run_floor"])==observed["all_runs"],"PRICE174_CANONICAL_DRIFT")
     if transition_ref:
         c.require(n>=96,"PRICE174_TRANSITION_PREFIX")
@@ -1655,8 +1675,6 @@ def price174_worker(c,args,control,journal):
             private_args.resume_file_id,private_args.resume_sha256=ref["file_id"],ref["sha256"]
         return drive
     try:
-        # Existing collector/callback output contains private checkpoint refs.
-        # Discard it locally rather than publishing or attempting later masking.
         with meter.process_deadline(),c.tempfile.TemporaryFile(mode="w+",encoding="utf-8") as output,\
                 redirect_stdout(output),redirect_stderr(output):
             if recovering:
@@ -1733,8 +1751,6 @@ def price174_reconcile(c,family,journal,auth,observed):
         if i>=3 and observed["proof"].get("transition"):
             reservation.update(source_transition_proof_sha256=price174_transition_at(observed["proof"]["transition"],i)["proof_sha256"],
                 source_sha=run["head_sha"])
-        # A live run must already have both durable reservations. Never invent
-        # permission/reservation after observing an orphan dispatch.
         c.require(len(family.entries)>=fr and len(journal.entries)>=jr,"PRICE174_RESERVATION_MISSING")
         price174_event(c,family,fr,"PRICE174_RESERVED",reservation)
         price174_event(c,journal,jr,"RESERVED",reservation)
@@ -1744,10 +1760,23 @@ def price174_reconcile(c,family,journal,auth,observed):
         settled=dict(nonce=nonce,run_id=run["id"],capture_auth_sha256=h,
             receipt_sha256=c.digest(c.encoded(value)),checkpoint_sha256=value["checkpoint_sha256"],
             examined=value["examined_after"],usage_delta=value["usage"])
-        price174_event(c,journal,jr+2,"SETTLED",settled)
-        price174_event(c,family,fr+2,"PRICE174_SETTLED",settled)
+        if step.get("premeter261"):
+            c.require(c.digest(c.bounded_bytes(family.directory/"000093.json"))==PRICE174_FAMILY93
+                and c.digest(c.bounded_bytes(journal.directory/"000017.json"))==PRICE174_COHORT17,
+                "PRICE_PREMETER_RESERVATION")
+            settled.pop("receipt_sha256")
+            settled.update(premeter_closure_sha256=c.digest(c.encoded(value)),not_runtime_meter=True,
+                original_meter_sha256=None,active_seconds=261,dispatches=1)
+        price174_event(c,journal,jr+2,"PREMETER261_SETTLED" if step.get("premeter261") else "SETTLED",settled)
+        price174_event(c,family,fr+2,"PRICE174_PREMETER261_SETTLED" if step.get("premeter261") else "PRICE174_SETTLED",settled)
     c.require(len(family.entries)==77+3*len(observed["steps"])
         and len(journal.entries)==1+3*len(observed["steps"]),"PRICE174_PENDING")
+    transition=observed["proof"].get("transition",{})
+    if transition.get("premeter261") and not transition.get("settlement_only"):
+        expected=transition["terms"]["typed_settlement"]
+        c.require(c.digest(c.bounded_bytes(family.directory/"000095.json"))==expected["family95_sha256"]
+            and c.digest(c.bounded_bytes(journal.directory/"000019.json"))==expected["cohort19_sha256"],
+            "PRICE_PREMETER_SETTLEMENT")
 
 
 def price174_forecast(c,observed):
@@ -1766,8 +1795,6 @@ def price174_forecast(c,observed):
     seconds=c.math.ceil(max(t/count for t,count in zip(durations,counts))*remaining*1.25)
     dispatches=c.math.ceil(remaining/32)
     if observed.get("proof",{}).get("transition",{}).get("recovery") and len(observed["receipts"])==5:
-        # A separate provider-zero orphan restoration consumes a real dispatch.
-        # These are conservative planning reservations, never actual usage.
         dispatches+=1;seconds+=7800
         for key,reserve in dict(drive_requests=512,drive_bytes=268435456,storage_bytes=2097152).items():
             predicted[key]+=reserve
@@ -1804,7 +1831,6 @@ def price174_host(c,args):
     named_read_frozen_prefix(c,budget,17,c.CONTINUATION["event"])
     named_read_frozen_prefix(c,oldstate,48,READ392_COHORT)
     price174_closure(c,auth)
-    # The old namespace is never reopened for mutation or resumed.
     family=c.external_family_registry(budget,old["authorization"],oldstate);journal=None
     try:
         journal=c.WorkJournal(state,price174_hash(c,auth))
@@ -1861,7 +1887,6 @@ def price174_host(c,args):
                 control.update(source_transition_reference=transition_ref,
                     source_sha=price174_source_tip(c,proof["transition"],live=True))
             raw=c.encoded(control);c.require(len(raw)<=16384,"CAMPAIGN_CONTROL_SIZE")
-            # Current protected tip is the final remote check before reserve/POST.
             if not transition_ref:
                 branch=c.gh_json(f"repos/{c.REPO}/branches/master")
                 c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
@@ -1873,7 +1898,7 @@ def price174_host(c,args):
             if transition_ref:
                 reservation.update(source_transition_proof_sha256=proof["transition"]["proof_sha256"],
                     source_sha=control["source_sha"])
-            fr,jr=78+3*len(observed["receipts"]),2+3*len(observed["receipts"])
+            fr,jr=78+3*len(observed["steps"]),2+3*len(observed["steps"])
             price174_event(c,family,fr,"PRICE174_RESERVED",reservation)
             price174_event(c,journal,jr,"RESERVED",reservation)
             prior=old["authorization"]
@@ -3223,26 +3248,161 @@ PRICE174_RECOVERY_WINDOW=("2026-10-21T13:52:54Z","2026-10-21T14:02:29Z")
 PRICE174_RECOVERY_STORAGE=1024964
 
 
+PRICE174_665="31f96dfa046e1fc75e8bf50fab1ac9cd8dd56598"
+PRICE174_665_HEAD="8f6ead824fa6e688c8c4c7cc69809b838bde3036"
+PRICE174_665_TREE="c8f3b3b4703b051737700dc1eaf50d23b425ec23"
+PRICE174_665_PINS="5048be09c9b778fe1dabdc42cb124cf15647b03f06ffacf52b80ddd498374cac"
+PRICE174_665_EXEC="6d6e3e1a726d501019ba1de6742ffc1f10f38efbbc589fc2b2c191ae3d6036cd"
+PRICE174_665_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6324054795"
+PRICE174_665_PROOF="792bffceb38f991782db6f8b27e6b8c797e68b23799f2a1d6a83b2fa54f8e831"
+PRICE174_PREMETER_RUN=39659548948
+PRICE174_PREMETER_JOB=119429790697
+PRICE174_PREMETER_LOG="5e3d06b26f0a829d1f20334e0b0df0c878a5b3dbcdc661fb0f5111c344a3bc6e"
+PRICE174_PREMETER_JOBS="15e988cb10db07c2df64158aa0b7aeb9b940851a128e729f08ebe97d6664f88f"
+PRICE174_PREMETER_NONCE="d7a782bf1ce9b62e354e5fe8cc5bb91a22b71c0676bc23915eef587928735377"
+PRICE174_FAMILY93="7b778e28eba69a704a2af835d8f5eb87aacccd4020f5587e2a98d3a241dee077"
+PRICE174_COHORT17="0c6af40bb789a7124d7b1dbd3a667edbfbef167d8e7c1e9fae0eb1d32ad08045"
+
+
+def price174_historical(c,number,source,head,tree,digest,reason,*,strict=True):
+  pins={}
+  for path in V6_PINS:
+    value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={source}")
+    c.require(value.get("encoding")=="base64",reason)
+    try:pins[path]=c.digest(c.base64.b64decode(value.get("content",""),validate=False))
+    except Exception:raise c.Refused(reason) from None
+  c.require(c.digest(c.encoded(pins))==digest,reason)
+  pr=c.gh_json(f"repos/{c.REPO}/pulls/{number}")
+  c.require(pr.get("merged") is True and pr.get("draft") is False
+    and pr.get("merge_commit_sha")==source and pr.get("head",{}).get("sha")==head,reason)
+  if strict:
+    c.require(pr.get("number")==number and pr.get("base",{}).get("ref")=="master"
+      and all(pr.get(k,{}).get("repo",{}).get("full_name")==c.REPO for k in ("head","base")),reason)
+  for sha in (source,head):
+    value=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
+    c.require(value.get("tree",{}).get("sha")==tree,reason)
+  return pr
+
+
+def price174_665_historical(c,publication):
+  fixed=dict(expected_master=PRICE174_665,deployment=dict(pull_request=665,reviewed_head=PRICE174_665_HEAD),
+    code_pins_sha256=PRICE174_665_PINS)
+  c.require(publication==fixed,"PRICE_PREMETER_HISTORICAL_SOURCE")
+  price174_historical(c,665,PRICE174_665,PRICE174_665_HEAD,PRICE174_665_TREE,
+    PRICE174_665_PINS,"PRICE_PREMETER_HISTORICAL_SOURCE")
+  c.require(c.digest(c.encoded(price174_tree(c,PRICE174_665)))==PRICE174_665_EXEC,"PRICE_PREMETER_HISTORICAL_SOURCE")
+  named_read_checks(c,publication)
+
+
+def price174_premeter_payload(c,auth):
+  return dict(schema="a1-price174-premeter39659548948-cost-closure-v1",run_id=PRICE174_PREMETER_RUN,
+    run_attempt=1,source_sha=PRICE174_665,reviewed_head=PRICE174_665_HEAD,tree_sha=PRICE174_665_TREE,
+    execution_pins_sha256=PRICE174_665_EXEC,original_auth_sha256=PRICE174_ORIGIN_AUTH,
+    original_recovery_reference=PRICE174_665_REFERENCE,original_recovery_proof_sha256=PRICE174_665_PROOF,
+    nonce_sha256=PRICE174_PREMETER_NONCE,original_family93_sha256=PRICE174_FAMILY93,
+    original_cohort17_sha256=PRICE174_COHORT17,checkpoint_sha256=PRICE174_CP128,examined_after=128,
+    execution_window=auth["execution_window"],failure_log_sha256=PRICE174_PREMETER_LOG,
+    failure_log_bytes=126361,terminal_jobs_security_sha256=PRICE174_PREMETER_JOBS,
+    status="PREMETER_REFUSED",reason="NAMED_READ_GATE_LOG_PROCESS_EXIT",not_runtime_meter=True,
+    original_meter_sha256=None,usage={k:0 for k in c.LIMITS},active_seconds=261,dispatches=1,
+    active_seconds_after=11796,dispatches_after=36,usage_after=dict(PRICE174_RECOVERY_USED),
+    zero_io_basis="EXACT_DEPLOYED_SOURCE_ORDER_AND_POSITIVE_FAILURE_LOG",absence_is_zero_io_basis=False,
+    underlying_transport_reason="UNOBSERVED",total_platform_cost_verified=False,
+    capture_authorized=False,budget_reset=False,window_reset=False,source_admission=False,
+    pit_verified=False,economic_authority=False)
+
+
+def price174_premeter_failure(c,auth,run,transition):
+  c.require(transition.get("reference")==PRICE174_665_REFERENCE
+    and transition.get("proof_sha256")==PRICE174_665_PROOF
+    and transition.get("terms",{}).get("publication",{}).get("expected_master")==PRICE174_665,
+    "PRICE_PREMETER_HISTORICAL_GRANT")
+  c.require(type(run.get("id")) is int and run["id"]==PRICE174_PREMETER_RUN
+    and type(run.get("run_attempt")) is int and run["run_attempt"]==1
+    and run.get("head_sha")==PRICE174_665 and run.get("head_branch")=="master"
+    and run.get("workflow_id")==382519204 and run.get("path")==".github/workflows/alpaca_sip_private_backfill_v1.yml"
+    and run.get("repository",{}).get("full_name")==c.REPO
+    and run.get("head_repository",{}).get("full_name")==c.REPO
+    and run.get("event")=="workflow_dispatch" and run.get("status")=="completed"
+    and run.get("conclusion")=="failure" and isinstance(run.get("display_title"),str)
+    and run["display_title"].startswith("a1-sip ")
+    and c.digest(run["display_title"][7:].encode())==PRICE174_PREMETER_NONCE
+    and run.get("created_at")==run.get("run_started_at")=="2026-10-21T19:12:14Z"
+    and run.get("updated_at")=="2026-10-21T19:16:44Z"
+    and c.utc(transition["created_at_utc"])<=c.utc(run["created_at"])
+    <c.utc(auth["execution_window"]["expires_at_utc"]),"PRICE_PREMETER_RUN")
+  jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{PRICE174_PREMETER_RUN}/jobs?per_page=100")
+  c.require(c.digest(c.encoded(named_read30_job_security(jobs)))==PRICE174_PREMETER_JOBS
+    and jobs.get("total_count")==len(jobs.get("jobs",[]))==2,"PRICE_PREMETER_JOBS")
+  artifacts=c.gh_json(f"repos/{c.REPO}/actions/runs/{PRICE174_PREMETER_RUN}/artifacts?per_page=100")
+  c.require(artifacts.get("total_count")==0 and artifacts.get("artifacts")==[],"PRICE_PREMETER_ARTIFACTS")
+  raw=named_read_gate_log(c,PRICE174_PREMETER_JOB).encode("utf-8")
+  c.require(len(raw)==126361 and c.digest(raw)==PRICE174_PREMETER_LOG,"PRICE_PREMETER_LOG")
+  witness=b'2026-10-21T19:16:41.1865191Z {"status": "BLOCKED", "code": "NAMED_READ_GATE_LOG_PROCESS_EXIT", "source_admission": false}'
+  c.require(raw.count(witness)==1,"PRICE_PREMETER_WITNESS")
+  seconds=sum(c.math.ceil((c.utc(j["completed_at"])-c.utc(j["started_at"])).total_seconds()) for j in jobs["jobs"])
+  c.require(seconds==261,"PRICE_PREMETER_CLOCK")
+  return price174_premeter_payload(c,auth)
+
+
+def price174_premeter_terms(c,auth,publication,execution_pins_sha256,typed_settlement=None):
+  return dict(schema="a1-price174-premeter261-rebind-v1",task_key=PRICE174_TASK,
+    original_auth_sha256=PRICE174_ORIGIN_AUTH,original_recovery_reference=PRICE174_665_REFERENCE,
+    original_recovery_proof_sha256=PRICE174_665_PROOF,execution_window=auth["execution_window"],
+    scope=PRICE174_SCOPE,input_sha256=PRICE174_INPUT,checkpoint128_sha256=PRICE174_CP128,
+    premeter_closure_sha256=c.digest(c.encoded(price174_premeter_payload(c,auth))),
+    typed_settlement=typed_settlement,remaining_batches=[4,32,10],recovery_dispatch_limit=1,
+    recovery_provider_get_limit=0,usage_after_failure=dict(PRICE174_RECOVERY_USED),
+    active_seconds_after_failure=11796,dispatches_after_failure=36,
+    limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
+    publication=publication,execution_pins_sha256=execution_pins_sha256,
+    preserve_original_raw=True,budget_reset=False,window_reset=False,refund_authorized=False,
+    post_retry_authorized=False,unknown_post_retry_authorized=False,account_migration_authorized=False,
+    private_noncommercial_research_only=True,supplier_rights_verified=False,source_admission=False,
+    pit_verified=False,economic_authority=False)
+
+
+def price174_publication(c,terms,origin,floor,earliest,created,end,reason,*,verify=None):
+  publication=terms["publication"];deployment=publication.get("deployment") if isinstance(publication,dict) else None
+  c.require(isinstance(publication,dict) and set(publication)=={"expected_master","deployment","code_pins_sha256"}
+    and isinstance(deployment,dict) and set(deployment)=={"pull_request","reviewed_head"}
+    and type(deployment.get("pull_request")) is int and deployment["pull_request"]>floor,reason+"_SOURCE")
+  if verify:verify(c,publication)
+  else:named_read_deployed(c,publication,accounting=True)
+  pr=c.gh_json(f"repos/{c.REPO}/pulls/{deployment['pull_request']}")
+  c.require(isinstance(pr.get("merged_at"),str) and c.utc(earliest)<c.utc(pr["merged_at"])
+    <=c.utc(created)<c.utc(end),reason+"_CLOCK")
+  price174_descendant(c,origin,publication["expected_master"])
+  pins=price174_tree(c,publication["expected_master"])
+  c.require(c.digest(c.encoded(pins))==terms["execution_pins_sha256"],"PRICE174_RUNTIME_PINS")
+  return pins
+
+
+def price174_premeter_transition(c,auth,reference,comment):
+  window=auth["execution_window"]
+  terms,proof=human_record(c,comment,"A1_SP500174_PREMETER261_REBIND ",
+    window=(window["deployed_at_utc"],window["expires_at_utc"]))
+  c.require(isinstance(terms,dict) and comment.get("id")==int(reference.rsplit("-",1)[1]),"PRICE_PREMETER_GRANT")
+  publication=terms.get("publication");pins_sha=terms.get("execution_pins_sha256");settled=terms.get("typed_settlement")
+  c.require(settled is None or isinstance(settled,dict) and set(settled)=={"family95_sha256","cohort19_sha256"}
+    and all(isinstance(v,str) and c.re.fullmatch("[0-9a-f]{64}",v) for v in settled.values()),
+    "PRICE_PREMETER_SETTLEMENT")
+  c.require(c.encoded(terms)==c.encoded(price174_premeter_terms(c,auth,publication,pins_sha,settled)),"PRICE_PREMETER_GRANT")
+  prior=price174_transition(c,auth,PRICE174_665_REFERENCE,historical=True)
+  c.require(prior["proof_sha256"]==PRICE174_665_PROOF,"PRICE_PREMETER_HISTORICAL_GRANT")
+  pins=price174_publication(c,terms,PRICE174_665,665,"2026-10-21T19:16:44Z",
+    comment["created_at"],window["expires_at_utc"],"PRICE_PREMETER")
+  return dict(terms=terms,pins=pins,proof_sha256=c.digest(c.encoded(proof)),reference=reference,
+    created_at_utc=comment["created_at"],recovery=True,premeter261=True,settlement_only=settled is None,
+    prior_transition=prior)
+
+
 def price174_663_historical(c,publication):
     fixed=dict(expected_master=PRICE174_663,deployment=dict(pull_request=663,reviewed_head=PRICE174_663_HEAD),
         code_pins_sha256=PRICE174_663_PINS)
     c.require(publication==fixed,"PRICE_RECOVERY_HISTORICAL_SOURCE")
-    pins={}
-    for path in V6_PINS:
-        value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={PRICE174_663}")
-        c.require(value.get("encoding")=="base64","PRICE_RECOVERY_HISTORICAL_SOURCE")
-        try:pins[path]=c.digest(c.base64.b64decode(value.get("content",""),validate=False))
-        except Exception:raise c.Refused("PRICE_RECOVERY_HISTORICAL_SOURCE") from None
-    c.require(c.digest(c.encoded(pins))==PRICE174_663_PINS,"PRICE_RECOVERY_HISTORICAL_SOURCE")
-    pr=c.gh_json(f"repos/{c.REPO}/pulls/663")
-    c.require(pr.get("merged") is True and pr.get("draft") is False and pr.get("number")==663
-        and pr.get("merge_commit_sha")==PRICE174_663 and pr.get("head",{}).get("sha")==PRICE174_663_HEAD
-        and pr.get("base",{}).get("ref")=="master"
-        and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO
-        and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO,"PRICE_RECOVERY_HISTORICAL_SOURCE")
-    for sha in (PRICE174_663,PRICE174_663_HEAD):
-        value=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
-        c.require(value.get("tree",{}).get("sha")==PRICE174_663_TREE,"PRICE_RECOVERY_HISTORICAL_SOURCE")
+    price174_historical(c,663,PRICE174_663,PRICE174_663_HEAD,PRICE174_663_TREE,
+        PRICE174_663_PINS,"PRICE_RECOVERY_HISTORICAL_SOURCE")
     named_read_checks(c,publication)
 
 
@@ -3269,7 +3429,7 @@ def price174_recovery_fixed(c,auth):
         supplier_rights_verified=False,source_admission=False,pit_verified=False,economic_authority=False)
 
 
-def price174_recovery_transition(c,auth,reference,comment):
+def price174_recovery_transition(c,auth,reference,comment,*,historical=False):
     window=auth["execution_window"]
     terms,proof=human_record(c,comment,"A1_SP500174_SOURCE_RECOVERY ",
         window=(window["deployed_at_utc"],window["expires_at_utc"]))
@@ -3279,24 +3439,19 @@ def price174_recovery_transition(c,auth,reference,comment):
         and comment.get("id")==int(reference.rsplit("-",1)[1]),"PRICE_RECOVERY_GRANT")
     prior=price174_transition(c,auth,PRICE174_663_REFERENCE,historical=True)
     c.require(prior["proof_sha256"]==PRICE174_663_PROOF,"PRICE_RECOVERY_HISTORICAL_GRANT")
-    publication=terms["publication"]
-    c.require(isinstance(publication,dict) and set(publication)=={"expected_master","deployment","code_pins_sha256"}
-        and isinstance(publication.get("deployment"),dict)
-        and set(publication["deployment"])=={"pull_request","reviewed_head"}
-        and type(publication["deployment"].get("pull_request")) is int
-        and publication["deployment"]["pull_request"]>663,"PRICE_RECOVERY_SOURCE")
-    named_read_deployed(c,publication,accounting=True)
-    pr=c.gh_json(f"repos/{c.REPO}/pulls/{publication['deployment']['pull_request']}")
-    c.require(isinstance(pr.get("merged_at"),str) and c.utc(PRICE174_RECOVERY_WINDOW[1])<c.utc(pr["merged_at"])
-        <=c.utc(comment["created_at"])<c.utc(window["expires_at_utc"]),"PRICE_RECOVERY_CLOCK")
-    price174_descendant(c,PRICE174_663,publication["expected_master"])
-    pins=price174_tree(c,publication["expected_master"])
-    c.require(c.digest(c.encoded(pins))==terms["execution_pins_sha256"],"PRICE174_RUNTIME_PINS")
+    if historical:
+        c.require(reference==PRICE174_665_REFERENCE and c.digest(c.encoded(proof))==PRICE174_665_PROOF,
+            "PRICE_PREMETER_HISTORICAL_GRANT")
+    pins=price174_publication(c,terms,PRICE174_663,663,PRICE174_RECOVERY_WINDOW[1],
+        comment["created_at"],window["expires_at_utc"],"PRICE_RECOVERY",
+        verify=price174_665_historical if historical else None)
     return dict(terms=terms,pins=pins,proof_sha256=c.digest(c.encoded(proof)),reference=reference,
         created_at_utc=comment["created_at"],recovery=True,prior_transition=prior)
 
 
 def price174_transition_at(transition,index):
+    if transition and transition.get("premeter261") and index<6:
+        return price174_transition_at(transition["prior_transition"],index)
     return transition["prior_transition"] if transition and transition.get("recovery") and index<5 else transition
 
 
