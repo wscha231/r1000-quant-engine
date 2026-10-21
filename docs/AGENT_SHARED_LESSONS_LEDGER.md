@@ -7384,3 +7384,36 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+## 2026-10-18 - Connect supplied research without granting admission
+
+- Reuse the existing A2/A3/Registry/A8 and macro/hold-policy validators over
+  bounded original bytes with explicit hashes and availability clocks. Preserve
+  null ER and each BLOCKED/NOT_RUN stage; a successful synthetic connection is
+  not authenticated current selection, Source/PIT proof or A5 eligibility.
+- Publish each attempt to a new research namespace as one directory batch and
+  physically reread output hashes. Never return an older receipt after failure.
+  Checked minimum code pins and fixed source hashes do not authenticate the
+  complete executable dependency closure or a remote HEAD.
+
+## 2026-10-18 - Bound special-file reads and refuse publication races
+
+- Check regular-file type before open and use nonblocking POSIX open plus fstat
+  to reject a FIFO swapped into the path. A post-open check alone can hang.
+- Keep envelope/hash overhead inside the output budget. If a valid research
+  asset leaves insufficient space, return an explicit closed BLOCKED result
+  retaining only its hash; never truncate it into apparent success.
+- An existence check does not reserve a directory. Use an atomic no-replace
+  operation and fail closed when unsupported; preserve competing namespaces
+  and clean only the current invocation's staging directory after refusal.
+
+## 2026-10-18 - Separate prepared batches from returned readback acceptance
+
+- A published path is not durable ownership. Never recursively delete by that
+  path after failure: a watcher may have moved the batch and reserved the name.
+- Keep disk receipts explicitly UNACCEPTED/PREPARED_ONLY. Return acceptance
+  separately only after directory-identity and byte readback checks; a failed
+  moved batch cannot certify its own completion from stored bytes.
+- Without an anchored deletion capability, retain bounded failed artifacts for
+  explicit inspection instead of risking another process's directory. Identity
+  checks describe an instant, not a lock; later consumers recheck the receipt.
