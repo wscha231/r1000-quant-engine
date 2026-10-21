@@ -6470,18 +6470,10 @@ class HistoricalRevisionLoaderCompatibilityTests(unittest.TestCase):
 
 class GateLogPRTransportProbeTests(unittest.TestCase):
     def _execute_probe(self, body=b'fixture trusted log', error=b'', returncode=0, timeout=False, supports_flag=True):
-        import contextlib, subprocess, textwrap
-        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
-        block=workflow.split('      - name: Observe fixed gate-log transport with the Actions read token\n',1)[1].split('\n  capture:',1)[0]
-        self.assertIn("if: github.event_name == 'pull_request'",block)
-        self.assertIn('GH_TOKEN: ${{ github.token }}',block)
-        self.assertNotIn('secrets.',block)
-        script=textwrap.dedent(block.split("python - <<'PY'\n",1)[1].split('\n          PY',1)[0])
+        import contextlib, subprocess
+        from tools import alpaca_sip_source_revision as revision
         calls=[]
         def fake_run(args,**kwargs):
-            if args==['gh','--version']:
-                kwargs['stdout'].write(b'gh version 2.91.0 (fixture)\n')
-                return SimpleNamespace(returncode=0)
             if args==['gh','api','--help']:
                 self.assertEqual(kwargs['timeout'],10)
                 kwargs['stdout'].write(b'Usage: gh api'+(b' --allow-escape-sequences' if supports_flag else b''))
@@ -6497,18 +6489,36 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
             return SimpleNamespace(returncode=returncode)
         output=io.StringIO()
         with patch('subprocess.run',side_effect=fake_run),contextlib.redirect_stdout(output):
-            with self.assertRaises(SystemExit) as raised:exec(compile(script,'workflow-gate-probe','exec'),{})
+            responses=[revision.named_read_gate_transport(c,i) for i in (501,502)]
+        rows=[row for raw,row in responses]
+        self.assertTrue(all(raw==(body if row['reason']=='OK' else b'') for raw,row in responses))
+        self.assertEqual(output.getvalue(),'')
         self.assertEqual(calls,[['gh','api']+(['--allow-escape-sequences'] if supports_flag else [])+[
                                     'repos/wscha231/r1000-quant-engine/actions/jobs/'+str(i)+'/logs']
-                                for i in (118566905053,119037766237)])
-        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+                                for i in (501,502)])
         self.assertEqual(len(rows),2)
         for row in rows:
-            self.assertFalse(row['runtime_preflight'])
             self.assertFalse(row['raw_or_headers_emitted'])
-            self.assertEqual((row['provider_requests'],row['drive_requests'],row['campaign_dispatches']),(0,0,0))
             self.assertIsNone(row['hard_capture_byte_limit'])
-        return rows,raised.exception.code,output.getvalue()
+        return rows,any(row['reason']!='OK' for row in rows),json.dumps(rows)
+
+    def test_pr_validation_has_no_read_token_or_expiring_log_dependency(self):
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        paths=workflow.split('  pull_request:\n',1)[1].split('  workflow_dispatch:',1)[0]
+        self.assertIn("'tools/alpaca_sip_source_revision.py'",paths)
+        offline=workflow.split('  offline:\n',1)[1].split('  capture:',1)[0]
+        for forbidden in ('GH_TOKEN','GITHUB_TOKEN','secrets.','118566905053','119037766237','gh api'):
+            self.assertNotIn(forbidden,offline)
+        self.assertIn('persist-credentials: false',offline)
+        self.assertIn('python -O -m unittest discover -s tests -p alpaca_sip_private_backfill_v1_smoke.py',offline)
+        loader=(c.ROOT/'tests/alpaca_sip_private_backfill_v1_smoke.py').read_text(encoding='utf-8').split('def load_tests(',1)[1]
+        self.assertIn("with_name('alpaca_sip_campaign_smoke.py')",loader)
+
+    def test_history_implementation_is_in_always_authenticated_controller(self):
+        import inspect
+        self.assertIn('tools/alpaca_sip_campaign.py',c.PINS)
+        self.assertEqual(c.campaign_run_pages.__module__,c.__name__)
+        self.assertNotIn('alpaca_sip_source_revision',inspect.getsource(c.campaign_runs))
 
     def test_success_reports_hashes_without_log_body(self):
         body=b'SOURCE_LOG_PRIVATE_BODY_CANARY'

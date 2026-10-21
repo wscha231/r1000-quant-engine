@@ -587,8 +587,34 @@ def gh_json(path):
     return decode(raw)
 
 
+def campaign_run_pages(c):
+    """Complete metadata in the always-pinned controller, including legacy v1/v2."""
+    path=f"repos/{c.REPO}/actions/workflows/{c.WORKFLOW}/runs?"+c.urlencode(
+        dict(created=">=2026-10-14",per_page=100))
+    first=c.gh_json(path)
+    total=first.get("total_count")
+    c.require(type(total) is int and 0<=total<=1000,"CAMPAIGN_HISTORY_INCOMPLETE")
+    rows=[]
+    for page in range(1,max(1,(total+99)//100)+1):
+        payload=first if page==1 else c.gh_json(path+"&page="+str(page))
+        values=payload.get("workflow_runs")
+        c.require(payload.get("total_count")==total and isinstance(values,list)
+            and len(values)==min(100,total-len(rows)),"CAMPAIGN_HISTORY_INCOMPLETE")
+        rows.extend(values)
+    c.require(all(isinstance(row,dict) and type(row.get("id")) is int and row["id"]>0 for row in rows)
+        and len({row["id"] for row in rows})==total,"CAMPAIGN_HISTORY_INCOMPLETE")
+    if total>100:
+        # A new run during pagination can shift every subsequent page.
+        again=c.gh_json(path)
+        c.require(again.get("total_count")==total and isinstance(again.get("workflow_runs"),list)
+            and len(again["workflow_runs"])==len(first["workflow_runs"])
+            and all(isinstance(r,dict) for r in again["workflow_runs"])
+            and [r.get("id") for r in again["workflow_runs"]]
+                ==[r["id"] for r in first["workflow_runs"]],"CAMPAIGN_HISTORY_DRIFT")
+    return rows
+
+
 def campaign_runs(floor=None):
-    from tools.alpaca_sip_source_revision import campaign_run_pages
     all_runs = campaign_run_pages(sys.modules[__name__])
     runs = [r for r in all_runs if
             isinstance(r.get("display_title"), str) and r["display_title"].startswith("a1-sip " + PREFIX)]
