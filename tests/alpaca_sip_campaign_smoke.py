@@ -6479,7 +6479,8 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
                 kwargs['stdout'].write(b'Usage: gh api'+(b' --allow-escape-sequences' if supports_flag else b''))
                 return SimpleNamespace(returncode=0)
             calls.append(args)
-            self.assertEqual(kwargs['timeout'],45)
+            self.assertGreater(kwargs['timeout'],0)
+            self.assertLessEqual(kwargs['timeout'],45)
             self.assertIsNotNone(kwargs['stdout'])
             self.assertNotEqual(kwargs['stdout'],subprocess.PIPE)
             self.assertNotEqual(kwargs['stderr'],subprocess.PIPE)
@@ -6586,6 +6587,88 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
                 self.assertEqual(called.call_count,1)
                 self.assertNotIn('PRIVATE_HELP_CANARY',str(error.exception))
 
+
+
+class GateLogSingleBudgetTests(unittest.TestCase):
+    """Private synthetic CLI responses; no GitHub token/network dependency."""
+    def execute(self,outcomes,*,help_seconds=1,open_expiry=False,broken_stderr=False):
+        from tools import alpaca_sip_source_revision as s
+        import contextlib
+        now=[0.0];calls=[];sleeps=[];opens=[0];real_temp=c.tempfile.TemporaryFile
+        def temporary(*a,**kw):
+            opens[0]+=1
+            if open_expiry and opens[0]==3:now[0]=46
+            return real_temp(*a,**kw)
+        def sleep(seconds):sleeps.append(seconds);now[0]+=seconds
+        def run(argv,**kw):
+            if argv==["gh","api","--help"]:
+                now[0]+=help_seconds;kw["stdout"].write(b"--allow-escape-sequences")
+                return SimpleNamespace(returncode=0)
+            index=len(calls);calls.append(kw["timeout"])
+            seconds,body,error,code=outcomes[min(index,len(outcomes)-1)]
+            now[0]+=seconds;kw["stdout"].write(body);kw["stderr"].write(error)
+            if code=="timeout":raise c.subprocess.TimeoutExpired(argv,kw["timeout"])
+            if code=="error":raise OSError("PRIVATE_EXCEPTION_CANARY")
+            return SimpleNamespace(returncode=code)
+        class Broken:
+            def write(self,*a):raise OSError("PRIVATE_SINK_CANARY")
+            def flush(self):raise OSError("PRIVATE_SINK_CANARY")
+        stderr=Broken() if broken_stderr else io.StringIO()
+        error=None;body=None
+        with patch.object(c.time,"monotonic",side_effect=lambda:now[0]),patch.object(c.time,"sleep",side_effect=sleep),\
+             patch.object(c.tempfile,"TemporaryFile",side_effect=temporary),patch.object(c.subprocess,"run",side_effect=run),\
+             contextlib.redirect_stderr(stderr):
+            try:body=s.named_read_gate_log(c,501).encode()
+            except c.Refused as exc:error=str(exc)
+        return dict(body=body,error=error,time=now[0],calls=calls,sleeps=sleeps,
+            diagnostic="" if broken_stderr else stderr.getvalue())
+
+    def test_three_idempotent_gets_share_help_backoff_and_process_budget(self):
+        body=b'\xef\xbb\xbf\x1b[36moriginal\x1b[0m\r\n'
+        value=self.execute([(2,b"",b"gh HTTP 503",1),(3,b"",b"transient PRIVATE_CANARY",1),(1,body,b"",0)])
+        self.assertIsNone(value["error"]);self.assertEqual(value["body"],body)
+        self.assertEqual(value["calls"],[44,41,36]);self.assertEqual(value["sleeps"],[1,2])
+        self.assertEqual(value["time"],10);self.assertEqual(value["diagnostic"],"")
+
+    def test_never_gets_after_temp_open_or_help_consumes_whole_budget(self):
+        for kw in (dict(open_expiry=True),dict(help_seconds=45)):
+            with self.subTest(kw=kw):
+                value=self.execute([(1,b"valid",b"",0)],**kw)
+                self.assertEqual(value["calls"],[]);self.assertEqual(value["error"],"NAMED_READ_GATE_LOG_TIMEOUT")
+
+    def test_retry_never_restarts_or_overspends_total_timeout(self):
+        value=self.execute([(30,b"",b"HTTP 503",1),(4,b"",b"", "timeout")],help_seconds=10)
+        self.assertEqual(value["calls"],[35,4]);self.assertEqual(value["sleeps"],[1]);self.assertEqual(value["time"],45)
+        self.assertEqual(value["error"],"NAMED_READ_GATE_LOG_TIMEOUT")
+        late=self.execute([(45,b"valid",b"",0)])
+        self.assertEqual(late["error"],"NAMED_READ_GATE_LOG_TIMEOUT");self.assertIsNone(late["body"])
+
+    def test_auth_permission_rate_escape_utf8_size_process_failures_do_not_retry(self):
+        cases=[(b"",f"HTTP {code}".encode(),1,"PROCESS_EXIT") for code in (401,403,404,429)]
+        cases += [(b"",b"authentication required; please run gh auth login",1,"AUTH_OR_PERMISSION"),
+            (b"",b"permission denied",1,"AUTH_OR_PERMISSION"),
+            (b"",b"API rate limit exceeded HTTP 503",1,"RATE_LIMIT"),
+            (b"",b"Resource not accessible by integration HTTP 503",1,"INTEGRATION_FORBIDDEN"),
+            (b"",b"the response contains terminal escape sequences",1,"CLI_ESCAPE_GUARD"),
+            (b"\xff",b"HTTP 503",1,"UTF8"),(b"x"*2000001,b"HTTP 503",1,"BODY_TOO_LARGE"),
+            (b"valid",b"x"*8193,1,"STDERR_TOO_LARGE"),(b"",b"", "timeout","TIMEOUT"),
+            (b"",b"", "error","PROCESS_ERROR")]
+        for body,error,code,reason in cases:
+            with self.subTest(reason=reason,error=error[:50]):
+                value=self.execute([(1,body,error,code)])
+                self.assertEqual(value["error"],"NAMED_READ_GATE_LOG_"+reason)
+                self.assertEqual(len(value["calls"]),1);self.assertEqual(value["sleeps"],[])
+
+    def test_three_attempt_cap_and_diagnostic_never_print_private_response(self):
+        value=self.execute([(1,b"PRIVATE_BODY_CANARY",b"PRIVATE_TOKEN_CANARY Location: https://private.invalid HTTP 503",1)])
+        self.assertEqual(len(value["calls"]),3);self.assertEqual(value["sleeps"],[1,2])
+        diagnostic=json.loads(value["diagnostic"])
+        self.assertEqual(diagnostic["reason"],"PROCESS_EXIT");self.assertEqual(len(diagnostic["attempts"]),3)
+        self.assertEqual(diagnostic["job_id"],501);self.assertFalse(diagnostic["raw_or_headers_emitted"])
+        for secret in ("PRIVATE_BODY_CANARY","PRIVATE_TOKEN_CANARY","Location:","https://","private.invalid"):
+            self.assertNotIn(secret,value["diagnostic"])
+        broken=self.execute([(1,b"",b"HTTP 403",1)],broken_stderr=True)
+        self.assertEqual(broken["error"],"NAMED_READ_GATE_LOG_PROCESS_EXIT")
 
 
 class NamedRead30PremeterClosureTests(unittest.TestCase):
@@ -7831,5 +7914,240 @@ class Price174NamedRecoveryHistoryTests(unittest.TestCase):
         self.proof["transition"]=self.old_transition
         stopped=self.history(5);self.assertTrue(stopped["terminal_blocked"]);self.assertEqual(stopped["examined"],128)
         with self.assertRaises(c.Refused):self.history(6,current=True)
+
+class Price174PremeterAuthorityTests(unittest.TestCase):
+    bind_event=Price174SourceTransitionTests.bind_event
+    rebind_metadata=Price174SourceTransitionTests.rebind_metadata
+    payload=Price174SourceTransitionTests.payload
+    event=Price174SourceTransitionTests.event
+
+    def setUp(self):
+        Price174SourceTransitionTests.setUp(self)
+        self.terms=self.s.price174_premeter_terms(c,self.auth,self.publication,c.digest(c.encoded(self.pins)))
+        self.prior=dict(reference=self.s.PRICE174_665_REFERENCE,proof_sha256=self.s.PRICE174_665_PROOF)
+
+    def grant(self,**changes):
+        terms=dict(self.terms,**changes)
+        comment=dict(self.comment,body="A1_SP500174_PREMETER261_REBIND "+c.encoded(terms).decode())
+        with patch.object(self.s,"price174_transition",return_value=self.prior) as historical,\
+             patch.object(self.s,"named_read_deployed") as current,patch.object(self.s,"price174_descendant"),\
+             patch.object(self.s,"price174_tree",return_value=self.pins),\
+             patch.object(c,"gh_json",return_value=dict(merged_at="2026-10-22T10:03:00Z")):
+            value=self.s.price174_premeter_transition(c,self.auth,self.reference,comment)
+            historical.assert_called_once_with(c,self.auth,self.s.PRICE174_665_REFERENCE,historical=True)
+            current.assert_called_once_with(c,self.publication,accounting=True)
+            return value
+
+    def test_settlement_only_then_hash_bound_continuation_keeps_original_caps_and_window(self):
+        value=self.grant();self.assertTrue(value["settlement_only"]);self.assertTrue(value["premeter261"])
+        terms=value["terms"];self.assertEqual(terms["execution_window"],self.auth["execution_window"])
+        self.assertEqual(terms["active_seconds_after_failure"],11796);self.assertEqual(terms["dispatches_after_failure"],36)
+        self.assertEqual(terms["limits"],c.CONTINUED_LIMITS);self.assertEqual(terms["remaining_batches"],[4,32,10])
+        self.assertLess(len(c.encoded(terms)),4096)
+        ready=self.grant(typed_settlement=dict(family95_sha256="1"*64,cohort19_sha256="2"*64))
+        self.assertFalse(ready["settlement_only"])
+        for private in ("fixture-root","fixture-data","fixture-secret",self.auth["prior_control_zlib"]):
+            self.assertNotIn(private,c.encoded(terms).decode())
+
+    def test_cannot_reset_costs_rearm_window_borrow_source_or_forge_settlement(self):
+        for key,value in (("active_seconds_after_failure",11535),("dispatches_after_failure",35),
+                ("premeter_closure_sha256","0"*64),("recovery_provider_get_limit",1),("remaining_batches",[32,14]),
+                ("window_reset",True),("budget_reset",True),("supplier_rights_verified",True),
+                ("execution_window",dict(self.auth["execution_window"],expires_at_utc="2026-10-24T10:00:00Z")),
+                ("typed_settlement",{}),("typed_settlement",dict(family95_sha256="bad",cohort19_sha256="2"*64))):
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.grant(**{key:value})
+        self.prior["proof_sha256"]="0"*64
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_HISTORICAL_GRANT"):self.grant()
+
+
+class Price174PremeterEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        from tools import alpaca_sip_source_revision as s
+        self.s=s
+        self.auth=dict(execution_window=dict(deployed_at_utc="2026-10-21T10:27:25Z",expires_at_utc="2026-10-22T10:27:25Z"))
+        self.transition=dict(reference=s.PRICE174_665_REFERENCE,proof_sha256=s.PRICE174_665_PROOF,
+            terms=dict(publication=dict(expected_master=s.PRICE174_665)),created_at_utc="2026-10-21T18:57:38Z")
+        nonce=c.PREFIX+"a"*24
+        patch.object(s,"PRICE174_PREMETER_NONCE",c.digest(nonce.encode())).start()
+        self.addCleanup(patch.stopall)
+        self.run=dict(id=s.PRICE174_PREMETER_RUN,run_attempt=1,head_sha=s.PRICE174_665,head_branch="master",
+            workflow_id=382519204,path=".github/workflows/alpaca_sip_private_backfill_v1.yml",
+            repository=dict(full_name=c.REPO),head_repository=dict(full_name=c.REPO),
+            event="workflow_dispatch",status="completed",conclusion="failure",display_title="a1-sip "+nonce,
+            created_at="2026-10-21T19:12:14Z",run_started_at="2026-10-21T19:12:14Z",updated_at="2026-10-21T19:16:44Z")
+        self.jobs=dict(total_count=2,jobs=[
+            dict(id=119428677162,name="offline",conclusion="success",status="completed",
+                started_at="2026-10-21T19:12:19Z",completed_at="2026-10-21T19:14:26Z"),
+            dict(id=s.PRICE174_PREMETER_JOB,name="capture",conclusion="failure",status="completed",
+                started_at="2026-10-21T19:14:29Z",completed_at="2026-10-21T19:16:43Z",steps=[
+                    dict(name="Collect immutable owner-only Alpaca history",status="completed",conclusion="failure",
+                        started_at="2026-10-21T19:15:49Z",completed_at="2026-10-21T19:16:41Z")])])
+        for job in self.jobs["jobs"]:job.update(run_id=s.PRICE174_PREMETER_RUN,head_sha=s.PRICE174_665,head_branch="master")
+        patch.object(s,"PRICE174_PREMETER_JOBS",c.digest(c.encoded(s.named_read30_job_security(self.jobs)))).start()
+        witness=b'2026-10-21T19:16:41.1865191Z {"status": "BLOCKED", "code": "NAMED_READ_GATE_LOG_PROCESS_EXIT", "source_admission": false}\n'
+        self.raw=b'\xef\xbb\xbf'+b'x'*(126361-len(witness)-4)+b'\n'+witness
+        self.assertEqual(len(self.raw),126361)
+        patch.object(s,"PRICE174_PREMETER_LOG",c.digest(self.raw)).start()
+        self.artifacts=dict(total_count=0,artifacts=[])
+
+    def evaluate(self,run=None,jobs=None,raw=None,artifacts=None,transition=None):
+        def gh(path):
+            if "/jobs?" in path:return self.jobs if jobs is None else jobs
+            if "/artifacts?" in path:return self.artifacts if artifacts is None else artifacts
+            raise AssertionError("UNEXPECTED_SOURCE_REQUEST")
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_gate_log",
+                return_value=(self.raw if raw is None else raw).decode("utf-8")):
+            return self.s.price174_premeter_failure(c,self.auth,self.run if run is None else run,
+                self.transition if transition is None else transition)
+
+    def test_positive_original_clock_precision_gives_typed_cost_and_no_synthetic_meter(self):
+        value=self.evaluate()
+        self.assertEqual(value["active_seconds"],261);self.assertEqual(value["active_seconds_after"],11796)
+        self.assertEqual(value["dispatches_after"],36);self.assertTrue(value["not_runtime_meter"])
+        self.assertEqual(value["usage"],{k:0 for k in c.LIMITS});self.assertIsNone(value["original_meter_sha256"])
+        self.assertFalse(value["absence_is_zero_io_basis"]);self.assertEqual(value["status"],"PREMETER_REFUSED")
+        self.assertFalse(value["capture_authorized"]);self.assertFalse(value["total_platform_cost_verified"])
+
+    def test_wrong_run_source_attempt_owner_workflow_nonce_and_clocks_refuse(self):
+        for key,value in (("id",39659548949),("run_attempt",2),("head_sha","f"*40),("head_branch","other"),
+                ("workflow_id",1),("path","wrong"),("repository",dict(full_name="other/repo")),
+                ("event","pull_request"),("status","in_progress"),("conclusion","success"),
+                ("display_title","a1-sip "+c.PREFIX+"b"*24),("created_at","2026-10-21T19:12:15Z"),
+                ("run_started_at","2026-10-21T19:12:15Z"),("updated_at","2026-10-21T19:16:45Z")):
+            with self.subTest(key=key),self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_RUN"):
+                self.evaluate(run=dict(self.run,**{key:value}))
+        for key,value in (("reference","wrong"),("proof_sha256","f"*64),("terms",dict(publication=dict(expected_master="f"*40)))):
+            with self.subTest(key=key),self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_HISTORICAL_GRANT"):
+                self.evaluate(transition=dict(self.transition,**{key:value}))
+
+    def test_missing_log_wrong_code_jobs_and_artifacts_never_become_zero_cost(self):
+        for raw in (b"",self.raw[:-1],self.raw.replace(b"PROCESS_EXIT",b"OTHER_REASON")):
+            with self.subTest(raw_sha=c.digest(raw)),self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_LOG"):
+                self.evaluate(raw=raw)
+        for key,value in (("completed_at","2026-10-21T19:16:44Z"),("conclusion","success")):
+            jobs=copy.deepcopy(self.jobs);jobs["jobs"][1][key]=value
+            with self.subTest(key=key),self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_JOBS"):
+                self.evaluate(jobs=jobs)
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_ARTIFACTS"):
+            self.evaluate(artifacts=dict(total_count=1,artifacts=[{}]))
+
+
+class Price174PremeterHistoryTests(unittest.TestCase):
+    bind_event=Price174NamedRecoveryHistoryTests.bind_event
+    rebind_metadata=Price174NamedRecoveryHistoryTests.rebind_metadata
+    payload=Price174NamedRecoveryHistoryTests.payload
+
+    def setUp(self):
+        Price174NamedRecoveryHistoryTests.setUp(self)
+        self.clock=c.utc("2026-10-22T11:06:00Z")
+        previous=self.new_transition
+        previous.update(reference=self.s.PRICE174_665_REFERENCE,proof_sha256=self.s.PRICE174_665_PROOF)
+        previous["terms"]["publication"]["expected_master"]=self.s.PRICE174_665
+        typed=self.s.price174_premeter_payload(c,self.auth)
+        self.typed=typed
+        self.new_transition=dict(proof_sha256="f"*64,reference="premeter-reference",created_at_utc="2026-10-22T11:03:00Z",
+            terms=dict(publication=dict(expected_master="f"*40),premeter_closure_sha256=c.digest(c.encoded(typed)),
+                typed_settlement=dict(family95_sha256="1"*64,cohort19_sha256="2"*64)),
+            recovery=True,premeter261=True,settlement_only=False,prior_transition=previous)
+        self.proof["transition"]=self.new_transition
+        failed=dict(self.rows[34],id=self.s.PRICE174_PREMETER_RUN,head_sha=self.s.PRICE174_665,
+            created_at="2026-10-22T11:02:00Z",display_title="a1-sip "+c.PREFIX+"a"*24)
+        self.rows.insert(35,failed)
+        for run in self.rows[36:]:
+            run.update(head_sha="f"*40,created_at="2026-10-22T11:04:00Z")
+            value=self.receipts[run["id"]]
+            value.update(source_sha="f"*40,source_transition_proof_sha256="f"*64,
+                source_transition_reference_sha256=c.digest(b"premeter-reference"),source_publication_sha="f"*40)
+            if "price174_reuse" in value:
+                value["price174_reuse"].update(derivation_source_sha="f"*40,derivation_proof_sha256="f"*64,
+                    derived_at_utc="2026-10-22T11:04:10Z")
+
+    def history(self,count,*,current=False):
+        with patch.object(self.s,"price174_premeter_failure",return_value=copy.deepcopy(self.typed)) as closed:
+            result=Price174NamedRecoveryHistoryTests.history(self,count,current=current)
+            self.assertEqual(closed.call_count,1)
+            self.assertEqual(closed.call_args.args[3]["reference"],self.s.PRICE174_665_REFERENCE)
+            return result
+
+    def test_typed_missing_meter_cost_and_step_indices_remain_separate(self):
+        before=self.history(6)
+        self.assertEqual(len(before["receipts"]),5);self.assertEqual(len(before["durations"]),5)
+        self.assertEqual(len(before["steps"]),6);self.assertEqual(len(before["all_runs"]),36)
+        self.assertEqual(before["used"],self.s.PRICE174_RECOVERY_USED);self.assertEqual(before["active_seconds"],11796)
+        self.assertEqual(before["examined"],128);self.assertFalse(before["terminal_blocked"])
+        self.assertTrue(before["steps"][5]["value"]["not_runtime_meter"])
+        self.assertIsNone(before["steps"][5]["value"]["original_meter_sha256"])
+        self.assertEqual(self.s.price174_batch_size(before),4)
+        self.assertTrue(self.s.price174_forecast(c,before)["fits"])
+        self.assertEqual(self.history(7,current=True)["active_seconds"],11796)
+        final=self.history(9)
+        self.assertEqual(final["examined"],174);self.assertEqual(len(final["all_runs"]),39)
+        self.assertEqual(len(final["receipts"]),8);self.assertEqual(len(final["steps"]),9)
+        self.assertEqual(final["active_seconds"],12396)
+        self.assertEqual(final["new_states"]["VALID_COLLECTED"],174)
+
+    def test_settlement_only_record_cannot_authorize_even_current_next_run(self):
+        self.new_transition.update(settlement_only=True)
+        before=self.history(6);self.assertTrue(before["terminal_blocked"])
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_SETTLEMENT_ONLY"):self.history(7,current=True)
+
+    def test_changed_premeter_prefix_payload_or_extra_recovery_refuses(self):
+        self.rows[35]["id"]+=1
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_PREFIX"):self.history(6)
+        self.rows[35]["id"]-=1
+        self.typed["active_seconds"]=0
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_CLOSURE"):self.history(6)
+        self.typed["active_seconds"]=261
+        self.receipts[50000000007]["recovery_run"]=self.s.PRICE174_RECOVERY_RUN
+        with self.assertRaisesRegex(c.Refused,"PRICE174_RECEIPT"):self.history(8)
+
+    def test_typed_counterpart_crash_reopens_once_without_meter_or_duplicate_debit(self):
+        observed=self.history(6);self.new_transition["settlement_only"]=True
+        family=c.WorkJournal(self.root/"premeter-family","a"*64)
+        journal=c.WorkJournal(self.root/"premeter-cohort","b"*64)
+        self.addCleanup(family.close);self.addCleanup(journal.close)
+        for _ in range(77):family.append("BASIS")
+        journal.append("BASIS")
+        h=self.s.price174_hash(c,self.auth)
+        for index,step in enumerate(observed["steps"]):
+            run=step["run"];nonce=run["display_title"][7:]
+            payload=dict(nonce=nonce,remaining=step["remaining"],active_seconds_remaining=step["active_remaining"],
+                parent_checkpoint_sha256=step["parent_sha"],capture_auth_sha256=h,scope=self.s.PRICE174_SCOPE)
+            if index>=3:
+                payload.update(source_transition_proof_sha256=self.s.price174_transition_at(self.new_transition,index)["proof_sha256"],
+                    source_sha=run["head_sha"])
+            family.append("PRICE174_RESERVED",**payload);journal.append("RESERVED",**payload)
+            if index<5:
+                partial=dict(observed,steps=observed["steps"][:index+1])
+                self.s.price174_reconcile(c,family,journal,self.auth,partial)
+        patch.object(self.s,"PRICE174_FAMILY93",c.digest((family.directory/"000093.json").read_bytes())).start()
+        patch.object(self.s,"PRICE174_COHORT17",c.digest((journal.directory/"000017.json").read_bytes())).start()
+        original={p.name:p.read_bytes() for p in family.directory.glob("*.json")}
+        real_append=family.append
+        def fail(kind,**payload):
+            if kind=="PRICE174_PREMETER261_SETTLED":raise OSError("synthetic barrier failure")
+            return real_append(kind,**payload)
+        with patch.object(family,"append",side_effect=fail),self.assertRaisesRegex(OSError,"barrier"):
+            self.s.price174_reconcile(c,family,journal,self.auth,observed)
+        self.assertEqual(len(family.entries),94);self.assertEqual(len(journal.entries),19)
+        family.close();journal.close()
+        family=c.WorkJournal(self.root/"premeter-family","a"*64)
+        journal=c.WorkJournal(self.root/"premeter-cohort","b"*64)
+        self.addCleanup(family.close);self.addCleanup(journal.close)
+        self.s.price174_reconcile(c,family,journal,self.auth,observed)
+        self.assertEqual(len(family.entries),95);self.assertEqual(len(journal.entries),19)
+        entry=family.entries[-1];self.assertEqual(entry["active_seconds"],261);self.assertEqual(entry["dispatches"],1)
+        self.assertTrue(entry["not_runtime_meter"]);self.assertIsNone(entry["original_meter_sha256"])
+        self.assertNotIn("receipt_sha256",entry)
+        before=(family.parent,journal.parent)
+        self.new_transition.update(settlement_only=False)
+        self.new_transition["terms"]["typed_settlement"]=dict(family95_sha256=family.parent,cohort19_sha256=journal.parent)
+        self.s.price174_reconcile(c,family,journal,self.auth,observed)
+        self.assertEqual((family.parent,journal.parent),before)
+        for name,raw in original.items():self.assertEqual((family.directory/name).read_bytes(),raw)
+        self.new_transition["terms"]["typed_settlement"]["family95_sha256"]="0"*64
+        with self.assertRaisesRegex(c.Refused,"PRICE_PREMETER_SETTLEMENT"):
+            self.s.price174_reconcile(c,family,journal,self.auth,observed)
+
 
 if __name__=='__main__': unittest.main()

@@ -7572,3 +7572,25 @@ changes. Verify successful completion, the expected attached branch, clean
 status and exact scoped diff before pushing with an explicit remote-head lease.
 Publishing the base can close the PR as empty; preserve/reapply its original
 commits and reopen that same PR rather than replacing its review history.
+
+### 2026-10-22 — Missing meter needs positive failure evidence and typed costs
+
+Source665 recovery39659548948 failed in genuine GitHub log retrieval before
+RuntimeMeter, with original stderr/HTTP cause unobserved. Preserve its missing
+meter. Exact deployed code/import closures plus the original positive failure
+log prove only Source-controlled provider/Drive I/O zero; artifact absence is
+not zero-cost proof. Retain actual261 job seconds and one dispatch separately
+from five existing meter receipts, immutable reservations, CP128 and old costs.
+
+Authenticate an old protected Source independently of new local bytes. Close
+the exact refusal once through typed journal counterparts; a partial durable
+write must repair idempotently. A current protected publication and fresh
+immutable OWNER rebind must separately authorize continuation, binding actual
+closure hashes without resetting the original expiry or resource ceilings.
+
+For bounded CLI log retrieval, include feature detection, file-open latency,
+backoff and every subprocess in one monotonic deadline. Recompute immediately
+before spawn; prefer explicit auth/encoding/size failures over unknown-exit
+retry. Emit only safe reason/count/hash diagnostics, and preserve the original
+Refused code if even the diagnostic sink fails. Successful mock retries do not
+identify the actual old transport cause or prove operational capture readiness.

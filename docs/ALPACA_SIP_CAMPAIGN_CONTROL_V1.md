@@ -1565,3 +1565,54 @@ POST, provider, OAuth, media,429 or permission-error retry. Legacy workers and
 the collector/workflow/deadline/budget arithmetic stay unchanged. Synthetic
 tests and Source publication alone do not prove actual restoration/capture,
 supplier rights, PIT admission or investment readiness.
+
+### Exact Source665 recovery refusal before RuntimeMeter
+
+The original one-shot recovery run39659548948/attempt1 on Source31f96dfa
+terminated before RuntimeMeter with NAMED_READ_GATE_LOG_PROCESS_EXIT. Its
+original UTF-8 BOM log is126361B, SHA256
+5e3d06b26f0a829d1f20334e0b0df0c878a5b3dbcdc661fb0f5111c344a3bc6e.
+The exact reviewed Source665 seven-file/import and19-file execution closures,
+positive timestamped failure record and terminal job clocks prove zero
+Source-controlled provider/Drive/transfer/new-storage I/O. Artifact absence
+alone proves no such thing. Original stderr/HTTP cause remains UNOBSERVED;
+GitHub and runner resources remain real, with127+134=261 seconds and one
+dispatch. Preserve the missing RuntimeMeter and CP128 without a synthetic meter.
+
+Authenticate historical Source665 at31f96dfa/8f6ead82/treec8f3b3b4 remotely,
+including its genuine gate, independently of new local code. Keep its immutable
+original OWNER recovery grant and original family93/cohort17 reservation bytes.
+Only this exact named failure may receive assigned94/18 and typed
+PRICE174_PREMETER261_SETTLED/PREMETER261_SETTLED95/19 under existing journal
+locks. The typed closure binds the raw log, security projection of actual jobs,
+nonce hash, old publication/grant, original CP/auth/window and261 seconds/+1
+dispatch. It is not a RuntimeMeter or a completed price batch. A counterpart
+write failure must resume once without rewriting or charging twice.
+
+A separately protected current Source and immutable OWNER
+A1_SP500174_PREMETER261_REBIND record are required. First use a settlement-only
+record with typed_settlement=null: it can close actual costs but cannot dispatch.
+After actual95/19 exist, a fresh immutable record binds both real byte hashes
+and the same typed closure. The host must verify both hashes before any POST.
+Workers authenticate the same fixed failure and original historical publication;
+they cannot substitute current code or missing logs for that evidence.
+
+Keep five ordinary meter receipts and their five durations distinct from the
+sixth typed history step. New reserve/assigned/settled triples use actual step
+count, while price progress, samples and max-batches use actual meter receipts.
+The only permitted suffix is one new provider-zero original4 restoration,
+then ordinary32 and10, occupying family96..104/cohort20..28: final39/40 dispatches
+if successful. All original resources remain spent, active total becomes11796
+before the suffix, and the original2026-10-22T10:27:25Z exclusive expiry and
+every cumulative cap stay unchanged. Other failures/recoveries still stop.
+
+Genuine GitHub job-log reads share one45-second monotonic process budget,
+including help feature detection, private spool creation and backoff. At most
+three idempotent GET attempts use one/two-second backoff only for unknown CLI
+process exits or explicit500/502/503/504. Recompute remaining time immediately
+before each process; never begin another GET after expiry. Known auth/permission,
+rate-limit, escape-guard, encoding/size/help/process/timeout failures do not retry.
+No raw stdout/stderr/body/headers/URLs or credentials enter the diagnostic:
+only enums, counts, hashes, HTTP/return status, attempt count and public job ID.
+Preserve original BOM/ANSI/UTF-8 bytes and genuine gate parsing. This adds no
+provider/Drive/POST/OAuth/media retry and cannot establish the old unknown cause.
