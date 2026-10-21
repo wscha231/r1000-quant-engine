@@ -7548,6 +7548,13 @@ class Price174Http500RecoveryTests(unittest.TestCase):
     def patch(self,target,name,*args,**kwargs):
         p=patch.object(target,name,*args,**kwargs);value=p.start();self.addCleanup(p.stop);return value
 
+    def test_execution_sources_fit_the_unchanged_guard_under_lf_and_windows_crlf(self):
+        for path in self.s.V6_PINS:
+            raw=(c.ROOT/path).read_bytes().replace(b"\r\n",b"\n")
+            with self.subTest(path=path):
+                self.assertLessEqual(len(raw),262144)
+                self.assertLessEqual(len(raw.replace(b"\n",b"\r\n")),262144)
+
     def reset_raw(self):
         raw=cap.zip_bytes(dict(self.members,**{"capture.json":c.encoded(self.manifest)}))
         self.store["fixture-original-raw"]=raw;self.suffix["fixture-original-raw"]=".zip"

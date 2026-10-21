@@ -1,8 +1,7 @@
-"""Finite private SIP campaign control; no source or economic admission.
+"""Finite private SIP control; no source/economic admission.
 
-The Work host reserves all remaining allowance before dispatch. A worker derives
-remaining allowance independently from canonical same-campaign Actions receipts.
-An unknown outcome cannot release a reservation or start another worker.
+Host reserves before dispatch; workers derive allowance from canonical receipts.
+Unknown outcomes retain reservations and block new workers.
 """
 from __future__ import annotations
 
