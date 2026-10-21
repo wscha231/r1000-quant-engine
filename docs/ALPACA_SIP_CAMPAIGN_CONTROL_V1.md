@@ -1238,12 +1238,52 @@ NAMED_READ_GATE_LOG before Drive configuration, RuntimeMeter and OwnerDrive.
 The actual215 active job seconds and one dispatch remain charged observations;
 no missing meter is synthesized and no artifact absence proves zero I/O.
 The exact deployed code order and positive failure log are the zero-I/O basis.
-HTTP status/transport/encoding cause was not retained and stays UNKNOWN.
+Original HTTP status/transport/encoding detail was not retained and stays
+UNKNOWN. Do not rewrite that missing original evidence from a later probe.
 
 A PR-only probe uses the unchanged Actions read token and exactly the genuine
-650/657 gate job-log endpoints. It reports only fixed classifications, bounded
-byte counts and prefix hashes. Raw stdout/stderr, headers, redirect URLs and
+650/657 gate job-log endpoints. It reports only fixed classifications, actual
+file byte counts and bounded-prefix hashes. Raw stdout/stderr, headers, redirect URLs and
 tokens are never emitted. A failing probe fails its step. This changes no
 runtime guard, permission, single-use contract, campaign window or numeric cap.
 PR transport success is not proof that the earlier dispatch token succeeded.
 No capture/recovery dispatch or price admission is authorized by this probe.
+
+The actual PR660/4c920a46 Linux probe39546456125 reproduced exit1/zero stdout
+on both endpoints with gh2.102.0. Both stderr files were99B with SHA256
+8b6407b2fdbca54bf3d53fb93e79a3560dbe59567fa5044cfee4bed1b5b6e467,
+matching that CLI's static terminal-escape refusal. Native gh2.91.0 lacked
+this new guard. This establishes the reproduced Actions cause, not the lost
+original stderr. No Alpaca entitlement or Drive failure is inferred.
+
+The runtime and PR probe now share one file-only transport helper. A bounded
+local `gh api --help` feature check permits `--allow-escape-sequences` only
+when supported, only with helper-owned private TemporaryFile stdout. There
+is no flag on terminals, caller-supplied descriptors, JSON metadata, or an
+unsupported old CLI. There is one GET, no transport retry, no token/permission
+change. Original ANSI/BOM/UTF-8 bytes and their hash are preserved. The genuine
+gate parser, trusted workflow/code identities and exact-head requirements
+remain unchanged.
+
+File spooling has a45-second process timeout; it does not impose a hard
+download or disk byte cap. Only2,000,001 stdout and8,193 stderr prefix bytes
+enter memory/hash computation. Completed stdout over2,000,000B, stderr over
+8,192B (even exit0), invalid UTF-8, timeouts and process/help errors all refuse
+before gate consumption. No raw body, error, header or redirect URL is emitted.
+An accepted log requires a fully observed size within the bound; prefix
+truncation cannot turn oversized output into success.
+
+The failed39544804083 remains a separate pre-meter accounting dependency:
+215 actual job seconds and one dispatch, actual campaign count30; no synthetic
+RuntimeMeter, family event76, nonce reuse or blind rerun. Fixing transport does
+not by itself settle that run or activate prices174. Original650 exclusive
+end2026-10-21T09:59:28Z is unchanged, and all old reservations remain charged.
+
+Ordinary PR checks count toward the Actions workflow-history endpoint's page
+size, not the campaign dispatch budget. Read every fixed-date page in groups
+of100, up to a bounded1,000 metadata records; recheck the first page after a
+multi-page read. Duplicate IDs/numbers, missing rows, changed totals/order,
+noncontiguous run numbers or a changed original dispatch floor refuse. Keep
+all PR rows for continuity checks and every canonical campaign run for actual
+accounting. The canonical dispatch cap remains40, with no hidden old dispatch,
+new date floor, budget reset or provider/Drive request.

@@ -551,7 +551,7 @@ class HistoryTests(unittest.TestCase):
             with patch.object(c, 'gh_json', return_value=payload), self.assertRaises(c.Refused): c.campaign_runs()
 
     def test_run_number_gap_cannot_hide_an_intermediate_job(self):
-        payload = dict(total_count=2, workflow_runs=[dict(display_title='offline', run_number=1), dict(display_title='offline2', run_number=3)])
+        payload = dict(total_count=2, workflow_runs=[dict(id=1,display_title='offline', run_number=1), dict(id=3,display_title='offline2', run_number=3)])
         with patch.object(c, 'gh_json', return_value=payload), self.assertRaisesRegex(c.Refused, '^CAMPAIGN_HISTORY_GAP$'):
             c.campaign_runs(1)
 
@@ -565,6 +565,37 @@ class HistoryTests(unittest.TestCase):
             self.assertEqual(c.campaign_runs(11),[])
         with patch.object(c,'gh_json',return_value=dict(total_count=2,workflow_runs=[offline,first])):
             self.assertEqual(c.campaign_runs(11),[first])
+
+    def test_paginated_history_keeps_all_pr_checks_and_original_dispatch_floor(self):
+        rows=[dict(id=i,run_number=i,display_title='a1-sip '+c.PREFIX+'a'*24 if i==1 else 'PR check',
+                   created_at='2026-10-20T00:00:00Z') for i in range(201,0,-1)]
+        pages=[dict(total_count=201,workflow_runs=rows[n:n+100]) for n in (0,100,200)]
+        with patch.object(c,'gh_json',side_effect=pages+[pages[0]]) as read:
+            self.assertEqual(c.campaign_runs(1),[rows[-1]])
+        paths=[call.args[0] for call in read.call_args_list]
+        self.assertEqual(len(paths),4)
+        self.assertTrue(all('created=%3E%3D2026-10-14&per_page=100' in path for path in paths))
+        self.assertTrue(paths[1].endswith('&page=2') and paths[2].endswith('&page=3'))
+        self.assertEqual(paths[0],paths[-1])
+
+    def test_paginated_history_refuses_duplicates_incomplete_pages_and_racing_snapshot(self):
+        rows=[dict(id=i,run_number=i,display_title='PR check') for i in range(101,0,-1)]
+        first=dict(total_count=101,workflow_runs=rows[:100])
+        last=dict(total_count=101,workflow_runs=rows[100:])
+        for suffix in (
+            [dict(total_count=101,workflow_runs=[])],
+            [dict(total_count=102,workflow_runs=rows[100:])],
+            [dict(total_count=101,workflow_runs=[rows[0]])],
+            [last,dict(total_count=102,workflow_runs=rows[:100])],
+            [last,dict(total_count=101,workflow_runs=list(reversed(rows[:100])))],
+            [last,dict(total_count=101,workflow_runs=rows[:100]+[None])]):
+            with self.subTest(suffix=suffix[-1]['total_count']),\
+                 patch.object(c,'gh_json',side_effect=[first]+suffix),self.assertRaises(c.Refused):
+                c.campaign_runs(1)
+        for total in (1001,-1,True):
+            with self.subTest(total=total),patch.object(c,'gh_json',return_value=dict(total_count=total,workflow_runs=[])),\
+                 self.assertRaisesRegex(c.Refused,'^CAMPAIGN_HISTORY_INCOMPLETE$'):
+                c.campaign_runs()
 
     def test_same_permission_url_with_changed_record_breaks_history(self):
         a=auth();runs=[dict(id=i,display_title='a1-sip '+c.PREFIX+str(i)*24,
@@ -5976,8 +6007,11 @@ class NamedRead39235028468Tests(unittest.TestCase):
 
     def test_gate_log_is_bounded_and_suppresses_raw_errors(self):
         def output(argv,**kw):
-            self.assertEqual(argv[-1],f"repos/{c.REPO}/actions/jobs/501/logs")
-            self.assertIs(kw["stderr"],c.subprocess.DEVNULL)
+            if argv==["gh","api","--help"]:
+                kw["stdout"].write(b"Usage: gh api");return SimpleNamespace(returncode=0)
+            self.assertEqual(argv,["gh","api",f"repos/{c.REPO}/actions/jobs/501/logs"])
+            self.assertNotEqual(kw["stdout"],c.subprocess.PIPE)
+            self.assertNotEqual(kw["stderr"],c.subprocess.PIPE)
             kw["stdout"].write(b"x"*2_000_001);return SimpleNamespace(returncode=0)
         with patch.object(c.subprocess,"run",side_effect=output),self.assertRaisesRegex(c.Refused,"NAMED_READ_GATE_LOG"):
             self.s.named_read_gate_log(c,501)
@@ -6435,7 +6469,7 @@ class HistoricalRevisionLoaderCompatibilityTests(unittest.TestCase):
 
 
 class GateLogPRTransportProbeTests(unittest.TestCase):
-    def _execute_probe(self, body=b'fixture trusted log', error=b'', returncode=0, timeout=False):
+    def _execute_probe(self, body=b'fixture trusted log', error=b'', returncode=0, timeout=False, supports_flag=True):
         import contextlib, subprocess, textwrap
         workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
         block=workflow.split('      - name: Observe fixed gate-log transport with the Actions read token\n',1)[1].split('\n  capture:',1)[0]
@@ -6448,8 +6482,15 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
             if args==['gh','--version']:
                 kwargs['stdout'].write(b'gh version 2.91.0 (fixture)\n')
                 return SimpleNamespace(returncode=0)
+            if args==['gh','api','--help']:
+                self.assertEqual(kwargs['timeout'],10)
+                kwargs['stdout'].write(b'Usage: gh api'+(b' --allow-escape-sequences' if supports_flag else b''))
+                return SimpleNamespace(returncode=0)
             calls.append(args)
             self.assertEqual(kwargs['timeout'],45)
+            self.assertIsNotNone(kwargs['stdout'])
+            self.assertNotEqual(kwargs['stdout'],subprocess.PIPE)
+            self.assertNotEqual(kwargs['stderr'],subprocess.PIPE)
             kwargs['stdout'].write(body)
             kwargs['stderr'].write(error)
             if timeout:raise subprocess.TimeoutExpired(args,45)
@@ -6457,7 +6498,8 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
         output=io.StringIO()
         with patch('subprocess.run',side_effect=fake_run),contextlib.redirect_stdout(output):
             with self.assertRaises(SystemExit) as raised:exec(compile(script,'workflow-gate-probe','exec'),{})
-        self.assertEqual(calls,[['gh','api','repos/wscha231/r1000-quant-engine/actions/jobs/'+str(i)+'/logs']
+        self.assertEqual(calls,[['gh','api']+(['--allow-escape-sequences'] if supports_flag else [])+[
+                                    'repos/wscha231/r1000-quant-engine/actions/jobs/'+str(i)+'/logs']
                                 for i in (118566905053,119037766237)])
         rows=[json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual(len(rows),2)
@@ -6465,6 +6507,7 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
             self.assertFalse(row['runtime_preflight'])
             self.assertFalse(row['raw_or_headers_emitted'])
             self.assertEqual((row['provider_requests'],row['drive_requests'],row['campaign_dispatches']),(0,0,0))
+            self.assertIsNone(row['hard_capture_byte_limit'])
         return rows,raised.exception.code,output.getvalue()
 
     def test_success_reports_hashes_without_log_body(self):
@@ -6487,12 +6530,51 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
                 (b'x'*2000002,b'',0,False,'BODY_TOO_LARGE'),
                 (b'\xffPRIVATE_BINARY_CANARY',b'',0,False,'UTF8'),
                 (b'',b'',0,True,'TIMEOUT'),
+                (b'valid',b'x'*8193,0,False,'STDERR_TOO_LARGE'),
                 (b'',b'gh: API rate limit exceeded (HTTP 403)',1,False,'RATE_LIMIT')):
             with self.subTest(expected=expected):
                 rows,failed,printed=self._execute_probe(body,error,code,timeout)
                 self.assertTrue(failed)
                 self.assertTrue(all(r['reason']==expected for r in rows))
                 self.assertNotIn('PRIVATE_BINARY_CANARY',printed)
+
+    def test_old_cli_never_receives_unsupported_flag_or_retries_get(self):
+        rows,failed,_=self._execute_probe(supports_flag=False)
+        self.assertFalse(failed)
+        self.assertTrue(all(not row['escape_flag'] for row in rows))
+
+    def test_original_ansi_bom_and_utf8_bytes_are_preserved(self):
+        from tools import alpaca_sip_source_revision as revision
+        body=b'\xef\xbb\xbf\x1b[36m'+ '\uac80\uc99d'.encode()+b'\x1b[0m\r\n'
+        calls=[]
+        def run(argv,**kw):
+            self.assertNotEqual(kw['stdout'],c.subprocess.PIPE)
+            self.assertIsNotNone(kw['stdout'])
+            if argv==['gh','api','--help']:
+                kw['stdout'].write(b'--allow-escape-sequences')
+            else:
+                calls.append(argv)
+                self.assertEqual(argv,['gh','api','--allow-escape-sequences',f'repos/{c.REPO}/actions/jobs/501/logs'])
+                kw['stdout'].write(body)
+            return SimpleNamespace(returncode=0)
+        with patch.object(c.subprocess,'run',side_effect=run):
+            self.assertEqual(revision.named_read_gate_log(c,501).encode('utf-8'),body)
+        self.assertEqual(len(calls),1)
+
+    def test_help_errors_or_oversize_stop_before_network_without_raw_error(self):
+        from tools import alpaca_sip_source_revision as revision
+        for outcome in ('failed','oversize','timeout','exception'):
+            def run(argv,**kw):
+                self.assertEqual(argv,['gh','api','--help'])
+                if outcome=='timeout':raise c.subprocess.TimeoutExpired(argv,10)
+                if outcome=='exception':raise OSError('PRIVATE_HELP_CANARY')
+                kw['stdout'].write(b'--allow-escape-sequences'+(b'x'*65537 if outcome=='oversize' else b''))
+                return SimpleNamespace(returncode=1 if outcome=='failed' else 0)
+            with self.subTest(outcome=outcome),patch.object(c.subprocess,'run',side_effect=run) as called:
+                with self.assertRaisesRegex(c.Refused,'^NAMED_READ_GATE_LOG_CLI_HELP$') as error:
+                    revision.named_read_gate_log(c,501)
+                self.assertEqual(called.call_count,1)
+                self.assertNotIn('PRIVATE_HELP_CANARY',str(error.exception))
 
 
 if __name__=='__main__': unittest.main()

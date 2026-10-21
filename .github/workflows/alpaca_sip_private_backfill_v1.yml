@@ -104,7 +104,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          import hashlib, json, re, subprocess, tempfile
+          import json, re, subprocess, tempfile
+          from tools import alpaca_sip_campaign as campaign
+          from tools import alpaca_sip_source_revision as revision
           with tempfile.TemporaryFile() as version:
               subprocess.run(['gh', '--version'], stdout=version, stderr=subprocess.DEVNULL, timeout=10)
               version.seek(0)
@@ -112,35 +114,9 @@ jobs:
               cli_version = matched[1].decode('ascii') if matched else None
           results = []
           for job_id in (118566905053, 119037766237):
-              with tempfile.TemporaryFile() as body, tempfile.TemporaryFile() as errors:
-                  timed_out = False
-                  try:
-                      result = subprocess.run(['gh', 'api',
-                          'repos/wscha231/r1000-quant-engine/actions/jobs/' + str(job_id) + '/logs'],
-                          stdout=body, stderr=errors, timeout=45)
-                      returncode = result.returncode
-                  except subprocess.TimeoutExpired:
-                      timed_out, returncode = True, None
-                  body.seek(0, 2); body_size = body.tell(); body.seek(0)
-                  errors.seek(0, 2); error_size = errors.tell(); errors.seek(0)
-                  raw, error = body.read(2000001), errors.read(8193)
-              status = re.search(rb'HTTP ([1-5][0-9]{2})', error)
-              try:
-                  raw.decode('utf-8'); utf8 = True
-              except UnicodeError:
-                  utf8 = False
-              reason = ('TIMEOUT' if timed_out else 'PROCESS_EXIT' if returncode != 0 else
-                        'BODY_TOO_LARGE' if body_size > 2000000 else 'UTF8' if not utf8 else 'OK')
-              if b'Resource not accessible by integration' in error:
-                  reason = 'INTEGRATION_FORBIDDEN'
-              if b'API rate limit exceeded' in error:
-                  reason = 'RATE_LIMIT'
-              record = dict(schema='a1-gate-log-pr-transport-observation-v1', job_id=job_id, cli_version=cli_version,
-                  returncode=returncode, reason=reason,
-                  http_status=int(status[1]) if status else None, stdout_bytes=body_size,
-                  stderr_bytes=error_size, stdout_prefix_sha256=hashlib.sha256(raw).hexdigest(),
-                  stderr_prefix_sha256=hashlib.sha256(error).hexdigest(), stdout_utf8=utf8,
-                  raw_or_headers_emitted=False, runtime_preflight=False,
+              raw, record = revision.named_read_gate_transport(campaign, job_id)
+              record.update(schema='a1-gate-log-pr-transport-observation-v2', job_id=job_id,
+                  cli_version=cli_version, runtime_preflight=False,
                   provider_requests=0, drive_requests=0, campaign_dispatches=0)
               print(json.dumps(record, sort_keys=True), flush=True)
               results.append(record)

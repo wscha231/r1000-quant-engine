@@ -588,22 +588,18 @@ def gh_json(path):
 
 
 def campaign_runs(floor=None):
-    path = "repos/" + REPO + "/actions/workflows/" + WORKFLOW + "/runs?" + urlencode(
-        dict(created=">=2026-10-14", per_page=100))
-    payload = gh_json(path)
-    require(type(payload.get("total_count")) is int and payload["total_count"] <= 100
-            and isinstance(payload.get("workflow_runs"), list)
-            and len(payload["workflow_runs"]) == payload["total_count"], "CAMPAIGN_HISTORY_INCOMPLETE")
-    runs = [r for r in payload["workflow_runs"] if
+    from tools.alpaca_sip_source_revision import campaign_run_pages
+    all_runs = campaign_run_pages(sys.modules[__name__])
+    runs = [r for r in all_runs if
             isinstance(r.get("display_title"), str) and r["display_title"].startswith("a1-sip " + PREFIX)]
     if floor is not None:
         require(type(floor) is int and floor > 0
                 and all(type(r.get("run_number")) is int and r["run_number"] > 0
-                        for r in payload["workflow_runs"]), "CAMPAIGN_HISTORY_FLOOR")
-        all_numbers = {r["run_number"] for r in payload["workflow_runs"]}
+                        for r in all_runs), "CAMPAIGN_HISTORY_FLOOR")
+        all_numbers = {r["run_number"] for r in all_runs}
         numbers = {number for number in all_numbers if number >= floor}
-        require(not numbers or (max(numbers) - floor < 100
-                and numbers == set(range(floor, max(numbers) + 1))),
+        require(len(all_numbers)==len(all_runs) and (not numbers or (max(numbers) - floor < 1000
+                and numbers == set(range(floor, max(numbers) + 1)))),
                 "CAMPAIGN_HISTORY_GAP")
         if runs:
             # A future floor must never hide an already observed dispatch.
