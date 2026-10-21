@@ -7545,3 +7545,22 @@ introduced. Re-review the new exact head; the superseded review is not approval.
 - Preserve Native environment failures: Windows symlink privileges and POSIX
   mode checks need Linux evidence, not relaxed security assertions. Restore
   absent tracked sparse fixtures from their exact Git blob before revalidation.
+
+### 2026-10-21 — Read the actual transport diagnostic and preserve partial capture
+
+Price174 run39611877699 failed with zero new admitted rows but36 provider calls,
+277 Drive calls and1024964B confirmed storage. Its meter explicitly records
+DRIVE_METADATA GET/HEADER_OPEN HTTP500; a short public HTTP_ERROR line does not
+justify reporting the status/category as unknown when the raw meter has them.
+It also does not identify the exact object or establish Google's root cause.
+Keep all567 actual job seconds, dispatch and costs in the original journals.
+
+A failed metadata GET after storage is not permission to replay provider prices
+or assume the saved object is a complete raw pack. Account for a bounded exact
+window inventory and validate raw bytes, original clocks, normalized rows and
+prior checkpoint before deriving a new receipt. Missing or ambiguous originals
+remain blocked. Keep capture Source and current derivation Source distinct.
+The old hardcoded orphan exception belongs to its original incident; add a
+separate named proof rather than changing that exception's historical meaning.
+Any retry must be limited to explicit idempotent metadata5xx GETs, debit every
+attempt and retain the original deadline; never turn unknown POST into retry.

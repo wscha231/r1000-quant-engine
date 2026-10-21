@@ -1501,3 +1501,67 @@ the exact first96 journals/bytes and CP immutable, then process32,32,14 through
 the existing collector. Reapply the actual128-subject cost forecast and final
 local expiry/45-second dispatch checks after all remote verification and fsync.
 Synthetic transition tests grant no capture, PIT or economic readiness.
+
+### Exact failed fifth price batch: recover existing originals before continuing
+
+Actual run39611877699/attempt1 failed with HTTP_ERROR after four successful
+price batches. Its original meter SHA256 is
+5dcb5ed59e3e07d8c84326958c110bce75f0f1303ad475ee392bf2d75aab8dfa.
+The recorded boundary is GET/DRIVE_METADATA/HEADER_OPEN, HTTP500, ordinal313;
+this identifies neither the particular metadata object nor Google's root cause.
+Provider36, Drive277, transfer57723350B, confirmed/reserved storage1024964B
+and142+425=567 job seconds remain spent. No new examined subject or row was
+verified: CP128 remains11a4e9886ee3a5aed31d6b76958df3c32f1422ab905586f43ce11a1506866b1c.
+The existing host settled this failure at family92/cohort16. Their SHA256
+anchors are49b1753a3b87e525baea56fa5d17e57775a06801dda3a45a42a88285ac1c86a1
+andb8261260127e15bf7281ed043ec0f49b3f0e82f1db936e1ae8d701b71cda68fb.
+
+The original source-transition record remains immutable. A separately reviewed
+protected Source and immutable OWNER A1_SP500174_SOURCE_RECOVERY record must
+bind that original grant/proof, exact failed meter/run/settled tails, CP128,
+all actual spent resources, the unchanged original24-hour expiry and a new
+reviewed/deployed publication with its complete19-file execution closure.
+Historical Source663 is authenticated remotely at8ddd3da0/acb4248a/treeeda9d169
+and its genuine gate, independently of current local bytes. No current-source
+comparison can replace that historical provenance.
+
+Only that named failure may be followed by one provider-zero restoration4,
+then the existing collector32 and10: final canonical count38/40. Other blocked
+runs, another recovery, missing settlements, changed prefixes, reruns and
+unknown POSTs still refuse. Old events remain at their original indices;
+new reserve/assigned/settled triples occupy family93..101/cohort17..25.
+All failed costs survive forecasts; do not count a zero-progress failure as
+a per-symbol sample. Before restoration, conservatively reserve an additional
+512 Drive requests,256MiB transfer,2MiB storage and7800 seconds for planning,
+plus its real dispatch. These estimates grant no resource increase and are
+replaced by actual meters, not charged as fictional actual consumption.
+
+Under the same owner-only Drive and RuntimeMeter, inspect only objects created
+in the exact failed run window13:52:54Z..14:02:29Z on2026-10-21. A complete
+bounded inventory must account for the confirmed1024964B, with one original
+ZIP, at most one normalized object and at most the existing receipt/checkpoint.
+Verify every name/hash/byte count, owner/parent, creation clock, original
+Source/scope/period, raw pagination, original asset clocks, raw/split rows and
+the complete prior checkpoint before any derivation. The exact payload role
+and hashes remain unknown until those actual reads pass. Missing, extra,
+ambiguous, corrupt or mismatched bytes block; they never authorize a provider
+re-query or an invented no-data state. TXT/GL/DOC/GEN are the fixed four inputs.
+
+Never upload the original ZIP or request any provider endpoint in restoration.
+Reuse a verified existing normalized object; otherwise derive it solely from
+validated original rows with explicit filename-empty/mtime0/level9 gzip.
+Persist a separate derivation receipt/checkpoint with the original capture
+Source and clocks, actual derivation Source/run/proof/time, row/object hashes
+and inventory commitment. Use the existing archive and new-group readback
+validation. The provider counter must remain zero. Later42 asset checks and
+OHLCV requests use the ordinary collector and actual cumulative accounting.
+
+Only workers covered by this recovery grant add bounded resilience for
+GET DRIVE_METADATA HTTP500/502/503/504: at most three total attempts, with
+one/two-second backoff and the original deadline checked before/after each
+backoff. Every attempt passes through unchanged RuntimeMeter.perform and is
+fully debited; retain its sanitized last-transport-failure record. There is no
+POST, provider, OAuth, media,429 or permission-error retry. Legacy workers and
+the collector/workflow/deadline/budget arithmetic stay unchanged. Synthetic
+tests and Source publication alone do not prove actual restoration/capture,
+supplier rights, PIT admission or investment readiness.

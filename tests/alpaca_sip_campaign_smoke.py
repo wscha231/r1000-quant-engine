@@ -7487,4 +7487,342 @@ class Price174SourceTransitionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE_TRANSITION_COLLECTOR_CANARY",output.getvalue())
 
 
+
+
+class Price174Http500RecoveryTests(unittest.TestCase):
+    """Offline recovery of exact original bytes; fixtures confer no authority."""
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
+        self.s=c._revision_module()
+        self.names=[f"YYY{i:03d}" for i in range(174)];self.names[128:132]=["TXT","GL","DOC","GEN"]
+        self.csv="ticker\n"+"\n".join(self.names)+"\n";self.clock=c.utc("2026-10-21T15:00:00Z")
+        self.patch(self.s,"PRICE174_INPUT",c.digest(self.csv.encode()))
+        self.patch(self.s,"PRICE174_CP128","a"*64)
+        self.scope=dict(self.s.PRICE174_SCOPE,input_sha256=self.s.PRICE174_INPUT)
+        self.patch(self.s,"PRICE174_SCOPE",self.scope)
+        self.patch(c,"utc",side_effect=lambda value=None: self.clock if value is None else
+            __import__("datetime").datetime.fromisoformat(value.replace("Z","+00:00")))
+        self.auth=dict(input_csv=self.csv)
+        self.args=SimpleNamespace(private_data_folder_id="fixture-folder-123",resume_file_id="fixture-parent-128",resume_sha256="a"*64)
+        self.group=self.names[128:132];assets=[]
+        for symbol in self.group:
+            raw=c.encoded(dict(symbol=symbol,**{"class":"us_equity"},id="00000000-0000-0000-0000-000000000001",
+                exchange="NYSE",status="active"))
+            assets.append(dict(symbol=symbol,url="https://paper-api.alpaca.markets/v2/assets/"+symbol,
+                collected_at_utc="2026-10-21T13:56:00Z",http_status=200,response_utf8=raw.decode(),sha256=c.digest(raw)))
+        bar=dict(t="2026-10-01T00:00:00Z",o=1,h=2,l=1,c=2,v=4)
+        payload=c.encoded(dict(bars={s:[bar] for s in self.group},next_page_token=None));member=c.digest(payload)+".json"
+        self.members={member:payload}
+        self.manifest=dict(schema=cap.SCHEMA,source=cap.SOURCE,symbols=self.group,collected=self.group,no_bars=[],
+            start="2016-01-04",end="2026-10-14",asof="2026-10-13",seed_sha256=self.s.PRICE174_INPUT,
+            source_sha=self.s.PRICE174_663,pages=[dict(sha256=c.digest(payload),bytes=len(payload),member=member,page=0,
+                symbols=self.group,adjustment=b) for b in ("raw","split")],raw_adjustments=["raw","split"],
+            historical_identity_verified=False,pit_verified=False,source_admission=False,commercial_use_authorized=False,
+            cohort_scope=self.scope,asset_precheck=assets)
+        self.store={};self.suffix={};self.listing=[];self.writes=[]
+        self.reset_raw()
+        self.parent=dict(file_id=self.args.resume_file_id,sha256="a"*64,bytes=100)
+        ident=dict(identity(),source_sha="5"*40,examined_before=128,parent_checkpoint_sha256="a"*64,
+            recovery_run=self.s.PRICE174_RECOVERY_RUN,cohort_scope=self.scope,
+            source_transition_proof_sha256="e"*64,price_window_expires_at_utc="2026-10-22T10:27:25Z")
+        self.meter=c.RuntimeMeter(dict(c.CONTINUED_LIMITS),self.root/"meter",
+            (self.clock+timedelta(hours=1)).isoformat(),ident,limits=c.CONTINUED_LIMITS,opener=Opener(),clock=lambda:self.clock)
+        test=self
+        class Drive:
+            token="OFFLINE_ONLY";owner="fixture-owner"
+            def request(inner,url,**kwargs):
+                query=parse_qs(urlsplit(url).query)["q"][0]
+                if "createdTime" in query:return c.encoded(test.reply)
+                name=query.split("name = '")[1].split("'")[0]
+                return c.encoded(dict(files=[dict(id=k,name=name) for k,v in test.store.items()
+                    if c.digest(v)+test.suffix[k]==name]))
+            def check(inner,fid,parent=None,folder=False):
+                c.require(fid in test.store and parent==test.args.private_data_folder_id,"OFFLINE_OWNER_REFUSAL")
+            def read(inner,fid,limit=16000000):return test.store[fid]
+            def write(inner,folder,raw,extension):
+                test.assertIn(extension,(".jsonl.gz",".json"));test.writes.append(extension)
+                fid="fixture-new-"+str(len(test.writes));test.store[fid]=raw;test.suffix[fid]=extension
+                return dict(file_id=fid,sha256=c.digest(raw),bytes=len(raw))
+        self.drive=Drive()
+
+    def patch(self,target,name,*args,**kwargs):
+        p=patch.object(target,name,*args,**kwargs);value=p.start();self.addCleanup(p.stop);return value
+
+    def reset_raw(self):
+        raw=cap.zip_bytes(dict(self.members,**{"capture.json":c.encoded(self.manifest)}))
+        self.store["fixture-original-raw"]=raw;self.suffix["fixture-original-raw"]=".zip"
+        self.listing=[dict(id=k,name=c.digest(v)+self.suffix[k],size=str(len(v)),parents=[self.args.private_data_folder_id],
+            createdTime="2026-10-21T14:00:00Z") for k,v in self.store.items()]
+        self.reply=dict(files=list(self.listing));self.patch(self.s,"PRICE174_RECOVERY_STORAGE",sum(len(v) for v in self.store.values()))
+
+    def recover(self):
+        with patch.dict(os.environ,{"GITHUB_SHA":"5"*40}),patch.object(cap,"resume_state",
+                return_value=(self.names[:128],self.names[:128],[],self.parent)):
+            return self.s.price174_recover_original4(c,self.drive,self.args,self.auth,self.meter)
+
+    def test_raw_only_restores_four_without_provider_or_original_upload(self):
+        before=dict(self.store);result=self.recover()
+        self.assertEqual(self.writes,[".jsonl.gz",".json",".json"]);self.assertEqual(self.meter.examined,132)
+        self.assertEqual(self.meter.used["provider_gets"],0);self.assertEqual(self.meter.rows,8)
+        self.assertEqual(before,{k:self.store[k] for k in before})
+        state=c.decode(self.store[result["checkpoint"]["file_id"]]);reuse=state["recovered_from"]
+        self.assertEqual(state["source_sha"],self.s.PRICE174_663);self.assertEqual(reuse["derivation_source_sha"],"5"*40)
+        receipt=c.decode(self.store[state["last_objects"][2]["file_id"]])
+        self.assertEqual(receipt["asset_precheck"],self.manifest["asset_precheck"])
+        self.assertNotIn("fixture-",c.encoded(self.meter.identity["price174_reuse"]).decode())
+        self.assertFalse(state["pit_verified"]);self.assertFalse(state["source_admission"])
+
+    def test_existing_normalized_different_gzip_header_is_preserved_by_rows(self):
+        bar=dict(t="2026-10-01T00:00:00Z",o=1,h=2,l=1,c=2,v=4)
+        rows=[r for s in self.group for b in ("raw","split")
+            for r in cap.normalize([bar],s,b,"2016-01-04","2026-10-14")]
+        self.store["fixture-old-normalized"]=cap.gzip.compress(b"".join(c.encoded(r) for r in rows),mtime=123)
+        self.suffix["fixture-old-normalized"]=".jsonl.gz";self.reset_raw()
+        before=dict(self.store);self.recover()
+        self.assertEqual(self.writes,[".json",".json"]);self.assertEqual(self.meter.examined,132)
+        self.assertEqual(before,{k:self.store[k] for k in before})
+        self.assertEqual(self.meter.identity["price174_reuse"]["normalized_codec"],"EXISTING_VERIFIED")
+
+    def test_missing_ambiguous_pagination_old_clock_and_malformed_name_never_write(self):
+        good=self.listing[0]
+        variants=[dict(files=[]),dict(files=[good,good]),dict(files=[good],nextPageToken="more"),
+            dict(files=[dict(good,createdTime="2026-10-20T14:00:00Z")]),
+            dict(files=[dict(good,name="PRIVATE_PATH_CANARY")])]
+        for reply in variants:
+            self.reply=reply
+            with self.subTest(reply=reply),self.assertRaises(c.Refused):self.recover()
+            self.assertEqual(self.writes,[]);self.assertEqual(self.meter.used["provider_gets"],0)
+
+    def test_wrong_total_or_corrupt_raw_blocks_before_derivation(self):
+        self.store["fixture-original-raw"]+=b"bad"
+        with self.assertRaises(c.Refused):self.recover()
+        self.assertEqual(self.writes,[])
+
+    def test_wrong_manifest_scope_and_missing_pagination_bytes_refuse(self):
+        self.manifest["seed_sha256"]="0"*64;self.reset_raw()
+        with self.assertRaisesRegex(c.Refused,"PRICE_RECOVERY_ARCHIVE"):self.recover()
+        self.assertEqual(self.writes,[])
+        self.manifest["seed_sha256"]=self.s.PRICE174_INPUT;self.manifest["pages"][0]["member"]="missing.json";self.reset_raw()
+        with self.assertRaises(c.Refused):self.recover()
+        self.assertEqual(self.writes,[])
+
+    def test_original_owner_or_parent_failure_precedes_all_writes(self):
+        with patch.object(self.drive,"check",side_effect=c.Refused("OWNER_REFUSAL")),self.assertRaises(c.Refused):self.recover()
+        with patch.object(cap,"resume_state",side_effect=c.Refused("PARENT_INVALID")),self.assertRaises(c.Refused):
+            self.s.price174_recover_original4(c,self.drive,self.args,self.auth,self.meter)
+        self.assertEqual(self.writes,[])
+
+    def test_forged_recovered_source_or_proof_never_uses_general_old_exception(self):
+        result=self.recover();state=c.decode(self.store[result["checkpoint"]["file_id"]])
+        receipt=c.decode(self.store[state["last_objects"][2]["file_id"]]);self.meter.examined=128;self.meter.checkpoint_sha="a"*64
+        self.meter.identity["price174_reuse"]["derivation_proof_sha256"]="0"*64
+        with self.assertRaises(c.Refused):
+            self.s.price174_reuse_source(c,state,state["last_objects"],receipt,self.meter,
+                self.store[state["last_objects"][0]["file_id"]],self.store[state["last_objects"][1]["file_id"]])
+
+    def test_metadata_get_500_retry_counts_each_attempt_and_keeps_deadline(self):
+        test=self
+        class Flaky:
+            calls=0
+            def open(inner,request,**kwargs):
+                inner.calls+=1
+                if inner.calls==1:raise HTTPError(request.full_url,500,"PRIVATE_ERROR",{},None)
+                return Reply(b"abc")
+        opener=Flaky()
+        meter=self.s.price174_metadata_meter(c,dict(c.CONTINUED_LIMITS),self.root/"retry",
+            (self.clock+timedelta(seconds=60)).isoformat(),identity(),limits=c.CONTINUED_LIMITS,
+            opener=opener,clock=lambda:self.clock)
+        with patch.object(c.time,"sleep") as sleep:
+            self.assertEqual(meter.perform("https://www.googleapis.com/drive/v3/about",limit=100),b"abc")
+        self.assertEqual(opener.calls,2);self.assertEqual(meter.used["drive_requests"],2)
+        self.assertEqual(meter.used["provider_gets"],0);self.assertEqual(meter.last_transport_failure["http_status"],500)
+        self.assertEqual(meter.deadline,self.clock+timedelta(seconds=60));sleep.assert_called_once_with(1)
+
+    def test_provider_post_rate_limit_and_permanent_errors_have_no_retry(self):
+        cases=[("https://data.alpaca.markets/v2/stocks/bars?symbols=TXT&feed=sip&timeframe=1Day&start=2016-01-04&end=2026-10-14&adjustment=raw","GET",500),
+            ("https://www.googleapis.com/upload/drive/v3/files","POST",500),
+            ("https://www.googleapis.com/drive/v3/about","GET",429),
+            ("https://www.googleapis.com/drive/v3/about","GET",403)]
+        for index,(url,method,status) in enumerate(cases):
+            opener=Opener(failure=HTTPError(url,status,"PRIVATE_ERROR",{},None))
+            meter=self.s.price174_metadata_meter(c,dict(c.CONTINUED_LIMITS),self.root/("noretry"+str(index)),
+                (self.clock+timedelta(seconds=60)).isoformat(),identity(),limits=c.CONTINUED_LIMITS,
+                opener=opener,clock=lambda:self.clock)
+            with patch.object(c.time,"sleep") as sleep,self.assertRaises(c.Refused):meter.perform(url,method=method,limit=100)
+            self.assertLessEqual(opener.calls,1);sleep.assert_not_called()
+
+    def test_third_metadata_failure_is_terminal_and_backoff_cannot_cross_deadline(self):
+        url="https://www.googleapis.com/drive/v3/about";opener=Opener(failure=HTTPError(url,500,"PRIVATE",{},None))
+        meter=self.s.price174_metadata_meter(c,dict(c.CONTINUED_LIMITS),self.root/"terminal",
+            (self.clock+timedelta(seconds=60)).isoformat(),identity(),limits=c.CONTINUED_LIMITS,
+            opener=opener,clock=lambda:self.clock)
+        with patch.object(c.time,"sleep") as sleep,self.assertRaisesRegex(c.Refused,"HTTP_ERROR"):meter.perform(url,limit=100)
+        self.assertEqual(opener.calls,3);self.assertEqual(meter.used["drive_requests"],3)
+        opener.calls=0
+        meter=self.s.price174_metadata_meter(c,dict(c.CONTINUED_LIMITS),self.root/"deadline",
+            (self.clock+timedelta(seconds=1)).isoformat(),identity(),limits=c.CONTINUED_LIMITS,
+            opener=opener,clock=lambda:self.clock)
+        def advance(seconds):self.clock+=timedelta(seconds=seconds)
+        with patch.object(c.time,"sleep",side_effect=advance),self.assertRaisesRegex(c.Refused,"CAMPAIGN_DEADLINE"):
+            meter.perform(url,limit=100)
+        self.assertEqual(opener.calls,1);self.assertEqual(meter.used["drive_requests"],1)
+
+
+class Price174RecoveryAuthorityTests(Price174SourceTransitionTests):
+    # Reuse the existing isolated human/deployment fixture; no external calls.
+    def setUp(self):
+        super().setUp()
+        self.new_publication=dict(expected_master="d"*40,deployment=dict(pull_request=999,reviewed_head="e"*40),
+            code_pins_sha256="f"*64)
+        self.recovery_terms=dict(self.s.price174_recovery_fixed(c,self.auth),publication=self.new_publication,
+            execution_pins_sha256=c.digest(c.encoded(self.pins)))
+        self.recovery_comment=dict(self.comment,body="A1_SP500174_SOURCE_RECOVERY "+c.encoded(self.recovery_terms).decode())
+
+    def recovery_grant(self):
+        prior=dict(proof_sha256=self.s.PRICE174_663_PROOF,terms=self.terms,pins=self.pins,
+            created_at_utc=self.comment["created_at"],reference=self.s.PRICE174_663_REFERENCE)
+        with patch.object(self.s,"price174_transition",return_value=prior),patch.object(self.s,"named_read_deployed"),\
+             patch.object(self.s,"price174_descendant"),patch.object(self.s,"price174_tree",return_value=self.pins),\
+             patch.object(c,"gh_json",return_value=dict(merged_at="2026-10-22T10:03:00Z")):
+            self.recovery_comment["created_at"]=self.recovery_comment["updated_at"]="2026-10-22T10:04:00Z"
+            return self.s.price174_recovery_transition(c,self.auth,self.reference,self.recovery_comment)
+
+    def test_named_recovery_keeps_original_window_failed_costs_and_separate_source(self):
+        value=self.recovery_grant()
+        self.assertTrue(value["recovery"]);self.assertEqual(value["terms"]["remaining_batches"],[4,32,10])
+        self.assertEqual(value["terms"]["usage_after_failure"],self.s.PRICE174_RECOVERY_USED)
+        self.assertEqual(value["terms"]["execution_window"],self.auth["execution_window"])
+        self.assertEqual(value["terms"]["recovery_provider_get_limit"],0)
+
+    def test_recovery_owner_terms_cannot_reset_omit_or_change_failure(self):
+        good=copy.deepcopy(self.recovery_terms)
+        for key,value in (("window_reset",True),("budget_reset",True),("recovery_provider_get_limit",1),
+                ("confirmed_failed_storage_bytes",0),("failed_meter_sha256","0"*64),("remaining_batches",[32,14]),
+                ("usage_after_failure",dict(self.s.PRICE174_RECOVERY_USED,provider_gets=0)),("supplier_rights_verified",True)):
+            terms=dict(good);terms[key]=value
+            self.recovery_comment["body"]="A1_SP500174_SOURCE_RECOVERY "+c.encoded(terms).decode()
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.recovery_grant()
+
+    def test_recovery_sample_filter_preserves_actual_failed_costs_and_extra_dispatch(self):
+        value=dict(status="COMPLETE",examined_before=0,examined_after=32,usage={k:32 for k in c.LIMITS})
+        failed=dict(status="BLOCKED",examined_before=128,examined_after=128,usage={k:999 for k in c.LIMITS})
+        observed=dict(examined=128,receipts=[value]*4+[failed],durations=[320]*4+[567],
+            remaining={k:c.CONTINUED_LIMITS[k]-self.s.PRICE174_RECOVERY_USED[k] for k in c.LIMITS},
+            active_seconds=11535,all_runs=[{}]*35,proof=dict(transition=dict(recovery=True)))
+        forecast=self.s.price174_forecast(c,observed)
+        self.assertTrue(forecast["fits"]);self.assertEqual(forecast["dispatches"],3)
+        self.assertEqual(forecast["active_seconds"],8375)
+        self.assertEqual(self.s.price174_batch_size(observed),4)
+        observed["receipts"].append(dict(value,examined_before=128,examined_after=132));observed["examined"]=132
+        self.assertEqual(self.s.price174_batch_size(observed),32)
+        observed["examined"]=164;self.assertEqual(self.s.price174_batch_size(observed),10)
+
+
+
+class Price174NamedRecoveryHistoryTests(unittest.TestCase):
+    bind_event=Price174ContinuationTests.bind_event
+    rebind_metadata=Price174ContinuationTests.rebind_metadata
+    payload=Price174ContinuationTests.payload
+    def setUp(self):
+        Price174ContinuationTests.setUp(self)
+        self.clock=c.utc("2026-10-22T11:03:00Z")
+        self.old_transition=dict(proof_sha256="a"*64,reference="old-reference",created_at_utc="2026-10-22T10:59:00Z",
+            terms=dict(publication=dict(expected_master="b"*40)))
+        self.new_transition=dict(proof_sha256="c"*64,reference="new-reference",created_at_utc="2026-10-22T11:01:00Z",
+            terms=dict(publication=dict(expected_master="d"*40)),recovery=True,prior_transition=self.old_transition)
+        self.proof=dict(proof_sha256="e"*64,expires_at_utc=self.auth["execution_window"]["expires_at_utc"],
+            transition=self.new_transition)
+        ids=self.s.BASIS_IDS+[self.s.REFUSAL_RUN,self.s.CONTROL_RUN,
+            39225295971,39227056047,39228995303,39230864255,39232902584,39235028468]
+        self.rows=[dict(id=i,display_title="old "+str(i)) for i in ids]+[dict(self.run)]
+        self.receipts={};self.seconds={};used=dict(self.s.READ392_USED);parent=c.external_genesis(self.s.PRICE174_SCOPE)
+        n=0
+        for index,count in enumerate((32,32,32,32,0,4,32,10)):
+            rid=(self.s.PRICE174_FIRST_RUNS+[39609167399,self.s.PRICE174_RECOVERY_RUN,50000000006,50000000007,50000000008])[index]
+            tr=self.old_transition if index<5 else self.new_transition
+            source=self.auth["expected_master"] if index<3 else tr["terms"]["publication"]["expected_master"]
+            run=dict(id=rid,run_attempt=1,head_sha=source,head_branch="master",event="workflow_dispatch",
+                display_title="a1-sip "+c.PREFIX+str(index+1)*24,status="completed",conclusion="failure" if index==4 else "success",
+                created_at="2026-10-22T11:00:00Z" if index<5 else "2026-10-22T11:02:00Z")
+            usage={k:(0 if index==5 and k=="provider_gets" else 10) for k in c.LIMITS}
+            value=dict(status="BLOCKED" if index==4 else "COMPLETE",preflight_only=False,
+                recovery_run=self.s.PRICE174_RECOVERY_RUN if index==5 else None,cohort_scope=dict(self.s.PRICE174_SCOPE),
+                bindings=dict(c.CONTINUATION["bindings"]),external_proof_sha256=self.proof["proof_sha256"],
+                account_permission_reference_sha256=c.digest(self.auth["grant_reference"].encode()),
+                account_permission_record_sha256=self.proof["proof_sha256"],
+                inherited_initial_account_permission_record_sha256=c.CONTINUATION["permission_record"],
+                supplier_rights_verified=False,parent_checkpoint_sha256=parent,examined_before=n,examined_after=n+count,
+                allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},usage=usage,
+                checkpoint_sha256=parent if not count else c.digest(str(n+count).encode()),rows_verified=count*10,
+                new_states=dict(VALID_COLLECTED=count,VERIFIED_NO_DATA=0,QUARANTINED=0),
+                source_sha=source,run_id=rid,auth_sha256=self.s.price174_hash(c,self.auth),
+                price_window_expires_at_utc=self.auth["execution_window"]["expires_at_utc"])
+            if index>=3:
+                value.update(source_transition_proof_sha256=tr["proof_sha256"],
+                    source_transition_reference_sha256=c.digest(tr["reference"].encode()),
+                    source_publication_sha=tr["terms"]["publication"]["expected_master"],
+                    original_source_sha=self.s.PRICE174_ORIGIN,resume_family86_sha256=self.s.PRICE174_FAMILY86,
+                    resume_cohort10_sha256=self.s.PRICE174_COHORT10)
+            self.receipts[rid]=value;self.rows.append(run)
+            self.seconds[rid]=[500,500,500,517,567,200,200,200][index]
+            for k in c.LIMITS:used[k]+=usage[k]
+            n+=count;parent=value["checkpoint_sha256"]
+            if index==2:
+                patch.object(self.s,"PRICE174_FIRST_METERS",[c.digest(c.encoded(self.receipts[r])) for r in self.s.PRICE174_FIRST_RUNS]).start()
+                patch.object(self.s,"PRICE174_CP96",parent).start()
+                patch.object(self.s,"PRICE174_USED96",dict(used)).start();patch.object(self.s,"PRICE174_ACTIVE96",10451).start()
+            if index==4:
+                patch.object(self.s,"PRICE174_RECOVERY_METER",c.digest(c.encoded(value))).start()
+                patch.object(self.s,"PRICE174_RECOVERY_USED",dict(used)).start();patch.object(self.s,"PRICE174_CP128",parent).start()
+        self.legacy=dict(status="BLOCKED",examined_after=296,checkpoint_sha256=self.s.READ392_CP)
+        patch.object(self.s,"READ392_METER",c.digest(c.encoded(self.legacy))).start()
+        value=self.receipts[50000000006]
+        value["price174_reuse"]=dict(schema="a1-price174-recovered-original4-v1",failed_run_id=self.s.PRICE174_RECOVERY_RUN,
+            failed_meter_sha256=self.s.PRICE174_RECOVERY_METER,capture_source_sha=self.s.PRICE174_663,
+            parent_checkpoint_sha256=self.s.PRICE174_CP128,examined_before=128,examined_after=132,
+            failed_observation_window_utc=list(self.s.PRICE174_RECOVERY_WINDOW),provider_gets_for_recovery=0,
+            raw_sha256="1"*64,raw_bytes=500,normalized_sha256="2"*64,normalized_bytes=200,inventory_sha256="3"*64,
+            rows_sha256="4"*64,derivation_source_sha=value["source_sha"],derivation_run_id=value["run_id"],
+            derivation_auth_sha256=value["auth_sha256"],derivation_proof_sha256=value["source_transition_proof_sha256"],
+            derived_at_utc="2026-10-22T11:02:10Z",normalized_codec="EXISTING_VERIFIED")
+
+    def history(self,count,*,current=False):
+        rows=copy.deepcopy(self.rows[:30+count])
+        if current:rows[-1].update(status="in_progress",conclusion=None)
+        def legacy(auth,**kw):
+            prefix=self.s.price174_prefix(c,rows,*kw["price174_context"])
+            return dict(runs=prefix,all_runs=rows,examined=296,parent_sha=self.s.READ392_CP,receipts=[self.legacy],
+                used=dict(self.s.READ392_USED),active_seconds=8736,first=c.utc(c.CONTINUATION["first"]))
+        kwargs=dict(source_transition_reference="new-reference")
+        if current:kwargs.update(current=rows[-1]["id"],nonce=rows[-1]["display_title"][7:])
+        with patch.object(self.s,"price174_closure"),patch.object(self.s,"price174_authority",return_value=self.proof),\
+             patch.object(c,"external_history",side_effect=legacy),patch.object(self.s,"price174_source_tip"),\
+             patch.object(c,"receipt_for_run",side_effect=lambda run,*a:self.receipts[run["id"]]),\
+             patch.object(self.s,"price174_seconds",side_effect=lambda controller,run:self.seconds[run["id"]]):
+            return self.s.price174_history(c,self.auth,**kwargs)
+
+    def test_exact_failed_fifth_keeps_all_costs_and_allows_only_named_restoration(self):
+        before=self.history(5);self.assertFalse(before["terminal_blocked"]);self.assertEqual(before["examined"],128)
+        self.assertEqual(before["used"],self.s.PRICE174_RECOVERY_USED);self.assertEqual(before["active_seconds"],11535)
+        self.assertEqual(len(before["all_runs"]),35);self.assertEqual(self.s.price174_batch_size(before),4)
+        current=self.history(6,current=True);self.assertEqual(current["used"],before["used"])
+        final=self.history(8);self.assertEqual(final["examined"],174);self.assertEqual(len(final["all_runs"]),38)
+        self.assertEqual(final["active_seconds"],12135);self.assertEqual(final["new_states"]["VALID_COLLECTED"],174)
+        for k in c.LIMITS:self.assertGreaterEqual(final["used"][k],before["used"][k])
+
+    def test_changed_failed_meter_extra_recovery_and_new_blocked_suffix_refuse(self):
+        value=self.receipts[self.s.PRICE174_RECOVERY_RUN];value["usage"]["drive_requests"]+=1
+        with self.assertRaises(c.Refused):self.history(6)
+        value["usage"]["drive_requests"]-=1
+        self.receipts[50000000007]["recovery_run"]=self.s.PRICE174_RECOVERY_RUN
+        with self.assertRaises(c.Refused):self.history(7)
+        self.receipts[50000000007]["recovery_run"]=None
+        self.receipts[50000000006]["status"]="BLOCKED"
+        with self.assertRaisesRegex(c.Refused,"PRICE174_PRIOR_BLOCKED"):self.history(7,current=True)
+
+    def test_ordinary_transition_still_stops_after_same_failed_meter(self):
+        self.proof["transition"]=self.old_transition
+        stopped=self.history(5);self.assertTrue(stopped["terminal_blocked"]);self.assertEqual(stopped["examined"],128)
+        with self.assertRaises(c.Refused):self.history(6,current=True)
+
 if __name__=='__main__': unittest.main()
