@@ -7384,3 +7384,27 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+### 2026-10-21 — Preserve gate-log bytes without exposing PR credentials
+
+Source diagnostic39544804083 stopped with NAMED_READ_GATE_LOG before Drive
+configuration and RuntimeMeter construction. Preserve its actual215 active job
+seconds and one dispatch; an absent meter does not prove zero I/O or authorize
+a rerun. The exact deployed call order and positive failure log establish the
+pre-meter boundary. Original suppressed stderr remains unobserved. A later
+Linux reproduction identified GitHub CLI2.102.0's terminal-escape output guard.
+
+Feature-detect the escape flag and enable it only for a helper-owned private
+temporary file. Keep original ANSI/BOM/UTF8 bytes and hashes for the genuine
+gate parser, reject oversized output and use static safe errors. A process
+timeout and bounded prefix reads are not a hard download or disk byte cap.
+
+Do not pass repository read tokens to contributor-controlled PR code or make
+future PR checks depend on expiring historical job logs. Retain one-time
+observations separately and keep recurring PR checks mock-only. Complete
+campaign history must remain in always-authenticated source code, including
+legacy controls; revision-only changes must trigger the specialized checks.
+
+PR660 records the transport correction and exact source/test evidence. Its
+code/CI success does not settle the failed run, renew an execution window,
+authorize another diagnostic, or establish174 new prices or PIT eligibility.

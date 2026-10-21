@@ -154,19 +154,66 @@ def named_read_proof(c,control,*,accounting=False):
     return c.digest(c.encoded(proof)),comment["created_at"]
 
 
-def named_read_gate_log(c,job_id):
-    # Existing genuine gate output is the link missing from custom check metadata:
-    # GitHub may put checks created by different workflows in the same head suite.
-    with c.tempfile.TemporaryFile() as output:
+def named_read_gate_transport(c,job_id):
+    """Read genuine log bytes privately; observations never contain raw output.
+
+    File spooling has a process timeout, not a hard download/disk byte cap.
+    Only the bounded prefixes are loaded into memory or hashed. The caller
+    receives original bytes only after the full file-size and UTF-8 checks.
+    """
+    c.require(type(job_id) is int and job_id>0,"NAMED_READ_GATE_LOG_JOB")
+    record=dict(reason="CLI_HELP",returncode=None,http_status=None,
+        stdout_bytes=0,stderr_bytes=0,stdout_prefix_sha256=c.digest(b""),
+        stderr_prefix_sha256=c.digest(b""),stdout_utf8=False,
+        escape_flag=False,raw_or_headers_emitted=False,
+        prefix_read_limits=dict(stdout=2_000_001,stderr=8193),
+        hard_capture_byte_limit=None)
+    # Version numbers alone cannot establish flag support. Never retry a GET
+    # to detect the flag and never enable it for a terminal or caller-owned fd.
+    with c.tempfile.TemporaryFile() as help_output:
         try:
-            result=c.subprocess.run(["gh","api",f"repos/{c.REPO}/actions/jobs/{job_id}/logs"],
-                stdout=output,stderr=c.subprocess.DEVNULL,timeout=45)
-        except Exception:raise c.Refused("NAMED_READ_GATE_LOG") from None
-        c.require(result.returncode==0,"NAMED_READ_GATE_LOG")
-        output.seek(0);raw=output.read(2_000_001)
-    c.require(len(raw)<=2_000_000,"NAMED_READ_GATE_LOG")
-    try:return raw.decode("utf-8")
-    except UnicodeError:raise c.Refused("NAMED_READ_GATE_LOG") from None
+            result=c.subprocess.run(["gh","api","--help"],stdout=help_output,
+                stderr=c.subprocess.DEVNULL,timeout=10)
+            help_output.seek(0);help_raw=help_output.read(65_537)
+        except Exception:return b"",record
+        if result.returncode!=0 or len(help_raw)>65_536:return b"",record
+    flag=b"--allow-escape-sequences" in help_raw
+    record["escape_flag"]=flag
+    argv=["gh","api"]+(["--allow-escape-sequences"] if flag else [])+[
+        f"repos/{c.REPO}/actions/jobs/{job_id}/logs"]
+    with c.tempfile.TemporaryFile() as output,c.tempfile.TemporaryFile() as errors:
+        failure=None
+        try:
+            result=c.subprocess.run(argv,stdout=output,stderr=errors,timeout=45)
+            record["returncode"]=result.returncode
+        except c.subprocess.TimeoutExpired:failure="TIMEOUT"
+        except Exception:failure="PROCESS_ERROR"
+        output.seek(0,2);record["stdout_bytes"]=output.tell();output.seek(0)
+        errors.seek(0,2);record["stderr_bytes"]=errors.tell();errors.seek(0)
+        raw,error=output.read(2_000_001),errors.read(8193)
+    record["stdout_prefix_sha256"]=c.digest(raw)
+    record["stderr_prefix_sha256"]=c.digest(error)
+    status=c.re.search(rb"HTTP ([1-5][0-9]{2})",error)
+    record["http_status"]=int(status[1]) if status else None
+    try:raw.decode("utf-8");record["stdout_utf8"]=True
+    except UnicodeError:pass
+    reason=(failure or ("STDERR_TOO_LARGE" if record["stderr_bytes"]>=8193 else
+        "BODY_TOO_LARGE" if record["stdout_bytes"]>2_000_000 else
+        "PROCESS_EXIT" if record["returncode"]!=0 else
+        "UTF8" if not record["stdout_utf8"] else "OK"))
+    if reason=="PROCESS_EXIT":
+        if b"Resource not accessible by integration" in error:reason="INTEGRATION_FORBIDDEN"
+        elif b"API rate limit exceeded" in error:reason="RATE_LIMIT"
+        elif b"the response contains terminal escape sequences" in error:reason="CLI_ESCAPE_GUARD"
+    record["reason"]=reason
+    return (raw if reason=="OK" else b""),record
+
+
+def named_read_gate_log(c,job_id):
+    # Keep original ANSI/BOM/UTF-8 bytes: genuine gate parsing stays unchanged.
+    raw,record=named_read_gate_transport(c,job_id)
+    if record["reason"]!="OK":raise c.Refused("NAMED_READ_GATE_LOG_"+record["reason"]) from None
+    return raw.decode("utf-8")
 
 
 def named_read_gate(c,control,check):

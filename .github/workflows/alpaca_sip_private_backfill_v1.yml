@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/alpaca_sip_private_backfill_v1.py'
       - 'tools/alpaca_sip_campaign.py'
+      - 'tools/alpaca_sip_source_revision.py'
       - 'tests/alpaca_sip_campaign_smoke.py'
       - 'tests/alpaca_sip_private_backfill_v1_smoke.py'
       - '.github/workflows/alpaca_sip_private_backfill_v1.yml'
