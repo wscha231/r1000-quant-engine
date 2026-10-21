@@ -7365,11 +7365,35 @@ class Price174SourceTransitionTests(unittest.TestCase):
             self.assertEqual(self.s.price174_tree(c,"b"*40),self.pins)
             self.assertLessEqual(len(calls),7)
             tools=good[ids["/tools"]];rows=tools["tree"]
-            for bad in (dict(tools,truncated=True),dict(tools,tree=rows[:-1]),
+            for bad in (dict(tools,truncated=True),dict(tools,tree=rows[1:]),
                         dict(tools,tree=rows+[rows[0]]),
                         dict(tools,tree=[dict(rows[0],mode="120000")]+rows[1:])):
                 responses=copy.deepcopy(good);responses[ids["/tools"]]=bad
                 with self.assertRaises(c.Refused):self.s.price174_tree(c,"b"*40)
+            attributes=[p for p in self.pins if p.split("/")[-1]==".gitattributes"]
+            self.assertEqual(len(attributes),6);self.assertEqual(len(self.pins),19)
+            transition=dict(terms=self.terms,pins=self.pins)
+            for path in attributes:
+                parts=path.split("/");parent="/"+"/".join(parts[:-1]) if len(parts)>1 else ""
+                baseline=good[ids[parent]];rows=[r for r in baseline["tree"] if r["path"]!=".gitattributes"]
+                alternatives=[None,dict(path=".gitattributes",type="blob",mode="100644",sha="0"*40)]
+                for row in alternatives:
+                    if row is None and self.pins[path] is None:continue
+                    responses=copy.deepcopy(good)
+                    responses[ids[parent]]=dict(baseline,tree=rows+([row] if row else []))
+                    with self.subTest(attribute=path,change="present" if row else "absent"):
+                        actual=self.s.price174_tree(c,"d"*40)
+                        self.assertNotEqual(actual,self.pins)
+                        with patch.object(self.s,"price174_descendant"),\
+                             patch.object(self.s,"price174_tree",return_value=actual):
+                            with self.assertRaisesRegex(c.Refused,"PRICE174_RUNTIME_PINS"):
+                                self.s.price174_source_tip(c,transition,"d"*40)
+                for mode in ("100755","120000"):
+                    responses=copy.deepcopy(good)
+                    responses[ids[parent]]=dict(baseline,tree=rows+[
+                        dict(path=".gitattributes",type="blob",mode=mode,sha="0"*40)])
+                    with self.subTest(attribute=path,mode=mode),self.assertRaises(c.Refused):
+                        self.s.price174_tree(c,"d"*40)
 
     def test_compatible_main_tip_and_queued_source_are_bound_but_runtime_or_guard_changes_refuse(self):
         transition=dict(terms=self.terms,pins=self.pins,proof_sha256="f"*64,reference=self.reference)

@@ -7484,4 +7484,8 @@ transition in subsequent reservations/meters and keep the first96 byte prefix.
 The actual repository recursive Git-tree response is over4MiB. Query only
 non-recursive parent trees for the required paths, cache those directories
 within the verification and reject truncated/duplicate/symlink entries. Do not
-raise metadata limits or scan unrelated artifact trees to prove14 source pins.
+raise metadata limits or scan unrelated artifact trees to prove19 source pins.
+Independent A6 found that pinning only root .gitattributes misses ancestor
+attributes used from the Git index during sparse checkout. Freeze all six
+root/ancestor attribute presence/content records, including absent files. The
+same six cached parent trees close this gap without additional API calls.

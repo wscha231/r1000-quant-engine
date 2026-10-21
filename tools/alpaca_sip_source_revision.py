@@ -1161,7 +1161,9 @@ def price174_execution_paths():
     # All fixed non-cone sparse checkout files, plus the genuine review guards.
     return tuple(V6_PINS)+("data_static/iwb_holdings_seed.csv",
         "tests/alpaca_sip_campaign_smoke.py","tests/alpaca_sip_private_backfill_v1_smoke.py",
-        "tests/api_credentials_check_smoke.py")+tuple(READ392_GATE_PINS)+(".gitattributes",)
+        "tests/api_credentials_check_smoke.py")+tuple(READ392_GATE_PINS)+(".gitattributes",
+        "tools/.gitattributes","tests/.gitattributes","data_static/.gitattributes",
+        ".github/.gitattributes",".github/workflows/.gitattributes")
 
 
 def price174_tree(c,sha):
@@ -1187,7 +1189,7 @@ def price174_tree(c,sha):
                 "PRICE174_RUNTIME_TREE")
             parent=row["sha"]
         row=entries(parent).get(parts[-1])
-        if path==".gitattributes" and row is None:pins[path]=None;continue
+        if parts[-1]==".gitattributes" and row is None:pins[path]=None;continue
         c.require(isinstance(row,dict) and row.get("type")=="blob" and row.get("mode")=="100644"
             and isinstance(row.get("sha"),str) and c.re.fullmatch("[0-9a-f]{40}",row["sha"]),
             "PRICE174_RUNTIME_TREE")

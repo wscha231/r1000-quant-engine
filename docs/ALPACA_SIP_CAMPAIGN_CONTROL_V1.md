@@ -1471,7 +1471,11 @@ directories. The actual
 repository-wide recursive response exceeds the existing4MiB metadata bound;
 do not raise that bound or walk unrelated historical artifacts. Require identical
 blob IDs/modes for all11 files in the workflow's fixed non-cone sparse checkout,
-the two review guards, and .gitattributes presence/content. This covers runtime,
+the two review guards, and all six root/ancestor .gitattributes presence/content
+records (root, tools, tests, data_static, .github, .github/workflows):19 pins.
+Git attributes from the index can affect sparse checkout even when the attribute
+file is not materialized. Record absence explicitly and reject any later
+addition, deletion, content or mode change. This covers runtime,
 seed and pre-credential parser/privacy tests, not only the collector. The
 workflow itself is frozen, so a Main change cannot widen the checked-out code.
 Source/guard/test/seed/attribute drift, missing or duplicate entries, symlinks,
