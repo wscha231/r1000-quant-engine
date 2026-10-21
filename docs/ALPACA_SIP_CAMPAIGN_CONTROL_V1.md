@@ -1425,3 +1425,16 @@ actual execution still needs the final protected Source, real76 and OWNER grant.
 Adapter failures use the existing letter/underscore-only RuntimeMeter reason
 format; unknown exception text is replaced with a fixed safe code. Existing
 meter paths cannot be reused to reset counters within the same worker attempt.
+
+Recheck the local execution window after the last branch/history response,
+before registration/reservation and immediately before dispatch. Remote reads
+or durable journal writes may cross the expiry boundary; an expired path must
+not POST. Require more than the existing45-second POST timeout remaining at
+both dispatch checks; this is a stop margin, not a renewed window. A reservation
+already persisted before expiry remains visible and
+fail-closed, without being mistaken for an assigned or executed run.
+The current account_permission reference/record pair identifies the new OWNER
+execution grant. Preserve the original initial permission-record hash separately;
+never pair it with a later execution reference. supplier_rights_verified remains
+false: neither this implementation nor an execution grant certifies supplier
+licensing or creates an unobserved account reference.

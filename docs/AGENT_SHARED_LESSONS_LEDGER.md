@@ -7434,3 +7434,12 @@ settlement repair without dispatching an already completed batch again.
 Keep adapter error names compatible with the existing meter's strict reason
 schema; do not loosen that schema to fit a new route. Unknown exception text
 must not reach a public meter, even when it contains only uppercase characters.
+
+An independently reproduced expiry race remained after a successful remote
+authority check: the final branch request could finish at expiry, then reserve
+and dispatch a run outside its authorized window. Recheck the local clock after
+that response and again immediately before POST, including after journal fsync.
+Keep any already durable reservation visible when expiry stops the POST.
+Do not combine an original account-evidence hash with a later execution grant's
+reference. Preserve those lineages separately and keep supplier rights explicitly
+unverified; an OWNER execution instruction is not a supplier rights certificate.

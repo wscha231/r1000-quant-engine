@@ -6883,6 +6883,9 @@ class Price174ContinuationTests(unittest.TestCase):
         self.assertEqual(self.s.price174_terms(c,self.auth)["usage_before"],self.s.READ392_USED)
         self.assertEqual(self.s.price174_terms(c,self.auth)["active_seconds_before"],8951)
         self.assertFalse(self.s.price174_terms(c,self.auth)["old417_resume_authorized"])
+        terms=self.s.price174_terms(c,self.auth)
+        self.assertEqual(terms["inherited_initial_account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertFalse(terms["supplier_rights_verified"])
 
     def test_zip_bomb_trailing_stream_changed_control_and_noncanonical_bytes_refuse(self):
         import zlib
@@ -7009,6 +7012,12 @@ class Price174ContinuationTests(unittest.TestCase):
              patch.object(cap,"_collect",side_effect=collect),patch.object(c,"verify_new_group",side_effect=verify),redirect_stdout(output):
             value=self.s.price174_worker(c,args,control,journal)
         self.assertEqual(value["examined_after"],32);self.assertTrue(c.bounded_json(journal)["finalized"])
+        receipt=c.bounded_json(journal)
+        self.assertEqual(receipt["account_permission_reference_sha256"],c.digest(self.auth["grant_reference"].encode()))
+        self.assertEqual(receipt["account_permission_record_sha256"],proof["proof_sha256"])
+        self.assertNotEqual(receipt["account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertEqual(receipt["inherited_initial_account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertIs(receipt["supplier_rights_verified"],False)
         for private in ("PRIVATE_CALLBACK","PRIVATE_COLLECTOR","PRIVATE_STDERR","fixture-root","fixture-secret"):
             self.assertNotIn(private,output.getvalue())
         self.assertEqual(meters[0].used["provider_gets"],0)  # Mock collector only; no real price claim.
@@ -7052,6 +7061,21 @@ class Price174ContinuationTests(unittest.TestCase):
 
 
     def test_actual_six_batch_host_history_and_journal_resume_with_mock_capture(self):
+        self.six_batch_host_history()
+
+    def test_host_expiry_after_binding_tip_read_keeps_registration_and_post_absent(self):
+        self.six_batch_host_history(expire_at="binding")
+
+    def test_host_expiry_after_final_tip_read_keeps_reservation_and_post_absent(self):
+        self.six_batch_host_history(expire_at="reservation")
+
+    def test_host_dispatch_timeout_margin_keeps_reservation_and_post_absent(self):
+        self.six_batch_host_history(expire_at="margin")
+
+    def test_host_expiry_during_reservation_sync_preserves_events_without_post(self):
+        self.six_batch_host_history(expire_at="post")
+
+    def six_batch_host_history(self,*,expire_at=None):
         budget=self.root/"canonical-journal";oldstate=self.root/"external-cohort-top500-20261017"
         targets=[]
         for path,count in ((budget,17),(oldstate,48)):
@@ -7101,6 +7125,10 @@ class Price174ContinuationTests(unittest.TestCase):
             n=sum(batches[:-1]);usage={k:10 for k in c.LIMITS}
             value=dict(status="COMPLETE",preflight_only=False,recovery_run=None,cohort_scope=dict(self.s.PRICE174_SCOPE),
                 bindings=dict(c.CONTINUATION["bindings"]),external_proof_sha256=proof["proof_sha256"],
+                account_permission_reference_sha256=c.digest(self.auth["grant_reference"].encode()),
+                account_permission_record_sha256=proof["proof_sha256"],
+                inherited_initial_account_permission_record_sha256=c.CONTINUATION["permission_record"],
+                supplier_rights_verified=False,
                 parent_checkpoint_sha256=control["parent_sha256"],examined_before=n,examined_after=n+count,
                 allowance={k:c.CONTINUED_LIMITS[k]-self.s.READ392_USED[k]-10*(len(batches)-1) for k in c.LIMITS},
                 usage=usage,checkpoint_sha256=c.digest(str(n+count).encode()),
@@ -7109,19 +7137,35 @@ class Price174ContinuationTests(unittest.TestCase):
             receipts[run["id"]]=value;canonical.append(run)
             return SimpleNamespace(returncode=0)
         output=io.StringIO()
+        branch_reads=[]
+        def branch(path):
+            branch_reads.append(path)
+            if ((expire_at=="binding" and len(branch_reads)==1)
+                or (expire_at in {"reservation","margin"} and len(branch_reads)==2)):
+                self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
+                if expire_at=="margin":self.clock-=c.timedelta(seconds=45)
+            return dict(protected=True,commit=dict(sha="9"*40))
         from contextlib import redirect_stdout
         with patch.object(self.s,"price174_closure"),patch.object(self.s,"price174_authority",return_value=proof),\
              patch.object(c,"external_history",side_effect=legacy),patch.object(c,"campaign_runs",side_effect=lambda *a:list(canonical)),\
              patch.object(c,"receipt_for_run",side_effect=lambda run,*a:receipts[run["id"]]),\
              patch.object(self.s,"price174_seconds",return_value=200),patch.object(c,"external_family_registry",side_effect=registry),\
-             patch.object(c,"gh_json",return_value=dict(protected=True,commit=dict(sha="9"*40))),\
+             patch.object(c,"gh_json",side_effect=branch),\
              patch.object(c.subprocess,"run",side_effect=submit),redirect_stdout(output):
             barrier=c.sync_native18_settlement;fired=[]
             def interrupt(path):
                 barrier(path)
+                if expire_at=="post" and Path(path)==state/"000002.json":
+                    self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
                 if Path(path)==state/"000004.json" and not fired:
                     fired.append(True);raise c.Refused("SYNTHETIC_SETTLEMENT_BARRIER")
             with patch.object(c,"sync_native18_settlement",side_effect=interrupt):
+                if expire_at:
+                    with self.assertRaisesRegex(c.Refused,"CAMPAIGN_EXPIRED"):self.s.price174_host(c,args)
+                    self.assertEqual(batches,[])
+                    self.assertEqual(len(family.entries),76 if expire_at=="binding" else 78 if expire_at=="post" else 77)
+                    self.assertEqual(before,{p:p.read_bytes() for p in before})
+                    return
                 with self.assertRaisesRegex(c.Refused,"SYNTHETIC_SETTLEMENT_BARRIER"):self.s.price174_host(c,args)
             self.assertEqual(len(batches),1)
             final=self.s.price174_host(c,args)

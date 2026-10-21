@@ -1187,6 +1187,8 @@ def price174_terms(c,auth):
         human_window_authority_sha256=auth["human_window_authority_sha256"],execution_window=auth["execution_window"],
         private_bindings_sha256=c.digest(c.encoded({k:prior[k] for k in
             ("private_root_folder_id","private_data_folder_id","credential_binding","owner_permission_id")})),
+        inherited_initial_account_permission_record_sha256=c.CONTINUATION["permission_record"],
+        supplier_rights_verified=False,
         start="2016-01-04",end_exclusive="2026-10-14",timeframe="1Day",feed="sip",adjustments=["raw","split"],
         batches=[32,32,32,32,32,14],usage_before=dict(READ392_USED),active_seconds_before=8951,dispatches_before=30,
         limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
@@ -1195,6 +1197,13 @@ def price174_terms(c,auth):
         account_migration_authorized=False,capture_authorized=True,private_noncommercial_research_only=True,
         source_admission=False,pit_verified=False,economic_authority=False,budget_reset=False,
         total_platform_cost_verified=False)
+
+
+def price174_live_window(c,auth,*,dispatch=False):
+    window=auth["execution_window"]
+    now=c.utc();end=c.utc(window["expires_at_utc"])
+    c.require(c.utc(window["deployed_at_utc"])<=now<end
+        and (not dispatch or now+c.timedelta(seconds=45)<end),"CAMPAIGN_EXPIRED")
 
 
 def price174_authority(c,auth,*,accounting=False):
@@ -1209,7 +1218,7 @@ def price174_authority(c,auth,*,accounting=False):
     terms,proof=human_record(c,comment,"A1_SP500174_PRICE_EXECUTION_AUTHORIZATION ",window=(start,end))
     c.require(comment["id"]==ref and c.encoded(terms)==c.encoded(price174_terms(c,auth))
         and c.utc(auth["closure_event"]["recorded_utc"])<=c.utc(comment["created_at"]),"PRICE174_GRANT")
-    if not accounting:c.require(c.utc(start)<=c.utc()<c.utc(end),"CAMPAIGN_EXPIRED")
+    if not accounting:price174_live_window(c,auth)
     return dict(proof_sha256=c.digest(c.encoded(proof)),proof_updated_utc=comment["created_at"],expires_at_utc=end)
 
 
@@ -1288,6 +1297,10 @@ def price174_history(c,auth,*,current=None,nonce=None):
         c.require(n<174 and value.get("preflight_only") is False and value.get("recovery_run") is None
             and value.get("cohort_scope")==PRICE174_SCOPE and value.get("bindings")==c.CONTINUATION["bindings"]
             and value.get("external_proof_sha256")==proof["proof_sha256"]
+            and value.get("account_permission_reference_sha256")==c.digest(auth["grant_reference"].encode())
+            and value.get("account_permission_record_sha256")==proof["proof_sha256"]
+            and value.get("inherited_initial_account_permission_record_sha256")==c.CONTINUATION["permission_record"]
+            and value.get("supplier_rights_verified") is False
             and value.get("parent_checkpoint_sha256")==parent and value.get("examined_before")==n
             and value["allowance"]==allowance and n<=value["examined_after"]<=n+count
             and (value["status"]!="COMPLETE" or value["examined_after"]==n+count),
@@ -1377,6 +1390,7 @@ def price174_worker(c,args,control,journal):
     branch=c.gh_json(f"repos/{c.REPO}/branches/master")
     c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
         "CAMPAIGN_MASTER_DRIFT")
+    price174_live_window(c,auth)
     key,secret=c.os.getenv("ALPACA_API_KEY","").strip(),c.os.getenv("ALPACA_API_SECRET","").strip()
     c.require(key and secret and c.digest((key+"\0"+secret).encode())==prior["credential_binding"],
         "CAMPAIGN_CREDENTIAL_BINDING")
@@ -1384,8 +1398,10 @@ def price174_worker(c,args,control,journal):
         nonce=control["nonce"],run_id=run_id,run_attempt=1,recovery_run=None,preflight_only=False,
         cohort_scope=PRICE174_SCOPE,external_proof_sha256=proof["proof_sha256"],bindings=c.CONTINUATION["bindings"],
         parent_checkpoint_sha256=observed["parent_sha"],examined_before=n,
-        account_permission_reference_sha256=c.digest(prior["external_cohort"]["proof_reference"].encode()),
+        account_permission_reference_sha256=c.digest(auth["grant_reference"].encode()),
         account_permission_record_sha256=observed["proof"]["proof_sha256"],
+        inherited_initial_account_permission_record_sha256=c.CONTINUATION["permission_record"],
+        supplier_rights_verified=False,
         inherited_read30_closure_sha256=c.digest(c.encoded(auth["closure_event"])),
         price_window_expires_at_utc=proof["expires_at_utc"],total_platform_cost_verified=False)
     c.require(not c.Path(journal).exists(),"PRICE174_METER_REUSE")
@@ -1544,6 +1560,7 @@ def price174_host(c,args):
             branch=c.gh_json(f"repos/{c.REPO}/branches/master")
             c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
                 "CAMPAIGN_MASTER_DRIFT")
+            price174_live_window(c,auth)
         price174_binding(c,family,journal,auth,budget,state)
         reported=started
         while True:
@@ -1577,6 +1594,7 @@ def price174_host(c,args):
             branch=c.gh_json(f"repos/{c.REPO}/branches/master")
             c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
                 "CAMPAIGN_MASTER_DRIFT")
+            price174_live_window(c,auth,dispatch=True)
             reservation=dict(nonce=nonce,remaining=observed["remaining"],
                 active_seconds_remaining=43200-observed["active_seconds"],parent_checkpoint_sha256=observed["parent_sha"],
                 capture_auth_sha256=price174_hash(c,auth),scope=PRICE174_SCOPE)
@@ -1589,6 +1607,7 @@ def price174_host(c,args):
                 noncommercial_terms_acknowledged="true",end_date="2026-10-14",
                 max_new_symbols=str(min(32,174-observed["examined"])),resume_file_id="",
                 resume_sha256=observed["parent_sha"],campaign_control=raw.decode(),campaign_nonce=nonce)
+            price174_live_window(c,auth,dispatch=True)
             result=c.subprocess.run(["gh","workflow","run",c.WORKFLOW,"--repo",c.REPO,"--ref","master","--json"],
                 input=c.json.dumps(inputs).encode(),stdout=c.subprocess.DEVNULL,stderr=c.subprocess.DEVNULL,timeout=45)
             c.require(result.returncode==0,"CAMPAIGN_DISPATCH_UNCERTAIN")
