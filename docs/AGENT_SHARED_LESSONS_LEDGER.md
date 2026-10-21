@@ -7532,3 +7532,29 @@ introduced. Re-review the new exact head; the superseded review is not approval.
 - The new consumer runtime still needs its own separately reviewed fixed A6
   dependency pin. Registry count and a passing fixture do not bind an imported
   module that is absent from that inventory; keep proof acceptance pending.
+
+### 2026-10-22 — Half-year manager selection is not a static watch cohort
+
+The existing June/December reselection workflow emitted a quality/AUM mixed
+diagnostic and marked seeds alone as completed; that does not fulfill a request
+for return-ranked top-ten-or-more managers. Keep same-window, currency and
+methodology fund NAV returns separate from disclosed-long-holdings proxies and
+uncut forward-return event diagnostics. Freeze each cycle, preserve missing as
+unknown, and block a changed or undersized cohort. A manager leaving a cohort is
+not a security exit; complete comparable filings and persistent Main review
+identity are still required. Source proposal tests do not prove authenticated
+A2/Registry/A3 admission. Initial Native replay fixture lacked the existing
+manager loader required label field; corrected fixture before validation.
+
+Independent A6 caught a stale common window accepted under a current receipt
+and early timestamp failure retaining the previous current success surfaces.
+Use an explicit 92-day Source window-age guard and invalidate current summary,
+selection JSON and selected CSV at entry; preserve only frozen historical cycle
+bytes. Keep the fixed 235-program registry: the new related suite executes via
+the registered filing-freshness umbrella and both files enter dependency pins.
+The runner --include adds tests; use --only to restrict a focused invocation.
+
+A6 also reproduced a valid selection published before a failing legacy read.
+Delay positive current and new frozen publication until required diagnostics
+and report succeed; publish the hash-bound summary last. Verify first-attempt
+and prior-success late-read/report failures, not only early input refusal.

@@ -3,6 +3,17 @@ name: SEC 13F Manager Reselection
 on:
   workflow_dispatch:
     inputs:
+      top_n:
+        description: 'Number of comparable return-ranked managers (minimum 10)'
+        type: string
+        default: '10'
+      performance_basis:
+        description: 'One comparable return basis; proxy is never actual fund NAV'
+        type: choice
+        options:
+          - FUND_NAV_NET_TOTAL_RETURN
+          - DISCLOSED_13F_LONG_PROXY_TOTAL_RETURN
+        default: FUND_NAV_NET_TOTAL_RETURN
       min_observations:
         description: 'Minimum repo manager-alpha observations before include/review recommendations'
         type: string
@@ -11,10 +22,6 @@ on:
         description: 'Max reselection candidates to emit'
         type: string
         default: '40'
-      review_interval_days:
-        description: 'Next review interval in days'
-        type: string
-        default: '183'
   schedule:
     # Semiannual review after the May and November 13F filing windows.
     # Runs at 14:00 KST on June 5 and December 5.
@@ -108,7 +115,8 @@ jobs:
         env:
           MIN_OBSERVATIONS: ${{ github.event.inputs.min_observations || '10' }}
           MAX_MANAGERS: ${{ github.event.inputs.max_managers || '40' }}
-          REVIEW_INTERVAL_DAYS: ${{ github.event.inputs.review_interval_days || '183' }}
+          TOP_N: ${{ github.event.inputs.top_n || '10' }}
+          PERFORMANCE_BASIS: ${{ github.event.inputs.performance_basis || 'FUND_NAV_NET_TOTAL_RETURN' }}
         run: |
           set -euo pipefail
           mkdir -p outputs/sec_institutional_signals outputs/full_rebuild_logs research/sec_13f_manager_universe_20260519
@@ -120,7 +128,9 @@ jobs:
             --output-candidate-universe research/sec_13f_manager_universe_20260519/managers_candidate.csv \
             --min-observations "$MIN_OBSERVATIONS" \
             --max-managers "$MAX_MANAGERS" \
-            --review-interval-days "$REVIEW_INTERVAL_DAYS" \
+            --top-n "$TOP_N" \
+            --performance-basis "$PERFORMANCE_BASIS" \
+            --performance-evidence outputs/sec_evidence_signal_audit/manager_performance_evidence/receipt.json \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_reselection.log
 
       - name: Upload manager reselection artifact
@@ -130,6 +140,8 @@ jobs:
           name: sec-13f-manager-reselection-${{ github.run_id }}
           path: |
             outputs/sec_institutional_signals/manager_reselection_*
+            outputs/sec_institutional_signals/manager_performance_*
+            outputs/sec_institutional_signals/manager_selection_*.json
             research/sec_13f_manager_universe_20260519/managers_candidate.csv
             outputs/full_rebuild_logs/sec_13f_manager_reselection.log
           retention-days: 30

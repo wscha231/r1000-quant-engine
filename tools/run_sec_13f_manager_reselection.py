@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Build a semiannual research-only SEC 13F manager reselection candidate list.
 
-This tool does not overwrite the active manager universe. It combines the
-reviewed seed list with repo-learned 13F manager-alpha diagnostics and latest
-13F AUM/coverage so the next refresh can add or retire managers from evidence
-instead of a static hand-picked list.
+This tool does not overwrite the active manager universe. It freezes a
+return-ranked research proposal from explicit comparable performance evidence.
+The old manager-alpha/AUM mix remains a separately labeled diagnostic only.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,138 @@ from tools.run_sec_submissions_collector import cik10, repo_path  # noqa: E402
 DEFAULT_HOLDINGS = "data_pit/sec/institutional_13f_holdings.parquet"
 DEFAULT_MANAGER_ALPHA = "outputs/sec_evidence_signal_audit/13f_manager_alpha.csv"
 DEFAULT_OUTPUT_DIR = "outputs/sec_institutional_signals"
+DEFAULT_PERFORMANCE = "outputs/sec_evidence_signal_audit/manager_performance_evidence/receipt.json"
+PERFORMANCE_BASES = ("FUND_NAV_NET_TOTAL_RETURN", "DISCLOSED_13F_LONG_PROXY_TOTAL_RETURN")
+MAX_PERFORMANCE_AGE_DAYS = 92  # Source research guard; permits the latest quarter-end window.
+SELECTED_COLUMNS = ["manager_cik", "manager_name", "total_return", "evidence_sha256",
+                    "source_available_at", "performance_rank"]
+
+
+def review_cycle(decision_at: str) -> tuple[datetime, date]:
+    """Use the existing June/December 5 05:00 UTC schedule, without day drift."""
+    decision = exact_stamp(decision_at)
+    anchors = [datetime(y, m, 5, 5, tzinfo=timezone.utc)
+               for y in (decision.year - 1, decision.year, decision.year + 1) for m in (6, 12)]
+    cutoff = max(t for t in anchors if t <= decision)
+    return cutoff, min(t for t in anchors if t > cutoff).date()
+
+
+def exact_stamp(value: Any) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("missing aware timestamp")
+    stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if stamp.tzinfo is None:
+        raise ValueError("missing aware timestamp")
+    return stamp.astimezone(timezone.utc)
+
+
+def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def return_ranked_selection(universe: pd.DataFrame, evidence: Path, *, decision_at: str,
+                            top_n: int, performance_basis: str) -> dict[str, Any]:
+    """Research proposal from explicit comparable returns; never a NAV authenticator.
+
+    Legacy manager-alpha diagnostics have forward-return labels and no evaluation
+    cutoff. They cannot substitute for this frozen, source-bound evidence.
+    """
+    cutoff, next_due = review_cycle(decision_at)
+    out: dict[str, Any] = dict(
+        schema="sec-manager-return-selection-v1", status="blocked", reasons=[],
+        cycle_id=cutoff.date().isoformat(), selection_cutoff=cutoff.isoformat(),
+        next_review_due=next_due.isoformat(), performance_basis=performance_basis,
+        requested_managers=top_n, eligible_managers=0, selected_managers=[], excluded=[],
+        max_performance_age_days=MAX_PERFORMANCE_AGE_DAYS,
+        research_only=True, active_manager_universe_changed=False,
+        source_authenticated=False, production_activation_allowed=False,
+        canonical_write_allowed=False, selection_scope="supplied_verified_manager_universe",
+    )
+    if type(top_n) is not int or top_n < 10 or performance_basis not in PERFORMANCE_BASES:
+        out["reasons"] = ["require_at_least_10_and_one_explicit_performance_basis"]
+        return out
+    if not evidence.is_file():
+        out["reasons"] = ["missing_comparable_performance_evidence"]
+        return out
+    try:
+        if evidence.stat().st_size > 4_000_000:
+            raise ValueError("budget")
+        raw = evidence.read_bytes()
+        receipt = json.loads(raw, object_pairs_hook=unique_pairs)
+        start, end = (date.fromisoformat(receipt[k]) for k in ("window_start", "window_end"))
+        if (receipt["schema"] != "sec-manager-performance-evidence-v1"
+                or receipt["performance_basis"] != performance_basis
+                or not start < end < cutoff.date()
+                or not datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc)
+                <= exact_stamp(receipt["calculated_at"]) <= cutoff
+                or receipt["selection_cycle"] != out["cycle_id"]
+                or not isinstance(receipt["currency"], str) or len(receipt["currency"]) != 3
+                or not receipt["currency"].isascii() or not receipt["currency"].isalpha()
+                or not receipt["currency"].isupper()
+                or not isinstance(receipt["methodology_id"], str) or not receipt["methodology_id"].strip()
+                or type(receipt["managers"]) is not list or len(receipt["managers"]) > 10000):
+            raise ValueError("incomparable")
+        out.update(performance_evidence_sha256=hashlib.sha256(raw).hexdigest(),
+                   window_start=start.isoformat(), window_end=end.isoformat(),
+                   methodology_id=receipt["methodology_id"], currency=receipt["currency"])
+        if (cutoff.date() - end).days > MAX_PERFORMANCE_AGE_DAYS:
+            out["reasons"] = ["stale_performance_window"]
+            return out
+        known = {str(r["cik10"]): r for r in universe.to_dict("records") if r.get("verified_flag")}
+        seen: set[str] = set()
+        eligible = []
+        for record in receipt["managers"]:
+            raw_cik = record.get("manager_cik")
+            if not isinstance(raw_cik, str) or len(raw_cik) != 10 or not raw_cik.isascii() or not raw_cik.isdigit():
+                raise ValueError("CIK")
+            if raw_cik in seen:
+                raise ValueError("duplicate CIK")
+            seen.add(raw_cik)
+            reason = None
+            if raw_cik not in known:
+                reason = "manager_identity_not_verified"
+            elif record.get("status") != "COMPLETE":
+                reason = "performance_missing_or_incomplete"
+            elif any(record.get(k) != receipt[k] for k in
+                     ("window_start", "window_end", "performance_basis", "methodology_id", "currency")):
+                reason = "incomparable_return_definition"
+            value = record.get("total_return")
+            if type(value) not in (float, int) or not math.isfinite(value) or value < -1:
+                reason = "missing_or_invalid_return"
+            if not reason:
+                # Evidence bytes are immutable references, not authentication of a
+                # provider or a claim that reported NAV is globally comparable.
+                relative = Path(record["evidence_file"])
+                source = (evidence.parent / relative).resolve()
+                if relative.is_absolute() or not source.is_relative_to(evidence.parent.resolve()):
+                    raise ValueError("evidence scope")
+                if (not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != record["evidence_sha256"]
+                        or not datetime.combine(end, datetime.min.time(), tzinfo=timezone.utc)
+                        <= exact_stamp(record["source_available_at"]) <= exact_stamp(receipt["calculated_at"])):
+                    reason = "source_bytes_or_availability_invalid"
+            if reason:
+                out["excluded"].append(dict(manager_cik=raw_cik, reason=reason))
+            else:
+                eligible.append(dict(manager_cik=raw_cik, manager_name=known[raw_cik]["manager_name"],
+                                     total_return=value, evidence_sha256=record["evidence_sha256"],
+                                     source_available_at=record["source_available_at"]))
+        eligible.sort(key=lambda r: (-r["total_return"], r["manager_cik"]))
+        out["eligible_managers"] = len(eligible)
+        if len(eligible) < top_n:
+            out["reasons"] = ["insufficient_comparable_managers"]
+        else:
+            out["status"] = "completed"
+            out["selected_managers"] = [dict(r, performance_rank=i + 1) for i, r in enumerate(eligible[:top_n])]
+    except (ValueError, TypeError, KeyError, OSError, AttributeError):
+        out["reasons"] = ["invalid_performance_evidence"]
+        out["selected_managers"] = []
+    out["selection_id"] = hashlib.sha256(json.dumps(out, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    return out
 
 
 def read_table(path: Path) -> pd.DataFrame:
@@ -40,7 +172,15 @@ def read_table(path: Path) -> pd.DataFrame:
 
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def write_selected(path: Path, rows: list[dict[str, Any]]) -> None:
+    temporary = path.with_name(path.name + ".tmp")
+    pd.DataFrame(rows, columns=SELECTED_COLUMNS).to_csv(temporary, index=False)
+    temporary.replace(path)
 
 
 def safe_num(value: Any, default: float = 0.0) -> float:
@@ -221,9 +361,13 @@ def render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str:
         f"- status: {summary.get('status')}",
         f"- candidates: {summary.get('candidate_rows', 0)}",
         f"- selected include candidates: {summary.get('candidate_include_count', 0)}",
+        f"- return-ranked selection: {summary.get('performance_selection_status')}",
+        f"- comparable eligible managers: {summary.get('performance_eligible_managers')}",
+        f"- selected managers: {summary.get('performance_selected_managers')}",
+        f"- selection blockers: {summary.get('reason')}",
         f"- next review due: {summary.get('next_review_due')}",
         "",
-        "## Top Candidates",
+        "## Legacy Diagnostic Candidates (not return-ranked selection)",
         "",
         "| manager | action | score | quality | obs | hit rate | latest AUM |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
@@ -246,7 +390,27 @@ def render_report(summary: dict[str, Any], candidates: pd.DataFrame) -> str:
 def run(args: argparse.Namespace) -> dict[str, Any]:
     out_dir = repo_path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_json(out_dir / "manager_reselection_summary.json", dict(status="blocked", reason="attempt_incomplete"))
+    write_json(out_dir / "manager_performance_selection.json", dict(
+        schema="sec-manager-return-selection-v1", status="blocked", reasons=["attempt_incomplete"],
+        selected_managers=[], research_only=True, source_authenticated=False,
+        canonical_write_allowed=False, production_activation_allowed=False))
+    write_selected(out_dir / "manager_performance_selected.csv", [])
     universe = load_manager_universe(repo_path(args.manager_universe), extra=str(args.extra or ""))
+    decision_at = getattr(args, "decision_at", "") or datetime.now(timezone.utc).isoformat()
+    selection = return_ranked_selection(
+        universe, repo_path(getattr(args, "performance_evidence", DEFAULT_PERFORMANCE)),
+        decision_at=decision_at, top_n=int(getattr(args, "top_n", 10)),
+        performance_basis=getattr(args, "performance_basis", PERFORMANCE_BASES[0]),
+    )
+    frozen = out_dir / f"manager_selection_{selection['cycle_id']}.json"
+    if selection["status"] == "completed":
+        if frozen.exists():
+            if frozen.read_bytes() != (json.dumps(selection, indent=2, sort_keys=True) + "\n").encode():
+                selection = {**selection, "status": "blocked", "reasons": ["frozen_cycle_conflict"],
+                             "selected_managers": []}
+                selection["selection_id"] = hashlib.sha256(json.dumps(
+                    {k: v for k, v in selection.items() if k != "selection_id"}, sort_keys=True).encode()).hexdigest()
     manager_alpha = read_table(repo_path(args.manager_alpha))
     holdings = read_table(repo_path(args.holdings))
     candidates = build_candidates(
@@ -262,16 +426,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if str(args.output_candidate_universe).strip():
         candidate_review_csv.parent.mkdir(parents=True, exist_ok=True)
         candidates.to_csv(candidate_review_csv, index=False)
-    today = date.today()
-    next_review = today + timedelta(days=int(args.review_interval_days))
     summary = {
-        "status": "completed" if not candidates.empty else "blocked",
-        "reason": "" if not candidates.empty else "missing manager universe, manager alpha, and 13F holdings evidence",
+        "status": selection["status"],
+        "reason": ";".join(selection["reasons"]),
         "research_only": True,
         "production_activation_allowed": False,
         "active_manager_universe_changed": False,
         "review_interval_days": int(args.review_interval_days),
-        "next_review_due": next_review.isoformat(),
+        "review_cadence": "existing_June_5_December_5_0500_UTC",
+        "decision_at": decision_at,
+        "next_review_due": selection["next_review_due"],
+        "performance_selection_status": selection["status"],
+        "performance_eligible_managers": selection["eligible_managers"],
+        "performance_selected_managers": len(selection["selected_managers"]),
+        "selection_id": selection.get("selection_id"),
         "candidate_rows": int(len(candidates)),
         "candidate_include_count": int((candidates.get("reselection_action", pd.Series(dtype=str)) == "candidate_include").sum())
         if not candidates.empty
@@ -283,10 +451,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "manager_reselection_candidates": str(candidates_csv),
             "manager_review_candidate_universe": str(candidate_review_csv) if str(args.output_candidate_universe).strip() else "",
             "report": str(out_dir / "manager_reselection_report.md"),
+            "performance_selection": str(out_dir / "manager_performance_selection.json"),
+            "selected_managers": str(out_dir / "manager_performance_selected.csv"),
         },
     }
-    write_json(out_dir / "manager_reselection_summary.json", summary)
     (out_dir / "manager_reselection_report.md").write_text(render_report(summary, candidates), encoding="utf-8")
+    # No positive current or new frozen output until every required read/report
+    # succeeds. The summary commits the attempt last and binds the selected bytes.
+    if selection["status"] == "completed" and not frozen.exists():
+        write_json(frozen, selection)
+    write_selected(out_dir / "manager_performance_selected.csv", selection["selected_managers"])
+    write_json(out_dir / "manager_performance_selection.json", selection)
+    summary["output_sha256"] = {name: hashlib.sha256((out_dir / name).read_bytes()).hexdigest()
+                                for name in ("manager_performance_selection.json", "manager_performance_selected.csv")}
+    write_json(out_dir / "manager_reselection_summary.json", summary)
     print(json.dumps({"status": summary["status"], "candidate_rows": summary["candidate_rows"]}, sort_keys=True))
     return summary
 
@@ -301,7 +479,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--extra", default="")
     parser.add_argument("--max-managers", type=int, default=40)
     parser.add_argument("--min-observations", type=int, default=10)
-    parser.add_argument("--review-interval-days", type=int, default=183)
+    parser.add_argument("--review-interval-days", type=int, default=183,
+                        help="Legacy metadata only; selection follows the existing June/December calendar")
+    parser.add_argument("--performance-evidence", default=DEFAULT_PERFORMANCE)
+    parser.add_argument("--performance-basis", choices=PERFORMANCE_BASES, default=PERFORMANCE_BASES[0])
+    parser.add_argument("--top-n", type=int, default=10)
+    parser.add_argument("--decision-at", default="", help="Aware research cutoff; default current UTC")
     return parser.parse_args()
 
 
