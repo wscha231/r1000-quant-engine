@@ -253,6 +253,47 @@ class ReturnRankedCycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             review_cycle("2026-12-05T05:00:00")
 
+    def test_late_diagnostic_and_report_failures_never_publish_success(self):
+        self.select()
+        universe_file = self.root / "universe.csv"
+        self.universe.rename(columns={"verified_flag": "verified_cik"}).to_csv(universe_file, index=False)
+        args = argparse.Namespace(manager_universe=str(universe_file), manager_alpha=str(self.root),
+            holdings=str(self.root / "missing.parquet"), output_dir=str(self.root / "out"),
+            output_candidate_universe="", extra="", max_managers=40, min_observations=10, review_interval_days=183,
+            performance_evidence=str(self.path), top_n=10, performance_basis="FUND_NAV_NET_TOTAL_RETURN",
+            decision_at="2026-10-21T00:00:00Z")
+        out = self.root / "out"
+        frozen = out / "manager_selection_2026-06-05.json"
+
+        def blocked():
+            self.assertEqual(json.loads((out / "manager_reselection_summary.json").read_text())["status"], "blocked")
+            self.assertEqual(json.loads((out / "manager_performance_selection.json").read_text())["status"], "blocked")
+            self.assertTrue(pd.read_csv(out / "manager_performance_selected.csv").empty)
+
+        with self.assertRaises(IsADirectoryError):
+            run(args)
+        blocked()
+        self.assertFalse(frozen.exists())
+        args.manager_alpha = str(self.root / "missing.csv")
+        result = run(args)
+        self.assertEqual(result["status"], "completed")
+        original = frozen.read_bytes()
+        for name, expected_hash in result["output_sha256"].items():
+            self.assertEqual(hashlib.sha256((out / name).read_bytes()).hexdigest(), expected_hash)
+        args.holdings = str(self.root)
+        with self.assertRaises(IsADirectoryError):
+            run(args)
+        blocked()
+        self.assertEqual(frozen.read_bytes(), original)
+        args.holdings = str(self.root / "missing.parquet")
+        report = out / "manager_reselection_report.md"
+        report.unlink()
+        report.mkdir()
+        with self.assertRaises(IsADirectoryError):
+            run(args)
+        blocked()
+        self.assertEqual(frozen.read_bytes(), original)
+
 
 if __name__ == "__main__":
     test_manager_reselection_is_research_only_and_uses_repo_evidence()

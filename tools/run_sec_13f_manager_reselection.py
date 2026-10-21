@@ -411,12 +411,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                              "selected_managers": []}
                 selection["selection_id"] = hashlib.sha256(json.dumps(
                     {k: v for k, v in selection.items() if k != "selection_id"}, sort_keys=True).encode()).hexdigest()
-        else:
-            write_json(frozen, selection)
-    # Current-attempt receipt always replaces a previous success on refusal.
-    # Frozen cycle bytes are preserved; no active manager control plane is written.
-    write_json(out_dir / "manager_performance_selection.json", selection)
-    write_selected(out_dir / "manager_performance_selected.csv", selection["selected_managers"])
     manager_alpha = read_table(repo_path(args.manager_alpha))
     holdings = read_table(repo_path(args.holdings))
     candidates = build_candidates(
@@ -461,8 +455,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "selected_managers": str(out_dir / "manager_performance_selected.csv"),
         },
     }
-    write_json(out_dir / "manager_reselection_summary.json", summary)
     (out_dir / "manager_reselection_report.md").write_text(render_report(summary, candidates), encoding="utf-8")
+    # No positive current or new frozen output until every required read/report
+    # succeeds. The summary commits the attempt last and binds the selected bytes.
+    if selection["status"] == "completed" and not frozen.exists():
+        write_json(frozen, selection)
+    write_selected(out_dir / "manager_performance_selected.csv", selection["selected_managers"])
+    write_json(out_dir / "manager_performance_selection.json", selection)
+    summary["output_sha256"] = {name: hashlib.sha256((out_dir / name).read_bytes()).hexdigest()
+                                for name in ("manager_performance_selection.json", "manager_performance_selected.csv")}
+    write_json(out_dir / "manager_reselection_summary.json", summary)
     print(json.dumps({"status": summary["status"], "candidate_rows": summary["candidate_rows"]}, sort_keys=True))
     return summary
 

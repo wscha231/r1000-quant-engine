@@ -104,6 +104,10 @@ Success means a research proposal was built, not active roster publication.
 work starts, together with current selection JSON and selected CSV, including
 when timestamp parsing or universe loading fails. A failed current attempt cannot reuse an old successful selection
 CSV as current success; frozen cycle bytes remain preserved.
+Positive current outputs and a new frozen proposal are published only after all
+required legacy reads and report rendering succeed. The summary is published
+last and binds both selected CSV and selection JSON SHA256. Consumers require
+that completed summary and matching bytes; individual files are not admission.
 
 ## Main connection using existing paths
 

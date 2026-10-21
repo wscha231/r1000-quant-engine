@@ -7553,3 +7553,8 @@ selection JSON and selected CSV at entry; preserve only frozen historical cycle
 bytes. Keep the fixed 235-program registry: the new related suite executes via
 the registered filing-freshness umbrella and both files enter dependency pins.
 The runner --include adds tests; use --only to restrict a focused invocation.
+
+A6 also reproduced a valid selection published before a failing legacy read.
+Delay positive current and new frozen publication until required diagnostics
+and report succeed; publish the hash-bound summary last. Verify first-attempt
+and prior-success late-read/report failures, not only early input refusal.
