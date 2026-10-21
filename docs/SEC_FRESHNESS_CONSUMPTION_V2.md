@@ -32,3 +32,56 @@ No score weights/live switches, A2/A3 Registry state, portfolio or orders change
 
 Main typed-event/reassessment changes remain with the existing Main owner.
 No current real disclosure-to-A3 claim follows from these Source-only fixtures.
+
+## Exact CUSIP mapping and actual consumer diagnostic (2026-10-21)
+
+The original BRK 89-row proof was the first, unmapped parse: no `cusip_map`
+was supplied. The existing workflow already performs raw parse, map building,
+then a mapped parse. Missing map input is not missing SEC XML or evidence that
+a new collector is needed. Preserve the original source receipt unchanged.
+
+The scheduled map-building call now uses `--exact-cusip-only`: reuse the
+existing explicit CUSIP overrides without issuer-name/CIK or candidate-name
+inference, seed reads or a fresh company-ticker request. Issuer CIK does not
+resolve a security/share class. This is explicit mapping evidence, not historical
+identity/PIT approval. Missing overrides stay unresolved; conflicting tickers
+for one CUSIP refuse in both the builder and parser rather than choosing a row.
+Same-ticker duplicates remain reusable. Builder and consumer preserve Parquet null identities.
+The mapped parser also enforces exact-CUSIP policy: embedded-only tickers stay
+unmapped, contradictory XML tickers refuse, and the policy is checkpoint-bound.
+The legacy name-matching mode remains available only as a separate diagnostic;
+it is not used by the canonical quarterly workflow. No new mappings are added.
+
+Offline Native replay reused the original BRK Q2 XML and original decision
+clock 2026-10-20T18:43:10.927864Z. Existing override file SHA256
+`6b9aac75913dfbc22591bb53071ed6d666c49c0d2e732c46abbb774d57b98f6e`
+maps 45/89 rows, 11/29 unique CUSIPs, and 61.431% of original value. The other
+44 rows/18 CUSIPs remain unresolved. One local derivation reflects changed
+mapping/code; the next replay uses its checkpoint with zero reparses. Both use
+zero provider calls. This one-manager sample does not replace the distinct
+10-manager/260-row coverage or waive current Form4/ETF/manager gates.
+
+Actual read-only calls to the unchanged Main-owned builders reveal blockers:
+
+- AAPL original 78 rows contain Form3=8 and Form4=70; 9 rows are holdings.
+  `build_form4_events` emits 78 legacy events but drops `form_type`, `row_kind`,
+  `transaction_id`, document/owner/footnote provenance, derivative identity and
+  market-verification fields. No P-code occurs in this bounded actual sample;
+  its legacy unconditional P/open-market rule is not validated by that absence.
+- `build_position_events` emits 11 legacy events from the 45 explicitly mapped
+  BRK rows, dropping 34 repeated manager/accession/ticker rows by keep-last.
+  Whether those source positions are distinct, overlapping, or aggregable needs
+  original investment-discretion/other-manager/voting/class evidence. Do not
+  interpret the keep-last output as a certified position or blindly sum it.
+- Repeating the same input yields identical output; this is not persistent
+  new/replay/amendment/stale/unavailable idempotency proof.
+- Current Shared Reader registry supports only `ds.us.prices.daily`, with no
+  admitted frozen generations. An explicit unregistered SEC negative request
+  refuses `UNKNOWN_DATASET` before transport. No SEC Reader consumption occurs.
+
+Source raw verification, explicit identity mapping, typed-event admission and
+economic interpretation remain separate gates. Existing Main owner must retain
+all Source semantics, reconcile repeated holdings, bind actual frozen SEC
+manifest and genuine A2/Registry/A3 references, and test persistent lifecycle
+cases. No Main files or Registry entries were changed, no metadata/exposure or
+A3 references invented. Economic approval and task-wide completion remain open.

@@ -714,6 +714,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/sec_13f_cusip_mapping_smoke.py',
     'tests/sec_13f_filing_freshness_smoke.py',
     'tests/sec_13f_parser_smoke.py',
+    'tests/sec_13f_scoped_resume_smoke.py',
     'tests/sec_13f_position_event_builder_smoke.py',
     'tests/sec_13f_publication_verification_smoke.py',
     'tests/sec_candidate_enrichment_smoke.py',
