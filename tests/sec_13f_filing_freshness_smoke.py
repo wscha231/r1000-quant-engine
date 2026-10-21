@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import unittest
 from datetime import date
 from pathlib import Path
 
@@ -242,4 +243,10 @@ if __name__ == "__main__":
     test_unmapped_manager_and_unparsed_amendment_are_blocked()
     test_single_mapped_row_does_not_make_large_filing_substantive()
     test_weighted_evidence_hashes_are_bound_or_fail_closed()
+    # Keep the frozen Tier-1 registry at 235; execute related Source freshness
+    # invariants through this already registered umbrella (also active under -O).
+    from sec_13f_manager_reselection_smoke import ReturnRankedCycleTests
+    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(ReturnRankedCycleTests))
+    if not result.wasSuccessful():
+        raise SystemExit(1)
     print("sec_13f_filing_freshness_smoke: PASS")
