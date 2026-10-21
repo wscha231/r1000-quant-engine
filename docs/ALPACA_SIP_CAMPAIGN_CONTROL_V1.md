@@ -1466,7 +1466,10 @@ actual reviewed tree, local7 SHA256 pins, real merged PR, required checks and
 genuine review-complete proof. Neither replaces the other.
 
 A compatible master must be protected and descend from that new publication.
-Compare complete, non-truncated Git trees and require identical regular-file
+Read complete, non-truncated Git trees only for required non-recursive parent
+directories. The actual
+repository-wide recursive response exceeds the existing4MiB metadata bound;
+do not raise that bound or walk unrelated historical artifacts. Require identical
 blob IDs/modes for all11 files in the workflow's fixed non-cone sparse checkout,
 the two review guards, and .gitattributes presence/content. This covers runtime,
 seed and pre-credential parser/privacy tests, not only the collector. The

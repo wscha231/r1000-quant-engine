@@ -1169,14 +1169,24 @@ def price174_tree(c,sha):
     commit=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
     tree=commit.get("tree",{}).get("sha")
     c.require(isinstance(tree,str) and c.re.fullmatch("[0-9a-f]{40}",tree),"PRICE174_RUNTIME_SOURCE")
-    value=c.gh_json(f"repos/{c.REPO}/git/trees/{tree}?recursive=1")
-    rows=value.get("tree")
-    c.require(value.get("sha")==tree and value.get("truncated") is False and isinstance(rows,list)
-        and all(isinstance(r,dict) and isinstance(r.get("path"),str) for r in rows)
-        and len({r["path"] for r in rows})==len(rows),"PRICE174_RUNTIME_TREE")
-    by_name={r["path"]:r for r in rows};pins={}
+    cache={};pins={}
+    def entries(sha):
+        if sha not in cache:
+            value=c.gh_json(f"repos/{c.REPO}/git/trees/{sha}");rows=value.get("tree")
+            c.require(value.get("sha")==sha and value.get("truncated") is False and isinstance(rows,list)
+                and all(isinstance(r,dict) and isinstance(r.get("path"),str) and "/" not in r["path"] for r in rows)
+                and len({r["path"] for r in rows})==len(rows),"PRICE174_RUNTIME_TREE")
+            cache[sha]={r["path"]:r for r in rows}
+        return cache[sha]
     for path in price174_execution_paths():
-        row=by_name.get(path)
+        parts=path.split("/");parent=tree
+        for part in parts[:-1]:
+            row=entries(parent).get(part)
+            c.require(isinstance(row,dict) and row.get("type")=="tree" and row.get("mode")=="040000"
+                and isinstance(row.get("sha"),str) and c.re.fullmatch("[0-9a-f]{40}",row["sha"]),
+                "PRICE174_RUNTIME_TREE")
+            parent=row["sha"]
+        row=entries(parent).get(parts[-1])
         if path==".gitattributes" and row is None:pins[path]=None;continue
         c.require(isinstance(row,dict) and row.get("type")=="blob" and row.get("mode")=="100644"
             and isinstance(row.get("sha"),str) and c.re.fullmatch("[0-9a-f]{40}",row["sha"]),
@@ -1205,7 +1215,7 @@ def price174_source_tip(c,transition,source_sha=None,*,live=False):
     candidate=current if source_sha is None else source_sha
     for sha in dict.fromkeys((candidate,current)):
         price174_descendant(c,origin,sha)
-        c.require(price174_tree(c,sha)==transition["pins"],"PRICE174_RUNTIME_PINS")
+        if sha!=origin:c.require(price174_tree(c,sha)==transition["pins"],"PRICE174_RUNTIME_PINS")
     if live:
         # A queued run may use an earlier compatible tip; an unrelated Main
         # change cannot change any file in its fixed sparse execution closure.

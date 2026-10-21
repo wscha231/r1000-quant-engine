@@ -7345,17 +7345,31 @@ class Price174SourceTransitionTests(unittest.TestCase):
                 checkout.append(value[1:])
         self.assertTrue(checkout)
         self.assertTrue(set(checkout)<=set(self.s.price174_execution_paths()))
-        rows=[dict(path=p,type="blob",**v) for p,v in self.pins.items() if v is not None]
-        response=dict(sha="e"*40,truncated=False,tree=rows)
-        with patch.object(c,"gh_json",side_effect=lambda path:dict(tree=dict(sha="e"*40))
-                if "/git/commits/" in path else response):
+        directories={"":[]};ids={"":"e"*40}
+        for path,value in self.pins.items():
+            if value is None:continue
+            parts=path.split("/");parent=""
+            for part in parts[:-1]:
+                child=parent+"/"+part
+                if child not in ids:
+                    ids[child]=c.digest(child.encode())[:40];directories[child]=[]
+                    directories[parent].append(dict(path=part,type="tree",mode="040000",sha=ids[child]))
+                parent=child
+            directories[parent].append(dict(path=parts[-1],type="blob",**value))
+        responses={ids[p]:dict(sha=ids[p],truncated=False,tree=rows) for p,rows in directories.items()}
+        good=copy.deepcopy(responses);calls=[]
+        def metadata(path):
+            calls.append(path);self.assertNotIn("recursive",path)
+            return dict(tree=dict(sha="e"*40)) if "/git/commits/" in path else responses[path.rsplit("/",1)[1]]
+        with patch.object(c,"gh_json",side_effect=metadata):
             self.assertEqual(self.s.price174_tree(c,"b"*40),self.pins)
-            for bad in (dict(response,truncated=True),dict(response,tree=rows[:-1]),
-                        dict(response,tree=rows+[rows[0]]),
-                        dict(response,tree=[dict(rows[0],mode="120000")]+rows[1:])):
-                response=bad
+            self.assertLessEqual(len(calls),7)
+            tools=good[ids["/tools"]];rows=tools["tree"]
+            for bad in (dict(tools,truncated=True),dict(tools,tree=rows[:-1]),
+                        dict(tools,tree=rows+[rows[0]]),
+                        dict(tools,tree=[dict(rows[0],mode="120000")]+rows[1:])):
+                responses=copy.deepcopy(good);responses[ids["/tools"]]=bad
                 with self.assertRaises(c.Refused):self.s.price174_tree(c,"b"*40)
-                response=dict(sha="e"*40,truncated=False,tree=rows)
 
     def test_compatible_main_tip_and_queued_source_are_bound_but_runtime_or_guard_changes_refuse(self):
         transition=dict(terms=self.terms,pins=self.pins,proof_sha256="f"*64,reference=self.reference)

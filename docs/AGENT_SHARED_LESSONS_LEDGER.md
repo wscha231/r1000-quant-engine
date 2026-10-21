@@ -7481,3 +7481,7 @@ complete Git-tree evidence, protected descendant ancestry and actual GITHUB_SHA;
 keep the original grant/account evidence and new Source proof in distinct fields.
 Append no extra event into an existing reserved batch-index protocol. Bind the
 transition in subsequent reservations/meters and keep the first96 byte prefix.
+The actual repository recursive Git-tree response is over4MiB. Query only
+non-recursive parent trees for the required paths, cache those directories
+within the verification and reject truncated/duplicate/symlink entries. Do not
+raise metadata limits or scan unrelated artifact trees to prove14 source pins.
