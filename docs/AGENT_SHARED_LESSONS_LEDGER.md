@@ -7506,3 +7506,17 @@ conflicting rows as blocked; historical as-of decisions remain supported.
 Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
 observation clock, source/PIT authentication, model fit, ER or A5 authority is
 introduced. Re-review the new exact head; the superseded review is not approval.
+
+
+### 2026-10-21 — Separate fund NAV performance from 13F research watch cohorts
+
+A public three-year top-stock proxy is not an actual hedge-fund net return or a
+comparable global top-ten rank. Retain the metric, lookback, publisher snapshot,
+retrieval and SEC identity/accession evidence; keep unverified fund CAGR/risk/PIT
+fields missing. Never put a three-year proxy in the legacy two-year column.
+Reuse existing manager selection and quarterly collection: deduplicate CIKs,
+retain incumbents/priorities and add eight new identities for a ten-manager
+cohort (34 active becomes42). Actual ten-manager Q2 source parsing260 rows is
+separate from its48 mapped rows/18.46% and24.78% mapped value. Keep substantive
+manager, mapping, Form4/ETF and economic gates blocked; published data notes do
+not activate scores, prove scheduled collection or create A2/A3 consumption.
