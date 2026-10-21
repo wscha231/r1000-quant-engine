@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
+import io
+import math
+import re
 import sys
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from typing import Any
 
@@ -19,13 +24,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.run_account_order_preview import normalize_target, run as run_order_preview  # noqa: E402
-from tools.run287_crisis_policy import adapt_crisis_state  # noqa: E402
-from tools.reserve_asset_policy import RESERVE_REASONS  # noqa: E402
+from tools.run_account_order_preview import normalize_target, select_target_snapshot, run as run_order_preview  # noqa: E402
+from tools.run_weekly_evaluation import px_cache_name, load_price_series  # noqa: E402
+from tools.run287_crisis_policy import CANONICAL_STATES, adapt_crisis_state  # noqa: E402
+from tools.reserve_asset_policy import (  # noqa: E402
+    RESERVE_REASONS, RESERVE_REASON_SOURCE_HASH_FIELD,
+    reserve_reason_reconciliation, resolve_reserve_asset_policy,
+)
 
 
 PORTFOLIOS = ("main", "concentrated")
 ALLOWED_ACTION_TYPES = {"raise_cash", "trim_position", "block_new_buys", "reentry_watch", "no_op"}
+# This work package authorizes code/fixture preparation, not actual preview
+# activation. No CLI flag or input file can turn this gate on. A separately
+# reviewed real-input/activation change is required; test stubs may patch it.
+ACTUAL_PREVIEW_ACTIVATED = False
 
 
 def repo_path(value: str | Path) -> Path:
@@ -65,14 +78,228 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
-    actions = [a for a in monitor.get("paper_action_candidates") or [] if str(a.get("action_type")) in ALLOWED_ACTION_TYPES]
-    raise_cash_targets = [safe_float(a.get("target_cash_weight"), 0.0) for a in actions if a.get("action_type") == "raise_cash"]
-    trim_tickers = {
-        str(a.get("ticker") or "").upper().strip(): safe_float(a.get("current_weight"), 0.0)
-        for a in actions
-        if a.get("action_type") == "trim_position" and str(a.get("ticker") or "").strip()
-    }
+def strict_number(value: Any) -> float:
+    if type(value) not in (float, int):
+        raise ValueError("ECONOMIC_NUMBER_INVALID")
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        raise ValueError("ECONOMIC_NUMBER_INVALID") from None
+    if not math.isfinite(number):
+        raise ValueError("ECONOMIC_NUMBER_INVALID")
+    return number
+
+
+def strict_ticker(value: Any) -> str:
+    if type(value) is not str or value != value.upper().strip() or value in {"NAN", "NONE", "NULL"} or \
+            re.fullmatch(r"[A-Z0-9][A-Z0-9.-]{0,20}", value) is None:
+        raise ValueError("EXACT_BOOK_IDENTITY_REQUIRED")
+    return value
+
+
+def session_target(source: pd.DataFrame, report_session: str | None) -> pd.DataFrame:
+    """Select a dated book at the pinned session before identity/economics checks."""
+    if "rebalance_date" not in source:
+        return source.copy()
+    if not isinstance(report_session, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}", report_session) is None:
+        raise ValueError("DATED_TARGET_SESSION_REQUIRED")
+    dates = pd.to_datetime(source.rebalance_date, errors="coerce")
+    if dates.isna().any():
+        raise ValueError("TARGET_SNAPSHOT_DATE_REQUIRED")
+    selected = select_target_snapshot(source, target_date=report_session)
+    if selected.empty:
+        raise ValueError("TARGET_SNAPSHOT_UNAVAILABLE_AT_SESSION")
+    return selected
+
+
+PREVIEW_FILES = ("orders_preview.csv", "positions_current.csv", "target_weights.csv",
+                 "projected_positions_after_orders.csv", "order_batch_manifest.json",
+                 "preview_metrics.json", "preview_report.md")
+
+
+def invalidate_previews(output: Path) -> None:
+    """Only derived bridge outputs; never recurse or touch an accepted book."""
+    paths = [output / "summary.json", output / "summary.md"]
+    for portfolio in PORTFOLIOS:
+        paths.extend(output / portfolio / name for name in
+                     ("paper_action_target_book.csv", "paper_orders_preview.csv", "summary.json", "account_state.bound.json"))
+        paths.extend(output / portfolio / "account_order_preview" / name for name in PREVIEW_FILES)
+    for path in paths:
+        if path.is_symlink() or not path.resolve().is_relative_to(output.resolve()) or \
+                any(p.is_symlink() for p in path.parents if p != output.parent):
+            raise ValueError("DERIVED_OUTPUT_PATH_REFUSED")
+        if path.exists() and not path.is_file():
+            raise ValueError("DERIVED_OUTPUT_PATH_REFUSED")
+    for path in paths:
+        if path.exists():
+            path.unlink()
+
+
+def accepted_reserve_hash(source: pd.DataFrame, weight_col: str) -> None:
+    if RESERVE_REASON_SOURCE_HASH_FIELD not in source:
+        raise ValueError("ACCEPTED_RESERVE_HASH_REQUIRED")
+    declarations = [value for value in source[RESERVE_REASON_SOURCE_HASH_FIELD]
+                    if not pd.isna(value) and value != ""]
+    if not declarations or any(type(value) is not str or
+            re.fullmatch(r"[0-9a-f]{64}", value) is None for value in declarations):
+        raise ValueError("ACCEPTED_RESERVE_HASH_REQUIRED")
+    reserve_reason_reconciliation(source, policy=resolve_reserve_asset_policy(context="current_paper"),
+                                  weight_col=weight_col)
+
+
+def bound_prices(cache: Path, tickers: set[str], declarations: Any,
+                 captured: dict[str, bytes], report_session: str,
+                 validated: dict[str, float]) -> dict[str, dict[str, Any]]:
+    from tools import daily_crisis_report_clock as clock
+    if cache.is_symlink() or not isinstance(declarations, dict) or set(declarations) != tickers or len(tickers) > 256:
+        raise ValueError("PRICE_ARTIFACT_BINDING_REQUIRED")
+    result = {}
+    for ticker in sorted(tickers):
+        name = px_cache_name(strict_ticker(ticker))
+        spec = declarations[ticker]
+        if not isinstance(spec, dict) or spec.get("relative_path") != name or \
+                type(spec.get("byte_count")) is not int or not 0 < spec["byte_count"] <= 8*1024**2 or \
+                not isinstance(spec.get("sha256"), str) or re.fullmatch(r"[0-9a-f]{64}", spec["sha256"]) is None:
+            raise ValueError("PRICE_ARTIFACT_BINDING_REQUIRED")
+        if name not in captured:
+            if sum(map(len, captured.values())) + spec["byte_count"] > 64*1024**2:
+                raise ValueError("PRICE_ARTIFACT_TOTAL_BOUND")
+            captured[name] = clock.bounded(cache/name, 8*1024**2)
+        raw = captured[name]
+        if len(raw) != spec["byte_count"] or hashlib.sha256(raw).hexdigest() != spec["sha256"]:
+            raise ValueError("PRICE_ARTIFACT_BINDING_REQUIRED")
+        if name not in validated:
+            # Decode only the captured bytes through the SAME cache reader used
+            # by the preview engine. A hash cannot turn stale/invalid data current.
+            with TemporaryDirectory(prefix="bridge-price-check-") as temporary:
+                frozen_cache = Path(temporary)
+                (frozen_cache/name).write_bytes(raw)
+                frame = load_price_series(frozen_cache, ticker, strict_io=True)
+            day = pd.Timestamp(report_session)
+            if frame.empty or not frame.index.is_unique or day not in frame.index or "close" not in frame:
+                raise ValueError("EXACT_REPORT_SESSION_PRICE_REQUIRED")
+            value = float(frame.loc[day, "close"])
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("EXACT_REPORT_SESSION_PRICE_REQUIRED")
+            validated[name] = value
+        result[name] = dict(raw=raw, sha256=spec["sha256"], byte_count=len(raw),
+                            report_session=report_session, close=validated[name])
+    return result
+
+
+def checked_inputs(args: argparse.Namespace, latest: Path, monitor_raw: bytes) -> dict[str, Any]:
+    """Prepare-only input contract. Pins do not supply absent real approvals.
+
+    No existing producer satisfies all these actual-input prerequisites yet.
+    Tests use synthetic actual-shaped evidence with the preview call stubbed.
+    """
+    from tools import daily_crisis_report_clock as clock
+    monitor = json.loads(monitor_raw)
+    if not isinstance(monitor, dict) or monitor.get("schema_version") != "daily-crisis-monitor-v2" or \
+            monitor.get("current_report_status") != "CURRENT_LEGACY_DIAGNOSTIC" or \
+            monitor.get("data_health") != "DATE_CURRENT_DIAGNOSTIC" or \
+            any(type(monitor.get(key)) is not str or monitor[key] not in CANONICAL_STATES
+                for key in ("state", "raw_state")) or monitor.get("state") == "DEGRADED_DATA":
+        raise ValueError("CURRENT_TYPED_MONITOR_REQUIRED")
+    if monitor.get("source_clock_authenticated") is not True or monitor.get("canonical_regime_authorized") is not True or \
+            monitor.get("auto_trade_allowed") is not False or monitor.get("paper_actions_only") is not True:
+        raise ValueError("REAL_INPUT_WAIT")
+    now = clock.trusted_now()
+    session = monitor.get("risk_as_of_session")
+    times = clock.session_times(session)
+    if times is None or session != now.astimezone(clock.NY).date().isoformat() or \
+            not times["AFTER_CLOSE"] <= clock.stamp(monitor.get("generated_at_utc")) <= now:
+        raise ValueError("CURRENT_MONITOR_CLOCK_REQUIRED")
+    proof_path = getattr(args, "evidence_manifest", None)
+    pin = getattr(args, "expected_evidence_sha256", None)
+    if not proof_path or not isinstance(pin, str) or re.fullmatch(r"[0-9a-f]{64}", pin) is None:
+        raise ValueError("ECONOMIC_EVIDENCE_PIN_REQUIRED")
+    proof_raw = clock.bounded(repo_path(proof_path), 1024*1024)
+    if len(proof_raw) > 1024*1024 or hashlib.sha256(proof_raw).hexdigest() != pin:
+        raise ValueError("ECONOMIC_EVIDENCE_PIN_MISMATCH")
+    proof = json.loads(proof_raw)
+    if proof.get("schema") != "crisis-paper-bridge-evidence-v1" or proof.get("report_session") != session or \
+            proof.get("monitor_sha256") != hashlib.sha256(monitor_raw).hexdigest() or \
+            proof.get("policy_sha256") != hashlib.sha256((REPO_ROOT/"tools/run287_crisis_policy.py").read_bytes()).hexdigest():
+        raise ValueError("ECONOMIC_EVIDENCE_BINDING")
+    prepared, captured_prices, validated_prices = {}, {}, {}
+    for portfolio in PORTFOLIOS:
+        entry = proof["portfolios"][portfolio]
+        target = (latest/"reports"/f"operating_{portfolio}_target_book.csv").read_bytes()
+        account = (latest/"broker_replay"/portfolio/"account_state_latest.json").read_bytes()
+        if entry.get("target_sha256") != hashlib.sha256(target).hexdigest() or \
+                entry.get("account_sha256") != hashlib.sha256(account).hexdigest() or \
+                entry.get("book_session") != session or not isinstance(entry.get("accepted_book_receipt_sha256"), str) or \
+                re.fullmatch(r"[0-9a-f]{64}", entry["accepted_book_receipt_sha256"]) is None:
+            raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+        target_frame = session_target(pd.read_csv(io.BytesIO(target)), session)
+        if target_frame.empty or "ticker" not in target_frame or target_frame.ticker.duplicated().any():
+            raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+        target_names = [strict_ticker(ticker) for ticker in target_frame.ticker]
+        weight_col = "target_weight" if "target_weight" in target_frame else "weight"
+        if weight_col not in target_frame or not all(0 <= strict_number(x) <= 1 for x in target_frame[weight_col]):
+            raise ValueError("TARGET_WEIGHT_REQUIRED")
+        accepted_reserve_hash(target_frame, weight_col)
+        account_json = json.loads(account)
+        if account_json.get("portfolio_kind") != portfolio:
+            raise ValueError("ACCOUNT_PORTFOLIO_IDENTITY_REQUIRED")
+        if account_json.get("as_of_date") != session or strict_number(account_json.get("cash_usd")) < 0:
+            raise ValueError("ACCEPTED_BOOK_SESSION_REQUIRED")
+        held = account_json.get("positions")
+        if not isinstance(held, list):
+            raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+        held_names = []
+        for row in held:
+            if not isinstance(row, dict) or not isinstance(row.get("ticker"), str) or strict_number(row.get("shares")) < 0:
+                raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+            held_names.append(strict_ticker(row["ticker"]))
+        if len(held_names) != len(set(held_names)) or not all(held_names):
+            raise ValueError("ACCEPTED_BOOK_BINDING_REQUIRED")
+        for ticker in set(target_names) | set(held_names):
+            if str(ticker).upper() == "CASH":
+                continue
+            facts = entry["economics"][str(ticker).upper()]
+            for field in ("net_er", "downside", "cost_bps", "liquidity_usd"):
+                value = strict_number(facts[field])
+                if field in ("downside", "cost_bps") and value < 0 or field == "liquidity_usd" and value <= 0:
+                    raise ValueError("ECONOMIC_EVIDENCE_REQUIRED")
+            if strict_number(facts["cost_bps"]) != strict_number(args.cost_bps):
+                raise ValueError("COST_EVIDENCE_MISMATCH")
+            if not isinstance(facts.get("receipt_sha256"), str) or re.fullmatch(r"[0-9a-f]{64}", facts["receipt_sha256"]) is None:
+                raise ValueError("ECONOMIC_EVIDENCE_REQUIRED")
+        required_prices = (set(target_names) | set(held_names)) - {"CASH"}
+        price_artifacts = bound_prices(repo_path(args.price_cache), required_prices, entry.get("prices"),
+                                      captured_prices, session, validated_prices)
+        prepared[portfolio] = dict(target=target_frame, account=account,
+            account_source_kind="simulated_broker_replay", price_artifacts=price_artifacts,
+            price_source_root=str(repo_path(args.price_cache).resolve()))
+    return dict(monitor=monitor, portfolios=prepared, report_session=session, evidence_sha256=pin)
+
+
+def action_plan(monitor: dict[str, Any], portfolio: str) -> dict[str, Any]:
+    if portfolio not in PORTFOLIOS:
+        raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
+    actions = monitor.get("paper_action_candidates")
+    if not isinstance(actions, list) or any(not isinstance(a, dict) or a.get("action_type") not in ALLOWED_ACTION_TYPES for a in actions):
+        raise ValueError("TYPED_ACTIONS_REQUIRED")
+    for action in actions:
+        scope = action.get("portfolio_kind")
+        if scope is not None and scope not in PORTFOLIOS or \
+                action["action_type"] in {"raise_cash", "trim_position"} and scope not in PORTFOLIOS:
+            raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
+    actions = [a for a in actions if a.get("portfolio_kind") in (None, portfolio)]
+    raise_cash_targets = [strict_number(a.get("target_cash_weight")) for a in actions if a.get("action_type") == "raise_cash"]
+    trim_tickers = {}
+    for action in actions:
+        if action.get("action_type") != "trim_position":
+            continue
+        ticker = strict_ticker(action.get("ticker"))
+        if not ticker or ticker == "CASH" or ticker in trim_tickers:
+            raise ValueError("TRIM_IDENTITY_OR_DUPLICATE")
+        current, trim = strict_number(action.get("current_weight")), strict_number(action.get("trim_weight"))
+        if not 0 <= trim <= current <= 1:
+            raise ValueError("TRIM_WEIGHT_INVALID")
+        trim_tickers[ticker] = dict(current_weight=current, trim_weight=trim)
     return {
         "state": adapt_crisis_state(
             monitor.get("state"), monitor.get("reentry_stage")
@@ -87,56 +314,75 @@ def action_plan(monitor: dict[str, Any]) -> dict[str, Any]:
         "target_cash_weight": max(raise_cash_targets) if raise_cash_targets else None,
         "block_new_buys": any(a.get("action_type") == "block_new_buys" for a in actions),
         "trim_tickers": trim_tickers,
+        "portfolio_kind": portfolio,
     }
 
 
-def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any]) -> pd.DataFrame:
-    target = normalize_target(source, portfolio)
+def derive_target_book(source: pd.DataFrame, portfolio: str, plan: dict[str, Any],
+                       report_session: str | None = None) -> pd.DataFrame:
+    """Pure fixture-capable parity calculation, not an accepted target write."""
+    if plan.get("portfolio_kind") != portfolio:
+        raise ValueError("PORTFOLIO_ACTION_SCOPE_REQUIRED")
+    source = session_target(source, report_session)
+    if "ticker" not in source or source.ticker.duplicated().any():
+        raise ValueError("TARGET_IDENTITY_REQUIRED")
+    for ticker in source.ticker:
+        strict_ticker(ticker)
+    weight_col = "target_weight" if "target_weight" in source else "weight"
+    if weight_col not in source or not all(0 <= strict_number(x) <= 1 for x in source[weight_col]):
+        raise ValueError("TARGET_WEIGHT_REQUIRED")
+    policy = resolve_reserve_asset_policy(context="current_paper")
+    # Normalization drops zero-weight rows; require original proof before deriving any hash.
+    accepted_reserve_hash(source, weight_col)
+    target = normalize_target(source, portfolio, target_date=report_session or "")
     if target.empty:
-        return target
+        raise ValueError("TARGET_BOOK_REQUIRED")
     out = target.copy()
-    out["ticker"] = out["ticker"].astype(str).str.upper().str.strip()
-    out["target_weight"] = pd.to_numeric(out["target_weight"], errors="coerce").fillna(0.0)
-    cash_weight = 0.0
-    trim_tickers = plan.get("trim_tickers") or {}
-    for ticker, current_weight in trim_tickers.items():
-        if not ticker:
-            continue
-        mask = out["ticker"].eq(ticker)
-        if not mask.any():
-            continue
+    reserve_reason_reconciliation(out, policy=policy, weight_col="target_weight")
+    if not math.isclose(float(out.target_weight.sum()), 1.0, abs_tol=1e-9):
+        raise ValueError("TARGET_WEIGHT_CONSERVATION")
+    cash_mask = out.ticker.eq("CASH")
+    base_cash = float(out.loc[cash_mask, "target_weight"].sum())
+    incremental = 0.0
+    for ticker, trim in (plan.get("trim_tickers") or {}).items():
+        mask = out.ticker.eq(ticker)
+        if int(mask.sum()) != 1:
+            raise ValueError("TRIM_BOOK_IDENTITY_MISMATCH")
         old = float(out.loc[mask, "target_weight"].sum())
-        new = min(old, max(0.0, current_weight * 0.50))
-        out.loc[mask, "target_weight"] = new
-        cash_weight += max(0.0, old - new)
-    existing_cash = out["ticker"].eq("CASH")
-    requested_cash = plan.get("target_cash_weight")
-    if requested_cash is not None:
-        requested_cash = max(0.0, min(0.95, safe_float(requested_cash, 0.0)))
-        existing_cash_weight = float(out.loc[existing_cash, "target_weight"].sum()) if existing_cash.any() else 0.0
-        cash_weight = max(cash_weight, requested_cash, existing_cash_weight)
-        stock_sum = float(out.loc[~existing_cash, "target_weight"].sum())
-        target_stock = max(0.0, 1.0 - cash_weight)
-        if stock_sum > 0:
-            out.loc[~existing_cash, "target_weight"] *= target_stock / stock_sum
-    if existing_cash.any():
-        out.loc[existing_cash, "target_weight"] = max(float(out.loc[existing_cash, "target_weight"].sum()), cash_weight)
-    elif cash_weight > 0:
-        out = pd.concat([out, pd.DataFrame([{"ticker": "CASH", "target_weight": cash_weight}])], ignore_index=True)
+        current, amount = strict_number(trim["current_weight"]), strict_number(trim["trim_weight"])
+        if not 0 <= amount <= current <= 1 or not math.isclose(old, current, abs_tol=1e-9):
+            raise ValueError("TRIM_BOOK_WEIGHT_MISMATCH")
+        out.loc[mask, "target_weight"] = old - amount
+        incremental += amount
+    final_cash = base_cash + incremental
+    requested = plan.get("target_cash_weight")
+    if requested is not None and not 0 <= strict_number(requested) <= final_cash + 1e-9:
+        raise ValueError("CASH_TARGET_UNSUPPORTED_BY_CANONICAL_TRIMS")
     for reason in RESERVE_REASONS:
-        if reason not in out.columns:
+        if reason not in out:
             out[reason] = 0.0
-        out[reason] = pd.to_numeric(out[reason], errors="coerce").fillna(0.0)
-    cash_rows = out.index[out["ticker"].eq("CASH")].tolist()
-    reserve_weight = float(out.loc[out["ticker"].eq("CASH"), "target_weight"].sum())
-    reason_weight = float(sum(out[reason].sum() for reason in RESERVE_REASONS))
-    unlabeled_reserve = reserve_weight - reason_weight
-    if unlabeled_reserve < -1e-10:
-        raise ValueError("paper crisis target Reserve reasons exceed Reserve weight")
-    if unlabeled_reserve > 1e-10:
-        if not cash_rows:
-            raise ValueError("paper crisis target has no explicit CASH row")
-        out.loc[cash_rows[0], "crisis_reserve"] += unlabeled_reserve
+        out[reason] = pd.to_numeric(out[reason], errors="raise")
+        if not out[reason].map(lambda x: math.isfinite(x) and x >= 0).all():
+            raise ValueError("RESERVE_REASON_INVALID")
+    prior_reasons = float(sum(out[reason].sum() for reason in RESERVE_REASONS))
+    if prior_reasons and not math.isclose(prior_reasons, base_cash, abs_tol=1e-9):
+        raise ValueError("RESERVE_REASON_RECONCILIATION")
+    if not cash_mask.any():
+        out = pd.concat([out, pd.DataFrame([dict(ticker="CASH", target_weight=0.0,
+            **{reason:0.0 for reason in RESERVE_REASONS})])], ignore_index=True)
+    index = out.index[out.ticker.eq("CASH")][0]
+    out.loc[index, "target_weight"] = final_cash
+    if not prior_reasons:
+        out.loc[index, "capacity_unallocated"] = base_cash
+    reason = "data_block_reserve" if plan.get("state") == "DEGRADED_DATA" else "reentry_pending" if str(plan.get("state", "")).startswith("REENTRY_STAGE_") else "crisis_reserve"
+    out.loc[index, reason] += incremental
+    if not math.isclose(float(sum(out[x].sum() for x in RESERVE_REASONS)), final_cash, abs_tol=1e-9):
+        raise ValueError("RESERVE_REASON_RECONCILIATION")
+    # The source hash describes the accepted pre-trim reserve. Verify it above,
+    # then issue the canonical derived hash for the changed cash/reason values.
+    out = out.drop(columns=[RESERVE_REASON_SOURCE_HASH_FIELD], errors="ignore")
+    derived = reserve_reason_reconciliation(out, policy=policy, weight_col="target_weight")
+    out[RESERVE_REASON_SOURCE_HASH_FIELD] = derived[RESERVE_REASON_SOURCE_HASH_FIELD]
     out["bridge_reason"] = ",".join(plan.get("action_types") or [])
     return out.sort_values("target_weight", ascending=False).reset_index(drop=True)
 
@@ -164,32 +410,57 @@ def run_preview_for_portfolio(
     portfolio: str,
     plan: dict[str, Any],
     cost_bps: float,
+    prepared: dict[str, Any],
+    report_session: str,
 ) -> dict[str, Any]:
-    target_source = latest_run / "reports" / f"operating_{portfolio}_target_book.csv"
-    account_state_path = latest_run / "broker_replay" / portfolio / "account_state_latest.json"
+    if not ACTUAL_PREVIEW_ACTIVATED:
+        raise ValueError("ACTUAL_PREVIEW_NOT_ACTIVATED")
     portfolio_out = output_dir / portfolio
     portfolio_out.mkdir(parents=True, exist_ok=True)
-    target = derive_target_book(read_csv(target_source), portfolio, plan)
+    target = derive_target_book(prepared["target"], portfolio, plan, report_session)
     derived_target = portfolio_out / "paper_action_target_book.csv"
     target.to_csv(derived_target, index=False)
 
     args = PreviewArgs()
-    args.account_state = str(account_state_path)
+    # Consume the exact accepted input bytes rather than rereading a mutable
+    # restored account after the preflight hash check.
     args.target = str(derived_target)
-    args.price_cache = str(price_cache)
     args.portfolio_kind = portfolio
     args.output_dir = str(portfolio_out / "account_order_preview")
-    args.as_of_date = ""
-    args.target_date = ""
+    args.as_of_date = report_session
+    args.target_date = report_session
     args.cost_bps = float(cost_bps)
     args.limit_margin_pct = 0.25
     args.min_trade_usd = 25.0
     args.fractional_shares = False
-    payload = run_order_preview(args)
+    if prepared.get("account_source_kind") != "simulated_broker_replay" or \
+            prepared.get("price_source_root") != str(price_cache.resolve()):
+        raise ValueError("BOUND_PREVIEW_PROVENANCE_REQUIRED")
+    args.account_source_kind = prepared["account_source_kind"]
+    # Existing engine classifies broker provenance by its path. Keep that source
+    # kind explicit and reflected in the isolated copy, without changing the engine.
+    with TemporaryDirectory(prefix="broker_replay-bound-", dir=portfolio_out) as temporary:
+        scratch = Path(temporary)
+        bound_account = scratch/"account_state.bound.json"
+        bound_account.write_bytes(prepared["account"])
+        cache = scratch/"price_cache"; cache.mkdir()
+        for name, artifact in prepared["price_artifacts"].items():
+            if re.fullmatch(r"[0-9a-f]{16}\.parquet", name) is None or \
+                    hashlib.sha256(artifact["raw"]).hexdigest() != artifact["sha256"] or \
+                    len(artifact["raw"]) != artifact["byte_count"] or artifact.get("report_session") != report_session:
+                raise ValueError("BOUND_PRICE_BYTES_INVALID")
+            (cache/name).write_bytes(artifact["raw"])
+            if hashlib.sha256((cache/name).read_bytes()).hexdigest() != artifact["sha256"]:
+                raise ValueError("BOUND_PRICE_BYTES_INVALID")
+        args.account_state = str(bound_account)
+        args.price_cache = str(cache)
+        payload = run_order_preview(args)
+        if payload.get("status") == "completed" and payload.get("account_source_kind") != prepared["account_source_kind"]:
+            raise ValueError("BOUND_ACCOUNT_PROVENANCE_MISMATCH")
 
     orders_path = portfolio_out / "account_order_preview" / "orders_preview.csv"
     orders = read_csv(orders_path)
-    account = read_json(account_state_path)
+    account = json.loads(prepared["account"])
     existing = held_tickers(account)
     if not orders.empty:
         orders["auto_trade_allowed"] = False
@@ -204,6 +475,9 @@ def run_preview_for_portfolio(
             orders.loc[new_buy, "approval_status"] = "blocked_new_buy_pending_user_approval"
     orders.to_csv(portfolio_out / "paper_orders_preview.csv", index=False)
     summary = {
+        "account_source_kind": prepared["account_source_kind"],
+        "price_report_session": report_session,
+        "price_artifact_sha256": {name:a["sha256"] for name,a in prepared["price_artifacts"].items()},
         "portfolio": portfolio,
         "status": payload.get("status"),
         "auto_trade_allowed": False,
@@ -224,6 +498,8 @@ def render_report(payload: dict[str, Any]) -> str:
     lines = [
         "# Crisis Paper Order Bridge",
         "",
+        f"- status: `{payload.get('status')}`",
+        f"- data health: `{payload.get('data_health', 'FIXTURE_OR_SEPARATELY_APPROVED_INPUT')}`",
         "- auto_trade_allowed: `false`",
         "- paper_only: `true`",
         "- approval_required: `true`",
@@ -247,29 +523,56 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
+    protected = [latest_run/"daily_crisis_monitor/summary.json", price_cache,
+                 REPO_ROOT/"tools/run_crisis_paper_order_bridge.py"]
+    protected.extend(latest_run/"reports"/f"operating_{p}_target_book.csv" for p in PORTFOLIOS)
+    protected.extend(latest_run/"broker_replay"/p/"account_state_latest.json" for p in PORTFOLIOS)
+    if getattr(args, "evidence_manifest", None):
+        protected.append(repo_path(args.evidence_manifest))
+    if output_dir.is_symlink() or any(p.resolve().is_relative_to(output_dir.resolve()) for p in protected) or \
+            output_dir.resolve().is_relative_to(price_cache.resolve()):
+        raise ValueError("BRIDGE_INPUT_OUTPUT_OVERLAP")
     output_dir.mkdir(parents=True, exist_ok=True)
-    monitor = read_json(latest_run / "daily_crisis_monitor" / "summary.json")
-    plan = action_plan(monitor)
-    portfolio_summaries = [
-        run_preview_for_portfolio(
-            latest_run=latest_run,
-            price_cache=price_cache,
-            output_dir=output_dir,
-            portfolio=portfolio,
-            plan=plan,
-            cost_bps=float(args.cost_bps),
-        )
-        for portfolio in PORTFOLIOS
-    ]
+    invalidate_previews(output_dir)
+    blocked = dict(schema_version="crisis-paper-order-bridge-v1", status="blocked",
+                   data_health="REAL_INPUT_WAIT", auto_trade_allowed=False, paper_only=True,
+                   approval_required=True, paper_action_types=[], portfolios=[],
+                   monitor_state=None, monitor_raw_state=None)
+    # Replace the previous successful publication before any inference/preview.
+    write_json(output_dir/"summary.json", blocked)
+    (output_dir/"summary.md").write_text(render_report(blocked), encoding="utf-8")
+    try:
+        monitor_raw = (latest_run/"daily_crisis_monitor/summary.json").read_bytes()
+        inputs = checked_inputs(args, latest_run, monitor_raw)
+        if not ACTUAL_PREVIEW_ACTIVATED:
+            raise ValueError("ACTUAL_PREVIEW_NOT_ACTIVATED")
+        monitor = inputs["monitor"]
+        plans = {p: action_plan(monitor, p) for p in PORTFOLIOS}
+        portfolio_summaries = [
+            run_preview_for_portfolio(latest_run=latest_run, price_cache=price_cache,
+                output_dir=output_dir, portfolio=p, plan=plans[p],
+                cost_bps=strict_number(args.cost_bps), prepared=inputs["portfolios"][p],
+                report_session=inputs["report_session"])
+            for p in PORTFOLIOS]
+        if any(row.get("status") != "completed" for row in portfolio_summaries):
+            raise ValueError("PREVIEW_PREREQUISITE_REFUSED")
+    except Exception:
+        invalidate_previews(output_dir)
+        blocked["blocker"] = "CURRENT_MONITOR_OR_ECONOMIC_PROOF_REQUIRED"
+        write_json(output_dir/"summary.json", blocked)
+        (output_dir/"summary.md").write_text(render_report(blocked), encoding="utf-8")
+        return blocked
     payload = {
         "schema_version": "crisis-paper-order-bridge-v1",
-        "status": "completed" if monitor else "missing_monitor",
+        "status": "completed",
+        "evidence_sha256": inputs["evidence_sha256"],
+        "report_session": inputs["report_session"],
         "auto_trade_allowed": False,
         "paper_only": True,
         "approval_required": True,
-        "monitor_state": plan.get("state"),
-        "monitor_raw_state": plan.get("raw_state"),
-        "paper_action_types": plan.get("action_types") or [],
+        "monitor_state": monitor["state"],
+        "monitor_raw_state": monitor["raw_state"],
+        "paper_action_types": sorted({action for plan in plans.values() for action in plan["action_types"]}),
         "portfolios": portfolio_summaries,
     }
     write_json(output_dir / "summary.json", payload)
@@ -284,12 +587,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--price-cache", default="cache_prices")
     parser.add_argument("--output-dir", default="outputs/crisis_paper_order_bridge")
     parser.add_argument("--cost-bps", type=float, default=25.0)
+    parser.add_argument("--evidence-manifest", help="Externally accepted book/economic input receipt bundle; missing stays REAL_INPUT_WAIT")
+    parser.add_argument("--expected-evidence-sha256")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    run(parse_args(argv))
-    return 0
+    payload = run(parse_args(argv))
+    return 0 if payload.get("status") == "completed" else 2
 
 
 if __name__ == "__main__":
