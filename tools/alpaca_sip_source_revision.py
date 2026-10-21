@@ -1228,13 +1228,16 @@ def price174_source_tip(c,transition,source_sha=None,*,live=False):
     return candidate
 
 
-def price174_transition(c,auth,reference):
+def price174_transition(c,auth,reference,*,historical=False):
     price174_auth(c,auth)
     c.require(price174_hash(c,auth)==PRICE174_ORIGIN_AUTH,"PRICE174_TRANSITION_ORIGIN")
     c.require(isinstance(reference,str) and c.re.fullmatch(
         r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",reference),
         "PRICE174_TRANSITION_GRANT")
     ref=int(reference.rsplit("-",1)[1]);comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{ref}")
+    if isinstance(comment.get("body"),str) and comment["body"].startswith("A1_SP500174_SOURCE_RECOVERY "):
+        c.require(not historical,"PRICE_RECOVERY_NESTED")
+        return price174_recovery_transition(c,auth,reference,comment)
     window=auth["execution_window"]
     terms,proof=human_record(c,comment,"A1_SP500174_SOURCE_TRANSITION ",
         window=(window["deployed_at_utc"],window["expires_at_utc"]))
@@ -1263,7 +1266,8 @@ def price174_transition(c,auth,reference):
             for k,n in (("expected_master",40),("code_pins_sha256",64)))
         and isinstance(publication["deployment"].get("reviewed_head"),str)
         and c.re.fullmatch("[0-9a-f]{40}",publication["deployment"]["reviewed_head"]),"PRICE174_TRANSITION_SOURCE")
-    named_read_deployed(c,publication,accounting=True)
+    if historical:price174_663_historical(c,publication)
+    else:named_read_deployed(c,publication,accounting=True)
     pr=c.gh_json(f"repos/{c.REPO}/pulls/{publication['deployment']['pull_request']}")
     c.require(isinstance(pr.get("merged_at"),str) and c.utc(window["deployed_at_utc"])<c.utc(pr["merged_at"])
         <=c.utc(comment["created_at"])<c.utc(window["expires_at_utc"]),"PRICE174_TRANSITION_CLOCK")
@@ -1386,11 +1390,14 @@ def price174_authority(c,auth,*,accounting=False,source_transition_reference=Non
 
 def price174_prefix(c,runs,auth,old,transition=None):
     price174_auth(c,auth)
-    c.require(isinstance(runs,list) and 30<=len(runs)<=36 and runs[29].get("id")==READ30_RUN,
+    c.require(isinstance(runs,list) and 30<=len(runs)<=(38 if transition and transition.get("recovery") else 36) and runs[29].get("id")==READ30_RUN,
         "PRICE174_HISTORY")
     prefix=named_read_prefix(c,runs[:30],old,runs[29])
     if transition:
         c.require([r.get("id") for r in runs[30:33]]==PRICE174_FIRST_RUNS,"PRICE174_TRANSITION_PREFIX")
+    if transition and transition.get("recovery"):
+        c.require([r.get("id") for r in runs[33:35]]==[39609167399,PRICE174_RECOVERY_RUN],
+            "PRICE_RECOVERY_PREFIX")
     for index,run in enumerate(runs[30:]):
         c.require(type(run.get("id")) is int and run["id"]>READ30_RUN
             and type(run.get("run_attempt")) is int and run["run_attempt"]==1
@@ -1399,8 +1406,9 @@ def price174_prefix(c,runs,auth,old,transition=None):
             and c.re.fullmatch("a1-sip "+c.PREFIX+r"[0-9a-f]{24}",run.get("display_title","")),
             "PRICE174_HISTORY")
         if transition and index>=3:
-            c.require(c.utc(transition["created_at_utc"])<=c.utc(run["created_at"]),"PRICE174_TRANSITION_CLOCK")
-            price174_source_tip(c,transition,run.get("head_sha"))
+            applicable=price174_transition_at(transition,index)
+            c.require(c.utc(applicable["created_at_utc"])<=c.utc(run["created_at"]),"PRICE174_TRANSITION_CLOCK")
+            price174_source_tip(c,applicable,run.get("head_sha"))
         else:c.require(run.get("head_sha")==auth["expected_master"],"PRICE174_HISTORY")
     return prefix
 
@@ -1455,6 +1463,8 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
     values=[];durations=[];steps=[]
     window=auth["execution_window"];start,end=map(c.utc,(window["deployed_at_utc"],window["expires_at_utc"]))
     for index,run in enumerate(rows):
+        applicable=price174_transition_at(transition,index)
+        recovering=bool(transition and transition.get("recovery") and index==5)
         c.require(start<=c.utc(run["created_at"])<end,"PRICE174_RUN_WINDOW")
         if current==run["id"]:
             c.require(run.get("status")=="in_progress" and run is rows[-1],"PRICE174_CURRENT")
@@ -1466,15 +1476,15 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
             if index<3:
                 c.require(c.digest(c.encoded(value))==PRICE174_FIRST_METERS[index],"PRICE174_TRANSITION_PREFIX")
             else:
-                c.require(value.get("source_transition_proof_sha256")==transition["proof_sha256"]
-                    and value.get("source_transition_reference_sha256")==c.digest(transition["reference"].encode())
-                    and value.get("source_publication_sha")==transition["terms"]["publication"]["expected_master"]
+                c.require(value.get("source_transition_proof_sha256")==applicable["proof_sha256"]
+                    and value.get("source_transition_reference_sha256")==c.digest(applicable["reference"].encode())
+                    and value.get("source_publication_sha")==applicable["terms"]["publication"]["expected_master"]
                     and value.get("original_source_sha")==PRICE174_ORIGIN
                     and value.get("resume_family86_sha256")==PRICE174_FAMILY86
                     and value.get("resume_cohort10_sha256")==PRICE174_COHORT10,"PRICE174_TRANSITION_RECEIPT")
         allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS}
-        count=min(32,174-n)
-        c.require(n<174 and value.get("preflight_only") is False and value.get("recovery_run") is None
+        count=4 if recovering else min(32,174-n)
+        c.require(n<174 and value.get("preflight_only") is False and value.get("recovery_run")==(PRICE174_RECOVERY_RUN if recovering else None)
             and value.get("cohort_scope")==PRICE174_SCOPE and value.get("bindings")==c.CONTINUATION["bindings"]
             and value.get("external_proof_sha256")==proof["proof_sha256"]
             and value.get("account_permission_reference_sha256")==c.digest(auth["grant_reference"].encode())
@@ -1486,7 +1496,9 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
             and (value["status"]!="COMPLETE" or value["examined_after"]==n+count),
             "PRICE174_RECEIPT")
         c.require(not values or values[-1]["status"]=="COMPLETE"
-            and steps[-1]["run"].get("conclusion")=="success","PRICE174_PRIOR_BLOCKED")
+            and steps[-1]["run"].get("conclusion")=="success"
+            or recovering and steps[-1]["run"].get("id")==PRICE174_RECOVERY_RUN
+            and c.digest(c.encoded(values[-1]))==PRICE174_RECOVERY_METER,"PRICE174_PRIOR_BLOCKED")
         seconds=price174_seconds(c,run);prior_active=active
         for k in c.LIMITS:used[k]+=value["usage"][k]
         active+=seconds
@@ -1497,12 +1509,24 @@ def price174_history(c,auth,*,current=None,nonce=None,source_transition_referenc
             c.require(n==96 and parent==PRICE174_CP96 and used==PRICE174_USED96 and active==PRICE174_ACTIVE96,
                 "PRICE174_TRANSITION_PREFIX")
         c.require(isinstance(parent,str) and c.re.fullmatch("[0-9a-f]{64}",parent),"PRICE174_CHECKPOINT")
+        if transition and transition.get("recovery") and index==4:
+            c.require(run["id"]==PRICE174_RECOVERY_RUN and c.digest(c.encoded(value))==PRICE174_RECOVERY_METER
+                and run.get("conclusion")=="failure" and seconds==567
+                and used==PRICE174_RECOVERY_USED and active==11535 and n==128 and parent==PRICE174_CP128,
+                "PRICE_RECOVERY_FAILED_BASIS")
+        if recovering:
+            c.require(value["usage"]["provider_gets"]==0,"PRICE_RECOVERY_PROVIDER")
+            if value["status"]=="COMPLETE":
+                price174_reuse_evidence(c,value)
         values.append(value);durations.append(seconds)
+    eligible=bool(transition and transition.get("recovery") and len(values)==5
+        and steps[-1]["run"]["id"]==PRICE174_RECOVERY_RUN
+        and c.digest(c.encoded(values[-1]))==PRICE174_RECOVERY_METER)
     c.require(current is None or n<174 and (not values or values[-1]["status"]=="COMPLETE"
-        and steps[-1]["run"].get("conclusion")=="success"),"PRICE174_PRIOR_BLOCKED")
+        and steps[-1]["run"].get("conclusion")=="success" or eligible),"PRICE174_PRIOR_BLOCKED")
     return dict(all_runs=runs,price_runs=rows,receipts=values,durations=durations,steps=steps,used=used,
         active_seconds=active,examined=n,parent_sha=parent,remaining={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},
-        proof=proof,old=old,terminal_blocked=bool(steps and (steps[-1]["run"].get("conclusion")!="success"
+        proof=proof,old=old,terminal_blocked=bool(not eligible and steps and (steps[-1]["run"].get("conclusion")!="success"
             or values[-1]["status"]=="BLOCKED")),new_states={k:sum(v["new_states"][k] for v in values) for k in
             ("VALID_COLLECTED","VERIFIED_NO_DATA","QUARANTINED")})
 
@@ -1563,7 +1587,8 @@ def price174_worker(c,args,control,journal):
         and c.os.getenv("INPUT_NATIVE_READ_ONLY")=="false","PRICE174_CONTEXT")
     run_id=int(c.os.environ["GITHUB_RUN_ID"])
     observed=price174_history(c,auth,current=run_id,nonce=control["nonce"],source_transition_reference=transition_ref)
-    n=observed["examined"];batch=min(32,174-n)
+    n=observed["examined"];batch=price174_batch_size(observed)
+    recovering=bool(observed["proof"].get("transition",{}).get("recovery") and len(observed["receipts"])==5)
     c.require(n<174 and args.start=="2016-01-04" and args.end=="2026-10-14" and args.max_new_symbols==batch
         and control["parent_sha256"]==observed["parent_sha"] and observed["active_seconds"]+7800<=43200,
         "PRICE174_PARENT")
@@ -1592,7 +1617,8 @@ def price174_worker(c,args,control,journal):
     c.require(key and secret and c.digest((key+"\0"+secret).encode())==prior["credential_binding"],
         "CAMPAIGN_CREDENTIAL_BINDING")
     identity=dict(task_key=c.TASK,auth_sha256=price174_hash(c,auth),source_sha=source,
-        nonce=control["nonce"],run_id=run_id,run_attempt=1,recovery_run=None,preflight_only=False,
+        nonce=control["nonce"],run_id=run_id,run_attempt=1,
+        recovery_run=PRICE174_RECOVERY_RUN if recovering else None,preflight_only=False,
         cohort_scope=PRICE174_SCOPE,external_proof_sha256=proof["proof_sha256"],bindings=c.CONTINUATION["bindings"],
         parent_checkpoint_sha256=observed["parent_sha"],examined_before=n,
         account_permission_reference_sha256=c.digest(auth["grant_reference"].encode()),
@@ -1609,8 +1635,11 @@ def price174_worker(c,args,control,journal):
             original_source_sha=PRICE174_ORIGIN,resume_family86_sha256=PRICE174_FAMILY86,
             resume_cohort10_sha256=PRICE174_COHORT10)
     c.require(not c.Path(journal).exists(),"PRICE174_METER_REUSE")
-    meter=c.RuntimeMeter(observed["remaining"],journal,deadline.isoformat(),identity,
-        limits=c.CONTINUED_LIMITS,asset_symbols=names[n:n+batch])
+    meter_factory=price174_metadata_meter if observed["proof"].get("transition",{}).get("recovery") else None
+    meter=(meter_factory(c,observed["remaining"],journal,deadline.isoformat(),identity,
+        limits=c.CONTINUED_LIMITS,asset_symbols=[] if recovering else names[n:n+batch]) if meter_factory
+        else c.RuntimeMeter(observed["remaining"],journal,deadline.isoformat(),identity,
+            limits=c.CONTINUED_LIMITS,asset_symbols=names[n:n+batch]))
     private_args=c.argparse.Namespace(**vars(args))
     private_args.private_root_folder_id=prior["private_root_folder_id"]
     private_args.private_data_folder_id=prior["private_data_folder_id"]
@@ -1630,9 +1659,15 @@ def price174_worker(c,args,control,journal):
         # Discard it locally rather than publishing or attempting later masking.
         with meter.process_deadline(),c.tempfile.TemporaryFile(mode="w+",encoding="utf-8") as output,\
                 redirect_stdout(output),redirect_stderr(output):
-            result=cap._collect(private_args,drive_factory=factory,get=meter.perform,
-                on_group=lambda drive,state,ref:c.verify_new_group(drive,prior["private_data_folder_id"],state,ref,meter),
-                expected_examined=n,external=dict(input_csv=auth["input_csv"],scope=PRICE174_SCOPE))
+            if recovering:
+                with c.tempfile.TemporaryDirectory(prefix="a1-price174-recovery-") as temp:
+                    drive=factory(private_args.private_root_folder_id,temp)
+                    drive.check(private_args.private_data_folder_id,drive.root_id)
+                    result=price174_recover_original4(c,drive,private_args,auth,meter)
+            else:
+                result=cap._collect(private_args,drive_factory=factory,get=meter.perform,
+                    on_group=lambda drive,state,ref:c.verify_new_group(drive,prior["private_data_folder_id"],state,ref,meter),
+                    expected_examined=n,external=dict(input_csv=auth["input_csv"],scope=PRICE174_SCOPE))
         c.require(meter.examined==n+batch and meter.checkpoint_sha==result["checkpoint"]["sha256"],
             "CAMPAIGN_BATCH_CLOSURE")
         meter.finish("COMPLETE")
@@ -1646,6 +1681,9 @@ def price174_worker(c,args,control,journal):
             "PRICE_PRIVATE_CHECKPOINT","PAGE_BUDGET","BAR_TIMESTAMP","RESUME_ARCHIVE",
             "RESUME_NORMALIZED_FORMAT","RESUME_CHAIN_MEMBERSHIP","RESUME_CHAIN_LIMIT"}
         codes.update("CAMPAIGN_BUDGET_"+k.upper() for k in c.LIMITS)
+        codes.update({"PRICE_RECOVERY_PARENT","PRICE_RECOVERY_INVENTORY","PRICE_RECOVERY_ARCHIVE",
+            "PRICE_RECOVERY_NORMALIZED","PRICE_RECOVERY_SOURCE","PRICE_RECOVERY_PROVIDER","PRICE_RECOVERY_CLOCK",
+            "PRICE_RECOVERY_REUSE"})
         if reason not in codes or not c.re.fullmatch("[A-Z_]{1,80}",reason):reason="PRICE_INTERNAL"
         meter.finish("BLOCKED",reason)
         raise c.Refused(reason) from None
@@ -1693,7 +1731,7 @@ def price174_reconcile(c,family,journal,auth,observed):
         reservation=dict(nonce=nonce,remaining=step["remaining"],active_seconds_remaining=step["active_remaining"],
             parent_checkpoint_sha256=step["parent_sha"],capture_auth_sha256=h,scope=PRICE174_SCOPE)
         if i>=3 and observed["proof"].get("transition"):
-            reservation.update(source_transition_proof_sha256=observed["proof"]["transition"]["proof_sha256"],
+            reservation.update(source_transition_proof_sha256=price174_transition_at(observed["proof"]["transition"],i)["proof_sha256"],
                 source_sha=run["head_sha"])
         # A live run must already have both durable reservations. Never invent
         # permission/reservation after observing an orphan dispatch.
@@ -1715,12 +1753,24 @@ def price174_reconcile(c,family,journal,auth,observed):
 def price174_forecast(c,observed):
     n=observed["examined"];remaining=174-n
     c.require(n>=128 and observed["receipts"],"PRICE174_FORECAST")
-    values=observed["receipts"];counts=[v["examined_after"]-v["examined_before"] for v in values]
-    c.require(all(v["status"]=="COMPLETE" and count>0 for v,count in zip(values,counts)),"PRICE174_FORECAST")
+    if not observed.get("proof",{}).get("transition",{}).get("recovery"):
+        c.require(all(v["status"]=="COMPLETE" and v["examined_after"]>v["examined_before"]
+            for v in observed["receipts"]),"PRICE174_FORECAST")
+    pairs=[(v,t) for v,t in zip(observed["receipts"],observed["durations"])
+        if v["status"]=="COMPLETE" and v["examined_after"]>v["examined_before"]]
+    c.require(pairs,"PRICE174_FORECAST")
+    values=[v for v,t in pairs];durations=[t for v,t in pairs]
+    counts=[v["examined_after"]-v["examined_before"] for v in values]
     predicted={k:c.math.ceil(max(v["usage"][k]/count for v,count in zip(values,counts))*remaining*1.25)
         for k in c.LIMITS}
-    seconds=c.math.ceil(max(t/count for t,count in zip(observed["durations"],counts))*remaining*1.25)
+    seconds=c.math.ceil(max(t/count for t,count in zip(durations,counts))*remaining*1.25)
     dispatches=c.math.ceil(remaining/32)
+    if observed.get("proof",{}).get("transition",{}).get("recovery") and len(observed["receipts"])==5:
+        # A separate provider-zero orphan restoration consumes a real dispatch.
+        # These are conservative planning reservations, never actual usage.
+        dispatches+=1;seconds+=7800
+        for key,reserve in dict(drive_requests=512,drive_bytes=268435456,storage_bytes=2097152).items():
+            predicted[key]+=reserve
     return dict(estimate_only=True,remaining_subjects=remaining,estimated_usage=predicted,active_seconds=seconds,
         dispatches=dispatches,fits=all(predicted[k]<=observed["remaining"][k] for k in c.LIMITS)
         and observed["active_seconds"]+seconds<=43200 and len(observed["all_runs"])+dispatches<=40)
@@ -1764,6 +1814,11 @@ def price174_host(c,args):
                 and c.digest(c.bounded_bytes(journal.directory/"000010.json"))==PRICE174_COHORT10,
                 "PRICE174_TRANSITION_PREFIX")
         observed=price174_history(c,auth,source_transition_reference=transition_ref);started=len(observed["receipts"])
+        if observed["proof"].get("transition",{}).get("recovery"):
+            c.require(len(family.entries)>=92 and len(journal.entries)>=16
+                and c.digest(c.bounded_bytes(family.directory/"000092.json"))==PRICE174_FAMILY92
+                and c.digest(c.bounded_bytes(journal.directory/"000016.json"))==PRICE174_COHORT16,
+                "PRICE_RECOVERY_SETTLEMENT")
         price174_authority(c,auth,accounting=True,source_transition_reference=transition_ref)
         if len(family.entries)==76 or not journal.entries:
             c.require(len(family.entries) in {76,77} and not observed["price_runs"],"PRICE174_BINDING_HISTORY")
@@ -1825,7 +1880,7 @@ def price174_host(c,args):
             inputs=dict(private_root_folder_id=prior["private_root_folder_id"],
                 private_data_folder_id=prior["private_data_folder_id"],private_research_authorized="true",
                 noncommercial_terms_acknowledged="true",end_date="2026-10-14",
-                max_new_symbols=str(min(32,174-observed["examined"])),resume_file_id="",
+                max_new_symbols=str(price174_batch_size(observed)),resume_file_id="",
                 resume_sha256=observed["parent_sha"],campaign_control=raw.decode(),campaign_nonce=nonce)
             price174_live_window(c,auth,dispatch=True)
             result=c.subprocess.run(["gh","workflow","run",c.WORKFLOW,"--repo",c.REPO,"--ref","master","--json"],
@@ -3151,3 +3206,289 @@ def validate_external_authorization(c, auth):
         c.require(isinstance(source, dict) and set(source) == {'expected_master', 'code_pins', 'proof_reference'} and (ex['prior_epochs'] == []), 'EXTERNAL_NAMED_RECOVERY')
         previous = c.external_previous(auth)
         c.require(c.validate_authorization(previous) == c.NAMED_RECOVERY['prior_auth'] and all((recovery[k] == c.NAMED_RECOVERY[v] and type(recovery[k]) is type(c.NAMED_RECOVERY[v]) for k, v in (('failed_run_id', 'run_id'), ('failed_receipt_sha256', 'receipt_sha256'), ('checkpoint_sha256', 'checkpoint_sha256'), ('examined', 'examined')))) and all((ex[k] == previous['external_cohort'][k] for k in ex if k not in ('named_recovery', 'proof_reference'))) and all((auth[k] == previous[k] for k in c.AUTH_FIELDS - {'schema', 'expected_master', 'code_pins', 'account_permission_reference'})) and (auth['expected_master'] != previous['expected_master']) and (ex['proof_reference'] != previous['external_cohort']['proof_reference']), 'EXTERNAL_NAMED_RECOVERY')
+
+
+# Prepared Source adapter addition; not an executable collector.
+PRICE174_RECOVERY_RUN=39611877699
+PRICE174_RECOVERY_METER="5dcb5ed59e3e07d8c84326958c110bce75f0f1303ad475ee392bf2d75aab8dfa"
+PRICE174_CP128="11a4e9886ee3a5aed31d6b76958df3c32f1422ab905586f43ce11a1506866b1c"
+PRICE174_663="8ddd3da06fa98bdc725cce384b46a88bbcf4aba1"
+PRICE174_663_HEAD="acb4248a47bc064711d3d3e1070f3387e4b41dd6"
+PRICE174_663_TREE="eda9d1690d18a13418aafe1ce3be0bb013550f05"
+PRICE174_663_PINS="058b73a1253a8def7de74c94cf18c75dc13dfd66f4373456ee438ca8e618d72b"
+PRICE174_663_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6317210657"
+PRICE174_663_PROOF="0170b0206ca406fe0907d25ea5b9872c6431c28dbfd739e3a77cb5ce6352a193"
+PRICE174_RECOVERY_USED=dict(provider_gets=1248,drive_requests=11423,drive_bytes=1934903472,storage_bytes=161990089)
+PRICE174_RECOVERY_WINDOW=("2026-10-21T13:52:54Z","2026-10-21T14:02:29Z")
+PRICE174_RECOVERY_STORAGE=1024964
+
+
+def price174_663_historical(c,publication):
+    fixed=dict(expected_master=PRICE174_663,deployment=dict(pull_request=663,reviewed_head=PRICE174_663_HEAD),
+        code_pins_sha256=PRICE174_663_PINS)
+    c.require(publication==fixed,"PRICE_RECOVERY_HISTORICAL_SOURCE")
+    pins={}
+    for path in V6_PINS:
+        value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={PRICE174_663}")
+        c.require(value.get("encoding")=="base64","PRICE_RECOVERY_HISTORICAL_SOURCE")
+        try:pins[path]=c.digest(c.base64.b64decode(value.get("content",""),validate=False))
+        except Exception:raise c.Refused("PRICE_RECOVERY_HISTORICAL_SOURCE") from None
+    c.require(c.digest(c.encoded(pins))==PRICE174_663_PINS,"PRICE_RECOVERY_HISTORICAL_SOURCE")
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/663")
+    c.require(pr.get("merged") is True and pr.get("draft") is False and pr.get("number")==663
+        and pr.get("merge_commit_sha")==PRICE174_663 and pr.get("head",{}).get("sha")==PRICE174_663_HEAD
+        and pr.get("base",{}).get("ref")=="master"
+        and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO
+        and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO,"PRICE_RECOVERY_HISTORICAL_SOURCE")
+    for sha in (PRICE174_663,PRICE174_663_HEAD):
+        value=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
+        c.require(value.get("tree",{}).get("sha")==PRICE174_663_TREE,"PRICE_RECOVERY_HISTORICAL_SOURCE")
+    named_read_checks(c,publication)
+
+
+def price174_recovery_fixed(c,auth):
+    return dict(schema="a1-sp500174-http500-recovery128-v1",task_key=PRICE174_TASK,
+        original_auth_sha256=PRICE174_ORIGIN_AUTH,original_grant_reference=auth["grant_reference"],
+        original_transition_reference=PRICE174_663_REFERENCE,original_transition_proof_sha256=PRICE174_663_PROOF,
+        scope=PRICE174_SCOPE,input_sha256=PRICE174_INPUT,execution_window=auth["execution_window"],
+        failed_run_id=PRICE174_RECOVERY_RUN,failed_run_attempt=1,failed_source_sha=PRICE174_663,
+        failed_meter_sha256=PRICE174_RECOVERY_METER,failure_window_utc=list(PRICE174_RECOVERY_WINDOW),
+        last_transport_failure=dict(http_status=500,method="GET",phase="HEADER_OPEN",
+            request_category="DRIVE_METADATA",request_ordinal=313),
+        checkpoint128_sha256=PRICE174_CP128,family92_sha256=PRICE174_FAMILY92,cohort16_sha256=PRICE174_COHORT16,
+        examined_before=128,remaining_count=46,confirmed_failed_storage_bytes=PRICE174_RECOVERY_STORAGE,
+        usage_after_failure=dict(PRICE174_RECOVERY_USED),active_seconds_after_failure=11535,
+        dispatches_after_failure=35,recovery_dispatch_limit=1,recovery_provider_get_limit=0,
+        remaining_batches=[4,32,10],limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
+        preserve_original_raw=True,derive_normalized_only_after_raw_validation=True,
+        missing_or_ambiguous_raw_is_blocked=True,
+        metadata_get_5xx_total_attempts=3,metadata_get_backoff_seconds=[1,2],
+        provider_retry_authorized=False,post_retry_authorized=False,
+        budget_reset=False,window_reset=False,refund_authorized=False,account_migration_authorized=False,
+        unknown_post_retry_authorized=False,private_noncommercial_research_only=True,
+        supplier_rights_verified=False,source_admission=False,pit_verified=False,economic_authority=False)
+
+
+def price174_recovery_transition(c,auth,reference,comment):
+    window=auth["execution_window"]
+    terms,proof=human_record(c,comment,"A1_SP500174_SOURCE_RECOVERY ",
+        window=(window["deployed_at_utc"],window["expires_at_utc"]))
+    fixed=price174_recovery_fixed(c,auth)
+    c.require(isinstance(terms,dict) and set(terms)==set(fixed)|{"publication","execution_pins_sha256"}
+        and c.encoded({k:terms.get(k) for k in fixed})==c.encoded(fixed)
+        and comment.get("id")==int(reference.rsplit("-",1)[1]),"PRICE_RECOVERY_GRANT")
+    prior=price174_transition(c,auth,PRICE174_663_REFERENCE,historical=True)
+    c.require(prior["proof_sha256"]==PRICE174_663_PROOF,"PRICE_RECOVERY_HISTORICAL_GRANT")
+    publication=terms["publication"]
+    c.require(isinstance(publication,dict) and set(publication)=={"expected_master","deployment","code_pins_sha256"}
+        and isinstance(publication.get("deployment"),dict)
+        and set(publication["deployment"])=={"pull_request","reviewed_head"}
+        and type(publication["deployment"].get("pull_request")) is int
+        and publication["deployment"]["pull_request"]>663,"PRICE_RECOVERY_SOURCE")
+    named_read_deployed(c,publication,accounting=True)
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/{publication['deployment']['pull_request']}")
+    c.require(isinstance(pr.get("merged_at"),str) and c.utc(PRICE174_RECOVERY_WINDOW[1])<c.utc(pr["merged_at"])
+        <=c.utc(comment["created_at"])<c.utc(window["expires_at_utc"]),"PRICE_RECOVERY_CLOCK")
+    price174_descendant(c,PRICE174_663,publication["expected_master"])
+    pins=price174_tree(c,publication["expected_master"])
+    c.require(c.digest(c.encoded(pins))==terms["execution_pins_sha256"],"PRICE174_RUNTIME_PINS")
+    return dict(terms=terms,pins=pins,proof_sha256=c.digest(c.encoded(proof)),reference=reference,
+        created_at_utc=comment["created_at"],recovery=True,prior_transition=prior)
+
+
+def price174_transition_at(transition,index):
+    return transition["prior_transition"] if transition and transition.get("recovery") and index<5 else transition
+
+
+def price174_batch_size(observed):
+    transition=observed["proof"].get("transition")
+    return 4 if transition and transition.get("recovery") and len(observed["receipts"])==5 else min(32,174-observed["examined"])
+
+
+def price174_reuse_evidence(c,value):
+    reuse=value.get("price174_reuse")
+    fixed=dict(schema="a1-price174-recovered-original4-v1",failed_run_id=PRICE174_RECOVERY_RUN,
+        failed_meter_sha256=PRICE174_RECOVERY_METER,capture_source_sha=PRICE174_663,
+        parent_checkpoint_sha256=PRICE174_CP128,examined_before=128,examined_after=132,
+        failed_observation_window_utc=list(PRICE174_RECOVERY_WINDOW),provider_gets_for_recovery=0)
+    extra={"raw_sha256","raw_bytes","normalized_sha256","normalized_bytes","inventory_sha256",
+        "rows_sha256","derivation_source_sha","derivation_run_id","derivation_auth_sha256",
+        "derivation_proof_sha256","derived_at_utc","normalized_codec"}
+    c.require(isinstance(reuse,dict) and set(reuse)==set(fixed)|extra
+        and c.encoded({k:reuse.get(k) for k in fixed})==c.encoded(fixed)
+        and type(reuse["raw_bytes"]) is int and 0<reuse["raw_bytes"]<=PRICE174_RECOVERY_STORAGE
+        and type(reuse["normalized_bytes"]) is int and 0<reuse["normalized_bytes"]<16000000
+        and reuse["derivation_source_sha"]==value.get("source_sha")
+        and reuse["derivation_run_id"]==value.get("run_id")
+        and reuse["derivation_auth_sha256"]==value.get("auth_sha256")
+        and reuse["derivation_proof_sha256"]==value.get("source_transition_proof_sha256")
+        and value.get("recovery_run")==PRICE174_RECOVERY_RUN
+        and reuse["normalized_codec"] in {"GZIP_FILENAME_EMPTY_MTIME0_LEVEL9","EXISTING_VERIFIED"}
+        and all(isinstance(reuse[k],str) and c.re.fullmatch("[0-9a-f]{64}",reuse[k])
+            for k in ("raw_sha256","normalized_sha256","inventory_sha256","rows_sha256")),
+        "PRICE_RECOVERY_REUSE")
+    c.require(c.utc(PRICE174_RECOVERY_WINDOW[1])<c.utc(reuse["derived_at_utc"])<=c.utc()
+        and c.utc(reuse["derived_at_utc"])<c.utc(value["price_window_expires_at_utc"]),"PRICE_RECOVERY_CLOCK")
+    return reuse
+
+
+def price174_reuse_source(c,state,objects,receipt,meter,raw,normalized):
+    value=dict(meter.identity,price174_reuse=meter.identity.get("price174_reuse"))
+    reuse=price174_reuse_evidence(c,value)
+    c.require(meter.examined==128 and meter.checkpoint_sha==PRICE174_CP128
+        and meter.used["provider_gets"]==0
+        and state.get("recovered_from")==receipt.get("recovered_from")==reuse
+        and state.get("source_sha")==PRICE174_663
+        and receipt.get("symbols")==["TXT","GL","DOC","GEN"]
+        and objects[0]["sha256"]==reuse["raw_sha256"] and objects[1]["sha256"]==reuse["normalized_sha256"]
+        and len(raw)==reuse["raw_bytes"] and len(normalized)==reuse["normalized_bytes"]
+        and c.digest(raw)==reuse["raw_sha256"] and c.digest(normalized)==reuse["normalized_sha256"],
+        "PRICE_RECOVERY_SOURCE")
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    c.require(c.digest(cap.gzip.decompress(normalized))==reuse["rows_sha256"],"PRICE_RECOVERY_NORMALIZED")
+    return PRICE174_663
+
+
+def price174_metadata_meter(c,*args,**kwargs):
+    class PriceRecoveryMeter(c.RuntimeMeter):
+        def perform(self,*a,**kw):
+            for attempt in range(3):
+                before=self.used["provider_gets"]+self.used["drive_requests"]
+                try:return super().perform(*a,**kw)
+                except c.Refused as exc:
+                    failure=self.last_transport_failure
+                    retry=(str(exc)=="HTTP_ERROR" and isinstance(failure,dict)
+                        and failure.get("request_ordinal")==before+1
+                        and failure.get("http_status") in {500,502,503,504}
+                        and failure.get("request_category")=="DRIVE_METADATA" and failure.get("method")=="GET")
+                    if not retry or attempt==2:raise
+                    self.remaining_seconds()
+                    c.time.sleep(attempt+1)
+                    self.remaining_seconds()
+    return PriceRecoveryMeter(*args,**kwargs)
+
+
+def price174_recover_original4(c,drive,args,auth,meter):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    folder=args.private_data_folder_id;names=cap.external_cohort(auth["input_csv"].encode());group=names[128:132]
+    c.require(group==["TXT","GL","DOC","GEN"] and meter.examined==128 and meter.checkpoint_sha==PRICE174_CP128
+        and meter.identity["recovery_run"]==PRICE174_RECOVERY_RUN and meter.used["provider_gets"]==0,"PRICE_RECOVERY_PARENT")
+    query=("'"+folder+"' in parents and trashed = false and createdTime >= '"+PRICE174_RECOVERY_WINDOW[0]
+        +"' and createdTime <= '"+PRICE174_RECOVERY_WINDOW[1]+"'")
+    listed=c.credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+c.urlencode(dict(
+        q=query,pageSize=8,fields="nextPageToken,files(id,name,size,parents,createdTime)"))),(drive.token,))
+    c.require(isinstance(listed,dict) and listed.get("nextPageToken") is None
+        and isinstance(listed.get("files"),list) and 1<=len(listed["files"])<=4,"PRICE_RECOVERY_INVENTORY")
+    items=listed["files"];objects={};inventory=[]
+    for item in items:
+        c.validate_orphan_item(item,folder)
+        c.require(item["id"] not in objects
+            and c.utc(PRICE174_RECOVERY_WINDOW[0])<=c.utc(item["createdTime"])<=c.utc(PRICE174_RECOVERY_WINDOW[1]),
+            "PRICE_RECOVERY_INVENTORY")
+        obj,body=c.read_orphan_item(drive,folder,item)
+        objects[item["id"]]=(item,obj,body)
+        inventory.append(dict(name=item["name"],bytes=obj["bytes"],created_at_utc=item["createdTime"],sha256=obj["sha256"]))
+    c.require(sum(row["bytes"] for row in inventory)==PRICE174_RECOVERY_STORAGE,"PRICE_RECOVERY_INVENTORY")
+    raw_objects=[obj for obj in objects.values() if obj[0]["name"].endswith(".zip")]
+    norm_objects=[obj for obj in objects.values() if obj[0]["name"].endswith(".jsonl.gz")]
+    json_objects=[obj for obj in objects.values() if obj[0]["name"].endswith(".json")]
+    c.require(len(raw_objects)==1 and len(norm_objects)<=1 and len(json_objects)<=2,"PRICE_RECOVERY_INVENTORY")
+    item,ref,raw=raw_objects[0]
+    try:
+        with cap.zipfile.ZipFile(cap.io.BytesIO(raw)) as archive:
+            infos=archive.infolist()
+            c.require(1<len(infos)<=2*cap.MAX_PAGES+1 and len({i.filename for i in infos})==len(infos)
+                and sum(i.file_size for i in infos)<=128000000
+                and all(i.file_size<=cap.MAX_PAGE_BYTES for i in infos),"PRICE_RECOVERY_ARCHIVE")
+            manifest=c.decode(archive.read("capture.json"))
+            c.require(manifest.get("symbols")==group and manifest.get("source_sha")==PRICE174_663
+                and manifest.get("cohort_scope")==PRICE174_SCOPE and manifest.get("seed_sha256")==PRICE174_INPUT
+                and manifest.get("start")=="2016-01-04" and manifest.get("end")=="2026-10-14",
+                "PRICE_RECOVERY_ARCHIVE")
+            pages=manifest.get("pages")
+            c.require(isinstance(pages,list) and 2<=len(pages)<=2*cap.MAX_PAGES,"PRICE_RECOVERY_ARCHIVE")
+            grids={basis:{symbol:[] for symbol in group} for basis in ("raw","split")}
+            for page in pages:
+                c.require(isinstance(page,dict) and page.get("adjustment") in grids
+                    and isinstance(page.get("member"),str),"PRICE_RECOVERY_ARCHIVE")
+                payload=c.decode(archive.read(page["member"]))
+                c.require(isinstance(payload,dict) and isinstance(payload.get("bars"),dict)
+                    and set(payload["bars"])<=set(group),"PRICE_RECOVERY_ARCHIVE")
+                for symbol,bars in payload["bars"].items():
+                    c.require(isinstance(bars,list),"PRICE_RECOVERY_ARCHIVE")
+                    grids[page["adjustment"]][symbol].extend(bars)
+    except (KeyError,ValueError,OSError,cap.zipfile.BadZipFile):
+        raise c.Refused("PRICE_RECOVERY_ARCHIVE") from None
+    rows=[]
+    for symbol in group:
+        for basis in ("raw","split"):
+            rows.extend(cap.normalize(grids[basis][symbol],symbol,basis,"2016-01-04","2026-10-14"))
+    row_bytes=b"".join(c.encoded(row) for row in rows)
+    buffer=cap.io.BytesIO()
+    with cap.gzip.GzipFile(filename="",mode="wb",fileobj=buffer,compresslevel=9,mtime=0) as handle:handle.write(row_bytes)
+    normalized=norm_objects[0][2] if norm_objects else buffer.getvalue()
+    receipt=dict(schema=cap.SCHEMA,scope="PRIVATE_RESEARCH_ONLY",source=cap.SOURCE,
+        source_sha=PRICE174_663,seed_sha256=PRICE174_INPUT,start="2016-01-04",end="2026-10-14",
+        asof=cap.mapping_asof("2026-10-14"),symbols=group,collected=manifest.get("collected"),
+        no_bars=manifest.get("no_bars"),pages=len(pages),rows=len(rows),raw_object=ref,
+        normalized_object=dict(sha256=c.digest(normalized),bytes=len(normalized)),
+        readback_verified=True,source_admission=False,pit_verified=False,historical_identity_verified=False,
+        commercial_use_authorized=False,cohort_scope=PRICE174_SCOPE,asset_precheck=manifest.get("asset_precheck"))
+    cap.verify_archived_group(raw,normalized,receipt)
+    c.require(cap.gzip.decompress(normalized)==row_bytes,"PRICE_RECOVERY_NORMALIZED")
+    old_receipts=[];old_states=[]
+    for _,obj,body in json_objects:
+        old=c.decode(body)
+        c.require(isinstance(old,dict) and old.get("source_sha")==PRICE174_663
+            and old.get("seed_sha256")==PRICE174_INPUT and old.get("cohort_scope")==PRICE174_SCOPE
+            and old.get("start")=="2016-01-04" and old.get("end")=="2026-10-14",
+            "PRICE_RECOVERY_INVENTORY")
+        if old.get("raw_object")==ref:
+            c.require(norm_objects and old.get("normalized_object")==norm_objects[0][1]
+                and old.get("symbols")==group,"PRICE_RECOVERY_INVENTORY")
+            cap.verify_archived_group(raw,normalized,old);old_receipts.append((obj,old))
+        else:old_states.append(old)
+    c.require(len(old_receipts)<=1 and len(old_states)<=1,"PRICE_RECOVERY_INVENTORY")
+    c.require(all(c.utc(PRICE174_RECOVERY_WINDOW[0])<=c.utc(row["collected_at_utc"])<=c.utc(PRICE174_RECOVERY_WINDOW[1])
+        for row in receipt["asset_precheck"]),"PRICE_RECOVERY_CLOCK")
+    examined,completed,held,parent=cap.resume_state(drive,folder,args.resume_file_id,args.resume_sha256,
+        PRICE174_INPUT,"2016-01-04","2026-10-14",scope=PRICE174_SCOPE)
+    c.require(examined==names[:128] and parent["sha256"]==PRICE174_CP128,"PRICE_RECOVERY_PARENT")
+    for old in old_states:
+        c.require(len(old_receipts)==1 and norm_objects and old.get("examined")==examined+group
+            and old.get("completed")==completed+group and old.get("held")==held
+            and old.get("last_status")=="VERIFIED_RAW_SPLIT"
+            and old.get("previous_checkpoint")==parent
+            and old.get("last_objects")==[ref,norm_objects[0][1],old_receipts[0][0]]
+            and old.get("last_collected")==receipt["collected"] and old.get("last_no_bars")==receipt["no_bars"]
+            and old.get("last_held")==[] and all(old.get(k) is False for k in
+                ("source_admission","pit_verified","historical_identity_verified","commercial_use_authorized")),
+            "PRICE_RECOVERY_INVENTORY")
+    normalized_ref=norm_objects[0][1] if norm_objects else cap.persist_object(drive,folder,normalized,".jsonl.gz")
+    reuse=dict(schema="a1-price174-recovered-original4-v1",failed_run_id=PRICE174_RECOVERY_RUN,
+        failed_meter_sha256=PRICE174_RECOVERY_METER,capture_source_sha=PRICE174_663,
+        parent_checkpoint_sha256=PRICE174_CP128,examined_before=128,examined_after=132,
+        failed_observation_window_utc=list(PRICE174_RECOVERY_WINDOW),provider_gets_for_recovery=0,
+        raw_sha256=ref["sha256"],raw_bytes=ref["bytes"],normalized_sha256=normalized_ref["sha256"],
+        normalized_bytes=normalized_ref["bytes"],inventory_sha256=c.digest(c.encoded(sorted(inventory,key=lambda x:x["name"]))),
+        rows_sha256=c.digest(row_bytes),derivation_source_sha=meter.identity["source_sha"],
+        derivation_run_id=meter.identity["run_id"],derivation_auth_sha256=meter.identity["auth_sha256"],
+        derivation_proof_sha256=meter.identity["source_transition_proof_sha256"],
+        derived_at_utc=c.utc().isoformat(),normalized_codec="EXISTING_VERIFIED" if norm_objects else "GZIP_FILENAME_EMPTY_MTIME0_LEVEL9")
+    meter.identity["price174_reuse"]=reuse;meter.save()
+    receipt.update(normalized_object=normalized_ref,recovered_from=reuse)
+    rec=cap.persist_object(drive,folder,c.encoded(receipt),".json")
+    state=dict(schema=cap.SCHEMA,state="PRIVATE_RESEARCH_ONLY",source=cap.SOURCE,seed_sha256=PRICE174_INPUT,
+        source_sha=PRICE174_663,start="2016-01-04",end="2026-10-14",asof=cap.mapping_asof("2026-10-14"),
+        examined=examined+group,completed=completed+group,held=held,last_status="VERIFIED_RAW_SPLIT",
+        last_objects=[ref,normalized_ref,rec],previous_checkpoint=parent,last_collected=receipt["collected"],
+        last_no_bars=receipt["no_bars"],last_held=[],historical_identity_verified=False,pit_verified=False,
+        source_admission=False,commercial_use_authorized=False,cohort_scope=PRICE174_SCOPE,recovered_from=reuse)
+    checkpoint=cap.persist_object(drive,folder,c.encoded(state),".json")
+    c.verify_new_group(drive,folder,state,checkpoint,meter,reused_source=True)
+    c.require(meter.used["provider_gets"]==0,"PRICE_RECOVERY_PROVIDER")
+    return dict(checkpoint=checkpoint)
+
+
+PRICE174_FAMILY92='49b1753a3b87e525baea56fa5d17e57775a06801dda3a45a42a88285ac1c86a1'
+PRICE174_COHORT16='b8261260127e15bf7281ed043ec0f49b3f0e82f1db936e1ae8d701b71cda68fb'

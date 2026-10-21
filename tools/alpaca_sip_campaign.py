@@ -1,8 +1,7 @@
-"""Finite private SIP campaign control; no source or economic admission.
+"""Finite private SIP control; no source/economic admission.
 
-The Work host reserves all remaining allowance before dispatch. A worker derives
-remaining allowance independently from canonical same-campaign Actions receipts.
-An unknown outcome cannot release a reservation or start another worker.
+Host reserves before dispatch; workers derive allowance from canonical receipts.
+Unknown outcomes retain reservations and block new workers.
 """
 from __future__ import annotations
 
@@ -1377,7 +1376,9 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
         raw = cap._private_object(drive, folder, objects[0])
         normalized = cap._private_object(drive, folder, objects[1])
         expected_source = os.environ["GITHUB_SHA"]
-        if reused_source:
+        if reused_source and "price174_reuse" in meter.identity:
+            expected_source = _revision_module().price174_reuse_source(_module(),state,objects,receipt,meter,raw,normalized)
+        elif reused_source:
             reuse = meter.identity.get("drive_orphan_reuse")
             verify_drive_reuse(reuse, meter.identity)
             recovery_spec = MATERIALIZATION_RECOVERY if "materialization" in reuse else DRIVE_RECOVERY
@@ -1412,7 +1413,7 @@ def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=F
                     ("source_admission", "pit_verified", "historical_identity_verified",
                      "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
         cap.verify_archived_group(raw, normalized, receipt)
-        if reused_source and "materialization" in reuse:
+        if reused_source and "materialization" in locals().get("reuse",{}):
             require(digest(cap.gzip.decompress(normalized)) == reuse["materialization"]["rows_sha256"],
                     "EXTERNAL_MATERIAL_ROWS")
         meter.rows += receipt["rows"]
