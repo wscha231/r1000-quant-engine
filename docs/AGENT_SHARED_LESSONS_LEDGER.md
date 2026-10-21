@@ -7462,3 +7462,22 @@ and do-not-repeat references. This is byte consistency, not a new economic
 approval or promotion of historical/SELECTIVE_PORT entries. Keep stale and
 omitted-hash refusal tests, the valid real CLI control and strict verifier
 functions; never bypass the dependency check to obtain green CI.
+
+### 2026-10-21 — Keep Source identity separate from unrelated Main integration
+
+Source662 collected96 frozen proxy-gap names in three actual successful runs,
+then its whole-master guard correctly stopped on Main654's unrelated merge.
+Preserve those prices, originalauth47db, Source662 proof, family86/cohort10,
+CP96, exact spent resources and original24-hour expiry. Replacing the old auth,
+replaying a completed workflow or silently pinning a new master is not recovery.
+
+A separately reviewed Source adapter and immutable OWNER source-transition
+grant can authenticate the historical Source separately from current local
+code, then bind the new genuine protected publication and compatible runtime.
+Freeze every file actually checked out by the credential-bearing workflow,
+including preflight tests and seed, plus review guards and Git attributes.
+Runtime7 hashes alone miss changes to executed pre-credential fixtures. Require
+complete Git-tree evidence, protected descendant ancestry and actual GITHUB_SHA;
+keep the original grant/account evidence and new Source proof in distinct fields.
+Append no extra event into an existing reserved batch-index protocol. Bind the
+transition in subsequent reservations/meters and keep the first96 byte prefix.

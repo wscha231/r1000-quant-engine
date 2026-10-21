@@ -3951,6 +3951,7 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--authorization")
     mode.add_argument("--price174-authorization")
+    parser.add_argument("--price174-source-transition")
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
     mode.add_argument("--native392-settle-control", help="Exact39235028468 actual read-cost import only; no dispatch")
@@ -3974,6 +3975,7 @@ def main():
     try:
         if args.price174_authorization:
             print(json.dumps(_revision_module().price174_host(_module(),args),sort_keys=True));return 0
+        require(args.price174_source_transition is None,"PRICE174_MODE")
         if args.native392_premeter_control:
             print(json.dumps(_revision_module().named_read30_host(_module(),args),sort_keys=True));return 0
         require(args.native392_premeter_publication is None,"NAMED_READ30_MODE")

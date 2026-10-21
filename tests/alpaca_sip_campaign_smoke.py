@@ -7063,6 +7063,9 @@ class Price174ContinuationTests(unittest.TestCase):
     def test_actual_six_batch_host_history_and_journal_resume_with_mock_capture(self):
         self.six_batch_host_history()
 
+    def test_source_transition_after96_keeps_prefix_costs_and_remaining_three_batches(self):
+        self.six_batch_host_history(transition_at96=True)
+
     def test_host_expiry_after_binding_tip_read_keeps_registration_and_post_absent(self):
         self.six_batch_host_history(expire_at="binding")
 
@@ -7075,7 +7078,7 @@ class Price174ContinuationTests(unittest.TestCase):
     def test_host_expiry_during_reservation_sync_preserves_events_without_post(self):
         self.six_batch_host_history(expire_at="post")
 
-    def six_batch_host_history(self,*,expire_at=None):
+    def six_batch_host_history(self,*,expire_at=None,transition_at96=False):
         budget=self.root/"canonical-journal";oldstate=self.root/"external-cohort-top500-20261017"
         targets=[]
         for path,count in ((budget,17),(oldstate,48)):
@@ -7119,7 +7122,8 @@ class Price174ContinuationTests(unittest.TestCase):
             self.assertEqual(inputs["resume_file_id"],"")
             self.assertEqual(len(family.entries),78+3*(len(batches)-1))  # Durable reservation precedes POST.
             control=c.decode(inputs["campaign_control"]);nonce=inputs["campaign_nonce"]
-            run=dict(id=50000000000+len(batches),run_attempt=1,head_sha="9"*40,head_branch="master",
+            run=dict(id=50000000000+len(batches),run_attempt=1,
+                head_sha="b"*40 if control.get("source_transition_reference") else "9"*40,head_branch="master",
                 event="workflow_dispatch",display_title="a1-sip "+nonce,status="completed",conclusion="success",
                 created_at="2026-10-22T11:00:00Z")
             n=sum(batches[:-1]);usage={k:10 for k in c.LIMITS}
@@ -7134,12 +7138,20 @@ class Price174ContinuationTests(unittest.TestCase):
                 usage=usage,checkpoint_sha256=c.digest(str(n+count).encode()),
                 rows_verified=count*10,
                 new_states=dict(VALID_COLLECTED=count,VERIFIED_NO_DATA=0,QUARANTINED=0))
+            if control.get("source_transition_reference"):
+                self.assertGreaterEqual(n,96)
+                self.assertEqual(control["source_sha"],"b"*40)
+                value.update(source_transition_proof_sha256=proof["transition"]["proof_sha256"],
+                    source_transition_reference_sha256=c.digest(control["source_transition_reference"].encode()),
+                    source_publication_sha="b"*40,original_source_sha=self.s.PRICE174_ORIGIN,
+                    resume_family86_sha256=self.s.PRICE174_FAMILY86,resume_cohort10_sha256=self.s.PRICE174_COHORT10)
             receipts[run["id"]]=value;canonical.append(run)
             return SimpleNamespace(returncode=0)
         output=io.StringIO()
         branch_reads=[]
         def branch(path):
             branch_reads.append(path)
+            if transition_at96 and len(batches)==3:return dict(protected=True,commit=dict(sha="d"*40))
             if ((expire_at=="binding" and len(branch_reads)==1)
                 or (expire_at in {"reservation","margin"} and len(branch_reads)==2)):
                 self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
@@ -7168,11 +7180,31 @@ class Price174ContinuationTests(unittest.TestCase):
                     return
                 with self.assertRaisesRegex(c.Refused,"SYNTHETIC_SETTLEMENT_BARRIER"):self.s.price174_host(c,args)
             self.assertEqual(len(batches),1)
-            final=self.s.price174_host(c,args)
+            if transition_at96:
+                with self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):self.s.price174_host(c,args)
+                self.assertEqual(batches,[32,32,32]);self.assertEqual(len(family.entries),86)
+                prefix96={p:p.read_bytes() for d in (family_path,state) for p in d.glob("*.json")}
+                args.price174_source_transition=f"https://github.com/{c.REPO}/issues/448#issuecomment-987654321"
+                transition=dict(proof_sha256="a"*64,terms=dict(publication=dict(expected_master="b"*40)),
+                    reference=args.price174_source_transition,created_at_utc="2026-10-22T10:59:00Z")
+                proof["transition"]=transition
+                for key,value in (("PRICE174_FIRST_RUNS",[r["id"] for r in canonical[30:]]),
+                                  ("PRICE174_FIRST_METERS",[c.digest(c.encoded(receipts[r["id"]])) for r in canonical[30:]]),
+                                  ("PRICE174_CP96",receipts[canonical[-1]["id"]]["checkpoint_sha256"]),
+                                  ("PRICE174_FAMILY86",c.digest((family_path/"000086.json").read_bytes())),
+                                  ("PRICE174_COHORT10",c.digest((state/"000010.json").read_bytes())),
+                                  ("PRICE174_USED96",{k:self.s.READ392_USED[k]+30 for k in c.LIMITS}),
+                                  ("PRICE174_ACTIVE96",9551),("PRICE174_ORIGIN","9"*40)):
+                    patch.object(self.s,key,value).start()
+                with patch.object(self.s,"price174_source_tip",return_value="b"*40):
+                    final=self.s.price174_host(c,args)
+                    self.assertEqual(self.s.price174_host(c,args),final)
+                self.assertEqual(prefix96,{p:p.read_bytes() for p in prefix96})
+            else:final=self.s.price174_host(c,args)
             self.assertEqual(batches,[32,32,32,32,32,14])
             self.assertEqual(final["examined"],174);self.assertEqual(final["new_valid_prices"],174)
             self.assertEqual(final["dispatches"],36);self.assertEqual(final["active_seconds"],10151)
-            self.assertEqual(self.s.price174_host(c,args),final)
+            if not transition_at96:self.assertEqual(self.s.price174_host(c,args),final)
             self.assertEqual(len(batches),6)
         self.assertEqual(len(family.entries),95)
         self.assertEqual(before,{p:p.read_bytes() for p in before})
@@ -7203,5 +7235,218 @@ class Price174ContinuationTests(unittest.TestCase):
             with self.subTest(key=key),self.assertRaises(c.Refused):self.s.price174_prefix(c,rows+[bad],self.auth,self.control)
         changed=copy.deepcopy(rows);changed[0]["id"]+=1
         with self.assertRaises(c.Refused):self.s.price174_prefix(c,changed+[price],self.auth,self.control)
+
+class Price174SourceTransitionTests(unittest.TestCase):
+    """Synthetic Source-only transitions preserve the existing capture contract."""
+    bind_event=Price174ContinuationTests.bind_event
+    rebind_metadata=Price174ContinuationTests.rebind_metadata
+    payload=Price174ContinuationTests.payload
+    event=Price174ContinuationTests.event
+
+    def setUp(self):
+        Price174ContinuationTests.setUp(self)
+        self.auth["deployment"]["pull_request"]=662
+        self.original_blobs={p:("SYNTHETIC_HISTORICAL "+p).encode() for p in self.s.V6_PINS}
+        digest=c.digest(c.encoded({p:c.digest(v) for p,v in self.original_blobs.items()}))
+        self.auth["code_pins_sha256"]=digest
+        for key,value in (("PRICE174_ORIGIN",self.auth["expected_master"]),
+                          ("PRICE174_ORIGIN_HEAD",self.auth["deployment"]["reviewed_head"]),
+                          ("PRICE174_ORIGIN_PINS",digest),
+                          ("PRICE174_ORIGIN_AUTH",self.s.price174_hash(c,self.auth))):
+            patch.object(self.s,key,value).start()
+        self.reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-987654321"
+        self.publication=dict(expected_master="b"*40,deployment=dict(pull_request=888,reviewed_head="a"*40),
+            code_pins_sha256="c"*64)
+        self.pins={p:dict(sha=c.digest(p.encode())[:40],mode="100644") for p in self.s.price174_execution_paths()}
+        self.pins[".gitattributes"]=None
+        self.terms=dict(schema="a1-sp500174-source-transition96-v1",task_key=self.s.PRICE174_TASK,
+            original_auth_sha256=self.s.PRICE174_ORIGIN_AUTH,original_source_sha=self.s.PRICE174_ORIGIN,
+            original_grant_reference=self.auth["grant_reference"],execution_window=self.auth["execution_window"],
+            scope=dict(self.s.PRICE174_SCOPE),input_sha256=self.s.PRICE174_INPUT,examined_before=96,remaining_count=78,
+            checkpoint96_sha256=self.s.PRICE174_CP96,family86_sha256=self.s.PRICE174_FAMILY86,
+            cohort10_sha256=self.s.PRICE174_COHORT10,first_price_runs=list(self.s.PRICE174_FIRST_RUNS),
+            first_price_meter_sha256=list(self.s.PRICE174_FIRST_METERS),usage_after96=dict(self.s.PRICE174_USED96),
+            active_seconds_after96=self.s.PRICE174_ACTIVE96,dispatches_after96=33,limits=dict(c.CONTINUED_LIMITS),
+            active_seconds_limit=43200,dispatch_limit=40,
+            compatible_tip_policy="PROTECTED_DESCENDANT_WITH_IDENTICAL_SPARSE_EXECUTION_AND_GUARD_BLOBS",
+            budget_reset=False,window_reset=False,source_admission=False,pit_verified=False,economic_authority=False,
+            supplier_rights_verified=False,private_noncommercial_research_only=True,account_migration_authorized=False,
+            unknown_post_retry_authorized=False,publication=self.publication,
+            execution_pins_sha256=c.digest(c.encoded(self.pins)))
+        self.comment=dict(id=987654321,issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER",user=dict(type="User",id=123),
+            created_at="2026-10-22T10:04:00Z",updated_at="2026-10-22T10:04:00Z")
+
+    def metadata(self,path):
+        if path.endswith("/issues/comments/987654321"):
+            return dict(self.comment,body="A1_SP500174_SOURCE_TRANSITION "+c.encoded(self.terms).decode())
+        if path.endswith("/pulls/888"):return dict(merged_at="2026-10-22T10:03:00Z")
+        if "/compare/" in path:
+            origin=path.split("/compare/")[1].split("...")[0]
+            return dict(status="ahead",ahead_by=2,base_commit=dict(sha=origin),merge_base_commit=dict(sha=origin))
+        raise AssertionError("UNEXPECTED_PUBLIC_METADATA "+path)
+
+    def test_actual_new_owner_grant_is_source_only_and_keeps_original_window_and_costs(self):
+        with patch.object(c,"gh_json",side_effect=self.metadata),\
+             patch.object(self.s,"named_read_deployed") as deployed,\
+             patch.object(self.s,"price174_tree",return_value=self.pins):
+            value=self.s.price174_transition(c,self.auth,self.reference)
+            self.assertEqual(value["terms"]["execution_window"],self.auth["execution_window"])
+            self.assertEqual(value["terms"]["usage_after96"],self.s.PRICE174_USED96)
+            self.assertEqual(value["terms"]["remaining_count"],78)
+            deployed.assert_called_once_with(c,self.publication,accounting=True)
+            with patch.object(self.s,"named_read_deployed",side_effect=c.Refused("UNREVIEWED_SOURCE")):
+                with self.assertRaisesRegex(c.Refused,"UNREVIEWED_SOURCE"):
+                    self.s.price174_transition(c,self.auth,self.reference)
+
+    def test_transition_rejects_rearm_reset_wrong_owner_edited_and_changed_frozen_basis(self):
+        with patch.object(c,"gh_json",side_effect=self.metadata),patch.object(self.s,"named_read_deployed"),\
+             patch.object(self.s,"price174_tree",return_value=self.pins):
+            good=copy.deepcopy(self.terms)
+            for key,value in (("budget_reset",True),("window_reset",True),("budget_reset",0),
+                              ("supplier_rights_verified",True),("source_admission",True),
+                              ("remaining_count",79),("checkpoint96_sha256","f"*64),
+                              ("family86_sha256","f"*64),("cohort10_sha256","f"*64),
+                              ("usage_after96",dict(self.s.PRICE174_USED96,provider_gets=0)),
+                              ("execution_window",dict(self.auth["execution_window"],expires_at_utc="2026-10-24T10:00:00Z"))):
+                self.terms=copy.deepcopy(good);self.terms[key]=value
+                with self.subTest(key=key),self.assertRaises(c.Refused):
+                    self.s.price174_transition(c,self.auth,self.reference)
+            self.terms=good
+            self.comment["updated_at"]="2026-10-22T10:05:00Z"
+            with self.assertRaises(c.Refused):self.s.price174_transition(c,self.auth,self.reference)
+            self.comment["updated_at"]=self.comment["created_at"];self.comment["author_association"]="MEMBER"
+            with self.assertRaises(c.Refused):self.s.price174_transition(c,self.auth,self.reference)
+
+    def test_origin_uses_actual_historical_remote_pins_not_new_local_code(self):
+        def metadata(path):
+            if "/contents/" in path:
+                name=path.split("/contents/")[1].split("?ref=")[0]
+                self.assertTrue(path.endswith("?ref="+self.s.PRICE174_ORIGIN))
+                return dict(encoding="base64",content=c.base64.b64encode(self.original_blobs[name]).decode())
+            if path.endswith("/pulls/662"):
+                return dict(merged=True,draft=False,head=dict(sha=self.s.PRICE174_ORIGIN_HEAD),
+                    merge_commit_sha=self.s.PRICE174_ORIGIN,merged_at=self.auth["execution_window"]["deployed_at_utc"])
+            if "/git/commits/" in path:return dict(tree=dict(sha=self.s.PRICE174_ORIGIN_TREE))
+            raise AssertionError("UNEXPECTED_METADATA")
+        with patch.object(c,"gh_json",side_effect=metadata),patch.object(self.s,"named_read_checks") as checks,\
+             patch.object(c,"bounded_bytes",side_effect=AssertionError("NEW_LOCAL_BYTES_ARE_NOT_OLD_SOURCE")):
+            self.s.price174_historical_source(c,self.auth)
+            checks.assert_called_once_with(c,dict(deployment=self.auth["deployment"]))
+            self.original_blobs[next(iter(self.original_blobs))]=b"CHANGED"
+            with self.assertRaisesRegex(c.Refused,"ORIGIN"):self.s.price174_historical_source(c,self.auth)
+
+    def test_complete_tree_regular_blobs_and_fixed_sparse_checkout_cover_every_executed_file(self):
+        workflow=(c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml").read_text()
+        checkout=[]
+        for line in workflow.splitlines():
+            value=line.strip()
+            if value.startswith("/tools/") or value.startswith("/tests/") or value.startswith("/data_static/") or value.startswith("/.github/"):
+                checkout.append(value[1:])
+        self.assertTrue(checkout)
+        self.assertTrue(set(checkout)<=set(self.s.price174_execution_paths()))
+        rows=[dict(path=p,type="blob",**v) for p,v in self.pins.items() if v is not None]
+        response=dict(sha="e"*40,truncated=False,tree=rows)
+        with patch.object(c,"gh_json",side_effect=lambda path:dict(tree=dict(sha="e"*40))
+                if "/git/commits/" in path else response):
+            self.assertEqual(self.s.price174_tree(c,"b"*40),self.pins)
+            for bad in (dict(response,truncated=True),dict(response,tree=rows[:-1]),
+                        dict(response,tree=rows+[rows[0]]),
+                        dict(response,tree=[dict(rows[0],mode="120000")]+rows[1:])):
+                response=bad
+                with self.assertRaises(c.Refused):self.s.price174_tree(c,"b"*40)
+                response=dict(sha="e"*40,truncated=False,tree=rows)
+
+    def test_compatible_main_tip_and_queued_source_are_bound_but_runtime_or_guard_changes_refuse(self):
+        transition=dict(terms=self.terms,pins=self.pins,proof_sha256="f"*64,reference=self.reference)
+        protected=True;changed=None
+        def metadata(path):
+            if path.endswith("/branches/master"):return dict(protected=protected,commit=dict(sha="d"*40))
+            return self.metadata(path)
+        def tree(controller,sha):
+            value=copy.deepcopy(self.pins)
+            if changed and sha=="d"*40:value[changed]=dict(sha="0"*40,mode="100644")
+            return value
+        with patch.object(c,"gh_json",side_effect=metadata),patch.object(self.s,"price174_tree",side_effect=tree):
+            self.assertEqual(self.s.price174_source_tip(c,transition,live=True),"d"*40)
+            self.assertEqual(self.s.price174_source_tip(c,transition,"b"*40,live=True),"b"*40)
+            for changed in self.s.price174_execution_paths():
+                with self.subTest(path=changed),self.assertRaises(c.Refused):
+                    self.s.price174_source_tip(c,transition,live=True)
+            changed=None;protected=False
+            with self.assertRaises(c.Refused):self.s.price174_source_tip(c,transition,live=True)
+            protected=True
+            with patch.object(c,"gh_json",return_value=dict(status="diverged",ahead_by=1,
+                    base_commit=dict(sha="b"*40),merge_base_commit=dict(sha="0"*40))):
+                with self.assertRaises(c.Refused):self.s.price174_source_tip(c,transition,"d"*40)
+
+    def test_transition_control_requires_pair_and_preserves_original_private_auth_hash(self):
+        control=dict(schema=self.s.PRICE174_SCHEMA,authorization=self.auth,nonce=c.PREFIX+"c"*24,
+            parent_sha256=self.s.PRICE174_CP96,source_transition_reference=self.reference,source_sha="b"*40)
+        before=c.encoded(self.auth);env=self.event(control)
+        with patch.dict(os.environ,env,clear=True):
+            self.assertEqual(self.s.price174_event_control(c),control)
+            for key in ("source_transition_reference","source_sha"):
+                bad=dict(control);bad.pop(key);self.event(bad)
+                with self.assertRaises(c.Refused):self.s.price174_event_control(c)
+        self.assertEqual(c.encoded(self.auth),before)
+
+    def test_transition_worker_uses_actual_source_and_separate_proof_without_rebinding_account_grant(self):
+        self.transition_worker()
+
+    def test_transition_worker_expiry_after_last_tip_read_prevents_meter_and_capture(self):
+        self.transition_worker(expire=True)
+
+    def transition_worker(self,*,expire=False):
+        control,proof,observed,args,jobs=Price174ContinuationTests.worker_fixture(self,96)
+        transition=dict(terms=self.terms,pins=self.pins,proof_sha256="f"*64,reference=self.reference)
+        proof["transition"]=transition
+        control.update(source_transition_reference=self.reference,source_sha="b"*40)
+        env=self.event(control);env["GITHUB_SHA"]="b"*40
+        real_meter=c.RuntimeMeter;meters=[]
+        def meter_factory(*a,**kw):
+            meter=real_meter(*a,**kw,opener=Opener(b""),clock=lambda:self.clock);meters.append(meter);return meter
+        class Drive:
+            owner="fixture-owner";free=3*1024**3
+            def __init__(inner,root,temp,meter):self.assertEqual(root,"fixture-root-123")
+        def verify(drive,folder,state,ref,meter):
+            meter.examined=128;meter.checkpoint_sha="e"*64;meter.states["VALID_COLLECTED"]=32;meter.rows=100
+        def collect(actual,**kw):
+            self.assertEqual(kw["expected_examined"],96)
+            self.assertEqual(kw["external"]["input_csv"],self.csv)
+            drive=kw["drive_factory"](actual.private_root_folder_id,"fixture-temp")
+            print("PRIVATE_TRANSITION_COLLECTOR_CANARY")
+            kw["on_group"](drive,{},dict(sha256="e"*64))
+            return dict(checkpoint=dict(sha256="e"*64))
+        def tip(*a,**kw):
+            if expire:self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
+            return "b"*40
+        from contextlib import redirect_stdout
+        journal=self.root/"transition-meter.json";output=io.StringIO()
+        with patch.dict(os.environ,env,clear=True),patch.object(self.s,"price174_history",return_value=observed),\
+             patch.object(self.s,"price174_authority",return_value=proof),\
+             patch.object(self.s,"price174_source_tip",side_effect=tip),\
+             patch.object(c,"campaign_runs",return_value=observed["all_runs"]),patch.object(c,"gh_json",return_value=jobs),\
+             patch.object(c,"RuntimeMeter",side_effect=meter_factory) as create,\
+             patch.object(drive_module,"OwnerDrive",Drive),patch.object(cap,"_collect",side_effect=collect) as capture,\
+             patch.object(c,"verify_new_group",side_effect=verify),\
+             patch.object(self.s,"price174_checkpoint",return_value=dict(file_id="PRIVATE_FIXTURE_CHECKPOINT",sha256="a"*64)),\
+             redirect_stdout(output):
+            if expire:
+                with self.assertRaisesRegex(c.Refused,"EXPIRED"):self.s.price174_worker(c,args,control,journal)
+                create.assert_not_called();capture.assert_not_called();self.assertFalse(journal.exists());return
+            self.assertEqual(self.s.price174_worker(c,args,control,journal)["examined_after"],128)
+        value=c.bounded_json(journal)
+        self.assertEqual(value["source_sha"],"b"*40)
+        self.assertEqual(value["original_source_sha"],self.auth["expected_master"])
+        self.assertEqual(value["source_transition_proof_sha256"],transition["proof_sha256"])
+        self.assertEqual(value["source_transition_reference_sha256"],c.digest(self.reference.encode()))
+        self.assertEqual(value["account_permission_reference_sha256"],c.digest(self.auth["grant_reference"].encode()))
+        self.assertEqual(value["account_permission_record_sha256"],proof["proof_sha256"])
+        self.assertEqual(value["auth_sha256"],self.s.price174_hash(c,self.auth))
+        self.assertEqual(value["price_window_expires_at_utc"],self.auth["execution_window"]["expires_at_utc"])
+        self.assertFalse(value["supplier_rights_verified"])
+        self.assertNotIn("PRIVATE_TRANSITION_COLLECTOR_CANARY",output.getvalue())
+
 
 if __name__=='__main__': unittest.main()

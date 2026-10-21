@@ -1438,3 +1438,59 @@ execution grant. Preserve the original initial permission-record hash separately
 never pair it with a later execution reference. supplier_rights_verified remains
 false: neither this implementation nor an execution grant certifies supplier
 licensing or creates an unobserved account reference.
+
+### Preserve the actual first96 when unrelated protected Main work advances
+
+The first three actual174 price runs39587813920/39589645381/39591477420
+completed96 valid subjects and499548 raw+split rows. Source662 at6d7654a8
+then correctly stopped before another reservation when Main654 advanced master.
+This is not a failed price batch or authority to rerun any completed input.
+Keep originalauth47db581a, immutable OWNER grant6313875890, family86/cohort10,
+CP96 17a90a954b2fc4d3efdb4e0320e287a4b776bf4090306a3408f882e3e8b08db5,
+all original receipts and2026-10-22T10:27:25Z exclusive expiry unchanged.
+
+The existing host may additionally receive --price174-source-transition with
+an immutable OWNER issue448 record prefixed A1_SP500174_SOURCE_TRANSITION.
+Its separate source-only terms bind the original authorization/grant, actual
+first three run/meter hashes, frozen86/10 tails, CP96, remaining78, observed
+usage1150/10725/1805609297/153751356,10430 active seconds and33 dispatches.
+They preserve every original cap, unknown charge, supplier-rights disclaimer
+and the original24-hour expiry. A new Source merge does not start another clock.
+The grant must follow the genuine protected corrective Source publication and
+precede every subsequently dispatched run. It creates no supplier entitlement.
+
+Authenticate Source662's original reviewed/deployed tree and original7-file
+SHA256 commitment as historical evidence, independently of newly corrected
+local files. Authenticate the new runtime publication separately with its
+actual reviewed tree, local7 SHA256 pins, real merged PR, required checks and
+genuine review-complete proof. Neither replaces the other.
+
+A compatible master must be protected and descend from that new publication.
+Compare complete, non-truncated Git trees and require identical regular-file
+blob IDs/modes for all11 files in the workflow's fixed non-cone sparse checkout,
+the two review guards, and .gitattributes presence/content. This covers runtime,
+seed and pre-credential parser/privacy tests, not only the collector. The
+workflow itself is frozen, so a Main change cannot widen the checked-out code.
+Source/guard/test/seed/attribute drift, missing or duplicate entries, symlinks,
+unprotected/non-descendant tips and incomplete metadata refuse. A queued worker
+may finish on its exact dispatched GITHUB_SHA while later unrelated Main work
+has an identical execution closure; record its actual runtime commit separately
+from the original Source and reviewed Source publication.
+
+The original private authorization and its hash remain unchanged. Additional
+outer-control fields carry only the public transition reference and intended
+runtime Source SHA, still within the same16384-byte transport limit and private
+event routing. Workers preserve original execution-proof/account-permission
+lineage, and separately meter transition-proof/reference hashes, publication,
+actual source and frozen86/10 resume anchors. Original runs1..3 remain Source662;
+only runs4..6 can use the transition. Their original allowances, costs, deadlines,
+raw/split collector and readback semantics remain mandatory.
+
+Do not insert a journal event before the remaining batches: retain existing
+87..95 family and11..19 cohort indices. Their durable reservations additionally
+bind the transition proof and runtime Source SHA. Reconciliation must verify
+those preexisting reservations before assigning or settling a real run. Keep
+the exact first96 journals/bytes and CP immutable, then process32,32,14 through
+the existing collector. Reapply the actual128-subject cost forecast and final
+local expiry/45-second dispatch checks after all remote verification and fsync.
+Synthetic transition tests grant no capture, PIT or economic readiness.
