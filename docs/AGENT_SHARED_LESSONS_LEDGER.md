@@ -7564,3 +7564,11 @@ The old hardcoded orphan exception belongs to its original incident; add a
 separate named proof rather than changing that exception's historical meaning.
 Any retry must be limited to explicit idempotent metadata5xx GETs, debit every
 attempt and retain the original deadline; never turn unknown POST into retry.
+
+When rebasing a Source PR onto an unrelated protected Main merge, supply the
+native committer identity on the rebase itself. Never publish after a failed
+Git command: a stopped rebase can leave HEAD at the base with staged Source
+changes. Verify successful completion, the expected attached branch, clean
+status and exact scoped diff before pushing with an explicit remote-head lease.
+Publishing the base can close the PR as empty; preserve/reapply its original
+commits and reopen that same PR rather than replacing its review history.
