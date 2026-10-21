@@ -7585,3 +7585,15 @@ The expanded ten-manager replay found ORIGINAL present in 13F receipts but blank
 in normalized rows. Return the explicit type through the existing parser before
 checkpointing. RESTATEMENT and NEW HOLDINGS remain cover-derived; missing or
 unknown amendment types fail parsing, never become ORIGINAL or zero holdings.
+
+### 2026-10-21 — Restored SEC cache time is not a current source clock
+
+Direct canonical Drive restoration of three selected manager JSON/XML pairs
+reused the existing parser and checkpoints without broad history retrieval.
+The BRK Q2 accession's old cached acceptance was four hours earlier than two
+actual current SEC observations; keep both payloads/hashes, record the conflict,
+and do not infer its upstream cause or relabel Drive read time as a source check.
+Current submissions change filing identity even when accession XML is unchanged:
+the existing checkpoint invalidated only BRK, then reused all three on replay.
+Distinguish this real six-file/173-row Native restore/save/resume receipt from
+hosted rclone execution, accepted Lake admission and genuine Main A2/A3 use.

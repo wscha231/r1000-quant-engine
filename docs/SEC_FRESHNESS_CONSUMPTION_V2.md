@@ -85,3 +85,31 @@ all Source semantics, reconcile repeated holdings, bind actual frozen SEC
 manifest and genuine A2/Registry/A3 references, and test persistent lifecycle
 cases. No Main files or Registry entries were changed, no metadata/exposure or
 A3 references invented. Economic approval and task-wide completion remain open.
+
+## Canonical Drive selective-restore replay (2026-10-21)
+
+Native execution restored only three selected manager submissions and their
+Q2 2026 XMLs from the existing canonical SEC Drive folders: BRK, Whale Rock,
+and Atreides; six files, 456,457 bytes. The existing parser stored 173 rows
+(89/35/49) with matching CSV/Parquet/summary hashes and counts. Existing exact
+CUSIP overrides map 65/173 rows (37.57%) and 58.92% of reported value. This
+bounded replay does not replace the distinct ten-manager/260-row cohort.
+
+The restored submissions remain `CACHED_NOT_CHECKED`; Drive read time is not
+a successful SEC check. Three separate actual SEC submissions checks then
+confirmed Whale Rock/Atreides timestamps but exposed a BRK source-clock
+conflict for accession `0001193125-26-352200`: the old Drive JSON says
+`2026-08-14T20:05:04.000Z`, while the current SEC response says
+`2026-08-15T00:05:04.000Z`. Preserve both original payloads and their hashes;
+do not infer the upstream cause or silently correct/re-admit the old snapshot.
+The current-source index uses the current response and separate actual check
+receipt; cache-only reconstruction does not manufacture collector check times.
+
+The first unchanged replay reused all three checkpoints with zero parses and
+zero parser provider requests. Reconstructing the index with the newly observed
+BRK clock invalidated only its checkpoint (one parse), retained the same XMLs,
+and the next replay again needed zero parses/provider requests. Original Drive
+bytes remained unchanged. This proves direct selective Drive restoration and
+Native save/resume, not hosted/rclone execution or accepted SEC Lake generation
+admission. Combined manager/mapping/Form4/ETF gates and actual Main consumption
+remain blocked or pending; no frozen SEC dataset or A2/A3 references are created.
