@@ -10,9 +10,11 @@ portfolio sizing, accepted-state write, policy promotion or scheduler change.
 the adapter. Supply `--report-session YYYY-MM-DD`, `--report-now` (explicit
 offset timestamp), `--report-recipient`, an unused `--output-dir`, and
 `--history` pointing to an independently approved report-history anchor.
-The legacy invocation remains available for compatibility; its date-derived
-availability and per-invocation hysteresis are **not certified by B1**. A0 must
-authorize any scheduled cutover separately after real-input validation.
+The legacy invocation remains available for compatibility. Its current-report
+boundary now uses the independent host clock and completed XNYS session rather
+than the source's own date. Its declared availability and per-invocation
+hysteresis are still **not certified by B1**. A0 must authorize any scheduled
+cutover separately after real-input validation.
 
 Add `--report-source-view`, `--expected-source-view-sha256`,
 `--report-source-root`, `--expected-history-sha256` and, for a non-root anchor,
@@ -147,3 +149,137 @@ Independent B2 read-only audit found Paper Bridge selective-trim drift and
 unconditional numeric output with missing economic evidence. B2 implementation
 requires B1 terminal evidence and a separate A0 file scope. No B2 code changes
 are included here.
+
+## Legacy currentness integrity — 2026-10-17
+
+The existing calendar determines the last completed session and its unchanged
+AFTER_CLOSE cutoff (one hour after the actual close, including early closes).
+The legacy current report uses the host UTC clock; caller report-now does not
+backdate it. Old/missing/malformed/future source sessions, unavailable calendar,
+future or malformed declared component clocks and missing critical components
+return BLOCKED/DATA_BLOCKED with current state NULL and no paper-action candidates.
+Declared availability requires complete, unique known component names, strict
+boolean flags and parseable clocks for available values. Critical availability
+is recomputed from canonical inputs and cross-checked against those declarations;
+an empty or incomplete metadata record cannot authorize current history updates.
+Every available state-driving component must be fresh, including optional inputs
+such as liquidity. Explicit canonical component clocks must match the consumed
+availability declarations. Malformed inputs stay on the blocked-output path;
+blocked health never reprocesses their invalid clocks outside that boundary.
+STALE_SUCCESS_NOT_CURRENT_REPORT retains the explicit B1 stale-success meaning.
+No blocked observation calls current hysteresis or rewrites its history bytes.
+Current legacy diagnostics additionally require a typed history from the
+immediately preceding XNYS session, valid state/streak and an aware update clock.
+Missing/legacy untyped, malformed, gapped or same-session history requires explicit
+recovery; this patch never initializes, catches up or restores history.
+Current updates and prior history are each bounded to their own XNYS-session
+New York calendar date, after the existing after-close cutoff. A weekend/holiday
+can identify the last completed session but cannot retroactively advance it.
+The existing bounded history counter may reach its cap but cannot increment
+beyond it; a changed raw state still resets the streak normally.
+
+All four decoded raw-state sidecars (risk controls, safety audit, macro policy,
+portfolio snapshot) must declare the same `report_session`, `available_from` and
+`generated_at_utc` clocks between that session's close and existing report cutoff.
+The clocks are captured from the payloads actually used for inference, not later
+file rereads. Missing/unclocked sidecars block current history/actions even if the
+long-crisis row is current. These are declared diagnostic clocks, not authenticated
+Source/PIT. The existing workflow is unchanged; until producers provide those
+clocks and a recovered typed prior history, this legacy route remains BLOCKED.
+The existing pinned B1 report route remains available under its own strict contract.
+
+The existing cadence consumer treats explicit BLOCKED as a data boundary: it
+does not fall back to diagnostic raw state or integrated historical GREEN/reentry
+state, and its build entry point refuses before decision computation. Before
+failing it invalidates only the six known cadence outputs, writes blocked JSON/
+Markdown markers and empty CSVs, so a wrapper that continues after failure cannot
+publish surviving BUY/reentry decisions. Unrelated files are preserved. This is
+a Main data boundary, not a new portfolio policy or trading action.
+Missing, malformed, untyped or aged monitor summaries also block: the consumer
+rechecks the generated clock and source session against its own host/XNYS clock.
+The old cadence smoke uses an explicit pinned historical clock fixture, not
+implicit current eligibility. An inference/input exception similarly writes a
+blocked monitor summary without exposing private exception text.
+Both current state fields must be exact canonical enum strings; missing values
+and legacy aliases are refused. Reentry metadata comes from that typed current
+monitor, never a historical integrated-state fallback.
+
+Combined raw state remains an UNVERIFIED_LEGACY_INPUT_DIAGNOSTIC; individual
+long-crisis metadata and source clocks retain their source-session scope.
+Fresh legacy output is only
+CURRENT_LEGACY_DIAGNOSTIC/DATE_CURRENT_DIAGNOSTIC, never authenticated Source/PIT,
+an approved A4 enum, canonical regime or economic approval. The explicit pinned
+report-slot route and historical risk inference remain separate and unchanged.
+Risk thresholds, selective defense/hold/reentry policies and the canonical ten
+axes, minimum eight and mandatory breadth/volatility/credit gates are unchanged.
+
+The registered monitor smoke preserves its two original model cases and B1 suite,
+and adds unittest clock refusals active in normal and -O. A hash-verified real
+artifact's March20 source/October17 execution can be replayed through this clock
+boundary without fetching providers or treating archived inference as a new model
+recomputation. No actual workflow, collector, history catch-up or book is invoked.
+
+### Current producer/config/holdings integrity correction
+
+Long-crisis features now preserve a `source_clocks_json` column. Each input's
+`observation_clocks` Series metadata is matched to the exact raw value observation
+before forward fill; M2 clocks follow the same monthly lag as its value. The
+index establishes observation date only. Missing publication, collection,
+expiry or immutable source hash is not fabricated from the feature row date.
+Current inference carries these original clocks into component availability.
+Current reports refuse absent, inconsistent, future or expired source records;
+historical inference retains its separate behavior. These declared clocks still
+do not authenticate a Source receipt or admit a historical PIT vintage.
+Expiry extension alone cannot prove current observation coverage. Current
+reports additionally require `--current-source-expectations` and its externally
+accepted `--expected-current-source-expectations-sha256`. This dated
+`current-macro-observation-coverage-v1` snapshot binds `report_session` and each
+source's `expected_observation_date`, exact canonical clock-record SHA256 and
+`freshness_basis_sha256`. Its source set must match the ten consumed inputs.
+The caller must supply accepted current coverage; runtime never builds an
+acceptance file from its own inputs. Absent/mismatched proof blocks current
+history/actions with `CURRENT_SOURCE_COVERAGE_PROOF_REQUIRED`. No per-series
+age interval or expiry-renewal rule is invented; actual coverage proof remains
+an upstream requirement, distinct from fixture acceptance and Source/PIT.
+
+The current monitor requires `--expected-thresholds-sha256` from the accepted
+immutable config and all six numeric governor/cash gate fields. The decoded
+inference config hash must match; current reports cannot authorize a missing,
+partial, string/bool-valued or changed config through historical defaults.
+No threshold value or risk-policy formula is changed. Missing approval/pin
+keeps current output BLOCKED rather than creating an accepted config.
+
+Action candidates additionally require `--expected-snapshot-sha256` bound to
+the exact decoded portfolio summary used in raw inference. Its `report_session`
+and `book_session` must match the current session; `holdings_sha256` must match
+the exact CSV bytes decoded for actions. An absent or mismatched binding yields
+`BLOCKED_HOLDINGS_PROOF` and no action candidates. It does not invent a book or
+turn a hash into investment approval. Existing producers without this accepted
+binding cannot generate actions.
+
+The daily FRED helper retains its scalar API and numeric definitions. Snapshot
+metadata separately preserves response observation date, realtime start/end,
+response hash and actual fetch time. Snapshot `asof` remains generation time;
+unknown publication/availability remains UNKNOWN/null and current-vintage
+retrieval is not historical PIT. No provider request is needed to test this.
+
+Paper consumer review 4301684126 remains a separate B2 gate. File-scope
+allocation does not supply B1 terminal/actual coverage proof. Until that proof
+is verified, only fixture/design preparation is allowed; no actual preview runs.
+
+## Legacy macro snapshot input guard (2026-10-20)
+
+`macro_daily_snapshot.py` emits `macro-daily-research-snapshot-v2`. SPY and
+VIX need finite positive complete-window prices, the latest completed NYSE
+session, exact collection/decision ordering and a frozen provider-frame digest.
+The original five numerical market thresholds remain unchanged. Missing,
+stale, future, inconsistent or degenerate inputs produce `BLOCKED_INPUT`, a
+null regime, strict JSON and no transition/Telegram; blocked CLI runs exit 2
+and replace the previous current report.
+
+Source availability is explicitly collection-only. Original publication is
+unknown; the frame hash is a derived payload identity, not a raw vendor receipt.
+Valid outputs remain unauthenticated research proxies: Source/PIT, portfolio,
+order and production authority are false. `current_snapshot_reasons` is the
+same reusable clock/numeric contract for the separately scoped CLI consumer.
+Neither the legacy five states nor a valid proxy grants A5 approval.
