@@ -1107,6 +1107,508 @@ def named_read30_host(c,args):
             not_runtime_meter=True,read_verification_complete=False,new_price_subjects=0,capture_authorized=False)
     finally:registry.close()
 
+
+# Separate frozen174 cohort. No expansion of the old993/417 seed or its caps.
+PRICE174_SCHEMA="a1-sp500-gap174-capture-v1"
+PRICE174_TASK="R1000-A1-SP500-PRIORITY-CAPTURE-20261020"
+PRICE174_INPUT="b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329"
+PRICE174_INVENTORY="d97c707586147d191debb1883526f594065c6b523956f311fba52376205c395a"
+PRICE174_SCOPE=dict(task_key=PRICE174_TASK,namespace="sp500-gap-20261020",input_sha256=PRICE174_INPUT)
+
+
+def price174_old(c,value):
+    import zlib
+    c.require(isinstance(value,str) and len(value)<=12000,"PRICE174_PACK")
+    try:
+        packed=c.base64.b64decode(value,validate=True)
+        decoder=zlib.decompressobj();raw=decoder.decompress(packed,16385)
+        c.require(len(raw)<=16384 and decoder.eof and not decoder.unconsumed_tail
+            and not decoder.unused_data and c.digest(raw)==READ30_CONTROL,"PRICE174_PACK")
+        old=c.decode(raw)
+        c.require(c.encoded(old)==raw,"PRICE174_PACK")
+        named_read30_control(c,old)
+        return old
+    except c.Refused:raise
+    except Exception:raise c.Refused("PRICE174_PACK") from None
+
+
+def price174_hash(c,auth):
+    return c.digest(c.encoded({k:v for k,v in auth.items() if k!="grant_reference"}))
+
+
+def price174_auth(c,auth):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    c.require(isinstance(auth,dict) and set(auth)=={"schema","task_key","scope","input_csv",
+        "frozen_inventory_sha256","prior_control_zlib","expected_master","code_pins_sha256","deployment",
+        "execution_window","human_window_authority_sha256","closure_event","grant_reference"}
+        and len(c.encoded(auth))<=15000 and auth["schema"]==PRICE174_SCHEMA and auth["task_key"]==PRICE174_TASK
+        and auth["scope"]==PRICE174_SCOPE and auth["frozen_inventory_sha256"]==PRICE174_INVENTORY
+        and isinstance(auth["input_csv"],str) and c.digest(auth["input_csv"].encode())==PRICE174_INPUT,
+        "PRICE174_AUTH")
+    names=cap.external_cohort(auth["input_csv"].encode())
+    c.require(len(names)==len(set(names))==174,"PRICE174_INPUT")
+    old=price174_old(c,auth["prior_control_zlib"]);prior=old["authorization"]
+    before=cap.external_cohort(prior["external_cohort"]["input_csv"].encode())
+    c.require(before[296:300]==["MSCI","BSBR","STM","FMX"] and not set(names)&set(before[:300]),
+        "PRICE174_DISJOINT")
+    for key,size in (("expected_master",40),("code_pins_sha256",64),("human_window_authority_sha256",64)):
+        c.require(isinstance(auth[key],str) and c.re.fullmatch("[0-9a-f]{"+str(size)+"}",auth[key])
+            and auth[key]!="0"*size,"PRICE174_AUTH")
+    c.require(auth["human_window_authority_sha256"] not in {READ392_V2_AUTHORITY,VALIDITY_AUTHORITY},
+        "PRICE174_NEW_WINDOW_AUTHORITY")
+    deployment=auth["deployment"];window=auth["execution_window"]
+    c.require(isinstance(deployment,dict) and set(deployment)=={"pull_request","reviewed_head"}
+        and type(deployment["pull_request"]) is int and deployment["pull_request"]>660
+        and isinstance(deployment["reviewed_head"],str) and c.re.fullmatch("[0-9a-f]{40}",deployment["reviewed_head"])
+        and isinstance(window,dict) and set(window)=={"deployed_at_utc","expires_at_utc"}
+        and all(isinstance(window[k],str) for k in window)
+        and c.utc(window["expires_at_utc"])-c.utc(window["deployed_at_utc"])==c.timedelta(seconds=86400)
+        and c.utc(window["deployed_at_utc"])>c.utc(READ392_V3_ORIGIN["merged_at_utc"]),
+        "PRICE174_WINDOW")
+    entry=auth["closure_event"]
+    c.require(isinstance(entry,dict) and entry.get("kind")==READ30_KIND and entry.get("sequence")==76
+        and entry.get("previous_sha256")==READ392_FAMILY
+        and entry.get("auth_sha256")==c.external_family_genesis() and isinstance(entry.get("recorded_utc"),str)
+        and c.utc("2026-10-21T04:38:25Z")<=c.utc(entry["recorded_utc"])<=c.utc(),
+        "PRICE174_CLOSURE")
+    c.require(isinstance(auth["grant_reference"],str) and c.re.fullmatch(
+        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",auth["grant_reference"]),
+        "PRICE174_GRANT")
+    return old,names
+
+
+def price174_terms(c,auth):
+    old,names=price174_auth(c,auth);prior=old["authorization"]
+    return dict(schema="a1-sp500174-price-execution-grant-v1",task_key=PRICE174_TASK,
+        authorization_sha256=price174_hash(c,auth),source_sha=auth["expected_master"],deployment=auth["deployment"],
+        code_pins_sha256=auth["code_pins_sha256"],scope=PRICE174_SCOPE,input_sha256=PRICE174_INPUT,input_count=174,
+        frozen_inventory_sha256=PRICE174_INVENTORY,prior_control_sha256=READ30_CONTROL,
+        closure_event_sha256=c.digest(c.encoded(auth["closure_event"])),
+        human_window_authority_sha256=auth["human_window_authority_sha256"],execution_window=auth["execution_window"],
+        private_bindings_sha256=c.digest(c.encoded({k:prior[k] for k in
+            ("private_root_folder_id","private_data_folder_id","credential_binding","owner_permission_id")})),
+        start="2016-01-04",end_exclusive="2026-10-14",timeframe="1Day",feed="sip",adjustments=["raw","split"],
+        batches=[32,32,32,32,32,14],usage_before=dict(READ392_USED),active_seconds_before=8951,dispatches_before=30,
+        limits=dict(c.CONTINUED_LIMITS),active_seconds_limit=43200,dispatch_limit=40,
+        unknown_storage_still_charged=[302101,434796],old_uncertain_group_quarantined=["MSCI","BSBR","STM","FMX"],
+        old417_resume_authorized=False,unknown_post_retry_authorized=False,refund_authorized=False,
+        account_migration_authorized=False,capture_authorized=True,private_noncommercial_research_only=True,
+        source_admission=False,pit_verified=False,economic_authority=False,budget_reset=False,
+        total_platform_cost_verified=False)
+
+
+def price174_authority(c,auth,*,accounting=False):
+    old,names=price174_auth(c,auth)
+    publication={k:auth[k] for k in ("expected_master","deployment","code_pins_sha256")}
+    named_read_deployed(c,publication,accounting=accounting)
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/{auth['deployment']['pull_request']}")
+    window=auth["execution_window"];start,end=window["deployed_at_utc"],window["expires_at_utc"]
+    c.require(pr.get("merged_at")==start,"PRICE174_WINDOW_ORIGIN")
+    ref=int(auth["grant_reference"].rsplit("-",1)[1])
+    comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{ref}")
+    terms,proof=human_record(c,comment,"A1_SP500174_PRICE_EXECUTION_AUTHORIZATION ",window=(start,end))
+    c.require(comment["id"]==ref and c.encoded(terms)==c.encoded(price174_terms(c,auth))
+        and c.utc(auth["closure_event"]["recorded_utc"])<=c.utc(comment["created_at"]),"PRICE174_GRANT")
+    if not accounting:c.require(c.utc(start)<=c.utc()<c.utc(end),"CAMPAIGN_EXPIRED")
+    return dict(proof_sha256=c.digest(c.encoded(proof)),proof_updated_utc=comment["created_at"],expires_at_utc=end)
+
+
+def price174_prefix(c,runs,auth,old):
+    price174_auth(c,auth)
+    c.require(isinstance(runs,list) and 30<=len(runs)<=36 and runs[29].get("id")==READ30_RUN,
+        "PRICE174_HISTORY")
+    prefix=named_read_prefix(c,runs[:30],old,runs[29])
+    for run in runs[30:]:
+        c.require(type(run.get("id")) is int and run["id"]>READ30_RUN
+            and type(run.get("run_attempt")) is int and run["run_attempt"]==1
+            and run.get("head_sha")==auth["expected_master"] and run.get("head_branch")=="master"
+            and run.get("event")=="workflow_dispatch" and isinstance(run.get("created_at"),str)
+            and c.re.fullmatch("a1-sip "+c.PREFIX+r"[0-9a-f]{24}",run.get("display_title","")),
+            "PRICE174_HISTORY")
+    return prefix
+
+
+def price174_closure(c,auth):
+    old,_=price174_auth(c,auth)
+    proof,created=named_read_proof(c,old,accounting=True)
+    blobs=named_read30_deployment(c,old)
+    run=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}")
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}/jobs?per_page=100")
+    artifacts=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}/artifacts?per_page=100")
+    raw=named_read_gate_log(c,119041111801).encode()
+    payload=named_read30_failure(c,old,run,jobs,artifacts,blobs,raw,proof,created)
+    entry=auth["closure_event"]
+    c.require(set(entry)==set(payload)|{"sequence","kind","auth_sha256","previous_sha256","recorded_utc"}
+        and {k:entry.get(k) for k in payload}==payload,"PRICE174_CLOSURE")
+    return payload
+
+
+def price174_seconds(c,run):
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/jobs?per_page=100")
+    c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2
+        and {j.get("name") for j in jobs["jobs"]}=={"offline","capture"},"PRICE174_JOB")
+    seconds=0
+    for job in jobs["jobs"]:
+        c.require(job.get("status")=="completed" and isinstance(job.get("started_at"),str)
+            and isinstance(job.get("completed_at"),str) and c.utc(run["created_at"])<=c.utc(job["started_at"])
+            <=c.utc(job["completed_at"])<=c.utc()+c.timedelta(seconds=1),"PRICE174_JOB_CLOCK")
+        seconds+=c.math.ceil((c.utc(job["completed_at"])-c.utc(job["started_at"])).total_seconds())
+    c.require(0<seconds<=7800,"PRICE174_JOB_CLOCK")
+    return seconds
+
+
+def price174_history(c,auth,*,current=None,nonce=None):
+    old,names=price174_auth(c,auth)
+    proof=price174_authority(c,auth,accounting=True)
+    price174_closure(c,auth)
+    observed=c.external_history(old["authorization"],allow_stopped=True,enforce_expiry=False,
+        price174_context=(auth,old))
+    named_read_budget(c,observed)
+    # The authenticated original source cannot start another group until all
+    # four-name checkpoint/readback work has closed. Retain its unknown POST;
+    # no symbol in its possible prefix300 footprint belongs to this cohort.
+    last=observed["receipts"][-1]
+    c.require(last.get("status")=="BLOCKED" and last.get("examined_after")==296
+        and last.get("checkpoint_sha256")==READ392_CP,"PRICE174_OLD_FAILURE")
+    runs=observed["all_runs"];rows=runs[30:]
+    c.require(current is None or rows and rows[-1].get("id")==current
+        and rows[-1].get("display_title")=="a1-sip "+nonce,"PRICE174_CURRENT")
+    used=dict(READ392_USED);active=8951;n=0;parent=c.external_genesis(PRICE174_SCOPE)
+    values=[];durations=[];steps=[]
+    window=auth["execution_window"];start,end=map(c.utc,(window["deployed_at_utc"],window["expires_at_utc"]))
+    for run in rows:
+        c.require(start<=c.utc(run["created_at"])<end,"PRICE174_RUN_WINDOW")
+        if current==run["id"]:
+            c.require(run.get("status")=="in_progress" and run is rows[-1],"PRICE174_CURRENT")
+            continue
+        c.require(run.get("status")=="completed","CAMPAIGN_RUN_UNRESOLVED")
+        value=c.receipt_for_run(run,price174_hash(c,auth),auth["expected_master"],c.CONTINUED_LIMITS)
+        allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS}
+        count=min(32,174-n)
+        c.require(n<174 and value.get("preflight_only") is False and value.get("recovery_run") is None
+            and value.get("cohort_scope")==PRICE174_SCOPE and value.get("bindings")==c.CONTINUATION["bindings"]
+            and value.get("external_proof_sha256")==proof["proof_sha256"]
+            and value.get("parent_checkpoint_sha256")==parent and value.get("examined_before")==n
+            and value["allowance"]==allowance and n<=value["examined_after"]<=n+count
+            and (value["status"]!="COMPLETE" or value["examined_after"]==n+count),
+            "PRICE174_RECEIPT")
+        c.require(not values or values[-1]["status"]=="COMPLETE"
+            and steps[-1]["run"].get("conclusion")=="success","PRICE174_PRIOR_BLOCKED")
+        seconds=price174_seconds(c,run);prior_active=active
+        for k in c.LIMITS:used[k]+=value["usage"][k]
+        active+=seconds
+        c.require(all(used[k]<=c.CONTINUED_LIMITS[k] for k in c.LIMITS) and active<=43200,"CAMPAIGN_BUDGET")
+        steps.append(dict(run=run,value=value,remaining=allowance,active_remaining=43200-prior_active,parent_sha=parent))
+        n=value["examined_after"];parent=value["checkpoint_sha256"]
+        c.require(isinstance(parent,str) and c.re.fullmatch("[0-9a-f]{64}",parent),"PRICE174_CHECKPOINT")
+        values.append(value);durations.append(seconds)
+    c.require(current is None or n<174 and (not values or values[-1]["status"]=="COMPLETE"
+        and steps[-1]["run"].get("conclusion")=="success"),"PRICE174_PRIOR_BLOCKED")
+    return dict(all_runs=runs,price_runs=rows,receipts=values,durations=durations,steps=steps,used=used,
+        active_seconds=active,examined=n,parent_sha=parent,remaining={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS},
+        proof=proof,old=old,terminal_blocked=bool(steps and (steps[-1]["run"].get("conclusion")!="success"
+            or values[-1]["status"]=="BLOCKED")),new_states={k:sum(v["new_states"][k] for v in values) for k in
+            ("VALID_COLLECTED","VERIFIED_NO_DATA","QUARANTINED")})
+
+
+def price174_event_control(c,expected=None):
+    event=c.bounded_json(c.os.environ.get("GITHUB_EVENT_PATH",""),65536)
+    inputs=event.get("inputs") if isinstance(event,dict) else None
+    c.require(isinstance(inputs,dict) and isinstance(inputs.get("campaign_control"),str)
+        and 0<len(inputs["campaign_control"].encode())<=16384,"PRICE174_EVENT")
+    control=c.decode(inputs["campaign_control"]);auth=control.get("authorization") if isinstance(control,dict) else None
+    old,names=price174_auth(c,auth);prior=old["authorization"]
+    c.require(set(control)=={"schema","authorization","nonce","parent_sha256"} and control["schema"]==PRICE174_SCHEMA
+        and isinstance(control["nonce"],str) and c.re.fullmatch(c.PREFIX+r"[0-9a-f]{24}",control["nonce"])
+        and isinstance(control["parent_sha256"],str) and c.re.fullmatch("[0-9a-f]{64}",control["parent_sha256"])
+        and inputs.get("campaign_nonce")==control["nonce"] and inputs.get("private_root_folder_id")==prior["private_root_folder_id"]
+        and inputs.get("private_data_folder_id")==prior["private_data_folder_id"] and inputs.get("resume_file_id","")==""
+        and inputs.get("resume_sha256")==control["parent_sha256"]
+        and all(inputs.get(k) is True or inputs.get(k)=="true" for k in
+            ("private_research_authorized","noncommercial_terms_acknowledged"))
+        and (expected is None or c.encoded(expected)==c.encoded(control)),"PRICE174_EVENT")
+    c.require(not any(c.os.getenv(k) for k in ("INPUT_CAMPAIGN_CONTROL","INPUT_PRIVATE_ROOT_FOLDER_ID",
+        "INPUT_PRIVATE_DATA_FOLDER_ID","INPUT_RESUME_FILE_ID")),"PRICE174_PRIVATE_ENV")
+    return control
+
+
+def price174_checkpoint(c,drive,folder,sha):
+    query="name = '"+sha+".json' and '"+folder+"' in parents and trashed = false"
+    value=c.credential_safe_json(drive.request("https://www.googleapis.com/drive/v3/files?"+c.urlencode(dict(
+        q=query,pageSize=2,fields="nextPageToken,files(id,name,size,parents)"))),(drive.token,))
+    c.require(isinstance(value,dict) and value.get("nextPageToken") is None
+        and isinstance(value.get("files"),list) and len(value["files"])==1,"PRICE174_PRIVATE_CHECKPOINT")
+    item=value["files"][0]
+    c.require(isinstance(item,dict) and item.get("name")==sha+".json" and item.get("parents")==[folder]
+        and isinstance(item.get("id"),str) and c.re.fullmatch("[A-Za-z0-9_-]{10,100}",item["id"])
+        and isinstance(item.get("size"),str) and item["size"].isascii() and item["size"].isdigit()
+        and len(item["size"])<=8 and 0<int(item["size"])<=16000000,"PRICE174_PRIVATE_CHECKPOINT")
+    return dict(file_id=item["id"],sha256=sha,bytes=int(item["size"]))
+
+
+def price174_worker(c,args,control,journal):
+    from contextlib import redirect_stdout,redirect_stderr
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    from tools.twelve_private_capture import OwnerDrive
+    price174_event_control(c,control)
+    auth=control["authorization"];old,names=price174_auth(c,auth);prior=old["authorization"]
+    c.require(c.os.getenv("GITHUB_REPOSITORY")==c.REPO and c.os.getenv("GITHUB_REF")=="refs/heads/master"
+        and c.os.getenv("GITHUB_SHA")==auth["expected_master"] and c.os.getenv("GITHUB_RUN_ATTEMPT")=="1"
+        and c.os.getenv("INPUT_NATIVE_READ_ONLY")=="false","PRICE174_CONTEXT")
+    run_id=int(c.os.environ["GITHUB_RUN_ID"])
+    observed=price174_history(c,auth,current=run_id,nonce=control["nonce"])
+    n=observed["examined"];batch=min(32,174-n)
+    c.require(n<174 and args.start=="2016-01-04" and args.end=="2026-10-14" and args.max_new_symbols==batch
+        and control["parent_sha256"]==observed["parent_sha"] and observed["active_seconds"]+7800<=43200,
+        "PRICE174_PARENT")
+    proof=price174_authority(c,auth)
+    c.require(proof==observed["proof"],"PRICE174_GRANT_DRIFT")
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run_id}/jobs?per_page=100")
+    c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2,"PRICE174_JOB")
+    capture=[j for j in jobs["jobs"] if j.get("name")=="capture" and j.get("status")=="in_progress"]
+    offline=[j for j in jobs["jobs"] if j.get("name")=="offline" and j.get("conclusion")=="success"]
+    c.require(len(capture)==len(offline)==1 and isinstance(capture[0].get("started_at"),str)
+        and isinstance(offline[0].get("completed_at"),str)
+        and c.utc(offline[0]["completed_at"])<=c.utc(capture[0]["started_at"])<=c.utc()+c.timedelta(seconds=5),
+        "PRICE174_JOB_CLOCK")
+    deadline=min(c.utc(capture[0]["started_at"])+c.timedelta(seconds=7100),c.utc(proof["expires_at_utc"]))
+    # All metadata/proof reads precede the last protected-tip check and credentials.
+    c.require(c.campaign_runs(prior["workflow_run_floor"])==observed["all_runs"],"PRICE174_CANONICAL_DRIFT")
+    branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+    c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
+        "CAMPAIGN_MASTER_DRIFT")
+    key,secret=c.os.getenv("ALPACA_API_KEY","").strip(),c.os.getenv("ALPACA_API_SECRET","").strip()
+    c.require(key and secret and c.digest((key+"\0"+secret).encode())==prior["credential_binding"],
+        "CAMPAIGN_CREDENTIAL_BINDING")
+    identity=dict(task_key=c.TASK,auth_sha256=price174_hash(c,auth),source_sha=auth["expected_master"],
+        nonce=control["nonce"],run_id=run_id,run_attempt=1,recovery_run=None,preflight_only=False,
+        cohort_scope=PRICE174_SCOPE,external_proof_sha256=proof["proof_sha256"],bindings=c.CONTINUATION["bindings"],
+        parent_checkpoint_sha256=observed["parent_sha"],examined_before=n,
+        account_permission_reference_sha256=c.digest(prior["external_cohort"]["proof_reference"].encode()),
+        account_permission_record_sha256=observed["proof"]["proof_sha256"],
+        inherited_read30_closure_sha256=c.digest(c.encoded(auth["closure_event"])),
+        price_window_expires_at_utc=proof["expires_at_utc"],total_platform_cost_verified=False)
+    c.require(not c.Path(journal).exists(),"PRICE174_METER_REUSE")
+    meter=c.RuntimeMeter(observed["remaining"],journal,deadline.isoformat(),identity,
+        limits=c.CONTINUED_LIMITS,asset_symbols=names[n:n+batch])
+    private_args=c.argparse.Namespace(**vars(args))
+    private_args.private_root_folder_id=prior["private_root_folder_id"]
+    private_args.private_data_folder_id=prior["private_data_folder_id"]
+    private_args.resume_file_id=private_args.resume_sha256=""
+    def factory(root,temp):
+        drive=OwnerDrive(root,temp,meter=meter)
+        c.require((prior["owner_permission_id"] is None or drive.owner==prior["owner_permission_id"])
+            and c.digest(drive.owner.encode())==c.CONTINUATION["bindings"]["owner_sha256"]
+            and drive.free>=2*1024**3,"CAMPAIGN_OWNER_OR_SPACE")
+        meter.identity["free_bytes_at_start"]=drive.free;meter.save()
+        if n:
+            ref=price174_checkpoint(c,drive,prior["private_data_folder_id"],observed["parent_sha"])
+            private_args.resume_file_id,private_args.resume_sha256=ref["file_id"],ref["sha256"]
+        return drive
+    try:
+        # Existing collector/callback output contains private checkpoint refs.
+        # Discard it locally rather than publishing or attempting later masking.
+        with meter.process_deadline(),c.tempfile.TemporaryFile(mode="w+",encoding="utf-8") as output,\
+                redirect_stdout(output),redirect_stderr(output):
+            result=cap._collect(private_args,drive_factory=factory,get=meter.perform,
+                on_group=lambda drive,state,ref:c.verify_new_group(drive,prior["private_data_folder_id"],state,ref,meter),
+                expected_examined=n,external=dict(input_csv=auth["input_csv"],scope=PRICE174_SCOPE))
+        c.require(meter.examined==n+batch and meter.checkpoint_sha==result["checkpoint"]["sha256"],
+            "CAMPAIGN_BATCH_CLOSURE")
+        meter.finish("COMPLETE")
+    except c.Refused as exc:
+        from tools.twelve_private_capture import SAFE_CODES
+        reason=str(exc)
+        if reason=="PRICE174_PRIVATE_CHECKPOINT":reason="PRICE_PRIVATE_CHECKPOINT"
+        codes=set(SAFE_CODES)|{"CAMPAIGN_DEADLINE","CAMPAIGN_OWNER_OR_SPACE","CAMPAIGN_BATCH_CLOSURE",
+            "CAMPAIGN_CHECKPOINT_CHAIN","CAMPAIGN_GROUP_OBJECTS","CAMPAIGN_GROUP_RECEIPT",
+            "CAMPAIGN_GROUP_AUTHORITY","CAMPAIGN_GROUP_STATUS","CAMPAIGN_HELD_MARKER",
+            "PRICE_PRIVATE_CHECKPOINT","PAGE_BUDGET","BAR_TIMESTAMP","RESUME_ARCHIVE",
+            "RESUME_NORMALIZED_FORMAT","RESUME_CHAIN_MEMBERSHIP","RESUME_CHAIN_LIMIT"}
+        codes.update("CAMPAIGN_BUDGET_"+k.upper() for k in c.LIMITS)
+        if reason not in codes or not c.re.fullmatch("[A-Z_]{1,80}",reason):reason="PRICE_INTERNAL"
+        meter.finish("BLOCKED",reason)
+        raise c.Refused(reason) from None
+    except Exception:
+        meter.finish("BLOCKED","PRICE_INTERNAL")
+        raise c.Refused("PRICE_INTERNAL") from None
+    safe=dict(status="PRICE174_BATCH_VERIFIED",examined_after=meter.examined,rows_verified=meter.rows,
+        new_states=dict(meter.states),checkpoint_sha256=meter.checkpoint_sha,source_admission=False,
+        pit_verified=False,economic_authority=False)
+    print(c.json.dumps(safe,sort_keys=True))
+    return safe
+
+
+def price174_event(c,target,index,kind,payload):
+    c.require(target.lock_owned and len(target.entries)>=index-1,"PRICE174_JOURNAL_PREFIX")
+    if len(target.entries)==index-1:target.append(kind,**payload)
+    entry=target.entries[index-1]
+    c.require(entry.get("kind")==kind and {k:entry.get(k) for k in payload}==payload
+        and set(entry)==set(payload)|{"sequence","kind","auth_sha256","previous_sha256","recorded_utc"},
+        "PRICE174_JOURNAL_CONFLICT")
+    path=target.directory/f"{index:06d}.json"
+    c.require(not path.is_symlink() and c.bounded_bytes(path)==c.encoded(entry),"PRICE174_JOURNAL_BYTES")
+    c.sync_native18_settlement(path)
+    return entry
+
+
+def price174_binding(c,family,journal,auth,budget,state):
+    closure=auth["closure_event"]
+    c.require(len(family.entries)>=76 and family.entries[75]==closure
+        and c.bounded_bytes(family.directory/"000076.json")==c.encoded(closure)
+        and c.digest(c.bounded_bytes(family.directory/"000075.json"))==READ392_FAMILY,
+        "PRICE174_CLOSURE")
+    binding=dict(capture_auth_sha256=price174_hash(c,auth),scope=PRICE174_SCOPE,
+        grant_reference_sha256=c.digest(auth["grant_reference"].encode()),closure_sha256=c.digest(c.encoded(closure)),
+        budget_state_root=c.os.path.normcase(str(budget)),cohort_state_root=c.os.path.normcase(str(state)))
+    entry=price174_event(c,family,77,"PRICE174_COHORT_BOUND",binding)
+    price174_event(c,journal,1,"PRICE174_BOUND",dict(binding,family_binding_sha256=c.digest(c.encoded(entry))))
+
+
+def price174_reconcile(c,family,journal,auth,observed):
+    h=price174_hash(c,auth)
+    for i,step in enumerate(observed["steps"]):
+        run,value=step["run"],step["value"];nonce=run["display_title"][7:]
+        fr,jr=78+3*i,2+3*i
+        reservation=dict(nonce=nonce,remaining=step["remaining"],active_seconds_remaining=step["active_remaining"],
+            parent_checkpoint_sha256=step["parent_sha"],capture_auth_sha256=h,scope=PRICE174_SCOPE)
+        # A live run must already have both durable reservations. Never invent
+        # permission/reservation after observing an orphan dispatch.
+        c.require(len(family.entries)>=fr and len(journal.entries)>=jr,"PRICE174_RESERVATION_MISSING")
+        price174_event(c,family,fr,"PRICE174_RESERVED",reservation)
+        price174_event(c,journal,jr,"RESERVED",reservation)
+        assigned=dict(nonce=nonce,run_id=run["id"],capture_auth_sha256=h)
+        price174_event(c,family,fr+1,"PRICE174_RUN_ASSIGNED",assigned)
+        price174_event(c,journal,jr+1,"RUN_ASSIGNED",assigned)
+        settled=dict(nonce=nonce,run_id=run["id"],capture_auth_sha256=h,
+            receipt_sha256=c.digest(c.encoded(value)),checkpoint_sha256=value["checkpoint_sha256"],
+            examined=value["examined_after"],usage_delta=value["usage"])
+        price174_event(c,journal,jr+2,"SETTLED",settled)
+        price174_event(c,family,fr+2,"PRICE174_SETTLED",settled)
+    c.require(len(family.entries)==77+3*len(observed["steps"])
+        and len(journal.entries)==1+3*len(observed["steps"]),"PRICE174_PENDING")
+
+
+def price174_forecast(c,observed):
+    n=observed["examined"];remaining=174-n
+    c.require(n>=128 and observed["receipts"],"PRICE174_FORECAST")
+    values=observed["receipts"];counts=[v["examined_after"]-v["examined_before"] for v in values]
+    c.require(all(v["status"]=="COMPLETE" and count>0 for v,count in zip(values,counts)),"PRICE174_FORECAST")
+    predicted={k:c.math.ceil(max(v["usage"][k]/count for v,count in zip(values,counts))*remaining*1.25)
+        for k in c.LIMITS}
+    seconds=c.math.ceil(max(t/count for t,count in zip(observed["durations"],counts))*remaining*1.25)
+    dispatches=c.math.ceil(remaining/32)
+    return dict(estimate_only=True,remaining_subjects=remaining,estimated_usage=predicted,active_seconds=seconds,
+        dispatches=dispatches,fits=all(predicted[k]<=observed["remaining"][k] for k in c.LIMITS)
+        and observed["active_seconds"]+seconds<=43200 and len(observed["all_runs"])+dispatches<=40)
+
+
+def price174_progress(c,observed,status):
+    return dict(status=status,task_key=PRICE174_TASK,cohort_count=174,examined=observed["examined"],
+        new_valid_prices=observed["new_states"]["VALID_COLLECTED"],verified_no_data=observed["new_states"]["VERIFIED_NO_DATA"],
+        held=observed["new_states"]["QUARANTINED"],checkpoint_sha256=observed["parent_sha"],
+        rows_verified=sum(v["rows_verified"] for v in observed["receipts"]),
+        used=observed["used"],remaining=observed["remaining"],active_seconds=observed["active_seconds"],
+        active_seconds_remaining=43200-observed["active_seconds"],dispatches=len(observed["all_runs"]),
+        dispatches_remaining=40-len(observed["all_runs"]),source_admission=False,pit_verified=False,
+        economic_authority=False,total_platform_cost_verified=False)
+
+
+def price174_host(c,args):
+    auth=c.bounded_json(args.price174_authorization,15000);old,names=price174_auth(c,auth)
+    c.require(args.budget_state_dir and args.cohort_input
+        and c.bounded_bytes(args.cohort_input,8192)==auth["input_csv"].encode()
+        and (args.max_batches is None or type(args.max_batches) is int and 1<=args.max_batches<=6)
+        and not any(getattr(args,k,None) is not None for k in ("authorization","native_read_control",
+            "native18_settle_authorization","native392_settle_control","native392_premeter_control",
+            "native392_premeter_publication","native392_run_id","native18_deployed_master","refusal_close_authorization",
+            "control_refusal_close_authorization","control_refusal_log","control_refusal_jobs","recovery_run",
+            "account_permission_reference","predispatch_recovery","continuation_receipt")),"PRICE174_MODE")
+    budget=c.Path(args.budget_state_dir).resolve();state=c.Path(args.state_dir).resolve()
+    oldstate=budget.parent/"external-cohort-top500-20261017"
+    c.require(state==budget.parent/"external-cohort-sp500-gap-20261020","PRICE174_NAMESPACE")
+    named_read_frozen_prefix(c,budget,17,c.CONTINUATION["event"])
+    named_read_frozen_prefix(c,oldstate,48,READ392_COHORT)
+    price174_closure(c,auth)
+    # The old namespace is never reopened for mutation or resumed.
+    family=c.external_family_registry(budget,old["authorization"],oldstate);journal=None
+    try:
+        journal=c.WorkJournal(state,price174_hash(c,auth))
+        observed=price174_history(c,auth);started=len(observed["receipts"])
+        price174_authority(c,auth,accounting=True)
+        if len(family.entries)==76 or not journal.entries:
+            c.require(len(family.entries) in {76,77} and not observed["price_runs"],"PRICE174_BINDING_HISTORY")
+            price174_authority(c,auth)
+            c.require(c.campaign_runs(old["authorization"]["workflow_run_floor"])==observed["all_runs"],
+                "PRICE174_CANONICAL_DRIFT")
+            branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+            c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
+                "CAMPAIGN_MASTER_DRIFT")
+        price174_binding(c,family,journal,auth,budget,state)
+        reported=started
+        while True:
+            observed=price174_history(c,auth)
+            price174_reconcile(c,family,journal,auth,observed)
+            if len(observed["receipts"])>reported:
+                progress=dict(price174_progress(c,observed,"PRICE174_BATCH_SETTLED"),
+                    family_event_sha256=family.parent,cohort_event_sha256=journal.parent,
+                    run_id=observed["steps"][-1]["run"]["id"],run_attempt=1,
+                    meter_sha256=c.digest(c.encoded(observed["receipts"][-1])))
+                c.atomic_json(state/"progress",progress)
+                print(c.json.dumps(progress,sort_keys=True),flush=True)
+                reported=len(observed["receipts"])
+            if observed["terminal_blocked"]:
+                return price174_progress(c,observed,"PARTIAL_VERIFIED_STOP")
+            if observed["examined"]==174:return price174_progress(c,observed,"COHORT_PROCESSED")
+            if len(observed["receipts"])-started>=(args.max_batches or 6):
+                return price174_progress(c,observed,"BATCH_BOUNDARY")
+            if observed["examined"]>=128:
+                forecast=price174_forecast(c,observed)
+                print(c.json.dumps(dict(status="PRICE174_128_COST_REVIEW",**forecast),sort_keys=True))
+                c.require(forecast["fits"],"CAMPAIGN_CALIBRATION_BUDGET")
+            c.require(len(observed["all_runs"])<40 and observed["active_seconds"]+7800<=43200,"CAMPAIGN_DISPATCH_BUDGET")
+            proof=price174_authority(c,auth)
+            c.require(proof==observed["proof"] and c.campaign_runs(old["authorization"]["workflow_run_floor"])
+                ==observed["all_runs"],"PRICE174_CANONICAL_DRIFT")
+            nonce=c.PREFIX+c.os.urandom(12).hex()
+            control=dict(schema=PRICE174_SCHEMA,authorization=auth,nonce=nonce,parent_sha256=observed["parent_sha"])
+            raw=c.encoded(control);c.require(len(raw)<=16384,"CAMPAIGN_CONTROL_SIZE")
+            # Current protected tip is the final remote check before reserve/POST.
+            branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+            c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
+                "CAMPAIGN_MASTER_DRIFT")
+            reservation=dict(nonce=nonce,remaining=observed["remaining"],
+                active_seconds_remaining=43200-observed["active_seconds"],parent_checkpoint_sha256=observed["parent_sha"],
+                capture_auth_sha256=price174_hash(c,auth),scope=PRICE174_SCOPE)
+            fr,jr=78+3*len(observed["receipts"]),2+3*len(observed["receipts"])
+            price174_event(c,family,fr,"PRICE174_RESERVED",reservation)
+            price174_event(c,journal,jr,"RESERVED",reservation)
+            prior=old["authorization"]
+            inputs=dict(private_root_folder_id=prior["private_root_folder_id"],
+                private_data_folder_id=prior["private_data_folder_id"],private_research_authorized="true",
+                noncommercial_terms_acknowledged="true",end_date="2026-10-14",
+                max_new_symbols=str(min(32,174-observed["examined"])),resume_file_id="",
+                resume_sha256=observed["parent_sha"],campaign_control=raw.decode(),campaign_nonce=nonce)
+            result=c.subprocess.run(["gh","workflow","run",c.WORKFLOW,"--repo",c.REPO,"--ref","master","--json"],
+                input=c.json.dumps(inputs).encode(),stdout=c.subprocess.DEVNULL,stderr=c.subprocess.DEVNULL,timeout=45)
+            c.require(result.returncode==0,"CAMPAIGN_DISPATCH_UNCERTAIN")
+            run=None
+            for _ in range(30):
+                matches=[r for r in c.campaign_runs(prior["workflow_run_floor"]) if r["display_title"]=="a1-sip "+nonce]
+                c.require(len(matches)<=1,"CAMPAIGN_NONCE_REPLAY")
+                if matches:run=matches[0];break
+                c.time.sleep(2)
+            c.require(run is not None,"CAMPAIGN_DISPATCH_UNCERTAIN")
+            assigned=dict(nonce=nonce,run_id=run["id"],capture_auth_sha256=price174_hash(c,auth))
+            price174_event(c,family,fr+1,"PRICE174_RUN_ASSIGNED",assigned)
+            price174_event(c,journal,jr+1,"RUN_ASSIGNED",assigned)
+            c.subprocess.run(["gh","run","watch",str(run["id"]),"--repo",c.REPO,"--exit-status","--interval","30"],
+                stdout=c.subprocess.DEVNULL,stderr=c.subprocess.DEVNULL,timeout=9000)
+    finally:
+        try:
+            if journal is not None:journal.close()
+        finally:family.close()
+
 V6_SOURCE="a20432fad51576309116bf620a60cdcd1503af55"
 V6_AUTH="f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74"
 V6_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6255779963"

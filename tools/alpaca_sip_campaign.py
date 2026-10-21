@@ -1590,6 +1590,8 @@ def worker(args, control, journal):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
+    if isinstance(control,dict) and control.get("schema")=="a1-sp500-gap174-capture-v1":
+        return _revision_module().price174_worker(_module(),args,control,journal)
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "external_cohort" in control["authorization"]:
         return external_worker(args, control, journal)
     require(isinstance(control, dict) and {"authorization", "nonce"} <= set(control)
@@ -2250,7 +2252,7 @@ def append_native18_settlement(registry,source_sha,code_pins):
 
 def external_history(auth, current_run=None, nonce=None, recovery_run=None, enforce_expiry=True, *, allow_stopped=False,
                      native_read_run=None, native18_accounting=False, refusal_accounting=False, control_accounting_log=None,
-                     control_accounting_jobs=None, named_read_context=None):
+                     control_accounting_jobs=None, named_read_context=None, price174_context=None):
     """All costs; a named auth revision stays inside the same logical cohort."""
     from tools import alpaca_sip_private_backfill_v1 as cap
     auth_hash = validate_authorization(auth)
@@ -2267,6 +2269,10 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
     by_hash = dict(zip(hashes, variants))
     runs = campaign_runs(auth["workflow_run_floor"])
     all_runs, native18 = runs, None
+    if price174_context is not None:
+        require(named_read_context is None and current_run is None and native_read_run is None and allow_stopped
+            and not any((native18_accounting,refusal_accounting,control_accounting_log)),"PRICE174_HISTORY_MODE")
+        runs=_revision_module().price174_prefix(_module(),runs,*price174_context)
     if named_read_context is not None:
         require(current_run is None and native_read_run is None and allow_stopped
                 and not any((native18_accounting,refusal_accounting,control_accounting_log)),
@@ -2474,7 +2480,7 @@ def external_history(auth, current_run=None, nonce=None, recovery_run=None, enfo
                 recovery_required=expected_recovery,
                 remaining={k: CONTINUED_LIMITS[k]-used[k] for k in LIMITS},
                 native18=native18, native18_accounting=native18_accounting,
-                all_runs=all_runs if native18_accounting else runs)
+                all_runs=all_runs if native18_accounting or price174_context is not None else runs)
 
 
 _REFUSAL_EVIDENCE_CACHE = {}
@@ -3944,6 +3950,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--authorization")
+    mode.add_argument("--price174-authorization")
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
     mode.add_argument("--native392-settle-control", help="Exact39235028468 actual read-cost import only; no dispatch")
@@ -3965,6 +3972,8 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.price174_authorization:
+            print(json.dumps(_revision_module().price174_host(_module(),args),sort_keys=True));return 0
         if args.native392_premeter_control:
             print(json.dumps(_revision_module().named_read30_host(_module(),args),sort_keys=True));return 0
         require(args.native392_premeter_publication is None,"NAMED_READ30_MODE")

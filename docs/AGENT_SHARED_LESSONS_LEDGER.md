@@ -7417,3 +7417,20 @@ The failed step's whole-second completion clock includes its final fractional
 log second; use only that explicit precision bucket within the job bounds.
 Record the observed215 seconds and one dispatch with a distinct idempotent cost
 event, never a fabricated RuntimeMeter or permission to retry the failed read.
+
+For a disjoint new cohort, prove the failed source's execution footprint from
+the actual last verified checkpoint, meter and synchronous group/readback order.
+Keep an uncertain POST charged/quarantined even when its possible symbols do not
+overlap the new frozen input; disjointness is not proof of storage absence or
+payload identity. A separate cohort needs its own actual authority/window and
+checkpoint namespace while carrying all old costs and unresolved outcomes.
+
+Legacy collector callbacks print private checkpoint references. Capture that
+output privately and let the next metered worker resolve a content-addressed
+checkpoint under the owner-only folder, rather than publishing the reference or
+doing unmetered host reads. Preserve semantic readback and count no-data/held
+separately from valid prices. Test full sequential batches and interrupted
+settlement repair without dispatching an already completed batch again.
+Keep adapter error names compatible with the existing meter's strict reason
+schema; do not loosen that schema to fit a new route. Unknown exception text
+must not reach a public meter, even when it contains only uppercase characters.
