@@ -6245,10 +6245,193 @@ class NamedRead392DeploymentWindowTests(unittest.TestCase):
     def test_v2_workflow_has_same_private_reconcile_boundary(self):
         text=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
         self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v2'"),8)
-        self.assertIn("'a1-native-drive-read-39235028468-v2'))",text)
+        self.assertEqual(text.count("schema == 'a1-native-drive-read-39235028468-v3'"),8)
         for key in ('INPUT_CAMPAIGN_CONTROL','INPUT_PRIVATE_ROOT_FOLDER_ID','INPUT_PRIVATE_DATA_FOLDER_ID','INPUT_RESUME_FILE_ID'):
             line=next(line for line in text.splitlines() if line.strip().startswith(key+':'))
             self.assertIn("39235028468-v2",line);self.assertTrue(line.endswith("|| '' }}"))
+
+
+class NamedRead392CorrectiveSourceTests(unittest.TestCase):
+    """Correct execution bytes without re-arming650's already started clock."""
+    server=NamedRead39235028468Tests.server
+    read_objects=NamedRead39235028468Tests.read_objects
+    make_meter=NamedRead392DeploymentWindowTests.make_meter
+    bind_event=NamedRead392DeploymentWindowTests.bind_event
+
+    def setUp(self):
+        NamedRead392DeploymentWindowTests.setUp(self)
+        self.control.update(schema=self.s.READ392_V3_SCHEMA,
+            window_origin=dict(self.s.READ392_V3_ORIGIN),
+            deployment=dict(pull_request=777,reviewed_head="5"*40),
+            deployment_window=dict(deployed_at_utc=self.s.READ392_V3_ORIGIN["merged_at_utc"],
+                expires_at_utc="2026-10-21T09:59:28Z"))
+        self.run['created_at']='2026-10-20T10:45:00Z'
+        for j in self.jobs['jobs']:
+            j['started_at']='2026-10-20T10:45:05Z';j['completed_at']='2026-10-20T10:45:25Z'
+        self.bind_event()
+
+    def deployment_fixture(self):
+        base=NamedRead392DeploymentWindowTests.deployment_fixture(self)
+        self.pr.update(number=777,merged_at='2026-10-20T10:30:00Z')
+        self.evaluation['pull_request_number']=777
+        o=self.s.READ392_V3_ORIGIN
+        self.origin_pr=copy.deepcopy(self.pr)
+        self.origin_pr.update(number=o['pull_request'],merge_commit_sha=o['source_sha'],merged_at=o['merged_at_utc'])
+        self.origin_pr['head']['sha']=o['reviewed_head']
+        self.origin_tree=dict(tree=dict(sha=o['tree_sha']))
+        self.origin_checks=copy.deepcopy(self.checks)
+        for check in self.origin_checks['check_runs']:
+            check['id']+=1000;check['head_sha']=o['reviewed_head']
+        self.origin_gate=dict(self.gate,id=302)
+        self.origin_jobs=copy.deepcopy(self.gate_jobs)
+        self.origin_jobs['jobs'][0].update(id=502,run_id=302)
+        self.origin_evaluation=dict(self.evaluation,pull_request_number=o['pull_request'],head_sha=o['reviewed_head'])
+        def log(_c,job):
+            if job==501:return self.gate_log()
+            self.assertEqual(job,502)
+            text='[command]/usr/bin/git log -1 --format=%H\n'+'7'*40+'\n'+json.dumps(self.origin_evaluation)+'\n'+json.dumps(self.origin_checks['check_runs'][2])+'\n'
+            return '\n'.join('2026-10-19T10:25:41.0000000Z '+line for line in text.splitlines())
+        patch.object(self.s,'named_read_gate_log',side_effect=log).start()
+        def gh(path):
+            if path.endswith('/pulls/777'):return self.pr
+            if path.endswith('/pulls/650'):return self.origin_pr
+            if any(path.endswith('/git/commits/'+ref) for ref in (o['reviewed_head'],o['source_sha'])):return self.origin_tree
+            if '/commits/'+o['reviewed_head']+'/check-runs?' in path:return self.origin_checks
+            if '/actions/workflows/317164841/runs?' in path:return dict(total_count=2,workflow_runs=[self.gate,self.origin_gate])
+            if path.endswith('/actions/runs/302/jobs?per_page=100'):return self.origin_jobs
+            return base(path)
+        return gh
+
+    def owner_comment(self):
+        return dict(id=123456789,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
+            author_association='OWNER',user=dict(type='User',id=123),
+            body='A1_SIP_NAMED_READ39235028468_V3_AUTHORIZATION '+c.encoded(self.s.named_read_terms(c,self.control)).decode(),
+            created_at='2026-10-20T10:40:00Z',updated_at='2026-10-20T10:40:00Z')
+
+    def test_corrective_source_and_original_clock_are_independently_verified(self):
+        gh=self.deployment_fixture()
+        with patch.object(c,'gh_json',side_effect=gh):
+            self.assertEqual(self.s.named_read_deployed(c,self.control),self.deployment_pins)
+        self.assertEqual(self.s.named_read_window(c,self.control),('2026-10-20T09:59:28Z','2026-10-21T09:59:28Z'))
+        self.assertNotEqual(self.pr['merged_at'],self.control['deployment_window']['deployed_at_utc'])
+
+    def test_shifted_window_later_source_and_fresh_nonce_cannot_rearm(self):
+        self.clock=c.utc('2026-10-22T11:00:00Z')
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):self.s.named_read_control(c,self.control)
+        bad=copy.deepcopy(self.control)
+        bad['deployment']['pull_request']=778;bad['nonce']=c.PREFIX+'b'*24
+        bad['deployment_window']=dict(deployed_at_utc='2026-10-22T10:00:00Z',expires_at_utc='2026-10-23T10:00:00Z')
+        with patch.object(drive_module,'OwnerDrive') as owner,self.assertRaisesRegex(c.Refused,'DEPLOYMENT_WINDOW'):
+            self.s.named_read_worker(c,bad,str(self.root/'rearmed'))
+        owner.assert_not_called()
+
+    def test_origin_identity_has_exact_typed_fields_and_source_cannot_be650(self):
+        for key,value in [('pull_request',650.0),('source_sha','a'*40),('reviewed_head','b'*40),('tree_sha','c'*40),('merged_at_utc','2026-10-20T10:30:00Z')]:
+            bad=copy.deepcopy(self.control);bad['window_origin'][key]=value
+            with self.subTest(key=key),self.assertRaisesRegex(c.Refused,'DEPLOYMENT_SCOPE'):self.s.named_read_control(c,bad)
+        bad=copy.deepcopy(self.control);bad['window_origin']['extra']=True
+        with self.assertRaises(c.Refused):self.s.named_read_control(c,bad)
+        bad=copy.deepcopy(self.control);bad['deployment']['pull_request']=650
+        with self.assertRaises(c.Refused):self.s.named_read_control(c,bad)
+
+    def test_missing_or_changed_genuine650_deployment_is_rejected(self):
+        gh=self.deployment_fixture()
+        mutations=[lambda:self.origin_pr.update(merged=False),lambda:self.origin_pr.update(draft=True),
+            lambda:self.origin_pr.update(merged_at='2026-10-20T10:30:00Z'),
+            lambda:self.origin_pr.update(merge_commit_sha='a'*40),
+            lambda:self.origin_pr['head'].update(sha='b'*40),
+            lambda:self.origin_tree['tree'].update(sha='c'*40)]
+        for mutation in mutations:
+            old_pr=copy.deepcopy(self.origin_pr);old_tree=copy.deepcopy(self.origin_tree)
+            mutation()
+            with self.subTest(mutation=mutation),patch.object(c,'gh_json',side_effect=gh),self.assertRaisesRegex(c.Refused,'WINDOW_ORIGIN'):
+                self.s.named_read_deployed(c,self.control)
+            self.origin_pr=old_pr;self.origin_tree=old_tree
+
+    def test_both_origin_and_corrective_source_need_genuine_gate_proofs(self):
+        gh=self.deployment_fixture()
+        for target in (self.origin_evaluation,self.evaluation):
+            old=target['passed'];target['passed']=False
+            with patch.object(c,'gh_json',side_effect=gh),self.assertRaisesRegex(c.Refused,'GATE_PROVENANCE'):
+                self.s.named_read_deployed(c,self.control)
+            target['passed']=old
+        self.origin_checks['check_runs'][0]['conclusion']='failure'
+        with patch.object(c,'gh_json',side_effect=gh),self.assertRaisesRegex(c.Refused,'NAMED_READ_CHECKS'):
+            self.s.named_read_deployed(c,self.control)
+
+    def test_corrective_merge_must_be_inside_original_window(self):
+        gh=self.deployment_fixture()
+        for merged in (None,'2026-10-20T09:59:27Z','2026-10-21T09:59:28Z','2026-10-21T10:30:00Z'):
+            self.pr['merged_at']=merged
+            with self.subTest(merged=merged),patch.object(c,'gh_json',side_effect=gh),self.assertRaisesRegex(c.Refused,'DEPLOYMENT_WINDOW'):
+                self.s.named_read_deployed(c,self.control)
+
+    def test_fresh_owner_record_follows_corrective_deployment(self):
+        gh=self.deployment_fixture();comment=self.owner_comment()
+        def fetch(path):return comment if '/issues/comments/' in path else gh(path)
+        with patch.object(c,'gh_json',side_effect=fetch):self.s.named_read_proof(c,self.control)
+        for mutate in (lambda:comment.update(created_at='2026-10-20T10:29:59Z',updated_at='2026-10-20T10:29:59Z'),
+                       lambda:comment.update(updated_at='2026-10-20T10:41:00Z')):
+            old=copy.deepcopy(comment);mutate()
+            with patch.object(c,'gh_json',side_effect=fetch),self.assertRaises(c.Refused):self.s.named_read_proof(c,self.control)
+            comment=old
+
+    def test_terms_meter_and_cost_version_do_not_substitute_v2(self):
+        terms=self.s.named_read_terms(c,self.control)
+        self.assertEqual(terms['schema'],'a1-named-read39235028468-grant-v3')
+        self.assertEqual(terms['window_origin'],self.s.READ392_V3_ORIGIN)
+        self.assertEqual(terms['expires_at_utc'],'2026-10-21T09:59:28Z')
+        result,value,m,server=self.read_objects()
+        self.assertEqual(value['schema'],'a1-named-read39235028468-meter-v3')
+        cost=self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+        self.assertEqual(cost['schema'],'a1-named-read39235028468-cost-settlement-v3')
+        for schema in ('a1-named-read39235028468-meter-v1','a1-named-read39235028468-meter-v2'):
+            bad=dict(value,schema=schema)
+            with self.assertRaises(c.Refused):self.s.named_read_cost(c,self.control,self.run,bad,self.jobs)
+        self.assertEqual(cost['usage']['provider_gets'],0);self.assertEqual(cost['usage']['storage_bytes'],0)
+        self.assertEqual(cost['unknown_storage_bytes_still_charged'],[302101,434796])
+
+    def test_new_control_fits_original_wire_limit_and_private_event_route(self):
+        NamedRead39235028468Tests.test_control_fits_original_bounded_input_with_real_sized_auth(self)
+        with patch.dict(os.environ,self.env,clear=True):
+            self.assertEqual(c.native_read_route_control(self.control),self.a)
+            self.assertEqual(c.native_read_control_from_event(),self.control)
+
+    def test_actual_workflow_embedded_premeter_accepts_v3_without_secret_environment(self):
+        NamedRead39235028468Tests.test_actual_workflow_premeter_block_reads_private_event_silently(self)
+
+    def test_same_single_use_history_and_accounting_after_expiry_remain(self):
+        NamedRead39235028468Tests.test_exclusive_context_and_actual29_prefix(self)
+        result,value,m,server=self.read_objects()
+        self.clock=c.utc('2026-10-22T11:00:00Z')
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_EXPIRED'):self.s.named_read_control(c,self.control)
+        self.s.named_read_control(c,self.control,accounting=True)
+        cost=self.s.named_read_cost(c,self.control,self.run,value,self.jobs)
+        self.assertEqual(cost['dispatches_after'],30)
+
+    def test_same_endpoint_and_failure_invariants_stay_read_only(self):
+        NamedRead39235028468Tests.test_endpoint_allowlist_denies_writes_provider_arbitrary_ids_and_queries(self)
+        NamedRead39235028468Tests.test_late_master_drift_in_history_or_jobs_refuses_before_secrets(self)
+        NamedRead39235028468Tests.test_once_only_cost_append_and_both_durability_barriers(self)
+
+    def test_corrective_worker_uses_new_source_and_original_window_without_provider(self):
+        NamedRead392DeploymentWindowTests.test_worker_proves_only_named_history_uses_new_window_and_provider_zero(self)
+        meter=c.bounded_json(self.root/'worker-v2/native_read_meter.json')
+        self.assertEqual(meter['schema'],'a1-named-read39235028468-meter-v3')
+
+
+class HistoricalRevisionLoaderCompatibilityTests(unittest.TestCase):
+    def test_unknown_stale_auth_cannot_acquire_exact_historical_exception(self):
+        value=dict(schema='r1000-sip-external-cohort-authorization-v9',code_pins={c.REVISION_MODULE:'0'*64})
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CODE_DRIFT'):c._revision_module(value)
+        value['claimed_auth_sha256']='2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e'
+        with self.assertRaisesRegex(c.Refused,'CAMPAIGN_CODE_DRIFT'):c._revision_module(value)
+
+    def test_current_pin_loader_still_does_not_validate_authorization_shape(self):
+        value=dict(schema='r1000-sip-external-cohort-authorization-v9',code_pins={c.REVISION_MODULE:
+            c.digest(c.bounded_bytes(c.ROOT/c.REVISION_MODULE,262144).replace(b'\r\n',b'\n'))})
+        self.assertIs(c._revision_module(value),c._revision_module())
+        with self.assertRaises(c.Refused):c.validate_authorization(value)
 
 
 if __name__=='__main__': unittest.main()
