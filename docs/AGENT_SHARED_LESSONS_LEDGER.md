@@ -7532,3 +7532,16 @@ introduced. Re-review the new exact head; the superseded review is not approval.
 - The new consumer runtime still needs its own separately reviewed fixed A6
   dependency pin. Registry count and a passing fixture do not bind an imported
   module that is absent from that inventory; keep proof acceptance pending.
+
+## 2026-10-21 - Install the dependencies consumed by sparse history preflight
+
+- The scheduled history workflow failed before Source/Drive access because its
+  native offline regression imports PyYAML but the minimal install omitted it.
+  Declare the actual tested PyYAML version in that existing install step; keep
+  offline-before-credentials ordering, source gates, schedules and all policies.
+- A green daily workflow can skip data work. Record actual executed steps and
+  input/receipt/consumer evidence separately from run success. Do not fabricate
+  a coverage receipt or silently fall back to old successful inputs.
+- Preserve Native environment failures: Windows symlink privileges and POSIX
+  mode checks need Linux evidence, not relaxed security assertions. Restore
+  absent tracked sparse fixtures from their exact Git blob before revalidation.
