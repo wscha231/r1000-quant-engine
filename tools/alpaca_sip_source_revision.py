@@ -1115,6 +1115,164 @@ PRICE174_INPUT="b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329
 PRICE174_INVENTORY="d97c707586147d191debb1883526f594065c6b523956f311fba52376205c395a"
 PRICE174_SCOPE=dict(task_key=PRICE174_TASK,namespace="sp500-gap-20261020",input_sha256=PRICE174_INPUT)
 
+# Actual first96 remain immutable when unrelated protected Main work advances.
+PRICE174_ORIGIN="6d7654a8a2ca06e9730e7a1b2cfb9150c3480d89"
+PRICE174_ORIGIN_HEAD="659add58dfb9339fe7f67fa0375961fca747a8bb"
+PRICE174_ORIGIN_TREE="7c33663eefe53517438f477e0a69ab9e1926e9f2"
+PRICE174_ORIGIN_AUTH="47db581a5e3fd1b8ced6367261525534b9285ad794ac6c721fddcb8065e2a240"
+PRICE174_ORIGIN_PINS="2b62579b7cae2bfedd6fdb6eb728acff8489bafa4a98b4a07be2c202fbfc76e6"
+PRICE174_FIRST_RUNS=[39587813920,39589645381,39591477420]
+PRICE174_FIRST_METERS=["21fb9b694e0e4c439882a8f7328de968740a052734147ea92a04e829c3177c9a",
+    "da3013bb6bfef862a5807e0f413f45d10864193c88e5e19e5c74f65ea758efb6",
+    "8006882cdaf454f77623c373b7483accb2b09123323422daad0f33fec93348b6"]
+PRICE174_CP96="17a90a954b2fc4d3efdb4e0320e287a4b776bf4090306a3408f882e3e8b08db5"
+PRICE174_FAMILY86="c3526c3b4b69f36ea574e521656835d74eae3f23c04e432fd58211f0900dd975"
+PRICE174_COHORT10="617382c21e66aa5126de1a381d9e55e1839a12b8734c8e7f84f33ad687523540"
+PRICE174_USED96=dict(provider_gets=1150,drive_requests=10725,drive_bytes=1805609297,storage_bytes=153751356)
+PRICE174_ACTIVE96=10430
+
+
+def price174_historical_source(c,auth):
+    # Historical provenance is not a comparison with newly corrected local code.
+    c.require(price174_hash(c,auth)==PRICE174_ORIGIN_AUTH
+        and auth["expected_master"]==PRICE174_ORIGIN
+        and auth["deployment"]==dict(pull_request=662,reviewed_head=PRICE174_ORIGIN_HEAD)
+        and auth["code_pins_sha256"]==PRICE174_ORIGIN_PINS,"PRICE174_ORIGIN")
+    pins={}
+    for path in V6_PINS:
+        value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={PRICE174_ORIGIN}")
+        c.require(value.get("encoding")=="base64","PRICE174_ORIGIN")
+        try:raw=c.base64.b64decode(value.get("content",""),validate=False)
+        except Exception:raise c.Refused("PRICE174_ORIGIN") from None
+        pins[path]=c.digest(raw)
+    c.require(c.digest(c.encoded(pins))==PRICE174_ORIGIN_PINS,"PRICE174_ORIGIN")
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/662")
+    c.require(pr.get("merged") is True and pr.get("draft") is False
+        and pr.get("head",{}).get("sha")==PRICE174_ORIGIN_HEAD
+        and pr.get("merge_commit_sha")==PRICE174_ORIGIN
+        and pr.get("merged_at")==auth["execution_window"]["deployed_at_utc"],"PRICE174_ORIGIN")
+    for sha in (PRICE174_ORIGIN,PRICE174_ORIGIN_HEAD):
+        value=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
+        c.require(value.get("tree",{}).get("sha")==PRICE174_ORIGIN_TREE,"PRICE174_ORIGIN")
+    named_read_checks(c,dict(deployment=auth["deployment"]))
+
+
+def price174_execution_paths():
+    # All fixed non-cone sparse checkout files, plus the genuine review guards.
+    return tuple(V6_PINS)+("data_static/iwb_holdings_seed.csv",
+        "tests/alpaca_sip_campaign_smoke.py","tests/alpaca_sip_private_backfill_v1_smoke.py",
+        "tests/api_credentials_check_smoke.py")+tuple(READ392_GATE_PINS)+(".gitattributes",
+        "tools/.gitattributes","tests/.gitattributes","data_static/.gitattributes",
+        ".github/.gitattributes",".github/workflows/.gitattributes")
+
+
+def price174_tree(c,sha):
+    c.require(isinstance(sha,str) and c.re.fullmatch("[0-9a-f]{40}",sha),"PRICE174_RUNTIME_SOURCE")
+    commit=c.gh_json(f"repos/{c.REPO}/git/commits/{sha}")
+    tree=commit.get("tree",{}).get("sha")
+    c.require(isinstance(tree,str) and c.re.fullmatch("[0-9a-f]{40}",tree),"PRICE174_RUNTIME_SOURCE")
+    cache={};pins={}
+    def entries(sha):
+        if sha not in cache:
+            value=c.gh_json(f"repos/{c.REPO}/git/trees/{sha}");rows=value.get("tree")
+            c.require(value.get("sha")==sha and value.get("truncated") is False and isinstance(rows,list)
+                and all(isinstance(r,dict) and isinstance(r.get("path"),str) and "/" not in r["path"] for r in rows)
+                and len({r["path"] for r in rows})==len(rows),"PRICE174_RUNTIME_TREE")
+            cache[sha]={r["path"]:r for r in rows}
+        return cache[sha]
+    for path in price174_execution_paths():
+        parts=path.split("/");parent=tree
+        for part in parts[:-1]:
+            row=entries(parent).get(part)
+            c.require(isinstance(row,dict) and row.get("type")=="tree" and row.get("mode")=="040000"
+                and isinstance(row.get("sha"),str) and c.re.fullmatch("[0-9a-f]{40}",row["sha"]),
+                "PRICE174_RUNTIME_TREE")
+            parent=row["sha"]
+        row=entries(parent).get(parts[-1])
+        if parts[-1]==".gitattributes" and row is None:pins[path]=None;continue
+        c.require(isinstance(row,dict) and row.get("type")=="blob" and row.get("mode")=="100644"
+            and isinstance(row.get("sha"),str) and c.re.fullmatch("[0-9a-f]{40}",row["sha"]),
+            "PRICE174_RUNTIME_TREE")
+        pins[path]=dict(sha=row["sha"],mode=row["mode"])
+    return pins
+
+
+def price174_descendant(c,origin,sha):
+    c.require(all(isinstance(v,str) and c.re.fullmatch("[0-9a-f]{40}",v) for v in (origin,sha)),
+        "PRICE174_RUNTIME_ANCESTRY")
+    if sha==origin:return
+    value=c.gh_json(f"repos/{c.REPO}/compare/{origin}...{sha}")
+    c.require(value.get("status")=="ahead" and value.get("ahead_by",0)>0
+        and value.get("base_commit",{}).get("sha")==origin
+        and value.get("merge_base_commit",{}).get("sha")==origin,"PRICE174_RUNTIME_ANCESTRY")
+
+
+def price174_source_tip(c,transition,source_sha=None,*,live=False):
+    publication=transition["terms"]["publication"];origin=publication["expected_master"]
+    branch=c.gh_json(f"repos/{c.REPO}/branches/master") if live else None
+    if live:
+        c.require(branch.get("protected") is True,"CAMPAIGN_MASTER_DRIFT")
+        current=branch.get("commit",{}).get("sha")
+    else:current=source_sha
+    candidate=current if source_sha is None else source_sha
+    for sha in dict.fromkeys((candidate,current)):
+        price174_descendant(c,origin,sha)
+        if sha!=origin:c.require(price174_tree(c,sha)==transition["pins"],"PRICE174_RUNTIME_PINS")
+    if live:
+        # A queued run may use an earlier compatible tip; an unrelated Main
+        # change cannot change any file in its fixed sparse execution closure.
+        price174_descendant(c,candidate,current)
+        final=c.gh_json(f"repos/{c.REPO}/branches/master")
+        c.require(final.get("protected") is True and final.get("commit",{}).get("sha")==current,
+            "CAMPAIGN_MASTER_DRIFT")
+    return candidate
+
+
+def price174_transition(c,auth,reference):
+    price174_auth(c,auth)
+    c.require(price174_hash(c,auth)==PRICE174_ORIGIN_AUTH,"PRICE174_TRANSITION_ORIGIN")
+    c.require(isinstance(reference,str) and c.re.fullmatch(
+        r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",reference),
+        "PRICE174_TRANSITION_GRANT")
+    ref=int(reference.rsplit("-",1)[1]);comment=c.gh_json(f"repos/{c.REPO}/issues/comments/{ref}")
+    window=auth["execution_window"]
+    terms,proof=human_record(c,comment,"A1_SP500174_SOURCE_TRANSITION ",
+        window=(window["deployed_at_utc"],window["expires_at_utc"]))
+    fixed=dict(schema="a1-sp500174-source-transition96-v1",task_key=PRICE174_TASK,
+        original_auth_sha256=PRICE174_ORIGIN_AUTH,original_source_sha=PRICE174_ORIGIN,
+        original_grant_reference=auth["grant_reference"],execution_window=window,
+        scope=PRICE174_SCOPE,input_sha256=PRICE174_INPUT,examined_before=96,remaining_count=78,
+        checkpoint96_sha256=PRICE174_CP96,family86_sha256=PRICE174_FAMILY86,cohort10_sha256=PRICE174_COHORT10,
+        first_price_runs=PRICE174_FIRST_RUNS,first_price_meter_sha256=PRICE174_FIRST_METERS,
+        usage_after96=PRICE174_USED96,active_seconds_after96=PRICE174_ACTIVE96,dispatches_after96=33,
+        limits=c.CONTINUED_LIMITS,active_seconds_limit=43200,dispatch_limit=40,
+        compatible_tip_policy="PROTECTED_DESCENDANT_WITH_IDENTICAL_SPARSE_EXECUTION_AND_GUARD_BLOBS",
+        budget_reset=False,window_reset=False,source_admission=False,pit_verified=False,economic_authority=False,
+        supplier_rights_verified=False,private_noncommercial_research_only=True,account_migration_authorized=False,
+        unknown_post_retry_authorized=False)
+    c.require(isinstance(terms,dict) and set(terms)==set(fixed)|{"publication","execution_pins_sha256"}
+        and c.encoded({k:terms.get(k) for k in fixed})==c.encoded(fixed) and comment.get("id")==ref,
+        "PRICE174_TRANSITION_GRANT")
+    publication=terms["publication"]
+    c.require(isinstance(publication,dict) and set(publication)=={"expected_master","deployment","code_pins_sha256"}
+        and isinstance(publication.get("deployment"),dict)
+        and set(publication["deployment"])=={"pull_request","reviewed_head"}
+        and type(publication["deployment"].get("pull_request")) is int
+        and publication["deployment"]["pull_request"]>662
+        and all(isinstance(publication.get(k),str) and c.re.fullmatch("[0-9a-f]{"+str(n)+"}",publication[k])
+            for k,n in (("expected_master",40),("code_pins_sha256",64)))
+        and isinstance(publication["deployment"].get("reviewed_head"),str)
+        and c.re.fullmatch("[0-9a-f]{40}",publication["deployment"]["reviewed_head"]),"PRICE174_TRANSITION_SOURCE")
+    named_read_deployed(c,publication,accounting=True)
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/{publication['deployment']['pull_request']}")
+    c.require(isinstance(pr.get("merged_at"),str) and c.utc(window["deployed_at_utc"])<c.utc(pr["merged_at"])
+        <=c.utc(comment["created_at"])<c.utc(window["expires_at_utc"]),"PRICE174_TRANSITION_CLOCK")
+    price174_descendant(c,PRICE174_ORIGIN,publication["expected_master"])
+    pins=price174_tree(c,publication["expected_master"])
+    c.require(c.digest(c.encoded(pins))==terms["execution_pins_sha256"],"PRICE174_RUNTIME_PINS")
+    return dict(terms=terms,pins=pins,proof_sha256=c.digest(c.encoded(proof)),reference=reference,
+        created_at_utc=comment["created_at"])
+
 
 def price174_old(c,value):
     import zlib
@@ -1206,10 +1364,12 @@ def price174_live_window(c,auth,*,dispatch=False):
         and (not dispatch or now+c.timedelta(seconds=45)<end),"CAMPAIGN_EXPIRED")
 
 
-def price174_authority(c,auth,*,accounting=False):
+def price174_authority(c,auth,*,accounting=False,source_transition_reference=None):
     old,names=price174_auth(c,auth)
     publication={k:auth[k] for k in ("expected_master","deployment","code_pins_sha256")}
-    named_read_deployed(c,publication,accounting=accounting)
+    transition=price174_transition(c,auth,source_transition_reference) if source_transition_reference else None
+    if transition:price174_historical_source(c,auth)
+    else:named_read_deployed(c,publication,accounting=accounting)
     pr=c.gh_json(f"repos/{c.REPO}/pulls/{auth['deployment']['pull_request']}")
     window=auth["execution_window"];start,end=window["deployed_at_utc"],window["expires_at_utc"]
     c.require(pr.get("merged_at")==start,"PRICE174_WINDOW_ORIGIN")
@@ -1219,21 +1379,29 @@ def price174_authority(c,auth,*,accounting=False):
     c.require(comment["id"]==ref and c.encoded(terms)==c.encoded(price174_terms(c,auth))
         and c.utc(auth["closure_event"]["recorded_utc"])<=c.utc(comment["created_at"]),"PRICE174_GRANT")
     if not accounting:price174_live_window(c,auth)
-    return dict(proof_sha256=c.digest(c.encoded(proof)),proof_updated_utc=comment["created_at"],expires_at_utc=end)
+    result=dict(proof_sha256=c.digest(c.encoded(proof)),proof_updated_utc=comment["created_at"],expires_at_utc=end)
+    if transition:result["transition"]=transition
+    return result
 
 
-def price174_prefix(c,runs,auth,old):
+def price174_prefix(c,runs,auth,old,transition=None):
     price174_auth(c,auth)
     c.require(isinstance(runs,list) and 30<=len(runs)<=36 and runs[29].get("id")==READ30_RUN,
         "PRICE174_HISTORY")
     prefix=named_read_prefix(c,runs[:30],old,runs[29])
-    for run in runs[30:]:
+    if transition:
+        c.require([r.get("id") for r in runs[30:33]]==PRICE174_FIRST_RUNS,"PRICE174_TRANSITION_PREFIX")
+    for index,run in enumerate(runs[30:]):
         c.require(type(run.get("id")) is int and run["id"]>READ30_RUN
             and type(run.get("run_attempt")) is int and run["run_attempt"]==1
-            and run.get("head_sha")==auth["expected_master"] and run.get("head_branch")=="master"
+            and run.get("head_branch")=="master"
             and run.get("event")=="workflow_dispatch" and isinstance(run.get("created_at"),str)
             and c.re.fullmatch("a1-sip "+c.PREFIX+r"[0-9a-f]{24}",run.get("display_title","")),
             "PRICE174_HISTORY")
+        if transition and index>=3:
+            c.require(c.utc(transition["created_at_utc"])<=c.utc(run["created_at"]),"PRICE174_TRANSITION_CLOCK")
+            price174_source_tip(c,transition,run.get("head_sha"))
+        else:c.require(run.get("head_sha")==auth["expected_master"],"PRICE174_HISTORY")
     return prefix
 
 
@@ -1266,12 +1434,13 @@ def price174_seconds(c,run):
     return seconds
 
 
-def price174_history(c,auth,*,current=None,nonce=None):
+def price174_history(c,auth,*,current=None,nonce=None,source_transition_reference=None):
     old,names=price174_auth(c,auth)
-    proof=price174_authority(c,auth,accounting=True)
+    proof=price174_authority(c,auth,accounting=True,source_transition_reference=source_transition_reference)
+    transition=proof.get("transition")
     price174_closure(c,auth)
     observed=c.external_history(old["authorization"],allow_stopped=True,enforce_expiry=False,
-        price174_context=(auth,old))
+        price174_context=(auth,old,transition) if transition else (auth,old))
     named_read_budget(c,observed)
     # The authenticated original source cannot start another group until all
     # four-name checkpoint/readback work has closed. Retain its unknown POST;
@@ -1285,13 +1454,24 @@ def price174_history(c,auth,*,current=None,nonce=None):
     used=dict(READ392_USED);active=8951;n=0;parent=c.external_genesis(PRICE174_SCOPE)
     values=[];durations=[];steps=[]
     window=auth["execution_window"];start,end=map(c.utc,(window["deployed_at_utc"],window["expires_at_utc"]))
-    for run in rows:
+    for index,run in enumerate(rows):
         c.require(start<=c.utc(run["created_at"])<end,"PRICE174_RUN_WINDOW")
         if current==run["id"]:
             c.require(run.get("status")=="in_progress" and run is rows[-1],"PRICE174_CURRENT")
             continue
         c.require(run.get("status")=="completed","CAMPAIGN_RUN_UNRESOLVED")
-        value=c.receipt_for_run(run,price174_hash(c,auth),auth["expected_master"],c.CONTINUED_LIMITS)
+        source=run.get("head_sha") if transition and index>=3 else auth["expected_master"]
+        value=c.receipt_for_run(run,price174_hash(c,auth),source,c.CONTINUED_LIMITS)
+        if transition:
+            if index<3:
+                c.require(c.digest(c.encoded(value))==PRICE174_FIRST_METERS[index],"PRICE174_TRANSITION_PREFIX")
+            else:
+                c.require(value.get("source_transition_proof_sha256")==transition["proof_sha256"]
+                    and value.get("source_transition_reference_sha256")==c.digest(transition["reference"].encode())
+                    and value.get("source_publication_sha")==transition["terms"]["publication"]["expected_master"]
+                    and value.get("original_source_sha")==PRICE174_ORIGIN
+                    and value.get("resume_family86_sha256")==PRICE174_FAMILY86
+                    and value.get("resume_cohort10_sha256")==PRICE174_COHORT10,"PRICE174_TRANSITION_RECEIPT")
         allowance={k:c.CONTINUED_LIMITS[k]-used[k] for k in c.LIMITS}
         count=min(32,174-n)
         c.require(n<174 and value.get("preflight_only") is False and value.get("recovery_run") is None
@@ -1313,6 +1493,9 @@ def price174_history(c,auth,*,current=None,nonce=None):
         c.require(all(used[k]<=c.CONTINUED_LIMITS[k] for k in c.LIMITS) and active<=43200,"CAMPAIGN_BUDGET")
         steps.append(dict(run=run,value=value,remaining=allowance,active_remaining=43200-prior_active,parent_sha=parent))
         n=value["examined_after"];parent=value["checkpoint_sha256"]
+        if transition and index==2:
+            c.require(n==96 and parent==PRICE174_CP96 and used==PRICE174_USED96 and active==PRICE174_ACTIVE96,
+                "PRICE174_TRANSITION_PREFIX")
         c.require(isinstance(parent,str) and c.re.fullmatch("[0-9a-f]{64}",parent),"PRICE174_CHECKPOINT")
         values.append(value);durations.append(seconds)
     c.require(current is None or n<174 and (not values or values[-1]["status"]=="COMPLETE"
@@ -1331,7 +1514,15 @@ def price174_event_control(c,expected=None):
         and 0<len(inputs["campaign_control"].encode())<=16384,"PRICE174_EVENT")
     control=c.decode(inputs["campaign_control"]);auth=control.get("authorization") if isinstance(control,dict) else None
     old,names=price174_auth(c,auth);prior=old["authorization"]
-    c.require(set(control)=={"schema","authorization","nonce","parent_sha256"} and control["schema"]==PRICE174_SCHEMA
+    keys={"schema","authorization","nonce","parent_sha256"}
+    transition=control.get("source_transition_reference")
+    if transition is not None:
+        keys|={"source_transition_reference","source_sha"}
+        c.require(isinstance(transition,str) and c.re.fullmatch(
+            r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",transition)
+            and isinstance(control.get("source_sha"),str)
+            and c.re.fullmatch("[0-9a-f]{40}",control["source_sha"]),"PRICE174_TRANSITION_CONTROL")
+    c.require(set(control)==keys and control["schema"]==PRICE174_SCHEMA
         and isinstance(control["nonce"],str) and c.re.fullmatch(c.PREFIX+r"[0-9a-f]{24}",control["nonce"])
         and isinstance(control["parent_sha256"],str) and c.re.fullmatch("[0-9a-f]{64}",control["parent_sha256"])
         and inputs.get("campaign_nonce")==control["nonce"] and inputs.get("private_root_folder_id")==prior["private_root_folder_id"]
@@ -1365,16 +1556,18 @@ def price174_worker(c,args,control,journal):
     from tools.twelve_private_capture import OwnerDrive
     price174_event_control(c,control)
     auth=control["authorization"];old,names=price174_auth(c,auth);prior=old["authorization"]
+    transition_ref=control.get("source_transition_reference")
+    source=control["source_sha"] if transition_ref else auth["expected_master"]
     c.require(c.os.getenv("GITHUB_REPOSITORY")==c.REPO and c.os.getenv("GITHUB_REF")=="refs/heads/master"
-        and c.os.getenv("GITHUB_SHA")==auth["expected_master"] and c.os.getenv("GITHUB_RUN_ATTEMPT")=="1"
+        and c.os.getenv("GITHUB_SHA")==source and c.os.getenv("GITHUB_RUN_ATTEMPT")=="1"
         and c.os.getenv("INPUT_NATIVE_READ_ONLY")=="false","PRICE174_CONTEXT")
     run_id=int(c.os.environ["GITHUB_RUN_ID"])
-    observed=price174_history(c,auth,current=run_id,nonce=control["nonce"])
+    observed=price174_history(c,auth,current=run_id,nonce=control["nonce"],source_transition_reference=transition_ref)
     n=observed["examined"];batch=min(32,174-n)
     c.require(n<174 and args.start=="2016-01-04" and args.end=="2026-10-14" and args.max_new_symbols==batch
         and control["parent_sha256"]==observed["parent_sha"] and observed["active_seconds"]+7800<=43200,
         "PRICE174_PARENT")
-    proof=price174_authority(c,auth)
+    proof=price174_authority(c,auth,source_transition_reference=transition_ref)
     c.require(proof==observed["proof"],"PRICE174_GRANT_DRIFT")
     jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run_id}/jobs?per_page=100")
     c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==2,"PRICE174_JOB")
@@ -1387,14 +1580,18 @@ def price174_worker(c,args,control,journal):
     deadline=min(c.utc(capture[0]["started_at"])+c.timedelta(seconds=7100),c.utc(proof["expires_at_utc"]))
     # All metadata/proof reads precede the last protected-tip check and credentials.
     c.require(c.campaign_runs(prior["workflow_run_floor"])==observed["all_runs"],"PRICE174_CANONICAL_DRIFT")
-    branch=c.gh_json(f"repos/{c.REPO}/branches/master")
-    c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
-        "CAMPAIGN_MASTER_DRIFT")
+    if transition_ref:
+        c.require(n>=96,"PRICE174_TRANSITION_PREFIX")
+        price174_source_tip(c,proof["transition"],source,live=True)
+    else:
+        branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+        c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
+            "CAMPAIGN_MASTER_DRIFT")
     price174_live_window(c,auth)
     key,secret=c.os.getenv("ALPACA_API_KEY","").strip(),c.os.getenv("ALPACA_API_SECRET","").strip()
     c.require(key and secret and c.digest((key+"\0"+secret).encode())==prior["credential_binding"],
         "CAMPAIGN_CREDENTIAL_BINDING")
-    identity=dict(task_key=c.TASK,auth_sha256=price174_hash(c,auth),source_sha=auth["expected_master"],
+    identity=dict(task_key=c.TASK,auth_sha256=price174_hash(c,auth),source_sha=source,
         nonce=control["nonce"],run_id=run_id,run_attempt=1,recovery_run=None,preflight_only=False,
         cohort_scope=PRICE174_SCOPE,external_proof_sha256=proof["proof_sha256"],bindings=c.CONTINUATION["bindings"],
         parent_checkpoint_sha256=observed["parent_sha"],examined_before=n,
@@ -1404,6 +1601,13 @@ def price174_worker(c,args,control,journal):
         supplier_rights_verified=False,
         inherited_read30_closure_sha256=c.digest(c.encoded(auth["closure_event"])),
         price_window_expires_at_utc=proof["expires_at_utc"],total_platform_cost_verified=False)
+    if transition_ref:
+        transition=proof["transition"]
+        identity.update(source_transition_proof_sha256=transition["proof_sha256"],
+            source_transition_reference_sha256=c.digest(transition_ref.encode()),
+            source_publication_sha=transition["terms"]["publication"]["expected_master"],
+            original_source_sha=PRICE174_ORIGIN,resume_family86_sha256=PRICE174_FAMILY86,
+            resume_cohort10_sha256=PRICE174_COHORT10)
     c.require(not c.Path(journal).exists(),"PRICE174_METER_REUSE")
     meter=c.RuntimeMeter(observed["remaining"],journal,deadline.isoformat(),identity,
         limits=c.CONTINUED_LIMITS,asset_symbols=names[n:n+batch])
@@ -1488,6 +1692,9 @@ def price174_reconcile(c,family,journal,auth,observed):
         fr,jr=78+3*i,2+3*i
         reservation=dict(nonce=nonce,remaining=step["remaining"],active_seconds_remaining=step["active_remaining"],
             parent_checkpoint_sha256=step["parent_sha"],capture_auth_sha256=h,scope=PRICE174_SCOPE)
+        if i>=3 and observed["proof"].get("transition"):
+            reservation.update(source_transition_proof_sha256=observed["proof"]["transition"]["proof_sha256"],
+                source_sha=run["head_sha"])
         # A live run must already have both durable reservations. Never invent
         # permission/reservation after observing an orphan dispatch.
         c.require(len(family.entries)>=fr and len(journal.entries)>=jr,"PRICE174_RESERVATION_MISSING")
@@ -1532,6 +1739,7 @@ def price174_progress(c,observed,status):
 
 def price174_host(c,args):
     auth=c.bounded_json(args.price174_authorization,15000);old,names=price174_auth(c,auth)
+    transition_ref=getattr(args,"price174_source_transition",None)
     c.require(args.budget_state_dir and args.cohort_input
         and c.bounded_bytes(args.cohort_input,8192)==auth["input_csv"].encode()
         and (args.max_batches is None or type(args.max_batches) is int and 1<=args.max_batches<=6)
@@ -1550,11 +1758,16 @@ def price174_host(c,args):
     family=c.external_family_registry(budget,old["authorization"],oldstate);journal=None
     try:
         journal=c.WorkJournal(state,price174_hash(c,auth))
-        observed=price174_history(c,auth);started=len(observed["receipts"])
-        price174_authority(c,auth,accounting=True)
+        if transition_ref:
+            c.require(len(family.entries)>=86 and len(journal.entries)>=10
+                and c.digest(c.bounded_bytes(family.directory/"000086.json"))==PRICE174_FAMILY86
+                and c.digest(c.bounded_bytes(journal.directory/"000010.json"))==PRICE174_COHORT10,
+                "PRICE174_TRANSITION_PREFIX")
+        observed=price174_history(c,auth,source_transition_reference=transition_ref);started=len(observed["receipts"])
+        price174_authority(c,auth,accounting=True,source_transition_reference=transition_ref)
         if len(family.entries)==76 or not journal.entries:
             c.require(len(family.entries) in {76,77} and not observed["price_runs"],"PRICE174_BINDING_HISTORY")
-            price174_authority(c,auth)
+            price174_authority(c,auth,source_transition_reference=transition_ref)
             c.require(c.campaign_runs(old["authorization"]["workflow_run_floor"])==observed["all_runs"],
                 "PRICE174_CANONICAL_DRIFT")
             branch=c.gh_json(f"repos/{c.REPO}/branches/master")
@@ -1564,7 +1777,7 @@ def price174_host(c,args):
         price174_binding(c,family,journal,auth,budget,state)
         reported=started
         while True:
-            observed=price174_history(c,auth)
+            observed=price174_history(c,auth,source_transition_reference=transition_ref)
             price174_reconcile(c,family,journal,auth,observed)
             if len(observed["receipts"])>reported:
                 progress=dict(price174_progress(c,observed,"PRICE174_BATCH_SETTLED"),
@@ -1584,20 +1797,27 @@ def price174_host(c,args):
                 print(c.json.dumps(dict(status="PRICE174_128_COST_REVIEW",**forecast),sort_keys=True))
                 c.require(forecast["fits"],"CAMPAIGN_CALIBRATION_BUDGET")
             c.require(len(observed["all_runs"])<40 and observed["active_seconds"]+7800<=43200,"CAMPAIGN_DISPATCH_BUDGET")
-            proof=price174_authority(c,auth)
+            proof=price174_authority(c,auth,source_transition_reference=transition_ref)
             c.require(proof==observed["proof"] and c.campaign_runs(old["authorization"]["workflow_run_floor"])
                 ==observed["all_runs"],"PRICE174_CANONICAL_DRIFT")
             nonce=c.PREFIX+c.os.urandom(12).hex()
             control=dict(schema=PRICE174_SCHEMA,authorization=auth,nonce=nonce,parent_sha256=observed["parent_sha"])
+            if transition_ref:
+                control.update(source_transition_reference=transition_ref,
+                    source_sha=price174_source_tip(c,proof["transition"],live=True))
             raw=c.encoded(control);c.require(len(raw)<=16384,"CAMPAIGN_CONTROL_SIZE")
             # Current protected tip is the final remote check before reserve/POST.
-            branch=c.gh_json(f"repos/{c.REPO}/branches/master")
-            c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
-                "CAMPAIGN_MASTER_DRIFT")
+            if not transition_ref:
+                branch=c.gh_json(f"repos/{c.REPO}/branches/master")
+                c.require(branch.get("protected") is True and branch.get("commit",{}).get("sha")==auth["expected_master"],
+                    "CAMPAIGN_MASTER_DRIFT")
             price174_live_window(c,auth,dispatch=True)
             reservation=dict(nonce=nonce,remaining=observed["remaining"],
                 active_seconds_remaining=43200-observed["active_seconds"],parent_checkpoint_sha256=observed["parent_sha"],
                 capture_auth_sha256=price174_hash(c,auth),scope=PRICE174_SCOPE)
+            if transition_ref:
+                reservation.update(source_transition_proof_sha256=proof["transition"]["proof_sha256"],
+                    source_sha=control["source_sha"])
             fr,jr=78+3*len(observed["receipts"]),2+3*len(observed["receipts"])
             price174_event(c,family,fr,"PRICE174_RESERVED",reservation)
             price174_event(c,journal,jr,"RESERVED",reservation)
