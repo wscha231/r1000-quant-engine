@@ -7506,3 +7506,46 @@ conflicting rows as blocked; historical as-of decisions remain supported.
 Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
 observation clock, source/PIT authentication, model fit, ER or A5 authority is
 introduced. Re-review the new exact head; the superseded review is not approval.
+
+### 2026-10-21 — Keep SEC current ownership evidence in its checked issuer scope
+
+Refresh mutable submissions while reusing immutable accession XML. A fresh file
+time, file hash or check count does not establish current source coverage. Bind
+checked CIK/ticker pairs to the current index and selected parser rows; reject
+duplicate checks, identity conflicts, stale/future checks and interrupted builds.
+Keep legacy data-anchor replay explicit and non-current. Publish matching CSV,
+Parquet and summary generations; current scope covers the checked batch only.
+Joint owners retain all raw attribution but no invented first-owner authority.
+Derivative units are not cash trade values; Form3/5 are not Form4 trade signals.
+P-code legacy scores remain research proxies, not verified trading venues.
+
+Reuse #540 Section16 ambiguity/derivative safety semantics without importing its
+stale stack or creating another parser/collector. Actual Source-to-Main review
+consumption and fresh source/storage receipts require independent later evidence.
+An independently reproduced empty-index case also needs a successful v2 parser
+receipt with explicit zero counts; otherwise a verified no-new-filing check is
+mistaken for a parser/source failure. Missing input must still remain blocked.
+
+### 2026-10-21 — Historical reuse positives must retain reviewed SEC bytes
+
+Exact655/658 CI failed when historical577 positive tests copied current changed
+ownership/submissions code into a fixture with older reviewed catalog hashes.
+Keep the production catalog and refusal intact. Historical positive tests use a
+bounded hash-pinned archive of exact33c originals only in temporary directories;
+separate negative controls prove changed current Source bytes still refuse.
+Bind the fixture as a mandatory A6 proof input rather than updating historical
+hashes to make an unreviewed capability appear current.
+
+The real 20-issuer replay also exposed historical backlog competing for the
+daily 500 new-parse budget. Use the existing acceptance-based history-start
+filter for a superset of the 90-day current window, including safety delay;
+retain old lake/cache files and resume checkpoints. Test 600 old plus 400
+current filings and late report dates. A capped current backlog must still
+block admission rather than claiming coverage from the checked issuer count.
+
+Independent A6 reproduced a direct-CLI lookahead: a negative safety delay moved
+a future accepted filing into the decision window. Reject nonfinite/negative
+delays in shared collector entrypoints before provider reads, including empty
+payloads. Current merge must separately validate accepted/availability order,
+refuse future or missing acceptance, and match parser row clocks to the checked
+index. Workflow validation alone cannot secure reusable Source functions.

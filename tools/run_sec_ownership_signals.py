@@ -58,6 +58,13 @@ def build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_d
         return pd.DataFrame(columns=SIGNAL_COLUMNS)
 
     d = df.copy()
+    if "form_type" in d:
+        d = d[d["form_type"].fillna("4").isin({"4", "4/A"})].copy()
+    if "row_kind" in d:
+        d = d[d["row_kind"].fillna("TRANSACTION").eq("TRANSACTION")].copy()
+    if "is_derivative" in d:
+        derivative = d["is_derivative"].fillna(False).astype(str).str.lower().isin({"true", "1"})
+        d = d[~derivative].copy()
     d["ticker"] = d.get("issuer_ticker", "").astype(str).str.upper().str.strip()
     d["available_from_ts"] = pd.to_datetime(d.get("available_from"), errors="coerce", utc=True)
     if as_of:
@@ -68,9 +75,11 @@ def build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_d
     if d.empty:
         return pd.DataFrame(columns=SIGNAL_COLUMNS)
     code = d.get("transaction_code", "").astype(str).str.upper().str.strip()
+    # Legacy score-column compatibility: this is a P-code research proxy.
+    # Trading venue is never authenticated by the transaction code alone.
     d["is_open_market_buy"] = code.eq("P")
     d["is_sale"] = code.eq("S")
-    d["transaction_value_num"] = pd.to_numeric(d.get("transaction_value", 0.0), errors="coerce").fillna(0.0).clip(lower=0.0)
+    d["transaction_value_num"] = pd.to_numeric(d.get("transaction_value", float("nan")), errors="coerce").clip(lower=0.0)
     d["role_weight"] = 1.0
     d.loc[d.get("is_director", False).astype(bool), "role_weight"] += 0.25
     d.loc[d.get("is_officer", False).astype(bool), "role_weight"] += 0.50
@@ -93,14 +102,16 @@ def build_form4_signal(df: pd.DataFrame, *, as_of: str | None = None, lookback_d
         sale = group[group["is_sale"]]
         raw = float(group["form4_signal_raw"].sum())
         ceo_cfo_raw = float(group["ceo_cfo_buy_raw"].sum())
-        buy_value = float(buy["transaction_value_num"].sum())
-        sale_value = float(sale["transaction_value_num"].sum())
+        buy_value = float(buy["transaction_value_num"].sum()) if buy["transaction_value_num"].notna().all() else None
+        sale_value = float(sale["transaction_value_num"].sum()) if sale["transaction_value_num"].notna().all() else None
         cluster_count = int(buy["reporting_owner_cik"].astype(str).replace("", pd.NA).nunique(dropna=True))
         open_market_score = _safe_pct(raw / 5.0)
         cluster_score = _safe_pct((raw / 5.0) + max(cluster_count - 1, 0) * 0.10)
         ceo_cfo_score = _safe_pct(ceo_cfo_raw / 3.0)
-        sale_pressure = _safe_pct(sale_value / max(buy_value + sale_value, 1.0))
-        early_evidence = _safe_pct(0.55 * cluster_score + 0.30 * ceo_cfo_score + 0.15 * open_market_score - 0.20 * sale_pressure)
+        sale_pressure = _safe_pct(sale_value / max(buy_value + sale_value, 1.0)) if buy_value is not None and sale_value is not None else None
+        early_evidence = _safe_pct(0.55 * cluster_score + 0.30 * ceo_cfo_score + 0.15 * open_market_score - 0.20 * sale_pressure) if sale_pressure is not None else None
+        if buy_value is None:
+            open_market_score = cluster_score = ceo_cfo_score = None
         rows.append(
             {
                 "ticker": ticker,

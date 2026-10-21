@@ -37,8 +37,8 @@ def independent_hash(value, excluded):
 
 
 def fixture_dependency_bytes(name, source_commit):
-    if name == HISTORICAL_LAKE_FIXTURE:
-        return _historical_lake_archive_bytes(source_commit)
+    if name in (HISTORICAL_LAKE_FIXTURE, HISTORICAL_SEC_FIXTURE):
+        return _historical_lake_archive_bytes(source_commit, name)
     source = ROOT / name
     if source.is_symlink():
         raise FileNotFoundError(str(source))
@@ -58,12 +58,21 @@ def fixture_dependency_bytes(name, source_commit):
 
 HISTORICAL_LAKE_FIXTURE = 'tests/fixtures/manual_foundation_long_history_lake_v1.py.gz'
 HISTORICAL_LAKE_SHA256 = 'fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4064bda3b8c'
+HISTORICAL_SEC_FIXTURE = 'tests/fixtures/manual_foundation_sec_source_v1.json.gz'
+HISTORICAL_SEC_SHA256 = '245d34592e2ae3cdde6f72c732426698e3bffe9099c9150c88c06ce982d590be'
+HISTORICAL_SEC_FILES = {
+    'tools/run_sec_ownership_signals.py': 'a81c210d64945f236cc64e8bbc5af3b85014c963b7d6dbd8acd9ec604b7518b4',
+    'tools/run_sec_submissions_collector.py': '81113d1b6b37014f45f9db711d04657342eae64291f6ba2761dd21b5c21e77a0',
+}
 
 
-def _historical_lake_archive_bytes(source_commit):
+def _historical_lake_archive_bytes(source_commit, fixture_name=None):
     """Bound every archive read, including the generic setUp dependency copy."""
     limit = 64 * 1024
-    source = ROOT / HISTORICAL_LAKE_FIXTURE
+    fixture_name = fixture_name or HISTORICAL_LAKE_FIXTURE
+    if fixture_name not in (HISTORICAL_LAKE_FIXTURE, HISTORICAL_SEC_FIXTURE):
+        raise ValueError('historical_fixture_name')
+    source = ROOT / fixture_name
     try:
         before = source.lstat()
     except FileNotFoundError:
@@ -92,11 +101,11 @@ def _historical_lake_archive_bytes(source_commit):
         finally:
             os.close(descriptor)
     entry = subprocess.check_output(
-        ['git', 'ls-tree', '-z', source_commit, '--', HISTORICAL_LAKE_FIXTURE],
+        ['git', 'ls-tree', '-z', source_commit, '--', fixture_name],
         cwd=ROOT, stderr=subprocess.DEVNULL, timeout=15)
     metadata, separator, path = entry.rstrip(b'\0').partition(b'\t')
     fields = metadata.split()
-    if (not separator or path != HISTORICAL_LAKE_FIXTURE.encode() or len(fields) != 3 or
+    if (not separator or path != fixture_name.encode() or len(fields) != 3 or
             fields[0] not in (b'100644', b'100755') or fields[1] != b'blob' or
             re.fullmatch(rb'[0-9a-f]{40}|[0-9a-f]{64}', fields[2]) is None):
         raise ValueError('historical_fixture_size')
@@ -137,6 +146,22 @@ def historical_lake_fixture_bytes():
     return raw
 
 
+def historical_sec_fixture_bytes():
+    """Exact33c originals for temporary historical positives, never live reuse."""
+    compressed = fixture_dependency_bytes(HISTORICAL_SEC_FIXTURE, 'HEAD')
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed)) as handle:
+        raw = handle.read(64 * 1024 + 1)
+    if len(raw) != 30665 or hashlib.sha256(raw).hexdigest() != HISTORICAL_SEC_SHA256:
+        raise ValueError('historical_sec_fixture_hash')
+    files = json.loads(raw)
+    if set(files) != set(HISTORICAL_SEC_FILES):
+        raise ValueError('historical_sec_fixture_paths')
+    for name, value in files.items():
+        if hashlib.sha256(value.encode()).hexdigest() != HISTORICAL_SEC_FILES[name]:
+            raise ValueError('historical_sec_fixture_hash')
+    return {name: value.encode() for name, value in files.items()}
+
+
 class ManualTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -164,6 +189,14 @@ class ManualTests(unittest.TestCase):
                row['dependency_hashes'].get('tools/long_history_lake.py') == HISTORICAL_LAKE_SHA256
                for row in catalog['entries']):
             (self.root / 'tools/long_history_lake.py').write_bytes(historical_lake_fixture_bytes())
+        # Frozen577 import positives retain their reviewed Source bytes. Current
+        # Source changes must continue to fail production catalog lookup.
+        frozen_sec = historical_sec_fixture_bytes()
+        for name, raw in frozen_sec.items():
+            if any(row['classification'] == 'REUSE_NOW' and
+                   row['dependency_hashes'].get(name) == HISTORICAL_SEC_FILES[name]
+                   for row in catalog['entries']):
+                (self.root / name).write_bytes(raw)
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
@@ -1785,6 +1818,38 @@ class ManualTests(unittest.TestCase):
         packet['dependencies'].pop(name)
         scope['dependencies'].pop(name)
         self.rejected(self.rebind_all(packet, scope), scope, 'missing_dependency')
+
+    def test_historical_sec_positive_does_not_recertify_current_source(self):
+        catalog_before = (self.root / manual.CATALOG).read_bytes()
+        self.assertTrue(manual.lookup_reuse('group_577', self.root)['allowed'])
+        for name, frozen in historical_sec_fixture_bytes().items():
+            current = fixture_dependency_bytes(name, 'HEAD')
+            target = self.root / name
+            for changed in (current, frozen + b'\n# changed historical source\n'):
+                target.write_bytes(changed)
+                if hashlib.sha256(changed).hexdigest() != HISTORICAL_SEC_FILES[name]:
+                    with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed:' + name):
+                        manual.lookup_reuse('group_577', self.root)
+                else:
+                    self.assertTrue(manual.lookup_reuse('group_577', self.root)['allowed'])
+                self.assertEqual((self.root / manual.CATALOG).read_bytes(), catalog_before)
+            target.write_bytes(frozen)
+
+    def test_historical_sec_fixture_is_hash_bounded_and_mandatory(self):
+        name = HISTORICAL_SEC_FIXTURE
+        self.assertIn(name, manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
+        original = (self.root / name).read_bytes()
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        (self.root / name).write_bytes(original + b'changed')
+        self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+        (self.root / name).write_bytes(original)
+        packet['dependencies'].pop(name)
+        scope['dependencies'].pop(name)
+        self.rejected(self.rebind_all(packet, scope), scope, 'missing_dependency')
+        with patch('gzip.GzipFile') as stream:
+            stream.return_value.__enter__.return_value.read.return_value = b'changed'
+            with self.assertRaisesRegex(ValueError, 'historical_sec_fixture_hash'):
+                historical_sec_fixture_bytes()
 
     def test_reuse_now_requires_actual_current_bytes(self):
         self.assertTrue(manual.lookup_reuse('group_591', self.root)['allowed'])

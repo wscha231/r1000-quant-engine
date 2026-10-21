@@ -221,6 +221,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
+    "tests/fixtures/manual_foundation_sec_source_v1.json.gz",
     "tests/fixtures/valuation_provenance/main_19rows_extracted.csv",
     "tests/fixtures/valuation_provenance/concentrated_4rows_extracted.csv",
     "cloud_results/full_rebuild/latest_global_alpha_universe/scored_latest.csv",
@@ -720,6 +721,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/sec_evidence_learning_pipeline_smoke.py',
     'tests/sec_filing_quality_event_smoke.py',
     'tests/sec_form4_parser_smoke.py',
+    'tests/sec_form4_current_source_smoke.py',
     'tests/sec_guidance_goldset_packet_smoke.py',
     'tests/sec_guidance_goldset_review_gate_smoke.py',
     'tests/sec_management_guidance_scout_smoke.py',
