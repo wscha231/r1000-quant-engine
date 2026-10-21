@@ -1308,3 +1308,45 @@ The pagination implementation stays in the always-pinned campaign controller:
 legacy v1/v2 controls do not authenticate the optional revision module and
 must never execute an unpinned history implementation. Controller file size
 remains within the existing262144B source-pin guard.
+
+### Exact failed diagnostic30 cost closure; no read or price continuation
+
+The host-only `--native392-premeter-control` path verifies the consumed15927B
+V3 control40cb2c3c, actual failed run39544804083/attempt1, immutable657/650
+deployments and OWNER grant. It authenticates the historical seven3d6 pins and
+full reviewed/deployed tree separately from today's local implementation.
+It also requires a separate current protected publication descriptor supplied
+by `--native392-premeter-publication`: expected master, reviewed PR/head and
+the canonical seven-pin digest. No pending or unmerged Source may write costs.
+
+The original BOM-inclusive105967B log SHA is
+3e2fa8ae6903b694f1e6c4d584034d4e88e3a3cf4ebf266216494b93fb79287d.
+Its single positive failure record and pinned pre-meter call order, along with
+the failed reconcile and skipped capture step, prove the zero provider/Drive
+delta. Artifact absence alone does not. Original stderr remains unobserved.
+Fresh run/job reads compare security fields; retained complete metadata hashes
+remain audit references rather than assertions that incidental API fields can
+never change. A fractional log timestamp may occupy the server step's final
+whole-second bucket: started<=witness<completed+1second, within the job bounds.
+This precision rule changes no campaign deadline or validity window.
+
+After the genuine canonical30-run snapshot and unchanged29-run cost/CP296 basis
+are verified, preserve provider968, Drive9847, transfer1657932691B and storage
+131488371B. Add exactly offline135+reconcile80=215 active seconds and one already
+consumed dispatch:8736->8951 seconds and29->30/40 dispatches. Unknown storage
+302101B and434796B remains charged; no RuntimeMeter is reconstructed.
+
+Under the existing family writer lock, recheck the actual30 history and live
+protected publication, then append only the typed
+NAMED_READ39544804083_PREMETER_CLOSED event at76 from the exact family75 tail.
+An identical visible76 after a durability interruption is verified/reflushed,
+without append77 or another debit. Changed/malformed76, missing original17 or
+cohort48, another canonical run, source drift and a concurrent writer refuse.
+The original journals, checkpoint and prices are not rewritten.
+
+This is historical accounting even after expiry. It performs no provider or
+Drive request, workflow dispatch, runtime preflight, new grant/nonce, clock
+reset, refund or capture reservation. It proves no successful object inspection,
+storage absence, request equivalence or PIT eligibility. A subsequent read31 or
+separate174-price path still needs its own reviewed implementation and actual
+authority/window checks; this closure cannot activate either path.

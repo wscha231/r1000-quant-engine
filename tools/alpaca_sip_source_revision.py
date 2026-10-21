@@ -892,6 +892,221 @@ def named_read_settle_host(c,args):
     finally:registry.close()
 
 
+
+# The one actual pre-meter failure is an accounting proof, never a RuntimeMeter
+# or an extra read/capture slot. These immutable historical bytes stay distinct
+# from the currently reviewed implementation that verifies and imports them.
+READ30_RUN=39544804083
+READ30_SOURCE="3d6de8f354015bb93a73b87eac4f3648c6ea453a"
+READ30_HEAD="691d8fe5d0695c09270b9a1782f42ac96e55cbb7"
+READ30_TREE="5577fe263abd4da12d6eb4e7058ddf605300cc88"
+READ30_CONTROL="40cb2c3c0644d6d72cb457ad761e468f8bd373e814eabdadf977d93efb42e0c1"
+READ30_LOG="3e2fa8ae6903b694f1e6c4d584034d4e88e3a3cf4ebf266216494b93fb79287d"
+READ30_JOBS="82e67c9a86be68b5aa30f4785adf48e0b5dc8a043fb64def993850f2f86153a6"
+READ30_JOB_SECURITY="7566456d503ac4e2909e2d0979dc1d8eeda7b6e0b54b89bdba924dd70a063cf7"
+READ30_ARTIFACTS="bf6638afd0bdbf03a3236bb78ff0fe1a70b76eb9f5ba9b8102624fde8ac48cef"
+READ30_PINS={
+    ".github/workflows/alpaca_sip_private_backfill_v1.yml":"0a84712dc6c9303d852658413fb7c1adb3861279cb371c1a4154a049ee456664",
+    "tools/alpaca_sip_campaign.py":"5ed5b68b43df5f79a0f5fe1faf3d7cfff92475c2371a1946f588a1bad20bb8ec",
+    "tools/alpaca_sip_source_revision.py":"39af64ce013a4c61befc071f3708cc0da1530f184d6be1b6c2e7ab5178102478",
+    "tools/alpaca_sip_private_backfill_v1.py":"01e94b59f4a587cf54b5bf5b6b25740c7eae8da12358817323d890a379180ec1",
+    "tools/configure_macro_research_drive.py":"51c6210ae63f4e7522d5d73d8eb90c5c03348736a9638461772d116fcf51d2fc",
+    "tools/macro_history_sources.py":"029ae7337618211c1520adc78c9199831ed739918070c6b29204e9110aa9ab08",
+    "tools/twelve_private_capture.py":"2cfe64847cb6a9d4777247968832dbdf5737eafc1ed5f47a2e7b6877bc27bdac"}
+READ30_KIND="NAMED_READ39544804083_PREMETER_CLOSED"
+
+
+def named_read30_control(c,control):
+    auth=named_read_control(c,control,accounting=True)
+    c.require(named_read_version(control)==3 and c.digest(c.encoded(control))==READ30_CONTROL
+        and control["expected_master"]==READ30_SOURCE
+        and control["deployment"]==dict(pull_request=657,reviewed_head=READ30_HEAD)
+        and control["code_pins_sha256"]==c.digest(c.encoded(READ30_PINS))
+        and control["grant_reference"]=="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6308087601",
+        "NAMED_READ30_CONTROL")
+    return auth
+
+
+def named_read30_deployment(c,control):
+    # No comparison of old remote bytes with today's local implementation.
+    named_read_origin(c,control)
+    pr=c.gh_json(f"repos/{c.REPO}/pulls/657")
+    c.require(pr.get("number")==657 and pr.get("merged") is True and pr.get("draft") is False
+        and pr.get("merge_commit_sha")==READ30_SOURCE and pr.get("merged_at")=="2026-10-21T04:26:23Z"
+        and pr.get("head",{}).get("sha")==READ30_HEAD
+        and pr.get("base",{}).get("ref")=="master"
+        and pr.get("base",{}).get("repo",{}).get("full_name")==c.REPO
+        and pr.get("head",{}).get("repo",{}).get("full_name")==c.REPO,"NAMED_READ30_DEPLOYMENT")
+    for ref in (READ30_HEAD,READ30_SOURCE):
+        commit=c.gh_json(f"repos/{c.REPO}/git/commits/{ref}")
+        c.require(commit.get("tree",{}).get("sha")==READ30_TREE,"NAMED_READ30_DEPLOYMENT")
+    blobs={}
+    for path,sha in READ30_PINS.items():
+        value=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={READ30_SOURCE}")
+        c.require(value.get("encoding")=="base64","NAMED_READ30_SOURCE")
+        try:raw=c.base64.b64decode(value.get("content",""),validate=False)
+        except Exception:raise c.Refused("NAMED_READ30_SOURCE") from None
+        c.require(c.digest(raw)==sha,"NAMED_READ30_SOURCE");blobs[path]=raw
+    named_read_checks(c,control)
+    return blobs
+
+
+def named_read30_job_security(jobs):
+    keys=("id","run_id","name","status","conclusion","started_at","completed_at","head_sha","head_branch")
+    fields=("name","status","conclusion","number","started_at","completed_at")
+    return dict(total_count=jobs.get("total_count"),jobs=[dict(**{k:j.get(k) for k in keys},
+        steps=[{k:s.get(k) for k in fields} for s in j.get("steps",[])]) for j in jobs.get("jobs",[])])
+
+
+def named_read30_failure(c,control,run,jobs,artifacts,blobs,raw,proof,grant_created_at):
+    named_read30_control(c,control)
+    c.require(isinstance(proof,str) and c.re.fullmatch("[0-9a-f]{64}",proof)
+        and set(blobs)==set(READ30_PINS) and all(c.digest(blobs[k])==h for k,h in READ30_PINS.items()),
+        "NAMED_READ30_SOURCE")
+    c.require(type(run.get("id")) is int and run["id"]==READ30_RUN
+        and type(run.get("run_attempt")) is int and run["run_attempt"]==1
+        and run.get("head_sha")==READ30_SOURCE and run.get("head_branch")=="master"
+        and run.get("workflow_id")==382519204 and run.get("path")==".github/workflows/alpaca_sip_private_backfill_v1.yml"
+        and run.get("repository",{}).get("full_name")==c.REPO
+        and run.get("head_repository",{}).get("full_name")==c.REPO
+        and run.get("event")=="workflow_dispatch" and run.get("status")=="completed"
+        and run.get("conclusion")=="failure"
+        and run.get("display_title")=="a1-sip "+control["nonce"]+" native-read39235028468"
+        and isinstance(run.get("created_at"),str)
+        and c.utc("2026-10-21T04:26:23Z")<=c.utc(run["created_at"])<=c.utc("2026-10-21T04:34:47Z"),
+        "NAMED_READ30_RUN")
+    start_window,end_window=named_read_window(c,control)
+    c.require(isinstance(grant_created_at,str) and c.utc(start_window)<=c.utc(grant_created_at)
+        <=c.utc(run["created_at"])<c.utc(end_window),"NAMED_READ30_GRANT_CLOCK")
+    # Retained full-file hashes remain audit references. Fresh API comparison
+    # authenticates security fields without depending on avatars or new URLs.
+    c.require(c.digest(c.encoded(named_read30_job_security(jobs)))==READ30_JOB_SECURITY and jobs.get("total_count")==2
+        and len(jobs.get("jobs",[]))==2,"NAMED_READ30_JOBS")
+    expected=[(119040439144,"offline","success","2026-10-21T04:34:47Z","2026-10-21T04:37:02Z"),
+              (119041111801,"reconcile","failure","2026-10-21T04:37:05Z","2026-10-21T04:38:25Z")]
+    c.require([(j.get("id"),j.get("name"),j.get("conclusion"),j.get("started_at"),j.get("completed_at"))
+        for j in jobs["jobs"]]==expected and all(j.get("status")=="completed"
+            and j.get("run_id")==READ30_RUN and j.get("head_sha")==READ30_SOURCE
+            and j.get("head_branch")=="master" for j in jobs["jobs"]),
+        "NAMED_READ30_JOBS")
+    # Artifact absence corroborates the failure; it is never the zero-I/O proof.
+    c.require(artifacts.get("total_count")==0 and artifacts.get("artifacts")==[],"NAMED_READ30_ARTIFACTS")
+    c.require(isinstance(raw,bytes) and len(raw)<=2_000_000 and c.digest(raw)==READ30_LOG,"NAMED_READ30_LOG")
+    try:text=raw.decode("utf-8-sig")
+    except UnicodeError:raise c.Refused("NAMED_READ30_LOG") from None
+    witness='{"status": "BLOCKED", "code": "NAMED_READ_GATE_LOG", "source_admission": false}'
+    rows=[line for line in text.splitlines() if witness in line]
+    c.require(len(rows)==1 and text.count(witness)==1,"NAMED_READ30_WITNESS")
+    match=c.re.fullmatch(r"([^ ]+) "+c.re.escape(witness),rows[0])
+    c.require(match is not None,"NAMED_READ30_WITNESS")
+    steps=jobs["jobs"][1].get("steps",[])
+    step=[s for s in steps if s.get("name")=="Reconcile exact failed Drive POST with native metered reads"]
+    capture=[s for s in steps if s.get("name")=="Collect immutable owner-only Alpaca history"]
+    c.require(len(step)==1 and step[0].get("status")=="completed" and step[0].get("conclusion")=="failure"
+        and isinstance(step[0].get("started_at"),str) and isinstance(step[0].get("completed_at"),str)
+        and len(capture)==1 and capture[0].get("conclusion")=="skipped",
+        "NAMED_READ30_STEP")
+    # API step clocks have whole-second precision; the log has fractional seconds.
+    when=c.utc(match[1]);start=c.utc(step[0]["started_at"]);end=c.utc(step[0]["completed_at"])
+    c.require(c.utc(expected[1][3])<=start<=when<end+c.timedelta(seconds=1)
+        and end<=c.utc(expected[1][4]),"NAMED_READ30_CLOCK")
+    # Frozen source hashes authenticate the positive error and its call order.
+    # The failed deployed guard precedes configuration parsing, meter and Drive.
+    import ast
+    tree=ast.parse(blobs["tools/alpaca_sip_source_revision.py"].decode("utf-8"))
+    worker=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=="named_read_worker")
+    calls=[(n.lineno,n.func.id) for n in ast.walk(worker) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+    guard=[line for line,name in calls if name=="named_read_deployed"]
+    meter=[line for line,name in calls if name=="named_read_meter"]
+    owner=[line for line,name in calls if name=="OwnerDrive"]
+    config=[n.lineno for n in ast.walk(worker) if isinstance(n,ast.Call)
+            and isinstance(n.func,ast.Attribute) and n.func.attr=="ConfigParser"]
+    c.require(len(guard)==len(meter)==len(owner)==len(config)==1
+        and guard[0]<config[0]<meter[0]<owner[0],"NAMED_READ30_BOUNDARY")
+    seconds=sum(c.math.ceil((c.utc(j["completed_at"])-c.utc(j["started_at"])).total_seconds()) for j in jobs["jobs"])
+    c.require(seconds==215,"NAMED_READ30_CLOCK")
+    return dict(schema="a1-named-read39544804083-premeter-cost-closure-v1",
+        run_id=READ30_RUN,run_attempt=1,source_sha=READ30_SOURCE,reviewed_head=READ30_HEAD,tree_sha=READ30_TREE,
+        source_pins_sha256=c.digest(c.encoded(READ30_PINS)),control_sha256=READ30_CONTROL,
+        grant_proof_sha256=proof,checkpoint_sha256=READ392_CP,failed_meter_sha256=READ392_METER,
+        failure_log_sha256=READ30_LOG,retained_terminal_jobs_sha256=READ30_JOBS,
+        terminal_jobs_security_sha256=READ30_JOB_SECURITY,retained_artifact_metadata_sha256=READ30_ARTIFACTS,
+        original_meter_sha256=None,not_runtime_meter=True,status="PREMETER_REFUSED",reason="NAMED_READ_GATE_LOG",
+        usage={k:0 for k in c.LIMITS},usage_after=dict(READ392_USED),active_seconds=215,active_seconds_after=8951,
+        dispatches=1,dispatches_after=30,unknown_storage_bytes_still_charged=[302101,434796],
+        zero_io_basis="EXACT_DEPLOYED_SOURCE_ORDER_AND_POSITIVE_FAILURE_LOG",absence_is_zero_io_basis=False,
+        original_transport_detail="UNOBSERVED",read_verification_complete=False,absence_proven=False,
+        failed_request_body_hash_known=False,failed_post_equivalence_verified=False,capture_authorized=False,
+        new_diagnostic_authorized=False,budget_reset=False,source_admission=False,pit_verified=False,
+        economic_authority=False,total_platform_cost_verified=False)
+
+
+def named_read30_append(c,registry,payload):
+    c.require(registry.lock_owned and len(registry.entries) in {75,76},"NAMED_READ30_PREFIX")
+    c.require(c.digest(c.bounded_bytes(registry.directory/"000075.json"))==READ392_FAMILY
+        and registry.entries[74].get("kind")=="SETTLED"
+        and registry.entries[74].get("run_id")==39235028468,"NAMED_READ30_PREFIX")
+    if len(registry.entries)==75:
+        c.require(registry.parent==READ392_FAMILY,"NAMED_READ30_PREFIX")
+        registry.append(READ30_KIND,**payload)
+    entry=registry.entries[-1]
+    c.require(entry.get("kind")==READ30_KIND and entry.get("previous_sha256")==READ392_FAMILY
+        and {k:entry.get(k) for k in payload}==payload
+        and set(entry)==set(payload)|{"sequence","kind","auth_sha256","previous_sha256","recorded_utc"},
+        "NAMED_READ30_CONFLICT")
+    path=registry.directory/"000076.json"
+    c.require(c.bounded_bytes(path)==c.encoded(entry),"NAMED_READ30_BYTES")
+    c.sync_native18_settlement(path)
+    return entry
+
+
+def named_read30_host(c,args):
+    # Explicit host-only accounting; no credentials, Drive, meter or dispatch.
+    c.require(args.native392_premeter_publication and args.budget_state_dir
+        and not any(getattr(args,k) is not None for k in (
+            "authorization","native_read_control","native18_settle_authorization","native392_settle_control",
+            "native392_run_id","native18_deployed_master","refusal_close_authorization",
+            "control_refusal_close_authorization","control_refusal_log","control_refusal_jobs","recovery_run",
+            "account_permission_reference","predispatch_recovery","continuation_receipt","cohort_input","max_batches")),
+        "NAMED_READ30_MODE")
+    control=c.bounded_json(args.native392_premeter_control,16384)
+    auth=named_read30_control(c,control)
+    publication=c.bounded_json(args.native392_premeter_publication,1024)
+    c.require(isinstance(publication,dict) and set(publication)=={"expected_master","deployment","code_pins_sha256"}
+        and isinstance(publication["expected_master"],str) and c.re.fullmatch("[0-9a-f]{40}",publication["expected_master"])
+        and isinstance(publication["deployment"],dict) and set(publication["deployment"])=={"pull_request","reviewed_head"}
+        and type(publication["deployment"]["pull_request"]) is int and publication["deployment"]["pull_request"]>660
+        and isinstance(publication["deployment"]["reviewed_head"],str)
+        and c.re.fullmatch("[0-9a-f]{40}",publication["deployment"]["reviewed_head"])
+        and isinstance(publication["code_pins_sha256"],str)
+        and c.re.fullmatch("[0-9a-f]{64}",publication["code_pins_sha256"]),"NAMED_READ30_PUBLICATION")
+    named_read_deployed(c,publication)
+    proof,created=named_read_proof(c,control,accounting=True)
+    blobs=named_read30_deployment(c,control)
+    run=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}")
+    observed=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
+    named_read_budget(c,observed)
+    jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}/jobs?per_page=100")
+    artifacts=c.gh_json(f"repos/{c.REPO}/actions/runs/{READ30_RUN}/artifacts?per_page=100")
+    raw=named_read_gate_log(c,119041111801).encode("utf-8")
+    payload=named_read30_failure(c,control,run,jobs,artifacts,blobs,raw,proof,created)
+    budget=c.Path(args.budget_state_dir).resolve();state=c.Path(args.state_dir).resolve()
+    c.require(state==budget.parent/"external-cohort-top500-20261017","NAMED_READ30_PREFIX")
+    named_read_frozen_prefix(c,budget,17,c.CONTINUATION["event"])
+    named_read_frozen_prefix(c,state,48,READ392_COHORT)
+    registry=c.external_family_registry(budget,auth,state)
+    try:
+        final_proof,_=named_read_proof(c,control,accounting=True)
+        fresh=c.external_history(auth,allow_stopped=True,enforce_expiry=False,named_read_context=(control,run))
+        named_read_budget(c,fresh)
+        c.require(final_proof==proof,"NAMED_READ30_CONTROL")
+        named_read_deployed(c,publication)  # Live tip check is last, under the writer lock.
+        entry=named_read30_append(c,registry,payload)
+        return dict(status="EXACT_READ30_PREMETER_COST_CLOSED",receipt_sha256=c.digest(c.encoded(entry)),
+            run_id=READ30_RUN,active_seconds=215,active_seconds_after=8951,dispatches_after=30,
+            not_runtime_meter=True,read_verification_complete=False,new_price_subjects=0,capture_authorized=False)
+    finally:registry.close()
+
 V6_SOURCE="a20432fad51576309116bf620a60cdcd1503af55"
 V6_AUTH="f57d655e7a65c414e5f852b2bdba5fdf331e5c140dbb0dd6b2b12968c7e73a74"
 V6_REFERENCE="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6255779963"

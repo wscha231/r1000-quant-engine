@@ -7408,3 +7408,12 @@ legacy controls; revision-only changes must trigger the specialized checks.
 PR660 records the transport correction and exact source/test evidence. Its
 code/CI success does not settle the failed run, renew an execution window,
 authorize another diagnostic, or establish174 new prices or PIT eligibility.
+
+The follow-up accounting verifier must authenticate historical deployment bytes
+separately from current local code. Keep raw BOM-inclusive failure-log hashes
+distinct from decoded convenience copies. Compare fresh API security fields
+with the retained job proof without depending on avatar or URL serialization.
+The failed step's whole-second completion clock includes its final fractional
+log second; use only that explicit precision bucket within the job bounds.
+Record the observed215 seconds and one dispatch with a distinct idempotent cost
+event, never a fabricated RuntimeMeter or permission to retry the failed read.

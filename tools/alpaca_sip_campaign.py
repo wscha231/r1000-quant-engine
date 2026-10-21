@@ -3947,6 +3947,8 @@ def main():
     mode.add_argument("--native-read-control", help="Exact39085031884 read-only control; no collector execution")
     mode.add_argument("--native18-settle-authorization", help="Existing141bc authorization; accounting only before v5 consent")
     mode.add_argument("--native392-settle-control", help="Exact39235028468 actual read-cost import only; no dispatch")
+    mode.add_argument("--native392-premeter-control", help="Exact39544804083 failed-read accounting only")
+    parser.add_argument("--native392-premeter-publication")
     parser.add_argument("--native392-run-id", type=int)
     parser.add_argument("--native18-deployed-master", help="Separately reviewed deployed Source for accounting-only import")
     parser.add_argument("--refusal-close-authorization", help="Exact39171354230 immutable no-meter closure grant")
@@ -3963,6 +3965,9 @@ def main():
     parser.add_argument("--max-batches", type=int, help="Stop after this many newly verified external batches")
     args = parser.parse_args()
     try:
+        if args.native392_premeter_control:
+            print(json.dumps(_revision_module().named_read30_host(_module(),args),sort_keys=True));return 0
+        require(args.native392_premeter_publication is None,"NAMED_READ30_MODE")
         if args.native392_settle_control:
             require(args.native392_run_id is not None and args.budget_state_dir is not None
                 and not any((args.authorization,args.native_read_control,args.native18_settle_authorization,
