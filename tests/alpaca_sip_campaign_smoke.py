@@ -6587,4 +6587,621 @@ class GateLogPRTransportProbeTests(unittest.TestCase):
                 self.assertNotIn('PRIVATE_HELP_CANARY',str(error.exception))
 
 
+
+class NamedRead30PremeterClosureTests(unittest.TestCase):
+    """Synthetic accounting counterexamples; no actual OWNER/runtime authority."""
+    bind_event=NamedRead392DeploymentWindowTests.bind_event
+
+    def setUp(self):
+        NamedRead392CorrectiveSourceTests.setUp(self)
+        self.clock=c.utc("2030-01-01T00:00:00Z")  # Historical accounting never reopens the clock.
+        self.control.update(expected_master=self.s.READ30_SOURCE,
+            deployment=dict(pull_request=657,reviewed_head=self.s.READ30_HEAD),
+            grant_reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-6308087601")
+        source=b"""def named_read_worker(c):
+    named_read_deployed(c)
+    config=c.configparser.ConfigParser()
+    meter=named_read_meter(c)
+    drive=OwnerDrive()
+"""
+        self.blobs={p:source if p==c.REVISION_MODULE else b"FIXTURE "+p.encode() for p in self.s.READ30_PINS}
+        patch.object(self.s,"READ30_PINS",{p:c.digest(b) for p,b in self.blobs.items()}).start()
+        self.control["code_pins_sha256"]=c.digest(c.encoded(self.s.READ30_PINS))
+        patch.object(self.s,"READ30_CONTROL",c.digest(c.encoded(self.control))).start()
+        self.run=dict(id=self.s.READ30_RUN,run_attempt=1,head_sha=self.s.READ30_SOURCE,head_branch="master",
+            workflow_id=382519204,path=".github/workflows/alpaca_sip_private_backfill_v1.yml",
+            repository=dict(full_name=c.REPO),head_repository=dict(full_name=c.REPO),
+            event="workflow_dispatch",status="completed",conclusion="failure",created_at="2026-10-21T04:34:43Z",
+            display_title="a1-sip "+self.control["nonce"]+" native-read39235028468")
+        self.jobs=dict(total_count=2,jobs=[
+            dict(id=119040439144,name="offline",conclusion="success",status="completed",
+                 started_at="2026-10-21T04:34:47Z",completed_at="2026-10-21T04:37:02Z"),
+            dict(id=119041111801,name="reconcile",conclusion="failure",status="completed",
+                 started_at="2026-10-21T04:37:05Z",completed_at="2026-10-21T04:38:25Z",steps=[
+                     dict(name="Reconcile exact failed Drive POST with native metered reads",status="completed",
+                          conclusion="failure",started_at="2026-10-21T04:38:12Z",completed_at="2026-10-21T04:38:22Z"),
+                     dict(name="Collect immutable owner-only Alpaca history",conclusion="skipped")])])
+        self.artifacts=dict(total_count=0,artifacts=[])
+        for job in self.jobs["jobs"]:
+            job.update(run_id=self.s.READ30_RUN,head_sha=self.s.READ30_SOURCE,head_branch="master")
+        self.raw=b'\xef\xbb\xbf2026-10-21T04:38:22.7990250Z {"status": "BLOCKED", "code": "NAMED_READ_GATE_LOG", "source_admission": false}\n'
+        self.rebind_metadata()
+
+    def rebind_metadata(self):
+        for name,value in (("READ30_JOB_SECURITY",c.encoded(self.s.named_read30_job_security(self.jobs))),
+                           ("READ30_LOG",self.raw)):
+            patch.object(self.s,name,c.digest(value)).start()
+
+    def payload(self,**kw):
+        values=dict(control=self.control,run=self.run,jobs=self.jobs,artifacts=self.artifacts,
+                    blobs=self.blobs,raw=self.raw,proof="b"*64,grant_created_at="2026-10-21T04:31:00Z");values.update(kw)
+        return self.s.named_read30_failure(c,**values)
+
+    def test_exact_positive_cost_preserves_usage_and_has_no_meter_or_new_authority(self):
+        value=self.payload()
+        self.assertEqual(value["active_seconds"],215);self.assertEqual(value["active_seconds_after"],8951)
+        self.assertEqual(value["dispatches_after"],30);self.assertEqual(value["usage_after"],self.s.READ392_USED)
+        self.assertEqual(value["usage"],{k:0 for k in c.LIMITS})
+        self.assertIsNone(value["original_meter_sha256"]);self.assertTrue(value["not_runtime_meter"])
+        self.assertEqual(value["unknown_storage_bytes_still_charged"],[302101,434796])
+        for key in ("capture_authorized","new_diagnostic_authorized","read_verification_complete","absence_proven",
+                    "budget_reset","source_admission","pit_verified","economic_authority","total_platform_cost_verified"):
+            self.assertIs(value[key],False)
+
+    def test_wrong_control_nonce_grant_source_or_pins_cannot_be_relabelled(self):
+        for key,value in (("nonce",c.PREFIX+"c"*24),("grant_reference",self.control["grant_reference"]+"1"),
+                          ("expected_master","f"*40),("code_pins_sha256","f"*64)):
+            bad=copy.deepcopy(self.control);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.payload(control=bad)
+
+    def test_run_attempt_status_source_title_and_boolean_id_are_rejected(self):
+        for key,value in (("id",True),("id",self.s.READ30_RUN+1),("run_attempt",2),("head_sha","f"*40),
+                          ("head_branch","other"),("status","in_progress"),("conclusion","success"),
+                          ("event","pull_request"),("display_title","other"),("created_at",None)):
+            bad=dict(self.run);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.payload(run=bad)
+
+    def test_missing_meter_alone_and_changed_job_cost_do_not_prove_zero(self):
+        for mutate in (lambda j:j.update(total_count=1),lambda j:j["jobs"].pop(),
+                       lambda j:j["jobs"][0].update(completed_at="2026-10-21T04:37:03Z"),
+                       lambda j:j["jobs"][1].update(conclusion="success")):
+            bad=copy.deepcopy(self.jobs);mutate(bad)
+            with self.assertRaises(c.Refused):self.payload(jobs=bad)
+        with self.assertRaises(c.Refused):self.payload(artifacts=dict(total_count=1,artifacts=[{}]))
+        with self.assertRaises(c.Refused):self.payload(raw=b"")
+
+    def test_original_grant_clock_and_repository_workflow_identity_are_required(self):
+        for value in (None,"2026-10-20T09:59:27Z","2026-10-21T04:34:44Z"):
+            with self.subTest(value=value),self.assertRaises(c.Refused):self.payload(grant_created_at=value)
+        for key,value in (("workflow_id",382519205),("path",".github/workflows/other.yml"),
+                          ("repository",dict(full_name="other/repo")),("head_repository",dict(full_name="other/repo"))):
+            bad=dict(self.run);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.payload(run=bad)
+        varied=copy.deepcopy(self.jobs);varied["jobs"][0]["new_incidental_url"]="https://fixture.invalid/avatar"
+        self.assertEqual(self.payload(jobs=varied),self.payload())
+
+    def test_wrong_original_bytes_source_or_duplicate_witness_refuse(self):
+        bad=dict(self.blobs);bad[c.REVISION_MODULE]+=b"\n# changed"
+        with self.assertRaises(c.Refused):self.payload(blobs=bad)
+        for raw in (self.raw+b"changed",self.raw.replace(b"NAMED_READ_GATE_LOG",b"NAMED_READ_OTHER")):
+            with self.assertRaises(c.Refused):self.payload(raw=raw)
+        self.raw+=self.raw;self.rebind_metadata()
+        with self.assertRaisesRegex(c.Refused,"WITNESS"):self.payload()
+
+    def test_only_one_second_precision_bucket_is_accepted(self):
+        for time,allowed in (("04:38:21.9999999",True),("04:38:22.9999999",True),
+                             ("04:38:23.0000000",False),("04:38:11.9999999",False)):
+            self.raw=self.raw.replace(self.raw.split(b"Z ")[0],b"\xef\xbb\xbf2026-10-21T"+time.encode())
+            self.rebind_metadata()
+            if allowed:self.payload()
+            else:
+                with self.assertRaisesRegex(c.Refused,"CLOCK"):self.payload()
+
+    def test_capture_must_be_skipped_and_original_failure_step_must_fail(self):
+        for which,field,value in ((1,"conclusion","success"),(0,"conclusion","success"),(0,"status","in_progress")):
+            original=copy.deepcopy(self.jobs)
+            self.jobs["jobs"][1]["steps"][which][field]=value;self.rebind_metadata()
+            with self.assertRaisesRegex(c.Refused,"STEP"):self.payload()
+            self.jobs=original
+
+    def test_pinned_source_order_is_positive_boundary_proof(self):
+        self.blobs[c.REVISION_MODULE]=b"""def named_read_worker(c):
+    config=c.configparser.ConfigParser()
+    drive=OwnerDrive()
+    named_read_deployed(c)
+    meter=named_read_meter(c)
+"""
+        patch.object(self.s,"READ30_PINS",{p:c.digest(b) for p,b in self.blobs.items()}).start()
+        self.control["code_pins_sha256"]=c.digest(c.encoded(self.s.READ30_PINS))
+        patch.object(self.s,"READ30_CONTROL",c.digest(c.encoded(self.control))).start()
+        with self.assertRaisesRegex(c.Refused,"BOUNDARY"):self.payload()
+
+    def registry(self):
+        registry=c.WorkJournal(self.root/"family30","f"*64);self.addCleanup(registry.close)
+        for i in range(74):registry.append("FIXTURE",index=i)
+        registry.append("SETTLED",run_id=39235028468)
+        patch.object(self.s,"READ392_FAMILY",registry.parent).start()
+        return registry
+
+    def test_append_is_typed_once_only_and_reflushes_interrupted_durability(self):
+        registry=self.registry();payload=self.payload()
+        original=[(registry.directory/f"{i:06d}.json").read_bytes() for i in range(1,76)]
+        with patch.object(c,"sync_native18_settlement",side_effect=c.Refused("FIXTURE_BARRIER")):
+            with self.assertRaisesRegex(c.Refused,"FIXTURE_BARRIER"):self.s.named_read30_append(c,registry,payload)
+        self.assertEqual(len(registry.entries),76)
+        with patch.object(c,"sync_native18_settlement",wraps=c.sync_native18_settlement) as sync:
+            first=self.s.named_read30_append(c,registry,payload)
+            self.assertEqual(self.s.named_read30_append(c,registry,payload),first);self.assertEqual(sync.call_count,2)
+        self.assertEqual(first["kind"],self.s.READ30_KIND)
+        self.assertEqual(original,[(registry.directory/f"{i:06d}.json").read_bytes() for i in range(1,76)])
+        self.assertEqual(len(registry.entries),76)
+        with self.assertRaises(c.Refused):self.s.named_read30_append(c,registry,dict(payload,active_seconds=0))
+
+    def test_foreign_kind_missing_prefix_no_lock_and_extra_event_refuse(self):
+        registry=self.registry();payload=self.payload()
+        registry.lock_owned=False
+        with self.assertRaises(c.Refused):self.s.named_read30_append(c,registry,payload)
+        registry.lock_owned=True
+        self.s.named_read30_append(c,registry,payload)
+        registry.entries[-1]["kind"]="NAMED_READ39235028468_SETTLED"
+        with self.assertRaises(c.Refused):self.s.named_read30_append(c,registry,payload)
+        registry.entries[-1]["kind"]=self.s.READ30_KIND
+        registry.append("EXTRA")
+        with self.assertRaises(c.Refused):self.s.named_read30_append(c,registry,payload)
+
+    def test_accounting_mode_rejects_capture_flags_before_network_or_credentials(self):
+        args=SimpleNamespace(native392_premeter_publication="fixture",budget_state_dir="fixture",
+            **{k:None for k in ("authorization","native_read_control","native18_settle_authorization",
+                "native392_settle_control","native392_run_id","native18_deployed_master","refusal_close_authorization",
+                "control_refusal_close_authorization","control_refusal_log","control_refusal_jobs","recovery_run",
+                "account_permission_reference","predispatch_recovery","continuation_receipt","cohort_input","max_batches")})
+        for key in ("authorization","recovery_run","max_batches","cohort_input"):
+            bad=copy.copy(args);setattr(bad,key,"FORBIDDEN")
+            with patch.object(c,"gh_json") as gh,patch.object(drive_module,"OwnerDrive") as owner:
+                with self.assertRaisesRegex(c.Refused,"NAMED_READ30_MODE"):self.s.named_read30_host(c,bad)
+                gh.assert_not_called();owner.assert_not_called()
+
+
+    def test_host_requires_both_deployments_and_closes_only_under_final_tip_and_history(self):
+        registry=self.registry()
+        budget=self.root/"original";state=self.root/"external-cohort-top500-20261017"
+        journals=[]
+        for directory,count in ((budget,17),(state,48)):
+            journal=c.WorkJournal(directory,"d"*64)
+            for i in range(count):journal.append("FIXTURE",index=i)
+            journals.append(journal)
+        original_tail,cohort_tail=[j.parent for j in journals]
+        for j in journals:j.close()
+        old={p:p.read_bytes() for d in (budget,state,registry.directory) for p in d.glob("*.json")}
+        control_path=self.root/"consumed-control.json";control_path.write_bytes(c.encoded(self.control))
+        publication=dict(expected_master="9"*40,code_pins_sha256="e"*64,
+                         deployment=dict(pull_request=777,reviewed_head="8"*40))
+        publication_path=self.root/"publication.json";publication_path.write_bytes(c.encoded(publication))
+        args=SimpleNamespace(native392_premeter_control=control_path,native392_premeter_publication=publication_path,
+            budget_state_dir=budget,state_dir=state,**{k:None for k in (
+            "authorization","native_read_control","native18_settle_authorization","native392_settle_control",
+            "native392_run_id","native18_deployed_master","refusal_close_authorization","control_refusal_close_authorization",
+            "control_refusal_log","control_refusal_jobs","recovery_run","account_permission_reference",
+            "predispatch_recovery","continuation_receipt","cohort_input","max_batches")})
+        events=[]
+        def gh(path):
+            events.append("metadata")
+            if path.endswith(f"/actions/runs/{self.s.READ30_RUN}"):return self.run
+            if path.endswith("/jobs?per_page=100"):return self.jobs
+            if path.endswith("/artifacts?per_page=100"):return self.artifacts
+            raise AssertionError("UNEXPECTED_METADATA")
+        drift=[True]
+        def current(*args,**kw):
+            events.append("current-source")
+            if drift[0] and events.count("current-source")==2:raise c.Refused("CAMPAIGN_MASTER_DRIFT")
+        def history(*args,**kw):events.append("history30");return {}
+        real_append=self.s.named_read30_append
+        def append(*args):events.append("append");return real_append(*args)
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_deployed",side_effect=current),\
+             patch.object(self.s,"named_read30_deployment",return_value=self.blobs),\
+             patch.object(self.s,"named_read_proof",return_value=("b"*64,"2026-10-21T04:31:00Z")),\
+             patch.object(c,"external_history",side_effect=history),patch.object(self.s,"named_read_budget"),\
+             patch.object(self.s,"named_read_gate_log",return_value=self.raw.decode()),\
+             patch.dict(c.CONTINUATION,event=original_tail),patch.object(self.s,"READ392_COHORT",cohort_tail),\
+             patch.object(c,"external_family_registry",side_effect=lambda *a:registry),\
+             patch.object(self.s,"named_read30_append",side_effect=append),\
+             patch.object(drive_module,"OwnerDrive") as owner,patch.object(c,"RuntimeMeter") as meter,\
+             patch.object(c.subprocess,"run") as dispatch:
+            with self.assertRaisesRegex(c.Refused,"CAMPAIGN_MASTER_DRIFT"):self.s.named_read30_host(c,args)
+            self.assertEqual(len(registry.entries),75);self.assertFalse(registry.lock_owned)
+            registry=c.WorkJournal(registry.directory,"f"*64);drift[0]=False;events.clear()
+            value=self.s.named_read30_host(c,args)
+            self.assertEqual(events[-3:],["history30","current-source","append"])
+            self.assertEqual(value["active_seconds_after"],8951);self.assertFalse(value["read_verification_complete"])
+            self.assertFalse(registry.lock_owned)
+            registry=c.WorkJournal(registry.directory,"f"*64)
+            self.assertEqual(self.s.named_read30_host(c,args)["receipt_sha256"],value["receipt_sha256"])
+            owner.assert_not_called();meter.assert_not_called();dispatch.assert_not_called()
+        self.assertEqual(old,{p:p.read_bytes() for p in old})
+        self.assertEqual(len(registry.entries),76)
+
+    def test_historical_deployment_verifies_original_tree_pins_and_gate_without_local_equality(self):
+        pr=dict(number=657,merged=True,draft=False,merge_commit_sha=self.s.READ30_SOURCE,merged_at="2026-10-21T04:26:23Z",
+            head=dict(sha=self.s.READ30_HEAD,repo=dict(full_name=c.REPO)),
+            base=dict(ref="master",repo=dict(full_name=c.REPO)))
+        def gh(path):
+            if path.endswith("/pulls/657"):return pr
+            if "/git/commits/" in path:return dict(tree=dict(sha=self.s.READ30_TREE))
+            if "/contents/" in path:
+                file=path.split("/contents/")[1].split("?ref=")[0]
+                self.assertTrue(path.endswith("?ref="+self.s.READ30_SOURCE))
+                return dict(encoding="base64",content=c.base64.b64encode(self.blobs[file]).decode())
+            raise AssertionError("UNEXPECTED_METADATA")
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_origin") as origin,\
+             patch.object(self.s,"named_read_checks") as checks:
+            self.assertEqual(self.s.named_read30_deployment(c,self.control),self.blobs)
+            origin.assert_called_once_with(c,self.control);checks.assert_called_once_with(c,self.control)
+            pr["merged"]=False
+            with self.assertRaisesRegex(c.Refused,"DEPLOYMENT"):self.s.named_read30_deployment(c,self.control)
+
+
+class Price174ContinuationTests(unittest.TestCase):
+    """Synthetic cohort/authority fixtures confer no capture rights."""
+    bind_event=NamedRead392DeploymentWindowTests.bind_event
+    rebind_metadata=NamedRead30PremeterClosureTests.rebind_metadata
+    payload=NamedRead30PremeterClosureTests.payload
+
+    def setUp(self):
+        import zlib
+        NamedRead30PremeterClosureTests.setUp(self)
+        self.clock=c.utc("2026-10-22T11:00:00Z")
+        self.names=[f"YYY{i:03d}" for i in range(174)]
+        self.csv="ticker\n"+"\n".join(self.names)+"\n"
+        patch.object(self.s,"PRICE174_INPUT",c.digest(self.csv.encode())).start()
+        patch.dict(self.s.PRICE174_SCOPE,input_sha256=self.s.PRICE174_INPUT).start()
+        old_names=self.names_old=[f"ZZZ{i:03d}" for i in range(417)]
+        old_names[296:300]=["MSCI","BSBR","STM","FMX"]
+        self.a.update(credential_binding=c.digest(b"fixture-key\0fixture-secret"),owner_permission_id="fixture-owner",workflow_run_floor=1)
+        self.a["external_cohort"].update(input_csv="ticker\n"+"\n".join(old_names)+"\n",
+            proof_reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-111111111")
+        patch.object(self.s,"READ30_CONTROL",c.digest(c.encoded(self.control))).start()
+        closure=dict(self.payload(),sequence=76,kind=self.s.READ30_KIND,auth_sha256=c.external_family_genesis(),
+            previous_sha256=self.s.READ392_FAMILY,recorded_utc="2026-10-21T08:00:00Z")
+        self.auth=dict(schema=self.s.PRICE174_SCHEMA,task_key=self.s.PRICE174_TASK,scope=dict(self.s.PRICE174_SCOPE),
+            input_csv=self.csv,frozen_inventory_sha256=self.s.PRICE174_INVENTORY,
+            prior_control_zlib=c.base64.b64encode(zlib.compress(c.encoded(self.control),9)).decode(),
+            expected_master="9"*40,code_pins_sha256="e"*64,deployment=dict(pull_request=777,reviewed_head="8"*40),
+            execution_window=dict(deployed_at_utc="2026-10-22T10:00:00Z",expires_at_utc="2026-10-23T10:00:00Z"),
+            human_window_authority_sha256="d"*64,closure_event=closure,
+            grant_reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-123456789")
+
+    def owner_comment(self):
+        return dict(id=123456789,issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER",user=dict(type="User",id=123),
+            created_at="2026-10-22T10:02:00Z",updated_at="2026-10-22T10:02:00Z",
+            body="A1_SP500174_PRICE_EXECUTION_AUTHORIZATION "+c.encoded(self.s.price174_terms(c,self.auth)).decode())
+
+    def test_exact_bounded_pack_roundtrip_hash_and_disjoint_frozen_scope(self):
+        old,names=self.s.price174_auth(c,self.auth)
+        self.assertEqual(old,self.control);self.assertEqual(names,self.names)
+        self.assertLess(len(c.encoded(self.auth)),15000)
+        self.assertEqual(self.s.price174_terms(c,self.auth)["usage_before"],self.s.READ392_USED)
+        self.assertEqual(self.s.price174_terms(c,self.auth)["active_seconds_before"],8951)
+        self.assertFalse(self.s.price174_terms(c,self.auth)["old417_resume_authorized"])
+        terms=self.s.price174_terms(c,self.auth)
+        self.assertEqual(terms["inherited_initial_account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertFalse(terms["supplier_rights_verified"])
+
+    def test_zip_bomb_trailing_stream_changed_control_and_noncanonical_bytes_refuse(self):
+        import zlib
+        for raw in (zlib.compress(b"x"*16385),zlib.compress(c.encoded(self.control))+zlib.compress(b"trailing"),
+                    zlib.compress(c.encoded(dict(self.control,nonce=c.PREFIX+"f"*24))),
+                    zlib.compress(c.json.dumps(self.control).encode())):
+            bad=dict(self.auth,prior_control_zlib=c.base64.b64encode(raw).decode())
+            with self.assertRaises(c.Refused):self.s.price174_auth(c,bad)
+        with self.assertRaises(c.Refused):self.s.price174_old(c,"!notbase64!")
+
+    def test_input_order_old_window_authority_missing76_and_scope_change_refuse(self):
+        changes=(("input_csv",self.csv.replace("YYY000\nYYY001","YYY001\nYYY000")),
+            ("human_window_authority_sha256",self.s.READ392_V2_AUTHORITY),
+            ("closure_event",{}),("frozen_inventory_sha256","f"*64),("scope",dict(self.s.PRICE174_SCOPE,namespace="other")))
+        for key,value in changes:
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.s.price174_auth(c,dict(self.auth,**{key:value}))
+        bad=copy.deepcopy(self.auth);bad["execution_window"]["expires_at_utc"]="2026-10-24T10:00:00Z"
+        with self.assertRaises(c.Refused):self.s.price174_auth(c,bad)
+
+    def test_owner_terms_binding_accounting_expiry_and_no_implicit_window_rearm(self):
+        comment=self.owner_comment()
+        def gh(path):
+            if "/pulls/777" in path:return dict(merged_at="2026-10-22T10:00:00Z")
+            if "/issues/comments/" in path:return comment
+            raise AssertionError("UNEXPECTED_METADATA")
+        with patch.object(c,"gh_json",side_effect=gh),patch.object(self.s,"named_read_deployed") as deployed:
+            self.s.price174_authority(c,self.auth)
+            self.clock=c.utc("2026-10-24T10:00:00Z")
+            self.s.price174_authority(c,self.auth,accounting=True)
+            with self.assertRaisesRegex(c.Refused,"EXPIRED"):self.s.price174_authority(c,self.auth)
+            comment["updated_at"]="2026-10-22T10:03:00Z"
+            with self.assertRaises(c.Refused):self.s.price174_authority(c,self.auth,accounting=True)
+            self.assertTrue(deployed.called)
+
+    def test_separate_grant_locator_does_not_create_self_referential_hash(self):
+        other=dict(self.auth,grant_reference=f"https://github.com/{c.REPO}/issues/448#issuecomment-999999999")
+        self.assertEqual(self.s.price174_hash(c,self.auth),self.s.price174_hash(c,other))
+        self.assertEqual(self.s.price174_terms(c,self.auth),self.s.price174_terms(c,other))
+        text=c.encoded(self.s.price174_terms(c,self.auth)).decode()
+        for private in ("fixture-root","fixture-data","fixture-secret","fixture-owner",self.auth["prior_control_zlib"]):
+            self.assertNotIn(private,text)
+
+    def test_private_checkpoint_lookup_is_exact_bounded_and_refuses_ambiguity(self):
+        sha="a"*64;folder="PRIVATE_FOLDER_CANARY";file_id="PRIVATE_CHECKPOINT_CANARY"
+        item=dict(id=file_id,name=sha+".json",size="100",parents=[folder])
+        class Drive:
+            token="PRIVATE_TOKEN_CANARY"
+            def request(inner,url):
+                parsed=parse_qs(urlsplit(url).query)
+                self.assertEqual(parsed["pageSize"],["2"])
+                self.assertIn("name = '"+sha+".json'",parsed["q"][0])
+                return c.encoded(dict(files=[item]))
+        self.assertEqual(self.s.price174_checkpoint(c,Drive(),folder,sha)["file_id"],file_id)
+        for body in (dict(files=[]),dict(files=[item,item]),dict(files=[item],nextPageToken="more"),
+                     dict(files=[dict(item,name="wrong.json")])):
+            drive=Drive();drive.request=lambda _:c.encoded(body)
+            with self.assertRaises(c.Refused):self.s.price174_checkpoint(c,drive,folder,sha)
+
+    def event(self,control):
+        inputs=dict(campaign_control=c.encoded(control).decode(),campaign_nonce=control["nonce"],
+            private_root_folder_id=self.a["private_root_folder_id"],private_data_folder_id=self.a["private_data_folder_id"],
+            resume_file_id="",resume_sha256=control["parent_sha256"],private_research_authorized="true",
+            noncommercial_terms_acknowledged="true")
+        self.event_path.write_bytes(c.encoded(dict(inputs=inputs)))
+        return dict(GITHUB_EVENT_PATH=str(self.event_path),INPUT_CAMPAIGN_CONTROL="",INPUT_PRIVATE_ROOT_FOLDER_ID="",
+            INPUT_PRIVATE_DATA_FOLDER_ID="",INPUT_RESUME_FILE_ID="",INPUT_NATIVE_READ_ONLY="false",
+            INPUT_PRIVATE_PRICE174="true",INPUT_CAMPAIGN_NONCE=control["nonce"],
+            A1_PRIVATE_RESEARCH_AUTHORIZED="true",ALPACA_NONCOMMERCIAL_ACKNOWLEDGED="true",
+            GITHUB_REPOSITORY=c.REPO,GITHUB_REF="refs/heads/master",GITHUB_SHA=self.auth["expected_master"],
+            GITHUB_RUN_ATTEMPT="1",GITHUB_RUN_ID="50000000000",RUNNER_TEMP=str(self.root),
+            ALPACA_API_KEY="fixture-key",ALPACA_API_SECRET="fixture-secret")
+
+    def test_real_event_parser_and_embedded_prepare_keep_private_control_out_of_environment(self):
+        import textwrap
+        control=dict(schema=self.s.PRICE174_SCHEMA,authorization=self.auth,nonce=c.PREFIX+"c"*24,
+            parent_sha256=c.external_genesis(self.s.PRICE174_SCOPE))
+        env=self.event(control)
+        with patch.dict(os.environ,env,clear=True):
+            self.assertEqual(self.s.price174_event_control(c),control)
+            path=c.ROOT/".github/workflows/alpaca_sip_private_backfill_v1.yml"
+            block=path.read_text().split("- name: Prepare bounded control metadata before credentials",1)[1]
+            script=textwrap.dedent(block.split("python - <<'PY'\n",1)[1].split("\n          PY",1)[0])
+            exec(compile(script,str(path),"exec"),{})
+            self.assertEqual(c.bounded_json(self.root/"campaign_control.json"),control)
+        with patch.dict(os.environ,dict(env,INPUT_PRIVATE_ROOT_FOLDER_ID="EXPOSED"),clear=True):
+            with self.assertRaisesRegex(c.Refused,"PRIVATE_ENV"):self.s.price174_event_control(c)
+
+    def worker_fixture(self,n=0):
+        parent=c.external_genesis(self.s.PRICE174_SCOPE) if n==0 else "a"*64
+        control=dict(schema=self.s.PRICE174_SCHEMA,authorization=self.auth,nonce=c.PREFIX+"c"*24,parent_sha256=parent)
+        proof=dict(proof_sha256="b"*64,expires_at_utc="2026-10-23T10:00:00Z")
+        observed=dict(examined=n,parent_sha=parent,active_seconds=8951,remaining=dict(c.CONTINUED_LIMITS),
+            all_runs=[dict(id=50000000000)],proof=proof)
+        args=SimpleNamespace(start="2016-01-04",end="2026-10-14",max_new_symbols=min(32,174-n),
+            private_root_folder_id="",private_data_folder_id="",resume_file_id="",resume_sha256=parent)
+        jobs=dict(total_count=2,jobs=[
+            dict(name="offline",conclusion="success",completed_at="2026-10-22T10:30:00Z"),
+            dict(name="capture",status="in_progress",started_at="2026-10-22T10:31:00Z")])
+        return control,proof,observed,args,jobs
+
+    def test_existing_collector_and_callback_stdout_are_discarded_and_meter_is_preserved(self):
+        control,proof,observed,args,jobs=self.worker_fixture()
+        env=self.event(control);real_meter=c.RuntimeMeter;meters=[]
+        def factory(*a,**kw):
+            meter=real_meter(*a,**kw,opener=Opener(b""),clock=lambda:self.clock);meters.append(meter);return meter
+        class Drive:
+            owner="fixture-owner";free=3*1024**3
+            def __init__(inner,root,temp,meter):self.assertEqual(root,"fixture-root-123")
+        def verify(drive,folder,state,ref,meter):
+            print("PRIVATE_CALLBACK_CHECKPOINT_CANARY")
+            meter.examined=32;meter.checkpoint_sha="a"*64;meter.states["VALID_COLLECTED"]=32;meter.rows=100
+        def collect(actual,**kw):
+            drive=kw["drive_factory"](actual.private_root_folder_id,"fixture-temp")
+            print("PRIVATE_COLLECTOR_CHECKPOINT_CANARY")
+            print("PRIVATE_STDERR_CANARY",file=sys.stderr)
+            kw["on_group"](drive,{},dict(sha256="a"*64))
+            return dict(checkpoint=dict(sha256="a"*64))
+        output=io.StringIO();journal=self.root/"price-meter.json"
+        from contextlib import redirect_stdout
+        with patch.dict(os.environ,env,clear=True),patch.object(self.s,"price174_history",return_value=observed),\
+             patch.object(self.s,"price174_authority",return_value=proof),patch.object(c,"campaign_runs",return_value=observed["all_runs"]),\
+             patch.object(c,"gh_json",side_effect=lambda path:jobs if "/jobs?" in path else dict(protected=True,commit=dict(sha="9"*40))),\
+             patch.object(c,"RuntimeMeter",side_effect=factory),patch.object(drive_module,"OwnerDrive",Drive),\
+             patch.object(cap,"_collect",side_effect=collect),patch.object(c,"verify_new_group",side_effect=verify),redirect_stdout(output):
+            value=self.s.price174_worker(c,args,control,journal)
+        self.assertEqual(value["examined_after"],32);self.assertTrue(c.bounded_json(journal)["finalized"])
+        receipt=c.bounded_json(journal)
+        self.assertEqual(receipt["account_permission_reference_sha256"],c.digest(self.auth["grant_reference"].encode()))
+        self.assertEqual(receipt["account_permission_record_sha256"],proof["proof_sha256"])
+        self.assertNotEqual(receipt["account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertEqual(receipt["inherited_initial_account_permission_record_sha256"],c.CONTINUATION["permission_record"])
+        self.assertIs(receipt["supplier_rights_verified"],False)
+        for private in ("PRIVATE_CALLBACK","PRIVATE_COLLECTOR","PRIVATE_STDERR","fixture-root","fixture-secret"):
+            self.assertNotIn(private,output.getvalue())
+        self.assertEqual(meters[0].used["provider_gets"],0)  # Mock collector only; no real price claim.
+
+    def test_worker_missing_parent_or_unknown_uppercase_error_never_leaks_or_resets_meter(self):
+        control,proof,observed,args,jobs=self.worker_fixture(32)
+        env=self.event(control);real_meter=c.RuntimeMeter;queries=[];calls=[]
+        def factory(*a,**kw):return real_meter(*a,**kw,opener=Opener(b""),clock=lambda:self.clock)
+        class Drive:
+            owner="fixture-owner";free=3*1024**3;token="PRIVATE_TOKEN_CANARY"
+            def __init__(inner,root,temp,meter):pass
+            def request(inner,url):queries.append(url);return c.encoded(dict(files=[]))
+        def collect(actual,**kw):
+            kw["drive_factory"](actual.private_root_folder_id,"fixture-temp")
+            calls.append("PROVIDER_WOULD_START")
+        journal=self.root/"resume-meter.json"
+        with patch.dict(os.environ,env,clear=True),patch.object(self.s,"price174_history",return_value=observed),\
+             patch.object(self.s,"price174_authority",return_value=proof),patch.object(c,"campaign_runs",return_value=observed["all_runs"]),\
+             patch.object(c,"gh_json",side_effect=lambda path:jobs if "/jobs?" in path else dict(protected=True,commit=dict(sha="9"*40))),\
+             patch.object(c,"RuntimeMeter",side_effect=factory),patch.object(drive_module,"OwnerDrive",Drive),\
+             patch.object(cap,"_collect",side_effect=collect) as collector:
+            with self.assertRaisesRegex(c.Refused,"PRICE_PRIVATE_CHECKPOINT"):
+                self.s.price174_worker(c,args,control,journal)
+            self.assertEqual(calls,[]);self.assertEqual(len(queries),1)
+            self.assertEqual(c.bounded_json(journal)["status"],"BLOCKED")
+            with self.assertRaisesRegex(c.Refused,"PRICE174_METER_REUSE"):
+                self.s.price174_worker(c,args,control,journal)
+            self.assertEqual(collector.call_count,1)
+            collector.side_effect=c.Refused("PRIVATE_UPPERCASE_SECRET_CANARY")
+            with self.assertRaisesRegex(c.Refused,"^PRICE_INTERNAL$"):
+                self.s.price174_worker(c,args,control,self.root/"other-meter.json")
+
+    def test_six_batch_forecast_uses_actual_new_cost_and_rejects_unfitting_projection(self):
+        values=[dict(status="COMPLETE",examined_before=i*32,examined_after=(i+1)*32,
+                     usage={k:100 for k in c.LIMITS}) for i in range(4)]
+        observed=dict(examined=128,receipts=values,durations=[200]*4,remaining={k:100000 for k in c.LIMITS},
+            active_seconds=10000,all_runs=[{}]*34)
+        self.assertTrue(self.s.price174_forecast(c,observed)["fits"])
+        observed["remaining"]["provider_gets"]=1
+        self.assertFalse(self.s.price174_forecast(c,observed)["fits"])
+
+
+    def test_actual_six_batch_host_history_and_journal_resume_with_mock_capture(self):
+        self.six_batch_host_history()
+
+    def test_host_expiry_after_binding_tip_read_keeps_registration_and_post_absent(self):
+        self.six_batch_host_history(expire_at="binding")
+
+    def test_host_expiry_after_final_tip_read_keeps_reservation_and_post_absent(self):
+        self.six_batch_host_history(expire_at="reservation")
+
+    def test_host_dispatch_timeout_margin_keeps_reservation_and_post_absent(self):
+        self.six_batch_host_history(expire_at="margin")
+
+    def test_host_expiry_during_reservation_sync_preserves_events_without_post(self):
+        self.six_batch_host_history(expire_at="post")
+
+    def six_batch_host_history(self,*,expire_at=None):
+        budget=self.root/"canonical-journal";oldstate=self.root/"external-cohort-top500-20261017"
+        targets=[]
+        for path,count in ((budget,17),(oldstate,48)):
+            target=c.WorkJournal(path,"d"*64)
+            for i in range(count):target.append("FIXTURE",index=i)
+            targets.append(target)
+        patch.dict(c.CONTINUATION,event=targets[0].parent).start()
+        patch.object(self.s,"READ392_COHORT",targets[1].parent).start()
+        for target in targets:target.close()
+        family_path=self.root/"external-budget-fixture";genesis=c.external_family_genesis()
+        family=c.WorkJournal(family_path,genesis)
+        for i in range(74):family.append("FIXTURE",index=i)
+        family.append("SETTLED",run_id=39235028468)
+        patch.object(self.s,"READ392_FAMILY",family.parent).start()
+        self.auth["closure_event"]=self.s.named_read30_append(c,family,self.payload())
+        before={p:p.read_bytes() for d in (budget,oldstate,family_path) for p in d.glob("*.json")}
+        auth_path=self.root/"price-auth.private.json";auth_path.write_bytes(c.encoded(self.auth))
+        csv_path=self.root/"input.csv";csv_path.write_bytes(self.csv.encode())
+        state=self.root/"external-cohort-sp500-gap-20261020"
+        args=SimpleNamespace(price174_authorization=auth_path,budget_state_dir=budget,state_dir=state,
+            cohort_input=csv_path,max_batches=6)
+        ids=self.s.BASIS_IDS+[self.s.REFUSAL_RUN,self.s.CONTROL_RUN,
+            39225295971,39227056047,39228995303,39230864255,39232902584,39235028468]
+        canonical=[dict(id=i,display_title="old "+str(i)) for i in ids]+[dict(self.run)]
+        receipts={};batches=[];proof=dict(proof_sha256="b"*64,expires_at_utc="2026-10-23T10:00:00Z")
+        legacy_receipt=dict(status="BLOCKED",examined_after=296,checkpoint_sha256=self.s.READ392_CP)
+        patch.object(self.s,"READ392_METER",c.digest(c.encoded(legacy_receipt))).start()
+        def legacy(auth,**kw):
+            prefix=self.s.price174_prefix(c,canonical,*kw["price174_context"])
+            return dict(runs=prefix,all_runs=list(canonical),examined=296,parent_sha=self.s.READ392_CP,
+                receipts=[legacy_receipt],used=dict(self.s.READ392_USED),active_seconds=8736,
+                first=c.utc(c.CONTINUATION["first"]))
+        def registry(*a):
+            nonlocal family
+            if not family.lock_owned:family=c.WorkJournal(family_path,genesis)
+            return family
+        def submit(argv,**kw):
+            if argv[:3]==["gh","run","watch"]:return SimpleNamespace(returncode=0)
+            self.assertEqual(argv[:3],["gh","workflow","run"])
+            inputs=json.loads(kw["input"]);count=int(inputs["max_new_symbols"]);batches.append(count)
+            self.assertEqual(inputs["resume_file_id"],"")
+            self.assertEqual(len(family.entries),78+3*(len(batches)-1))  # Durable reservation precedes POST.
+            control=c.decode(inputs["campaign_control"]);nonce=inputs["campaign_nonce"]
+            run=dict(id=50000000000+len(batches),run_attempt=1,head_sha="9"*40,head_branch="master",
+                event="workflow_dispatch",display_title="a1-sip "+nonce,status="completed",conclusion="success",
+                created_at="2026-10-22T11:00:00Z")
+            n=sum(batches[:-1]);usage={k:10 for k in c.LIMITS}
+            value=dict(status="COMPLETE",preflight_only=False,recovery_run=None,cohort_scope=dict(self.s.PRICE174_SCOPE),
+                bindings=dict(c.CONTINUATION["bindings"]),external_proof_sha256=proof["proof_sha256"],
+                account_permission_reference_sha256=c.digest(self.auth["grant_reference"].encode()),
+                account_permission_record_sha256=proof["proof_sha256"],
+                inherited_initial_account_permission_record_sha256=c.CONTINUATION["permission_record"],
+                supplier_rights_verified=False,
+                parent_checkpoint_sha256=control["parent_sha256"],examined_before=n,examined_after=n+count,
+                allowance={k:c.CONTINUED_LIMITS[k]-self.s.READ392_USED[k]-10*(len(batches)-1) for k in c.LIMITS},
+                usage=usage,checkpoint_sha256=c.digest(str(n+count).encode()),
+                rows_verified=count*10,
+                new_states=dict(VALID_COLLECTED=count,VERIFIED_NO_DATA=0,QUARANTINED=0))
+            receipts[run["id"]]=value;canonical.append(run)
+            return SimpleNamespace(returncode=0)
+        output=io.StringIO()
+        branch_reads=[]
+        def branch(path):
+            branch_reads.append(path)
+            if ((expire_at=="binding" and len(branch_reads)==1)
+                or (expire_at in {"reservation","margin"} and len(branch_reads)==2)):
+                self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
+                if expire_at=="margin":self.clock-=c.timedelta(seconds=45)
+            return dict(protected=True,commit=dict(sha="9"*40))
+        from contextlib import redirect_stdout
+        with patch.object(self.s,"price174_closure"),patch.object(self.s,"price174_authority",return_value=proof),\
+             patch.object(c,"external_history",side_effect=legacy),patch.object(c,"campaign_runs",side_effect=lambda *a:list(canonical)),\
+             patch.object(c,"receipt_for_run",side_effect=lambda run,*a:receipts[run["id"]]),\
+             patch.object(self.s,"price174_seconds",return_value=200),patch.object(c,"external_family_registry",side_effect=registry),\
+             patch.object(c,"gh_json",side_effect=branch),\
+             patch.object(c.subprocess,"run",side_effect=submit),redirect_stdout(output):
+            barrier=c.sync_native18_settlement;fired=[]
+            def interrupt(path):
+                barrier(path)
+                if expire_at=="post" and Path(path)==state/"000002.json":
+                    self.clock=c.utc(self.auth["execution_window"]["expires_at_utc"])
+                if Path(path)==state/"000004.json" and not fired:
+                    fired.append(True);raise c.Refused("SYNTHETIC_SETTLEMENT_BARRIER")
+            with patch.object(c,"sync_native18_settlement",side_effect=interrupt):
+                if expire_at:
+                    with self.assertRaisesRegex(c.Refused,"CAMPAIGN_EXPIRED"):self.s.price174_host(c,args)
+                    self.assertEqual(batches,[])
+                    self.assertEqual(len(family.entries),76 if expire_at=="binding" else 78 if expire_at=="post" else 77)
+                    self.assertEqual(before,{p:p.read_bytes() for p in before})
+                    return
+                with self.assertRaisesRegex(c.Refused,"SYNTHETIC_SETTLEMENT_BARRIER"):self.s.price174_host(c,args)
+            self.assertEqual(len(batches),1)
+            final=self.s.price174_host(c,args)
+            self.assertEqual(batches,[32,32,32,32,32,14])
+            self.assertEqual(final["examined"],174);self.assertEqual(final["new_valid_prices"],174)
+            self.assertEqual(final["dispatches"],36);self.assertEqual(final["active_seconds"],10151)
+            self.assertEqual(self.s.price174_host(c,args),final)
+            self.assertEqual(len(batches),6)
+        self.assertEqual(len(family.entries),95)
+        self.assertEqual(before,{p:p.read_bytes() for p in before})
+        for private in ("fixture-root","fixture-data","fixture-secret","file_id","prior_control_zlib"):
+            self.assertNotIn(private,output.getvalue())
+
+    def test_terminal_job_clock_requires_actual_strings_and_counts_both_jobs(self):
+        run=dict(id=501,created_at="2026-10-22T10:00:00Z")
+        jobs=dict(total_count=2,jobs=[
+            dict(name="offline",status="completed",started_at="2026-10-22T10:00:01Z",completed_at="2026-10-22T10:01:01Z"),
+            dict(name="capture",status="completed",started_at="2026-10-22T10:01:02Z",completed_at="2026-10-22T10:02:32Z")])
+        with patch.object(c,"gh_json",return_value=jobs):
+            self.assertEqual(self.s.price174_seconds(c,run),150)
+            for value in (None,"","2030-01-01T00:00:00Z"):
+                jobs["jobs"][0]["started_at"]=value
+                with self.assertRaises(c.Refused):self.s.price174_seconds(c,run)
+
+    def test_new_suffix_cannot_hide_diagnostic_extra_attempt_source_or_old_prefix_changes(self):
+        ids=self.s.BASIS_IDS+[self.s.REFUSAL_RUN,self.s.CONTROL_RUN,
+            39225295971,39227056047,39228995303,39230864255,39232902584,39235028468]
+        rows=[dict(id=i,display_title="old "+str(i)) for i in ids]+[dict(self.run)]
+        price=dict(id=50000000001,run_attempt=1,head_sha="9"*40,head_branch="master",event="workflow_dispatch",
+            created_at="2026-10-22T11:00:00Z",display_title="a1-sip "+c.PREFIX+"c"*24)
+        self.assertEqual(len(self.s.price174_prefix(c,rows+[price],self.auth,self.control)),29)
+        for key,value in (("run_attempt",True),("run_attempt",2),("head_sha","f"*40),
+                          ("display_title",price["display_title"]+" native-read39235028468")):
+            bad=dict(price);bad[key]=value
+            with self.subTest(key=key),self.assertRaises(c.Refused):self.s.price174_prefix(c,rows+[bad],self.auth,self.control)
+        changed=copy.deepcopy(rows);changed[0]["id"]+=1
+        with self.assertRaises(c.Refused):self.s.price174_prefix(c,changed+[price],self.auth,self.control)
+
 if __name__=='__main__': unittest.main()

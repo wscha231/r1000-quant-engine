@@ -1308,3 +1308,133 @@ The pagination implementation stays in the always-pinned campaign controller:
 legacy v1/v2 controls do not authenticate the optional revision module and
 must never execute an unpinned history implementation. Controller file size
 remains within the existing262144B source-pin guard.
+
+### Exact failed diagnostic30 cost closure; no read or price continuation
+
+The host-only `--native392-premeter-control` path verifies the consumed15927B
+V3 control40cb2c3c, actual failed run39544804083/attempt1, immutable657/650
+deployments and OWNER grant. It authenticates the historical seven3d6 pins and
+full reviewed/deployed tree separately from today's local implementation.
+It also requires a separate current protected publication descriptor supplied
+by `--native392-premeter-publication`: expected master, reviewed PR/head and
+the canonical seven-pin digest. No pending or unmerged Source may write costs.
+
+The original BOM-inclusive105967B log SHA is
+3e2fa8ae6903b694f1e6c4d584034d4e88e3a3cf4ebf266216494b93fb79287d.
+Its single positive failure record and pinned pre-meter call order, along with
+the failed reconcile and skipped capture step, prove the zero provider/Drive
+delta. Artifact absence alone does not. Original stderr remains unobserved.
+Fresh run/job reads compare security fields; retained complete metadata hashes
+remain audit references rather than assertions that incidental API fields can
+never change. A fractional log timestamp may occupy the server step's final
+whole-second bucket: started<=witness<completed+1second, within the job bounds.
+This precision rule changes no campaign deadline or validity window.
+
+After the genuine canonical30-run snapshot and unchanged29-run cost/CP296 basis
+are verified, preserve provider968, Drive9847, transfer1657932691B and storage
+131488371B. Add exactly offline135+reconcile80=215 active seconds and one already
+consumed dispatch:8736->8951 seconds and29->30/40 dispatches. Unknown storage
+302101B and434796B remains charged; no RuntimeMeter is reconstructed.
+
+Under the existing family writer lock, recheck the actual30 history and live
+protected publication, then append only the typed
+NAMED_READ39544804083_PREMETER_CLOSED event at76 from the exact family75 tail.
+An identical visible76 after a durability interruption is verified/reflushed,
+without append77 or another debit. Changed/malformed76, missing original17 or
+cohort48, another canonical run, source drift and a concurrent writer refuse.
+The original journals, checkpoint and prices are not rewritten.
+
+This is historical accounting even after expiry. It performs no provider or
+Drive request, workflow dispatch, runtime preflight, new grant/nonce, clock
+reset, refund or capture reservation. It proves no successful object inspection,
+storage absence, request equivalence or PIT eligibility. A subsequent read31 or
+separate174-price path still needs its own reviewed implementation and actual
+authority/window checks; this closure cannot activate either path.
+
+### Separate frozen174 price continuation after exact failed30 accounting
+
+This route reuses the existing collector, workflow and RuntimeMeter. Its fixed
+task is R1000-A1-SP500-PRIORITY-CAPTURE-20261020 and namespace
+sp500-gap-20261020. The737-byte ticker CSV SHA is
+b36152639bf4c64780c74beba1aeb48aacac4e7d9fba8ecdae77ed4b3c6a9329;
+the prior verified inventory commitment is
+d97c707586147d191debb1883526f594065c6b523956f311fba52376205c395a.
+This is a frozen proxy-gap input, not certified historical index membership.
+Do not append it to either the old993 seed or partial417 cohort.
+
+The original CP296/failed meter and pinned synchronous collector establish that
+the uncertain POST cannot contain inputs beyond old prefix300. Its next group
+MSCI/BSBR/STM/FMX and all earlier examined names are disjoint from frozen174.
+Retain the unknown434796B reservation and old302101B charge, quarantine those
+objects and never retry their POST or resume old417 concurrently. This scope
+proof establishes no payload role/hash, storage success or absence. It permits
+an independently authorized disjoint cohort without another diagnostic31.
+
+The actual typed cost event76 must exist before an executable authorization can
+be made. The new authorization commits its complete event, original control40cb,
+frozen input/inventory, original account/owner/private bindings and current
+protected publication. Base64/zlib transports the exact15927B old control with
+a16384-byte decompression bound, no trailing stream and exact canonical hash;
+it changes neither the15000-byte auth nor16384-byte dispatch limit.
+
+A new explicit human authority and immutable OWNER record are mandatory for a
+new24-hour price window. The window must start at that actual reviewed price
+Source's protected merge. It cannot reuse the expired old price window or650's
+read-only authority. Source publication alone creates no execution grant.
+The public grant contains hashes/counts and fixed terms, not compressed private
+control, folder IDs or credentials. Its stable authorization hash excludes only
+the returned self-locator; binding/proof hashes still detect grant replacement.
+
+Keep the entire genuine canonical history. Exactly the old29 prefix is replayed
+under its original auth, failed30 contributes215 seconds/+1 once, and each real
+new price receipt contributes its own complete allowance/usage/jobs/CP chain.
+All old17/cohort48/family75 bytes and CP296 remain unchanged. New family binding
+and a separate cohort journal carry reserve->assigned->settled pairs. Missing
+reservations, unknown dispatches, duplicate/reordered history, incomplete meters,
+conflicting events and interrupted partial writes refuse. A fully visible
+settlement may reflush its missing counterpart without another GET/dispatch or
+debit. All spent/uncertain costs survive every invocation.
+
+Use the existing32,32,32,32,32,14 batches sequentially. The actual inherited caps
+remain Provider2000, Drive50000, transfer9GiB, storage1GiB, active43200 seconds and
+dispatch40. No reset, account migration or extra recovery slot is implied.
+Before every dispatch require7800 active seconds available, the live protected
+tip and unchanged canonical snapshot/grant. At128 examined new subjects, use
+actual batch usage/job seconds with the existing25% forecasting margin; a
+projection that cannot fit the remaining caps stops. Job seconds include both
+offline and capture, with actual non-null server clocks.
+
+Read private controls from GITHUB_EVENT_PATH with blank public folder/control/
+checkpoint-ID environment values. Each worker verifies the original credential
+binding, same owner-only Drive and at least2GiB free space. A later batch resolves
+exactly parentSHA.json in that private folder with bounded page2/no pagination/
+exactly-one metadata, then the existing checkpoint loader verifies bytes/scope.
+Those reads and OAuth/bootstrap costs use the same RuntimeMeter before provider
+capture. No checkpoint IDs need enter public logs or artifacts. Collector and
+readback callback stdout/stderr stay in private temporary storage; public output
+contains only safe counts, SHA and typed status. Raw/split receipt/readback and
+deadline/cleanup policies are unchanged.
+
+Emit each settled batch's actual run/meter/journal hashes, examined/valid/no-data/
+held/row counts and cumulative remaining resources. A blocked meter or failed
+run stops further dispatch, preserving verified partial results and all costs.
+All174 examined is distinct from174 valid prices; held/no-data never become
+valid prices. Source/PIT, ranking, ER, economic evaluation, schedules, portfolios
+and broker state remain outside this route. Synthetic tests certify code only;
+actual execution still needs the final protected Source, real76 and OWNER grant.
+Adapter failures use the existing letter/underscore-only RuntimeMeter reason
+format; unknown exception text is replaced with a fixed safe code. Existing
+meter paths cannot be reused to reset counters within the same worker attempt.
+
+Recheck the local execution window after the last branch/history response,
+before registration/reservation and immediately before dispatch. Remote reads
+or durable journal writes may cross the expiry boundary; an expired path must
+not POST. Require more than the existing45-second POST timeout remaining at
+both dispatch checks; this is a stop margin, not a renewed window. A reservation
+already persisted before expiry remains visible and
+fail-closed, without being mistaken for an assigned or executed run.
+The current account_permission reference/record pair identifies the new OWNER
+execution grant. Preserve the original initial permission-record hash separately;
+never pair it with a later execution reference. supplier_rights_verified remains
+false: neither this implementation nor an execution grant certifies supplier
+licensing or creates an unobserved account reference.

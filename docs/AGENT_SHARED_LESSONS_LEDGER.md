@@ -7408,3 +7408,38 @@ legacy controls; revision-only changes must trigger the specialized checks.
 PR660 records the transport correction and exact source/test evidence. Its
 code/CI success does not settle the failed run, renew an execution window,
 authorize another diagnostic, or establish174 new prices or PIT eligibility.
+
+The follow-up accounting verifier must authenticate historical deployment bytes
+separately from current local code. Keep raw BOM-inclusive failure-log hashes
+distinct from decoded convenience copies. Compare fresh API security fields
+with the retained job proof without depending on avatar or URL serialization.
+The failed step's whole-second completion clock includes its final fractional
+log second; use only that explicit precision bucket within the job bounds.
+Record the observed215 seconds and one dispatch with a distinct idempotent cost
+event, never a fabricated RuntimeMeter or permission to retry the failed read.
+
+For a disjoint new cohort, prove the failed source's execution footprint from
+the actual last verified checkpoint, meter and synchronous group/readback order.
+Keep an uncertain POST charged/quarantined even when its possible symbols do not
+overlap the new frozen input; disjointness is not proof of storage absence or
+payload identity. A separate cohort needs its own actual authority/window and
+checkpoint namespace while carrying all old costs and unresolved outcomes.
+
+Legacy collector callbacks print private checkpoint references. Capture that
+output privately and let the next metered worker resolve a content-addressed
+checkpoint under the owner-only folder, rather than publishing the reference or
+doing unmetered host reads. Preserve semantic readback and count no-data/held
+separately from valid prices. Test full sequential batches and interrupted
+settlement repair without dispatching an already completed batch again.
+Keep adapter error names compatible with the existing meter's strict reason
+schema; do not loosen that schema to fit a new route. Unknown exception text
+must not reach a public meter, even when it contains only uppercase characters.
+
+An independently reproduced expiry race remained after a successful remote
+authority check: the final branch request could finish at expiry, then reserve
+and dispatch a run outside its authorized window. Recheck the local clock after
+that response and again immediately before POST, including after journal fsync.
+Keep any already durable reservation visible when expiry stops the POST.
+Do not combine an original account-evidence hash with a later execution grant's
+reference. Preserve those lineages separately and keep supplier rights explicitly
+unverified; an OWNER execution instruction is not a supplier rights certificate.

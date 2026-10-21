@@ -108,14 +108,15 @@ jobs:
     env:
       A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
       ALPACA_NONCOMMERCIAL_ACKNOWLEDGED: ${{ inputs.noncommercial_terms_acknowledged }}
-      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && inputs.private_root_folder_id || '' }}
-      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && inputs.private_data_folder_id || '' }}
+      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.private_root_folder_id || '' }}
+      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.private_data_folder_id || '' }}
       INPUT_END_DATE: ${{ inputs.end_date }}
       INPUT_MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
-      INPUT_RESUME_FILE_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && inputs.resume_file_id || '' }}
+      INPUT_RESUME_FILE_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.resume_file_id || '' }}
       INPUT_RESUME_SHA256: ${{ inputs.resume_sha256 }}
-      INPUT_CAMPAIGN_CONTROL: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && inputs.campaign_control || '' }}
+      INPUT_CAMPAIGN_CONTROL: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.campaign_control || '' }}
       INPUT_CAMPAIGN_NONCE: ${{ inputs.campaign_nonce }}
+      INPUT_PRIVATE_PRICE174: ${{ inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' && 'true' || 'false' }}
       INPUT_NATIVE_READ_ONLY: ${{ inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39085031884-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -147,7 +148,10 @@ jobs:
           from tools.twelve_private_capture import decode, require
           from tools.alpaca_sip_campaign import atomic_json
           raw = os.environ['INPUT_CAMPAIGN_CONTROL'].encode()
-          if not raw and os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
+          if not raw and os.environ.get('INPUT_PRIVATE_PRICE174') == 'true':
+              from tools import alpaca_sip_campaign as controller
+              value = controller._revision_module().price174_event_control(controller)
+          elif not raw and os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
               from tools.alpaca_sip_campaign import native_read_control_from_event
               value = native_read_control_from_event()
           else:
@@ -155,7 +159,8 @@ jobs:
               value = decode(raw)
           require(isinstance(value, dict) and ('schema' not in value or value['schema'] in (
               'a1-native-drive-read-39085031884-v1', 'a1-native-drive-read-39235028468-v1',
-              'a1-native-drive-read-39235028468-v2', 'a1-native-drive-read-39235028468-v3')),
+              'a1-native-drive-read-39235028468-v2', 'a1-native-drive-read-39235028468-v3',
+              'a1-sp500-gap174-capture-v1')),
               'CAMPAIGN_CONTROL_SCHEMA')
           atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', value)
           if os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
