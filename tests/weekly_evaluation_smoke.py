@@ -111,6 +111,33 @@ class ResearchWeeklyCallerTests(__import__('unittest').TestCase):
     def data(self):
         return [dict(session=d,timestamp=d+'T21:00:00Z',nav=1.) for d in ('2026-01-09','2026-01-16','2026-01-23')]
 
+    def test_rf_optional_v3_partial_keeps_unit_guard_and_blocks_package_CLI(self):
+        import copy,json,subprocess,sys
+        from tools import nav_metrics_v2 as nav
+        from tools.run_weekly_evaluation import build_weekly_curve,normalize_holdings
+        package=copy.deepcopy(self.measurement())
+        for item in package.values():
+            item["full"]["schema"]="nav-measurement-context-v3-rf-optional";item["full"]["risk_free"]=None
+        out=run(self.latest,self.out,self.cache,measurement_contexts=package)
+        self.assertEqual(out["status"],nav.BLOCKED);self.assertFalse(out["metric_admission_complete"])
+        for item in out["metrics"].values():self.assertIsNone(item["cagr"])
+        self.assertFalse(list((self.out/nav.NAMESPACE).glob("*.csv")))
+        bad=copy.deepcopy(package)
+        for item in bad.values():
+            anchor=item["full"]["anchor"];anchor["nav"]=2.
+            anchor["ref"]["sha256"]=nav.digest({k:v for k,v in anchor.items() if k!="ref"})
+        refused=run(self.latest,self.out,self.cache,measurement_contexts=bad)
+        for item in refused["metrics"].values():
+            self.assertEqual(item["reason"],"CALLER_WEEKLY_INITIAL_UNIT_MISMATCH")
+            self.assertIsNone(item["cagr"])
+        path=self.root/"rf-optional.json";path.write_text(json.dumps(package))
+        cmd=[sys.executable]+(["-O"] if sys.flags.optimize else [])+[str(ROOT/"tools/run_weekly_evaluation.py"),
+             "--latest-run",str(self.latest),"--output-dir",str(self.out),"--price-cache",str(self.cache),
+             "--nav-metrics-context",str(path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,timeout=90)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn("Traceback",child.stderr)
+        self.assertEqual(json.loads(child.stdout)["status"],nav.BLOCKED)
+
     def measurement(self):
         from nav_metrics_v2_smoke import context,binding
         data=self.data();c=context(data,anchor_nav=1.,frequency='weekly')

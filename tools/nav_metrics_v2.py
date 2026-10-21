@@ -26,6 +26,7 @@ _NATIVE_LOOP_CODES = tuple(code for code in getattr(_NATIVE_RESOLVE_CODE, "co_co
 
 MODE = "nav_metrics_v2_research"
 COMPLETE = "research_completed"
+PARTIAL_RAW_ONLY = "research_partial_raw_only"
 BLOCKED = "research_blocked"
 NAMESPACE = "nav_metrics_v2_research"
 CURVE_FILE = "equity_curve.research_v2.csv"
@@ -420,7 +421,8 @@ def _calculate(rows, c, label):
     require(type(c) is dict and set(c) == {"schema", "frequency", "cutoff", "grid", "anchor",
                                          "nav_ref", "risk_free", "external_flows"}, "CONTEXT_FIELDS")
     encoded(c); encoded(rows)
-    require(c["schema"] == "nav-measurement-context-v2", "CONTEXT_SCHEMA")
+    require(c["schema"] in ("nav-measurement-context-v2",
+                            "nav-measurement-context-v3-rf-optional"), "CONTEXT_SCHEMA")
     require(c["frequency"] in ("daily", "weekly"), "FREQUENCY")
     cutoff = stamp(c["cutoff"])
     grid = c["grid"]
@@ -496,21 +498,26 @@ def _calculate(rows, c, label):
     reference(flows["ref"], {k:v for k,v in flows.items() if k != "ref"}, cutoff)
     require(stamp(flows["ref"]["available_at"]) >= times[-1], "FLOW_RECEIPT_PRECEDES_SCOPE_END")
     rf = c["risk_free"]
-    require(type(rf) is dict and set(rf) == {"kind", "rows", "ref"}, "RF_FIELDS")
-    require(rf["kind"] == "ACTUAL_INTERVAL_SIMPLE_RETURN", "RF_QUOTE_UNSUPPORTED")
-    require(type(rf["rows"]) is list and len(rf["rows"]) == len(rows), "RF_ALIGNMENT")
-    reference(rf["ref"], rf["rows"], cutoff)
-    rf_available = stamp(rf["ref"]["available_at"])
-    rf_values, previous_t = [], anchor_t
-    for item, t in zip(rf["rows"], times):
-        require(type(item) is dict and set(item) == {"start", "end", "value", "available_at"}, "RF_ROW_FIELDS")
-        require(stamp(item["start"]) == previous_t and stamp(item["end"]) == t, "RF_ALIGNMENT")
-        row_available = stamp(item["available_at"])
-        require(row_available <= t, "RF_FUTURE")
-        require(row_available <= rf_available, "RF_RECEIPT_PRECEDES_ROW_AVAILABILITY")
-        value = real(item["value"])
-        require(value > -1, "RF_RETURN_DOMAIN")
-        rf_values.append(value); previous_t = t
+    if rf is None:
+        require(c["schema"] == "nav-measurement-context-v3-rf-optional",
+                "RF_NULL_REQUIRES_OPT_IN_VERSION")
+        rf_values = None
+    else:
+        require(type(rf) is dict and set(rf) == {"kind", "rows", "ref"}, "RF_FIELDS")
+        require(rf["kind"] == "ACTUAL_INTERVAL_SIMPLE_RETURN", "RF_QUOTE_UNSUPPORTED")
+        require(type(rf["rows"]) is list and len(rf["rows"]) == len(rows), "RF_ALIGNMENT")
+        reference(rf["ref"], rf["rows"], cutoff)
+        rf_available = stamp(rf["ref"]["available_at"])
+        rf_values, previous_t = [], anchor_t
+        for item, t in zip(rf["rows"], times):
+            require(type(item) is dict and set(item) == {"start", "end", "value", "available_at"}, "RF_ROW_FIELDS")
+            require(stamp(item["start"]) == previous_t and stamp(item["end"]) == t, "RF_ALIGNMENT")
+            row_available = stamp(item["available_at"])
+            require(row_available <= t, "RF_FUTURE")
+            require(row_available <= rf_available, "RF_RECEIPT_PRECEDES_ROW_AVAILABILITY")
+            value = real(item["value"])
+            require(value > -1, "RF_RETURN_DOMAIN")
+            rf_values.append(value); previous_t = t
     years = (times[-1] - anchor_t).total_seconds() / (365.25 * 86400)
     require(years > 0 and math.isfinite(years), "ELAPSED_TIME")
     previous, peak = anchor_nav, anchor_nav
@@ -526,8 +533,11 @@ def _calculate(rows, c, label):
     cagr = ratio ** (1 / years) - 1
     require(math.isfinite(ratio) and math.isfinite(cagr), "DERIVED_NONFINITE")
     raw_sharpe, raw_vol, raw_reason = _statistics(returns, annualization)
-    excess = [r - f for r, f in zip(returns, rf_values)]
-    excess_sharpe, _, excess_reason = _statistics(excess, annualization)
+    if rf_values is None:
+        excess_sharpe, excess_reason = None, "RF_NOT_AVAILABLE"
+    else:
+        excess = [r - f for r, f in zip(returns, rf_values)]
+        excess_sharpe, _, excess_reason = _statistics(excess, annualization)
     out = dict(status=COMPLETE, metric_mode=MODE, metric_admission_complete=True, label=label,
                input_row_count=len(rows), days=len(rows), frequency=c["frequency"],
                start_date=points[0]["session"], end_date=points[-1]["session"],
@@ -540,6 +550,13 @@ def _calculate(rows, c, label):
                annualization=annualization, standard_deviation_ddof=1, cost_basis="SUPPLIED_NET_NAV_NO_SECOND_FEE",
                measurement_context_sha256=digest(c), input_rows_sha256=digest(rows),
                producer_authentication="NOT_CERTIFIED_BY_HASH_AGREEMENT", **AUTHORITY)
+    if rf_values is None:
+        out.update(status=PARTIAL_RAW_ONLY,
+                   reason="RF_NOT_AVAILABLE",
+                   metric_admission_complete=False,
+                   rf_availability="NOT_AVAILABLE",
+                   rf_excess_admitted=False,
+                   economic_comparison_ready=False)
     encoded(out)
     return out
 
@@ -629,7 +646,7 @@ def calculate_frame(frame, context, *, date_column="date", nav_column="equity_us
                         and real(anchor["nav"], True) == real(predecessor["nav"], True), "OOS_PREDECESSOR_MISMATCH")
             rows = [rows[i] for i in selected]
         result = calculate(rows, context, label=label)
-        if result["status"] == COMPLETE and provenance is not None:
+        if result["status"] in (COMPLETE, PARTIAL_RAW_ONLY) and provenance is not None:
             result["valuation_binding_provenance"] = provenance
             encoded(result)
         return result

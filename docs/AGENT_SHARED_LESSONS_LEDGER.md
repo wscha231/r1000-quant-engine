@@ -7443,3 +7443,22 @@ Keep any already durable reservation visible when expiry stops the POST.
 Do not combine an original account-evidence hash with a later execution grant's
 reference. Preserve those lineages separately and keep supplier rights explicitly
 unverified; an OWNER execution instruction is not a supplier rights certificate.
+
+
+## 2026-10-21 RF-optional raw measurements
+
+Explicit RF absence may permit a versioned raw research measurement while RF excess stays null. Partial status must not bypass caller capital/anchor checks or lose bound valuation provenance. Preserve OOS predecessor checks and COMPLETE-only package/publication admission; never turn absent RF into zero or a malformed RF object into absence.
+
+### 2026-10-21 — Refresh current reuse bindings when NAV callers change
+
+Actual E2 PR654 validation39474051977 passed234/235 registered programs; the
+agent-board/manual fixture failed with catalog_dependency_changed for the
+broker replay caller. The NAV, broker and weekly suites themselves passed.
+Current-equivalent catalog bindings must track the exact changed broker/NAV/
+weekly bytes as well as the new consumed contract. Reconcile only the six
+affected entries, record the actual verification clock and current master
+baseline, and retain original PR heads, historical classifications, constraints
+and do-not-repeat references. This is byte consistency, not a new economic
+approval or promotion of historical/SELECTIVE_PORT entries. Keep stale and
+omitted-hash refusal tests, the valid real CLI control and strict verifier
+functions; never bypass the dependency check to obtain green CI.

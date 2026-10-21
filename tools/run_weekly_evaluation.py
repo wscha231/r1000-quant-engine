@@ -452,7 +452,7 @@ def build_weekly_curve(
         else:
             metric = weekly_metrics(curve, portfolio_kind, measurement_context=measurement_context,
                                     valuation_binding=valuation_binding)
-        if metric.get("status") == nav_v2.COMPLETE:
+        if metric.get("status") in (nav_v2.COMPLETE, nav_v2.PARTIAL_RAW_ONLY):
             if metric["starting_capital_usd"] != 1.0:
                 metric = nav_v2.blocked("CALLER_WEEKLY_INITIAL_UNIT_MISMATCH")
             elif measurement_context["anchor"]["kind"] != "PREFILL":

@@ -887,6 +887,41 @@ class ResearchNavCallerTests(unittest.TestCase):
     write_prices = GeneratedOutputLifecycleTests.write_prices
     run_replay = GeneratedOutputLifecycleTests.run_replay
 
+    def test_rf_optional_v3_raw_API_keeps_capital_and_package_CLI_blocks(self):
+        from tools import nav_metrics_v2 as nav
+        from nav_metrics_v2_smoke import rows,context,frame
+        data=rows();c=context(data);c["schema"]="nav-measurement-context-v3-rf-optional";c["risk_free"]=None
+        self.assertEqual(broker.calc_metrics(frame(data),pd.DataFrame(),100.,measurement_context=c)["status"],nav.PARTIAL_RAW_ONLY)
+        bad=broker.calc_metrics(frame(data),pd.DataFrame(),101.,measurement_context=c)
+        self.assertEqual(bad["reason"],"CALLER_PREFILL_CAPITAL_MISMATCH");self.assertIsNone(bad["cagr"])
+        c["anchor"]["kind"]="OOS_PREDECESSOR"
+        c["anchor"]["ref"]["sha256"]=nav.digest({k:v for k,v in c["anchor"].items() if k!="ref"})
+        bad=broker.calc_metrics(frame(data),pd.DataFrame(),100.,measurement_context=c)
+        self.assertEqual(bad["reason"],"CALLER_PREFILL_ANCHOR_KIND");self.assertIsNone(bad["cagr"])
+        self.write_prices([100.]*4);package=self.measurement()
+        self.assertEqual(self.run_replay(measurement_context=package)["status"],nav.COMPLETE)
+        package["full"]["schema"]=c["schema"];package["full"]["risk_free"]=None
+        result=self.run_replay(measurement_context=package)
+        self.assertEqual(result["status"],nav.PARTIAL_RAW_ONLY)
+        self.assertFalse(result["metric_admission_complete"]);self.assertFalse(result["economic_comparison_ready"])
+        self.assertIsNotNone(result["cagr"]);self.assertIsNone(result["sharpe_excess_rf"])
+        dest=self.out/nav.NAMESPACE;self.assertFalse((dest/nav.CURVE_FILE).exists())
+        path=self.root/"rf-optional.json";path.write_text(json.dumps(package))
+        cmd=[sys.executable]+(["-O"] if sys.flags.optimize else [])+[str(ROOT/"tools/run_broker_ledger_replay.py"),
+             "--target-book",str(self.target),"--price-cache",str(self.cache),"--output-dir",str(self.out),
+             "--starting-capital","10000","--fill-mode","next_close","--cash-carry-mode","none",
+             "--reserve-mode","BROKER_CASH_OR_MMF","--nav-metrics-context",str(path)]
+        child=subprocess.run(cmd,capture_output=True,text=True,timeout=90)
+        self.assertEqual(child.returncode,2,child.stderr);self.assertNotIn("Traceback",child.stderr)
+        default=json.loads(child.stdout)
+        self.assertEqual(default["status"],nav.BLOCKED,child.stdout)
+        self.assertEqual(default["reason"],"RF_NOT_AVAILABLE");self.assertIsNone(default["cagr"])
+        child=subprocess.run(cmd+["--oos-start","","--oos2-start",""],capture_output=True,text=True,timeout=90)
+        self.assertEqual(child.returncode,2,child.stderr)
+        explicit=json.loads(child.stdout)
+        self.assertEqual(explicit["status"],nav.PARTIAL_RAW_ONLY,child.stdout)
+        self.assertFalse(explicit["metric_admission_complete"]);self.assertIsNone(explicit["sharpe_excess_rf"])
+
     def measurement(self, value=9987.5):
         from nav_metrics_v2_smoke import rows, context, binding
         data = rows((value, value, value))

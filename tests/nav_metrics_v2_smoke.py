@@ -60,6 +60,60 @@ def frame(data):
 
 
 class NavMetricTests(unittest.TestCase):
+    def test_rf_optional_v3_preserves_raw_and_never_admits_missing_RF(self):
+        spec = json.loads((ROOT / "docs/nav_metrics_v3_rf_optional_contract.json").read_text())
+        data=rows(); strict=context(data,rf_values=[.001,.002,.003])
+        baseline=nav.calculate(data,strict); self.assertEqual(baseline["status"],nav.COMPLETE)
+        c=copy.deepcopy(strict);c["schema"]=spec["context_schema"];c["risk_free"]=None
+        before=copy.deepcopy(c);out=nav.calculate(data,c)
+        self.assertEqual(out["status"],nav.PARTIAL_RAW_ONLY)
+        for key in ("cagr","total_return","max_dd","sharpe_raw","volatility_raw","first_interval_return"):
+            self.assertEqual(out[key],baseline[key],key)
+        self.assertIsNone(out["sharpe_excess_rf"])
+        self.assertEqual(out["statistic_reasons"]["sharpe_excess_rf"],"RF_NOT_AVAILABLE")
+        for key in ("metric_admission_complete","rf_excess_admitted","economic_comparison_ready","valid_for_production"):
+            self.assertIs(out[key],False,key)
+        self.assertEqual(c,before);json.dumps(out,allow_nan=False)
+        strict["risk_free"]=None;self.assertBlocked(nav.calculate(data,strict))
+        bound=nav.calculate_frame(frame(data),c,valuation_binding=binding(data))
+        self.assertEqual(bound["valuation_binding_provenance"]["sha256"],nav.digest(binding(data)))
+
+    def test_rf_optional_v3_valid_RF_preserves_metrics_and_bad_evidence_refuses(self):
+        data=rows();old=context(data,rf_values=[.001,.002,.003]);new=copy.deepcopy(old)
+        new["schema"]="nav-measurement-context-v3-rf-optional"
+        a,b=nav.calculate(data,old),nav.calculate(data,new)
+        for key in nav.METRIC_FIELDS:self.assertEqual(a[key],b[key],key)
+        self.assertEqual(b["status"],nav.COMPLETE)
+        for kind in ("missing","shape","quote","hash","future","boolean","NAV","grid","flow"):
+            with self.subTest(kind=kind):
+                c=copy.deepcopy(new);d=copy.deepcopy(data)
+                if kind=="missing":c.pop("risk_free")
+                elif kind=="shape":c["risk_free"]=[]
+                elif kind=="quote":c["risk_free"]["kind"]="ANNUAL_QUOTE"
+                elif kind=="hash":c["risk_free"]["ref"]["sha256"]="0"*64
+                elif kind=="future":c["risk_free"]["ref"]["available_at"]="2026-01-08T21:00:00Z"
+                elif kind=="boolean":
+                    c["risk_free"]["rows"][0]["value"]=True
+                    c["risk_free"]["ref"]["sha256"]=nav.digest(c["risk_free"]["rows"])
+                else:
+                    c["risk_free"]=None
+                    if kind=="NAV":d[0]["nav"]=0
+                    elif kind=="grid":c["grid"]["ref"]["sha256"]="0"*64
+                    else:c["external_flows"]["kind"]="UNKNOWN"
+                self.assertBlocked(nav.calculate(d,c))
+
+    def test_rf_optional_v3_keeps_OOS_predecessor_and_receipt_checks(self):
+        data=rows();c=context(data[1:],anchor_nav=data[0]["nav"],anchor_time=data[0]["timestamp"],anchor_kind="OOS_PREDECESSOR")
+        c["schema"]="nav-measurement-context-v3-rf-optional";c["risk_free"]=None
+        out=nav.calculate_frame(frame(data),c,valuation_binding=binding(data),date_range=(data[1]["session"],None),label="oos")
+        self.assertEqual(out["status"],nav.PARTIAL_RAW_ONLY)
+        self.assertIn("valuation_binding_provenance",out)
+        bad=copy.deepcopy(c);bad["anchor"]["nav"]+=1
+        out=nav.calculate_frame(frame(data),bad,date_range=(data[1]["session"],None),label="oos")
+        self.assertBlocked(out);self.assertEqual(out["reason"],"OOS_PREDECESSOR_MISMATCH")
+        out=nav.calculate_frame(frame(data),c,label="oos")
+        self.assertBlocked(out);self.assertEqual(out["reason"],"OOS_PREDECESSOR_MISSING")
+
     def assertBlocked(self, result):
         self.assertEqual(result["status"], nav.BLOCKED)
         self.assertFalse(result["metric_admission_complete"])
