@@ -7489,3 +7489,20 @@ Independent A6 found that pinning only root .gitattributes misses ancestor
 attributes used from the Git index during sparse checkout. Freeze all six
 root/ancestor attribute presence/content records, including absent files. The
 same six cached parent trees close this gap without additional API calls.
+
+## 2026-10-21 ER252 supplied-label H1 boundary
+
+Rebase a prepared additive change only after verifying its consumed base blobs; a stale global master pin is not permission to overwrite current Main. The V2 252-session helper checks supplied realized labels with the actual NYSE calendar and the last completed U.S. session. It does not authenticate source/PIT, fit a model, produce expected returns, or authorize A5. Preserve V1 defaults and keep every valid-identity cohort row, including blocked lifecycle rows. A contract newly read by a registered proof must also enter the fixed A6 dependency inventory and its stale-byte/rebound-omission regression.
+
+### 2026-10-21 — Supplied labels need cohort consistency and a real observation bound
+
+PR653's trusted exact-head Codex review found three H1 gaps: conflicting SPY
+returns passed independently within one feature date, untrimmed identifiers
+escaped duplicate detection, and a caller's future decision time made future
+labels appear mature. Validate the existing Candidate Registry identifier
+grammar before deduplication, gather all benchmark values before admitting any
+row, and bound the decision by one runtime UTC observation snapshot. Retain all
+conflicting rows as blocked; historical as-of decisions remain supported.
+Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
+observation clock, source/PIT authentication, model fit, ER or A5 authority is
+introduced. Re-review the new exact head; the superseded review is not approval.
