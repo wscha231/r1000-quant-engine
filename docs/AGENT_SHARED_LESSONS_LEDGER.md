@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-21 — SEC mapping evidence is separate from typed-event admission
+
+Original BRK89 raw parsing omitted the map; reusing the existing explicit CUSIP
+overrides resolves45 rows/11 securities with provider0. Keep44 rows unresolved,
+reject conflicting tickers per CUSIP, preserve numeric-looking keys and nulls.
+Issuer-name/CIK agreement does not prove share-class identity or historical PIT.
+The canonical quarterly workflow now selects exact-CUSIP-only derivation and
+mapped parsing, with policy-bound checkpoints. Independent A6 reproduced and
+closed builder nulls becoming string tickers and embedded XML bypassing the
+explicit map; cover both boundaries, not only the downstream map reader.
+Actual legacy typed diagnostics remain unadmitted: Form345 fields/provenance
+are lost, and the13F builder keep-last collapses repeated source positions.
+Do not certify aggregation by summing unknown overlaps. Shared Reader is still
+price-only; deterministic replay does not prove persistent A2/Registry/A3
+consumption. Existing Main single writer owns those repairs and real references.
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
@@ -7549,3 +7565,35 @@ delays in shared collector entrypoints before provider reads, including empty
 payloads. Current merge must separately validate accepted/availability order,
 refuse future or missing acceptance, and match parser row clocks to the checked
 index. Workflow validation alone cannot secure reusable Source functions.
+### 2026-10-21 — Resume selected 13F accessions before weighted analysis
+
+Restore selected manager submissions and selected accession XML/cover/checkpoint
+files instead of all SEC raw history. Checkpoint rows bind original XML, filing
+identity, mapping and schema; interrupted parsing can reuse completed accessions.
+Persist successful raw-source output separately from combined Form4/ETF analysis.
+Keep parsed due-quarter, mapping and weighted evidence gates intact. A not-yet-due
+quarter stays monitored under the existing filing schedule. Full-quarter source
+coverage and economic analysis are separate from a bounded manager replay.
+
+Exact658 CI also retained an obsolete directory-restore string assertion after
+the workflow moved to explicit required files. Verify every required file,
+copy/nonempty refusal and raw-source-before-analysis ordering. Keep parsed,
+manager/mapping and Form4/ETF weighted gates intact; update the regression to
+the actual selective-restore contract rather than reintroducing broad restores.
+
+The expanded ten-manager replay found ORIGINAL present in 13F receipts but blank
+in normalized rows. Return the explicit type through the existing parser before
+checkpointing. RESTATEMENT and NEW HOLDINGS remain cover-derived; missing or
+unknown amendment types fail parsing, never become ORIGINAL or zero holdings.
+
+### 2026-10-21 — Restored SEC cache time is not a current source clock
+
+Direct canonical Drive restoration of three selected manager JSON/XML pairs
+reused the existing parser and checkpoints without broad history retrieval.
+The BRK Q2 accession's old cached acceptance was four hours earlier than two
+actual current SEC observations; keep both payloads/hashes, record the conflict,
+and do not infer its upstream cause or relabel Drive read time as a source check.
+Current submissions change filing identity even when accession XML is unchanged:
+the existing checkpoint invalidated only BRK, then reused all three on replay.
+Distinguish this real six-file/173-row Native restore/save/resume receipt from
+hosted rclone execution, accepted Lake admission and genuine Main A2/A3 use.

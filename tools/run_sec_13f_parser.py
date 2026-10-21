@@ -9,7 +9,9 @@ quarter `report_period`.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import re
 import sys
 import time
@@ -30,6 +32,7 @@ from tools.run_sec_submissions_collector import (  # noqa: E402
     repo_path,
     sec_get_json,
     sec_headers,
+    atomic_json, content_hash, exact_utc, file_hash, utc_now,
 )
 
 DEFAULT_INDEX = "data_pit/sec/sec_filings_index.parquet"
@@ -95,15 +98,15 @@ def first_text(node: ET.Element | None, name: str, default: str = "") -> str:
     return str(child.text).strip()
 
 
-def as_float(value: Any) -> float:
+def as_float(value: Any) -> float | None:
     try:
-        text = str(value or "").replace(",", "").strip()
+        text = ("" if value is None else str(value)).replace(",", "").strip()
         if not text:
-            return 0.0
+            return None
         out = float(text)
     except Exception:
-        return 0.0
-    return out if pd.notna(out) else 0.0
+        return None
+    return out if math.isfinite(out) else None
 
 
 def market_value_usd(value: Any, filing_date: Any = "") -> float:
@@ -118,7 +121,31 @@ def market_value_usd(value: Any, filing_date: Any = "") -> float:
     if pd.notna(dt) and getattr(dt, "tzinfo", None) is not None:
         dt = dt.tz_convert(None)
     multiplier = 1000.0 if pd.notna(dt) and dt.normalize() < FORM13F_DOLLAR_VALUE_EFFECTIVE_DATE else 1.0
-    return float(raw * multiplier)
+    return float(raw * multiplier) if raw is not None else None
+
+
+def selected_restore_paths(index: pd.DataFrame, *, as_of: str, max_filings: int) -> list[str]:
+    """Use accession keys to restore only the XML the existing parser will use."""
+    cutoff = exact_utc(as_of)
+    d = index[index["form_type"].isin(FORM_13F_TYPES)].copy()
+    available = pd.to_datetime(d["available_from"], utc=True, errors="coerce")
+    d = d[available.notna() & (available <= cutoff)].copy()
+    d["_accepted_sort"] = pd.to_datetime(d["accepted_at"], utc=True, errors="coerce")
+    d["_filing_sort"] = pd.to_datetime(d["filing_date"], utc=True, errors="coerce")
+    d = d.sort_values(["_accepted_sort", "_filing_sort", "cik10", "accession_number"], ascending=[False, False, True, False])
+    if max_filings > 0:
+        d = d.head(max_filings)
+    result = set()
+    for _, row in d.iterrows():
+        accession = str(row["accession_number"])
+        if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
+            raise ValueError("13F_RESTORE_ACCESSION")
+        name = cache_name(accession, str(row["primary_document"]) or "information_table.xml")
+        result.add("filings/13f/" + name)
+        result.add("parsed/13f/" + name + ".json")
+        if str(row["form_type"]) == "13F-HR/A":
+            result.add("filings/13f_cover/" + name)
+    return sorted(result)
 
 
 def normalize_cusip(value: Any) -> str:
@@ -148,9 +175,12 @@ def read_cusip_map(path: Path | None) -> dict[str, str]:
         return {}
     out: dict[str, str] = {}
     for _, row in frame.iterrows():
-        cusip = normalize_cusip(row.get(cusip_col))
-        ticker = str(row.get(ticker_col) or "").upper().strip()
+        raw_cusip, raw_ticker = row.get(cusip_col), row.get(ticker_col)
+        cusip = "" if pd.isna(raw_cusip) else normalize_cusip(raw_cusip)
+        ticker = "" if pd.isna(raw_ticker) else str(raw_ticker or "").upper().strip()
         if cusip and ticker:
+            if cusip in out and out[cusip] != ticker:
+                raise ValueError("13F_CUSIP_MAPPING_CONFLICT")
             out[cusip] = ticker
     return out
 
@@ -295,6 +325,8 @@ def cache_13f_amendment_type(
     sleep_s: float = 0.12,
 ) -> str:
     form_type = str(filing.get("form_type") or "").upper().strip()
+    if form_type == "13F-HR":
+        return "ORIGINAL"
     if form_type != "13F-HR/A":
         return ""
     cik = cik10(filing.get("cik10") or filing.get("manager_cik"))
@@ -312,7 +344,6 @@ def cache_13f_amendment_type(
             sleep_s=sleep_s,
         )
         cache.write_text(text, encoding="utf-8")
-    text = cache.read_text(encoding="utf-8")
     return amendment_type_from_text(cache.read_text(encoding="utf-8"))
 
 
@@ -333,6 +364,7 @@ def parse_13f_xml(
     filing: dict[str, Any] | None = None,
     *,
     cusip_map: dict[str, str] | None = None,
+    exact_cusip_only: bool = False,
 ) -> list[dict[str, Any]]:
     filing = filing or {}
     cusip_map = cusip_map or {}
@@ -342,7 +374,11 @@ def parse_13f_xml(
     manager_name = str(filing.get("manager_name") or filing.get("ticker") or "").strip()
     for info in [node for node in root.iter() if local_name(node.tag).lower() == "infotable"]:
         cusip = normalize_cusip(first_text(info, "cusip"))
-        ticker = str(first_text(info, "ticker") or cusip_map.get(cusip, "")).upper().strip()
+        embedded_ticker = first_text(info, "ticker").upper().strip()
+        explicit_ticker = str(cusip_map.get(cusip, "")).upper().strip()
+        if exact_cusip_only and embedded_ticker and explicit_ticker and embedded_ticker != explicit_ticker:
+            raise ValueError("13F_CUSIP_MAPPING_CONFLICT")
+        ticker = explicit_ticker if exact_cusip_only else (embedded_ticker or explicit_ticker)
         value_raw = first_text(info, "value")
         rows.append(
             {
@@ -383,6 +419,7 @@ def parse_13f_index(
     sleep_s: float = 0.12,
     max_filings: int = 0,
     cusip_map: dict[str, str] | None = None,
+    exact_cusip_only: bool = False,
     as_of: str = "",
 ) -> pd.DataFrame:
     if index.empty:
@@ -408,6 +445,7 @@ def parse_13f_index(
         d = d.drop(columns=[c for c in ["_accepted_sort", "_filing_sort"] if c in d.columns])
 
     rows: list[dict[str, Any]] = []
+    receipts = []
     for _, item in d.iterrows():
         filing = item.to_dict()
         try:
@@ -425,8 +463,30 @@ def parse_13f_index(
                 refresh=refresh,
                 sleep_s=sleep_s,
             )
-            rows.extend(parse_13f_xml(xml_text, filing, cusip_map=cusip_map))
+            checkpoint = raw_dir / "parsed" / "13f" / (cache_name(str(filing["accession_number"]), str(filing.get("primary_document") or "information_table.xml")) + ".json")
+            input_identity = {"raw_sha256": hashlib.sha256(xml_text.encode()).hexdigest(), "filing": filing,
+                "cusip_map_sha256": content_hash(cusip_map or {}), "schema_version": "sec-13f-parser-checkpoint-v2",
+                "mapping_policy": "EXPLICIT_CUSIP_ONLY" if exact_cusip_only else "LEGACY_EMBEDDED_OR_MAP",
+                "parser_code_sha256": file_hash(Path(__file__))}
+            cached = json.loads(checkpoint.read_text()) if checkpoint.exists() else None
+            if cached is not None and cached.get("input_identity") == input_identity:
+                if cached.get("rows_sha256") != content_hash(cached.get("rows")):
+                    raise ValueError("13F_PARSER_CHECKPOINT_HASH_CONFLICT")
+                parsed = cached["rows"]
+            else:
+                parsed = parse_13f_xml(xml_text, filing, cusip_map=cusip_map, exact_cusip_only=exact_cusip_only)
+                atomic_json(checkpoint, {"input_identity": input_identity, "rows": parsed, "rows_sha256": content_hash(parsed)})
+            rows.extend(parsed)
+            receipts.append({"manager_cik": cik10(filing.get("cik10")), "report_period": filing.get("period_of_report"),
+                "accession": filing.get("accession_number"), "accepted_at": filing.get("accepted_at"),
+                "amendment_type": filing["amendment_type"] or "ORIGINAL", "status": "PARSED" if parsed else "PARSED_EMPTY",
+                "row_count": len(parsed), "mapped_rows": sum(bool(r["ticker_mapped"]) for r in parsed),
+                "raw_sha256": hashlib.sha256(xml_text.encode()).hexdigest(),
+                "mapping_policy": input_identity["mapping_policy"]})
         except Exception as exc:
+            receipts.append({"manager_cik": cik10(filing.get("cik10")), "report_period": filing.get("period_of_report"),
+                "accession": filing.get("accession_number"), "accepted_at": filing.get("accepted_at"),
+                "status": "PARSE_FAILED", "error_type": type(exc).__name__, "row_count": None, "mapped_rows": None})
             rows.append(
                 {
                     **{col: "" for col in FORM13F_COLUMNS},
@@ -446,19 +506,22 @@ def parse_13f_index(
     out = pd.DataFrame(rows)
     for col in FORM13F_COLUMNS:
         if col not in out.columns:
-            out[col] = 0.0 if col in {"shares", "market_value_usd", "voting_authority_sole", "voting_authority_shared", "voting_authority_none"} else ""
+            out[col] = None if col in FORM13F_NUMERIC_COLUMNS else ""
     out["manager_cik"] = out["manager_cik"].map(cik10)
-    return out[FORM13F_COLUMNS].copy()
+    result = out[FORM13F_COLUMNS].copy()
+    result.attrs["filing_receipts"] = receipts
+    return result
 
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    receipts = frame.attrs.get("filing_receipts", [])
     frame = frame.copy()
     for col in FORM13F_COLUMNS:
         if col not in frame.columns:
-            frame[col] = 0.0 if col in FORM13F_NUMERIC_COLUMNS else ""
+            frame[col] = None if col in FORM13F_NUMERIC_COLUMNS else ""
     for col in FORM13F_NUMERIC_COLUMNS:
-        frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
+        frame[col] = pd.to_numeric(frame[col], errors="coerce")
     for col in [c for c in FORM13F_COLUMNS if c not in FORM13F_NUMERIC_COLUMNS]:
         frame[col] = frame[col].fillna("").astype(str)
     frame = frame[FORM13F_COLUMNS].copy()
@@ -467,6 +530,9 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     frame.to_parquet(parquet_path, index=False)
     frame.to_csv(csv_path, index=False)
     summary = {
+        "schema_version": "sec-13f-parser-receipt-v2", "generated_at": utc_now(),
+        "source_parse_status": "PARSED" if receipts and all(r["status"] in {"PARSED", "PARSED_EMPTY"} for r in receipts) else "PARTIAL_OR_UNCHECKED",
+        "filing_receipts": receipts,
         "row_count": int(len(frame)),
         "manager_count": int(frame["manager_cik"].nunique()) if "manager_cik" in frame else 0,
         "mapped_ticker_count": int(frame["ticker_mapped"].replace("", pd.NA).nunique(dropna=True))
@@ -474,9 +540,10 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
         else 0,
         "parquet": str(parquet_path),
         "csv": str(csv_path),
+        "output_sha256": {"parquet": file_hash(parquet_path), "csv": file_hash(csv_path)},
     }
     summary_path = output_dir / "institutional_13f_holdings_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    atomic_json(summary_path, summary)
     return {"parquet": str(parquet_path), "csv": str(csv_path), "summary": str(summary_path)}
 
 
@@ -486,12 +553,35 @@ def main() -> int:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--raw-dir", default=DEFAULT_RAW_DIR)
     parser.add_argument("--cusip-map", default="")
+    parser.add_argument("--exact-cusip-only", action="store_true",
+                        help="Map only explicit CUSIPs; refuse conflicting embedded tickers and leave unknown CUSIPs unmapped.")
     parser.add_argument("--user-agent", default="")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-filings", type=int, default=0)
     parser.add_argument("--as-of", default="", help="Only parse filings whose available_from is at or before this timestamp.")
+    parser.add_argument("--write-restore-list", default="")
+    parser.add_argument("--write-submissions-filter", default="")
+    parser.add_argument("--manager-ciks-file", default="")
     args = parser.parse_args()
+    if args.write_submissions_filter:
+        ciks = set()
+        for token in repo_path(args.manager_ciks_file).read_text().strip().split(","):
+            norm = cik10(token.rsplit(":", 1)[-1])
+            if not norm:
+                raise ValueError("13F_RESTORE_MANAGER_CIK")
+            ciks.add(norm)
+        rules = ["+ /company_tickers.json", "+ /submissions/"] + ["+ /submissions/CIK" + cik + "*.json" for cik in sorted(ciks)] + ["- **"]
+        target = repo_path(args.write_submissions_filter)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join(rules) + "\n")
+        return 0
+    if args.write_restore_list:
+        paths = selected_restore_paths(read_filings_index(repo_path(args.filings_index)), as_of=args.as_of, max_filings=args.max_filings)
+        target = repo_path(args.write_restore_list)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join(paths) + "\n")
+        return 0
 
     cusip_map = read_cusip_map(repo_path(args.cusip_map)) if args.cusip_map else {}
     frame = parse_13f_index(
@@ -502,6 +592,7 @@ def main() -> int:
         sleep_s=float(args.sleep),
         max_filings=int(args.max_filings),
         cusip_map=cusip_map,
+        exact_cusip_only=bool(args.exact_cusip_only),
         as_of=str(args.as_of or ""),
     )
     paths = write_outputs(frame, repo_path(args.output_dir))
