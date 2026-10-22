@@ -28,14 +28,15 @@ IDENTITY_FIELDS = ('security_id', 'issuer_id', 'ticker', 'country', 'currency',
 
 def _url(value):
     intake.need(type(value) is str and 0 < len(value) <= 1800
+                and '\\' not in value
                 and not any(ord(c) <= 32 or ord(c) == 127 for c in value), 'ORIGINAL_URL')
     try:
         url = urlsplit(value)
         dart_query = (url.hostname == 'dart.fss.or.kr' and url.path == '/dsaf001/main.do'
             and re.fullmatch(r'rcpNo=[0-9]{14}', url.query) is not None
             and set(parse_qs(url.query)) == {'rcpNo'})
-        intake.need(url.scheme == 'https' and bool(url.hostname) and not url.username
-                    and not url.password and (not url.query or dart_query) and not url.fragment
+        intake.need(url.scheme == 'https' and bool(url.hostname) and url.username is None
+                    and url.password is None and (not url.query or dart_query) and not url.fragment
                     and url.port in (None, 443), 'ORIGINAL_URL')
     except ValueError:
         raise intake.IntakeError('ORIGINAL_URL') from None
@@ -123,6 +124,7 @@ def _select(event, identities, origins, cutoff, memory):
     intake.need(event['verification_level'] in {'V1', 'V2'}, 'V0_BLOCKED')
     intake.need(event['primary_source'] in PRIMARY and event['event_family'] in FAMILIES,
                 'RUMOR_OR_PRICE_ONLY')
+    intake.need(set(event['affected_pillars']) <= intake.a3.CANONICAL_PILLARS, 'PILLARS')
     intake.need(event['materiality'] in {'MEDIUM', 'HIGH'}
                 and type(event['verified_fact']) is str
                 and bool(event['verified_fact'].strip()), 'MATERIALITY_REQUIRED')

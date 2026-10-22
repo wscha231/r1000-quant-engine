@@ -81,13 +81,14 @@ class DiscoveryGateTests(unittest.TestCase):
             self.assertEqual(result['other_events'][0]['status'], 'BLOCKED')
 
     def test_materiality_requires_fact_basis_and_supported_pillar(self):
-        for change in ('low', 'no_fact', 'blank_fact', 'no_basis', 'wrong_pillar'):
+        for change in ('low', 'no_fact', 'blank_fact', 'no_basis', 'wrong_pillar', 'mixed_pillars'):
             events, context, memory = bundle()
             if change == 'low': events[0]['materiality'] = 'LOW'
             if change == 'no_fact': events[0]['verified_fact'] = None
             if change == 'blank_fact': events[0]['verified_fact'] = ' '
             if change == 'no_basis': context['origins'][0]['materiality_basis'] = ' '
             if change == 'wrong_pillar': events[0]['affected_pillars'] = ['moat_durability']
+            if change == 'mixed_pillars': events[0]['affected_pillars'].append('NOT_A_CANONICAL_PILLAR')
             self.assertEqual(select(events, context, memory)['candidates'], [])
 
     def test_wrong_ticker_issuer_and_unknown_security_blocked(self):
@@ -143,6 +144,8 @@ class DiscoveryGateTests(unittest.TestCase):
 
     def test_safe_original_URL_and_exact_DART_query(self):
         for url in ('http://example.test/a', 'https://u:p@example.test/a',
+                    'https://@example.test/path', 'https://:@example.test/path',
+                    'https://example.test\\other.test/path',
                     'https://example.test/a?token=secret', 'https://example.test/a#fragment',
                     'https://example.test/a\n', 'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260918000001&key=secret'):
             events, context, memory = bundle()

@@ -7616,3 +7616,9 @@ The sparse Source Python environment initially lacked the repository-required
 jsonschema/referencing dependencies. Install the existing requirements range
 before Native checks; an import failure is not a failed event-validation case.
 Keep named price174/993 seed, dates, meter and checkpoints outside this adapter.
+
+Independent A6's negative witnesses found that empty URL userinfo passes a
+truthiness test and that a valid/unknown mixed pillar list passes a mere
+intersection check. Reject userinfo by presence (including empty values),
+reject backslashes and preserve the existing canonical-pillar subset rule.
+Keep the prior finding head distinct from the corrected frozen-head evidence.
