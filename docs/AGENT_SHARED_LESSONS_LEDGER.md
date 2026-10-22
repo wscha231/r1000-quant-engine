@@ -7594,3 +7594,25 @@ before spawn; prefer explicit auth/encoding/size failures over unknown-exit
 retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
+
+### 2026-10-22 — Discovery selection is not source authentication or dispatch
+
+Reuse the A2 schema/parser and raw source-graph validator for a bounded
+US/KR supplied-byte selection proposal. Bind the original publication and URL
+to the selected primary source; retain leading-zero KR tickers, issuer/security
+life intervals, exact evidence hashes and existing active caps. A V1/V2 label,
+coherent identity bytes or materiality rationale is not authenticated admission.
+All candidates keep identity/source authentication NOT_VERIFIED, A1 requests0,
+dispatch0 and economic/consumer authority closed until the separate A0 adapter.
+
+Deduplicate by security, issuer, family, primary raw hash and normalized public
+clock. Reordering input can preserve the same candidate/dedup result while its
+exact input-byte SHA changes; never change the source digest to fit an equality
+test. Prior request keys and Registry rows are supplied context, not durable
+completion. Register these regressions through the existing Control Plane
+caller, preserving every old case and the frozen runner program inventory.
+
+The sparse Source Python environment initially lacked the repository-required
+jsonschema/referencing dependencies. Install the existing requirements range
+before Native checks; an import failure is not a failed event-validation case.
+Keep named price174/993 seed, dates, meter and checkpoints outside this adapter.

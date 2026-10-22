@@ -675,7 +675,12 @@ class ControlPlaneTests(unittest.TestCase):
 
 
 def main():
-    result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests))
+    # Keep the existing registered caller and all original contract cases.
+    # Stage2 remains supplied-byte proposal validation, never A0 dispatch.
+    from a2_a1_discovery_gate_v1_smoke import DiscoveryGateTests
+    suite=unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(DiscoveryGateTests))
+    result=unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 if __name__=='__main__': raise SystemExit(main())
