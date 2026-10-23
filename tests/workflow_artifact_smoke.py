@@ -1148,9 +1148,14 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
         "Free Data Daily Update",
         "schedule:",
         "30 23 * * 1-5",
-        "pandas_market_calendars",
-        "MARKET_READY",
-        "LAST_NYSE_CLOSE_UTC",
+        "tools/run_daily_market_session_gate.py",
+        "outputs/free_data_daily_update/market_gate.json",
+        "outputs/free_data_daily_update/operating_status.json",
+        "--min-close-age-minutes 90",
+        "--max-close-age-hours 18",
+        "SKIPPED",
+        "WAITING",
+        "if-no-files-found: error",
         "tools/run_free_data_lake_bootstrap.py",
         "price-mode target_books",
         "tools/run_broker_ledger_replay.py",
@@ -1172,8 +1177,10 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
     for forbidden in [
         "python run_local.py --full",
         "git commit",
+        'sched["market_close"].max()',
     ]:
-        assert forbidden not in text, forbidden
+        if forbidden in text:
+            raise AssertionError(forbidden)
 
 
 def test_daily_autolearning_installs_market_calendar_and_remains_report_only() -> None:
