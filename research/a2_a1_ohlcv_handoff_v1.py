@@ -83,7 +83,7 @@ def _ranges(missing, expected):
             for g in groups]
 
 
-def _prices(record, candidate, read, artifacts):
+def _prices(record, candidate, read, artifacts, cutoff):
     """Verify archived provider rows, not a ticker list or a receipt boolean."""
     if record['state'] == 'UNKNOWN':
         raise h.IntakeError('COVERAGE_UNKNOWN')
@@ -116,6 +116,9 @@ def _prices(record, candidate, read, artifacts):
                and type(receipt.get('seed_sha256')) is str
                and re.fullmatch(r'[0-9a-f]{64}', receipt['seed_sha256'])
                and candidate['ticker'] in receipt.get('symbols', []), 'PRICE_RECEIPT')
+        h.need(_day(receipt['start']) < _day(receipt['end'])
+               <= cutoff.date() + timedelta(days=1)
+               and _day(receipt['asof']) <= cutoff.date(), 'PRICE_RECEIPT_CLOCK')
         pair = []
         for role in ('raw_object', 'normalized_object'):
             digest = _hash(receipt[role]['sha256'])
@@ -141,6 +144,8 @@ def _prices(record, candidate, read, artifacts):
             h.need(key not in prices or prices[key] == row, 'PRICE_ROW_CONFLICT')
             prices[key] = row
         refs.append(artifacts[aid]['sha256'])
+    h.need(not any(left <= day < right for _, day in prices
+                   for left, right in empty_windows), 'PRICE_NO_DATA_CONFLICT')
     return prices, sorted(set(refs)), 'ARCHIVED_BYTES_REBUILT_NOT_ADMITTED', empty_windows
 
 
@@ -213,7 +218,8 @@ def build_plan(inventory, memory, *, cutoff):
             h.need(start < end <= h.stamp(cutoff).date()+timedelta(days=1), 'REQUEST_WINDOW')
             expected = _calendar(_json(read(target['calendar_id'])), first['country'],
                                  start, end, h.stamp(cutoff))
-            prices, receipt_hashes, evidence, empty_windows = _prices(records[sid], first, read, refs)
+            prices, receipt_hashes, evidence, empty_windows = _prices(
+                records[sid], first, read, refs, h.stamp(cutoff))
             raw_days = {day for basis, day in prices if basis == 'raw'}
             split_days = {day for basis, day in prices if basis == 'split'}
             h.need(raw_days == split_days, 'PRICE_BASIS_GRID')

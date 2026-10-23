@@ -7644,3 +7644,9 @@ An invalid source_inventory produces the existing BLOCKED diagnostic A1 packet,
 not necessarily an empty queue. Verify that the previous derived requests are
 revoked and dispatch stays false; do not change the existing failure semantics
 to satisfy an empty-list fixture assertion.
+
+Independent A6's Stage3 witnesses also require a receipt's as-of/end to stay
+inside the decision cutoff even when raw/normalized reconstruction succeeds.
+Reject no-bars windows that contradict any retained price row in the same
+lineage. Cap child bytes before hashing or reading the entire file; consume the
+same capped snapshot whose hash and descriptor clocks were checked.

@@ -442,14 +442,22 @@ def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime)
     for aid, artifact in refs.items():
         handoff.h.identifier(aid)
         schema_validate(artifact, 'task_packet_schema.json', 'artifact')
-        verify_artifact(root, artifact, cutoff, now)
         child = artifact_path(root, artifact['path'])
-        if child.stat().st_size > handoff.h.MAX_BYTES:
+        size = child.stat().st_size
+        if size > handoff.h.MAX_BYTES or total + size > handoff.h.MAX_TOTAL_BYTES:
             raise ContractError('ohlcv_artifact_bytes')
-        content = child.read_bytes()
+        with child.open('rb') as stream:
+            content = stream.read(handoff.h.MAX_BYTES + 1)
         total += len(content)
-        if total > handoff.h.MAX_TOTAL_BYTES or hashlib.sha256(content).hexdigest() != artifact['sha256']:
+        if (len(content) > handoff.h.MAX_BYTES or total > handoff.h.MAX_TOTAL_BYTES
+                or hashlib.sha256(content).hexdigest() != artifact['sha256']):
             raise ContractError('ohlcv_artifact_changed_or_budget')
+        # The capped snapshot is the bytes consumed by the planner. Reuse the
+        # established descriptor clock checks without another unbounded read.
+        observed, available, collected, expires = [timestamp(artifact[k]) for k in
+                    ('observed_at', 'available_at', 'collected_at', 'expires_at')]
+        if not observed <= available <= collected <= cutoff <= now < expires:
+            raise ContractError('artifact_time_boundary')
         values[aid] = content
     return handoff.build_plan(inventory, handoff.h.MemoryArtifacts(values), cutoff=cutoff.isoformat())
 

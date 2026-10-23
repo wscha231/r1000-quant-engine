@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import io
+import zipfile
+from unittest import mock
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT));sys.path.insert(0,str(ROOT/'research'));sys.path.insert(0,str(ROOT/'tests'))
@@ -123,6 +126,31 @@ class OHLCVHandoffTests(unittest.TestCase):
         result=plan(*fixture([]))
         self.assertEqual(result['requests'],[])
         self.assertEqual(result['coverage_results'][0]['coverage_action'],'NO_DATA')
+
+    def test_future_receipt_and_conflicting_no_data_block(self):
+        inventory,memory=fixture()
+        with zipfile.ZipFile(io.BytesIO(memory['RAW'])) as pack:
+            files={name:pack.read(name) for name in pack.namelist()}
+        meta=source.decode(files['capture.json']);meta.update(end='2027-01-01',asof='2026-12-31')
+        files['capture.json']=source.encoded(meta)
+        raw=source.zip_bytes(files)
+        receipt=h.decode(memory['RECEIPT']);receipt.update(end=meta['end'],asof=meta['asof'])
+        receipt['raw_object']['sha256']=h.digest(raw)
+        source.verify_archived_group(raw,memory['NORM'],receipt)
+        memory['RAW']=raw;inventory['artifacts']['RAW']={'sha256':h.digest(raw)}
+        put(inventory,memory,'RECEIPT',receipt)
+        result=plan(inventory,memory)
+        self.assertEqual(result['requests'],[])
+        self.assertIn('PRICE_RECEIPT_CLOCK',result['coverage_results'][0]['blockers'])
+        inventory,memory=fixture()
+        for aid,raw in zip(('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT'),archive([])):
+            memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+        catalog=h.decode(memory['CATALOG'])
+        catalog['securities'][0]['receipt_ids'].append('EMPTY_RECEIPT')
+        put(inventory,memory,'CATALOG',catalog)
+        result=plan(inventory,memory)
+        self.assertEqual(result['requests'],[])
+        self.assertIn('PRICE_NO_DATA_CONFLICT',result['coverage_results'][0]['blockers'])
 
     def test_missing_Open_never_uses_Close_and_tamper_blocks(self):
         result=plan(*fixture(bad_open=True))
@@ -245,6 +273,18 @@ class BoardOHLCVTests(unittest.TestCase):
         child=self.owner.root/inventory['artifacts']['RAW']['path']
         child.write_bytes(child.read_bytes()+b'x')
         with self.assertRaises(ValueError):self.tasks()
+
+    def test_child_byte_limit_precedes_hashing_or_full_read(self):
+        inventory=board.read_json(self.owner.root/'source_inventory.json')
+        child=self.owner.root/inventory['artifacts']['RAW']['path']
+        with child.open('wb') as stream:
+            stream.truncate(h.MAX_BYTES+1)
+        # Direct helper exercises the new protocol boundary; public builder
+        # state materialization remains separately tested above.
+        with mock.patch.object(board,'file_hash',side_effect=AssertionError('unbounded hash')):
+            with self.assertRaisesRegex(board.ContractError,'ohlcv_artifact_bytes'):
+                board.ohlcv_parameters(self.request,self.owner.root,
+                    h.stamp(self.cutoff),self.owner.now)
 
     def test_existing_queue_manifest_publication_and_failure_revocation(self):
         root=self.owner.root
