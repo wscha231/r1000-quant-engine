@@ -3,6 +3,18 @@ name: Free Data Daily Update
 on:
   workflow_dispatch:
     inputs:
+      etf116_report_only:
+        description: 'Export a research workbook from pinned existing metrics; skip daily collection'
+        type: boolean
+        default: false
+      etf116_input_run_id:
+        description: 'Completed same-repository run containing etf116-simple-report-input artifact'
+        type: string
+        default: ''
+      etf116_input_sha256:
+        description: 'Exact SHA256 of report-input.json; not a source-admission attestation'
+        type: string
+        default: ''
       force_run:
         description: 'Run even if no fresh NYSE close is detected'
         type: boolean
@@ -28,6 +40,7 @@ permissions:
 
 jobs:
   daily_update:
+    if: ${{ !inputs.etf116_report_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -262,3 +275,108 @@ jobs:
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
           rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+
+  etf116_eod_research:
+    name: ETF116 research-only isolated EOD (disabled)
+    if: ${{ false && vars.ETF116_RESEARCH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: etf116-research-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Read only code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing calculation dependencies
+        run: python -m pip install -r requirements_github.txt
+      - name: Offline guarded contract tests
+        run: |
+          python tests/etf116_research_backend_smoke.py
+          python -O tests/etf116_research_backend_smoke.py
+      - name: Fail closed without approved A1 daily TR original and source rights
+        run: |
+          echo 'ETF116_SOURCE_INPUT_REQUIRED: not authorized to publish research' >&2
+          exit 2
+      # DO NOT add target-book, broker-ledger, trading, rclone writes, web scrape,
+      # GDRIVE OAuth, `continue-on-error`, permissions write or release steps here.
+      # Later T3 PR must replace terminal guard only after accepted source+rights,
+      # private COPY Sheet readback, successful 2-session dry-run and A6.
+
+  etf116_simple_report:
+    name: ETF116 research workbook from pinned existing results
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.etf116_report_only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: etf116-simple-report
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate source-run identity before downloading one small input
+        env:
+          INPUT_RUN_ID: ${{ inputs.etf116_input_run_id }}
+          INPUT_SHA256: ${{ inputs.etf116_input_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.request
+          run_id = os.environ['INPUT_RUN_ID']
+          if not re.fullmatch(r'[1-9][0-9]{0,19}', run_id) or not re.fullmatch(r'[0-9a-f]{64}', os.environ['INPUT_SHA256']):
+              raise SystemExit('REPORT_INPUT_BINDING_REQUIRED')
+          url = os.environ['GITHUB_API_URL'] + '/repos/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + run_id
+          request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  raw = response.read(131073)
+              if len(raw) > 131072:
+                  raise ValueError()
+              run = json.loads(raw)
+              if str(run.get('id')) != run_id or run.get('repository', {}).get('full_name') != os.environ['GITHUB_REPOSITORY'] or run.get('status') != 'completed' or run.get('conclusion') != 'success':
+                  raise ValueError()
+          except Exception:
+              raise SystemExit('REPORT_SOURCE_RUN_REFUSED') from None
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: etf116-simple-report-input
+          run-id: ${{ inputs.etf116_input_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/etf116-report-input
+      - name: Install small public workbook dependency
+        run: python -m pip install openpyxl==3.1.5
+      - name: Native report regression in normal and optimized modes
+        run: |
+          python tests/etf116_simple_report_smoke.py
+          python -O tests/etf116_simple_report_smoke.py
+      - name: Export three-tab research workbook without collecting market data
+        env:
+          INPUT_SHA256: ${{ inputs.etf116_input_sha256 }}
+        run: |
+          python tools/etf116_simple_report.py \
+            --input "${RUNNER_TEMP}/etf116-report-input/report-input.json" \
+            --input-sha256 "$INPUT_SHA256" \
+            --output-dir "${RUNNER_TEMP}/etf116-report"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etf116-simple-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/etf116-report/
+          if-no-files-found: error
+          retention-days: 30
+      # File generation is separately reviewable from Drive automation. No Drive
+      # credentials, mutable Sheet updates, scheduler activation or accepted EOD.

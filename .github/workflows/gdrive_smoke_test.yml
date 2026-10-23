@@ -2,12 +2,29 @@ name: Google Drive Sync Smoke Test
 
 on:
   workflow_dispatch:
+    inputs:
+      probe_mode:
+        description: 'Legacy Drive marker or one-shot PRIVATE ETF116 Sheet probe'
+        type: choice
+        options:
+          - drive_marker
+          - etf116_private_sheet_probe
+        default: drive_marker
+      confirm_private_sheet_probe:
+        description: 'Authorize one run-owned 27-cell tab in fixed private copy; no refresh'
+        type: boolean
+        default: false
+      expected_code_sha:
+        description: 'Exact 40-character branch HEAD required for private Sheet probe'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   gdrive_smoke:
+    if: ${{ inputs.probe_mode != 'etf116_private_sheet_probe' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -76,3 +93,41 @@ jobs:
           rclone copyto "/tmp/$MARKER" "$DEST/$MARKER"
           rclone lsf "$DEST/" | grep -F "$MARKER"
           echo "[gdrive-smoke] ok: marker is visible in Google Drive"
+
+  etf116_private_sheet_probe:
+    if: ${{ inputs.probe_mode == 'etf116_private_sheet_probe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: etf116-private-sheet-probe
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate probe contract without credentials
+        run: |
+          python tests/etf116_private_sheet_probe_h2_smoke.py
+          python -O tests/etf116_private_sheet_probe_h2_smoke.py
+      - name: Install existing rclone auth dependency
+        run: |
+          set -euo pipefail
+          curl -fsSLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+      - name: One-shot private Sheet write and independent readback
+        env:
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          ETF116_PRIVATE_PROBE_AUTHORIZED: ${{ inputs.confirm_private_sheet_probe && 'true' || 'false' }}
+          ETF116_EXPECTED_CODE_SHA: ${{ inputs.expected_code_sha }}
+        run: python tools/etf116_private_sheet_probe_h2.py --output "${RUNNER_TEMP}/etf116-private-sheet-probe.json"
+      - name: Preserve probe receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: etf116-private-sheet-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/etf116-private-sheet-probe.json
+          if-no-files-found: warn
