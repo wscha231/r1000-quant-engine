@@ -1,0 +1,333 @@
+"""Read existing research/price records into the existing A0 A1 input.
+
+No collector, canonical Registry, scheduler or admission service. A refreshed
+transport snapshot is not a refreshed filing, price, identity or right.
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from research import a2_a1_ohlcv_handoff_v1 as handoff
+from tools import run_agent_board as board
+
+h = handoff.h
+SCHEMA = 'a2-a1-readiness-lookup-v1'
+
+
+def read_bytes(path):
+    with Path(path).open('rb') as stream:
+        raw = stream.read(h.MAX_BYTES + 1)
+    h.need(len(raw) <= h.MAX_BYTES, 'LOOKUP_FILE_BUDGET')
+    return raw
+
+
+def lookup(value, memory, *, cutoff):
+    """Observe actual sealed references; never translate presence to admission."""
+    h._fields(value, ('schema', 'as_of', 'subjects', 'registry_manifest_id',
+        'capture_inventory_id', 'checkpoint_ids', 'ohlcv_inventory_id', 'artifacts'))
+    h.need(value['schema'] == SCHEMA and h.stamp(value['as_of']) <= h.stamp(cutoff)
+           <= datetime.now(timezone.utc),
+           'LOOKUP_CLOCK')
+    h.need(type(value['subjects']) is list and 1 <= len(value['subjects']) <= 30,
+           'LOOKUP_SUBJECT_COUNT')
+    def raw(aid):
+        h.identifier(aid)
+        h.need(aid in value['artifacts'], 'LOOKUP_REFERENCE')
+        return memory.read(aid, value['artifacts'][aid]['sha256'])
+    def obj(aid):
+        return h.decode(raw(aid))
+    by_hash = {ref['sha256']: aid for aid, ref in value['artifacts'].items()}
+    def ref_object(ref):
+        h.need(type(ref) is dict and set(ref) == {'path', 'sha256'}
+               and re.fullmatch(r'artifacts/[0-9a-f]{64}', ref['path'])
+               and ref['path'].split('/')[-1] == ref['sha256']
+               and ref['sha256'] in by_hash, 'LOOKUP_STORED_REFERENCE')
+        return obj(by_hash[ref['sha256']])
+    records = []
+    if value['registry_manifest_id'] is not None:
+        store = obj(value['registry_manifest_id'])
+        h.need(store.get('schema') == 'sec-research-request-store-v1'
+               and type(store.get('requests')) is dict and len(store['requests']) <= 1000,
+               'LOOKUP_REGISTRY_SCHEMA')
+        for key, request in store['requests'].items():
+            h.need(key == request['request_id'], 'LOOKUP_REQUEST_ID')
+            record = ref_object(request['registry_ref'])
+            h.need(record.get('schema') == 'candidate-registry-filing-request-v1'
+                   and record.get('request_id') == key, 'LOOKUP_RECORD_ID')
+            h.need(h.stamp(request['created_at']) <= h.stamp(value['as_of']), 'LOOKUP_RECORD_CLOCK')
+            events = [ref_object(ref) for ref in record['event_refs']]
+            h.need(h.digest(json.dumps(events, sort_keys=True, separators=(',', ':'),
+                allow_nan=False).encode()) == request['events_sha256'],
+                'LOOKUP_EVENT_SET')
+            a2 = ref_object(record['a2_intake_ref'])
+            a3 = [ref_object(ref) for ref in record['a3_filing_review_refs']]
+            receipt = ref_object(request['source_receipt_ref'])
+            ref_object(request['bridge_ref'])
+            h.need([e['event_id'] for e in a2['input']['events']] == [e['event_id'] for e in events]
+                   == [e['event_id'] for e in a3], 'LOOKUP_EVENT_BINDING')
+            for event, review, original in zip(events, a3, request['raw_refs'], strict=True):
+                h.need(event['event_id'] in receipt['event_scope']
+                       and review['asset_id'] == record['asset_id']
+                       and review['issuer_id'] == record['issuer_id']
+                       and review['raw_sha256'] == original['sha256']
+                       and review['source_receipt_sha256'] == request['source_receipt_ref']['sha256']
+                       and original['sha256'] in by_hash, 'LOOKUP_SOURCE_BINDING')
+                raw(by_hash[original['sha256']])
+                h.need(h.stamp(event['available_at']) <= h.stamp(value['as_of']), 'LOOKUP_EVENT_CLOCK')
+            levels = sorted({e['verification_level'] for e in a2['input']['events']})
+            records.append(dict(record=record, tickers=sorted({e['ticker'] for e in events}),
+                levels=levels, record_sha256=request['registry_ref']['sha256'],
+                request_id=key, event_ids=[e['event_id'] for e in events]))
+    holdings = {}
+    if value['capture_inventory_id'] is not None:
+        inventory = obj(value['capture_inventory_id'])
+        h.need(type(inventory.get('rows')) is list and len(inventory['rows']) <= 10000
+               and inventory.get('count') == len(inventory['rows'])
+               and h.stamp(inventory['prepared_at_utc']) <= h.stamp(value['as_of']),
+               'LOOKUP_CAPTURE_INVENTORY')
+        for row in inventory['rows']:
+            h.need(type(row) is list and len(row) >= 10 and type(row[1]) is str
+                   and row[1] not in holdings, 'LOOKUP_CAPTURE_DUPLICATE')
+            holdings[row[1]] = row
+    h.need(type(value['checkpoint_ids']) is list and len(value['checkpoint_ids']) <= 32,
+           'LOOKUP_CHECKPOINT_COUNT')
+    checkpoints = []
+    for aid in value['checkpoint_ids']:
+        cp = obj(aid)
+        h.need(cp.get('schema') == 'alpaca-private-sip-history-v1'
+               and cp.get('source') == 'ALPACA_STOCK_BARS_V2_HISTORICAL_SIP'
+               and cp.get('state') == 'PRIVATE_RESEARCH_ONLY'
+               and cp.get('source_admission') is False and cp.get('pit_verified') is False,
+               'LOOKUP_CHECKPOINT_SCHEMA')
+        for field in ('completed', 'examined', 'held'):
+            handoff.discovery._strings(cp[field], 'LOOKUP_CHECKPOINT_SYMBOLS', 1500)
+        h.need(set(cp['completed']) <= set(cp['examined'])
+               and not set(cp['held']) & set(cp['completed'])
+               and handoff._day(cp['start']) < handoff._day(cp['end'])
+               <= h.stamp(value['as_of']).date() + timedelta(days=1), 'LOOKUP_CHECKPOINT_STATE')
+        checkpoints.append((aid, cp))
+    observations, seen = [], set()
+    for subject in value['subjects']:
+        h._fields(subject, ('country', 'ticker', 'security_id', 'issuer_id'))
+        country, ticker = subject['country'], subject['ticker']
+        h.need(country in {'US', 'KR'} and type(ticker) is str and
+               re.fullmatch(r'[A-Z][A-Z0-9.-]{0,13}' if country == 'US' else r'[0-9]{6}', ticker),
+               'LOOKUP_SUBJECT')
+        h.need((country, ticker) not in seen, 'LOOKUP_SUBJECT_DUPLICATE'); seen.add((country, ticker))
+        for key in ('security_id', 'issuer_id'):
+            if subject[key] is not None: h.identifier(subject[key])
+        matches = [r for r in records if ticker in r['tickers'] and country == 'US']
+        exact = [r for r in matches if subject['security_id'] == r['record']['asset_id']
+                 and subject['issuer_id'] == r['record']['issuer_id']]
+        h.need(not matches or not subject['security_id'] or len(exact) == len(matches),
+               'LOOKUP_SUBJECT_IDENTITY_CONFLICT')
+        cp_rows = [dict(checkpoint_sha256=value['artifacts'][aid]['sha256'],
+            declared_start=cp['start'], declared_end_exclusive=cp['end'],
+            state='HELD' if ticker in cp['held'] else 'COMPLETED_CLAIM_NO_ROW_PROOF'
+                if ticker in cp['completed'] else 'EXAMINED_NOT_COMPLETED',
+            raw_row_coverage_verified=False)
+            for aid, cp in checkpoints if country == 'US' and ticker in cp['examined']]
+        # A completed ticker may have no bars. Presence never proves row coverage.
+        obs = dict(**subject, registry_state='STORED_RESEARCH_REQUEST' if matches
+            else 'NOT_FOUND_IN_INSPECTED_STORE' if value['registry_manifest_id'] else 'UNKNOWN',
+            identity_match='EXACT_SUPPLIED_KEYS_NOT_ADMISSION' if exact else 'TICKER_ONLY_NOT_VERIFIED',
+            research_requests=[dict(request_id=r['request_id'],
+                registry_record_sha256=r['record_sha256'], event_ids=r['event_ids'],
+                verification_levels=r['levels'], status=r['record']['status'],
+                a3_state='FILING_EVIDENCE_REVIEW_PENDING') for r in matches],
+            canonical_registry_state='NOT_VERIFIED', checkpoint_observations=cp_rows,
+            price_state='CAPTURE_INDEX_MATCH_ONLY' if country == 'US' and ticker in holdings
+                else 'NOT_FOUND_IN_INSPECTED_INDEX' if value['capture_inventory_id'] else 'UNKNOWN',
+            data_ready=False, collection_required='UNDETERMINED', consumer_eligible=False,
+            blockers=['CURRENT_REGISTRY_ACCEPTANCE_NOT_BOUND', 'RAW_PRICE_WINDOW_REVIEW_REQUIRED'],
+            authority=h.closed())
+        observations.append(obs)
+    if value['ohlcv_inventory_id'] is not None:
+        inner = obj(value['ohlcv_inventory_id'])
+        # Full Stage3 validation remains mandatory; lookup labels cannot supply
+        # absent identity/source/calendar/policy or overwrite its result.
+        result = handoff.build_plan(inner, memory, cutoff=cutoff)
+    else:
+        result = dict(schema='a0-a1-ohlcv-proposals-v1', mode='DRY_RUN', requests=[],
+            coverage_results=[], discovery_other_events=[], authority=h.closed(),
+            dispatch_count=0, canonical_write_performed=False)
+    result['readiness_observations'] = observations
+    result['lookup_as_of'] = value['as_of']
+    result['event_connection'] = 'STAGE3_VALIDATOR' if value['ohlcv_inventory_id'] else 'EVENT_INPUT_MISSING'
+    return result
+
+
+def snapshot(args):
+    """Trusted caller acquires explicit local sources; original times preserved."""
+    out = Path(args.output_dir).resolve()
+    registry_root = Path(args.registry_root).resolve() if args.registry_root else None
+    inputs = [Path(p).resolve() for p in [args.capture_inventory, *args.checkpoint, args.ohlcv_inventory] if p]
+    h.need(not registry_root or (not out.is_relative_to(registry_root)
+           and not registry_root.is_relative_to(out)), 'LOOKUP_OUTPUT_SCOPE')
+    h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
+    out = safe_output(args.output_dir)
+    for name in ('source_inventory.json', 'readiness_report.json', 'request_fragment.json'):
+        (out/name).unlink(missing_ok=True)  # Revoke previous current proposals first.
+    now = datetime.now(timezone.utc); at = now.isoformat(); expires = (now+timedelta(hours=1)).isoformat()
+    values, refs = {}, {}
+    def add(aid, content):
+        h.need(aid not in values or values[aid] == content, 'LOOKUP_ARTIFACT_COLLISION')
+        values[aid] = content
+        h.need(len(values) <= 128 and sum(map(len, values.values())) <= h.MAX_TOTAL_BYTES,
+               'LOOKUP_TOTAL_BUDGET')
+        name = 'bytes/'+h.digest(content)
+        refs[aid] = dict(path=name,sha256=h.digest(content),observed_at=at,
+            available_at=at,collected_at=at,expires_at=expires,status='VERIFIED')
+        return aid
+    if registry_root:
+        manifest = read_bytes(board.artifact_path(registry_root,
+            'control_plane/candidate_registry/filing_requests.json'))
+        add('REGISTRY', manifest)
+        pending = [h.decode(manifest)]; visited = set()
+        while pending:
+            node = pending.pop()
+            if type(node) is list: pending.extend(node)
+            elif type(node) is dict:
+                if set(node) == {'path','sha256'}:
+                    h.need(re.fullmatch(r'artifacts/[0-9a-f]{64}',node['path'])
+                           and node['path'].split('/')[-1] == node['sha256'], 'LOOKUP_STORED_REFERENCE')
+                    if node['sha256'] in visited: continue
+                    content=read_bytes(board.artifact_path(registry_root,node['path']))
+                    h.need(h.digest(content)==node['sha256'], 'LOOKUP_STORED_HASH')
+                    visited.add(node['sha256']);add('B'+node['sha256'],content)
+                    if content.lstrip().startswith((b'{',b'[')): pending.append(h.decode(content))
+                else: pending.extend(node.values())
+        h.need(read_bytes(board.artifact_path(registry_root,
+            'control_plane/candidate_registry/filing_requests.json')) == manifest, 'LOOKUP_STORE_CHANGED')
+    if args.capture_inventory: add('CAPTURE',read_bytes(args.capture_inventory))
+    cp_ids=[add('CP'+str(i),read_bytes(p)) for i,p in enumerate(args.checkpoint)]
+    if args.ohlcv_inventory:
+        path=Path(args.ohlcv_inventory); content=read_bytes(path);inner=h.decode(content)
+        for aid,ref in inner['artifacts'].items():
+            raw=read_bytes(board.artifact_path(path.parent,ref['path']))
+            h.need(h.digest(raw)==ref['sha256'], 'LOOKUP_EVENT_ARTIFACT_HASH')
+            # Preserve the existing event artifact clocks. Refreshing transport
+            # does not extend stale/expired event or identity evidence.
+            board.verify_artifact(path.parent,ref,now,now)
+            add(aid,raw)
+            refs[aid] = {**ref, 'path': refs[aid]['path']}
+        add('OHLCV',content)
+    subjects = h.decode(read_bytes(args.subjects))['subjects']
+    value = dict(schema=SCHEMA,as_of=at,subjects=subjects,
+        registry_manifest_id='REGISTRY' if registry_root else None,
+        capture_inventory_id='CAPTURE' if args.capture_inventory else None,
+        checkpoint_ids=cp_ids,ohlcv_inventory_id='OHLCV' if args.ohlcv_inventory else None,artifacts=refs)
+    report=lookup(value,h.MemoryArtifacts(values),cutoff=at)
+    for aid,raw in values.items():
+        path=board.artifact_path(out,refs[aid]['path']);path.parent.mkdir(exist_ok=True);path.write_bytes(raw)
+    board.write_json(out/'readiness_report.json',report)
+    board.write_json(out/'source_inventory.json',value)
+    inventory_ref=dict(path='source_inventory.json',sha256=board.file_hash(out/'source_inventory.json'),
+        observed_at=at,available_at=at,collected_at=at,expires_at=expires,status='VERIFIED')
+    board.write_json(out/'request_fragment.json',dict(agent='A1',inputs={'source_inventory':inventory_ref},
+        parameters={},model={'name':'DETERMINISTIC','version':'a2-a1-readiness-v1'}))
+    return report
+
+
+def safe_output(path):
+    supplied=Path(path)
+    h.need(not supplied.is_symlink(), 'LOOKUP_OUTPUT_SYMLINK')
+    out=supplied.resolve();out.mkdir(parents=True,exist_ok=True)
+    for name in ('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
+                 'agent_task_queue.json','manifest.json','state.json','intake.json',
+                 'board_summary.json','promotion_gate_review.json','report.md','evidence'):
+        h.need(not (out/name).is_symlink() and not (out/(name+'.tmp')).is_symlink(),
+               'LOOKUP_OUTPUT_SYMLINK')
+    return out
+
+
+def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
+    """Bind an already acquired lookup to fresh A0 sources and its public API.
+
+    The caller refreshes GitHub/control observations AFTER snapshot acquisition.
+    Missing durable research sources remain UNKNOWN; no G0 success is invented.
+    """
+    from tools import materialize_system_state as materializer
+    out=Path(output_dir).resolve();sources=Path(evidence_root).resolve();lookup_root=Path(lookup_dir).resolve()
+    h.need(not sources.is_relative_to(out) and not out.is_relative_to(sources)
+           and not lookup_root.is_relative_to(out) and not out.is_relative_to(lookup_root),
+           'LOOKUP_OUTPUT_SCOPE')
+    out=safe_output(output_dir)
+    board.write_json(out/'manifest.json',{'status':'BLOCKED','reason':'REFRESH_STARTED'})
+    board.write_json(out/'agent_task_queue.json',[])
+    now=datetime.now(timezone.utc);manifest=board.read_json(Path(canonical_inputs))
+    materializer.intake_validate(manifest,now)
+    root=safe_output(out/'evidence');total=0
+    def copy_descriptor(ref, base):
+        nonlocal total
+        content=read_bytes(board.artifact_path(base,ref['path']))
+        total+=len(content)
+        h.need(total<=h.MAX_TOTAL_BYTES and h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
+        observed,available,collected,expires=(board.timestamp(ref[k]) for k in
+            ('observed_at','available_at','collected_at','expires_at'))
+        h.need(observed<=available<=collected<=board.timestamp(manifest['observed_at'])<=now<expires,
+               'LOOKUP_BIND_CLOCK')
+        path='bytes/'+h.digest(content);dest=board.artifact_path(root,path)
+        dest.parent.mkdir(exist_ok=True);dest.write_bytes(content)
+        return {**ref,'path':path}
+    for role,refs in manifest['sources'].items():
+        manifest['sources'][role]=[copy_descriptor(ref,sources) for ref in refs]
+    # Preserve existing input roles/requests, but never replace another A1 job.
+    fragment=board.read_json(lookup_root/'request_fragment.json')
+    existing=manifest.get('requests',[])
+    h.need(not any(r.get('agent')=='A1' for r in existing),'LOOKUP_A1_REQUEST_CONFLICT')
+    for request in existing:
+        request['inputs']={role:copy_descriptor(ref,sources) for role,ref in request['inputs'].items()}
+    inv_ref=fragment['inputs']['source_inventory']
+    inventory=board.read_json(board.artifact_path(lookup_root,inv_ref['path']))
+    for ref in inventory['artifacts'].values():
+        copied=copy_descriptor(ref,lookup_root)
+        # Same content-addressed relative paths under the new root.
+        h.need(copied['path']==ref['path'],'LOOKUP_CHILD_PATH')
+    fragment['inputs']['source_inventory']=copy_descriptor(inv_ref,lookup_root)
+    manifest['requests']=[*existing,fragment]
+    board.write_json(out/'intake.json',manifest)
+    state=materializer.materialize(manifest,root,now)
+    board.write_json(out/'state.json',state)
+    args=argparse.Namespace(latest_run=str(root),output_dir=str(out),run_url='',max_tasks=0,
+        system_state=str(out/'state.json'),canonical_inputs=str(out/'intake.json'),evidence_root=str(root))
+    return board.run(args)
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--subjects')
+    parser.add_argument('--registry-root')
+    parser.add_argument('--capture-inventory')
+    parser.add_argument('--checkpoint',action='append',default=[])
+    parser.add_argument('--ohlcv-inventory')
+    parser.add_argument('--output-dir',required=True)
+    parser.add_argument('--connect-lookup')
+    parser.add_argument('--canonical-inputs')
+    parser.add_argument('--evidence-root')
+    try:
+        args=parser.parse_args()
+        if args.connect_lookup:
+            report=connect(args.connect_lookup,args.canonical_inputs,args.evidence_root,args.output_dir)
+            print(json.dumps({'status':report['status'],'dispatch_count':0}))
+            return 2 if report['status']=='BLOCKED' else 0
+        report=snapshot(args)
+    except (ValueError,KeyError,TypeError,OSError):
+        print(json.dumps({'status':'BLOCKED','reason':'READINESS_REFRESH_FAILED','dispatch_count':0}))
+        return 2
+    print(json.dumps(dict(status='OBSERVED_NOT_ADMITTED',subjects=len(report['readiness_observations']),
+        event_connection=report['event_connection'],requests=len(report['requests']),dispatch_count=0)))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

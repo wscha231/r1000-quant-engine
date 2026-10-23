@@ -7650,3 +7650,17 @@ inside the decision cutoff even when raw/normalized reconstruction succeeds.
 Reject no-bars windows that contradict any retained price row in the same
 lineage. Cap child bytes before hashing or reading the entire file; consume the
 same capped snapshot whose hash and descriptor clocks were checked.
+
+### 2026-10-23 — Connect observed research state without inventing registration
+
+The incumbent SEC Main already stores pending MU filing requests. Reuse its
+manifest/artifacts read-only instead of building another Registry. A stored
+pending/V0 record is not an accepted current candidate or a V1/V2 material event.
+Match explicit issuer/security keys when supplied; a ticker-only match stays
+unverified. Price-inventory/checkpoint presence is not row coverage (completed
+can mean no bars), and absence is only within the inspected scope. Keep those
+observations distinct from DATA_READY, collection need and Source/PIT admission.
+Preserve original clocks when refreshing transport. Bind lookup/actual event
+inputs to the existing A0 task identity, revoke old proposals on failed refresh,
+and leave missing news-export input BLOCKED rather than claiming an automated
+ChatGPT report connection. Never overwrite another pending A1 request to connect.

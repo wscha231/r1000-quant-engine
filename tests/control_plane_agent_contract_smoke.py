@@ -679,10 +679,12 @@ def main():
     # Stage2 remains supplied-byte proposal validation, never A0 dispatch.
     from a2_a1_discovery_gate_v1_smoke import DiscoveryGateTests
     from a2_a1_ohlcv_handoff_v1_smoke import OHLCVHandoffTests, BoardOHLCVTests
+    from a2_a1_readiness_smoke import ReadinessTests
     suite=unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(DiscoveryGateTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(OHLCVHandoffTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BoardOHLCVTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ReadinessTests))
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 

@@ -433,7 +433,8 @@ def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime)
         marker = json.loads(raw)
     except (ValueError, UnicodeError):
         return None  # Preserve the existing generic artifact-only A1 path.
-    if not isinstance(marker, dict) or marker.get('schema') != 'a2-a1-ohlcv-source-inventory-v1':
+    if not isinstance(marker, dict) or marker.get('schema') not in {
+            'a2-a1-ohlcv-source-inventory-v1', 'a2-a1-readiness-lookup-v1'}:
         return None
     from research import a2_a1_ohlcv_handoff_v1 as handoff
     inventory = handoff.h.decode(raw)
@@ -462,7 +463,11 @@ def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime)
         if not observed <= available <= collected <= cutoff <= now < expires:
             raise ContractError('artifact_time_boundary')
         values[aid] = content
-    return handoff.build_plan(inventory, handoff.h.MemoryArtifacts(values), cutoff=cutoff.isoformat())
+    memory = handoff.h.MemoryArtifacts(values)
+    if inventory['schema'] == 'a2-a1-readiness-lookup-v1':
+        from tools.run_a2_a1_readiness import lookup
+        return lookup(inventory, memory, cutoff=cutoff.isoformat())
+    return handoff.build_plan(inventory, memory, cutoff=cutoff.isoformat())
 
 
 def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
@@ -537,6 +542,8 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 parameters['a2_a1_ohlcv'] = ohlcv
                 if any(row['status'] == 'BLOCKED' for row in ohlcv['coverage_results']):
                     reasons.append('OHLCV_INPUT_PROOF_REQUIRED')
+                if ohlcv.get('event_connection') == 'EVENT_INPUT_MISSING':
+                    reasons.append('READINESS_EVENT_INPUT_MISSING')
         dependencies = {}
         for dep in spec['dependencies']:
             if dep in requests:
