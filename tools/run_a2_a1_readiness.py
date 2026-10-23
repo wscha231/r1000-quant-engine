@@ -48,7 +48,12 @@ def immutable_bytes(path, content):
 def block_refresh(path):
     """Invalidate scratch proposals without deleting an unknown source child."""
     # Invalidation must not depend on publication safety of old proposals.
-    marker=safe_output(path,names=(REFRESH_MARKER,))/REFRESH_MARKER
+    supplied=Path(path)
+    h.need(not supplied.is_symlink(),'LOOKUP_OUTPUT_SYMLINK')
+    out=supplied.resolve();out.mkdir(parents=True,exist_ok=True)
+    marker=out/REFRESH_MARKER
+    h.need(not marker.is_symlink(),'LOOKUP_OUTPUT_SYMLINK')
+    h.need(not marker.is_file() or marker.stat().st_nlink==1,'LOOKUP_OUTPUT_HARDLINK')
     try:
         with marker.open('xb') as stream:stream.write(REFRESH_BLOCKED)
     except FileExistsError:
@@ -327,14 +332,13 @@ def snapshot(args):
     return report
 
 
-def safe_output(path, *, names=None):
+def safe_output(path):
     supplied=Path(path)
     h.need(not supplied.is_symlink(), 'LOOKUP_OUTPUT_SYMLINK')
     out=supplied.resolve();out.mkdir(parents=True,exist_ok=True)
-    if names is None:names=('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
+    for name in ('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
                  'agent_task_queue.json','manifest.json','state.json','intake.json',
-                 'board_summary.json','promotion_gate_review.json','report.md','evidence',REFRESH_MARKER)
-    for name in names:
+                 'board_summary.json','promotion_gate_review.json','report.md','evidence',REFRESH_MARKER):
         h.need(not (out/name).is_symlink() and not (out/(name+'.tmp')).is_symlink(),
                'LOOKUP_OUTPUT_SYMLINK')
         for candidate in (out/name,out/(name+'.tmp')):

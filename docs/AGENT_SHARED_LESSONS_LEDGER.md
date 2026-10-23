@@ -7705,3 +7705,5 @@ Invalidate independently of old proposal publication safety: a hardlinked prior
 output must not prevent creation of the blocking marker. Preserve the supplied
 root symlink check and marker link guards; check other output paths only after
 the marker is held, leaving aliased bytes intact on failure.
+An unused marker.tmp is another publication path, not part of exclusive marker
+creation: its hardlink must not prevent invalidation either.
