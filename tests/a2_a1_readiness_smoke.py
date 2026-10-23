@@ -56,6 +56,143 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_external_inventory_child_alias_refuses_before_revoking_original(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);out=root/'out';out.mkdir()
+            original=b'original input and previous report'
+            child=out/'readiness_report.json';child.write_bytes(original)
+            inventory=root/'inventory.json'
+            inventory.write_bytes(h.canonical({'artifacts':{'CHILD':{
+                'path':'out/readiness_report.json','sha256':h.digest(original)}}}))
+            subject=root/'subjects.json';subject.write_bytes(h.canonical({'subjects':fixture()[0]['subjects']}))
+            args=argparse.Namespace(subjects=str(subject),registry_root=None,capture_inventory=None,
+                checkpoint=[],ohlcv_inventory=str(inventory),output_dir=str(out))
+            before={p:p.read_bytes() for p in (child,inventory,subject)}
+            with self.assertRaisesRegex(ValueError,'LOOKUP_OUTPUT_SCOPE'):
+                live.snapshot(args)
+            self.assertEqual(before,{p:p.read_bytes() for p in before})
+
+    def nested_connect_fixture(self, root, owner):
+        subject=root/'subjects.json'
+        subject.write_bytes(h.canonical({'subjects':[dict(country='US',ticker='RNG',
+            security_id=None,issuer_id=None)]}))
+        live.snapshot(argparse.Namespace(subjects=str(subject),registry_root=None,
+            capture_inventory=None,checkpoint=[],ohlcv_inventory=None,output_dir=str(root/'lookup')))
+        owner.now=datetime.now(timezone.utc);owner.manifest['observed_at']=owner.at(0)
+        for role in ('code','control'):
+            obj=owner.payload(role);obj['observed_at']=owner.at(0);owner.put(role,obj)
+        def put(path,value,collected):
+            target=owner.root/path;target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(h.canonical(value))
+            return dict(path=path,sha256=board.file_hash(target),observed_at=owner.at(-8),
+                available_at=owner.at(-7),collected_at=owner.at(collected),
+                expires_at=owner.at(30),status='VERIFIED')
+        leaf=put('proof/leaf.json',{'fixture':'original'},-4)
+        nested=put('proof/nested.json',{'schema_version':'qa-review-bundle-v2','artifacts':{'leaf':leaf}},-3)
+        code={k:v for k,v in owner.manifest['sources']['code'][0].items() if k!='identity'}
+        bundle=put('proof/review.json',{'schema_version':'qa-review-bundle-v2',
+            'artifacts':{'nested':nested,'shared_code':code}},-2)
+        owner.manifest['requests']=[dict(agent='A6',inputs={'review_bundle':bundle},
+            parameters={},model={'name':'fixture','version':'v1'})]
+        intake=owner.root/'intake.json'
+        def refresh():
+            # Rebind only enclosing fixture hashes after a deliberate child mutation.
+            (owner.root/nested['path']).write_bytes(h.canonical({'schema_version':'qa-review-bundle-v2',
+                'artifacts':{'leaf':leaf}}))
+            nested['sha256']=board.file_hash(owner.root/nested['path'])
+            (owner.root/bundle['path']).write_bytes(h.canonical({'schema_version':'qa-review-bundle-v2',
+                'artifacts':{'nested':nested,'shared_code':code}}))
+            bundle['sha256']=board.file_hash(owner.root/bundle['path'])
+            intake.write_bytes(h.canonical(owner.manifest))
+        refresh()
+        return intake,leaf,nested,bundle,refresh
+
+    def test_connect_preserves_nested_A6_bundle_bytes_paths_and_ready_status(self):
+        owner=state_fixture.StateTests('test_current_identity_and_semantic_determinism');owner.setUp()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);intake,leaf,nested,bundle,_=self.nested_connect_fixture(root,owner)
+                before={p:p.read_bytes() for p in owner.root.rglob('*') if p.is_file()}
+                live.connect(root/'lookup',intake,owner.root,root/'out')
+                tasks=board.read_json(root/'out/agent_task_queue.json')
+                qa=next(t for t in tasks if t['agent']=='A6')
+                self.assertEqual(qa['status'],'READY')
+                self.assertFalse(qa['authority']['execute'])
+                self.assertEqual(qa['inputs']['review_bundle'],bundle)
+                transported=board.read_json(root/'out/intake.json')
+                evidence=next((root/'out/evidence').iterdir())
+                for ref in (leaf,nested,bundle):
+                    self.assertEqual((evidence/ref['path']).read_bytes(),before[owner.root/ref['path']])
+                self.assertEqual(transported['requests'][0]['inputs']['review_bundle'],bundle)
+                self.assertEqual(before,{p:p.read_bytes() for p in before})
+        finally:owner.tearDown();owner.tmp.cleanup()
+
+    def test_nested_A6_missing_tampered_traversal_and_collision_fail_closed(self):
+        for failure in ('missing','tampered','traversal','collision','prefix','metadata','clock','oversize'):
+            with self.subTest(failure=failure):
+                owner=state_fixture.StateTests('test_current_identity_and_semantic_determinism');owner.setUp()
+                try:
+                    with tempfile.TemporaryDirectory() as tmp:
+                        root=Path(tmp);intake,leaf,nested,bundle,refresh=self.nested_connect_fixture(root,owner)
+                        if failure=='missing':(owner.root/leaf['path']).unlink()
+                        elif failure=='tampered':(owner.root/leaf['path']).write_bytes(b'tampered')
+                        elif failure=='traversal':leaf['path']='../outside.json';refresh()
+                        elif failure=='collision':
+                            leaf['path']='source_inventory.json'
+                            (owner.root/leaf['path']).write_bytes(h.canonical({'other':'bytes'}))
+                            leaf['sha256']=board.file_hash(owner.root/leaf['path']);refresh()
+                        elif failure=='prefix':
+                            leaf['path']='source_inventory.json/child'
+                            target=owner.root/leaf['path'];target.parent.mkdir()
+                            target.write_bytes(h.canonical({'other':'bytes'}))
+                            leaf['sha256']=board.file_hash(target);refresh()
+                        elif failure=='metadata':
+                            node=board.read_json(owner.root/bundle['path'])
+                            node['artifacts']['shared_code']['collected_at']=owner.at(-4)
+                            (owner.root/bundle['path']).write_bytes(h.canonical(node))
+                            bundle['sha256']=board.file_hash(owner.root/bundle['path'])
+                            intake.write_bytes(h.canonical(owner.manifest))
+                        elif failure=='oversize':
+                            target=owner.root/leaf['path'];target.write_bytes(b'x'*(h.MAX_BYTES+1))
+                            leaf['sha256']=board.file_hash(target);refresh()
+                        else:leaf['collected_at']=owner.at(-1);refresh()
+                        before={p:p.read_bytes() for p in owner.root.rglob('*') if p.is_file()}
+                        with self.assertRaises((ValueError,OSError)):
+                            live.connect(root/'lookup',intake,owner.root,root/'out')
+                        self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
+                        self.assertEqual(board.read_json(root/'out/manifest.json')['status'],'BLOCKED')
+                        self.assertEqual([p for p in (root/'out/evidence').rglob('*') if p.is_file()],[])
+                        self.assertEqual(before,{p:p.read_bytes() for p in before})
+                finally:owner.tearDown();owner.tmp.cleanup()
+
+    def test_nested_A6_closure_byte_count_and_depth_limits_are_retained(self):
+        for failure in ('bytes','count','depth'):
+            with self.subTest(failure=failure):
+                owner=state_fixture.StateTests('test_current_identity_and_semantic_determinism');owner.setUp()
+                try:
+                    with tempfile.TemporaryDirectory() as tmp:
+                        root=Path(tmp);intake,leaf,nested,bundle,refresh=self.nested_connect_fixture(root,owner)
+                        if failure=='count':
+                            raw=h.canonical({'schema_version':'qa-review-bundle-v2',
+                                'artifacts':{str(i):leaf for i in range(129)}})
+                            (owner.root/bundle['path']).write_bytes(raw);bundle['sha256']=h.digest(raw)
+                            intake.write_bytes(h.canonical(owner.manifest))
+                        elif failure=='depth':
+                            link=leaf
+                            for i in range(33):
+                                raw=h.canonical({'schema_version':'qa-review-bundle-v2','artifacts':{'link':link}})
+                                name='deep/'+str(i)+'.json';target=owner.root/name
+                                target.parent.mkdir(exist_ok=True);target.write_bytes(raw)
+                                link={**leaf,'path':name,'sha256':h.digest(raw)}
+                            raw=h.canonical({'schema_version':'qa-review-bundle-v2','artifacts':{'link':link}})
+                            (owner.root/bundle['path']).write_bytes(raw);bundle['sha256']=h.digest(raw)
+                            intake.write_bytes(h.canonical(owner.manifest))
+                        with mock.patch.object(h,'MAX_TOTAL_BYTES',1 if failure=='bytes' else h.MAX_TOTAL_BYTES):
+                            with self.assertRaisesRegex(ValueError,'LOOKUP_BIND_'):
+                                live.connect(root/'lookup',intake,owner.root,root/'out')
+                        self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
+                finally:owner.tearDown();owner.tmp.cleanup()
+
     def test_stage3_transport_snapshot_does_not_reopen_unbounded_hash_reader(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);src=root/'source';src.mkdir();at=datetime.now(timezone.utc)

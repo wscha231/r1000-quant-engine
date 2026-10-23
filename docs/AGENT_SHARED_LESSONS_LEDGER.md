@@ -7681,3 +7681,14 @@ delivery NOT_CONNECTED until a real producer/export path has been verified.
 The optional Stage3 transport importer must verify the bounded captured bytes
 and descriptor clocks directly; calling the generic file-hash verifier after a
 capped read reopens the file without that cap and loses same-snapshot binding.
+
+### 2026-10-23 — Validate referenced paths before revocation; preserve A6 closure
+
+A Stage3 inventory outside a scratch output can still name an original child
+inside it. Check its complete bounded path set before unlinking reports, then
+reuse that captured inventory. For relocated canonical A6 intake, copy immutable
+bundle bytes and the known nested bundle closure at original relative paths;
+content-addressing only top-level inputs loses descriptor consistency. Use an
+input-identity scratch namespace, bounded hash/clock reads and path/prefix/metadata
+collision refusal. Stage evidence only after the full closure passes. A valid A6
+READY proposal is not an executed job or newly enabled specialist dispatch.

@@ -219,6 +219,19 @@ def snapshot(args):
     h.need(not registry_root or (not out.is_relative_to(registry_root)
            and not registry_root.is_relative_to(out)), 'LOOKUP_OUTPUT_SCOPE')
     h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
+    inner = inner_content = None
+    if args.ohlcv_inventory:
+        path = Path(args.ohlcv_inventory).resolve()
+        inner_content = read_bytes(path); inner = h.decode(inner_content)
+        h.need(type(inner) is dict and type(inner.get('artifacts')) is dict
+               and len(inner['artifacts']) <= 128,
+               'LOOKUP_ARTIFACT_COUNT')
+        # The inventory can live outside out while a referenced original lives
+        # inside it. Check the captured inventory's complete input path set
+        # before revoking anything; reuse these same inventory bytes below.
+        children = [board.artifact_path(path.parent, ref['path']).resolve()
+                    for ref in inner['artifacts'].values()]
+        h.need(all(not p.is_relative_to(out) for p in children), 'LOOKUP_OUTPUT_SCOPE')
     out = safe_output(args.output_dir)
     for name in ('source_inventory.json', 'readiness_report.json', 'request_fragment.json'):
         (out/name).unlink(missing_ok=True)  # Revoke previous current proposals first.
@@ -256,7 +269,7 @@ def snapshot(args):
     if args.capture_inventory: add('CAPTURE',read_bytes(args.capture_inventory))
     cp_ids=[add('CP'+str(i),read_bytes(p)) for i,p in enumerate(args.checkpoint)]
     if args.ohlcv_inventory:
-        path=Path(args.ohlcv_inventory); content=read_bytes(path);inner=h.decode(content)
+        path=Path(args.ohlcv_inventory).resolve()
         for aid,ref in inner['artifacts'].items():
             raw=read_bytes(board.artifact_path(path.parent,ref['path']))
             h.need(h.digest(raw)==ref['sha256'], 'LOOKUP_EVENT_ARTIFACT_HASH')
@@ -267,7 +280,7 @@ def snapshot(args):
             h.need(observed<=available<=collected<=now<child_expires,'LOOKUP_EVENT_ARTIFACT_CLOCK')
             add(aid,raw)
             refs[aid] = {**ref, 'path': refs[aid]['path']}
-        add('OHLCV',content)
+        add('OHLCV',inner_content)
     subjects = h.decode(read_bytes(args.subjects))['subjects']
     value = dict(schema=SCHEMA,as_of=at,subjects=subjects,
         registry_manifest_id='REGISTRY' if registry_root else None,
@@ -319,27 +332,54 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
     board.write_json(out/'agent_task_queue.json',[])
     now=datetime.now(timezone.utc);manifest=board.read_json(Path(canonical_inputs))
     materializer.intake_validate(manifest,now)
-    root=safe_output(out/'evidence');total=0
-    def copy_descriptor(ref, base):
-        nonlocal total
+    fragment=board.read_json(lookup_root/'request_fragment.json')
+    # Preserve canonical relative paths, including references inside immutable
+    # review bundles. A per-input namespace avoids overwriting prior snapshots.
+    root=safe_output(out/'evidence'/h.digest(h.canonical([manifest,fragment])))
+    total=0;count=0;staged={}
+    def copy_descriptor(ref, base, depth=0, bundle=False):
+        nonlocal total,count
+        h.need(depth <= h.MAX_DEPTH, 'LOOKUP_BIND_DEPTH')
         content=read_bytes(board.artifact_path(base,ref['path']))
-        total+=len(content)
-        h.need(total<=h.MAX_TOTAL_BYTES and h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
+        total+=len(content);count+=1
+        h.need(count<=128 and total<=h.MAX_TOTAL_BYTES
+               and h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
         observed,available,collected,expires=(board.timestamp(ref[k]) for k in
             ('observed_at','available_at','collected_at','expires_at'))
         h.need(observed<=available<=collected<=board.timestamp(manifest['observed_at'])<=now<expires,
                'LOOKUP_BIND_CLOCK')
-        path='bytes/'+h.digest(content);dest=board.artifact_path(root,path)
-        dest.parent.mkdir(exist_ok=True);immutable_bytes(dest,content)
-        return {**ref,'path':path}
+        dest=board.artifact_path(root,ref['path'])
+        signature={k:ref[k] for k in ('path','sha256','observed_at','available_at',
+                                     'collected_at','expires_at','status')}
+        key=dest.resolve()
+        if key in staged:
+            h.need(staged[key][1]==signature and staged[key][2]==content,
+                   'LOOKUP_BIND_PATH_CONFLICT')
+            return dict(ref)
+        h.need(all(not key.is_relative_to(previous) and not previous.is_relative_to(key)
+                   for previous in staged), 'LOOKUP_BIND_PATH_CONFLICT')
+        staged[key]=(dest,signature,content)
+        node=None
+        if bundle or content.lstrip().startswith(b'{'):
+            try:node=h.decode(content)
+            except ValueError:
+                if bundle:raise
+        if bundle or type(node) is dict and node.get('schema_version')=='qa-review-bundle-v2':
+            board.schema_validate(node,'system_state_schema.json','qa_bundle')
+            for child in node['artifacts'].values():
+                h.need(board.timestamp(child['collected_at'])<=collected,
+                       'LOOKUP_BIND_BUNDLE_CLOCK')
+                copy_descriptor(child,base,depth+1)
+        return dict(ref)
     for role,refs in manifest['sources'].items():
         manifest['sources'][role]=[copy_descriptor(ref,sources) for ref in refs]
     # Preserve existing input roles/requests, but never replace another A1 job.
-    fragment=board.read_json(lookup_root/'request_fragment.json')
     existing=manifest.get('requests',[])
     h.need(not any(r.get('agent')=='A1' for r in existing),'LOOKUP_A1_REQUEST_CONFLICT')
     for request in existing:
-        request['inputs']={role:copy_descriptor(ref,sources) for role,ref in request['inputs'].items()}
+        request['inputs']={role:copy_descriptor(ref,sources,
+            bundle=request.get('agent')=='A6' and role=='review_bundle')
+            for role,ref in request['inputs'].items()}
     inv_ref=fragment['inputs']['source_inventory']
     inventory=board.read_json(board.artifact_path(lookup_root,inv_ref['path']))
     for ref in inventory['artifacts'].values():
@@ -348,6 +388,10 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
         h.need(copied['path']==ref['path'],'LOOKUP_CHILD_PATH')
     fragment['inputs']['source_inventory']=copy_descriptor(inv_ref,lookup_root)
     manifest['requests']=[*existing,fragment]
+    # Every bounded input/hash/clock/path conflict is checked before publishing
+    # any evidence. Immutable writes never truncate a conflicting prior inode.
+    for dest,_,content in staged.values():
+        dest.parent.mkdir(parents=True,exist_ok=True);immutable_bytes(dest,content)
     board.write_json(out/'intake.json',manifest)
     state=materializer.materialize(manifest,root,now)
     board.write_json(out/'state.json',state)

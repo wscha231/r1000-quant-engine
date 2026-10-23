@@ -49,6 +49,21 @@ subject, request or path conflicts fail closed; failed connects revoke the prior
 queue and manifest. Original issuer/publication/price clocks are not advanced by
 the new observation time. Old capture windows/budgets are never reused as grants.
 
+Input-path checks precede revocation, including every bounded artifact referenced
+by an external Stage3 inventory. An inventory outside the output directory does
+not make its children safe to delete; an alias refusal preserves those originals.
+The captured inventory bytes are reused after this check, without a second read.
+
+Connect retains canonical relative paths and immutable review-bundle bytes under
+an input-identity namespace inside the existing scratch evidence directory. Known
+`qa-review-bundle-v2` containers carry their nested descriptor closure with exact
+hashes/clocks; source identity fields and request descriptors are not rewritten.
+Missing, tampered, traversing, conflicting or parent/child-colliding paths refuse
+before evidence publication. Reads remain capped at4MiB each/32MiB total,128
+descriptors and32 nested bundle edges. This transport does not execute an A6 job:
+legacy READY/dispatch eligibility is only a proposal, global specialist dispatch
+stays disabled, and missing-event A1 requests remain blocked.
+
 ## Actual observation and operational boundary
 
 The Oct23 bounded observation uses MU/AAPL/RNG, the incumbent MU filing request
