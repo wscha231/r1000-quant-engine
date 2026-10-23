@@ -15,7 +15,6 @@ import re
 import os
 import stat
 import zipfile
-from xml.etree import ElementTree
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -211,11 +210,11 @@ def workbook_bytes(report):
         sheet = book.create_sheet(name)
         sheet.sheet_view.showGridLines = False
         sheet.append([title])
-        sheet.append(['As of', report['session'], 'Qualified ETFs', report['qualified_count'], 'Frozen universe', report['frozen_count']])
+        sheet.append(['As of', d(report['session']), 'Qualified ETFs', report['qualified_count'], 'Frozen universe', report['frozen_count']])
         sheet.append(['RESEARCH ONLY', report['scope_note']])
         sheet.append(headers)
         for row in records:
-            sheet.append([row[k] for k in keys])
+            sheet.append([d(row[k]) if k in ('asof', 'metadata_asof') else row[k] for k in keys])
         # Force external text to literal strings, including names beginning with '='.
         for row in sheet:
             for cell in row:
@@ -227,6 +226,7 @@ def workbook_bytes(report):
                 cell.font = Font(color='FFFFFF', bold=True, size=13 if rownum == 1 else 10)
                 cell.fill = PatternFill('solid', fgColor='17365D')
         sheet.freeze_panes = 'C5'
+        sheet['B2'].number_format = 'yyyy-mm-dd'
         sheet.auto_filter.ref = f'A4:{get_column_letter(len(headers))}{4 + len(records)}'
         for i, key in enumerate(keys, 1):
             sheet.column_dimensions[get_column_letter(i)].width = 46 if key in ('name', 'company_name', 'source_url', 'metadata_source') else 19
@@ -236,6 +236,13 @@ def workbook_bytes(report):
                     cell.number_format = '0.00%;[Red](0.00%);"–"'
                 elif key in ('score', 'sharpe_3y', 'weight_pct'):
                     cell.number_format = '0.00'
+                elif key in ('asof', 'metadata_asof'):
+                    cell.number_format = 'yyyy-mm-dd'
+        # The overlap table has three columns, its context row has six.
+        for index in range(len(keys) + 1, 7):
+            sheet.column_dimensions[get_column_letter(index)].width = 19
+        if name == 'OVERLAP':
+            sheet.column_dimensions['C'].width = 46
         return sheet
     keys = ('rank', 'ticker', 'name', 'score', 'cagr_1y', 'cagr_3y', 'cagr_5y', 'sharpe_3y', 'mdd_3y', 'volatility_3y', 'expense_ratio', 'metadata_asof', 'metadata_source')
     s = tab('ETF TOP5', 'ETF Top5 · 1 / 3 / 5 years',
@@ -262,12 +269,11 @@ def workbook_bytes(report):
         for name in sorted(source_zip.namelist()):
             raw = source_zip.read(name)
             if name == 'docProps/core.xml':
-                core = ElementTree.fromstring(raw)
-                for tag in ('created', 'modified'):
-                    node = core.find('{http://purl.org/dc/terms/}' + tag)
-                    if node is not None:
-                        node.text = ts(report['decision_at']).strftime('%Y-%m-%dT%H:%M:%SZ')
-                raw = ElementTree.tostring(core, encoding='utf-8')
+                timestamp = ts(report['decision_at']).strftime('%Y-%m-%dT%H:%M:%SZ').encode()
+                # Preserve namespace/QName declarations, including xsi:type.
+                pattern = rb'(<dcterms:(created|modified)\b[^>]*>)[^<]*(</dcterms:\2>)'
+                raw, count = re.subn(pattern, lambda match: match[1] + timestamp + match[3], raw)
+                require(count == 2, 'WORKBOOK_CORE_TIMESTAMPS')
             info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             dest.writestr(info, raw)

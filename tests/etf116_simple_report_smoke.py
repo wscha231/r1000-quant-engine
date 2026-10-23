@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
+from xml.etree import ElementTree
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -232,6 +234,20 @@ class SimpleReportTests(unittest.TestCase):
         self.assertEqual(book['ETF TOP5']['K5'].number_format, '0.00%;[Red](0.00%);"–"')
         self.assertEqual(book['TOP10 HOLDINGS'].max_row, 54)
         self.assertFalse(any(c.data_type == 'f' for sheet in book for row in sheet for c in row))
+        self.assertEqual(book['ETF TOP5']['B2'].value.date().isoformat(), '2026-10-22')
+        self.assertEqual(book['TOP10 HOLDINGS']['G5'].value.date().isoformat(), '2026-10-22')
+
+    def test_core_property_qname_prefixes_remain_bound(self):
+        with zipfile.ZipFile(io.BytesIO(report.workbook_bytes(self.build()))) as archive:
+            core = archive.read('docProps/core.xml')
+        prefixes = dict(value for event, value in ElementTree.iterparse(io.BytesIO(core), events=('start-ns',)))
+        root = ElementTree.fromstring(core)
+        values = [node.get('{http://www.w3.org/2001/XMLSchema-instance}type') for node in root
+                  if node.get('{http://www.w3.org/2001/XMLSchema-instance}type')]
+        self.assertEqual(values, ['dcterms:W3CDTF', 'dcterms:W3CDTF'])
+        for value in values:
+            self.assertIn(value.split(':')[0], prefixes)
+            self.assertEqual(prefixes[value.split(':')[0]], 'http://purl.org/dc/terms/')
 
     def test_exact_local_reuse_and_tamper_never_overwrite(self):
         result = self.build()

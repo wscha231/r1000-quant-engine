@@ -7832,3 +7832,10 @@ shrunk the cohort. Validate every classification field and establish comparison
 anchors/basis only after independent eligibility filters. Preserve both native
 normal/-O counterexamples. A percentile test must actually move relative rank;
 increasing an already-highest fee cannot lower its percentile further.
+
+Native XLSX reopen missed an unbound xsi:type QName: ElementTree renamed the
+core-properties namespace prefix but retained literal dcterms:W3CDTF values.
+Independent A6 reproduced this author-raised concern. Preserve original core XML
+namespaces and change exactly the two clock values; verify QName bindings, not
+only well-formed XML or successful openpyxl reopen. Render all three report tabs:
+the narrow overlap table also needs enough width for its six-cell context row.
