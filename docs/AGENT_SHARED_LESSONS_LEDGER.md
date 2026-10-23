@@ -7678,3 +7678,6 @@ Shared ChatGPT report text is an unadmitted handoff, not publisher raw bytes or
 an authenticated V2 event. Keep excerpt/export hashes and claimed timestamps
 separate, bind references in the existing A0 transport and mark future automatic
 delivery NOT_CONNECTED until a real producer/export path has been verified.
+The optional Stage3 transport importer must verify the bounded captured bytes
+and descriptor clocks directly; calling the generic file-hash verifier after a
+capped read reopens the file without that cap and loses same-snapshot binding.

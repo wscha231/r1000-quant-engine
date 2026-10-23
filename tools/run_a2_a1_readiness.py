@@ -262,7 +262,9 @@ def snapshot(args):
             h.need(h.digest(raw)==ref['sha256'], 'LOOKUP_EVENT_ARTIFACT_HASH')
             # Preserve the existing event artifact clocks. Refreshing transport
             # does not extend stale/expired event or identity evidence.
-            board.verify_artifact(path.parent,ref,now,now)
+            observed,available,collected,child_expires=(board.timestamp(ref[k]) for k in
+                ('observed_at','available_at','collected_at','expires_at'))
+            h.need(observed<=available<=collected<=now<child_expires,'LOOKUP_EVENT_ARTIFACT_CLOCK')
             add(aid,raw)
             refs[aid] = {**ref, 'path': refs[aid]['path']}
         add('OHLCV',content)

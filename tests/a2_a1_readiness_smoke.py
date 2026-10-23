@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT=Path(__file__).resolve().parent.parent
 sys.path[:0]=[str(ROOT),str(ROOT/'tests')]
@@ -55,6 +56,25 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_stage3_transport_snapshot_does_not_reopen_unbounded_hash_reader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);src=root/'source';src.mkdir();at=datetime.now(timezone.utc)
+            inner,values=price_fixture.fixture(cutoff=at.isoformat())
+            for i,(aid,raw) in enumerate(values.items()):
+                path=src/('input'+str(i));path.write_bytes(raw)
+                inner['artifacts'][aid]=dict(path=path.name,sha256=h.digest(raw),
+                    observed_at=(at-timedelta(minutes=3)).isoformat(),
+                    available_at=(at-timedelta(minutes=2)).isoformat(),
+                    collected_at=(at-timedelta(minutes=1)).isoformat(),
+                    expires_at=(at+timedelta(minutes=30)).isoformat(),status='VERIFIED')
+            inv=src/'inventory.json';inv.write_bytes(h.canonical(inner))
+            subjects=root/'subjects.json';subjects.write_bytes(h.canonical({'subjects':fixture()[0]['subjects']}))
+            args=argparse.Namespace(subjects=str(subjects),registry_root=None,capture_inventory=None,
+                checkpoint=[],ohlcv_inventory=str(inv),output_dir=str(root/'out'))
+            with mock.patch.object(board,'verify_artifact',side_effect=AssertionError('unbounded reread')):
+                report=live.snapshot(args)
+            self.assertEqual(report['event_connection'],'STAGE3_VALIDATOR')
+            self.assertEqual(report['requests'][0]['action'],'REUSE_EXISTING')
     def test_existing_cache_hardlink_never_overwrites_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);source=root/'source';source.write_bytes(b'original')
