@@ -1355,7 +1355,7 @@ def calc_metrics(
     if measurement_context is not None:
         result = nav_v2.calculate_frame(equity_curve, measurement_context,
             valuation_binding=valuation_binding, date_range=date_range, label=label)
-        if result.get("status") == nav_v2.COMPLETE:
+        if result.get("status") in (nav_v2.COMPLETE, nav_v2.PARTIAL_RAW_ONLY):
             # Shared admission has validated nonempty, unique caller sessions.
             # Its selected start identifies row zero independently of range syntax.
             first_session = pd.Timestamp(equity_curve["date"].iloc[0]).date().isoformat()

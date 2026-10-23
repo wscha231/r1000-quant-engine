@@ -3449,6 +3449,7 @@ class ManualTests(unittest.TestCase):
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
         self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
+                         'tools/run_orchestrator.py',
                          'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
                          'tools/frozen_stage_ab_fairness.py',
                          'tests/twelve_data_credential_preflight_smoke.py',
@@ -3467,12 +3468,15 @@ class ManualTests(unittest.TestCase):
         # Literal witnesses from registered tests and their actual default reads,
         # independent of the validator inventory. Never run economic programs.
         names = (
+            'tools/run_orchestrator.py',
             'data_static/run287_durable_environment_contract.json',
             'data_static/run287_promotion_gate_contract.json',
             'docs/run287_chameleon_macro_risk_contract.json',
             'docs/run287_expected_return_challenger_contract.json',
+            'docs/run287_expected_return_v2_contract.json',
             'docs/run287_next_scheduled_artifact_gate_contract.json',
             'docs/run287_ohlcv_pattern_memory_contract.json',
+            'docs/nav_metrics_v3_rf_optional_contract.json',
             'docs/run287_same_close_target_contract.json',
             'docs/run287_sec_management_guidance_scout_contract.json',
             'docs/run287_sector_leadership_challenger_contract.json',

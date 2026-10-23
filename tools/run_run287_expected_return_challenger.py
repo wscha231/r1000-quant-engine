@@ -1899,6 +1899,279 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+# ER-H1 V2 is a separate opt-in label precheck; the historical V1 model and
+# HORIZONS=(21,63,126) remain byte/behavior-compatible by default.
+V2_H1_252_CONTRACT_SHA256 = "1937849e03af1c2e2fd4fda42d65dbb1cab657b1d8c41d01980ebd03631250dd"
+V2_H1_MAX_ROWS = 10000
+V2_H1_ALLOWED_BASES = frozenset(("TOTAL_RETURN", "PROVIDER_ADJUSTED_CLOSE_PROXY"))
+V2_H1_TIMESTAMP_RE = re.compile(
+    r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})\Z"
+)
+V2_H1_DAY_RE = re.compile(r"\A\d{4}-\d{2}-\d{2}\Z")
+# Match the existing A3 Candidate Registry identifier grammar; do not trim
+# or invent a new security identity from caller-supplied text.
+V2_H1_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}\Z")
+
+
+def validate_v2_h1_252_contract(contract: Any) -> dict[str, Any]:
+    """Read-only V2 H1 specification. It cannot be passed to V1 model fit."""
+    if not isinstance(contract, dict) or contract.get("schema_version") != (
+        "run287-er-v2-h1-252-label-only-v1"
+    ):
+        raise ValueError("v2_h1_contract_schema")
+    if canonical_sha256(contract) != V2_H1_252_CONTRACT_SHA256:
+        raise ValueError("v2_h1_contract_hash_mismatch")
+    if (contract["family_id"] != "future_expected_excess_return_multihorizon_v1"
+        or contract["v1_contract_sha256"] != EXPECTED_CONTRACT_SHA256
+        or contract["horizons_nyse_sessions"] != [21, 63, 126, 252]
+        or contract["purge_and_windows"]["embargo_nyse_sessions"] != 252
+        or contract["safety"]["model_fit_allowed"] is not False
+        or contract["safety"]["validated_er_allowed"] is not False
+        or contract["safety"]["A5_eligible_input"] is not False):
+        raise ValueError("v2_h1_contract_invariant")
+    return contract
+
+
+def _v2_h1_aware_stamp(value: Any) -> pd.Timestamp:
+    """Explicit aware timestamps only; never infer a publication clock."""
+    if not isinstance(value, str) or V2_H1_TIMESTAMP_RE.fullmatch(value) is None:
+        raise ValueError("timestamp_precise_timezone_required")
+    try:
+        stamp = pd.Timestamp(value)
+        if pd.isna(stamp) or stamp.tzinfo is None or stamp.utcoffset() is None:
+            raise ValueError("invalid_timestamp")
+        return stamp.tz_convert("UTC")
+    except (ValueError, OverflowError, TypeError) as exc:
+        raise ValueError("invalid_timestamp") from exc
+
+
+def _v2_h1_nyse_day(value: Any) -> pd.Timestamp:
+    if isinstance(value, pd.Timestamp):
+        if value.tzinfo is not None or value != value.normalize():
+            raise ValueError("not_nyse_day")
+        value = value.strftime("%Y-%m-%d")
+    if not isinstance(value, str) or V2_H1_DAY_RE.fullmatch(value) is None:
+        raise ValueError("not_nyse_day")
+    try:
+        stamp = pd.Timestamp(value)
+        if stamp.strftime("%Y-%m-%d") != value:
+            raise ValueError("not_nyse_day")
+        sessions = NYSE.valid_days(start_date=stamp, end_date=stamp)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError("not_nyse_day") from exc
+    if len(sessions) != 1:
+        raise ValueError("not_nyse_day")
+    return stamp.normalize()
+
+
+def _v2_h1_last_completed_nyse_session(decision: pd.Timestamp) -> pd.Timestamp:
+    """Anchor to the last *completed* U.S. session, not a UTC calendar date.
+
+    UTC midnight, daylight-saving changes, holidays and intraday analysis can
+    otherwise select a future U.S. session and weaken the embargo.
+    """
+    if not isinstance(decision, pd.Timestamp) or decision.tzinfo is None:
+        raise ValueError("v2_h1_aware_decision_required")
+    try:
+        local_date = decision.tz_convert("America/New_York").date()
+        last = pd.Timestamp(local_date)
+        first = last - pd.Timedelta(days=14)
+        session_closes = NYSE.schedule(
+            start_date=first.strftime("%Y-%m-%d"),
+            end_date=last.strftime("%Y-%m-%d"),
+        )["market_close"]
+        completed = session_closes[
+            pd.DatetimeIndex(session_closes).tz_convert("UTC") <= decision
+        ]
+        if completed.empty:
+            raise ValueError("v2_h1_no_completed_nyse_session")
+        session = pd.Timestamp(completed.index[-1])
+        if session.tzinfo is not None:
+            session = session.tz_localize(None)
+        return _v2_h1_nyse_day(session.normalize())
+    except (ValueError, TypeError, IndexError, KeyError, OverflowError) as exc:
+        raise ValueError("v2_h1_completed_session_unavailable") from exc
+
+
+def _v2_h1_return(value: Any) -> float:
+    """Do not coerce missing, bool, string or nonfinite returns to zero."""
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        raise ValueError("return_not_numeric")
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("return_not_finite") from exc
+    if not math.isfinite(result) or result < -1.0:
+        raise ValueError("return_not_finite_or_below_minus_one")
+    return result
+
+
+def _v2_h1_observed_at() -> pd.Timestamp:
+    """One runtime UTC snapshot; never supplied by the label caller."""
+    return pd.Timestamp(datetime.now(timezone.utc))
+
+
+def audit_v2_h1_252_labels(
+    frame: pd.DataFrame, contract: Mapping[str, Any], *, decision_at: str
+) -> dict[str, Any]:
+    """Supplied-input 252-session *realized-label* precheck; never ER.
+
+    Not independent source/PIT authentication; no fit, prediction, publication
+    or authority. Retains every security/feature-date row, even blocked ones.
+    """
+    observed_at = _v2_h1_observed_at()
+    cfg = validate_v2_h1_252_contract(contract)
+    decision = _v2_h1_aware_stamp(decision_at)
+    if decision > observed_at:
+        raise ValueError("v2_h1_future_decision")
+    decision_day = _v2_h1_last_completed_nyse_session(decision)
+    if type(frame) is not pd.DataFrame or len(frame) > V2_H1_MAX_ROWS:
+        raise ValueError("v2_h1_invalid_or_excessive_input_rows")
+    required_identity = ("asset_id", "issuer_id", "feature_date")
+    missing = [name for name in required_identity if name not in frame.columns]
+    if missing:
+        raise ValueError("v2_h1_missing_identity:" + ",".join(missing))
+    fields = cfg["fields"]
+    seen: set[tuple[str, str]] = set()
+    rows: list[dict[str, Any]] = []
+    embargo_cutoff = nyse_embargo_cutoffs([decision_day], 252)[decision_day]
+    if embargo_cutoff is None:
+        raise ValueError("v2_h1_insufficient_embargo_calendar")
+
+    # Validate identities and gather the whole supplied cohort before any
+    # row can pass: a later conflicting SPY value invalidates earlier rows.
+    prepared_rows = []
+    benchmark_values: dict[pd.Timestamp, set[float]] = {}
+    for _, item in frame.iterrows():
+        asset = item.get("asset_id")
+        issuer = item.get("issuer_id")
+        if any(not isinstance(value, str) or value != value.strip()
+               or V2_H1_ID_RE.fullmatch(value) is None
+               for value in (asset, issuer)):
+            raise ValueError("v2_h1_noncanonical_security_identity")
+        feature_day = _v2_h1_nyse_day(item["feature_date"])
+        identity = (asset, feature_day.strftime("%Y-%m-%d"))
+        if identity in seen:
+            raise ValueError("v2_h1_duplicate_asset_decision")
+        seen.add(identity)
+        prepared_rows.append((item, asset, issuer, feature_day))
+        try:
+            benchmark_value = _v2_h1_return(item.get(fields["benchmark_return"]))
+        except ValueError:
+            pass  # The row retains its existing invalid-return blocker.
+        else:
+            benchmark_values.setdefault(feature_day, set()).add(benchmark_value)
+
+    for item, asset, issuer, feature_day in prepared_rows:
+        reasons: list[str] = []
+        if len(benchmark_values.get(feature_day, set())) > 1:
+            reasons.append("BENCHMARK_RETURN_CONFLICT_FOR_FEATURE_DATE")
+        expected_end = expected_nyse_label_ends(
+            pd.Series([feature_day], dtype="datetime64[ns]"), 252
+        ).iloc[0]
+        # NYSE controls the exact entry/end sessions. Never replace with an
+        # available later bar, 365 calendar days or 2x a 126-session label.
+        if pd.isna(expected_end):
+            reasons.append("EXACT_252_END_NOT_RESOLVED")
+        for which in ("stock_label_end", "benchmark_label_end"):
+            value = item.get(fields[which])
+            if value is None or (isinstance(value, (float, np.floating))
+                                 and math.isnan(float(value))):
+                reasons.append(which.upper() + "_MISSING")
+                continue
+            if not isinstance(value, (str, pd.Timestamp)):
+                reasons.append(which.upper() + "_INVALID")
+                continue
+            try:
+                day = _v2_h1_nyse_day(value)
+                if pd.isna(expected_end) or day != expected_end:
+                    reasons.append(which.upper() + "_NOT_EXACT_252")
+            except (TypeError, ValueError):
+                reasons.append(which.upper() + "_INVALID")
+        if item.get(fields["benchmark_identity"]) != cfg["benchmark"]["identity"]:
+            reasons.append("BENCHMARK_IDENTITY_MISMATCH")
+        if item.get(fields["benchmark_source"]) != cfg["benchmark"]["source"]:
+            reasons.append("BENCHMARK_SOURCE_MISMATCH")
+        basis1, basis2 = (item.get(fields["stock_return_basis"]),
+                           item.get(fields["benchmark_return_basis"]))
+        if (not isinstance(basis1, str) or not isinstance(basis2, str)
+            or basis1 not in V2_H1_ALLOWED_BASES or basis1 != basis2):
+            reasons.append("RETURN_BASIS_MISMATCH_OR_UNKNOWN")
+
+        values: dict[str, float] = {}
+        for which in ("stock_return", "benchmark_return"):
+            try:
+                values[which] = _v2_h1_return(item.get(fields[which]))
+            except ValueError:
+                reasons.append(which.upper() + "_INVALID_OR_MISSING")
+
+        try:
+            available = _v2_h1_aware_stamp(item.get(fields["label_available_at"]))
+            if pd.notna(expected_end):
+                close = NYSE.schedule(
+                    start_date=expected_end, end_date=expected_end
+                )["market_close"].iloc[0]
+                if available < pd.Timestamp(close).tz_convert("UTC"):
+                    reasons.append("LABEL_AVAILABLE_BEFORE_ACTUAL_NYSE_CLOSE")
+            if available >= decision:
+                reasons.append("LABEL_NOT_MATURE_STRICTLY_BEFORE_DECISION")
+        except (ValueError, TypeError, KeyError, IndexError):
+            reasons.append("LABEL_AVAILABILITY_MISSING_OR_UNVERIFIED_CLOCK")
+        if feature_day > embargo_cutoff:
+            reasons.append("FEATURE_WITHIN_252_SESSION_EMBARGO")
+
+        lifecycle = item.get(fields["security_lifecycle_status"])
+        if not isinstance(lifecycle, str) or lifecycle not in cfg["lifecycle"]["values"]:
+            reasons.append("LIFECYCLE_UNKNOWN")
+        elif lifecycle != "ACTIVE":
+            # Even a supplied receipt SHA is not independently authenticated
+            # terminal cash proceeds. Retain the row and block this H1 gate.
+            reasons.append("TERMINAL_PROCEEDS_A1_ADMISSION_REQUIRED")
+
+        passed = not reasons
+        rows.append({
+            "asset_id": asset,
+            "issuer_id": issuer,
+            "feature_date": feature_day.strftime("%Y-%m-%d"),
+            "expected_exact_label_end": (None if pd.isna(expected_end)
+                                         else expected_end.strftime("%Y-%m-%d")),
+            "precheck_status": ("SUPPLIED_LABEL_CONSISTENT_RESEARCH_ONLY" if passed
+                                else "BLOCKED_LABEL_EVIDENCE"),
+            "blockers": reasons,
+            "observed_stock_return": values.get("stock_return") if passed else None,
+            "observed_spy_return": values.get("benchmark_return") if passed else None,
+            "observed_excess_return": (values["stock_return"] - values["benchmark_return"]
+                                       if passed else None),
+            "source_pit_authenticated": False,
+            "training_authorized": False,
+            "gross_expected_return_12m": None,
+            "net_expected_return_12m": None,
+            "downside_probability": None,
+            "expected_drawdown": None,
+            "A5_eligible_input": False,
+        })
+    return {
+        "schema_version": cfg["schema_version"],
+        "contract_sha256": V2_H1_252_CONTRACT_SHA256,
+        "scope": "SUPPLIED_LABEL_PREFLIGHT_NOT_SOURCE_OR_ECONOMIC_ADMISSION",
+        "decision_at": decision.isoformat(),
+        "observed_at": observed_at.isoformat(),
+        "decision_completed_nyse_session": decision_day.strftime("%Y-%m-%d"),
+        "embargo_cutoff_nyse_session": embargo_cutoff.strftime("%Y-%m-%d"),
+        "cohort_denominator": len(rows),
+        "precheck_consistent_rows": sum(
+            row["precheck_status"] == "SUPPLIED_LABEL_CONSISTENT_RESEARCH_ONLY"
+            for row in rows
+        ),
+        "model_fit_allowed": False,
+        "validated_er_available": False,
+        "A5_eligible_input": False,
+        "records": rows,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(

@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
+
+- SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
+  opening response headers. Its302,101B unconfirmed storage remains charged.
+  A connected search omitted even the directly readable known checkpoint;
+  an empty result therefore cannot establish absence of the failed object.
+- The dedicated native mode reuses RuntimeMeter and OwnerDrive, excludes
+  provider calls and Drive writes, and requires a successful exact-file list
+  positive control before one small parent/time-window list. OAuth refresh
+  is separately metered credential maintenance, not a Drive CREATE.
+- Unknown connector request/transfer costs cannot be treated as zero. Native
+  execution requires a referenced OWNER transport-accounting record and keeps
+  its own meter, dispatch and active-time reservation separate from capture.
+  Its marked run stays visible to later capture history, which must stop until
+  a separately reviewed exact recovery settles that read. No retry/admission,
+  budget reset, protected deployment or market-data collection is authorized
+  by a successful diagnostic.
+
 ## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
 
 - Earnings Estimate Source Probe runs `38267566200` and `37183899304`
@@ -7366,3 +7384,213 @@ an existing object created in that window must appear in it. Anchor new inventor
 observations to the actual canonical recovery run, rather than accepting a
 self-consistent set of receipt clocks that all predate execution. Keep old object
 creation separate; synthetic successful fixtures must model the same distinction.
+
+### 2026-10-21 — Preserve gate-log bytes without exposing PR credentials
+
+Source diagnostic39544804083 stopped with NAMED_READ_GATE_LOG before Drive
+configuration and RuntimeMeter construction. Preserve its actual215 active job
+seconds and one dispatch; an absent meter does not prove zero I/O or authorize
+a rerun. The exact deployed call order and positive failure log establish the
+pre-meter boundary. Original suppressed stderr remains unobserved. A later
+Linux reproduction identified GitHub CLI2.102.0's terminal-escape output guard.
+
+Feature-detect the escape flag and enable it only for a helper-owned private
+temporary file. Keep original ANSI/BOM/UTF8 bytes and hashes for the genuine
+gate parser, reject oversized output and use static safe errors. A process
+timeout and bounded prefix reads are not a hard download or disk byte cap.
+
+Do not pass repository read tokens to contributor-controlled PR code or make
+future PR checks depend on expiring historical job logs. Retain one-time
+observations separately and keep recurring PR checks mock-only. Complete
+campaign history must remain in always-authenticated source code, including
+legacy controls; revision-only changes must trigger the specialized checks.
+
+PR660 records the transport correction and exact source/test evidence. Its
+code/CI success does not settle the failed run, renew an execution window,
+authorize another diagnostic, or establish174 new prices or PIT eligibility.
+
+The follow-up accounting verifier must authenticate historical deployment bytes
+separately from current local code. Keep raw BOM-inclusive failure-log hashes
+distinct from decoded convenience copies. Compare fresh API security fields
+with the retained job proof without depending on avatar or URL serialization.
+The failed step's whole-second completion clock includes its final fractional
+log second; use only that explicit precision bucket within the job bounds.
+Record the observed215 seconds and one dispatch with a distinct idempotent cost
+event, never a fabricated RuntimeMeter or permission to retry the failed read.
+
+For a disjoint new cohort, prove the failed source's execution footprint from
+the actual last verified checkpoint, meter and synchronous group/readback order.
+Keep an uncertain POST charged/quarantined even when its possible symbols do not
+overlap the new frozen input; disjointness is not proof of storage absence or
+payload identity. A separate cohort needs its own actual authority/window and
+checkpoint namespace while carrying all old costs and unresolved outcomes.
+
+Legacy collector callbacks print private checkpoint references. Capture that
+output privately and let the next metered worker resolve a content-addressed
+checkpoint under the owner-only folder, rather than publishing the reference or
+doing unmetered host reads. Preserve semantic readback and count no-data/held
+separately from valid prices. Test full sequential batches and interrupted
+settlement repair without dispatching an already completed batch again.
+Keep adapter error names compatible with the existing meter's strict reason
+schema; do not loosen that schema to fit a new route. Unknown exception text
+must not reach a public meter, even when it contains only uppercase characters.
+
+An independently reproduced expiry race remained after a successful remote
+authority check: the final branch request could finish at expiry, then reserve
+and dispatch a run outside its authorized window. Recheck the local clock after
+that response and again immediately before POST, including after journal fsync.
+Keep any already durable reservation visible when expiry stops the POST.
+Do not combine an original account-evidence hash with a later execution grant's
+reference. Preserve those lineages separately and keep supplier rights explicitly
+unverified; an OWNER execution instruction is not a supplier rights certificate.
+
+
+## 2026-10-21 RF-optional raw measurements
+
+Explicit RF absence may permit a versioned raw research measurement while RF excess stays null. Partial status must not bypass caller capital/anchor checks or lose bound valuation provenance. Preserve OOS predecessor checks and COMPLETE-only package/publication admission; never turn absent RF into zero or a malformed RF object into absence.
+
+### 2026-10-21 — Refresh current reuse bindings when NAV callers change
+
+Actual E2 PR654 validation39474051977 passed234/235 registered programs; the
+agent-board/manual fixture failed with catalog_dependency_changed for the
+broker replay caller. The NAV, broker and weekly suites themselves passed.
+Current-equivalent catalog bindings must track the exact changed broker/NAV/
+weekly bytes as well as the new consumed contract. Reconcile only the six
+affected entries, record the actual verification clock and current master
+baseline, and retain original PR heads, historical classifications, constraints
+and do-not-repeat references. This is byte consistency, not a new economic
+approval or promotion of historical/SELECTIVE_PORT entries. Keep stale and
+omitted-hash refusal tests, the valid real CLI control and strict verifier
+functions; never bypass the dependency check to obtain green CI.
+
+### 2026-10-21 — Keep Source identity separate from unrelated Main integration
+
+Source662 collected96 frozen proxy-gap names in three actual successful runs,
+then its whole-master guard correctly stopped on Main654's unrelated merge.
+Preserve those prices, originalauth47db, Source662 proof, family86/cohort10,
+CP96, exact spent resources and original24-hour expiry. Replacing the old auth,
+replaying a completed workflow or silently pinning a new master is not recovery.
+
+A separately reviewed Source adapter and immutable OWNER source-transition
+grant can authenticate the historical Source separately from current local
+code, then bind the new genuine protected publication and compatible runtime.
+Freeze every file actually checked out by the credential-bearing workflow,
+including preflight tests and seed, plus review guards and Git attributes.
+Runtime7 hashes alone miss changes to executed pre-credential fixtures. Require
+complete Git-tree evidence, protected descendant ancestry and actual GITHUB_SHA;
+keep the original grant/account evidence and new Source proof in distinct fields.
+Append no extra event into an existing reserved batch-index protocol. Bind the
+transition in subsequent reservations/meters and keep the first96 byte prefix.
+The actual repository recursive Git-tree response is over4MiB. Query only
+non-recursive parent trees for the required paths, cache those directories
+within the verification and reject truncated/duplicate/symlink entries. Do not
+raise metadata limits or scan unrelated artifact trees to prove19 source pins.
+Independent A6 found that pinning only root .gitattributes misses ancestor
+attributes used from the Git index during sparse checkout. Freeze all six
+root/ancestor attribute presence/content records, including absent files. The
+same six cached parent trees close this gap without additional API calls.
+
+## 2026-10-21 ER252 supplied-label H1 boundary
+
+Rebase a prepared additive change only after verifying its consumed base blobs; a stale global master pin is not permission to overwrite current Main. The V2 252-session helper checks supplied realized labels with the actual NYSE calendar and the last completed U.S. session. It does not authenticate source/PIT, fit a model, produce expected returns, or authorize A5. Preserve V1 defaults and keep every valid-identity cohort row, including blocked lifecycle rows. A contract newly read by a registered proof must also enter the fixed A6 dependency inventory and its stale-byte/rebound-omission regression.
+
+### 2026-10-21 — Supplied labels need cohort consistency and a real observation bound
+
+PR653's trusted exact-head Codex review found three H1 gaps: conflicting SPY
+returns passed independently within one feature date, untrimmed identifiers
+escaped duplicate detection, and a caller's future decision time made future
+labels appear mature. Validate the existing Candidate Registry identifier
+grammar before deduplication, gather all benchmark values before admitting any
+row, and bound the decision by one runtime UTC observation snapshot. Retain all
+conflicting rows as blocked; historical as-of decisions remain supported.
+Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
+observation clock, source/PIT authentication, model fit, ER or A5 authority is
+introduced. Re-review the new exact head; the superseded review is not approval.
+
+## 2026-10-20 - Keep invalid macro inputs out of portfolio inspection
+
+- Validate every consumed price in MA/z-score windows: one earlier value in an
+  incompatible unit can corrupt a finite final reducer and invent market risk.
+- Replace the current blocked snapshot atomically before its independent dated
+  archive; archive errors must not preserve an old GREEN current pointer.
+- Missing/blocked/stale/future macro data never justify cached bull or neutral.
+  Share the producer's numeric/session contract and stop before weight loading,
+  composition and output. An explicit manual override remains unverified research.
+- Keep Native validation HEAD fixed during each identity-bound build. A commit
+  during B1 fixtures correctly raises code_identity_mutated_during_build; preserve
+  that failed run and rerun frozen bytes rather than relaxing the identity guard.
+
+## 2026-10-20 - Reuse registered smoke programs within frozen validation contracts
+
+- Adding a runner entry changes the fixed Manual proof inventory and the P0-4
+  protected publication bytes. A focused test passing alone does not verify
+  those registration consumers. Inspect the actual terminal CI failures first.
+- Run related consumer regressions through the existing registered macro smoke,
+  retain every case and its standalone compatibility entry, and keep the runner
+  byte-identical to the reviewed parent. Do not advance frozen verifier pins or
+  weaken inventory checks to admit an incidental test-registration change.
+- The new consumer runtime still needs its own separately reviewed fixed A6
+  dependency pin. Registry count and a passing fixture do not bind an imported
+  module that is absent from that inventory; keep proof acceptance pending.
+
+## 2026-10-21 - Install the dependencies consumed by sparse history preflight
+
+- The scheduled history workflow failed before Source/Drive access because its
+  native offline regression imports PyYAML but the minimal install omitted it.
+  Declare the actual tested PyYAML version in that existing install step; keep
+  offline-before-credentials ordering, source gates, schedules and all policies.
+- A green daily workflow can skip data work. Record actual executed steps and
+  input/receipt/consumer evidence separately from run success. Do not fabricate
+  a coverage receipt or silently fall back to old successful inputs.
+- Preserve Native environment failures: Windows symlink privileges and POSIX
+  mode checks need Linux evidence, not relaxed security assertions. Restore
+  absent tracked sparse fixtures from their exact Git blob before revalidation.
+
+### 2026-10-21 — Read the actual transport diagnostic and preserve partial capture
+
+Price174 run39611877699 failed with zero new admitted rows but36 provider calls,
+277 Drive calls and1024964B confirmed storage. Its meter explicitly records
+DRIVE_METADATA GET/HEADER_OPEN HTTP500; a short public HTTP_ERROR line does not
+justify reporting the status/category as unknown when the raw meter has them.
+It also does not identify the exact object or establish Google's root cause.
+Keep all567 actual job seconds, dispatch and costs in the original journals.
+
+A failed metadata GET after storage is not permission to replay provider prices
+or assume the saved object is a complete raw pack. Account for a bounded exact
+window inventory and validate raw bytes, original clocks, normalized rows and
+prior checkpoint before deriving a new receipt. Missing or ambiguous originals
+remain blocked. Keep capture Source and current derivation Source distinct.
+The old hardcoded orphan exception belongs to its original incident; add a
+separate named proof rather than changing that exception's historical meaning.
+Any retry must be limited to explicit idempotent metadata5xx GETs, debit every
+attempt and retain the original deadline; never turn unknown POST into retry.
+
+When rebasing a Source PR onto an unrelated protected Main merge, supply the
+native committer identity on the rebase itself. Never publish after a failed
+Git command: a stopped rebase can leave HEAD at the base with staged Source
+changes. Verify successful completion, the expected attached branch, clean
+status and exact scoped diff before pushing with an explicit remote-head lease.
+Publishing the base can close the PR as empty; preserve/reapply its original
+commits and reopen that same PR rather than replacing its review history.
+
+### 2026-10-22 — Missing meter needs positive failure evidence and typed costs
+
+Source665 recovery39659548948 failed in genuine GitHub log retrieval before
+RuntimeMeter, with original stderr/HTTP cause unobserved. Preserve its missing
+meter. Exact deployed code/import closures plus the original positive failure
+log prove only Source-controlled provider/Drive I/O zero; artifact absence is
+not zero-cost proof. Retain actual261 job seconds and one dispatch separately
+from five existing meter receipts, immutable reservations, CP128 and old costs.
+
+Authenticate an old protected Source independently of new local bytes. Close
+the exact refusal once through typed journal counterparts; a partial durable
+write must repair idempotently. A current protected publication and fresh
+immutable OWNER rebind must separately authorize continuation, binding actual
+closure hashes without resetting the original expiry or resource ceilings.
+
+For bounded CLI log retrieval, include feature detection, file-open latency,
+backoff and every subprocess in one monotonic deadline. Recompute immediately
+before spawn; prefer explicit auth/encoding/size failures over unknown-exit
+retry. Emit only safe reason/count/hash diagnostics, and preserve the original
+Refused code if even the diagnostic sink fails. Successful mock retries do not
+identify the actual old transport cause or prove operational capture readiness.

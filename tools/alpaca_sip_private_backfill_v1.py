@@ -456,6 +456,57 @@ def verify_archived_group(raw_pack: bytes, normalized_pack: bytes,
             "RESUME_NORMALIZED_MISMATCH")
 
 
+STORAGE_QUARANTINE = dict(
+    schema="a1-uncertain-storage-quarantine-v1", failed_run_id=39085031884,
+    failed_meter_sha256="231d256890c209ef5dace024a25cfafc5d6a8714abded3a8cca76f2752818814",
+    native_run_id=39103855450,
+    native_meter_sha256="5ee2027eb33a6f271aa8cf96c35763e71b49e23ac9eb8517541ecf6a8556c18e",
+    native_source_sha="a549c27b1cdd002bdaaa7dd6ab5dfc44fef0aaad",
+    checkpoint_sha256="efcea3356688118392fa71612ee2702c4b9ea436ad88bdfdab917ef60e373cfd",
+    input_sha256="1f04634e055a1b92fc8e1c167d92b54b8ada71032cb633afe02235dfef36c57e",
+    owner_sha256="08e29aa6cca772e9319b2aab20ad9fdba5dd0d8fce08a90b9fdbf3253fe9a94e",
+    examined_before=76, symbols=["VLO", "MFG", "BP", "BTI"],
+    unknown_storage_bytes_still_charged=302101,
+    absence_proven=False, failed_request_body_hash_known=False,
+)
+
+
+def verify_storage_quarantine(evidence, scope):
+    """One sealed non-price hold, never permission to retry unknown bytes."""
+    require(isinstance(evidence, dict) and set(evidence) == set(STORAGE_QUARANTINE) |
+            {"authorization_sha256", "external_proof_sha256", "native_settlement_sha256", "recovery_run_id"}
+            and all(type(evidence[k]) is type(v) and evidence[k] == v
+                    for k, v in STORAGE_QUARANTINE.items())
+            and scope == dict(task_key="R1000-DISCOVERY-EXPANSION-INTAKE-20261017",
+                             namespace="top500-20261017",
+                             input_sha256=STORAGE_QUARANTINE["input_sha256"])
+            and all(isinstance(evidence[k], str) and re.fullmatch(r"[0-9a-f]{64}", evidence[k])
+                    for k in ("authorization_sha256", "external_proof_sha256", "native_settlement_sha256"))
+            and type(evidence["recovery_run_id"]) is int
+            and evidence["recovery_run_id"] > STORAGE_QUARANTINE["native_run_id"],
+            "STORAGE_QUARANTINE_PROOF")
+
+
+def verify_storage_hold(marker, state):
+    require(isinstance(marker, dict) and set(marker) == {
+        "schema", "scope", "source", "status", "reason", "symbols", "seed_sha256", "source_sha",
+        "start", "end", "asof", "original_price_bytes_retained", "source_admission", "pit_verified",
+        "historical_identity_verified", "commercial_use_authorized", "cohort_scope", "uncertain_storage"}
+        and marker.get("status") == "HELD_UNCERTAIN_STORAGE", "STORAGE_QUARANTINE_PROOF")
+    verify_storage_quarantine(marker.get("uncertain_storage"), state.get("cohort_scope"))
+    require(marker.get("symbols") == STORAGE_QUARANTINE["symbols"]
+            and marker.get("reason") == "DRIVE_CREATE_OUTCOME_UNKNOWN"
+            and len(state.get("examined", [])) == 80
+            and state["examined"][76:] == STORAGE_QUARANTINE["symbols"]
+            and state.get("held") == STORAGE_QUARANTINE["symbols"]
+            and len(state.get("completed", [])) == 76
+            and isinstance(state.get("previous_checkpoint"), dict)
+            and state["previous_checkpoint"].get("sha256") == STORAGE_QUARANTINE["checkpoint_sha256"]
+            and state.get("last_collected") == state.get("last_no_bars") == []
+            and state.get("last_held") == STORAGE_QUARANTINE["symbols"],
+            "STORAGE_QUARANTINE_PREFIX")
+
+
 def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                  seed_sha: str, start: str, end: str, *, scope=None):
     """Restore verified groups and separately quarantined invalid observations.
@@ -521,7 +572,7 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
             raise Refused("RESUME_CHAIN_MEMBERSHIP")
         refs = state.get("last_objects")
         status = state.get("last_status")
-        require(status in (("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE", "HELD_PROVIDER_ASSET")
+        require(status in (("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE", "HELD_PROVIDER_ASSET", "HELD_UNCERTAIN_STORAGE")
                            if scope else ("VERIFIED_RAW_SPLIT", "HELD_BAR_VALUE"))
                 and isinstance(refs, list)
                 and len(refs) == (3 if status == "VERIFIED_RAW_SPLIT" else 1),
@@ -576,7 +627,8 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and marker.get("schema") == SCHEMA
                     and marker.get("scope") == "PRIVATE_RESEARCH_ONLY"
                     and marker.get("status") == status
-                    and marker.get("reason") == ("PROVIDER_ASSET_UNAVAILABLE" if status == "HELD_PROVIDER_ASSET" else "BAR_VALUE")
+                    and marker.get("reason") == ("DRIVE_CREATE_OUTCOME_UNKNOWN" if status == "HELD_UNCERTAIN_STORAGE" else
+                        "PROVIDER_ASSET_UNAVAILABLE" if status == "HELD_PROVIDER_ASSET" else "BAR_VALUE")
                     and marker.get("source") == SOURCE
                     and marker.get("seed_sha256") == seed_sha
                     and marker.get("cohort_scope") == scope
@@ -591,6 +643,8 @@ def resume_state(drive: OwnerDrive, folder: str, file_id: str, sha: str,
                     and marker.get("original_price_bytes_retained") is False,
                     "RESUME_HELD_RECEIPT")
             group = marker.get("symbols")
+            if status == "HELD_UNCERTAIN_STORAGE":
+                verify_storage_hold(marker, state)
             if status == "HELD_PROVIDER_ASSET":
                 verify_asset_evidence(marker.get("asset_precheck"), group)
                 require(all(not asset_supported(row) for row in marker["asset_precheck"]),
@@ -718,17 +772,21 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
     require(args.start == MIN_START and MIN_START < args.end <= date.today().isoformat(),
             "DATE_SCOPE")
     require(1 <= args.max_new_symbols <= 32, "BATCH_SCOPE")
-    scope = None
+    scope, quarantine = None, None
     if external is None:
         seed = SEED.read_bytes()
         names = cohort(seed)
     else:
-        require(isinstance(external, dict) and set(external) == {"input_csv", "scope"}
+        require(isinstance(external, dict) and set(external) in (
+                    {"input_csv", "scope"}, {"input_csv", "scope", "storage_quarantine"})
                 and callable(get), "EXTERNAL_COHORT_SCOPE")
         scope = external_scope(external["scope"])
         seed = external["input_csv"].encode("utf-8")
         names = external_cohort(seed)
         require(digest(seed) == scope["input_sha256"], "EXTERNAL_COHORT_HASH")
+        if "storage_quarantine" in external:
+            quarantine = external["storage_quarantine"]
+            verify_storage_quarantine(quarantine, scope)
     seed_sha = digest(seed)
     with tempfile.TemporaryDirectory(prefix="a1-alpaca-private-") as tmp:
         drive = drive_factory(args.private_root_folder_id, tmp)
@@ -748,10 +806,17 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                 "RESUME_UNIVERSE")
         selected = names[len(examined):len(examined) + args.max_new_symbols]
         require(bool(selected), "COHORT_COMPLETE")
+        if quarantine is not None:
+            require(len(examined) == len(completed) == 76 and held_invalid == []
+                    and selected == STORAGE_QUARANTINE["symbols"] and args.max_new_symbols == 4
+                    and isinstance(prior, dict)
+                    and prior["sha256"] == STORAGE_QUARANTINE["checkpoint_sha256"]
+                    and quarantine["recovery_run_id"] == int(os.environ.get("GITHUB_RUN_ID", "0")),
+                    "STORAGE_QUARANTINE_PREFIX")
         checkpoint, row_count = prior, 0
         held_this_batch = []
         no_data_this_batch = []
-        asset_rows = precheck_assets(selected, key, secret, get) if scope is not None else None
+        asset_rows = precheck_assets(selected, key, secret, get) if scope is not None and quarantine is None else None
         offset = 0
         while offset < len(selected):
             size = GROUP_SIZE
@@ -765,15 +830,31 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
             assets = asset_rows[offset:offset+len(group)] if asset_rows is not None else None
             offset += len(group)
             try:
-                if unavailable:
+                if quarantine is not None:
+                    marker = dict(schema=SCHEMA, scope="PRIVATE_RESEARCH_ONLY", source=SOURCE,
+                        status="HELD_UNCERTAIN_STORAGE", reason="DRIVE_CREATE_OUTCOME_UNKNOWN",
+                        symbols=group, seed_sha256=seed_sha, source_sha=source_sha,
+                        start=args.start, end=args.end, asof=mapping_asof(args.end),
+                        original_price_bytes_retained=False, source_admission=False, pit_verified=False,
+                        historical_identity_verified=False, commercial_use_authorized=False,
+                        cohort_scope=scope, uncertain_storage=quarantine)
+                    # This new typed marker cannot equal any old price pack/body.
+                    # No old raw/normalized/receipt bytes are generated or posted.
+                    objs = [persist_object(drive, args.private_data_folder_id, encoded(marker), ".json")]
+                    accepted, missing, rows = [], [], 0
+                    held_invalid.extend(group)
+                    held_this_batch.extend(group)
+                    status, last_held = "HELD_UNCERTAIN_STORAGE", group
+                elif unavailable:
                     raise Refused("PROVIDER_ASSET_UNAVAILABLE")
-                objs, accepted, missing, rows = capture_one_group(
-                    drive, args.private_data_folder_id, group,
-                    args.start, args.end, key, secret, seed_sha,
-                    source_sha,
-                    **({"get": get} if get is not None else {}),
-                    **({"scope": scope, "asset_evidence": assets} if scope is not None else {}),
-                )
+                else:
+                    objs, accepted, missing, rows = capture_one_group(
+                        drive, args.private_data_folder_id, group,
+                        args.start, args.end, key, secret, seed_sha,
+                        source_sha,
+                        **({"get": get} if get is not None else {}),
+                        **({"scope": scope, "asset_evidence": assets} if scope is not None else {}),
+                    )
             except Refused as exc:
                 # A single invalid numerical bar gives no eligible data
                 # for any group member; retain a bounded, sanitized hold
@@ -810,10 +891,11 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
                 status = held_status
                 last_held = group
             else:
-                completed.extend(group)
-                no_data_this_batch.extend(missing)
-                status = "VERIFIED_RAW_SPLIT"
-                last_held = []
+                if quarantine is None:
+                    completed.extend(group)
+                    no_data_this_batch.extend(missing)
+                    status = "VERIFIED_RAW_SPLIT"
+                    last_held = []
             examined.extend(group)
             row_count += rows
             state = {
