@@ -7622,3 +7622,25 @@ truthiness test and that a valid/unknown mixed pillar list passes a mere
 intersection check. Reject userinfo by presence (including empty values),
 reject backslashes and preserve the existing canonical-pillar subset rule.
 Keep the prior finding head distinct from the corrected frozen-head evidence.
+
+### 2026-10-23 — Route price-gap preparation through the existing A0 identity
+
+Derive OHLCV proposals only from the hash/time-checked A1 source_inventory and
+its bounded child references; replay original Stage2 inputs instead of trusting
+a worker's candidate/coverage booleans. Put the derived payload in the existing
+A1 task identity parameters so its contents change the existing task key and
+V2 completion binding. Reserve that parameter against caller injection, keep
+the A1/A2 DAG and global dispatch=false, and make this path dispatch-ineligible.
+
+Rebuild retained prices using the unchanged Source raw/split archive verifier.
+Missing Open stays missing. A complete covered prefix supports incremental-only;
+internal holes require backfill. Verified no-bars remains NO_DATA without a new
+request. UNKNOWN is not absent; a KR close proxy is not US raw/split coverage.
+Catalog/calendar/policy assertions and matching hashes are not authenticated
+rights, PIT, corporate actions, membership or capture permission. Keep all
+consumer/collection authority closed and old campaign budgets/journals intact.
+
+An invalid source_inventory produces the existing BLOCKED diagnostic A1 packet,
+not necessarily an empty queue. Verify that the previous derived requests are
+revoked and dispatch stays false; do not change the existing failure semantics
+to satisfy an empty-list fixture assertion.

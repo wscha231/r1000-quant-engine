@@ -408,6 +408,52 @@ def contracts() -> dict:
     return value
 
 
+def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime):
+    """Derive DRY_RUN payload inside the existing A1 packet, never another queue.
+
+    The public build_tasks path still requires freshly materialized canonical
+    evidence. Byte/time verification here does not authenticate provider rights,
+    event identity, exchange calendars or a worker's own review declarations.
+    """
+    if 'a2_a1_ohlcv' in request['parameters']:
+        raise ContractError('reserved_ohlcv_parameter')
+    if request['agent'] != 'A1':
+        return None
+    ref = request['inputs']['source_inventory']
+    path = artifact_path(root, ref['path'])
+    if path.stat().st_size > 4 * 1024 * 1024:
+        raise ContractError('ohlcv_inventory_size')
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != ref['sha256']:
+        raise ContractError('ohlcv_inventory_changed')
+    try:
+        marker = json.loads(raw)
+    except (ValueError, UnicodeError):
+        return None  # Preserve the existing generic artifact-only A1 path.
+    if not isinstance(marker, dict) or marker.get('schema') != 'a2-a1-ohlcv-source-inventory-v1':
+        return None
+    from research import a2_a1_ohlcv_handoff_v1 as handoff
+    inventory = handoff.h.decode(raw)
+    refs = inventory.get('artifacts')
+    if type(refs) is not dict or len(refs) > 128:
+        raise ContractError('ohlcv_artifact_count')
+    values = {}
+    total = 0
+    for aid, artifact in refs.items():
+        handoff.h.identifier(aid)
+        schema_validate(artifact, 'task_packet_schema.json', 'artifact')
+        verify_artifact(root, artifact, cutoff, now)
+        child = artifact_path(root, artifact['path'])
+        if child.stat().st_size > handoff.h.MAX_BYTES:
+            raise ContractError('ohlcv_artifact_bytes')
+        content = child.read_bytes()
+        total += len(content)
+        if total > handoff.h.MAX_TOTAL_BYTES or hashlib.sha256(content).hexdigest() != artifact['sha256']:
+            raise ContractError('ohlcv_artifact_changed_or_budget')
+        values[aid] = content
+    return handoff.build_plan(inventory, handoff.h.MemoryArtifacts(values), cutoff=cutoff.isoformat())
+
+
 def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 code_sha: str, config_hash: str) -> list[dict]:
     schema_validate(state, 'system_state_schema.json')
@@ -470,6 +516,16 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
             reasons.append('CURRENT_STATUS_NOT_VERIFIED')
         if agent == 'A5' and any(state['context'][k] != 'VERIFIED' for k in ('actual_book', 'approved_target', 'thesis')):
             reasons.append('PORTFOLIO_CONTEXT_NOT_VERIFIED')
+        parameters = dict(request['parameters'])
+        ohlcv = None
+        if 'a2_a1_ohlcv' in parameters:
+            raise ContractError('reserved_ohlcv_parameter')
+        if not reasons:
+            ohlcv = ohlcv_parameters(request, root, cutoff, now)
+            if ohlcv is not None:
+                parameters['a2_a1_ohlcv'] = ohlcv
+                if any(row['status'] == 'BLOCKED' for row in ohlcv['coverage_results']):
+                    reasons.append('OHLCV_INPUT_PROOF_REQUIRED')
         dependencies = {}
         for dep in spec['dependencies']:
             if dep in requests:
@@ -495,7 +551,7 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                     'system_state_identity': state.get('dependency_identity')}),
                     'code_sha': code_sha, 'config_hash': config_hash,
                     'mission_contract_sha256': mission_hash,
-                    'model': request['model'], 'parameters': request['parameters']}
+                    'model': request['model'], 'parameters': parameters}
         key = digest({'agent': agent, **identity})
         status = 'BLOCKED' if reasons else 'READY'
         receipt = receipts.get(agent)
@@ -534,7 +590,7 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                                     'pr_number': state['review_pr_number']}
                                    if state.get('review_pr_number') is not None else None),
                   'dispatch_eligible': agent in ('A1', 'A2', 'A4', 'A6') and status == 'READY'
-                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY')}
+                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY') and ohlcv is None}
         schema_validate(packet, 'task_packet_schema.json')
         tasks[agent] = packet
         visiting.remove(agent)
