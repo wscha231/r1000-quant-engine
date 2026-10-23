@@ -23,10 +23,14 @@ h = handoff.h
 SCHEMA = 'a2-a1-readiness-lookup-v1'
 
 
-def read_bytes(path):
+def read_bytes(path, *, limit=None):
+    cap=h.MAX_BYTES
+    if limit is not None:
+        h.need(type(limit) is int and limit>=0, 'LOOKUP_FILE_BUDGET')
+        cap=min(cap,limit)
     with Path(path).open('rb') as stream:
-        raw = stream.read(h.MAX_BYTES + 1)
-    h.need(len(raw) <= h.MAX_BYTES, 'LOOKUP_FILE_BUDGET')
+        raw = stream.read(cap + 1)
+    h.need(len(raw) <= cap, 'LOOKUP_FILE_BUDGET')
     return raw
 
 
@@ -340,10 +344,11 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
     def copy_descriptor(ref, base, depth=0, bundle=False):
         nonlocal total,count
         h.need(depth <= h.MAX_DEPTH, 'LOOKUP_BIND_DEPTH')
-        content=read_bytes(board.artifact_path(base,ref['path']))
-        total+=len(content);count+=1
-        h.need(count<=128 and total<=h.MAX_TOTAL_BYTES
-               and h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
+        h.need(count<128 and total<h.MAX_TOTAL_BYTES, 'LOOKUP_BIND_HASH_OR_BUDGET')
+        count+=1
+        content=read_bytes(board.artifact_path(base,ref['path']),limit=h.MAX_TOTAL_BYTES-total)
+        total+=len(content)
+        h.need(h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
         observed,available,collected,expires=(board.timestamp(ref[k]) for k in
             ('observed_at','available_at','collected_at','expires_at'))
         h.need(observed<=available<=collected<=board.timestamp(manifest['observed_at'])<=now<expires,

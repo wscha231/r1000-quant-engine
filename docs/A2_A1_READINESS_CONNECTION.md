@@ -63,6 +63,8 @@ before evidence publication. Reads remain capped at4MiB each/32MiB total,128
 descriptors and32 nested bundle edges. This transport does not execute an A6 job:
 legacy READY/dispatch eligibility is only a proposal, global specialist dispatch
 stays disabled, and missing-event A1 requests remain blocked.
+The descriptor-count reservation occurs before file I/O; each read is bounded
+by the lesser of its object cap and remaining bytes, plus one refusal sentinel.
 
 ## Actual observation and operational boundary
 

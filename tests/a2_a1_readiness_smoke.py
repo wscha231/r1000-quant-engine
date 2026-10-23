@@ -187,11 +187,27 @@ class ReadinessTests(unittest.TestCase):
                             raw=h.canonical({'schema_version':'qa-review-bundle-v2','artifacts':{'link':link}})
                             (owner.root/bundle['path']).write_bytes(raw);bundle['sha256']=h.digest(raw)
                             intake.write_bytes(h.canonical(owner.manifest))
-                        with mock.patch.object(h,'MAX_TOTAL_BYTES',1 if failure=='bytes' else h.MAX_TOTAL_BYTES):
-                            with self.assertRaisesRegex(ValueError,'LOOKUP_BIND_'):
+                        read=live.read_bytes
+                        calls=[]
+                        def track(path,**kwargs):
+                            calls.append(kwargs.get('limit'))
+                            return read(path,**kwargs)
+                        with mock.patch.object(h,'MAX_TOTAL_BYTES',1 if failure=='bytes' else h.MAX_TOTAL_BYTES), \
+                             mock.patch.object(live,'read_bytes',side_effect=track):
+                            with self.assertRaisesRegex(ValueError,'LOOKUP_BIND_|LOOKUP_FILE_BUDGET'):
                                 live.connect(root/'lookup',intake,owner.root,root/'out')
+                        if failure=='count':self.assertEqual(len(calls),128)
+                        if failure=='bytes':self.assertEqual(calls,[1])
                         self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
                 finally:owner.tearDown();owner.tmp.cleanup()
+
+    def test_remaining_byte_budget_caps_the_actual_file_read(self):
+        stream=mock.MagicMock();stream.__enter__.return_value=stream
+        stream.read.return_value=b'123'
+        with mock.patch.object(Path,'open',return_value=stream):
+            with self.assertRaisesRegex(ValueError,'LOOKUP_FILE_BUDGET'):
+                live.read_bytes('synthetic',limit=2)
+        stream.read.assert_called_once_with(3)
 
     def test_stage3_transport_snapshot_does_not_reopen_unbounded_hash_reader(self):
         with tempfile.TemporaryDirectory() as tmp:

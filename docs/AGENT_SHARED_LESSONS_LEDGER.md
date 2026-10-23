@@ -7692,3 +7692,7 @@ content-addressing only top-level inputs loses descriptor consistency. Use an
 input-identity scratch namespace, bounded hash/clock reads and path/prefix/metadata
 collision refusal. Stage evidence only after the full closure passes. A valid A6
 READY proposal is not an executed job or newly enabled specialist dispatch.
+Independent A6 also found post-read count/byte checks could consume a129th
+descriptor or oversized final read before refusal. Reserve counts before I/O
+and pass the remaining byte budget into the bounded read itself; test actual
+read calls rather than checking only the final refusal/status.
