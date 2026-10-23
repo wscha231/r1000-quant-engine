@@ -7664,3 +7664,10 @@ Preserve original clocks when refreshing transport. Bind lookup/actual event
 inputs to the existing A0 task identity, revoke old proposals on failed refresh,
 and leave missing news-export input BLOCKED rather than claiming an automated
 ChatGPT report connection. Never overwrite another pending A1 request to connect.
+Preserve the A3 reference's declared status (missing stays UNKNOWN), rather than
+hardcoding pending from record presence. A supplied issuer conflict must fail
+even when the security ID is null; ticker-only lookup never repairs that conflict.
+Independent A6 also requires the lookup's sealed MemoryArtifacts guard before
+any resolver call. Check every explicit input, including subjects and canonical
+intake, against output aliases before revoking old output files; fail-closed
+revocation must never delete or overwrite an aliased source input.

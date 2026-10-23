@@ -32,6 +32,7 @@ def read_bytes(path):
 
 def lookup(value, memory, *, cutoff):
     """Observe actual sealed references; never translate presence to admission."""
+    h._memory(memory)
     h._fields(value, ('schema', 'as_of', 'subjects', 'registry_manifest_id',
         'capture_inventory_id', 'checkpoint_ids', 'ohlcv_inventory_id', 'artifacts'))
     h.need(value['schema'] == SCHEMA and h.stamp(value['as_of']) <= h.stamp(cutoff)
@@ -86,7 +87,8 @@ def lookup(value, memory, *, cutoff):
             levels = sorted({e['verification_level'] for e in a2['input']['events']})
             records.append(dict(record=record, tickers=sorted({e['ticker'] for e in events}),
                 levels=levels, record_sha256=request['registry_ref']['sha256'],
-                request_id=key, event_ids=[e['event_id'] for e in events]))
+                request_id=key, event_ids=[e['event_id'] for e in events],
+                a3_declared_states=sorted({r.get('status','UNKNOWN') for r in a3})))
     holdings = {}
     if value['capture_inventory_id'] is not None:
         inventory = obj(value['capture_inventory_id'])
@@ -128,7 +130,9 @@ def lookup(value, memory, *, cutoff):
         matches = [r for r in records if ticker in r['tickers'] and country == 'US']
         exact = [r for r in matches if subject['security_id'] == r['record']['asset_id']
                  and subject['issuer_id'] == r['record']['issuer_id']]
-        h.need(not matches or not subject['security_id'] or len(exact) == len(matches),
+        h.need(all(all(subject[key] is None or subject[key] == r['record'][record_key]
+               for key,record_key in (('security_id','asset_id'),('issuer_id','issuer_id')))
+               for r in matches),
                'LOOKUP_SUBJECT_IDENTITY_CONFLICT')
         cp_rows = [dict(checkpoint_sha256=value['artifacts'][aid]['sha256'],
             declared_start=cp['start'], declared_end_exclusive=cp['end'],
@@ -143,7 +147,7 @@ def lookup(value, memory, *, cutoff):
             research_requests=[dict(request_id=r['request_id'],
                 registry_record_sha256=r['record_sha256'], event_ids=r['event_ids'],
                 verification_levels=r['levels'], status=r['record']['status'],
-                a3_state='FILING_EVIDENCE_REVIEW_PENDING') for r in matches],
+                a3_declared_states=r['a3_declared_states']) for r in matches],
             canonical_registry_state='NOT_VERIFIED', checkpoint_observations=cp_rows,
             price_state='CAPTURE_INDEX_MATCH_ONLY' if country == 'US' and ticker in holdings
                 else 'NOT_FOUND_IN_INSPECTED_INDEX' if value['capture_inventory_id'] else 'UNKNOWN',
@@ -170,7 +174,8 @@ def snapshot(args):
     """Trusted caller acquires explicit local sources; original times preserved."""
     out = Path(args.output_dir).resolve()
     registry_root = Path(args.registry_root).resolve() if args.registry_root else None
-    inputs = [Path(p).resolve() for p in [args.capture_inventory, *args.checkpoint, args.ohlcv_inventory] if p]
+    inputs = [Path(p).resolve() for p in [args.subjects, args.capture_inventory,
+              *args.checkpoint, args.ohlcv_inventory] if p]
     h.need(not registry_root or (not out.is_relative_to(registry_root)
            and not registry_root.is_relative_to(out)), 'LOOKUP_OUTPUT_SCOPE')
     h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
@@ -259,7 +264,8 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
     from tools import materialize_system_state as materializer
     out=Path(output_dir).resolve();sources=Path(evidence_root).resolve();lookup_root=Path(lookup_dir).resolve()
     h.need(not sources.is_relative_to(out) and not out.is_relative_to(sources)
-           and not lookup_root.is_relative_to(out) and not out.is_relative_to(lookup_root),
+           and not lookup_root.is_relative_to(out) and not out.is_relative_to(lookup_root)
+           and not Path(canonical_inputs).resolve().is_relative_to(out),
            'LOOKUP_OUTPUT_SCOPE')
     out=safe_output(output_dir)
     board.write_json(out/'manifest.json',{'status':'BLOCKED','reason':'REFRESH_STARTED'})

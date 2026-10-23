@@ -55,6 +55,30 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_nonsealed_callback_is_rejected_before_any_read(self):
+        value,values=fixture()
+        class Untrusted:
+            calls=0
+            def read(self,aid,digest):
+                self.calls+=1
+                return values[aid]
+        reader=Untrusted()
+        with self.assertRaises(ValueError):live.lookup(value,reader,cutoff=value['as_of'])
+        self.assertEqual(reader.calls,0)
+
+    def test_explicit_input_output_aliases_reject_before_revocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp)/'out';out.mkdir()
+            subjects=out/'source_inventory.json';subjects.write_bytes(b'original-subjects')
+            args=argparse.Namespace(subjects=str(subjects),registry_root=None,
+                capture_inventory=None,checkpoint=[],ohlcv_inventory=None,output_dir=str(out))
+            with self.assertRaisesRegex(ValueError,'LOOKUP_OUTPUT_SCOPE'):live.snapshot(args)
+            self.assertEqual(subjects.read_bytes(),b'original-subjects')
+            canonical=out/'manifest.json';canonical.write_bytes(b'original-canonical')
+            with self.assertRaisesRegex(ValueError,'LOOKUP_OUTPUT_SCOPE'):
+                live.connect(Path(tmp)/'lookup',canonical,Path(tmp)/'sources',out)
+            self.assertEqual(canonical.read_bytes(),b'original-canonical')
+
     def test_stored_record_and_capture_are_observed_without_admission(self):
         result=run(*fixture());row=result['readiness_observations'][0]
         self.assertEqual(row['registry_state'],'STORED_RESEARCH_REQUEST')
@@ -80,6 +104,13 @@ class ReadinessTests(unittest.TestCase):
             'TICKER_ONLY_NOT_VERIFIED')
         value['subjects'][0]['security_id']='US:MU:OTHER'
         with self.assertRaisesRegex(ValueError,'LOOKUP_SUBJECT_IDENTITY_CONFLICT'):run(value,values)
+        value['subjects'][0].update(security_id=None,issuer_id='CIK:0000000001')
+        with self.assertRaisesRegex(ValueError,'LOOKUP_SUBJECT_IDENTITY_CONFLICT'):run(value,values)
+
+    def test_A3_declared_state_is_preserved_not_invented_from_record_presence(self):
+        result=run(*fixture())
+        self.assertEqual(result['readiness_observations'][0]['research_requests'][0]['a3_declared_states'],['UNKNOWN'])
+        self.assertFalse(result['readiness_observations'][0]['consumer_eligible'])
 
     def test_completed_checkpoint_does_not_prove_rows_and_KR_not_US(self):
         value,values=fixture();value['subjects'][0].update(ticker='BFA',security_id=None,issuer_id=None)
