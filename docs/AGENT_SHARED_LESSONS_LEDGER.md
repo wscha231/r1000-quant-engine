@@ -7722,3 +7722,8 @@ For synthetic archive tests, derive asof via the existing Source mapping_asof
 contract when changing end-exclusive; a mismatched fixture clock proves archive
 refusal, not the target-window defect. Preserve that initial fixture failure
 separately from the corrected old-code reproduction and final passes.
+Fresh review also exposed that requiring one full-window empty receipt loses
+equivalent proof split across archives. Check the union of verified empty
+intervals against every requested session; adjacent/overlapping/reordered proof
+must agree, while a requested-session gap remains incomplete. Preserve the
+old71 split-window failure independently and never mark it A6 clean.

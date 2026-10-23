@@ -89,6 +89,40 @@ def put(inventory,memory,aid,value):
 
 
 class OHLCVHandoffTests(unittest.TestCase):
+    def test_split_verified_empty_receipts_jointly_cover_requested_sessions(self):
+        for windows in ((('2016-01-04','2016-01-06'),('2016-01-06','2016-01-08')),
+                        (('2016-01-06','2016-01-08'),('2016-01-04','2016-01-06')),
+                        (('2016-01-04','2016-01-07'),('2016-01-06','2016-01-08'))):
+            with self.subTest(windows=windows):
+                inventory,memory=fixture([]);receipts=[]
+                for index,(start,end) in enumerate(windows):
+                    ids=[role+str(index) for role in ('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT')]
+                    for aid,raw in zip(ids,archive([],start=start,end=end)):
+                        memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+                    receipts.append(ids[-1])
+                catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids']=receipts
+                put(inventory,memory,'CATALOG',catalog)
+                result=plan(inventory,memory)
+                self.assertEqual(result['coverage_results'][0]['coverage_action'],'NO_DATA')
+                self.assertEqual(len(result['coverage_results'][0]['receipt_sha256s']),2)
+                self.assertEqual(result['requests'],[])
+                self.assertEqual(result['dispatch_count'],0)
+
+    def test_split_empty_receipts_with_requested_session_gap_still_need_backfill(self):
+        inventory,memory=fixture([]);receipts=[]
+        for index,(start,end) in enumerate((('2016-01-04','2016-01-05'),('2016-01-06','2016-01-08'))):
+            ids=[role+str(index) for role in ('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT')]
+            for aid,raw in zip(ids,archive([],start=start,end=end)):
+                memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+            receipts.append(ids[-1])
+        catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids']=receipts
+        put(inventory,memory,'CATALOG',catalog)
+        result=plan(inventory,memory)
+        self.assertEqual(result['coverage_results'][0]['coverage_action'],'BACKFILL_REQUIRED')
+        self.assertEqual(len(result['requests']),1)
+        self.assertFalse(result['requests'][0]['ready_for_collection'])
+        self.assertFalse(any(result['requests'][0]['authority'].values()))
+
     def test_no_data_target_ignores_archived_bars_before_and_after_window(self):
         for days in (['2016-01-04'],['2016-01-08'],['2016-01-04','2016-01-08']):
             with self.subTest(days=days):

@@ -227,7 +227,8 @@ def build_plan(inventory, memory, *, cutoff):
                    'SOURCE_CALENDAR_CONFLICT')
             covered = set(expected) & raw_days
             missing = set(expected) - covered
-            if not covered and any(left <= start < end <= right for left, right in empty_windows):
+            if not covered and all(any(left <= day < right for left, right in empty_windows)
+                                   for day in expected):
                 action = 'NO_DATA'
             elif not missing:
                 action = 'REUSE_EXISTING'

@@ -47,6 +47,9 @@ Verified no-bars coverage is evaluated over the requested window's validated
 sessions, not the security's entire archive. Bars before/after that window do
 not turn NO_DATA into a collection proposal; overlapping contradictory bars
 still fail the existing Source no-data conflict guard.
+Multiple verified empty receipts may jointly cover those requested sessions;
+adjacent/overlapping intervals and receipt order do not change NO_DATA. A gap
+on any requested session keeps the plan incomplete and cannot become NO_DATA.
 Capture inventories decode with their existing10,000-entry bound and checkpoints
 with their existing1,500-symbol bound, instead of the shared1,000-entry default.
 Other artifacts retain that default. All existing per-object/cumulative bytes,
