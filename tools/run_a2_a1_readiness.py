@@ -47,7 +47,8 @@ def immutable_bytes(path, content):
 
 def block_refresh(path):
     """Invalidate scratch proposals without deleting an unknown source child."""
-    marker=safe_output(path)/REFRESH_MARKER
+    # Invalidation must not depend on publication safety of old proposals.
+    marker=safe_output(path,names=(REFRESH_MARKER,))/REFRESH_MARKER
     try:
         with marker.open('xb') as stream:stream.write(REFRESH_BLOCKED)
     except FileExistsError:
@@ -249,10 +250,10 @@ def snapshot(args):
                         for ref in inner['artifacts'].values()]
             h.need(all(not p.is_relative_to(out) for p in children), 'LOOKUP_OUTPUT_SCOPE')
     except (OSError,ValueError,KeyError,TypeError):
-        block_refresh(out)
+        block_refresh(args.output_dir)
         raise
+    marker=block_refresh(args.output_dir)
     out = safe_output(args.output_dir)
-    marker=block_refresh(out)
     h.need(read_bytes(marker)==REFRESH_BLOCKED,'LOOKUP_REFRESH_MARKER_CONFLICT')
     marker_identity=(marker.stat().st_dev,marker.stat().st_ino)
     for name in ('source_inventory.json', 'readiness_report.json', 'request_fragment.json'):
@@ -326,13 +327,14 @@ def snapshot(args):
     return report
 
 
-def safe_output(path):
+def safe_output(path, *, names=None):
     supplied=Path(path)
     h.need(not supplied.is_symlink(), 'LOOKUP_OUTPUT_SYMLINK')
     out=supplied.resolve();out.mkdir(parents=True,exist_ok=True)
-    for name in ('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
+    if names is None:names=('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
                  'agent_task_queue.json','manifest.json','state.json','intake.json',
-                 'board_summary.json','promotion_gate_review.json','report.md','evidence',REFRESH_MARKER):
+                 'board_summary.json','promotion_gate_review.json','report.md','evidence',REFRESH_MARKER)
+    for name in names:
         h.need(not (out/name).is_symlink() and not (out/(name+'.tmp')).is_symlink(),
                'LOOKUP_OUTPUT_SYMLINK')
         for candidate in (out/name,out/(name+'.tmp')):

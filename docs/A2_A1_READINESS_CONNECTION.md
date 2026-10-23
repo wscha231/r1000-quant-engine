@@ -75,6 +75,9 @@ single-link marker after publishing the complete new snapshot. Unknown,
 symlinked or hard-linked markers remain preserved and blocked. This keeps
 missing/malformed inventory failures from reusing an old unexpired proposal
 without deleting unknown referenced originals.
+Invalidation checks only the output root and marker paths before its exclusive
+create. Full publication checks follow while blocked: hardlinked prior proposal
+files cannot prevent invalidation, and their original bytes remain untouched.
 
 ## Actual observation and operational boundary
 

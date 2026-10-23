@@ -7701,3 +7701,7 @@ proposal revocation. Unknown inventory children make catch-and-unlink unsafe.
 An exclusively created scratch failure marker blocks connect while preserving
 all prior/source bytes; only a complete, validated refresh clears a recognized,
 unchanged marker. Treat this marker as invalidation, never Source admission.
+Invalidate independently of old proposal publication safety: a hardlinked prior
+output must not prevent creation of the blocking marker. Preserve the supplied
+root symlink check and marker link guards; check other output paths only after
+the marker is held, leaving aliased bytes intact on failure.

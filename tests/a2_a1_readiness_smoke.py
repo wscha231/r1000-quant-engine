@@ -56,6 +56,29 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_prior_output_hardlinks_cannot_prevent_refresh_invalidation(self):
+        for name in ('source_inventory.json','readiness_report.json','request_fragment.json'):
+            for malformed in (False,True):
+                with self.subTest(name=name,malformed=malformed),tempfile.TemporaryDirectory() as tmp:
+                    root=Path(tmp);subject=root/'subjects.json'
+                    subject.write_bytes(h.canonical({'subjects':fixture()[0]['subjects']}))
+                    out=root/'lookup';args=argparse.Namespace(subjects=str(subject),registry_root=None,
+                        capture_inventory=None,checkpoint=[],ohlcv_inventory=None,output_dir=str(out))
+                    live.snapshot(args)
+                    prior={out/n:(out/n).read_bytes() for n in
+                        ('source_inventory.json','readiness_report.json','request_fragment.json')}
+                    alias=root/'original';alias.hardlink_to(out/name)
+                    if malformed:
+                        inventory=root/'inventory.json';inventory.write_bytes(b'{')
+                        args.ohlcv_inventory=str(inventory)
+                    with self.assertRaises(ValueError):live.snapshot(args)
+                    self.assertEqual(prior,{p:p.read_bytes() for p in prior})
+                    self.assertEqual(alias.read_bytes(),prior[out/name])
+                    self.assertTrue((out/live.REFRESH_MARKER).exists())
+                    with self.assertRaisesRegex(ValueError,'LOOKUP_REFRESH_BLOCKED'):
+                        live.connect(out,root/'canonical.json',root/'sources',root/'board')
+                    self.assertEqual(board.read_json(root/'board/agent_task_queue.json'),[])
+
     def test_failed_inventory_refresh_blocks_stale_connect_without_deleting_old_bytes(self):
         for failure in ('missing','oversized','malformed'):
             with self.subTest(failure=failure),tempfile.TemporaryDirectory() as tmp:
