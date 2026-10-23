@@ -423,7 +423,10 @@ def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime)
     path = artifact_path(root, ref['path'])
     if path.stat().st_size > 4 * 1024 * 1024:
         raise ContractError('ohlcv_inventory_size')
-    raw = path.read_bytes()
+    with path.open('rb') as stream:
+        raw = stream.read(4 * 1024 * 1024 + 1)
+    if len(raw) > 4 * 1024 * 1024:
+        raise ContractError('ohlcv_inventory_size')
     if hashlib.sha256(raw).hexdigest() != ref['sha256']:
         raise ContractError('ohlcv_inventory_changed')
     try:
