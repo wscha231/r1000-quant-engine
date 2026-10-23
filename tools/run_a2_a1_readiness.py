@@ -30,11 +30,21 @@ def read_bytes(path):
     return raw
 
 
+def immutable_bytes(path, content):
+    """Never truncate an existing cache inode (including a hard-linked input)."""
+    try:
+        with path.open('xb') as stream:
+            stream.write(content)
+    except FileExistsError:
+        h.need(read_bytes(path) == content, 'LOOKUP_IMMUTABLE_CONFLICT')
+
+
 def lookup(value, memory, *, cutoff):
     """Observe actual sealed references; never translate presence to admission."""
     h._memory(memory)
-    h._fields(value, ('schema', 'as_of', 'subjects', 'registry_manifest_id',
-        'capture_inventory_id', 'checkpoint_ids', 'ohlcv_inventory_id', 'artifacts'))
+    fields=('schema', 'as_of', 'subjects', 'registry_manifest_id',
+        'capture_inventory_id', 'checkpoint_ids', 'ohlcv_inventory_id', 'artifacts')
+    h.need(set(value) in (set(fields),set(fields)|{'chatgpt_report_id'}), 'FIELDS')
     h.need(value['schema'] == SCHEMA and h.stamp(value['as_of']) <= h.stamp(cutoff)
            <= datetime.now(timezone.utc),
            'LOOKUP_CLOCK')
@@ -167,6 +177,36 @@ def lookup(value, memory, *, cutoff):
     result['readiness_observations'] = observations
     result['lookup_as_of'] = value['as_of']
     result['event_connection'] = 'STAGE3_VALIDATOR' if value['ohlcv_inventory_id'] else 'EVENT_INPUT_MISSING'
+    result['automatic_chatgpt_delivery'] = 'NOT_CONNECTED'
+    if value.get('chatgpt_report_id') is not None:
+        exported=obj(value['chatgpt_report_id'])
+        h._fields(exported,('schema','source_url','observed_at','extraction','reports'))
+        h.need(exported['schema']=='chatgpt-a2-observed-reports-v1'
+               and re.fullmatch(r'https://chatgpt\.com/share/[0-9a-f-]{36}(?:\?ogimg=plain)?',exported['source_url'])
+               and h.stamp(exported['observed_at'])<=h.stamp(value['as_of'])
+               and exported['extraction'] in {'BROWSER_VISIBLE_EXCERPT','USER_EXPORTED_TEXT'}
+               and type(exported['reports']) is list and 0<len(exported['reports'])<=100,
+               'LOOKUP_CHATGPT_REFERENCE')
+        seen_reports=set();quarantine=[]
+        for report in exported['reports']:
+            h._fields(report,('reported_at_text','source_excerpt','source_links','claimed_event_count'))
+            h.need(type(report['reported_at_text']) is str and len(report['reported_at_text'])<=100
+                   and type(report['source_excerpt']) is str and 0<len(report['source_excerpt'])<=50000
+                   and type(report['claimed_event_count']) is int and 0<=report['claimed_event_count']<=1000
+                   and type(report['source_links']) is list and len(report['source_links'])<=100,
+                   'LOOKUP_CHATGPT_REPORT')
+            for url in report['source_links']:handoff.discovery._url(url)
+            key=h.digest(h.canonical(dict(source_url=exported['source_url'].split('?')[0],report=report)))
+            if key in seen_reports:continue
+            seen_reports.add(key)
+            quarantine.append(dict(report_id=key,source_url=exported['source_url'],
+                export_sha256=value['artifacts'][value['chatgpt_report_id']]['sha256'],
+                reported_at_text=report['reported_at_text'],extraction=exported['extraction'],
+                claimed_event_count=report['claimed_event_count'],status='UNADMITTED',
+                source_verification='NOT_RUN',original_public_available_at=None,
+                original_source_byte_hash=None,security_identity='NOT_VERIFIED',
+                A3_handoff='REVALIDATION_REQUIRED_NOT_DISPATCHED',authority=h.closed()))
+        result['chatgpt_report_intake']=quarantine
     return result
 
 
@@ -175,7 +215,7 @@ def snapshot(args):
     out = Path(args.output_dir).resolve()
     registry_root = Path(args.registry_root).resolve() if args.registry_root else None
     inputs = [Path(p).resolve() for p in [args.subjects, args.capture_inventory,
-              *args.checkpoint, args.ohlcv_inventory] if p]
+              *args.checkpoint, args.ohlcv_inventory, getattr(args,'chatgpt_report',None)] if p]
     h.need(not registry_root or (not out.is_relative_to(registry_root)
            and not registry_root.is_relative_to(out)), 'LOOKUP_OUTPUT_SCOPE')
     h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
@@ -231,9 +271,11 @@ def snapshot(args):
         registry_manifest_id='REGISTRY' if registry_root else None,
         capture_inventory_id='CAPTURE' if args.capture_inventory else None,
         checkpoint_ids=cp_ids,ohlcv_inventory_id='OHLCV' if args.ohlcv_inventory else None,artifacts=refs)
+    if getattr(args,'chatgpt_report',None):
+        value['chatgpt_report_id']=add('CHATGPT_REPORT',read_bytes(args.chatgpt_report))
     report=lookup(value,h.MemoryArtifacts(values),cutoff=at)
     for aid,raw in values.items():
-        path=board.artifact_path(out,refs[aid]['path']);path.parent.mkdir(exist_ok=True);path.write_bytes(raw)
+        path=board.artifact_path(out,refs[aid]['path']);path.parent.mkdir(exist_ok=True);immutable_bytes(path,raw)
     board.write_json(out/'readiness_report.json',report)
     board.write_json(out/'source_inventory.json',value)
     inventory_ref=dict(path='source_inventory.json',sha256=board.file_hash(out/'source_inventory.json'),
@@ -252,6 +294,9 @@ def safe_output(path):
                  'board_summary.json','promotion_gate_review.json','report.md','evidence'):
         h.need(not (out/name).is_symlink() and not (out/(name+'.tmp')).is_symlink(),
                'LOOKUP_OUTPUT_SYMLINK')
+        for candidate in (out/name,out/(name+'.tmp')):
+            h.need(not candidate.is_file() or candidate.stat().st_nlink==1,
+                   'LOOKUP_OUTPUT_HARDLINK')
     return out
 
 
@@ -283,7 +328,7 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
         h.need(observed<=available<=collected<=board.timestamp(manifest['observed_at'])<=now<expires,
                'LOOKUP_BIND_CLOCK')
         path='bytes/'+h.digest(content);dest=board.artifact_path(root,path)
-        dest.parent.mkdir(exist_ok=True);dest.write_bytes(content)
+        dest.parent.mkdir(exist_ok=True);immutable_bytes(dest,content)
         return {**ref,'path':path}
     for role,refs in manifest['sources'].items():
         manifest['sources'][role]=[copy_descriptor(ref,sources) for ref in refs]
@@ -316,6 +361,7 @@ def main():
     parser.add_argument('--capture-inventory')
     parser.add_argument('--checkpoint',action='append',default=[])
     parser.add_argument('--ohlcv-inventory')
+    parser.add_argument('--chatgpt-report')
     parser.add_argument('--output-dir',required=True)
     parser.add_argument('--connect-lookup')
     parser.add_argument('--canonical-inputs')

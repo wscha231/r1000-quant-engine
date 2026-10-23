@@ -65,3 +65,19 @@ Next inputs are an actual structured V1/V2 event with authenticated identity,
 current accepted Registry reference, raw-price/session evidence and named valid
 Source scope. Exact-head CI/review, protected merge and any actual bounded
 collection/activation gates remain distinct. No ER/BUY/portfolio/book mutation.
+
+An optional `--chatgpt-report` accepts a bounded observed/exported report JSON:
+`chatgpt-a2-observed-reports-v1`, source_url, observed_at, extraction
+(`BROWSER_VISIBLE_EXCERPT` or `USER_EXPORTED_TEXT`), reports containing
+reported_at_text/source_excerpt/source_links/claimed_event_count. This original
+handoff/export is copied into the SAME A0 transport cache and task identity.
+Identical report bodies deduplicate within the packet; their stable IDs exclude
+transport observation time. Every report remains UNADMITTED, publisher raw hash
+and actual first-publication time null, with no security or A3/collection grant.
+An excerpt hash is NOT the upstream news byte hash or a full conversation hash.
+The user-provided shared page was actually readable in the browser; the visible
+snapshot contained Oct21 17:23/19:02 KST reports with six event claims. It did not
+establish Oct17–20 completeness. Future automatic delivery is NOT_CONNECTED:
+an export/file/structured producer handoff must enter this existing path; no
+ChatGPT scheduling or risk-monitor task was changed. API Conversations docs
+describe API conversation state, not authorization to read a ChatGPT share ID.

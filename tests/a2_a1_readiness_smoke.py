@@ -55,6 +55,38 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_existing_cache_hardlink_never_overwrites_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);source=root/'source';source.write_bytes(b'original')
+            alias=root/'cache';alias.hardlink_to(source)
+            with self.assertRaisesRegex(ValueError,'LOOKUP_IMMUTABLE_CONFLICT'):
+                live.immutable_bytes(alias,b'replacement')
+            self.assertEqual(source.read_bytes(),b'original')
+            live.immutable_bytes(alias,b'original')
+            self.assertEqual(source.read_bytes(),b'original')
+            out=root/'output';out.mkdir()
+            (out/'manifest.json.tmp').hardlink_to(source)
+            with self.assertRaisesRegex(ValueError,'LOOKUP_OUTPUT_HARDLINK'):live.safe_output(out)
+            self.assertEqual(source.read_bytes(),b'original')
+
+    def test_ChatGPT_claimed_V2_never_becomes_validated_event_or_A3(self):
+        value,values=fixture()
+        item=dict(reported_at_text='2026-10-21 19:02 KST (CLAIMED)',
+            source_excerpt='A2_EVENT_HANDOFF V2:3 NEW_CANDIDATE (CONTRACT_FIXTURE)',
+            source_links=['https://example.test/original'],claimed_event_count=3)
+        export=dict(schema='chatgpt-a2-observed-reports-v1',
+            source_url='https://chatgpt.com/share/00000000-0000-0000-0000-000000000000',
+            observed_at=value['as_of'],extraction='USER_EXPORTED_TEXT',reports=[item,item])
+        values['CHATGPT_REPORT']=h.canonical(export)
+        value['artifacts']['CHATGPT_REPORT']={'sha256':h.digest(values['CHATGPT_REPORT'])}
+        value['chatgpt_report_id']='CHATGPT_REPORT'
+        result=run(value,values)
+        self.assertEqual(len(result['chatgpt_report_intake']),1)
+        self.assertEqual(result['chatgpt_report_intake'][0]['status'],'UNADMITTED')
+        self.assertIsNone(result['chatgpt_report_intake'][0]['original_public_available_at'])
+        self.assertEqual(result['automatic_chatgpt_delivery'],'NOT_CONNECTED')
+        self.assertEqual(result['requests'],[])
+
     def test_nonsealed_callback_is_rejected_before_any_read(self):
         value,values=fixture()
         class Untrusted:

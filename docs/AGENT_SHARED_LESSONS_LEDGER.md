@@ -7671,3 +7671,10 @@ Independent A6 also requires the lookup's sealed MemoryArtifacts guard before
 any resolver call. Check every explicit input, including subjects and canonical
 intake, against output aliases before revoking old output files; fail-closed
 revocation must never delete or overwrite an aliased source input.
+An existing cache file can be a hard link without being a symlink. Never open
+content-addressed cache objects for truncation: reuse only byte-identical files
+or create exclusively; a conflicting object stays blocked and original-safe.
+Shared ChatGPT report text is an unadmitted handoff, not publisher raw bytes or
+an authenticated V2 event. Keep excerpt/export hashes and claimed timestamps
+separate, bind references in the existing A0 transport and mark future automatic
+delivery NOT_CONNECTED until a real producer/export path has been verified.
