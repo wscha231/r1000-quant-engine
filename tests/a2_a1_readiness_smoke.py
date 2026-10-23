@@ -56,6 +56,56 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_failed_inventory_refresh_blocks_stale_connect_without_deleting_old_bytes(self):
+        for failure in ('missing','oversized','malformed'):
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);src=root/'source';src.mkdir();at=datetime.now(timezone.utc)
+                inner,values=price_fixture.fixture(cutoff=at.isoformat())
+                for i,(aid,raw) in enumerate(values.items()):
+                    path=src/('input'+str(i));path.write_bytes(raw)
+                    inner['artifacts'][aid]=dict(path=path.name,sha256=h.digest(raw),
+                        observed_at=(at-timedelta(minutes=3)).isoformat(),
+                        available_at=(at-timedelta(minutes=2)).isoformat(),
+                        collected_at=(at-timedelta(minutes=1)).isoformat(),
+                        expires_at=(at+timedelta(minutes=30)).isoformat(),status='VERIFIED')
+                inv=src/'inventory.json';original=h.canonical(inner);inv.write_bytes(original)
+                subjects=root/'subjects.json';subjects.write_bytes(h.canonical({'subjects':fixture()[0]['subjects']}))
+                out=root/'lookup';args=argparse.Namespace(subjects=str(subjects),registry_root=None,
+                    capture_inventory=None,checkpoint=[],ohlcv_inventory=str(inv),output_dir=str(out))
+                self.assertEqual(live.snapshot(args)['requests'][0]['action'],'REUSE_EXISTING')
+                prior={out/name:(out/name).read_bytes() for name in
+                    ('source_inventory.json','readiness_report.json','request_fragment.json')}
+                if failure=='missing':inv.unlink()
+                else:inv.write_bytes(b' '*(h.MAX_BYTES+1) if failure=='oversized' else b'{')
+                with self.assertRaises((ValueError,OSError)):live.snapshot(args)
+                self.assertEqual(prior,{p:p.read_bytes() for p in prior})
+                self.assertTrue((out/live.REFRESH_MARKER).exists())
+                with self.assertRaisesRegex(ValueError,'LOOKUP_REFRESH_BLOCKED'):
+                    live.connect(out,root/'canonical.json',src,root/'board')
+                self.assertEqual(board.read_json(root/'board/agent_task_queue.json'),[])
+                inv.write_bytes(original)
+                self.assertEqual(live.snapshot(args)['requests'][0]['action'],'REUSE_EXISTING')
+                self.assertFalse((out/live.REFRESH_MARKER).exists())
+
+    def test_unknown_or_hardlinked_refresh_marker_preserves_input_and_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);subject=root/'subjects.json'
+            subject.write_bytes(h.canonical({'subjects':fixture()[0]['subjects']}))
+            out=root/'lookup';args=argparse.Namespace(subjects=str(subject),registry_root=None,
+                capture_inventory=None,checkpoint=[],ohlcv_inventory=None,output_dir=str(out))
+            live.snapshot(args)
+            original=b'original source, not an owned marker'
+            marker=out/live.REFRESH_MARKER;marker.write_bytes(original)
+            prior=(out/'request_fragment.json').read_bytes()
+            with self.assertRaisesRegex(ValueError,'LOOKUP_REFRESH_MARKER_CONFLICT'):live.snapshot(args)
+            self.assertEqual(marker.read_bytes(),original)
+            self.assertEqual((out/'request_fragment.json').read_bytes(),prior)
+            marker.unlink();source=root/'original';source.write_bytes(original);marker.hardlink_to(source)
+            with self.assertRaisesRegex(ValueError,'LOOKUP_OUTPUT_HARDLINK'):live.snapshot(args)
+            self.assertEqual(source.read_bytes(),original)
+            with self.assertRaisesRegex(ValueError,'LOOKUP_REFRESH_BLOCKED'):
+                live.connect(out,root/'canonical.json',root/'sources',root/'board')
+
     def test_external_inventory_child_alias_refuses_before_revoking_original(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);out=root/'out';out.mkdir()
@@ -125,6 +175,23 @@ class ReadinessTests(unittest.TestCase):
                     self.assertEqual((evidence/ref['path']).read_bytes(),before[owner.root/ref['path']])
                 self.assertEqual(transported['requests'][0]['inputs']['review_bundle'],bundle)
                 self.assertEqual(before,{p:p.read_bytes() for p in before})
+        finally:owner.tearDown();owner.tmp.cleanup()
+
+    def test_connect_rechecks_invalidation_before_evidence_publication(self):
+        owner=state_fixture.StateTests('test_current_identity_and_semantic_determinism');owner.setUp()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);intake,*_=self.nested_connect_fixture(root,owner)
+                read=live.read_bytes;calls=[]
+                def invalidate(path,**kwargs):
+                    if not calls:
+                        calls.append(path);live.block_refresh(root/'lookup')
+                    return read(path,**kwargs)
+                with mock.patch.object(live,'read_bytes',side_effect=invalidate):
+                    with self.assertRaisesRegex(ValueError,'LOOKUP_REFRESH_BLOCKED'):
+                        live.connect(root/'lookup',intake,owner.root,root/'out')
+                self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
+                self.assertEqual([p for p in (root/'out/evidence').rglob('*') if p.is_file()],[])
         finally:owner.tearDown();owner.tmp.cleanup()
 
     def test_nested_A6_missing_tampered_traversal_and_collision_fail_closed(self):

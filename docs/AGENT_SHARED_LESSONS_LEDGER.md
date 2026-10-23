@@ -7696,3 +7696,8 @@ Independent A6 also found post-read count/byte checks could consume a129th
 descriptor or oversized final read before refusal. Reserve counts before I/O
 and pass the remaining byte budget into the bounded read itself; test actual
 read calls rather than checking only the final refusal/status.
+Fresh Hosted review also found acquisition/parse failures could precede current
+proposal revocation. Unknown inventory children make catch-and-unlink unsafe.
+An exclusively created scratch failure marker blocks connect while preserving
+all prior/source bytes; only a complete, validated refresh clears a recognized,
+unchanged marker. Treat this marker as invalidation, never Source admission.

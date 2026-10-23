@@ -66,6 +66,16 @@ stays disabled, and missing-event A1 requests remain blocked.
 The descriptor-count reservation occurs before file I/O; each read is bounded
 by the lesser of its object cap and remaining bytes, plus one refusal sentinel.
 
+`refresh_failed.json` is a scratch invalidation marker, not a new canonical
+ledger or Source receipt. Inventory acquisition/parse or alias failures create
+it exclusively without overwriting any existing marker or prior evidence.
+Connect refuses a marked lookup before reading its old fragment and rechecks
+before publication. A normal refresh removes only a recognized, unchanged,
+single-link marker after publishing the complete new snapshot. Unknown,
+symlinked or hard-linked markers remain preserved and blocked. This keeps
+missing/malformed inventory failures from reusing an old unexpired proposal
+without deleting unknown referenced originals.
+
 ## Actual observation and operational boundary
 
 The Oct23 bounded observation uses MU/AAPL/RNG, the incumbent MU filing request

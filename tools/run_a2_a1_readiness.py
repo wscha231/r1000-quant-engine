@@ -21,6 +21,8 @@ from tools import run_agent_board as board
 
 h = handoff.h
 SCHEMA = 'a2-a1-readiness-lookup-v1'
+REFRESH_MARKER = 'refresh_failed.json'
+REFRESH_BLOCKED = b'{"schema":"a2-readiness-refresh-failed-v1","status":"BLOCKED"}\n'
 
 
 def read_bytes(path, *, limit=None):
@@ -41,6 +43,16 @@ def immutable_bytes(path, content):
             stream.write(content)
     except FileExistsError:
         h.need(read_bytes(path) == content, 'LOOKUP_IMMUTABLE_CONFLICT')
+
+
+def block_refresh(path):
+    """Invalidate scratch proposals without deleting an unknown source child."""
+    marker=safe_output(path)/REFRESH_MARKER
+    try:
+        with marker.open('xb') as stream:stream.write(REFRESH_BLOCKED)
+    except FileExistsError:
+        pass  # Unknown/colliding marker bytes are evidence, never overwritten.
+    return marker
 
 
 def lookup(value, memory, *, cutoff):
@@ -222,21 +234,27 @@ def snapshot(args):
               *args.checkpoint, args.ohlcv_inventory, getattr(args,'chatgpt_report',None)] if p]
     h.need(not registry_root or (not out.is_relative_to(registry_root)
            and not registry_root.is_relative_to(out)), 'LOOKUP_OUTPUT_SCOPE')
-    h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
     inner = inner_content = None
-    if args.ohlcv_inventory:
-        path = Path(args.ohlcv_inventory).resolve()
-        inner_content = read_bytes(path); inner = h.decode(inner_content)
-        h.need(type(inner) is dict and type(inner.get('artifacts')) is dict
-               and len(inner['artifacts']) <= 128,
-               'LOOKUP_ARTIFACT_COUNT')
-        # The inventory can live outside out while a referenced original lives
-        # inside it. Check the captured inventory's complete input path set
-        # before revoking anything; reuse these same inventory bytes below.
-        children = [board.artifact_path(path.parent, ref['path']).resolve()
-                    for ref in inner['artifacts'].values()]
-        h.need(all(not p.is_relative_to(out) for p in children), 'LOOKUP_OUTPUT_SCOPE')
+    try:
+        h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
+        if args.ohlcv_inventory:
+            path = Path(args.ohlcv_inventory).resolve()
+            inner_content = read_bytes(path); inner = h.decode(inner_content)
+            h.need(type(inner) is dict and type(inner.get('artifacts')) is dict
+                   and len(inner['artifacts']) <= 128,
+                   'LOOKUP_ARTIFACT_COUNT')
+            # A captured inventory can reference an original inside out. Check
+            # all paths before unlink; preserve these same bytes for import.
+            children = [board.artifact_path(path.parent, ref['path']).resolve()
+                        for ref in inner['artifacts'].values()]
+            h.need(all(not p.is_relative_to(out) for p in children), 'LOOKUP_OUTPUT_SCOPE')
+    except (OSError,ValueError,KeyError,TypeError):
+        block_refresh(out)
+        raise
     out = safe_output(args.output_dir)
+    marker=block_refresh(out)
+    h.need(read_bytes(marker)==REFRESH_BLOCKED,'LOOKUP_REFRESH_MARKER_CONFLICT')
+    marker_identity=(marker.stat().st_dev,marker.stat().st_ino)
     for name in ('source_inventory.json', 'readiness_report.json', 'request_fragment.json'):
         (out/name).unlink(missing_ok=True)  # Revoke previous current proposals first.
     now = datetime.now(timezone.utc); at = now.isoformat(); expires = (now+timedelta(hours=1)).isoformat()
@@ -301,6 +319,10 @@ def snapshot(args):
         observed_at=at,available_at=at,collected_at=at,expires_at=expires,status='VERIFIED')
     board.write_json(out/'request_fragment.json',dict(agent='A1',inputs={'source_inventory':inventory_ref},
         parameters={},model={'name':'DETERMINISTIC','version':'a2-a1-readiness-v1'}))
+    h.need(not marker.is_symlink() and marker.stat().st_nlink==1
+           and (marker.stat().st_dev,marker.stat().st_ino)==marker_identity
+           and read_bytes(marker)==REFRESH_BLOCKED,'LOOKUP_REFRESH_MARKER_CONFLICT')
+    marker.unlink()  # Last publication step; only the recognized marker clears.
     return report
 
 
@@ -310,7 +332,7 @@ def safe_output(path):
     out=supplied.resolve();out.mkdir(parents=True,exist_ok=True)
     for name in ('bytes','source_inventory.json','readiness_report.json','request_fragment.json',
                  'agent_task_queue.json','manifest.json','state.json','intake.json',
-                 'board_summary.json','promotion_gate_review.json','report.md','evidence'):
+                 'board_summary.json','promotion_gate_review.json','report.md','evidence',REFRESH_MARKER):
         h.need(not (out/name).is_symlink() and not (out/(name+'.tmp')).is_symlink(),
                'LOOKUP_OUTPUT_SYMLINK')
         for candidate in (out/name,out/(name+'.tmp')):
@@ -334,6 +356,8 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
     out=safe_output(output_dir)
     board.write_json(out/'manifest.json',{'status':'BLOCKED','reason':'REFRESH_STARTED'})
     board.write_json(out/'agent_task_queue.json',[])
+    marker=lookup_root/REFRESH_MARKER
+    h.need(not marker.exists() and not marker.is_symlink(),'LOOKUP_REFRESH_BLOCKED')
     now=datetime.now(timezone.utc);manifest=board.read_json(Path(canonical_inputs))
     materializer.intake_validate(manifest,now)
     fragment=board.read_json(lookup_root/'request_fragment.json')
@@ -393,6 +417,7 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
         h.need(copied['path']==ref['path'],'LOOKUP_CHILD_PATH')
     fragment['inputs']['source_inventory']=copy_descriptor(inv_ref,lookup_root)
     manifest['requests']=[*existing,fragment]
+    h.need(not marker.exists() and not marker.is_symlink(),'LOOKUP_REFRESH_BLOCKED')
     # Every bounded input/hash/clock/path conflict is checked before publishing
     # any evidence. Immutable writes never truncate a conflicting prior inode.
     for dest,_,content in staged.values():
