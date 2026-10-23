@@ -32,6 +32,17 @@ REVIEW_HEAD = 'a' * 40
 MOVED_REVIEW_HEAD = 'b' * 40
 
 
+def historical_catalog_fixture_bytes(raw, expected_sha):
+    """Recover reviewed Git-LF bytes only inside a historical test fixture.
+
+    Windows checkout conversion is harmless only when reversing CRLF yields
+    the exact original catalog hash. Any content change remains uncorrected
+    so the unchanged production hash guard can refuse it.
+    """
+    canonical = raw.replace(b'\r\n', b'\n')
+    return canonical if hashlib.sha256(canonical).hexdigest() == expected_sha else raw
+
+
 def independent_hash(value, excluded):
     return hashlib.sha256(json.dumps({k: v for k, v in value.items() if k != excluded},
         sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
@@ -401,6 +412,11 @@ class ManualTests(unittest.TestCase):
                 # Restore only the temporary historical positive, never the
                 # checked-out source or the catalog's reviewed dependency pins.
                 (self.root / name).write_bytes(historical_reader_fixture_bytes(name))
+        for row in catalog['entries']:
+            if row['entry_id'] in {'group_423_574', 'group_591'} and row['classification'] == 'REUSE_NOW':
+                for name, expected_sha in row['dependency_hashes'].items():
+                    target = self.root / name
+                    target.write_bytes(historical_catalog_fixture_bytes(target.read_bytes(), expected_sha))
 
 
     def write(self, name, value):
@@ -1980,6 +1996,28 @@ class ManualTests(unittest.TestCase):
                     self.assertEqual(popen.call_args.args[0], ['git', 'cat-file', 'blob', oid])
                     process.stdout.read.assert_called_once_with(64 * 1024 + 1)
                     process.stdout.close.assert_called_once_with()
+
+    def test_historical_catalog_fixture_only_reverses_exact_checkout_conversion(self):
+        frozen = b'# synthetic historical fixture\noriginal bytes\n'
+        expected = hashlib.sha256(frozen).hexdigest()
+        self.assertEqual(historical_catalog_fixture_bytes(frozen, expected), frozen)
+        self.assertEqual(historical_catalog_fixture_bytes(frozen.replace(b'\n', b'\r\n'), expected), frozen)
+        changed = frozen.replace(b'original', b'changed').replace(b'\n', b'\r\n')
+        self.assertEqual(historical_catalog_fixture_bytes(changed, expected), changed)
+        for name in ('docs/RESEARCH_DATA_ACCESS.md', 'r1000_legacy_input_guard.py'):
+            row = next(row for row in manual.load_catalog(self.root)['entries']
+                       if row['entry_id'] == 'group_423_574')
+            target = self.root / name
+            original = target.read_bytes()
+            before = (self.root / manual.CATALOG).read_bytes()
+            try:
+                changed = original.replace(b'\n', b'\r\n') + b'# changed synthetic fixture\r\n'
+                target.write_bytes(historical_catalog_fixture_bytes(changed, row['dependency_hashes'][name]))
+                with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed:' + re.escape(name)):
+                    manual.lookup_reuse('group_423_574', self.root)
+                self.assertEqual((self.root / manual.CATALOG).read_bytes(), before)
+            finally:
+                target.write_bytes(original)
 
     def test_historical_reader_positives_keep_original_catalog_pins(self):
         before = (self.root / manual.CATALOG).read_bytes()
