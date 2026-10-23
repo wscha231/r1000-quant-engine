@@ -7825,3 +7825,10 @@ in results. A broad NAV/market basis alone cannot authorize index splicing.
 - Missing approved actual dailyTR/dated issuer metadata/holdings prevents a real
   numerical report, not development or native regression. Keep synthetic rank
   fixtures out of real Drive results and preserve automatic activation gates.
+
+Independent A6 caught two report boundary defects: an RF-ineligible fund was
+setting the comparison basis before exclusion, and missing currency silently
+shrunk the cohort. Validate every classification field and establish comparison
+anchors/basis only after independent eligibility filters. Preserve both native
+normal/-O counterexamples. A percentile test must actually move relative rank;
+increasing an already-highest fee cannot lower its percentile further.

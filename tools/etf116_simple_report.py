@@ -35,6 +35,7 @@ WEIGHTS = {'cagr_1y': .20, 'cagr_3y': .20, 'cagr_5y': .20,
 SHA = re.compile(r'[a-f0-9]{64}')
 SYMBOL = re.compile(r'[A-Z][A-Z0-9.\-]{0,15}')
 FLAGS = ('leveraged', 'inverse', 'option_overlay', 'single_stock', 'fund_of_funds')
+CURRENCIES = frozenset('USD EUR GBP JPY CHF CAD AUD NZD HKD CNY CNH KRW SGD TWD INR BRL MXN ZAR SEK NOK DKK PLN ILS AED SAR'.split())
 
 
 class ReportRefused(ValueError):
@@ -106,6 +107,7 @@ def build(packet, frozen, *, evaluation_time=None):
         require(type(meta) is dict and meta.get('asset_class') in
                 ('EQUITY', 'BOND', 'COMMODITY', 'MIXED', 'OTHER'), 'FUND_CLASSIFICATION')
         require(all(type(meta.get(k)) is bool for k in FLAGS), 'FUND_CLASSIFICATION')
+        require(type(meta.get('currency')) is str and meta['currency'] in CURRENCIES, 'FUND_CURRENCY')
         source(meta, session=session, decision=decision, max_age=45)
         if meta['asset_class'] != 'EQUITY' or any(meta[k] for k in FLAGS) or meta.get('currency') != 'USD':
             excluded[ticker] = 'OUTSIDE_GENERAL_USD_EQUITY_COHORT'
@@ -117,11 +119,6 @@ def build(packet, frozen, *, evaluation_time=None):
             continue
         require(report.get('ticker') == ticker and report.get('asof') == session
                 and report.get('series_basis') in ('NAV_TR_INDEX', 'MARKET_TR_INDEX'), 'METRICS_IDENTITY')
-        these_anchors = tuple(windows[h]['anchor_session'] for h in HORIZONS)
-        if anchors is None:
-            anchors, basis = these_anchors, report['series_basis']
-        require(these_anchors == anchors and report['series_basis'] == basis
-                and all(windows[h].get('basis') == basis for h in HORIZONS), 'NONCOMPARABLE_WINDOWS_OR_BASIS')
         risk = windows['36'].get('risk', {})
         if risk.get('risk_free_status') != 'RESEARCH_RF_AVAILABLE' or risk.get('sharpe') is None:
             excluded[ticker] = 'DATED_RF_SHARPE_UNAVAILABLE'
@@ -135,6 +132,12 @@ def build(packet, frozen, *, evaluation_time=None):
         require(type(name) is str and 0 < len(name) <= 160
                 and all(c.isprintable() for c in name), 'FUND_NAME')
         require(all(number(windows[h].get('cagr'), 'CAGR') > -1 for h in HORIZONS), 'CAGR_UNIT')
+        # Excluded products/missing history/RF cannot establish a cohort basis.
+        these_anchors = tuple(windows[h]['anchor_session'] for h in HORIZONS)
+        if anchors is None:
+            anchors, basis = these_anchors, report['series_basis']
+        require(these_anchors == anchors and report['series_basis'] == basis
+                and all(windows[h].get('basis') == basis for h in HORIZONS), 'NONCOMPARABLE_WINDOWS_OR_BASIS')
         rows.append(dict(ticker=ticker, name=name,
                          cagr_1y=number(windows['12'].get('cagr'), 'CAGR'),
                          cagr_3y=number(windows['36'].get('cagr'), 'CAGR'),

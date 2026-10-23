@@ -91,17 +91,49 @@ class SimpleReportTests(unittest.TestCase):
             self.assertGreater(after, before)
 
     def test_lower_fee_volatility_and_drawdown_are_better(self):
+        baseline = self.build()
         for key in ('expense_ratio', 'ann_volatility', 'mdd'):
             changed = copy.deepcopy(self.value)
-            ticker = TICKERS[0]
+            ticker = baseline['top5'][0]['ticker']
             if key == 'expense_ratio':
-                changed['fund_metadata'][ticker][key] = .04
+                changed['fund_metadata'][ticker][key] = 0.
             else:
                 changed['metrics_candidate']['ticker_results'][ticker]['horizons']['36']['risk'][key] = .9 if key == 'ann_volatility' else -.99
                 reseal(changed)
-            # Direct order-preserving normalized values, including tied cohorts.
-            self.assertGreater(report.percentile([-.5, -.1, -.1], -.1), report.percentile([-.5, -.1, -.1], -.5))
-            self.assertNotIn(ticker, [r['ticker'] for r in self.build(changed)['top5']])
+            after = next(r['score'] for r in self.build(changed)['top5'] if r['ticker'] == ticker)
+            if key == 'expense_ratio':
+                self.assertGreater(after, baseline['top5'][0]['score'])
+            else:
+                self.assertLess(after, baseline['top5'][0]['score'])
+
+    def test_rf_ineligible_fund_cannot_poison_comparable_cohort(self):
+        for mode in ('basis', 'anchor'):
+            changed = copy.deepcopy(self.value)
+            first = changed['metrics_candidate']['ticker_results'][TICKERS[0]]
+            first['horizons']['36']['risk']['sharpe'] = None
+            if mode == 'basis':
+                first['series_basis'] = 'NAV_TR_INDEX'
+                for window in first['horizons'].values():
+                    window['basis'] = 'NAV_TR_INDEX'
+            else:
+                first['horizons']['12']['anchor_session'] = '2025-10-21'
+            reseal(changed)
+            result = self.build(changed)
+            self.assertEqual(result['qualified_count'], 6)
+            self.assertEqual(result['excluded'][TICKERS[0]], 'DATED_RF_SHARPE_UNAVAILABLE')
+            self.assertEqual(result['series_basis'], 'MARKET_TR_INDEX')
+
+    def test_every_fund_requires_explicit_known_currency(self):
+        for ticker in (TICKERS[0], TICKERS[-1]):
+            for value in (None, '', 'usd', 'ZZZ', True):
+                changed = copy.deepcopy(self.value)
+                changed['fund_metadata'][ticker]['currency'] = value
+                with self.assertRaisesRegex(report.ReportRefused, 'FUND_CURRENCY'):
+                    self.build(changed)
+            changed = copy.deepcopy(self.value)
+            del changed['fund_metadata'][ticker]['currency']
+            with self.assertRaisesRegex(report.ReportRefused, 'FUND_CURRENCY'):
+                self.build(changed)
 
     def test_ties_are_stable_and_share_classes_remain_distinct(self):
         for ticker in TICKERS[:7]:
