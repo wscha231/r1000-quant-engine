@@ -43,6 +43,16 @@ invalidate the task key and old completion. No event input means a BLOCKED A1
 diagnostic packet (`READINESS_EVENT_INPUT_MISSING`), zero collection requests.
 When a genuine Stage3 input exists, only that validator can propose reuse,
 incremental or backfill. Every path remains DRY_RUN and dispatch-ineligible.
+Verified no-bars coverage is evaluated over the requested window's validated
+sessions, not the security's entire archive. Bars before/after that window do
+not turn NO_DATA into a collection proposal; overlapping contradictory bars
+still fail the existing Source no-data conflict guard.
+Capture inventories decode with their existing10,000-entry bound and checkpoints
+with their existing1,500-symbol bound, instead of the shared1,000-entry default.
+Other artifacts retain that default. All existing per-object/cumulative bytes,
+50,000-token, depth, hash and semantic guards still apply. A10,000-row inventory
+of ten-field rows exceeds the token budget and stays refused; the entry ceiling
+does not grant a larger token/provider/campaign budget or imply DATA_READY.
 
 Refresh revokes current proposal/report files before reading input. Hash, clock,
 subject, request or path conflicts fail closed; failed connects revoke the prior

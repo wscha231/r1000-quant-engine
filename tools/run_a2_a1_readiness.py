@@ -76,8 +76,8 @@ def lookup(value, memory, *, cutoff):
         h.identifier(aid)
         h.need(aid in value['artifacts'], 'LOOKUP_REFERENCE')
         return memory.read(aid, value['artifacts'][aid]['sha256'])
-    def obj(aid):
-        return h.decode(raw(aid))
+    def obj(aid, *, max_entries=1000):
+        return h.decode(raw(aid),max_entries=max_entries)
     by_hash = {ref['sha256']: aid for aid, ref in value['artifacts'].items()}
     def ref_object(ref):
         h.need(type(ref) is dict and set(ref) == {'path', 'sha256'}
@@ -123,7 +123,7 @@ def lookup(value, memory, *, cutoff):
                 a3_declared_states=sorted({r.get('status','UNKNOWN') for r in a3})))
     holdings = {}
     if value['capture_inventory_id'] is not None:
-        inventory = obj(value['capture_inventory_id'])
+        inventory = obj(value['capture_inventory_id'],max_entries=10000)
         h.need(type(inventory.get('rows')) is list and len(inventory['rows']) <= 10000
                and inventory.get('count') == len(inventory['rows'])
                and h.stamp(inventory['prepared_at_utc']) <= h.stamp(value['as_of']),
@@ -136,7 +136,7 @@ def lookup(value, memory, *, cutoff):
            'LOOKUP_CHECKPOINT_COUNT')
     checkpoints = []
     for aid in value['checkpoint_ids']:
-        cp = obj(aid)
+        cp = obj(aid,max_entries=1500)
         h.need(cp.get('schema') == 'alpaca-private-sip-history-v1'
                and cp.get('source') == 'ALPACA_STOCK_BARS_V2_HISTORICAL_SIP'
                and cp.get('state') == 'PRIVATE_RESEARCH_ONLY'

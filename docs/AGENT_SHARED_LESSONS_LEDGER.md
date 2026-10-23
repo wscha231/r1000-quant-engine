@@ -7707,3 +7707,18 @@ root symlink check and marker link guards; check other output paths only after
 the marker is held, leaving aliased bytes intact on failure.
 An unused marker.tmp is another publication path, not part of exclusive marker
 creation: its hardlink must not prevent invalidation either.
+
+### 2026-10-23 — Scope no-data to the target; honor artifact-specific entry caps
+
+Unrelated archived bars before/after a fully verified empty requested window
+must not create a redundant backfill proposal. Use the already validated target
+session coverage; keep identity/basis/cutoff and contradictory no-data guards.
+The shared decoder's1,000-entry default can reject an otherwise supported
+1,001-row inventory/checkpoint before its own declared limits run. Pass only
+the existing artifact-specific10,000/1,500 entry bounds, preserving global byte,
+token/depth/count budgets. Ten-field10,000-row data still exceeds50,000 tokens;
+do not raise that budget to make a logical entry ceiling practically reachable.
+For synthetic archive tests, derive asof via the existing Source mapping_asof
+contract when changing end-exclusive; a mismatched fixture clock proves archive
+refusal, not the target-window defect. Preserve that initial fixture failure
+separately from the corrected old-code reproduction and final passes.

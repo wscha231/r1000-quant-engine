@@ -56,6 +56,53 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_supported_capture_and_checkpoint_decode_above_default1000(self):
+        for aid,counts in (('CAPTURE',(1000,1001,4000)),('CP',(1000,1001,1500))):
+            for count in counts:
+                with self.subTest(aid=aid,count=count):
+                    value,values=fixture();data=h.decode(values[aid])
+                    if aid=='CAPTURE':
+                        data.update(count=count,rows=[[0,'T'+str(i),0,0,0,0,0,0,0,0] for i in range(count)])
+                    else:
+                        data.update(completed=['T'+str(i) for i in range(count)],
+                                    examined=['T'+str(i) for i in range(count)],held=[])
+                    values[aid]=h.canonical(data);value['artifacts'][aid]['sha256']=h.digest(values[aid])
+                    result=run(value,values)
+                    self.assertFalse(result['readiness_observations'][0]['data_ready'])
+                    self.assertEqual(result['requests'],[])
+        # No artifact-specific path changes the shared decoder default.
+        with self.assertRaisesRegex(ValueError,'ENTRY_BUDGET'):
+            h.decode(h.canonical({'unrelated':list(range(1001))}))
+
+    def test_capture_checkpoint_entry_limits_keep_other_resource_guards(self):
+        cases=(('CAPTURE','entries',10001,'ENTRY_BUDGET'),
+               ('CP','entries',1501,'ENTRY_BUDGET'),
+               ('CAPTURE','tokens',10000,'TOKEN_BUDGET'),
+               ('CAPTURE','boundary_shape',10000,'LOOKUP_CAPTURE_DUPLICATE'),
+               ('CAPTURE','depth',0,'DEPTH_BUDGET'),
+               ('CAPTURE','duplicate',2,'LOOKUP_CAPTURE_DUPLICATE'),
+               ('CP','duplicate',2,'LOOKUP_CHECKPOINT_SYMBOLS'))
+        for aid,kind,count,reason in cases:
+            with self.subTest(aid=aid,kind=kind):
+                value,values=fixture();data=h.decode(values[aid])
+                if aid=='CAPTURE':
+                    rows=([[] for _ in range(count)] if kind in {'entries','boundary_shape'} else
+                          [[0,'T'+str(i),0,0,0,0,0,0,0,0] for i in range(count)])
+                    if kind=='depth':
+                        rows=0
+                        for _ in range(h.MAX_DEPTH+1):rows=[rows]
+                    if kind=='duplicate':rows[1][1]=rows[0][1]
+                    data.update(count=count,rows=rows)
+                else:
+                    symbols=['T'+str(i) for i in range(count)]
+                    if kind=='duplicate':symbols[1]=symbols[0]
+                    data.update(completed=[],examined=symbols,held=[])
+                values[aid]=h.canonical(data);value['artifacts'][aid]['sha256']=h.digest(values[aid])
+                with self.assertRaisesRegex(ValueError,reason):run(value,values)
+        value,values=fixture();values['CAPTURE']=b' '*(h.MAX_BYTES+1)
+        value['artifacts']['CAPTURE']['sha256']=h.digest(values['CAPTURE'])
+        with self.assertRaisesRegex(ValueError,'ARTIFACT_BYTES'):run(value,values)
+
     def test_prior_output_hardlinks_cannot_prevent_refresh_invalidation(self):
         for name in ('source_inventory.json','readiness_report.json','request_fragment.json',
                      live.REFRESH_MARKER+'.tmp'):

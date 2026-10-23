@@ -25,11 +25,11 @@ h=handoff.h
 DAYS=['2016-01-04','2016-01-05','2016-01-06','2016-01-07']
 
 
-def archive(days, *, bad_open=False):
+def archive(days, *, bad_open=False, start='2016-01-04', end='2016-01-09'):
     bars=[dict(t=d+'T05:00:00Z',o=10,h=12,l=9,c=11,v=100) for d in days]
     normalized=[]
     for adjustment in ('raw','split'):
-        normalized += source.normalize(bars,'S0',adjustment,'2016-01-04','2016-01-09')
+        normalized += source.normalize(bars,'S0',adjustment,start,end)
     raw_bars=copy.deepcopy(bars)
     if bad_open and raw_bars:del raw_bars[0]['o']
     payload=source.encoded(dict(bars={'S0':raw_bars},next_page_token=None))
@@ -37,8 +37,8 @@ def archive(days, *, bad_open=False):
     pages=[dict(member=name,sha256=sha,bytes=len(payload),page=0,symbols=['S0'],adjustment=a)
            for a in ('raw','split')]
     meta=dict(schema=source.SCHEMA,source=source.SOURCE,symbols=['S0'],
-        collected=['S0'] if days else [],no_bars=[] if days else ['S0'],start='2016-01-04',
-        end='2016-01-09',asof='2016-01-08',seed_sha256='a'*64,source_sha='b'*40,
+        collected=['S0'] if days else [],no_bars=[] if days else ['S0'],start=start,
+        end=end,asof=source.mapping_asof(end),seed_sha256='a'*64,source_sha='b'*40,
         pages=pages,raw_adjustments=['raw','split'],historical_identity_verified=False,
         pit_verified=False,source_admission=False,commercial_use_authorized=False)
     raw=source.zip_bytes({name:payload,'capture.json':source.encoded(meta)})
@@ -89,6 +89,40 @@ def put(inventory,memory,aid,value):
 
 
 class OHLCVHandoffTests(unittest.TestCase):
+    def test_no_data_target_ignores_archived_bars_before_and_after_window(self):
+        for days in (['2016-01-04'],['2016-01-08'],['2016-01-04','2016-01-08']):
+            with self.subTest(days=days):
+                inventory,memory=fixture(days)
+                inventory['targets'][0]['start']='2016-01-05'
+                for aid,raw in zip(('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT'),
+                                   archive([],start='2016-01-05',end='2016-01-08')):
+                    memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+                catalog=h.decode(memory['CATALOG'])
+                catalog['securities'][0]['receipt_ids']=['EMPTY_RECEIPT']
+                put(inventory,memory,'CATALOG',catalog)
+                self.assertEqual(plan(inventory,memory)['coverage_results'][0]['coverage_action'],'NO_DATA')
+                catalog['securities'][0]['receipt_ids'].append('RECEIPT')
+                put(inventory,memory,'CATALOG',catalog)
+                result=plan(inventory,memory)
+                self.assertEqual(result['coverage_results'][0]['coverage_action'],'NO_DATA')
+                self.assertEqual(len(result['coverage_results'][0]['receipt_sha256s']),2)
+                self.assertEqual(result['requests'],[])
+                self.assertEqual(result['dispatch_count'],0)
+                self.assertFalse(any(result['authority'].values()))
+
+    def test_in_window_bar_conflicting_with_no_data_still_refuses(self):
+        inventory,memory=fixture(['2016-01-04','2016-01-05'])
+        inventory['targets'][0]['start']='2016-01-05'
+        for aid,raw in zip(('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT'),
+                           archive([],start='2016-01-05',end='2016-01-08')):
+            memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+        catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids'].append('EMPTY_RECEIPT')
+        put(inventory,memory,'CATALOG',catalog)
+        result=plan(inventory,memory)
+        self.assertEqual(result['coverage_results'][0]['status'],'BLOCKED')
+        self.assertIn('PRICE_NO_DATA_CONFLICT',result['coverage_results'][0]['blockers'])
+        self.assertEqual(result['requests'],[])
+
     def test_three_coverage_actions_with_original_archive_verifier(self):
         for days,state,expected in ((DAYS,'AVAILABLE','REUSE_EXISTING'),
             (DAYS[:2],'AVAILABLE','INCREMENTAL_ONLY'),([], 'NOT_STORED','BACKFILL_REQUIRED')):
