@@ -8074,3 +8074,30 @@ The old two real assertion failures were retained. A first code-byte provenance
 comparison encountered Windows CRLF versus Git LF, so the discriminators were
 also executed against immutable canonical1bb modules outside Source. No private
 evidence normalization or production overwrite was used for that reproduction.
+
+
+## 2026-10-25 — Validate registered long-history tests in their actual sparse tree
+
+The original786 workflow offline command fails at load_tests before Source or
+Drive access: the registered BindingTest module and its helper/runtime imports
+are outside the18-file checkout. Add the existing dependency closure to both
+sparse paths and push filters; importing a helper does not register its unrelated
+campaign tests. Preserve all original registered methods, package pins, the
+event_name!=push producer guard, single-writer scope and schedules.
+
+The new regression copies only declared paths into an isolated tree, loads all
+three existing suites without executing itself recursively, and rejects direct
+Binding, transitive capture-module and push-filter omissions. A complete local
+checkout or inherited repository PYTHONPATH cannot certify this workflow. Run
+the unchanged three commands there under normal/-O with network denied. Package
+bootstrap, when explicitly authorized, is separate test-only setup with its own
+request/byte/wheel hashes; it is never a provider/Drive collection or data receipt.
+This H1 repair cannot establish g29 execution completion, original source clocks,
+rights, PIT, consumer admission or automatic operation.
+
+Windows Native must retain the existing macro-cycle0600-vs0666 failure; it is
+not a pass or a new skip. Under A0's explicit substitute proof, the new regression
+also runs that unchanged17-case command in its isolated tree only on POSIX,
+with network denial and an exit diagnostic. Linux current-HEAD CI must witness
+this actual branch before closing the POSIX proof; the three original commands
+and their permission assertion remain unchanged.
