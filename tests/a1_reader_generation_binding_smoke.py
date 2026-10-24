@@ -4,6 +4,7 @@ Injected trust and documents below are NOT actual accepted Source/rights proof.
 No real Source/Drive/provider calls, publication or consumer ACK occur.
 """
 from dataclasses import FrozenInstanceError, replace
+from datetime import timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -207,6 +208,97 @@ def rewrite_ancestor(state, transform, *, relink=True):
     meter['checkpoint_sha256'] = changed[0]['sha256']
     b = encoded(meter); h = digest(b); objects[h] = b
     e['original_execution'] = dict(e['original_execution'], sha256=h, bytes=len(b))
+
+
+def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
+                         view_start='2016-01-05', view_end='2016-01-06'):
+    """Local fake capture + injected synthetic trust, never actual original4 bytes."""
+    sessions = list(sessions or ['2016-01-04', '2016-01-05', '2016-01-06'])
+    drive = FakePrivateDrive()
+    def get(url, **kwargs):
+        bars = {}
+        for ticker in names:
+            bars[ticker] = [dict(t=s + 'T05:00:00Z', o=10 + i % 17,
+                h=12 + i % 17, l=9 + i % 17, c=11 + i % 17, v=100 + i % 7)
+                for i, s in enumerate(sessions) if (ticker, s) != omit]
+        return encoded(dict(bars=bars, next_page_token=None))
+    source_sha = hashlib.sha1(b'CONTRACT_FIXTURE_SOURCE_CODE').hexdigest()
+    end = (binding.day(sessions[-1]) + timedelta(days=1)).isoformat()
+    refs, _, _, _ = capture.capture_one_group(drive, drive.folder, list(names),
+        '2016-01-04', end, 'fixture-key', 'fixture-secret',
+        digest(b'CONTRACT_FIXTURE_SEED'), source_sha, get=get)
+    raw, norm, rec = (drive.objects[r['file_id']] for r in refs)
+    receipt, objects = json.loads(rec), {}
+    def add(value):
+        value = value if type(value) is bytes else encoded(value)
+        objects[digest(value)] = value
+        return dict(sha256=digest(value), bytes=len(value))
+    credential = digest(b'SYNTHETIC_TEST_EXISTING_ACCOUNT_REFERENCE')
+    terms = add(b'SYNTHETIC_TEST_TERMS_NOT_AN_ACTUAL_MARKET_DATA_AGREEMENT')
+    rights = add(dict(schema='a1-reviewed-account-rights-v1', provider='alpaca',
+        credential_binding=credential, purpose='PRIVATE_NONCOMMERCIAL_RESEARCH',
+        historical_sip_allowed=True, private_retention_allowed=True,
+        source_documents=[terms], supplier_expiry=None))
+    checkpoint = add(dict(schema=capture.SCHEMA, state='PRIVATE_RESEARCH_ONLY',
+        source=capture.SOURCE, source_sha=source_sha, seed_sha256=receipt['seed_sha256'],
+        start=receipt['start'], end=receipt['end'], last_status='VERIFIED_RAW_SPLIT',
+        last_objects=[receipt['raw_object'], receipt['normalized_object'],
+                      dict(file_id='synthetic_receipt', sha256=digest(rec), bytes=len(rec))]))
+    meter = add(dict(schema='a1-sip-campaign-meter-v1', run_id=987654321,
+        run_attempt=1, source_sha=source_sha, bindings=dict(credential_binding=credential),
+        status='COMPLETE', finalized=True, preflight_only=False,
+        checkpoint_sha256=checkpoint['sha256']))
+    identity_doc = add(b'SYNTHETIC_TEST_IDENTITY_DOCUMENT')
+    ca_doc = add(b'SYNTHETIC_TEST_SPLIT_DOCUMENT')
+    lifecycle_doc = add(b'SYNTHETIC_TEST_LIFECYCLE_DOCUMENT')
+    event = dict(kind='FIRST_OBSERVED_COMPLETE_READBACK', at=OBSERVED,
+        objects=dict(raw_sha256=digest(raw), normalized_sha256=digest(norm),
+                     capture_receipt_sha256=digest(rec)))
+    event['evidence_ref'] = add(encoded(event))
+    evidence = dict(schema='a1-reader-real-evidence-v1', fixture_only=False,
+        owner_rights=rights, original_execution=meter, original_checkpoint=checkpoint,
+        original_run_id='987654321', derivation_run_id='synthetic-test-derivation',
+        derivation_code_sha=hashlib.sha1(b'CONTRACT_FIXTURE_DERIVATION_CODE').hexdigest(),
+        identity_evidence=identity_doc, corporate_actions=ca_doc, lifecycle=lifecycle_doc,
+        identity_status='VERIFIED', corporate_action_status='VERIFIED', lifecycle_status='VERIFIED',
+        rights_capture_scope=dict(capture_receipt_sha256=digest(rec), start=receipt['start'],
+            end_exclusive=receipt['end'], credential_binding=credential, original_run_id=987654321),
+        first_observed_readback=event, created_at='2026-10-24T08:30:00Z',
+        research_fresh_until='2026-10-25T09:00:00Z', original_public_available_at=None,
+        original_provider_collected_at=None, identity={}, split_factors={},
+        private_view=dict(start=view_start, end=view_end, selection_reason='SOURCE_EXACT_COMPATIBILITY'),
+        technical_metadata={})
+    for index, ticker in enumerate(names):
+        ident = dict(instrument_id='US.TEST.' + ticker, ticker=ticker,
+            market='US', mic='XNAS' if ticker in ('AAPL', 'MU') else 'XNYS',
+            timezone='America/New_York', calendar='NYSE', currency='USD',
+            valid_from=sessions[0], valid_through=sessions[-1])
+        evidence['identity'][ticker] = ident
+        evidence['split_factors'][ticker] = {s: ('2' if s == sessions[0] else '1')
+            for s in sessions if (ticker, s) != omit}
+        common = dict(provider=capture.SOURCE, capture_receipt_sha256=digest(rec),
+            available_from=OBSERVED, collected_at=OBSERVED, expires_at='2026-10-25T09:00:00Z')
+        typed = dict(ident, **common, schema='ohlcv-security-identity-evidence-v1',
+            provider_security_id='synthetic-test-asset-' + str(index + 1),
+            asset_class='EQUITY', source_documents=[identity_doc])
+        status = dict(common, schema='a1-ohlcv-status-volume-evidence-v1',
+            instrument_id=ident['instrument_id'], ticker=ticker,
+            provider_security_id=typed['provider_security_id'],
+            valid_from=sessions[0], valid_through=sessions[-1],
+            halt_coverage='COMPLETE_FOR_WINDOW', halted_sessions=[],
+            volume_basis=dict(raw='RAW', split='SPLIT_ADJUSTED'),
+            halt_source_documents=[lifecycle_doc], volume_source_documents=[ca_doc])
+        evidence['technical_metadata'][ticker] = dict(identity_evidence=add(typed),
+                                                       status_evidence=add(status))
+    review = add(b'SYNTHETIC_TEST_EXTERNALLY_INJECTED_TRUST_ANCHOR_NOT_ACTUAL_ACCEPTANCE')
+    trusted = binding.TrustedSourceBinding(
+        review_reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1',
+        review_receipt_sha256=review['sha256'], evidence_sha256=digest(encoded(evidence)),
+        proof_sha256=tuple(sorted(objects)), original_run_id=987654321, original_run_attempt=1,
+        original_source_sha=source_sha, credential_binding=credential,
+        derivation_run_id=evidence['derivation_run_id'], derivation_code_sha=evidence['derivation_code_sha'],
+        adapter_file_sha256=digest(Path(binding.__file__).read_bytes()))
+    return raw, norm, rec, evidence, trusted, objects
 
 
 class BindingTest(unittest.TestCase):
@@ -967,6 +1059,230 @@ class BindingTest(unittest.TestCase):
                 parent['file_id'] = state[3]['original_checkpoint_path'][-1]['file_id']
             with self.subTest(alias=kind):
                 self.assert_real_blocked(state, 'CHECKPOINT_PARENT_BOUND', repin=True)
+
+
+    def replace_view_proof(self, state, role, transform, ticker='AAPL'):
+        ref = state[3]['technical_metadata'][ticker][role]
+        value = json.loads(state[5].pop(ref['sha256']))
+        transform(value)
+        changed = encoded(value)
+        ref.update(sha256=digest(changed), bytes=len(changed))
+        state[5][digest(changed)] = changed
+
+    def without_private_view(self, state):
+        state = list(state)
+        for pair in state[3].pop('technical_metadata').values():
+            for ref in pair.values():
+                state[5].pop(ref['sha256'])
+        state[3].pop('private_view')
+        return state
+
+    def test_explicit_view_preserves_default_fullspan_refusal_and_original_capture(self):
+        self.assert_real_blocked(self.without_private_view(private_view_fixture()),
+                                 'SPLIT_FACTOR_RELATION', repin=True)
+        state = private_view_fixture()
+        result = self.prepare_real(state)
+        self.assertEqual(result.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        self.assertEqual(result, self.prepare_real(state))
+        sources, provenance_hashes = [], []
+        for basis in result.bases:
+            manifest, provenance = json.loads(basis.manifest), json.loads(basis.provenance)
+            source = manifest['datasets'][0]['source']
+            sources.append(source)
+            provenance_hashes.append(digest(basis.provenance))
+            self.assertEqual(source['source_receipt_sha256'], digest(state[2]))
+            self.assertEqual(source['source_receipt_role'], 'ORIGINAL_VERIFIED_CAPTURE_RECEIPT')
+            self.assertEqual(manifest['source_run_id'], state[3]['original_run_id'])
+            self.assertEqual(source['derivation_run_id'], state[3]['derivation_run_id'])
+            self.assertEqual(source['basis_derivation_receipt_sha256'], digest(basis.provenance))
+            self.assertEqual(dict(basis.objects)[digest(state[2])], state[2])
+            self.assertEqual(dict(basis.objects)[digest(basis.provenance)], basis.provenance)
+            for role in ('identity_evidence', 'corporate_actions', 'lifecycle'):
+                ref = state[3][role]
+                self.assertIn(ref['sha256'], source['raw_source_sha256'])
+                self.assertEqual(dict(basis.objects)[ref['sha256']], state[5][ref['sha256']])
+            view = provenance['explicit_private_view']
+            self.assertEqual(view['obv_anchor_session'], '2016-01-05')
+            self.assertEqual(view['original_symbols'], ['AAPL'])
+            self.assertEqual(view['original_normalized_rows'], 6)
+            self.assertEqual((view['selected_rows'], view['excluded_rows']), (2, 1))
+            self.assertEqual(view['inventory']['AAPL']['original']['start'], '2016-01-04')
+            self.assertEqual(view['inventory']['AAPL']['selected']['start'], '2016-01-05')
+            self.assertEqual(view['inventory']['AAPL']['excluded']['rows'], 1)
+            self.assertEqual(source['pit_status'], 'PIT_PROXY')
+            self.assertFalse(provenance['source_admission'])
+            self.assertEqual(provenance['consumer_ack'], 'NOT_RUN')
+        self.assertNotEqual(*provenance_hashes)
+        self.assertEqual(sources[0]['raw_source_sha256'], sources[1]['raw_source_sha256'])
+        self.assertTrue(set(provenance_hashes) <= set(sources[0]['raw_source_sha256']))
+
+    def test_explicit_view_outputs_reach_actual_component_reader_with_pinned_metadata(self):
+        prepared = self.prepare_real(private_view_fixture())
+        for basis in prepared.bases:
+            transport, _, _ = fixture_transport(basis)
+            result = ResearchDataReader(transport).read_components('ds.us.prices.daily',
+                basis.generation_id, decision_time=DECISION, purpose='research',
+                components=[dict(component_id='subject', instrument_id='US.TEST.AAPL',
+                    required_start='2016-01-05', required_end='2016-01-06', minimum_rows=2),
+                    dict(component_id='spy', instrument_id='US.TEST.SPY',
+                         required_start='2016-01-05', required_end='2016-01-06', optional=True)],
+                consumer_id='SYNTHETIC_VIEW_CONSUMER_NOT_ACTUAL_ACK')
+            self.assertEqual(len(result.results['subject'].rows), 2)
+            self.assertIn('spy', result.refusals)
+            identity = result.results['subject'].receipt['instrument_identity']
+            self.assertEqual(identity['asset_class'], 'EQUITY')
+            self.assertEqual(identity['provider_security_id'], 'synthetic-test-asset-1')
+            self.assertEqual(identity['halted_sessions'], ())  # Existing Reader freezes lists.
+            self.assertEqual(identity['volume_basis'], basis.basis)
+            identity_raw = transport.read('shared-research-v1/objects/' + identity['identity_evidence_sha256'])
+            self.assertEqual(digest(identity_raw), identity['identity_evidence_sha256'])
+            self.assertEqual(json.loads(identity_raw)['instrument_id'], 'US.TEST.AAPL')
+            self.assertFalse(result.receipt['eligible_for_economics'])
+
+    def test_explicit_view_original4_contract_fixture_has_657_sessions_each(self):
+        import pandas_market_calendars as mcal
+        sessions = [i.date().isoformat() for i in mcal.get_calendar('NYSE').schedule(
+            start_date='2016-01-04', end_date='2026-10-13').index]
+        state = private_view_fixture(names=('MU', 'WMT', 'JPM', 'XOM'), sessions=sessions,
+            view_start='2024-03-01', view_end='2026-10-13')
+        result = self.prepare_real(state)
+        self.assertEqual(result.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        for basis in result.bases:
+            files = json.loads(basis.manifest)['datasets'][0]['files']
+            self.assertEqual({v['instrument']['ticker'] for v in files}, {'MU', 'WMT', 'JPM', 'XOM'})
+            self.assertTrue(all(v['rows'] == 657 and v['start'] == '2024-03-01'
+                                and v['end'] == '2026-10-13' for v in files))
+            view = json.loads(basis.provenance)['explicit_private_view']
+            self.assertEqual(view['selected_rows'], 2628)
+            self.assertEqual(view['original_normalized_rows'], len(sessions) * 8)
+            self.assertEqual(view['obv_anchor_session'], '2024-03-01')
+            self.assertTrue(all(v['original']['rows'] == len(sessions)
+                                for v in view['inventory'].values()))
+
+    def test_explicit_view_missing_inverted_outside_and_weekend_bounds_refuse(self):
+        for view, code in ((None, 'VIEW_SCHEMA'), ({}, 'VIEW_SCHEMA'),
+                (dict(start='bad', end='2016-01-06', selection_reason='SOURCE_EXACT_COMPATIBILITY'), 'VIEW_WINDOW'),
+                (dict(start='2016-01-06', end='2016-01-05', selection_reason='SOURCE_EXACT_COMPATIBILITY'), 'VIEW_WINDOW'),
+                (dict(start='2016-01-01', end='2016-01-05', selection_reason='SOURCE_EXACT_COMPATIBILITY'), 'VIEW_WINDOW')):
+            state = private_view_fixture(); state[3]['private_view'] = view
+            with self.subTest(view=view):
+                self.assert_real_blocked(state, code, repin=True)
+        state = private_view_fixture(sessions=['2016-01-04', '2016-01-05', '2016-01-11'],
+                                     view_start='2016-01-09', view_end='2016-01-10')
+        self.assert_real_blocked(state, 'VIEW_EXCHANGE_SESSION')
+
+    def test_explicit_view_future_and_unavailable_bounds_refuse(self):
+        state = private_view_fixture(sessions=['2016-01-04', '2026-10-26'],
+            view_start='2026-10-26', view_end='2026-10-26')
+        self.assert_real_blocked(state, 'VIEW_FUTURE')
+        state = private_view_fixture()
+        state[3]['first_observed_readback']['at'] = '2016-01-05T21:00:00Z'
+        self.assert_real_blocked(state, 'VIEW_NOT_AVAILABLE', repin=True)
+
+    def test_explicit_view_empty_or_uneven_session_grid_cannot_shorten(self):
+        state = private_view_fixture(sessions=['2016-01-04', '2016-01-05', '2016-01-11'],
+            view_start='2016-01-06', view_end='2016-01-08')
+        self.assert_real_blocked(state, 'VIEW_SESSION_GRID')
+        state = private_view_fixture(names=('MU', 'WMT', 'JPM', 'XOM'),
+                                     omit=('WMT', '2016-01-05'))
+        self.assert_real_blocked(state, 'VIEW_SESSION_GRID')
+
+    def test_explicit_view_outside_bytes_and_duplicate_rows_still_verify_originals(self):
+        import gzip
+        for kind in ('raw', 'duplicate_normalized'):
+            state = list(private_view_fixture())
+            rec = json.loads(state[2])
+            if kind == 'raw':
+                state[0] = b'SYNTHETIC_CORRUPT_ORIGINAL_ZIP'
+                rec['raw_object'].update(sha256=digest(state[0]), bytes=len(state[0]))
+            else:
+                decoded = gzip.decompress(state[1])
+                state[1] = gzip.compress(decoded + decoded.splitlines()[0] + b'\n', mtime=0)
+                rec['normalized_object'].update(sha256=digest(state[1]), bytes=len(state[1]))
+            state[2] = encoded(rec)
+            with self.subTest(kind=kind):
+                self.assert_real_blocked(state, 'ORIGINAL_CAPTURE_VERIFICATION', repin=True)
+
+    def test_explicit_view_identity_outside_view_remains_mandatory(self):
+        state = private_view_fixture(); state[3]['identity']['AAPL']['valid_from'] = '2016-01-05'
+        self.assert_real_blocked(state, 'LIFECYCLE_WINDOW', repin=True)
+        state = private_view_fixture()
+        self.replace_view_proof(state, 'identity_evidence', lambda d:d.update(valid_from='2016-01-05'))
+        self.assert_real_blocked(state, 'TECHNICAL_IDENTITY_WINDOW', repin=True)
+
+    def test_explicit_view_missing_or_untrusted_typed_proof_cannot_supply_identity(self):
+        state = private_view_fixture(); state[3].pop('technical_metadata')
+        self.assert_real_blocked(state, 'TECHNICAL_METADATA_REQUIRED', repin=True)
+        state = private_view_fixture()
+        state[3]['technical_metadata']['AAPL']['identity_evidence']['sha256'] = '0' * 64
+        self.assert_real_blocked(state, 'MISSING_OR_UNTRUSTED_PROOF', repin=True)
+        state = private_view_fixture()
+        self.replace_view_proof(state, 'identity_evidence', lambda d:d.update(provider_security_id='different-real-looking-id'))
+        self.assert_real_blocked(state, 'REVIEWED_EVIDENCE_HASH')
+
+    def test_explicit_view_unknown_inferred_or_conflicting_identity_metadata_refuses(self):
+        cases = [('provider_security_id', None, 'PROVIDER_SECURITY_ID'),
+                 ('provider_security_id', 'UNKNOWN', 'PROVIDER_SECURITY_ID'),
+                 ('provider_security_id', 'AAPL', 'PROVIDER_SECURITY_ID'),
+                 ('provider_security_id', 'CONTRACT_FIXTURE:asset', 'PROVIDER_SECURITY_ID'),
+                 ('asset_class', 'UNKNOWN', 'TECHNICAL_ASSET_CLASS'),
+                 ('mic', 'XNYS', 'TECHNICAL_IDENTITY_MISMATCH'),
+                 ('provider', 'other-provider', 'TECHNICAL_ORIGINAL_BINDING'),
+                 ('capture_receipt_sha256', '0' * 64, 'TECHNICAL_ORIGINAL_BINDING')]
+        for key, value, code in cases:
+            state = private_view_fixture()
+            self.replace_view_proof(state, 'identity_evidence', lambda d:d.update({key:value}))
+            with self.subTest(key=key, value=value):
+                self.assert_real_blocked(state, code, repin=True)
+
+    def test_explicit_view_halt_and_volume_unknown_never_default_to_empty_or_labels(self):
+        cases = [('halted_sessions', None, 'HALT_COVERAGE_UNKNOWN'),
+                 ('halt_coverage', 'UNKNOWN', 'HALT_COVERAGE_UNKNOWN'),
+                 ('halted_sessions', ['2016-01-05', '2016-01-05'], 'HALT_COVERAGE_INVALID'),
+                 ('halted_sessions', ['2016-01-09'], 'HALT_COVERAGE_INVALID'),
+                 ('volume_basis', None, 'VOLUME_BASIS_UNKNOWN'),
+                 ('volume_basis', dict(raw='RAW', split='RAW'), 'VOLUME_BASIS_UNKNOWN'),
+                 ('halt_source_documents', [], 'TECHNICAL_SOURCE_DOCUMENTS'),
+                 ('volume_source_documents', [], 'TECHNICAL_SOURCE_DOCUMENTS'),
+                 ('provider_security_id', 'other-source-id', 'TECHNICAL_STATUS_IDENTITY')]
+        for key, value, code in cases:
+            state = private_view_fixture()
+            self.replace_view_proof(state, 'status_evidence', lambda d:d.update({key:value}))
+            with self.subTest(key=key, value=value):
+                self.assert_real_blocked(state, code, repin=True)
+
+    def test_explicit_view_typed_proof_clocks_and_halt_scope_are_enforced(self):
+        for role in ('identity_evidence', 'status_evidence'):
+            for key, value, code in (
+                    ('available_from', None, 'EXPLICIT_CLOCK_REQUIRED'),
+                    ('collected_at', '2026-10-24T08:00:00', 'EXPLICIT_CLOCK_REQUIRED'),
+                    ('expires_at', '2026-10-24T08:59:00Z', 'TECHNICAL_EVIDENCE_CLOCK'),
+                    ('collected_at', '2026-10-24T08:31:00Z', 'TECHNICAL_EVIDENCE_CLOCK')):
+                state = private_view_fixture()
+                self.replace_view_proof(state, role, lambda d:d.update({key:value}))
+                with self.subTest(role=role, key=key):
+                    self.assert_real_blocked(state, code, repin=True)
+        state = private_view_fixture()
+        self.replace_view_proof(state, 'status_evidence', lambda d:d.update(valid_from='2016-01-06'))
+        self.assert_real_blocked(state, 'TECHNICAL_STATUS_WINDOW', repin=True)
+
+    def test_explicit_view_known_halts_and_actual_evidence_expiry_survive_reader(self):
+        state = private_view_fixture()
+        self.replace_view_proof(state, 'status_evidence', lambda d:d.update(
+            halted_sessions=['2016-01-05'], expires_at='2026-10-24T09:30:00Z'))
+        prepared = self.prepare_real(state, repin=True)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        for basis in prepared.bases:
+            spec = json.loads(basis.manifest)['datasets'][0]
+            self.assertEqual(spec['files'][0]['instrument']['halted_sessions'], ['2016-01-05'])
+            self.assertEqual(spec['source']['expires_at'], '2026-10-24T09:30:00Z')
+            transport, _, _ = fixture_transport(basis)
+            with self.assertRaisesRegex(ContractError, '^STALE_GENERATION$'):
+                ResearchDataReader(transport).read_components('ds.us.prices.daily', basis.generation_id,
+                    decision_time='2026-10-24T10:00:00Z', purpose='research',
+                    components=[dict(component_id='subject', instrument_id='US.TEST.AAPL',
+                                     required_start='2016-01-05', required_end='2016-01-06')],
+                    consumer_id='SYNTHETIC_EXPIRED_VIEW_NOT_ACTUAL_ACK')
 
 
 if __name__ == '__main__':
