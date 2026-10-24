@@ -1,5 +1,30 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-24 — Separate Source archives from Reader generation acceptance
+
+- A capture checkpoint proves retained original/normalized bytes, not the Reader's
+  identity, CA/lifecycle, rights and availability bindings. Reuse the existing
+  archive verifier and preserve the raw/split distinction; do not relabel an
+  update COMPLETE receipt as a consumed generation.
+- First-observed complete readback can bound PIT_PROXY current research, but is
+  not historical publication. Keep unknown clocks and supplier expiry unknown;
+  bind derivation evidence before the manifest to avoid receipt/hash cycles.
+- A real preparation branch needs an independently supplied Source trust anchor
+  plus exact existing proof bytes; an evidence packet must not approve itself.
+  Bind its original meter/checkpoint/account/capture window and code/config before
+  typing rows. Real acceptance, storage publication, consumer ACK and economics
+  remain NOT_RUN; VERIFIED strings and green synthetic tests grant none of them.
+- Model reused transport defaults exactly: OwnerDrive.check defaults to folders,
+  so file reads must explicitly pass folder=False. Fix Decimal precision,
+  exponent, rounding and trap context together; precision alone inherits hidden
+  caller state. Independent counterexamples caught both fixture blind spots.
+- After #627 is protected and integrated, validate the same prepared fixture
+  through its component API as well as read(): optional absent SPY may be
+  reported locally, while a required missing benchmark must refuse the batch.
+  That compatibility does not authenticate actual Source evidence. The strict
+  real branch can be tested with injected synthetic trust; report that separately
+  from an actual prepared/published generation or account-rights approval.
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
