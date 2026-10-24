@@ -211,7 +211,7 @@ def rewrite_ancestor(state, transform, *, relink=True):
 
 
 def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
-                         view_start='2016-01-05', view_end='2016-01-06'):
+                         view_start='2016-01-05', view_end='2016-01-06', selected_only=True):
     """Local fake capture + injected synthetic trust, never actual original4 bytes."""
     sessions = list(sessions or ['2016-01-04', '2016-01-05', '2016-01-06'])
     drive = FakePrivateDrive()
@@ -272,10 +272,12 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
         ident = dict(instrument_id='US.TEST.' + ticker, ticker=ticker,
             market='US', mic='XNAS' if ticker in ('AAPL', 'MU') else 'XNYS',
             timezone='America/New_York', calendar='NYSE', currency='USD',
-            valid_from=sessions[0], valid_through=sessions[-1])
+            valid_from=view_start if selected_only else sessions[0],
+            valid_through=view_end if selected_only else sessions[-1])
         evidence['identity'][ticker] = ident
         evidence['split_factors'][ticker] = {s: ('2' if s == sessions[0] else '1')
-            for s in sessions if (ticker, s) != omit}
+            for s in sessions if (ticker, s) != omit
+            and (not selected_only or view_start <= s <= view_end)}
         common = dict(provider=capture.SOURCE, capture_receipt_sha256=digest(rec),
             available_from=OBSERVED, collected_at=OBSERVED, expires_at='2026-10-25T09:00:00Z')
         typed = dict(ident, **common, schema='ohlcv-security-identity-evidence-v1',
@@ -284,7 +286,7 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
         status = dict(common, schema='a1-ohlcv-status-volume-evidence-v1',
             instrument_id=ident['instrument_id'], ticker=ticker,
             provider_security_id=typed['provider_security_id'],
-            valid_from=sessions[0], valid_through=sessions[-1],
+            valid_from=ident['valid_from'], valid_through=ident['valid_through'],
             halt_coverage='COMPLETE_FOR_WINDOW', halted_sessions=[],
             volume_basis=dict(raw='RAW', split='SPLIT_ADJUSTED'),
             halt_source_documents=[lifecycle_doc], volume_source_documents=[ca_doc])
@@ -1078,7 +1080,7 @@ class BindingTest(unittest.TestCase):
         return state
 
     def test_explicit_view_preserves_default_fullspan_refusal_and_original_capture(self):
-        self.assert_real_blocked(self.without_private_view(private_view_fixture()),
+        self.assert_real_blocked(self.without_private_view(private_view_fixture(selected_only=False)),
                                  'SPLIT_FACTOR_RELATION', repin=True)
         state = private_view_fixture()
         result = self.prepare_real(state)
@@ -1189,26 +1191,57 @@ class BindingTest(unittest.TestCase):
 
     def test_explicit_view_outside_bytes_and_duplicate_rows_still_verify_originals(self):
         import gzip
-        for kind in ('raw', 'duplicate_normalized'):
+        for kind in ('raw', 'duplicate_normalized', 'outside_unknown_ticker', 'raw_hash_mismatch'):
             state = list(private_view_fixture())
             rec = json.loads(state[2])
-            if kind == 'raw':
+            if kind == 'raw_hash_mismatch':
+                state[0] += b'SYNTHETIC_HASH_CONFLICT'
+            elif kind == 'raw':
                 state[0] = b'SYNTHETIC_CORRUPT_ORIGINAL_ZIP'
                 rec['raw_object'].update(sha256=digest(state[0]), bytes=len(state[0]))
             else:
                 decoded = gzip.decompress(state[1])
-                state[1] = gzip.compress(decoded + decoded.splitlines()[0] + b'\n', mtime=0)
+                if kind == 'outside_unknown_ticker':
+                    rows = decoded.splitlines()
+                    outside = json.loads(rows[0]); outside['ticker'] = 'UNLISTED'
+                    changed = encoded(outside) + b'\n'.join(rows[1:]) + b'\n'
+                else:
+                    changed = decoded + decoded.splitlines()[0] + b'\n'
+                state[1] = gzip.compress(changed, mtime=0)
                 rec['normalized_object'].update(sha256=digest(state[1]), bytes=len(state[1]))
             state[2] = encoded(rec)
             with self.subTest(kind=kind):
-                self.assert_real_blocked(state, 'ORIGINAL_CAPTURE_VERIFICATION', repin=True)
+                self.assert_real_blocked(state, 'CAPTURE_OBJECT_BINDING' if kind == 'raw_hash_mismatch'
+                                         else 'ORIGINAL_CAPTURE_VERIFICATION', repin=True)
 
-    def test_explicit_view_identity_outside_view_remains_mandatory(self):
-        state = private_view_fixture(); state[3]['identity']['AAPL']['valid_from'] = '2016-01-05'
+    def test_explicit_view_selected_only_identity_lifecycle_and_factors_are_sufficient(self):
+        state = private_view_fixture()
+        self.assertEqual(set(state[3]['split_factors']['AAPL']), {'2016-01-05', '2016-01-06'})
+        self.assertEqual(state[3]['identity']['AAPL']['valid_from'], '2016-01-05')
+        prepared = self.prepare_real(state)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        for basis in prepared.bases:
+            view = json.loads(basis.provenance)['explicit_private_view']
+            self.assertEqual(view['excluded_rows_scope'], 'VERIFIED_ORIGINAL_BYTES_NOT_TECHNICALLY_ADMITTED')
+            self.assertEqual(view['inventory']['AAPL']['original']['rows'], 3)
+            self.assertEqual(view['inventory']['AAPL']['selected']['rows'], 2)
+        # Explicitly unconsumed old factor values are not certified or parsed.
+        state = private_view_fixture(selected_only=False)
+        state[3]['split_factors']['AAPL']['2016-01-04'] = 'UNKNOWN'
+        self.assertEqual(self.prepare_real(state, repin=True).status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        state = private_view_fixture(); state[3]['identity']['AAPL']['valid_from'] = '2016-01-06'
         self.assert_real_blocked(state, 'LIFECYCLE_WINDOW', repin=True)
         state = private_view_fixture()
-        self.replace_view_proof(state, 'identity_evidence', lambda d:d.update(valid_from='2016-01-05'))
+        self.replace_view_proof(state, 'identity_evidence', lambda d:d.update(valid_from='2016-01-06'))
         self.assert_real_blocked(state, 'TECHNICAL_IDENTITY_WINDOW', repin=True)
+
+    def test_explicit_view_selected_factor_missing_or_tampered_refuses_without_fullspan_fallback(self):
+        state = private_view_fixture(); state[3]['split_factors']['AAPL'].pop('2016-01-05')
+        self.assert_real_blocked(state, 'SPLIT_FACTOR_COVERAGE', repin=True)
+        state = private_view_fixture(); state[3]['split_factors']['AAPL']['2016-01-05'] = '2'
+        self.assert_real_blocked(state, 'SPLIT_FACTOR_RELATION', repin=True)
+        self.assert_real_blocked(self.without_private_view(private_view_fixture()),
+                                 'SPLIT_FACTOR_COVERAGE', repin=True)
 
     def test_explicit_view_missing_or_untrusted_typed_proof_cannot_supply_identity(self):
         state = private_view_fixture(); state[3].pop('technical_metadata')

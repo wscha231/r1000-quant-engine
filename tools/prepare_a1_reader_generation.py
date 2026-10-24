@@ -384,8 +384,8 @@ def _technical_metadata(documents, identities, grids, view, closes, original, cr
                     <= created <= decision <= _clock(document.get('expires_at')),
                     'TECHNICAL_EVIDENCE_CLOCK')
         try:
-            require(day(record.get('valid_from')) <= day(min(sessions))
-                    <= day(max(sessions)) <= day(record.get('valid_through')),
+            require(day(record.get('valid_from')) <= day(min(selected))
+                    <= day(max(selected)) <= day(record.get('valid_through')),
                     'TECHNICAL_IDENTITY_WINDOW')
             require(day(status.get('valid_from')) <= day(view['start'])
                     <= day(view['end']) <= day(status.get('valid_through')),
@@ -654,7 +654,11 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 and ident['timezone'] == 'America/New_York'
                 and ident['calendar'] == 'NYSE', 'IDENTITY_SCOPE')
         sessions = {date for name, date in grids['raw'] if name == ticker}
-        require(type(factors[ticker]) is dict and set(factors[ticker]) == sessions,
+        consumed_sessions = ({s for s in sessions if view['start'] <= s <= view['end']}
+                             if view else sessions)
+        require(type(factors[ticker]) is dict and
+                ((consumed_sessions <= set(factors[ticker]) <= sessions) if view
+                 else set(factors[ticker]) == sessions),
                 'SPLIT_FACTOR_COVERAGE')
     require(len({ident['instrument_id'] for ident in identities.values()}) == len(identities),
             'IDENTITY_COLLISION')
@@ -669,10 +673,12 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     for key in sorted(grids['raw']):
         ticker, session = key
         ident = identities[ticker]
+        consumed = not view or view['start'] <= session <= view['end']
         try:
             date = day(session)
-            require(day(ident['valid_from']) <= date <= day(ident['valid_through']),
-                    'LIFECYCLE_WINDOW')
+            if consumed:
+                require(day(ident['valid_from']) <= date <= day(ident['valid_through']),
+                        'LIFECYCLE_WINDOW')
             if view:
                 require(session in closes, 'EXCHANGE_SESSION')
                 close = closes[session]
@@ -683,6 +689,8 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             if isinstance(exc, BindingError):
                 raise
             raise BindingError('EXCHANGE_SESSION') from None
+        if not consumed:
+            continue  # Verified original bytes; no excluded technical admission.
         factor, _ = _decimal(factors[ticker][session])
         decimal = {}
         for basis in ('raw', 'split'):
@@ -768,6 +776,8 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 original_normalized_rows=len(lines), selected_rows=sum(v['selected']['rows'] for v in inventory.values()),
                 excluded_rows=sum(v['excluded']['rows'] for v in inventory.values()),
                 factor_validation_scope='EXPLICIT_SELECTED_GRID_ONLY',
+                technical_validation_scope='EXPLICIT_SELECTED_GRID_ONLY',
+                excluded_rows_scope='VERIFIED_ORIGINAL_BYTES_NOT_TECHNICALLY_ADMITTED',
                 original_archive_verification='COMPLETE_BEFORE_SELECTION',
                 technical_evidence=metadata)
         provenance = encoded(provenance_record)

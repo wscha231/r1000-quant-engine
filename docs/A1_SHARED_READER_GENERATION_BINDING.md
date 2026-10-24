@@ -234,10 +234,13 @@ and available by the supplied observed readback and decision. Every collected
 member must contain the complete selected session grid in both bases. No
 automatic shortening, ticker omission, missing-Open repair, price rewriting or
 numeric tolerance exists. The unchanged literal Decimal factor predicate runs
-on each selected row. Original archive/hash/reconstruction, complete inventory,
-duplicates, numeric values, identity/lifecycle and full factor coverage still
-run before selection. Invalid excluded bytes cannot disappear into the view.
-The full-span factor relationship is not claimed for excluded rows.
+on each selected row. Original archive/hash/reconstruction, complete inventory, duplicate detection,
+row schema and date/calendar checks still run before selection. Invalid excluded
+bytes or unknown original tickers cannot disappear into the view. Identity,
+lifecycle, CA and exact factor eligibility apply only to the selected grid.
+Excluded typed identity/factor facts need not be supplied, parsed or certified;
+they remain nonconsumed original-byte observations. The full-span factor
+relationship and historical eligibility are not claimed for excluded rows.
 
 The requested original4 private scope is MU/WMT/JPM/XOM, each657 selected
 sessions, with original2016-01-04..2026-10-13 envelopes retained. This is
@@ -257,8 +260,8 @@ The identity document uses the existing Main schema
 ohlcv-security-identity-evidence-v1. It supplies actual instrument/provider IDs,
 ticker, asset class, market, MIC, calendar, timezone, currency, effective interval
 and aware availability/collection/expiry clocks. Its source_documents include
-the reviewed original identity document. It must match the full original
-identity window, provider and original capture receipt hash. Ticker is not a
+the reviewed original identity document. It must cover the selected effective
+window and match provider/original capture receipt. Ticker is not a
 provider ID. UNKNOWN, fixture markers, missing/unreviewed hashes, naive clocks
 and conflicts refuse. This pure code verifies consistency with externally
 reviewed bytes, not independent issuer/provider authenticity or legal meaning.

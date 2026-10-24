@@ -8125,3 +8125,9 @@ expected a list from the unchanged immutable Reader receipt; retain its actual
 tuple contract instead. Preserve both failed logs and every original assertion.
 Use external pinned consumer execution for cross-edge proof rather than adding
 heavy Main imports to Source's sparse workflow.
+
+Root static review of E0 found that its new path still required excluded-period
+identity/lifecycle/factors. Keep complete original-byte/schema/date/membership
+verification, while requiring technical eligibility only for the explicit consumed
+grid. Never fill unknown old factors or extend a truthful identity window to make
+a private view pass. Preserve E0 results separately and revalidate the new HEAD.
