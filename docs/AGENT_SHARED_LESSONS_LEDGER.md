@@ -7622,3 +7622,10 @@ The same defect affected a RAW proof read. Preserve the old passing logs as
 limited evidence, add failing-before regressions, and carry proof integrity and
 original clock failures through the global refusal marker. Keep verified
 optional role/price/coverage refusals local; do not globalize every exception.
+
+The first correction d9b13be1 failed the unchanged original QQQ/Composite test:
+putting source-field comparisons inside the global proof guard erased valid SPY
+RS. Preserve that failed64-case Native log, move only proof object/schema/hash
+and original effective/aware clocks across the global boundary, and keep the
+original source-field/role compatibility checks local. Do not alter original
+assertions or treat a focused counterexample PASS as the full regression PASS.

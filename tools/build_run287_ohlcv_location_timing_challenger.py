@@ -879,11 +879,6 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             check(type(evidence) is dict and
                   evidence.get("schema") == "ohlcv-security-identity-evidence-v1",
                   "FEATURE_IDENTITY_EVIDENCE")
-            for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
-                        "market", "mic", "calendar", "timezone", "currency"):
-                text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
-                check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
-            check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
             check(day(evidence.get("valid_from")) <= day(start) <= day(session) <=
                   day(evidence.get("valid_through")), "FEATURE_IDENTITY_EFFECTIVE_WINDOW")
             check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
@@ -894,6 +889,11 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             # or RAW companion. It is distinct from the role checks below.
             global_refusals.append(str(exc))
             raise
+        for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
+                    "market", "mic", "calendar", "timezone", "currency"):
+            text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
+            check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
+        check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
         check(identity["asset_class"] in {"EQUITY", "ETF", "INDEX"}, "FEATURE_SECURITY_TYPE")
         # These venues share the supported US regular-session grid. The
         # source record must bind the actual MIC; ticker never supplies it.
