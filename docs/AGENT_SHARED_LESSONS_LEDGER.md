@@ -7908,3 +7908,169 @@ their original assertions and add counterexamples with actual time later than
 both Source and decision. This clock fixture is test-only and grants no actual
 data admission. Legacy custody pins must be read from their owning receipt,
 rather than assuming every later acquisition receipt copied all older fields.
+
+### 2026-10-22 — Discovery selection is not source authentication or dispatch
+
+Reuse the A2 schema/parser and raw source-graph validator for a bounded
+US/KR supplied-byte selection proposal. Bind the original publication and URL
+to the selected primary source; retain leading-zero KR tickers, issuer/security
+life intervals, exact evidence hashes and existing active caps. A V1/V2 label,
+coherent identity bytes or materiality rationale is not authenticated admission.
+All candidates keep identity/source authentication NOT_VERIFIED, A1 requests0,
+dispatch0 and economic/consumer authority closed until the separate A0 adapter.
+
+Deduplicate by security, issuer, family, primary raw hash and normalized public
+clock. Reordering input can preserve the same candidate/dedup result while its
+exact input-byte SHA changes; never change the source digest to fit an equality
+test. Prior request keys and Registry rows are supplied context, not durable
+completion. Register these regressions through the existing Control Plane
+caller, preserving every old case and the frozen runner program inventory.
+
+The sparse Source Python environment initially lacked the repository-required
+jsonschema/referencing dependencies. Install the existing requirements range
+before Native checks; an import failure is not a failed event-validation case.
+Keep named price174/993 seed, dates, meter and checkpoints outside this adapter.
+
+Independent A6's negative witnesses found that empty URL userinfo passes a
+truthiness test and that a valid/unknown mixed pillar list passes a mere
+intersection check. Reject userinfo by presence (including empty values),
+reject backslashes and preserve the existing canonical-pillar subset rule.
+Keep the prior finding head distinct from the corrected frozen-head evidence.
+
+### 2026-10-23 — Route price-gap preparation through the existing A0 identity
+
+Derive OHLCV proposals only from the hash/time-checked A1 source_inventory and
+its bounded child references; replay original Stage2 inputs instead of trusting
+a worker's candidate/coverage booleans. Put the derived payload in the existing
+A1 task identity parameters so its contents change the existing task key and
+V2 completion binding. Reserve that parameter against caller injection, keep
+the A1/A2 DAG and global dispatch=false, and make this path dispatch-ineligible.
+
+Rebuild retained prices using the unchanged Source raw/split archive verifier.
+Missing Open stays missing. A complete covered prefix supports incremental-only;
+internal holes require backfill. Verified no-bars remains NO_DATA without a new
+request. UNKNOWN is not absent; a KR close proxy is not US raw/split coverage.
+Catalog/calendar/policy assertions and matching hashes are not authenticated
+rights, PIT, corporate actions, membership or capture permission. Keep all
+consumer/collection authority closed and old campaign budgets/journals intact.
+
+An invalid source_inventory produces the existing BLOCKED diagnostic A1 packet,
+not necessarily an empty queue. Verify that the previous derived requests are
+revoked and dispatch stays false; do not change the existing failure semantics
+to satisfy an empty-list fixture assertion.
+
+Independent A6's Stage3 witnesses also require a receipt's as-of/end to stay
+inside the decision cutoff even when raw/normalized reconstruction succeeds.
+Reject no-bars windows that contradict any retained price row in the same
+lineage. Cap child bytes before hashing or reading the entire file; consume the
+same capped snapshot whose hash and descriptor clocks were checked.
+
+### 2026-10-23 — Connect observed research state without inventing registration
+
+The incumbent SEC Main already stores pending MU filing requests. Reuse its
+manifest/artifacts read-only instead of building another Registry. A stored
+pending/V0 record is not an accepted current candidate or a V1/V2 material event.
+Match explicit issuer/security keys when supplied; a ticker-only match stays
+unverified. Price-inventory/checkpoint presence is not row coverage (completed
+can mean no bars), and absence is only within the inspected scope. Keep those
+observations distinct from DATA_READY, collection need and Source/PIT admission.
+Preserve original clocks when refreshing transport. Bind lookup/actual event
+inputs to the existing A0 task identity, revoke old proposals on failed refresh,
+and leave missing news-export input BLOCKED rather than claiming an automated
+ChatGPT report connection. Never overwrite another pending A1 request to connect.
+Preserve the A3 reference's declared status (missing stays UNKNOWN), rather than
+hardcoding pending from record presence. A supplied issuer conflict must fail
+even when the security ID is null; ticker-only lookup never repairs that conflict.
+Independent A6 also requires the lookup's sealed MemoryArtifacts guard before
+any resolver call. Check every explicit input, including subjects and canonical
+intake, against output aliases before revoking old output files; fail-closed
+revocation must never delete or overwrite an aliased source input.
+An existing cache file can be a hard link without being a symlink. Never open
+content-addressed cache objects for truncation: reuse only byte-identical files
+or create exclusively; a conflicting object stays blocked and original-safe.
+Shared ChatGPT report text is an unadmitted handoff, not publisher raw bytes or
+an authenticated V2 event. Keep excerpt/export hashes and claimed timestamps
+separate, bind references in the existing A0 transport and mark future automatic
+delivery NOT_CONNECTED until a real producer/export path has been verified.
+The optional Stage3 transport importer must verify the bounded captured bytes
+and descriptor clocks directly; calling the generic file-hash verifier after a
+capped read reopens the file without that cap and loses same-snapshot binding.
+
+### 2026-10-23 — Validate referenced paths before revocation; preserve A6 closure
+
+A Stage3 inventory outside a scratch output can still name an original child
+inside it. Check its complete bounded path set before unlinking reports, then
+reuse that captured inventory. For relocated canonical A6 intake, copy immutable
+bundle bytes and the known nested bundle closure at original relative paths;
+content-addressing only top-level inputs loses descriptor consistency. Use an
+input-identity scratch namespace, bounded hash/clock reads and path/prefix/metadata
+collision refusal. Stage evidence only after the full closure passes. A valid A6
+READY proposal is not an executed job or newly enabled specialist dispatch.
+Independent A6 also found post-read count/byte checks could consume a129th
+descriptor or oversized final read before refusal. Reserve counts before I/O
+and pass the remaining byte budget into the bounded read itself; test actual
+read calls rather than checking only the final refusal/status.
+Fresh Hosted review also found acquisition/parse failures could precede current
+proposal revocation. Unknown inventory children make catch-and-unlink unsafe.
+An exclusively created scratch failure marker blocks connect while preserving
+all prior/source bytes; only a complete, validated refresh clears a recognized,
+unchanged marker. Treat this marker as invalidation, never Source admission.
+Invalidate independently of old proposal publication safety: a hardlinked prior
+output must not prevent creation of the blocking marker. Preserve the supplied
+root symlink check and marker link guards; check other output paths only after
+the marker is held, leaving aliased bytes intact on failure.
+An unused marker.tmp is another publication path, not part of exclusive marker
+creation: its hardlink must not prevent invalidation either.
+
+### 2026-10-23 — Scope no-data to the target; honor artifact-specific entry caps
+
+Unrelated archived bars before/after a fully verified empty requested window
+must not create a redundant backfill proposal. Use the already validated target
+session coverage; keep identity/basis/cutoff and contradictory no-data guards.
+The shared decoder's1,000-entry default can reject an otherwise supported
+1,001-row inventory/checkpoint before its own declared limits run. Pass only
+the existing artifact-specific10,000/1,500 entry bounds, preserving global byte,
+token/depth/count budgets. Ten-field10,000-row data still exceeds50,000 tokens;
+do not raise that budget to make a logical entry ceiling practically reachable.
+For synthetic archive tests, derive asof via the existing Source mapping_asof
+contract when changing end-exclusive; a mismatched fixture clock proves archive
+refusal, not the target-window defect. Preserve that initial fixture failure
+separately from the corrected old-code reproduction and final passes.
+Fresh review also exposed that requiring one full-window empty receipt loses
+equivalent proof split across archives. Check the union of verified empty
+intervals against every requested session; adjacent/overlapping/reordered proof
+must agree, while a requested-session gap remains incomplete. Preserve the
+old71 split-window failure independently and never mark it A6 clean.
+
+### 2026-10-24 — Preserve protected SEC freshness when reconnecting Source proposals
+
+Reconstruct the existing13-path Source capability on protected b18, keeping the
+current ledger rather than copying its older whole-file version. Check actual
+upstream overlaps; in this integration only the shared ledger overlapped. Use
+protected Main factories/parser with temporary synthetic stores to prove pending
+FILING/V0, hash/identity/clock refusal, replay identity and amendment family/parent
+lineage. Historical readback never grants current freshness or OHLCV eligibility.
+The first coupled fixture retained an orphan old origin and was correctly refused;
+remove only that synthetic origin, retain the failing log and original assertions.
+Do not promote historical MU proof or supplier rights from these offline tests.
+
+### 2026-10-25 — Separate examined empty prices from fetch work; retain completions
+
+Hosted1bb review exposed two missing boundaries despite scoped passing QA.
+Verified empty sessions remain missing prices, but must not generate new ranges
+or provider estimates, including mixed archives and empties between real gaps.
+Fully examined mixed windows stay BLOCKED, with no fabricated complete coverage.
+
+Relocating requests also requires their valid standalone completion outputs.
+Use the incumbent full V2 schema and public completion planner on a disposable,
+bounded captured-byte view before publication. A receipt's claimed key/status
+is not enough. Preserve output clocks/paths/hashes and the planner's existing
+old-key/unrequested-history behavior without fetching irrelevant outputs. Reject
+invalid applicable proof and aliases; reserve count/remaining bytes before reads.
+Preflight every existing destination before writing any evidence child; preserve
+conflicting originals. A scratch validation view is not a canonical store.
+
+The old two real assertion failures were retained. A first code-byte provenance
+comparison encountered Windows CRLF versus Git LF, so the discriminators were
+also executed against immutable canonical1bb modules outside Source. No private
+evidence normalization or production overwrite was used for that reproduction.
