@@ -667,6 +667,78 @@ class FeatureTests(unittest.TestCase):
         with patch.object(access,'MAX_GENERATION_ROWS',100):
             self.assert_blocked(self.call(raw_generation=None),'BLOCKED_GENERATION_ROWS')
 
+    def _identity_proof_fixture(self):
+        for iid in IDS.values():
+            self.rows[iid]=self.rows[iid][-21:]
+            self.add_file(iid)
+
+    def test_component_identity_proof_hash_failure_is_global(self):
+        self._identity_proof_fixture()
+        for iid in (IDS['SPY'], IDS['TEST']):
+            with self.subTest(instrument=iid):
+                h=self.identity(iid)['identity_evidence_sha256']
+                path=f'{access.PREFIX_V1}/objects/{h}'
+                original=self.transport.objects[path]
+                self.transport.objects[path]=original+b' '
+                try:
+                    self.assert_blocked(self.call(raw_generation=None),'HASH_MISMATCH')
+                finally:
+                    self.transport.objects[path]=original
+
+    def test_component_identity_proof_expiry_is_global(self):
+        self._identity_proof_fixture()
+        for iid in (IDS['SPY'], IDS['TEST']):
+            with self.subTest(instrument=iid):
+                ident=self.identity(iid)
+                original=ident['identity_evidence_sha256']
+                self.bind_identity_evidence(ident,expires_at='2026-10-13T23:59:59Z')
+                try:
+                    self.assert_blocked(self.call(raw_generation=None),'FEATURE_IDENTITY_CLOCK')
+                finally:
+                    ident['identity_evidence_sha256']=original
+
+    def test_component_proof_integrity_controls_preserve_optional_semantics(self):
+        self._identity_proof_fixture()
+        good=self.call(raw_generation=None)
+        self.assertIsNotNone(good['features']['ret_20s'])
+        self.assertIsNotNone(good['features']['rs_log_spy_20s'])
+        ident=self.identity(IDS['SPY']);ident['asset_class']='INDEX'
+        self.bind_identity_evidence(ident)
+        role=self.call(raw_generation=None)
+        self.assertIsNotNone(role['features']['ret_20s'])
+        self.assertEqual(role['blocker']['rs_log_spy_20s'],'BENCHMARK_SECURITY_TYPE_MISMATCH')
+        self.rows[IDS['SPY']][-1]['close']=-1
+        self.add_file(IDS['SPY'])
+        semantic=self.call(raw_generation=None)
+        self.assertIsNotNone(semantic['features']['ret_20s'])
+        self.assertEqual(semantic['blocker']['rs_log_spy_20s'],'INVALID_PRICE_VALUE')
+        self.rows[IDS['SPY']][-1]['close']=self.rows[IDS['SPY']][-1]['open']+.1
+        self.add_file(IDS['SPY'])
+        item=next(f for f in self.data_spec['files'] if f['instrument']['instrument_id']==IDS['SPY'])
+        path=f"{access.PREFIX_V1}/objects/{item['sha256']}"
+        self.transport.objects[path]+=b' '
+        self.assert_blocked(self.call(raw_generation=None),'HASH_MISMATCH')
+        del self.transport.objects[path]
+        absent=self.call(raw_generation=None)
+        self.assertIsNotNone(absent['features']['ret_20s'])
+        self.assertEqual(absent['blocker']['rs_log_spy_20s'],'ARCHIVE_UNAVAILABLE')
+
+    def test_component_raw_identity_proof_hash_failure_is_global(self):
+        self._identity_proof_fixture()
+        h=self.identity()['identity_evidence_sha256']
+        path=f'{access.PREFIX_V1}/objects/{h}'
+        original=self.transport.read
+        proof_reads=[]
+        def changed_raw_proof(p):
+            raw=original(p)
+            if p==path:
+                proof_reads.append(p)
+                if len(proof_reads)==2:return raw+b' '
+            return raw
+        with patch.object(self.transport,'read',changed_raw_proof):
+            self.assert_blocked(self.call(),'HASH_MISMATCH')
+        self.assertEqual(len(proof_reads),2)
+
 
 def run_contract_suite():
     outcome=unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests))

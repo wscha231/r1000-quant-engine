@@ -7614,3 +7614,11 @@ The first Main H1 preflight hit a sparse-checkout dependency omission before
 arithmetic: aggressive/signals_technical.py was not materialized. Preserve the
 failed log and expose the unchanged existing helper through sparse settings;
 do not replace the shared arithmetic or alter assertions to fix the environment.
+
+An independent exact83 audit found that Reader-global price guards did not
+cover a later consumer identity-proof read: the optional benchmark catch
+swallowed proof HASH_MISMATCH and FEATURE_IDENTITY_CLOCK into partial features.
+The same defect affected a RAW proof read. Preserve the old passing logs as
+limited evidence, add failing-before regressions, and carry proof integrity and
+original clock failures through the global refusal marker. Keep verified
+optional role/price/coverage refusals local; do not globalize every exception.

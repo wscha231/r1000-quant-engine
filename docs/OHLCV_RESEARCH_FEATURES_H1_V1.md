@@ -205,6 +205,14 @@ explicitly unverified; no complete-generation claim follows from the batch.
 An absent optional instrument reaches the public Reader and its named local
 refusal; planning does not silently drop it. Global hash, clock, identity,
 resource and Lake failures block the snapshot, including the optional RAW call.
+Consumer identity proof object/source binding, schema, identity consistency and
+original effective/available/collected/expiry clocks also retain this global
+boundary after the Reader returns. A proof hash or expiry failure in an optional
+benchmark cannot become a subject-only partial snapshot. Explicit benchmark
+role/venue compatibility and returned optional price/coverage refusals keep
+their existing local behavior. Normal and optimized regressions distinguish
+proof-object tampering/expiry, subject and price-file global controls, valid
+proofs and role-local/optional-price controls; RAW proof tampering is included.
 
 Current-head Native, independent A6 and GitHub evidence must be recorded after
 implementation. All positive inputs remain synthetic contract fixtures unless

@@ -871,27 +871,33 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         # Consumer-only identity closure. The Shared Reader's research purpose
         # verifies bytes, not a security-master role or venue/calendar proof.
         source = spec["source"]
-        identity_sha = sha(identity.get("identity_evidence_sha256"))
-        check(identity_sha in source["raw_source_sha256"], "FEATURE_IDENTITY_NOT_SOURCE_BOUND")
-        evidence = decode(read_object(reader.transport,
-            f"{PREFIX_V1}/objects/{identity_sha}", identity_sha, 64 * 1024))
-        check(type(evidence) is dict and
-              evidence.get("schema") == "ohlcv-security-identity-evidence-v1",
-              "FEATURE_IDENTITY_EVIDENCE")
-        for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
-                    "market", "mic", "calendar", "timezone", "currency"):
-            text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
-            check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
-        check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
+        try:
+            identity_sha = sha(identity.get("identity_evidence_sha256"))
+            check(identity_sha in source["raw_source_sha256"], "FEATURE_IDENTITY_NOT_SOURCE_BOUND")
+            evidence = decode(read_object(reader.transport,
+                f"{PREFIX_V1}/objects/{identity_sha}", identity_sha, 64 * 1024))
+            check(type(evidence) is dict and
+                  evidence.get("schema") == "ohlcv-security-identity-evidence-v1",
+                  "FEATURE_IDENTITY_EVIDENCE")
+            for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
+                        "market", "mic", "calendar", "timezone", "currency"):
+                text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
+                check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
+            check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
+            check(day(evidence.get("valid_from")) <= day(start) <= day(session) <=
+                  day(evidence.get("valid_through")), "FEATURE_IDENTITY_EFFECTIVE_WINDOW")
+            check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
+                  clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
+                  "FEATURE_IDENTITY_CLOCK")
+        except ContractError as exc:
+            # Consumer proof integrity is global even for an optional benchmark
+            # or RAW companion. It is distinct from the role checks below.
+            global_refusals.append(str(exc))
+            raise
         check(identity["asset_class"] in {"EQUITY", "ETF", "INDEX"}, "FEATURE_SECURITY_TYPE")
         # These venues share the supported US regular-session grid. The
         # source record must bind the actual MIC; ticker never supplies it.
         check(identity["mic"] in {"XNYS", "XNAS", "ARCX"}, "FEATURE_MIC_CALENDAR_UNSUPPORTED")
-        check(day(evidence.get("valid_from")) <= day(start) <= day(session) <=
-              day(evidence.get("valid_through")), "FEATURE_IDENTITY_EFFECTIVE_WINDOW")
-        check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
-              clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
-              "FEATURE_IDENTITY_CLOCK")
         # ARCX is not scheduled by the unchanged Reader research branch.
         # Keep the same completed regular-close rule in this consumer.
         check(all(clock(r["available_from"]) >= _session_close(day(r["session_date"]))
@@ -1078,6 +1084,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                                     errors="ignore")
                 result["benchmark_ref"][label] = bm_ref
             except ContractError as exc:
+                if global_refusals:
+                    return refuse_all(global_refusals[-1])
                 error = str(exc)
         result["benchmark_ref"].setdefault(label, dict(generation=generation,
             security_id=refs.get(label), status="BLOCKED", blocker=error))
