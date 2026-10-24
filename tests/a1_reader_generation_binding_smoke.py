@@ -146,6 +146,69 @@ def real_fixture():
     return raw, norm, rec, evidence, trusted, objects
 
 
+def ancestor_fixture(*, held_sibling=False):
+    """Synthetic path; unselected price/marker bytes deliberately do not exist."""
+    state = list(real_fixture())
+    raw, norm, rec, e, trusted, objects = state
+    receipt = json.loads(rec)
+    old = json.loads(objects.pop(e['original_checkpoint']['sha256']))
+    meter = json.loads(objects.pop(e['original_execution']['sha256']))
+    def add(value, file_id):
+        b = encoded(value); h = digest(b); objects[h] = b
+        return dict(file_id=file_id, sha256=h, bytes=len(b))
+    def dummy(label):
+        return dict(file_id='synthetic_' + label, sha256=digest(label.encode()), bytes=7)
+    def node(names, completed, held, group, previous, *, selected=False, hold=False):
+        value = dict(old, asof=receipt['asof'], examined=names, completed=completed,
+            held=held, last_collected=[] if hold else group, last_no_bars=[],
+            last_held=group if hold else [], previous_checkpoint=previous,
+            source_admission=False, pit_verified=False, historical_identity_verified=False,
+            commercial_use_authorized=False,
+            last_status='HELD_BAR_VALUE' if hold else 'VERIFIED_RAW_SPLIT')
+        if not selected:
+            value['last_objects'] = ([dummy('held_marker')] if hold else
+                [dummy('sibling_raw'), dummy('sibling_norm'), dummy('sibling_receipt')])
+        return value
+    parent = add(node(['PRIOR'], ['PRIOR'], [], ['PRIOR'], None), 'synthetic_parent_checkpoint')
+    selected = add(node(['PRIOR', 'AAPL'], ['PRIOR', 'AAPL'], [], ['AAPL'], parent,
+                        selected=True), 'synthetic_selected_checkpoint')
+    previous = selected
+    path = [selected]
+    names, done, held = ['PRIOR', 'AAPL'], ['PRIOR', 'AAPL'], []
+    if held_sibling:
+        names = names + ['HELD']; held = ['HELD']
+        previous = add(node(names, done, held, ['HELD'], selected, hold=True),
+                       'synthetic_held_checkpoint')
+        path.insert(0, previous)
+    final = add(node(names + ['SIBLING'], done + ['SIBLING'], held, ['SIBLING'], previous),
+                'synthetic_final_checkpoint')
+    meter.update(checkpoint_sha256=final['sha256'], parent_checkpoint_sha256=parent['sha256'],
+                 examined_before=1, examined_after=len(names) + 1)
+    e.update(original_checkpoint=final, original_checkpoint_path=path,
+             original_parent_checkpoint=parent,
+             original_execution=add(meter, 'synthetic_original_meter'))
+    return state
+
+
+def rewrite_ancestor(state, transform, *, relink=True):
+    """Rehash synthetic ancestors so negative tests exercise semantics, not stale pins."""
+    e, objects = state[3], state[5]
+    refs = [e['original_checkpoint']] + e['original_checkpoint_path']
+    nodes = [json.loads(objects.pop(r['sha256'])) for r in refs]
+    transform(nodes)
+    changed = [None] * len(refs)
+    for i in reversed(range(len(refs))):
+        if relink and i + 1 < len(refs):
+            nodes[i]['previous_checkpoint'] = changed[i + 1]
+        b = encoded(nodes[i]); h = digest(b); objects[h] = b
+        changed[i] = dict(refs[i], sha256=h, bytes=len(b))
+    e['original_checkpoint'], e['original_checkpoint_path'] = changed[0], changed[1:]
+    meter = json.loads(objects.pop(e['original_execution']['sha256']))
+    meter['checkpoint_sha256'] = changed[0]['sha256']
+    b = encoded(meter); h = digest(b); objects[h] = b
+    e['original_execution'] = dict(e['original_execution'], sha256=h, bytes=len(b))
+
+
 class BindingTest(unittest.TestCase):
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
@@ -610,6 +673,174 @@ class BindingTest(unittest.TestCase):
         state=real_fixture()
         with patch.object(binding,'MAX_PROOF_BYTES',1):
             self.assert_real_blocked(state,'PROOF_TOTAL_BOUND')
+
+    def test_ancestor_prepares_only_selected_prices_and_records_exact_path(self):
+        state = ancestor_fixture()
+        with patch.object(capture, 'resume_state', side_effect=AssertionError('WHOLE_CHAIN')), \
+             patch.object(capture, '_private_object', side_effect=AssertionError('SIBLING_READ')), \
+             patch.object(capture, 'verify_archived_group', wraps=capture.verify_archived_group) as verify:
+            prepared = self.prepare_real(state, repin=True)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        self.assertEqual(verify.call_count, 1)
+        self.assertEqual(verify.call_args.args[:2], tuple(state[:2]))
+        for basis in prepared.bases:
+            lineage = json.loads(basis.provenance)['original_checkpoint_lineage']
+            self.assertEqual(lineage['kind'], 'BOUNDED_ANCESTOR')
+            self.assertEqual(lineage['checkpoint_sha256'], [state[3]['original_checkpoint']['sha256'],
+                state[3]['original_checkpoint_path'][0]['sha256']])
+            self.assertEqual(lineage['unselected_price_reads'], 0)
+            self.assertEqual(lineage['examined_before'], 1)
+            self.assertEqual(lineage['examined_after'], 3)
+            self.assertNotIn('SIBLING', basis.manifest.decode())
+
+    def test_ancestor_held_sibling_is_metadata_only_and_never_priced(self):
+        state = ancestor_fixture(held_sibling=True)
+        with patch.object(capture, '_private_object', side_effect=AssertionError('MARKER_READ')):
+            prepared = self.prepare_real(state, repin=True)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        for basis in prepared.bases:
+            self.assertEqual(len(json.loads(basis.provenance)['original_checkpoint_lineage']
+                                 ['checkpoint_sha256']), 3)
+            self.assertNotIn('HELD', basis.manifest.decode())
+
+    def test_ancestor_missing_or_malformed_path_is_finite(self):
+        for value in ([], {}, 'latest', [dict()] * 32):
+            state = ancestor_fixture(); state[3]['original_checkpoint_path'] = value
+            self.assert_real_blocked(state, 'CHECKPOINT_PATH_BOUND', repin=True)
+        state = ancestor_fixture()
+        state[5].pop(state[3]['original_checkpoint_path'][0]['sha256'])
+        self.assert_real_blocked(state, 'MISSING_OR_UNTRUSTED_PROOF', repin=True)
+        state = ancestor_fixture(); state[3].pop('original_checkpoint_path')
+        self.assert_real_blocked(state, 'ORIGINAL_CHECKPOINT_BINDING', repin=True)
+
+    def test_ancestor_cycle_or_orphan_or_omitted_node_refuses(self):
+        state = ancestor_fixture(); state[3]['original_checkpoint_path'] *= 2
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_CYCLE', repin=True)
+        state = ancestor_fixture(); state[3]['original_checkpoint_path'][0] = state[3]['original_parent_checkpoint']
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_LINK', repin=True)
+        state = ancestor_fixture(held_sibling=True); state[3]['original_checkpoint_path'].pop(0)
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_LINK', repin=True)
+        state = ancestor_fixture(); state[3]['original_checkpoint_path'][0] = dict(
+            state[3]['original_checkpoint_path'][0], bytes=True)
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_REFERENCE', repin=True)
+
+    def test_ancestor_rehashed_shortcut_still_requires_exact_prefix(self):
+        state = ancestor_fixture(held_sibling=True)
+        skipped = state[3]['original_checkpoint_path'].pop(0)
+        state[5].pop(skipped['sha256'])
+        selected = state[3]['original_checkpoint_path'][0]
+        rewrite_ancestor(state, lambda nodes: nodes[0].update(previous_checkpoint=selected), relink=False)
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_PREFIX', repin=True)
+
+    def test_ancestor_rehashed_context_or_authority_substitution_refuses(self):
+        for key, value in (('source_sha', '0'*40), ('seed_sha256', '0'*64),
+                           ('start', '2015-01-01'), ('end', '2026-01-01'),
+                           ('asof', '2025-12-31'), ('cohort_scope', {}),
+                           ('pit_verified', True), ('source_admission', True)):
+            state = ancestor_fixture()
+            rewrite_ancestor(state, lambda nodes: nodes[-1].update({key:value}))
+            self.assert_real_blocked(state, 'CHECKPOINT_PATH_CONTEXT', repin=True)
+
+    def test_ancestor_partition_and_order_remain_exact(self):
+        for update in (dict(completed=['AAPL', 'PRIOR']),
+                       dict(examined=['PRIOR', 'AAPL', 'AAPL']),
+                       dict(held=['AAPL']), dict(last_collected=['OTHER'])):
+            state = ancestor_fixture()
+            rewrite_ancestor(state, lambda nodes: nodes[-1].update(update))
+            result = self.prepare_real(state, repin=True)
+            self.assertEqual(result.status, 'BLOCKED'); self.assertEqual(result.bases, ())
+            self.assertIn(result.blockers[0], ('CHECKPOINT_PATH_MEMBERSHIP', 'CHECKPOINT_PATH_GROUP'))
+
+    def test_ancestor_selected_held_or_no_data_cannot_become_prices(self):
+        state = ancestor_fixture()
+        rewrite_ancestor(state, lambda nodes: nodes[-1].update(last_collected=[], last_no_bars=['AAPL']))
+        self.assert_real_blocked(state, 'ORIGINAL_CHECKPOINT_BINDING', repin=True)
+        state = ancestor_fixture()
+        def hold(nodes):
+            for node in nodes:
+                node['completed'].remove('AAPL'); node['held'] = ['AAPL']
+            nodes[-1].update(last_status='HELD_BAR_VALUE', last_collected=[], last_held=['AAPL'],
+                             last_objects=[dict(sha256=digest(b'held'), bytes=4)])
+        rewrite_ancestor(state, hold)
+        self.assert_real_blocked(state, 'ORIGINAL_CHECKPOINT_BINDING', repin=True)
+
+    def test_ancestor_original_run_and_resource_bounds_remain_mandatory(self):
+        for key, value, code in (
+            ('run_id', 1, 'ORIGINAL_EXECUTION_BINDING'),
+            ('run_attempt', True, 'ORIGINAL_EXECUTION_BINDING'),
+            ('source_sha', '0'*40, 'ORIGINAL_EXECUTION_BINDING'),
+            ('examined_before', True, 'CHECKPOINT_RUN_BOUND'),
+            ('examined_after', 34, 'CHECKPOINT_RUN_BOUND'),
+            ('examined_after', 4, 'CHECKPOINT_RUN_BOUND'),
+            ('parent_checkpoint_sha256', '0'*64, 'CHECKPOINT_PARENT_BOUND')):
+            state = ancestor_fixture()
+            self.replace_real_proof(state, 'original_execution', lambda d: d.update({key:value}))
+            self.assert_real_blocked(state, code, repin=True)
+        state = ancestor_fixture()
+        with patch.object(binding, 'MAX_PROOF_BYTES', 1):
+            self.assert_real_blocked(state, 'PROOF_TOTAL_BOUND', repin=True)
+        self.assertEqual(binding.MAX_PROOFS, 32)
+        self.assertEqual(binding.MAX_PROOF_BYTES, 16*1024*1024)
+
+    def test_ancestor_original_parent_proof_cannot_be_missing_or_rebound(self):
+        state = ancestor_fixture(); state[3].pop('original_parent_checkpoint')
+        self.assert_real_blocked(state, 'CHECKPOINT_PATH_REFERENCE', repin=True)
+        state = ancestor_fixture(); state[5].pop(state[3]['original_parent_checkpoint']['sha256'])
+        self.assert_real_blocked(state, 'MISSING_OR_UNTRUSTED_PROOF', repin=True)
+        state = ancestor_fixture()
+        self.replace_real_proof(state, 'original_parent_checkpoint', lambda d: d.update(source_sha='0'*40))
+        self.assert_real_blocked(state, 'CHECKPOINT_PARENT_BOUND', repin=True)
+
+    def test_ancestor_external_logical_genesis_uses_existing_pure_helper(self):
+        # Helper-only synthetic metadata test, not a positive source/rights proof.
+        state = ancestor_fixture(); e, objects = state[3], state[5]
+        receipt = json.loads(state[2]); scope = dict(task_key='R1000-SYNTHETIC-ANCESTOR-PROOF',
+            namespace='synthetic-ancestor-20261024', input_sha256=receipt['seed_sha256'])
+        receipt.update(cohort_scope=scope, end='2026-10-14', asof='2026-10-13')
+        def change(nodes):
+            for node in nodes:
+                node.update(cohort_scope=scope, end=receipt['end'], asof=receipt['asof'])
+                node['examined'].remove('PRIOR'); node['completed'].remove('PRIOR')
+            nodes[-1]['previous_checkpoint'] = None
+        rewrite_ancestor(state, change)
+        meter = json.loads(objects[e['original_execution']['sha256']])
+        meter.update(examined_before=0, examined_after=2, cohort_scope=scope,
+            parent_checkpoint_sha256=binding.external_genesis(capture, scope))
+        e.pop('original_parent_checkpoint')
+        final = json.loads(objects[e['original_checkpoint']['sha256']])
+        selected, lineage = binding._selected_checkpoint(e, meter, final, receipt,
+                                                        lambda ref: objects[ref['sha256']])
+        self.assertEqual(selected['last_collected'], ['AAPL'])
+        self.assertEqual(lineage['examined_before'], 0)
+        meter['parent_checkpoint_sha256'] = '0'*64
+        with self.assertRaisesRegex(binding.BindingError, '^CHECKPOINT_PARENT_BOUND$'):
+            binding._selected_checkpoint(e, meter, final, receipt, lambda ref: objects[ref['sha256']])
+
+    def test_ancestor_unreferenced_proof_is_not_silently_consumed(self):
+        state = ancestor_fixture(); state[5][digest(b'unused')] = b'unused'
+        self.assert_real_blocked(state, 'UNREFERENCED_REVIEWED_PROOF', repin=True)
+
+    def test_ancestor_parent_and_path_ids_cannot_alias_different_bytes(self):
+        for kind in ('final', 'selected', 'unread_previous'):
+            state = ancestor_fixture()
+            parent = state[3]['original_parent_checkpoint']
+            earlier = dict(file_id='synthetic_earlier_checkpoint',
+                           sha256=digest(b'SYNTHETIC_UNREAD_EARLIER'), bytes=31)
+            if kind == 'unread_previous':
+                earlier['file_id'] = parent['file_id']
+            def insert_earlier(nodes):
+                for node in nodes:
+                    node['examined'].insert(1, 'EARLIER')
+                    node['completed'].insert(1, 'EARLIER')
+                nodes[-1]['previous_checkpoint'] = earlier
+            rewrite_ancestor(state, insert_earlier)
+            self.replace_real_proof(state, 'original_execution', lambda d:d.update(examined_after=4))
+            if kind == 'final':
+                parent['file_id'] = state[3]['original_checkpoint']['file_id']
+            elif kind == 'selected':
+                parent['file_id'] = state[3]['original_checkpoint_path'][-1]['file_id']
+            with self.subTest(alias=kind):
+                self.assert_real_blocked(state, 'CHECKPOINT_PARENT_BOUND', repin=True)
 
 
 if __name__ == '__main__':

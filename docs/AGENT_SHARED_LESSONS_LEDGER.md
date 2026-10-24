@@ -7667,3 +7667,31 @@ Post-failure host commit was about95%; the failed instant was not sampled, so
 the transient cause remains unconfirmed. Keep heavy Native and independent QA
 sequential, record runtime/head and memory evidence, and revalidate the final
 head; neither retry success nor high host commit alone diagnoses the cause.
+
+### 2026-10-24 - Bind a selected archive to its own original run, not a later root
+
+A cumulative capture index identifies retained coverage but does not locate a
+selected raw/normalized/receipt group. Exact-ref metadata reuse established MU
+and NVDA as5/7-link ancestors of their original finalized32-name run. A later
+campaign root and its last group were the wrong anchors. Keep actual group
+mapping separate from price recomputation, supplier rights and consumer ACK.
+
+Reuse the existing capture membership rules and pure external logical-genesis
+helper inside the reviewed preparation adapter. Trace exact hash/size/ID links
+only to the selected group, check own-run parent/count boundaries and all
+examined/completed/held/no-data transitions, and read no sibling price payloads.
+The existing32-proof/4MiB-each/16MiB-total ceilings include path/parent metadata.
+Rehashed counterexamples must still reject omitted nodes and shortcuts; a test
+that changes a node but leaves stale parent hashes proves only hash refusal.
+
+An initial external cohort has a logical genesis and a null first previous link,
+not a stored empty Drive object. A legacy initial16 capture needs its own actual
+execution evidence; a later preflight or a newer code pin cannot supply it.
+Rights/identity/CA/clocks remain independent of this lineage correction, and
+synthetic trust tests do not create an actual authenticated Source generation.
+
+Independent static A6 found the original parent ID was not compared with visited
+final/path IDs. Hash/count checks alone did not reject one immutable ID claiming
+two bodies when the selected group followed an earlier unvisited group. Keep
+parent-ID alias checks separate from path-cycle checks so a legitimate exact
+selected-previous==parent boundary is still accepted; cover all three alias forms.

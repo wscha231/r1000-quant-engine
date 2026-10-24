@@ -18,6 +18,7 @@ from types import MappingProxyType
 import zlib
 
 from tools import alpaca_sip_private_backfill_v1 as capture
+from tools.alpaca_sip_source_revision import external_genesis
 from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import PRICE_COLUMNS, _session_close, clock, day
 
@@ -137,6 +138,155 @@ class TrustedSourceBinding:
     adapter_file_sha256: str
 
 
+def _checkpoint_reference(ref):
+    require(type(ref) is dict and set(ref) == {'file_id', 'sha256', 'bytes'}
+            and type(ref['file_id']) is str
+            and re.fullmatch(r'[A-Za-z0-9_-]{10,100}', ref['file_id'])
+            and type(ref['bytes']) is int and 0 < ref['bytes'] <= 1024 * 1024,
+            'CHECKPOINT_PATH_REFERENCE')
+    _hash(ref['sha256'])
+
+
+def _checkpoint_prefix(state, receipt):
+    """Reuse the capture resume membership rules without reading sibling prices."""
+    require(type(state) is dict and state.get('schema') == capture.SCHEMA
+            and state.get('state') == 'PRIVATE_RESEARCH_ONLY'
+            and state.get('source') == capture.SOURCE
+            and all(state.get(k) == receipt.get(k) for k in
+                    ('source_sha', 'seed_sha256', 'cohort_scope', 'start', 'end', 'asof'))
+            and all(state.get(k) is False for k in
+                    ('source_admission', 'pit_verified', 'historical_identity_verified',
+                     'commercial_use_authorized')), 'CHECKPOINT_PATH_CONTEXT')
+    names = [state.get(k) for k in ('examined', 'completed', 'held',
+                                  'last_collected', 'last_no_bars', 'last_held')]
+    require(all(type(a) is list and len(a) <= 1500
+                and all(type(s) is str and capture.SYMBOL.fullmatch(s) for s in a)
+                and len(set(a)) == len(a) for a in names), 'CHECKPOINT_PATH_MEMBERSHIP')
+    examined, done, held, collected, absent, last_held = names
+    held_set = set(held)
+    require(examined and set(done).isdisjoint(held)
+            and set(examined) == set(done) | set(held)
+            and [s for s in examined if s not in held_set] == done
+            and [s for s in examined if s in held_set] == held,
+            'CHECKPOINT_PATH_MEMBERSHIP')
+    refs = state.get('last_objects')
+    status = state.get('last_status')
+    if status == 'VERIFIED_RAW_SPLIT':
+        count = len(collected) + len(absent)
+        require(1 <= count <= capture.GROUP_SIZE and not last_held
+                and set(collected).isdisjoint(absent)
+                and set(examined[-count:]) == set(collected) | set(absent)
+                and done[-count:] == examined[-count:]
+                and type(refs) is list and len(refs) == 3,
+                'CHECKPOINT_PATH_GROUP')
+        prefix = (examined[:-count], done[:-count], held)
+    else:
+        allowed = ('HELD_BAR_VALUE', 'HELD_PROVIDER_ASSET', 'HELD_UNCERTAIN_STORAGE')
+        require(status in allowed and (receipt.get('cohort_scope') is not None
+                or status == 'HELD_BAR_VALUE')
+                and 1 <= len(last_held) <= capture.GROUP_SIZE
+                and not collected and not absent
+                and examined[-len(last_held):] == held[-len(last_held):] == last_held
+                and type(refs) is list and len(refs) == 1, 'CHECKPOINT_PATH_GROUP')
+        count = len(last_held)
+        prefix = (examined[:-count], done, held[:-count])
+    # Sibling references are metadata only. Their raw/normalized/marker payloads
+    # are not read or claimed verified by this selected-path operation.
+    require(all(type(ref) is dict and type(ref.get('bytes')) is int
+                and 0 < ref['bytes'] <= MAX_REFERENCE_BYTES
+                and type(ref.get('sha256')) is str and HASH.fullmatch(ref['sha256'])
+                for ref in refs), 'CHECKPOINT_PATH_OBJECTS')
+    return prefix
+
+
+def _selected_checkpoint(evidence, meter, final, receipt, proof):
+    final_ref = evidence['original_checkpoint']
+    path = evidence.get('original_checkpoint_path')
+    if path is None:
+        return final, dict(kind='FINAL_GROUP', final_checkpoint_sha256=final_ref['sha256'],
+                           selected_checkpoint_sha256=final_ref['sha256'],
+                           checkpoint_sha256=[final_ref['sha256']], unselected_price_reads=0)
+    require(type(path) is list and 1 <= len(path) < MAX_PROOFS, 'CHECKPOINT_PATH_BOUND')
+    before, after = meter.get('examined_before'), meter.get('examined_after')
+    require(type(before) is int and type(after) is int and 0 <= before < after <= 1500
+            and after - before <= 32
+            and meter.get('cohort_scope') == receipt.get('cohort_scope'),
+            'CHECKPOINT_RUN_BOUND')
+    parent_hash = _hash(meter.get('parent_checkpoint_sha256'))
+    scope = receipt.get('cohort_scope')
+    if scope is not None:
+        try:
+            capture.external_scope(scope)
+        except ValueError:
+            raise BindingError('CHECKPOINT_PATH_CONTEXT') from None
+        require(scope['input_sha256'] == receipt['seed_sha256'], 'CHECKPOINT_PATH_CONTEXT')
+    parent_ref = evidence.get('original_parent_checkpoint')
+    if before == 0:
+        require(parent_ref is None and scope is not None
+                and receipt['start'] == '2016-01-04' and receipt['end'] == '2026-10-14',
+                'CHECKPOINT_PARENT_BOUND')
+        try:
+            require(external_genesis(capture, scope) == parent_hash, 'CHECKPOINT_PARENT_BOUND')
+        except ValueError:
+            raise BindingError('CHECKPOINT_PARENT_BOUND') from None
+    else:
+        _checkpoint_reference(parent_ref)
+        require(parent_ref['sha256'] == parent_hash, 'CHECKPOINT_PARENT_BOUND')
+        parent_state = _decode(proof(parent_ref), 1024 * 1024)
+        _checkpoint_prefix(parent_state, receipt)
+        require(len(parent_state['examined']) == before
+                and final.get('examined', [])[:before] == parent_state['examined']
+                and [s for s in final.get('completed', []) if s in set(parent_state['examined'])]
+                    == parent_state['completed']
+                and [s for s in final.get('held', []) if s in set(parent_state['examined'])]
+                    == parent_state['held'], 'CHECKPOINT_PARENT_BOUND')
+    ids = set()
+    if 'file_id' in final_ref:
+        _checkpoint_reference(final_ref)
+        ids.add(final_ref['file_id'])
+    parent_id = parent_ref['file_id'] if before else None
+    require(parent_id not in ids, 'CHECKPOINT_PARENT_BOUND')
+    current, hashes = final, [final_ref['sha256']]
+    prefix = _checkpoint_prefix(current, receipt)
+    require(len(current['examined']) == after, 'CHECKPOINT_RUN_BOUND')
+    for ref in path:
+        _checkpoint_reference(ref)
+        require(ref['file_id'] != parent_id, 'CHECKPOINT_PARENT_BOUND')
+        require(ref['sha256'] not in hashes and ref['file_id'] not in ids,
+                'CHECKPOINT_PATH_CYCLE')
+        require(len(prefix[0]) > before and current.get('previous_checkpoint') == ref,
+                'CHECKPOINT_PATH_LINK')
+        current = _decode(proof(ref), 1024 * 1024)
+        next_prefix = _checkpoint_prefix(current, receipt)
+        require((current['examined'], current['completed'], current['held']) == prefix,
+                'CHECKPOINT_PATH_PREFIX')
+        hashes.append(ref['sha256']); ids.add(ref['file_id'])
+        prefix = next_prefix
+    require(len(prefix[0]) >= before, 'CHECKPOINT_RUN_BOUND')
+    previous = current.get('previous_checkpoint')
+    if previous is None:
+        # The existing external controller uses a logical genesis, not a stored
+        # empty checkpoint. Reuse that pure helper; never invent a Drive object.
+        require(before == len(prefix[0]) == 0 and scope is not None
+                and receipt['start'] == '2016-01-04' and receipt['end'] == '2026-10-14',
+                'CHECKPOINT_PARENT_BOUND')
+    else:
+        _checkpoint_reference(previous)
+        require(previous['sha256'] not in hashes and previous['file_id'] not in ids
+                and ((previous == parent_ref) if len(prefix[0]) == before
+                     else (previous['sha256'] != parent_hash
+                           and previous['file_id'] != parent_id)), 'CHECKPOINT_PARENT_BOUND')
+    require(current.get('last_collected') == receipt.get('collected')
+            and current.get('last_no_bars') == receipt.get('no_bars')
+            and current.get('last_held') == []
+            and current['examined'][-len(receipt['symbols']):] == receipt['symbols'],
+            'ORIGINAL_CHECKPOINT_BINDING')
+    return current, dict(kind='BOUNDED_ANCESTOR', final_checkpoint_sha256=hashes[0],
+                         selected_checkpoint_sha256=hashes[-1], checkpoint_sha256=hashes,
+                         examined_before=before, examined_after=after,
+                         parent_checkpoint_sha256=parent_hash, unselected_price_reads=0)
+
+
 def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_objects):
     require(type(trusted) is TrustedSourceBinding, 'TRUSTED_SOURCE_BINDING_REQUIRED')
     require(type(trusted.review_reference) is str and len(trusted.review_reference) <= 200
@@ -208,6 +358,7 @@ def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_o
             and meter['bindings'].get('credential_binding') == trusted.credential_binding
             and meter.get('checkpoint_sha256') == evidence['original_checkpoint']['sha256'],
             'ORIGINAL_EXECUTION_BINDING')
+    checkpoint, lineage = _selected_checkpoint(evidence, meter, checkpoint, receipt, proof)
     require(type(checkpoint) is dict and checkpoint.get('schema') == capture.SCHEMA
             and checkpoint.get('state') == 'PRIVATE_RESEARCH_ONLY'
             and checkpoint.get('source') == capture.SOURCE
@@ -245,7 +396,7 @@ def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_o
     require(type(event) is dict, 'FIRST_OBSERVED_BINDING')
     proof(event.get('evidence_ref'))
     require(used == set(objects), 'UNREFERENCED_REVIEWED_PROOF')
-    return rights
+    return rights, lineage
 
 
 def prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
@@ -303,8 +454,8 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     original = dict(raw_sha256=digest(raw_zip), normalized_sha256=digest(normalized_gzip),
                     capture_receipt_sha256=digest(capture_receipt))
     real = classification == 'REAL_SOURCE'
-    rights = (_real_evidence(evidence, evidence_bytes, receipt, original, trusted_source,
-                             proof_objects) if real else None)
+    rights, lineage = (_real_evidence(evidence, evidence_bytes, receipt, original, trusted_source,
+                                     proof_objects) if real else (None, None))
     event = evidence.get('first_observed_readback')
     require(type(event) is dict and event.get('kind') == 'FIRST_OBSERVED_COMPLETE_READBACK'
             and event.get('objects') == original, 'FIRST_OBSERVED_BINDING')
@@ -431,6 +582,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             schema=('a1-reader-derivation-v1' if real else 'a1-reader-derivation-contract-fixture-v1'),
             fixture_only=not real,
             original_objects=original, original_run_id=evidence['original_run_id'],
+            original_checkpoint_lineage=lineage,
             original_source_sha=receipt['source_sha'], original_seed_sha256=receipt['seed_sha256'],
             original_no_data_symbols=receipt['no_bars'],
             derivation_run_id=evidence['derivation_run_id'],

@@ -120,10 +120,10 @@ The branch validates these mutually bound existing inputs:
   Receipt scope stays private research with original identity/PIT/admission false.
 - A finalized successful non-preflight `a1-sip-campaign-meter-v1`, its exact
   run/attempt/source/account binding and final checkpoint hash. The corresponding
-  original `alpaca-private-sip-history-v1` checkpoint must bind this selected last
-  raw/split group and capture receipt. This first adapter supports that exact final
-  group; older ancestor groups need their already verified lineage separately,
-  never an inferred current checkpoint or fabricated execution record.
+  original `alpaca-private-sip-history-v1` checkpoint binds either this selected
+  final raw/split group or a bounded exact-hash metadata path to its selected
+  ancestor group. The final anchor belongs to the original run, never a later
+  cumulative campaign checkpoint or a fabricated execution record.
 - Existing `a1-reviewed-account-rights-v1`, matching the original meter's existing
   credential binding, Alpaca historical SIP/private noncommercial retention scope
   and exact source-document bytes. An explicit reviewed capture scope binds the
@@ -160,3 +160,49 @@ That is an evidence dependency for real execution, not a reason to stop code
 implementation or to repeat the820/174-symbol capture audit. Rights/clock/window
 proof is reused from its exact source when available; green synthetic tests do
 not manufacture it.
+
+## Bounded original-run ancestor groups
+
+Omitting `original_checkpoint_path` retains the existing final-group contract.
+For an ancestor, supply that reviewed list of exact `{file_id, sha256, bytes}`
+checkpoint references, in order from the original final checkpoint's previous
+link through the selected group. Every byte object remains in the same reviewed
+proof tuple; no I/O, discovery, fallback or new trust construction is performed.
+
+The finalized original meter must bind the same account/run/attempt/source and
+cohort, a strict integer `examined_before/after` range of at most32 additions,
+the final checkpoint hash and its original parent hash. Intermediate checkpoints
+must preserve source/seed/cohort/window and all private/unadmitted flags, exact
+examined/completed/held prefixes and per-group suffixes. Wrong links, missing
+nodes, duplicate hashes/IDs, cycles, shortcuts, cross-run boundaries and partition
+changes refuse. Selected collected/no-data/held state and original trio must
+match the supplied capture receipt; held/no-data cannot become priced rows.
+The original parent ID cannot alias a final/path ID or an unread intermediate
+previous reference with different bytes. An exact selected previous==parent at
+the original run boundary remains valid.
+
+When `examined_before > 0`, `original_parent_checkpoint` is an additional exact
+reviewed proof, matching the original meter parent, count and final prefix. This
+first bounded contract requires its original source pin to match the selected
+run; a source-revision bridge is not inferred. For an initial external cohort,
+there is no stored empty parent: reuse the existing pure `external_genesis`
+helper and its frozen2016-01-04/2026-10-14 contract. Do not invent an empty Drive
+checkpoint. Stop at the selected group; never restore the full campaign.
+
+`MAX_PROOFS=32`, each proof at most4MiB and all proofs at most16MiB remain
+unchanged. Path/parent metadata use those existing slots. Their decode is bounded
+to1MiB each. Only the selected ZIP/normalized/capture receipt use the original
+archive verifier. No sibling raw/normalized/held-marker payload is read or claimed
+freshly verified. Sibling held/no-data handling here is metadata membership only.
+Do not call `resume_state`, `settle_run` or dispatch to validate this path.
+
+Derivation provenance retains final/selected/path hashes, original run bounds,
+parent anchor and zero unselected price reads. This adds lineage support, not
+rights, identity, CA, public clocks, publication, a real consumer ACK or admission.
+All positive unit trust/terms/price bytes remain explicit synthetic fixtures.
+
+Existing metadata inspection located MU and NVDA as5/7-link ancestors of their
+own run39083896869 final checkpoint; it did not re-download price bytes. AAPL's
+initial16 chain has no original finalized execution binding in that packet, and
+SPY's declared cache differs from the located historical Parquet. This extension
+does not manufacture those missing edges or admit that fixed cohort.
