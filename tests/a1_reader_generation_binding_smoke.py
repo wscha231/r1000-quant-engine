@@ -716,7 +716,8 @@ class BindingTest(unittest.TestCase):
     def test_ancestor_cycle_or_orphan_or_omitted_node_refuses(self):
         state = ancestor_fixture(); state[3]['original_checkpoint_path'] *= 2
         self.assert_real_blocked(state, 'CHECKPOINT_PATH_CYCLE', repin=True)
-        state = ancestor_fixture(); state[3]['original_checkpoint_path'][0] = state[3]['original_parent_checkpoint']
+        state = ancestor_fixture(); state[3]['original_checkpoint_path'][0] = dict(
+            state[3]['original_parent_checkpoint'], file_id='synthetic_orphan_checkpoint')
         self.assert_real_blocked(state, 'CHECKPOINT_PATH_LINK', repin=True)
         state = ancestor_fixture(held_sibling=True); state[3]['original_checkpoint_path'].pop(0)
         self.assert_real_blocked(state, 'CHECKPOINT_PATH_LINK', repin=True)

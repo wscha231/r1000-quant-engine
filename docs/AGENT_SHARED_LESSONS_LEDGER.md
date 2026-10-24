@@ -7695,3 +7695,8 @@ final/path IDs. Hash/count checks alone did not reject one immutable ID claiming
 two bodies when the selected group followed an earlier unvisited group. Keep
 parent-ID alias checks separate from path-cycle checks so a legitimate exact
 selected-previous==parent boundary is still accepted; cover all three alias forms.
+
+The first registered203 run correctly blocked an older orphan fixture earlier at
+the new parent-ID guard. Preserve that failed receipt and give the orphan its own
+distinct ID to test the intended missing-link boundary, rather than accepting
+multiple rejection codes or weakening either production guard.
