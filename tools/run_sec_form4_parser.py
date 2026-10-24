@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import re
 import sys
 import time
@@ -23,6 +25,7 @@ from tools.run_sec_submissions_collector import (  # noqa: E402
     filing_archive_url,
     repo_path,
     sec_headers,
+    atomic_json, content_hash, file_hash, utc_now,
 )
 
 DEFAULT_INDEX = "data_pit/sec/sec_filings_index.parquet"
@@ -54,6 +57,11 @@ FORM4_COLUMNS = [
     "security_title",
     "accession_number",
     "filing_url",
+    "form_type", "row_kind", "transaction_id", "document_sha256",
+    "reporting_owners_json", "reporting_owner_count", "footnotes_json", "footnote_ids_json",
+    "raw_row_xml", "original_submission_date", "underlying_security_title",
+    "underlying_security_shares", "conversion_or_exercise_price", "exercise_date", "expiration_date",
+    "market_execution_verified", "parser_schema_version", "owner_attribution_status",
 ]
 
 
@@ -95,7 +103,7 @@ def as_float(value: Any) -> float | None:
             return None
         text = str(value).replace(",", "").strip()
         out = float(text)
-        return out
+        return out if math.isfinite(out) else None
     except Exception:
         return None
 
@@ -105,7 +113,7 @@ def as_bool(value: Any) -> bool:
 
 
 def parse_owner(root: ET.Element) -> dict[str, Any]:
-    owner = first(root, "reportingOwner")
+    owner = root if local_name(root.tag) == "reportingOwner" else first(root, "reportingOwner")
     rel = first(owner, "reportingOwnerRelationship") if owner is not None else None
     return {
         "reporting_owner_cik": cik10(first_text(owner, "rptOwnerCik")),
@@ -118,18 +126,42 @@ def parse_owner(root: ET.Element) -> dict[str, Any]:
 
 
 def parse_form4_xml(xml_text: str, accession_number: str = "", filing: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Return normalized non-derivative Form 4 transaction rows."""
+    """Preserve Form 3 holdings and Form 4/5 transactions, owners and raw notes.
+
+    One table row remains one row: joint owners are retained as a JSON array so
+    the same economic trade is not multiplied by its owner count. Code P alone
+    establishes a purchase code, not an independently verified trading venue.
+    """
     filing = filing or {}
     root = ET.fromstring(xml_text.encode("utf-8") if isinstance(xml_text, str) else xml_text)
     issuer_ticker = first_text(root, "issuerTradingSymbol").upper()
     issuer_cik = cik10(first_text(root, "issuerCik"))
+    expected_cik = cik10(filing.get("cik10"))
+    if expected_cik and expected_cik != issuer_cik:
+        raise ValueError("OWNERSHIP_ISSUER_CIK_CONFLICT")
+    expected_ticker = str(filing.get("ticker") or "").upper().strip()
+    if expected_ticker and expected_ticker != issuer_ticker:
+        raise ValueError("OWNERSHIP_ISSUER_SYMBOL_CONFLICT")
     owner = parse_owner(root)
+    owners = [parse_owner(node) for node in nodes(root, "reportingOwner")]
+    owner_status = "UNAMBIGUOUS" if len(owners) == 1 else "AMBIGUOUS" if owners else "MISSING"
+    if len(owners) != 1:
+        owner = {key: (None if key.startswith("is_") else "") for key in owner}
     accession = accession_number or str(filing.get("accession_number") or "")
+    form = first_text(root, "documentType") or str(filing.get("form_type") or "4")
+    if form not in {"3", "3/A", "4", "4/A", "5", "5/A"}:
+        raise ValueError("UNSUPPORTED_OWNERSHIP_FORM")
+    if filing.get("form_type") and filing["form_type"] != form:
+        raise ValueError("OWNERSHIP_FORM_CONFLICT")
+    raw = xml_text.encode("utf-8") if isinstance(xml_text, str) else xml_text
+    document_hash = hashlib.sha256(raw).hexdigest()
+    notes = {n.attrib.get("id", ""): " ".join(n.itertext()).strip() for n in nodes(root, "footnote")}
 
     rows: list[dict[str, Any]] = []
-    for tx in nodes(root, "nonDerivativeTransaction"):
-        shares = as_float(first_value(tx, "transactionShares")) or 0.0
-        price = as_float(first_value(tx, "transactionPricePerShare")) or 0.0
+    entries = [(tag, ordinal, node) for tag in ("nonDerivativeTransaction", "derivativeTransaction", "nonDerivativeHolding", "derivativeHolding") for ordinal, node in enumerate(nodes(root, tag))]
+    for tag, ordinal, tx in entries:
+        shares = as_float(first_value(tx, "transactionShares"))
+        price = as_float(first_value(tx, "transactionPricePerShare"))
         owned_after = as_float(first_value(tx, "sharesOwnedFollowingTransaction"))
         row = {
             "issuer_ticker": issuer_ticker,
@@ -140,16 +172,30 @@ def parse_form4_xml(xml_text: str, accession_number: str = "", filing: dict[str,
             "accepted_at": str(filing.get("accepted_at") or ""),
             "available_from": str(filing.get("available_from") or filing.get("accepted_at") or ""),
             "transaction_code": first_text(tx, "transactionCode").upper(),
-            "transaction_shares": float(shares),
-            "transaction_price": float(price),
-            "transaction_value": float(shares * price),
+            "transaction_shares": shares,
+            "transaction_price": price,
+            "transaction_value": shares * price if tag == "nonDerivativeTransaction" and shares is not None and price is not None else None,
             "ownership_nature": first_text(tx, "natureOfOwnership"),
             "direct_or_indirect": first_value(tx, "directOrIndirectOwnership"),
             "shares_owned_after": owned_after,
-            "is_derivative": False,
+            "is_derivative": tag.startswith("derivative"),
             "security_title": first_value(tx, "securityTitle"),
             "accession_number": accession,
             "filing_url": str(filing.get("filing_url") or ""),
+            "form_type": form, "row_kind": "HOLDING" if tag.endswith("Holding") else "TRANSACTION",
+            "transaction_id": f"{tag}:{ordinal}", "document_sha256": document_hash,
+            "reporting_owners_json": json.dumps(owners, sort_keys=True, separators=(",", ":")),
+            "reporting_owner_count": len(owners),
+            "owner_attribution_status": owner_status,
+            "footnotes_json": json.dumps(notes, sort_keys=True, separators=(",", ":")),
+            "footnote_ids_json": json.dumps(sorted({n.attrib["id"] for n in tx.iter() if local_name(n.tag) == "footnoteId" and "id" in n.attrib})),
+            "raw_row_xml": ET.tostring(tx, encoding="unicode"),
+            "original_submission_date": first_text(root, "dateOfOriginalSubmission"),
+            "underlying_security_title": first_value(tx, "underlyingSecurityTitle"),
+            "underlying_security_shares": as_float(first_value(tx, "underlyingSecurityShares")),
+            "conversion_or_exercise_price": as_float(first_value(tx, "conversionOrExercisePrice")),
+            "exercise_date": first_value(tx, "exerciseDate"), "expiration_date": first_value(tx, "expirationDate"),
+            "market_execution_verified": None, "parser_schema_version": "sec-ownership-345-v2",
         }
         rows.append(row)
     return rows
@@ -243,8 +289,8 @@ def cache_form4_document(
                 errors.append(f"{url}: {exc}")
         if not text:
             raise RuntimeError("; ".join(errors)[:500] or "no Form 4 document URL candidates")
-        cache.write_text(text, encoding="utf-8")
-    return cache, cache.read_text(encoding="utf-8")
+        cache.write_bytes(text.encode("utf-8"))
+    return cache, cache.read_bytes().decode("utf-8")
 
 
 def parse_form4_index(
@@ -255,12 +301,37 @@ def parse_form4_index(
     refresh: bool = False,
     sleep_s: float = 0.12,
     max_filings: int = 0,
+    completed: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     if index.empty:
-        return pd.DataFrame(columns=FORM4_COLUMNS)
+        result = pd.DataFrame(columns=FORM4_COLUMNS)
+        result.attrs["parse_receipt"] = {
+            "schema_version": "sec-ownership-parser-receipt-v2",
+            "completed": dict(completed or {}), "pending_before": 0,
+            "selected_filings": 0, "backlog_filings": 0,
+            "selected_issuer_count": 0, "parse_error_rows": 0,
+        }
+        return result
     d = index.copy()
     d["form_type"] = d.get("form_type", "").astype(str).str.upper().str.strip()
-    d = d[d["form_type"].isin({"4", "4/A"})].copy()
+    d = d[d["form_type"].isin({"3", "3/A", "4", "4/A", "5", "5/A"})].copy()
+    d["_key"] = d.apply(lambda r: ":".join([cik10(r.get("cik10")), str(r.get("accession_number", "")), str(r.get("form_type", ""))]), axis=1)
+    d = d.drop_duplicates("_key", keep="last")
+    # Same accession can have corrected SEC metadata on a later source check.
+    # Reuse immutable XML, but never retain parsed rows carrying obsolete clocks.
+    parser_sha = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    identity_fields = ("cik10", "ticker", "accession_number", "form_type", "accepted_at", "available_from", "primary_document")
+    identities = {str(r["_key"]): dict(parser_sha256=parser_sha,
+        filing={k: str(r.get(k) or "") for k in identity_fields}) for r in d.to_dict("records")}
+    done = {k: v for k, v in dict(completed or {}).items()
+            if k in identities and v.get("source_identity") == identities[k]}
+    d = d[~d["_key"].isin(done)]
+    d["_accepted"] = pd.to_datetime(d["accepted_at"], utc=True, errors="coerce")
+    d = d.sort_values(["_accepted", "_key"], ascending=[False, True], kind="stable")
+    # One newest filing per issuer before a second filing from any issuer.
+    d["_issuer_round"] = d.groupby("cik10").cumcount()
+    d = d.sort_values(["_issuer_round", "_accepted", "_key"], ascending=[True, False, True], kind="stable")
+    pending = len(d)
     if max_filings and max_filings > 0:
         d = d.head(int(max_filings)).copy()
 
@@ -276,8 +347,12 @@ def parse_form4_index(
                 sleep_s=sleep_s,
             )
             if not xml_text:
-                continue
-            rows.extend(parse_form4_xml(xml_text, str(filing.get("accession_number") or ""), filing))
+                raise ValueError("OWNERSHIP_XML_UNAVAILABLE")
+            parsed = parse_form4_xml(xml_text, str(filing.get("accession_number") or ""), filing)
+            rows.extend(parsed)
+            done[str(filing["_key"])] = {"status": "PARSED" if parsed else "PARSED_EMPTY", "row_count": len(parsed),
+                "document_sha256": hashlib.sha256(xml_text.encode()).hexdigest(), "parsed_at": utc_now(),
+                "source_identity": identities[str(filing["_key"])]}
         except Exception as exc:
             rows.append(
                 {
@@ -289,17 +364,25 @@ def parse_form4_index(
                     "available_from": str(filing.get("available_from") or ""),
                     "accession_number": str(filing.get("accession_number") or ""),
                     "filing_url": str(filing.get("filing_url") or ""),
-                    "transaction_code": "PARSE_ERROR",
+                    "transaction_code": "PARSE_ERROR", "form_type": filing.get("form_type", ""),
+                    "parser_schema_version": "sec-ownership-345-v2",
                     "ownership_nature": str(exc)[:240],
+                    "transaction_shares": None, "transaction_price": None,
+                    "transaction_value": None, "shares_owned_after": None,
                 }
             )
-    out = pd.DataFrame(rows)
+    out = pd.DataFrame(rows, columns=FORM4_COLUMNS)
     for col in FORM4_COLUMNS:
         if col not in out.columns:
-            out[col] = "" if col not in {"transaction_shares", "transaction_price", "transaction_value", "shares_owned_after"} else 0.0
+            out[col] = "" if col not in {"transaction_shares", "transaction_price", "transaction_value", "shares_owned_after"} else None
     out["issuer_cik10"] = out["issuer_cik10"].map(cik10)
     out["reporting_owner_cik"] = out["reporting_owner_cik"].map(cik10)
-    return out[FORM4_COLUMNS].copy()
+    result = out[FORM4_COLUMNS].copy()
+    result.attrs["parse_receipt"] = {"schema_version": "sec-ownership-parser-receipt-v2", "completed": done,
+        "attempted_keys": d["_key"].tolist(),
+        "pending_before": pending, "selected_filings": len(d), "backlog_filings": pending - len(d),
+        "selected_issuer_count": int(d["cik10"].nunique()), "parse_error_rows": int(result["transaction_code"].eq("PARSE_ERROR").sum())}
+    return result
 
 
 def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
@@ -309,6 +392,7 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
     frame.to_parquet(parquet_path, index=False)
     frame.to_csv(csv_path, index=False)
     summary = {
+        **frame.attrs.get("parse_receipt", {}),
         "row_count": int(len(frame)),
         "issuer_count": int(frame["issuer_ticker"].nunique()) if "issuer_ticker" in frame else 0,
         "open_market_purchase_rows": int(frame["transaction_code"].astype(str).str.upper().eq("P").sum())
@@ -316,10 +400,26 @@ def write_outputs(frame: pd.DataFrame, output_dir: Path) -> dict[str, str]:
         else 0,
         "parquet": str(parquet_path),
         "csv": str(csv_path),
+        "output_sha256": {"parquet": file_hash(parquet_path), "csv": file_hash(csv_path)},
+        "p_code_semantics": "PURCHASE_CODE_ONLY_MARKET_VENUE_UNVERIFIED",
     }
     summary_path = output_dir / "form4_transactions_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    atomic_json(summary_path, summary)
     return {"parquet": str(parquet_path), "csv": str(csv_path), "summary": str(summary_path)}
+
+
+def replace_reparsed_rows(prior: pd.DataFrame, current: pd.DataFrame, receipt: dict) -> pd.DataFrame:
+    """A reparse replaces an accession, even when it now has fewer/zero rows."""
+    if not prior.empty:
+        prior = prior[~prior["transaction_code"].eq("PARSE_ERROR")]
+        attempted = set(receipt.get("attempted_keys", []))
+        keys = prior.apply(lambda r: ":".join([cik10(r.get("issuer_cik10")),
+            str(r.get("accession_number", "")), str(r.get("form_type", ""))]), axis=1)
+        prior = prior[~keys.isin(attempted)]
+        current = pd.concat([prior, current], ignore_index=True)
+        current = current.drop_duplicates(["accession_number", "issuer_cik10", "form_type", "transaction_id"], keep="last")
+    current.attrs["parse_receipt"] = receipt
+    return current
 
 
 def main() -> int:
@@ -331,9 +431,21 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--max-filings", type=int, default=0)
+    parser.add_argument("--resume-existing", action="store_true")
     args = parser.parse_args()
 
     index = read_filings_index(repo_path(args.filings_index))
+    output = repo_path(args.output_dir)
+    prior = pd.DataFrame()
+    completed: dict[str, Any] = {}
+    manifest = output / "form4_transactions_summary.json"
+    if args.resume_existing and manifest.exists() and (output / "form4_transactions.parquet").exists():
+        previous = json.loads(manifest.read_text())
+        if previous.get("schema_version") == "sec-ownership-parser-receipt-v2":
+            if previous.get("output_sha256", {}).get("parquet") != file_hash(output / "form4_transactions.parquet"):
+                raise ValueError("OWNERSHIP_RESUME_HASH_CONFLICT")
+            prior = pd.read_parquet(output / "form4_transactions.parquet")
+            completed = previous.get("completed", {})
     frame = parse_form4_index(
         index,
         raw_dir=repo_path(args.raw_dir),
@@ -341,7 +453,10 @@ def main() -> int:
         refresh=bool(args.refresh),
         sleep_s=float(args.sleep),
         max_filings=int(args.max_filings),
+        completed=completed,
     )
+    receipt = frame.attrs.get("parse_receipt", {})
+    frame = replace_reparsed_rows(prior, frame, receipt)
     paths = write_outputs(frame, repo_path(args.output_dir))
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))
     return 0

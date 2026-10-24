@@ -189,14 +189,16 @@ def load_manual_overrides(path: Path) -> pd.DataFrame:
     if not cusip_col or not ticker_col:
         return pd.DataFrame(columns=["cusip", "ticker", "issuer_name", "issuer_key", "source", "confidence"])
     out = d.copy()
-    out["cusip"] = out[cusip_col].map(normalize_cusip)
-    out["ticker"] = out[ticker_col].astype(str).str.upper().str.strip()
+    out["cusip"] = out[cusip_col].fillna("").map(normalize_cusip)
+    out["ticker"] = out[ticker_col].fillna("").astype(str).str.upper().str.strip()
     name_col = cols.get("issuer_name") or cols.get("name") or cols.get("title")
     out["issuer_name"] = out[name_col].astype(str) if name_col else ""
     out["issuer_key"] = out["issuer_name"].map(issuer_name_key)
     out["source"] = "manual_override"
     out["confidence"] = 1.0
     out = out[out["cusip"].ne("") & out["ticker"].ne("")].copy()
+    if out.groupby("cusip")["ticker"].nunique().gt(1).any():
+        raise ValueError("13F_CUSIP_MAPPING_CONFLICT")
     return out[["cusip", "ticker", "issuer_name", "issuer_key", "source", "confidence"]].drop_duplicates("cusip", keep="first")
 
 
@@ -208,23 +210,29 @@ def build_cusip_map(
     seed_files: list[str],
     user_agent: str,
     refresh_company_tickers: bool,
+    exact_cusip_only: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
     if holdings.empty:
         empty = pd.DataFrame(columns=["cusip", "ticker", "issuer_name", "issuer_key", "source", "confidence"])
-        return empty, empty, {"holding_rows": 0, "unique_cusips": 0, "mapped_unique_cusips": 0}
+        return empty, empty, {"holding_rows": 0, "unique_cusips": 0, "mapped_unique_cusips": 0,
+                              "research_only": True, "production_activation_allowed": False,
+                              "score_total_changed": False, "historical_identity_verified": False,
+                              "mapping_policy": "EXPLICIT_CUSIP_ONLY" if exact_cusip_only else "LEGACY_ISSUER_NAME_RESEARCH"}
 
     d = holdings.copy()
     if "cusip" not in d.columns:
         d["cusip"] = ""
     if "issuer_name" not in d.columns:
         d["issuer_name"] = ""
-    d["cusip"] = d["cusip"].map(normalize_cusip)
+    d["cusip"] = d["cusip"].fillna("").map(normalize_cusip)
     d["issuer_name"] = d["issuer_name"].astype(str).str.strip()
     d["issuer_key"] = d["issuer_name"].map(issuer_name_key)
     d = d[d["cusip"].ne("")].copy()
 
     manual = load_manual_overrides(manual_overrides)
-    source_maps = [
+    # Issuer CIK/name identifies an issuer, not its share class or CUSIP.
+    # Exact mode uses only the existing explicit CUSIP overrides and does no I/O.
+    source_maps = [] if exact_cusip_only else [
         load_company_ticker_name_map(raw_dir, user_agent=user_agent, refresh=refresh_company_tickers),
         load_seed_maps(seed_files),
     ]
@@ -289,6 +297,8 @@ def build_cusip_map(
         "research_only": True,
         "production_activation_allowed": False,
         "score_total_changed": False,
+        "mapping_policy": "EXPLICIT_CUSIP_ONLY" if exact_cusip_only else "LEGACY_ISSUER_NAME_RESEARCH",
+        "historical_identity_verified": False,
         "holding_rows": int(len(holdings)),
         "unique_cusips": total_unique,
         "mapped_unique_cusips": mapped_unique,
@@ -314,6 +324,8 @@ def main() -> int:
     parser.add_argument("--unmapped", default=DEFAULT_UNMAPPED)
     parser.add_argument("--user-agent", default="")
     parser.add_argument("--refresh-company-tickers", action="store_true")
+    parser.add_argument("--exact-cusip-only", action="store_true",
+                        help="Use explicit CUSIP overrides only; do not fetch or infer from issuer names or seeds.")
     args = parser.parse_args()
 
     seed_files = list(args.seed_file or []) or list(DEFAULT_SEED_FILES)
@@ -324,6 +336,7 @@ def main() -> int:
         seed_files=seed_files,
         user_agent=args.user_agent,
         refresh_company_tickers=bool(args.refresh_company_tickers),
+        exact_cusip_only=bool(args.exact_cusip_only),
     )
 
     output = repo_path(args.output)
