@@ -24,6 +24,10 @@
   That compatibility does not authenticate actual Source evidence. The strict
   real branch can be tested with injected synthetic trust; report that separately
   from an actual prepared/published generation or account-rights approval.
+- Preserve the distinct supplier and research clocks, but constrain the Reader's
+  effective expiry by both; a provenance-only rights expiry does not guard later
+  reads. Untrusted DEFLATE corruption can raise zlib.error before evidence checks,
+  so translate decoder errors into finite refusal at both verification layers.
 
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 

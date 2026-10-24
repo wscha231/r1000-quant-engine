@@ -149,6 +149,9 @@ RAW and SPLIT remain separate PIT_PROXY research/discovery generations under
 the unchanged Reader gates. Actual historical-PIT/training/backtest use remains
 blocked. A supplied supplier expiry is checked separately; absent expiry stays
 unknown and is not replaced by the declared research freshness review window.
+The Reader-facing expiry is the earlier applicable deadline, preserving both
+original clocks separately in provenance so later reads cannot outlive rights.
+Corrupt gzip/DEFLATE data is a finite refusal with no partial prepared bases.
 Immutable publication/readback and real consumer ACK are later authorized
 existing-Source operations. This patch performs none of them.
 

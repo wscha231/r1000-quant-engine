@@ -556,6 +556,39 @@ class BindingTest(unittest.TestCase):
         self.replace_real_proof(state,'owner_rights',lambda d:d.update(supplier_expiry='2026-10-24T08:59:59Z'))
         self.assert_real_blocked(state,'SUPPLIER_RIGHTS_EXPIRED',repin=True)
 
+    def test_real_reader_reuse_cannot_outlive_supplied_supplier_expiry(self):
+        state=real_fixture()
+        expiry='2026-10-24T10:00:00Z'
+        self.replace_real_proof(state,'owner_rights',lambda d:d.update(supplier_expiry=expiry))
+        prepared=self.prepare_real(state,repin=True)
+        self.assertEqual(prepared.status,'REAL_SOURCE_PREPARED_UNADMITTED')
+        for basis in prepared.bases:
+            source=json.loads(basis.manifest)['datasets'][0]['source']
+            provenance=json.loads(basis.provenance)
+            self.assertEqual(source['expires_at'],expiry)
+            self.assertEqual(provenance['supplier_rights_expiry'],expiry)
+            self.assertEqual(provenance['research_fresh_until'],state[3]['research_fresh_until'])
+            self.assertEqual(provenance['effective_reader_expires_at'],expiry)
+            transport,_,_=fixture_transport(basis)
+            reader=ResearchDataReader(transport)
+            options=dict(purpose='research',instrument_ids=['US.TEST.AAPL'],
+                required_start=SESSIONS[0],required_end=SESSIONS[-1],minimum_rows=2,
+                consumer_id='SYNTHETIC_TEST_EXPIRY')
+            self.assertEqual(len(reader.read('ds.us.prices.daily',basis.generation_id,
+                decision_time=DECISION,**options).rows),2)
+            with self.assertRaisesRegex(ContractError,'^STALE_GENERATION$'):
+                reader.read('ds.us.prices.daily',basis.generation_id,
+                    decision_time='2026-10-24T11:00:00Z',**options)
+
+    def test_real_corrupt_deflate_returns_blocked_without_partial_bases(self):
+        state=list(real_fixture())
+        # Valid gzip header, reserved DEFLATE block type, synthetic footer.
+        state[1]=b'\x1f\x8b\x08\x00'+b'\x00'*6+b'\x07'+b'\x00'*8
+        receipt=json.loads(state[2])
+        receipt['normalized_object'].update(sha256=digest(state[1]),bytes=len(state[1]))
+        state[2]=encoded(receipt)
+        self.assert_real_blocked(state,'ORIGINAL_CAPTURE_VERIFICATION')
+
     def test_real_ca_numeric_and_lifecycle_checks_remain_mandatory(self):
         state=real_fixture();state[3]['split_factors']['AAPL'][SESSIONS[0]]='1'
         self.assert_real_blocked(state,'SPLIT_FACTOR_RELATION',repin=True)

@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import re
 from types import MappingProxyType
+import zlib
 
 from tools import alpaca_sip_private_backfill_v1 as capture
 from tools.macro_history_sources import digest, encoded
@@ -297,7 +298,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 and ref.get('sha256') == digest(raw), 'CAPTURE_OBJECT_BINDING')
     try:
         capture.verify_archived_group(raw_zip, normalized_gzip, receipt)
-    except ValueError:
+    except (ValueError, OSError, EOFError, zlib.error):
         raise BindingError('ORIGINAL_CAPTURE_VERIFICATION') from None
     original = dict(raw_sha256=digest(raw_zip), normalized_sha256=digest(normalized_gzip),
                     capture_receipt_sha256=digest(capture_receipt))
@@ -312,8 +313,12 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     decision = _clock(decision_time)
     fresh_until = _clock(evidence.get('research_fresh_until'))
     require(observed <= created <= decision <= fresh_until, 'DECISION_WINDOW')
+    reader_expires_at = evidence['research_fresh_until']
     if real and rights.get('supplier_expiry') is not None:
-        require(decision <= _clock(rights['supplier_expiry']), 'SUPPLIER_RIGHTS_EXPIRED')
+        supplier_expiry = _clock(rights['supplier_expiry'])
+        require(decision <= supplier_expiry, 'SUPPLIER_RIGHTS_EXPIRED')
+        if supplier_expiry < fresh_until:
+            reader_expires_at = rights['supplier_expiry']
     require(evidence.get('original_public_available_at') is None
             and evidence.get('original_provider_collected_at') is None,
             'UNKNOWN_ORIGINAL_CLOCKS_ONLY')
@@ -338,7 +343,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     try:
         with gzip.GzipFile(fileobj=io.BytesIO(normalized_gzip)) as stream:
             decoded = stream.read(MAX_DECODED + 1)
-    except (OSError, EOFError, ValueError):
+    except (OSError, EOFError, ValueError, zlib.error):
         raise BindingError('NORMALIZED_FORMAT') from None
     require(len(decoded) <= MAX_DECODED, 'DECODED_BOUND')
     lines = decoded.splitlines()
@@ -439,6 +444,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             derived_objects=[sha for sha, _ in objects],
             research_fresh_until=evidence['research_fresh_until'],
             supplier_rights_expiry=(rights.get('supplier_expiry') if real else None),
+            effective_reader_expires_at=reader_expires_at,
             reviewed_evidence=(dict(review_reference=trusted_source.review_reference,
                 review_receipt_sha256=trusted_source.review_receipt_sha256,
                 proof_sha256=list(trusted_source.proof_sha256)) if real else None),
@@ -455,7 +461,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                       producer_config_sha256=digest(evidence_bytes),
                       source_receipt_sha256=digest(provenance),
                       raw_source_sha256=list(original.values()), available_from=event['at'],
-                      collected_at=event['at'], expires_at=evidence['research_fresh_until'])
+                      collected_at=event['at'], expires_at=reader_expires_at)
         manifest = encoded(dict(schema='research-data-generation-v1', eligible_for_selector=False,
                                 created_at=evidence['created_at'], source_run_id=evidence['derivation_run_id'],
                                 datasets=[dict(dataset_id='ds.us.prices.daily', schema='price-daily-v1',
