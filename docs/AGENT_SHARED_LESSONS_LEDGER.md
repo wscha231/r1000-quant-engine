@@ -7891,3 +7891,20 @@ date, including stored lineage on replay. Wrong-family refusal must preserve
 the committed Registry manifest while invalidating current-attempt success.
 Filesystem restoration, frozen-clock CLI and cross-form controls are synthetic
 regressions; they do not imply a fresh actual Source check or data admission.
+
+### 2026-10-24 - Current SEC intake must age Source checks against execution UTC
+
+Hosted review of SEC669 at `fc6852b9` found that a backdated decision revived
+four-day-expired empty and nonempty ownership generations. Independent A6
+reproduced CLI/API creation and replay in normal and optimized Python before
+repair. Retain decision-relative provenance/PIT validation and also evaluate
+the same immutable receipt against the captured actual execution UTC before
+any current request or replay. Reuse the existing exact 36-hour boundary:
+the check is stale at 36 hours, not only after it. Do not refresh original
+Source clocks or grant current storage through a historical caller switch.
+Historical hash readback remains separate and cannot promote a failed attempt.
+Fixed-date synthetic positives must declare an execution-clock fixture; preserve
+their original assertions and add counterexamples with actual time later than
+both Source and decision. This clock fixture is test-only and grants no actual
+data admission. Legacy custody pins must be read from their owning receipt,
+rather than assuming every later acquisition receipt copied all older fields.

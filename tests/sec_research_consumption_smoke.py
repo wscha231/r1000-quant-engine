@@ -85,7 +85,23 @@ def fixture_index(accession="0000000001-26-000001", form="4", **kw):
         accepted_at=ACCEPTED,available_from=ACCEPTED,filing_date="2026-10-21",primary_document="fixture.xml",**kw)
 
 
+def cli_attempt(pit, store, raw_dir, identities, accession, *, actual_at, decision_at=NOW):
+    args=["consumer","--pit-root",str(pit),"--output-dir",str(store),"--raw-dir",str(raw_dir),
+          "--identities",str(identities),"--accession",accession,"--decision-at",decision_at]
+    with patch.object(sys,"argv",args),patch.object(c,"actual_utc_now",return_value=actual_at),\
+            patch.object(sys,"stdout",io.StringIO()):
+        code=c.main()
+    return code,json.loads((store/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
+
+
 class ConsumptionTests(unittest.TestCase):
+    def setUp(self):
+        # Existing fixed-date synthetic fixtures need an explicit execution clock.
+        # Dedicated wall-clock regressions below override it with a later time.
+        clock=patch.object(c,"actual_utc_now",return_value=NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
+
     def consume(self, root, events=None, raws=None, receipt=None, **kw):
         if events is None:
             events, raws = filing()
@@ -317,6 +333,112 @@ class ConsumptionTests(unittest.TestCase):
                 self.assertEqual(attempt["created_requests"],[])
                 self.assertEqual(attempt["notification_intents_created"],0)
                 self.assertEqual(manifest.read_bytes(),before)
+
+    def test_backdated_cli_cannot_revive_expired_empty_or_nonempty(self):
+        expired=(c.bridge.stamp(CHECK)+timedelta(days=4)).isoformat()
+        for empty in (True,False):
+            with self.subTest(empty=empty),tempfile.TemporaryDirectory() as td:
+                root=Path(td);store=root/"research";accession="0000000001-26-000002"
+                self.consume(store)
+                manifest=store/"control_plane/candidate_registry/filing_requests.json"
+                before=manifest.read_bytes()
+                _,raws=filing(accession);raw=next(iter(raws.values()))
+                index=pd.DataFrame([fixture_index(accession)])
+                checks=None
+                if empty:
+                    index=index.iloc[:0]
+                    checks=[dict(ticker="TEST",cik10="0000000001",status="CHECKED_NO_NEW_FILINGS",
+                                 checked_at=CHECK,payload_sha256="a"*64)]
+                pit,_,_=checked_generation(root,index,{} if empty else {accession:raw},checks)
+                raw_dir=root/"cli_raw";raw_dir.mkdir()
+                (raw_dir/(accession.replace("-","")+"_fixture.xml")).write_bytes(raw)
+                identities=root/"identities.json";identities.write_bytes(SUBJECTS)
+                code,attempt=cli_attempt(pit,store,raw_dir,identities,accession,actual_at=expired)
+                self.assertEqual(code,2)
+                self.assertEqual(attempt["status"],"STALE")
+                self.assertFalse(attempt["current_eligible"])
+                self.assertEqual(attempt["generated_at"],expired)
+                self.assertEqual(attempt["decision_at"],NOW)
+                self.assertEqual(attempt["last_successful_source_check"],CHECK)
+                self.assertEqual(attempt["created_requests"],[])
+                self.assertEqual(attempt["replayed_requests"],[])
+                self.assertEqual(attempt["notification_intents_created"],0)
+                self.assertEqual(manifest.read_bytes(),before)
+                # Same bytes genuinely fresh at execution must still succeed.
+                fresh_store=root/"fresh_control"
+                code,fresh=cli_attempt(pit,fresh_store,raw_dir,identities,accession,actual_at=NOW)
+                self.assertEqual(code,0)
+                self.assertTrue(fresh["current_eligible"])
+                self.assertEqual(len(fresh["created_requests"]),0 if empty else 1)
+                if not empty:
+                    committed=fresh_store/"control_plane/candidate_registry/filing_requests.json"
+                    saved=committed.read_bytes()
+                    code,replay=cli_attempt(pit,fresh_store,raw_dir,identities,accession,actual_at=expired)
+                    self.assertEqual(code,2)
+                    self.assertEqual(replay["replayed_requests"],[])
+                    self.assertFalse(replay["current_eligible"])
+                    self.assertEqual(committed.read_bytes(),saved)
+
+    def test_backdated_programmatic_intake_and_replay_preserve_historical_readback(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);first=self.consume(root)
+            manifest=root/"control_plane/candidate_registry/filing_requests.json"
+            before=manifest.read_bytes()
+            expired=(c.bridge.stamp(CHECK)+timedelta(days=4)).isoformat()
+            for accession in ("0000000001-26-000002","0000000001-26-000001"):
+                events,raws=filing(accession);receipt=source();receipt["event_scope"]=scope(events)
+                original=c.encoded(receipt)
+                self.assertEqual(c.source_state(receipt,NOW),"CHECKED_NEW_OR_EXISTING")
+                with patch.object(c,"actual_utc_now",return_value=expired):
+                    result=self.consume(root,events,raws,receipt=receipt)
+                self.assertEqual(result["status"],"STALE")
+                self.assertFalse(result["current_eligible"])
+                self.assertEqual(result["created_requests"],[])
+                self.assertEqual(result["replayed_requests"],[])
+                self.assertEqual(result["notification_intents_created"],0)
+                self.assertEqual(result["reason"],"SOURCE_CHECK_EXPIRED")
+                self.assertEqual(c.encoded(receipt),original)
+                self.assertEqual(manifest.read_bytes(),before)
+            # Readback revalidates historical bytes; it neither writes nor admits
+            # a current attempt, even with the old decision-valid source receipt.
+            files={str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            with patch.object(c,"actual_utc_now",return_value=expired):
+                state=c.readback(root)
+            self.assertEqual(list(state["requests"]),first["created_requests"])
+            self.assertEqual(files,{str(p.relative_to(root)):p.read_bytes() for p in root.rglob("*") if p.is_file()})
+            attempt=json.loads((root/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
+            self.assertFalse(attempt["current_eligible"])
+            self.assertEqual(attempt["status"],"STALE")
+
+    def test_execution_clock_boundary_and_invalid_clocks_fail_closed(self):
+        boundary=c.bridge.stamp(CHECK)+timedelta(hours=36)
+        for actual,eligible in ((boundary-timedelta(microseconds=1),True),(boundary,False),
+                                (boundary+timedelta(microseconds=1),False)):
+            with self.subTest(actual=actual),tempfile.TemporaryDirectory() as td:
+                root=Path(td);self.consume(root)
+                manifest=root/"control_plane/candidate_registry/filing_requests.json";before=manifest.read_bytes()
+                events,raws=filing("0000000001-26-000002")
+                with patch.object(c,"actual_utc_now",return_value=actual.isoformat()):
+                    result=self.consume(root,events,raws)
+                self.assertEqual(result["current_eligible"],eligible)
+                self.assertEqual(result["status"],"COMPLETED_RESEARCH_STORAGE" if eligible else "STALE")
+                self.assertEqual(len(result["created_requests"]),1 if eligible else 0)
+                if not eligible:self.assertEqual(manifest.read_bytes(),before)
+        future=(c.bridge.stamp(NOW)+timedelta(seconds=1)).isoformat()
+        for label,actual,decision,changes in (("future_decision",NOW,future,{}),
+                ("naive_decision",NOW,NOW[:-1],{}),("naive_execution",NOW[:-1],NOW,{}),
+                ("missing_execution",None,NOW,{}),("conflicting_source",NOW,NOW,{"generated_at":future})):
+            with self.subTest(case=label),tempfile.TemporaryDirectory() as td:
+                root=Path(td);self.consume(root)
+                manifest=root/"control_plane/candidate_registry/filing_requests.json";before=manifest.read_bytes()
+                receipt={**source(),**changes}
+                with patch.object(c,"actual_utc_now",return_value=actual):
+                    with self.assertRaises((ValueError,TypeError)):
+                        self.consume(root,receipt=receipt,decision_at=decision)
+                self.assertEqual(manifest.read_bytes(),before)
+                attempt=json.loads((root/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
+                self.assertFalse(attempt["current_eligible"])
+                self.assertEqual(attempt["status"],"FAILED_VALIDATION_OR_STORAGE")
 
     def test_amendment_parent_requires_same_underlying_form(self):
         for original_form in ("3","4","5"):

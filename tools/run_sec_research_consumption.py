@@ -303,6 +303,11 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
         need(bridge.stamp(decision_at) <= bridge.stamp(generated_at), "FUTURE_DECISION")
         state = readback(root)
         status = source_state(receipt, decision_at)
+        # Preserve decision-relative provenance checks above. Current intake must
+        # also age the unchanged Source check against captured execution UTC;
+        # historical stored readback remains a separate, non-admitting path.
+        if status in {"CHECKED_NEW_OR_EXISTING", "CHECKED_NO_NEW"}:
+            status = source_state(receipt, generated_at)
         attempt = dict(schema="sec-research-consumption-attempt-v1", status=status,
             decision_at=decision_at, generated_at=generated_at, source_status=status,
             last_successful_source_check=receipt.get("last_successful_source_check"),
