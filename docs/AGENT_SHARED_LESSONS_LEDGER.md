@@ -7594,3 +7594,273 @@ before spawn; prefer explicit auth/encoding/size failures over unknown-exit
 retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
+
+
+### 2026-10-22 — Drive owner access does not prove Sheets API access
+
+An authorized exact-head ETF116 Actions probe passed owner initialization and
+the fixed private Sheet's Drive owner/parent/MIME/canEdit checks, then refused
+at SHEETS_METADATA_GET with HTTP403/PERMISSION (run39692292244/attempt1,
+job119541191906, HEAD8b879739). Its hash-verified BLOCKED receipt is not a
+write/readback proof: the stage precedes every Sheets mutation POST. Do not
+infer API enablement, token scope or another detailed 403 cause from that one
+safe category, and do not rerun before the underlying access state changes.
+User activation approval does not supply admitted daily TR or accepted-session
+evidence. Preserve the blocked state and publish actual evidence separately.
+
+### 2026-10-21 — ETF116 typed POST failures leave the outcome unknown
+
+OwnerDrive converts transport/HTTP/size/JSON/credential-echo failures to its
+typed Refused exception. At the atomic Sheets POST boundary these can occur
+after commit; handle that typed branch as ATOMIC_POST_OUTCOME_UNKNOWN just like
+an ordinary exception. Record a fixed stage and allowlisted cause only, never
+raw errors or credentials. Preserve the single POST and use existing_only
+GET reconciliation for the same run marker; absent/mismatched evidence stops
+without repair, retry or cleanup. This is diagnostic code, not private Actions
+write proof, accepted-anchor admission, daily TR coverage or refresh activation.
+Native H3 needs real POSIX locks/calendar; Windows H2 execution and historical
+scoped fixtures cannot substitute for Linux normal/-O execution. Keep final-head
+native, independent review and CI receipts distinct. Reuse the released existing
+Main and restore its original branch/sparse view after frozen readers finish.
+
+## 2026-10-19 — ETF research adapters preserve component boundaries
+
+- Missing RF must block excess-return ratios without erasing independent
+  volatility/MDD. Optional SPY errors need explicit typed refusal and must not
+  erase valid subject research. RAW/SPLIT_ADJUSTED closes are not daily TR.
+- Reusing the holdings normalizer must not turn its copied as-of into an
+  unverified issuer publication time. Keep missing release clocks null.
+- A test glob can exit successfully after selecting zero cases. Invoke the
+  native ETF child suite through the existing registered caller and require a
+  nonempty suite; preserve the protected test registry and publication pins.
+- Native wiring and a private connector Sheet test do not prove actual A1 TR,
+  Actions service-account rights or automatic operation. See
+  [ETF116 H1](ETF116_RESEARCH_BACKEND_H1.md).
+
+
+### 2026-10-19 — RF release is evaluated per return, rights per digest
+
+Hosted review of the otherwise green ETF integration found that a final review
+cutoff does not prove an RF rate was available on an earlier return date. Retain
+release clocks and choose an already available prior observation per session; a
+date-only API uses a conservative UTC-start cutoff. NYSE session close dates
+cannot slide into the next UTC day. Bind rights receipts into idempotency hashes
+and retain them in every prepared/unchanged proposal; changed evidence must
+conflict instead of inheriting an earlier same-session success.
+
+### 2026-10-19 — Bind all intake identities to the consumed snapshot
+
+An exact-close date check is insufficient when the close instant is omitted
+from idempotency provenance. Hash and retain canonical UTC close alongside
+rights. Distinguish supplied malformed/null SPY from absent optional input.
+Read holdings CSV once for both parsing and its raw hash; a concurrent source
+replacement cannot change the receipt. A supposedly fixed seed needs its exact
+symbol-set digest and1009 count, not just uniqueness. Tests use the existing
+canonical CSV rather than arbitrary ten-name stand-ins; no runtime bypass.
+Independent A6 applied the same absent-vs-malformed rule to listing-date maps:
+only an absent key defaults to an empty map; supplied null/false/list/scalar
+values must refuse instead of erasing untrusted metadata.
+
+### 2026-10-19 — A Drive marker is not an Actions Sheet readback
+
+Reuse the current owner OAuth transport, but bind the manual probe to the exact
+run/attempt/code and a fixed private-copy tab/range. Owner-only metadata and
+canEdit precede a single RAW write; require independent GET equality afterward.
+Refuse occupied foreign cells and preserve ambiguous writes without retries or
+cleanup. Identical same-attempt proof may be read without a second PUT. Keep
+connector-only proof, actual Actions proof, source admission and automatic
+refresh activation distinct. Reserve local receipts before auth and never echo
+HTTP bodies, account identities or credential-bearing exception text.
+
+### 2026-10-19 — Atomically create Sheet probes instead of checking blank cells
+
+A GET-then-PUT blank-cell check races with external editors; workflow
+concurrency only serializes its own jobs. Supersede the fixed-range H2 write
+with one atomic addSheet plus updateCells batch targeting a fresh run/attempt
+tab. Explicit sheetId and unique title make collisions fail the whole batch,
+preserving any foreign content. Existing matching tabs are GET-only
+reconciliation, never write targets. Keep the original sentinel/proof intact;
+unknown batch results must not trigger retries, clearing or cleanup. Test the
+external-writer race and an ambiguous applied result with offline fixtures.
+
+### 2026-10-19 — Preserve dated metric candidates and diagnose private access narrowly
+
+An actual ETF private Actions probe failed with OWNER_OAUTH_ACCESS_BLOCKED;
+generic exception suppression proves refusal, not its OAuth/quota/parent cause
+or absence of a remote side effect. Preserve the blocked run/artifact and never
+blindly replay it. Future diagnostics expose only reviewed categories/stages.
+Private-view authorization must reread the existing successful probe marker;
+a supplied success boolean or missing tab cannot trigger a replacement proof.
+
+Dated research history calls the existing calculator on consumed input bytes.
+Bind code/input/scope/previous hashes, keep source input objects, retain null
+RF/short-history reasons, refuse changed same-day evidence and chronological
+gaps, and create dated private tabs atomically. None of these research receipts
+grants Source/PIT, original-sheet publication, economic or scheduler authority.
+
+Independent A6 reproduced a future blocked candidate poisoning chronological
+history. Per-ticker calculator refusals do not validate the enclosing snapshot
+date. Reject session-after-decision globally before writing any history, retain
+the decision clock and recheck stored session/decision/computed clocks against
+the consumed source bytes before subsequent append or identical reuse.
+Keep optional benchmark refusal status and matched-window anchor in the private
+view too; NULL comparison numbers alone erase the cause preserved by the calculator.
+Apply original source schema/scope/session/decision bindings before private
+publication too. A matching raw hash alone does not stop a rehashed snapshot
+from relabeling the input date. Preserve original-vs-stored hashes when archiving
+large raw inputs with the existing bounded ZIP/OwnerDrive path; a compressed-byte
+capacity fixture is not proof of full116 long-history coverage or throughput.
+
+### 2026-10-19 — Validate checkpoint rollback and direct-row close timing
+
+A future weekly holdings checkpoint is not evidence that this week's work is
+complete. Reject it before planning, including disabled mode. Direct offline
+daily-close TR rows need the same close boundary as the existing Reader: reuse
+its NYSE holiday/half-day helper for same-date availability, cache by session,
+and refuse missing calendar evidence. A next-UTC-day release is conservative;
+never infer a same-day close from the date alone or guess16:00 ET on a half day.
+
+When dated-metric eligibility reuses a calendar helper, include that Reader/legacy
+helper code and calendar/runtime versions in calculation identity. Otherwise a
+calendar fix can leave same-day history incorrectly classified as identical.
+
+Follow-up review also required every claimed date and adjacent NYSE session,
+not merely same-day releases. Validate shared packet session/decision/grid before
+ticker error recovery; otherwise malformed/pre-close packets can become hashed
+all-blocked artifacts. Verified listing dates protect daily-return rows too,
+including optional benchmark input. Synthetic calendar fixtures must use the
+actual NYSE grid when the production boundary is strengthened.
+
+### 2026-10-19 — Bound private previews and reserve uncertain archive CREATEs
+
+An all-blocked pre-close snapshot can poison a date just as a future session
+can. Reuse global packet/verified-close preflight before any history reservation.
+Bound private test views/cells before archive writes; do not confuse this finite
+preview with long-running production rotation. Existing exact views are read-only.
+Reuse the existing Actions concurrency and a same-runner flock for the whole
+publisher, binding its workflow/job/commit bytes. Drive names still are not unique:
+claim each new content hash atomically in the private Sheet before CREATE. A
+reserved-but-unconfirmed object blocks further CREATE until manual reconciliation,
+including across later runs; never retry an uncertain POST or delete foreign cells.
+The execution guard must include every imported tracked validator, not a short
+hand-picked file list; reject the entire tracked worktree diff from declared HEAD.
+
+### 2026-10-19 — Verify EOD close instants and checkpoint adjacency
+
+A same-date claimed close and a caller boolean do not prove the actual NYSE
+close. Reuse the shared verified Reader/calendar helper, require exact instant
+equality, preserve each accepted row availability clock, and refuse advancing
+a checkpoint across a missing real session. Weekend/holiday gaps follow the
+existing NYSE previous-session helper; do not create a second calendar engine.
+
+### 2026-10-19 — Research receipts cannot certify a completed EOD session
+
+A preceding date alone is not a processed checkpoint. Validate versioned schema,
+state/scope/input/rights/close/source/content identity before reusing a receipt.
+Retain the complete candidate on repeated same-session SKIP and compare it with
+the current proposal. ETF EOD has no approved accepted-anchor verifier wired in;
+therefore even a hash-valid adjacent PREPARED receipt must refuse advancement.
+Absent prior means independent research preparation only, never accepted genesis.
+Do not borrow paper/macro acceptance namespaces or invent a caller approval flag.
+Exact receipt content uses canonical JSON bytes: Python dict equality treats false and zero as equal and cannot enforce immutable typed evidence.
+
+### 2026-10-19 — Recompute metric provenance before private publication
+
+A self-hash and matching source clocks do not authenticate computed metrics.
+Before any private archive/Sheet request, require current calculator identity,
+rederive through the existing H1 engine on the consumed bytes, and compare both
+candidate receipt hash and the shared result projection. Do not duplicate math.
+Catch recursive JSON at the boundary and parse local inputs before reserving a
+receipt. Open inputs nonblocking before fstat: a FIFO can block before the
+regular-file check, defeating a bounded-read claim. Keep CLI failures sanitized.
+Malformed projection keys/types also need stable CLI refusal: a valid self-hash is not a shape guarantee.
+
+### 2026-10-19 — Compare packet clocks with a trusted evaluation clock
+
+An actual calendar close can still lie in the future. Reject packet run_at after
+the trusted current/replay evaluation instant; never take that clock from JSON.
+Bind the canonical run clock into provenance, preserve same-session conflicts,
+and validate the fixed116 identity at the API entry as well as in the CLI.
+
+A private snapshot also needs computed<=trusted evaluation, in addition to
+decision<=computed and source-clock binding. Capture one current instant across
+plan/rederive/publication; ignore JSON/environment clocks. The explicit trusted
+API replay hook is not a CLI override or evidence of actual execution.
+
+Apply that current/evaluation boundary to the standalone dated-JSON runner too,
+not to pure replay math. Pass one trusted clock through H3 metadata and H1 run;
+keep candidate hashing time-independent so exact-source rederivation is stable.
+Propagate the captured clock through source validation and the existing nested H1 runner; a replay must not silently fall back to wall time.
+
+### 2026-10-19 — Bind holdings releases and TR series before artifact output
+
+Observed/reviewed holdings timestamps are input claims, not a trusted upper
+clock. Bound them to UTC now or an explicit aware API replay time; CLI inputs
+and environment cannot select that evaluation. Reject URL userinfo and all
+query/fragment data before copying provenance into either output projection;
+use static diagnostics without echoing the rejected URL. Within each ETF's
+dated top10 snapshot, require one source and one canonical publication instant
+(or all missing), rather than joining conflicting releases by as-of alone.
+Daily raw hashes may differ, but one ticker's total-return levels must have a
+constant explicit upstream series-definition hash and methodology hash. Pin
+provider/instrument/currency/base normalization in that definition, propagate
+both hashes from the immutable Reader manifest to every row, and retain them
+in results. A broad NAV/market basis alone cannot authorize index splicing.
+
+## 2026-10-23 — Separate lightweight ETF display from accepted daily publication
+
+- Reconstruct the reviewed ETF capability on the observed current master rather
+  than importing stale unrelated branch state. Preserve the released SEC Main
+  branch, its local research storage and sparse view; use only one local lease.
+- A lightweight top5 display can reuse sealed H1 metrics without recomputing all
+  histories. Rank comparable1/3/5Y windows, expose qualified/frozen coverage,
+  exclude missing history/RF instead of assigning zero, preserve share classes,
+  and never deduct the annual fee a second time from fund TR.
+- A self-sealed candidate is not authenticated Source or publication evidence.
+  Keep source/admission/accepted-session flags false. An Actions file artifact
+  does not prove Drive success, an accepted anchor or a real completed session.
+- The public Actions workbook writer uses a small public dependency; desktop
+  authoring tools are not a deployable runner dependency. Export issuer text as
+  literal cells so spreadsheet operators cannot become executable formulas.
+- Missing approved actual dailyTR/dated issuer metadata/holdings prevents a real
+  numerical report, not development or native regression. Keep synthetic rank
+  fixtures out of real Drive results and preserve automatic activation gates.
+
+Independent A6 caught two report boundary defects: an RF-ineligible fund was
+setting the comparison basis before exclusion, and missing currency silently
+shrunk the cohort. Validate every classification field and establish comparison
+anchors/basis only after independent eligibility filters. Preserve both native
+normal/-O counterexamples. A percentile test must actually move relative rank;
+increasing an already-highest fee cannot lower its percentile further.
+
+Native XLSX reopen missed an unbound xsi:type QName: ElementTree renamed the
+core-properties namespace prefix but retained literal dcterms:W3CDTF values.
+Independent A6 reproduced this author-raised concern. Preserve original core XML
+namespaces and change exactly the two clock values; verify QName bindings, not
+only well-formed XML or successful openpyxl reopen. Render all three report tabs:
+the narrow overlap table also needs enough width for its six-cell context row.
+
+### 2026-10-24 — Select before holdings intake; preserve shared ownership
+
+Parallel ETF research can prepare an independent immutable report interface
+without a second Source collector, shared workflow writer or portfolio runtime.
+Borrow a clean/released existing Main under its lease and restore original
+branch/sparse bytes/actual Registry before release. Rebase onto actual master;
+old source-head CI remains historical after new edits.
+
+Use the same complete-cohort selection and holdings validation for a GET-only
+read plan and final export. Reuse valid selected snapshots; fetch only selected
+missing/invalid/stale or existing-cadence due snapshots. A ready plan grants no
+admission or publication authority and final export must revalidate inputs.
+Count fund targets separately from provider requests/pages. Conditional row
+savings are not measured runtime or actual coverage. Corporate-action revisions
+can invalidate historical adjustments, so append-only cache reuse needs explicit
+revision/method invalidation. The connected Alpaca bars signature lacks adjustment
+and pagination controls; never label its raw/default response a complete TR feed.
+Firecrawl credit exhaustion was preserved; official docs used web fallback.
+
+Independent A6 reproduced valid-JSON cached integer/timezone overflows that
+escaped the read plan's malformed-cache boundary. Include OverflowError in
+that narrow boundary and retain both huge-weight and UTC-underflow regressions
+under normal/-O. Refresh only the affected selected fund; never mark a failed
+cache ready, print its raw value or relax final export validation.
