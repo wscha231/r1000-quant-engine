@@ -7876,3 +7876,18 @@ existing Windows research venv after verifying pandas and pyarrow imports;
 record its exact executable and versions, then run the full sequential matrix.
 A missing Git author identity is likewise a local preparation failure: reuse
 the existing Codex identity per command without changing global configuration.
+
+### 2026-10-24 - Preserve SEC source receipts and reject false current success
+
+Hosted review of SEC669 at `9cc35518` found three P2 defects, independently
+reproduced in normal and optimized Python before repair. The index glob
+`sec_filings_index.*` omits `sec_filings_index_summary.json`; explicitly retain
+that source-check receipt in both raw/diagnostic persistence and Actions artifacts,
+without changing the separate success-gated accepted-analysis publication.
+An empty checked Source bundle can still become stale: CLI success must follow
+current eligibility, not only the no-new-filings label. Amendment parents must
+match underlying Form3/4/5 as well as issuer/security and original submission
+date, including stored lineage on replay. Wrong-family refusal must preserve
+the committed Registry manifest while invalidating current-attempt success.
+Filesystem restoration, frozen-clock CLI and cross-form controls are synthetic
+regressions; they do not imply a fresh actual Source check or data admission.

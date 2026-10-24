@@ -3,6 +3,9 @@ from __future__ import annotations
 import copy
 import argparse
 import io
+import re
+import runpy
+import shlex
 import shutil
 from datetime import datetime, timedelta, timezone
 import json
@@ -291,6 +294,103 @@ class ConsumptionTests(unittest.TestCase):
             self.assertTrue(attempt["current_eligible"])
             self.assertEqual(attempt["notification_intents_created"],0)
             self.assertEqual(c.readback(root/"research")["requests"],{})
+
+    def test_stale_empty_cli_refuses_without_changing_committed_requests(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);store=root/"research"
+            self.consume(store)
+            manifest=store/"control_plane/candidate_registry/filing_requests.json"
+            before=manifest.read_bytes()
+            checks=[dict(ticker="TEST",cik10="0000000001",status="CHECKED_NO_NEW_FILINGS",
+                         checked_at=CHECK,payload_sha256="a"*64)]
+            pit,_,_=checked_generation(root,pd.DataFrame([fixture_index()]).iloc[:0],{},checks)
+            stale_at=(c.bridge.stamp(CHECK)+timedelta(days=4)).isoformat()
+            for decision,code,status,eligible in ((NOW,0,"CHECKED_NO_NEW",True),(stale_at,2,"STALE",False)):
+                with self.subTest(status=status),patch.object(sys,"argv",["consumer","--pit-root",str(pit),
+                        "--raw-dir",str(root/"unused"),"--identities",str(root/"unused.json"),
+                        "--accession","none","--decision-at",decision,"--output-dir",str(store)]),\
+                        patch.object(c,"actual_utc_now",return_value=decision),patch.object(sys,"stdout",io.StringIO()):
+                    self.assertEqual(c.main(),code)
+                attempt=json.loads((store/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
+                self.assertEqual(attempt["status"],status)
+                self.assertEqual(attempt["current_eligible"],eligible)
+                self.assertEqual(attempt["created_requests"],[])
+                self.assertEqual(attempt["notification_intents_created"],0)
+                self.assertEqual(manifest.read_bytes(),before)
+
+    def test_amendment_parent_requires_same_underlying_form(self):
+        for original_form in ("3","4","5"):
+            for amendment_form in ("3","4","5"):
+                with self.subTest(original=original_form,amendment=amendment_form),tempfile.TemporaryDirectory() as td:
+                    store=Path(td)
+                    events,raws=filing(form=original_form)
+                    first=self.consume(store,events,raws)
+                    manifest=store/"control_plane/candidate_registry/filing_requests.json"
+                    before=manifest.read_bytes()
+                    accession="0000000001-26-000002"
+                    events,raws=filing(accession,amendment_form+"/A","2026-10-21",price="5")
+                    parents={accession:"0000000001-26-000001"}
+                    if original_form!=amendment_form:
+                        with self.assertRaisesRegex(ValueError,"AMENDMENT_ORIGINAL_FORM_CONFLICT"):
+                            self.consume(store,events,raws,amendment_parents=parents)
+                        self.assertEqual(manifest.read_bytes(),before)
+                        attempt=json.loads((store/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
+                        self.assertFalse(attempt["current_eligible"])
+                        self.assertEqual(attempt["status"],"FAILED_VALIDATION_OR_STORAGE")
+                        self.assertEqual(len(c.readback(store)["requests"]),1)
+                    else:
+                        second=self.consume(store,events,raws,amendment_parents=parents)
+                        state=c.readback(store)
+                        record=json.loads(c.read_ref(store,state["requests"][second["created_requests"][0]]["registry_ref"]))
+                        self.assertEqual(record["supersedes_request_id"],first["created_requests"][0])
+                        self.assertEqual(record["request_kind"],"FILING_CORRECTION_REASSESSMENT")
+                        committed=manifest.read_bytes()
+                        replay=self.consume(store,events,raws)
+                        self.assertEqual(replay["created_requests"],[])
+                        self.assertEqual(replay["replayed_requests"],second["created_requests"])
+                        self.assertEqual(manifest.read_bytes(),committed)
+
+    def test_quarterly_source_summary_survives_both_persistence_channels(self):
+        from tools import run_sec_13f_parser as parser
+        fixture=runpy.run_path(str(ROOT/"tests/sec_13f_position_event_builder_smoke.py"))["standalone_fixture"]
+        workflow=(ROOT/".github/workflows/sec_13f_quarterly_refresh.yml").read_text(encoding="utf-8")
+        durable=workflow.split("- name: Persist collected 13F source independently of weighted analysis",1)[1].split("\n      - name:",1)[0]
+        artifact=workflow.split("- name: Upload SEC 13F artifact",1)[1].split("\n      - name:",1)[0]
+        patterns={"durable_raw_diagnostic":shlex.split(re.search(r"for f in (.+); do",durable).group(1)),
+                  "actions_artifact":[line.strip() for line in artifact.split("path: |",1)[1].splitlines() if line.strip()]}
+        summary=Path("data_pit/sec/13f_latest/sec_filings_index_summary.json")
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);options=fixture(root/"source");runner=root/"runner"
+            for src,dest in ((options["filings_index"].parent,runner/"data_pit/sec/13f_latest"),
+                             (options["holdings"].parent,runner/"data_pit/sec"),
+                             (options["raw_dir"],runner/"data_raw/sec")):
+                shutil.copytree(src,dest,dirs_exist_ok=True)
+            shutil.copy2(options["cusip_map"],runner/"data_pit/sec/cusip_ticker_map.csv")
+            for channel,globs in patterns.items():
+                with self.subTest(channel=channel):
+                    restored=root/channel
+                    # Original XML/submissions/checkpoints are a separate existing raw-cache restore.
+                    shutil.copytree(runner/"data_raw/sec",restored/"data_raw/sec")
+                    for pattern in globs:
+                        for path in runner.glob(pattern):
+                            for item in path.rglob("*") if path.is_dir() else [path]:
+                                if item.is_file():
+                                    target=restored/item.relative_to(runner)
+                                    target.parent.mkdir(parents=True,exist_ok=True)
+                                    shutil.copy2(item,target)
+                    self.assertTrue((restored/summary).is_file())
+                    self.assertEqual((restored/summary).read_bytes(),(runner/summary).read_bytes())
+                    def load():
+                        return parser.load_disclosure_source_inputs(
+                            holdings=restored/"data_pit/sec/institutional_13f_holdings.parquet",
+                            filings_index=restored/"data_pit/sec/13f_latest/sec_filings_index.parquet",
+                            raw_dir=restored/"data_raw/sec",cusip_map=restored/"data_pit/sec/cusip_ticker_map.csv",
+                            manager_ciks=options["manager_ciks"])
+                    verified=parser.verify_disclosure_source_inputs(load(),manager_ciks=options["manager_ciks"],
+                        decision_at=options["decision_at"])
+                    self.assertTrue(verified)
+                    (restored/summary).unlink()
+                    with self.assertRaises(FileNotFoundError):load()
 
     def test_merged_reparse_replaces_whole_accession_including_empty(self):
         with tempfile.TemporaryDirectory() as td:

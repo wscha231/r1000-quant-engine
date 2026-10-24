@@ -247,7 +247,7 @@ jobs:
             --filter-from outputs/sec_institutional_signals/restore_submissions.filter --transfers 4 --checkers 8
           timeout 8m rclone copy data_raw/sec/ "${BASE}data_raw/sec/" \
             --files-from outputs/sec_institutional_signals/restore_xml_files.txt --transfers 4 --checkers 8
-          for f in data_pit/sec/13f_latest/sec_filings_index.* data_pit/sec/institutional_13f_holdings.* data_pit/sec/institutional_13f_holdings_summary.json data_pit/sec/cusip_ticker_map.*; do
+          for f in data_pit/sec/13f_latest/sec_filings_index.* data_pit/sec/13f_latest/sec_filings_index_summary.json data_pit/sec/institutional_13f_holdings.* data_pit/sec/institutional_13f_holdings_summary.json data_pit/sec/cusip_ticker_map.*; do
             if [ -f "$f" ]; then timeout 3m rclone copyto "$f" "$BASE$f"; fi
           done
 
@@ -312,6 +312,7 @@ jobs:
           path: |
             data_pit/sec/sec_filings_index.*
             data_pit/sec/13f_latest/sec_filings_index.*
+            data_pit/sec/13f_latest/sec_filings_index_summary.json
             data_pit/sec/cusip_ticker_map.*
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json

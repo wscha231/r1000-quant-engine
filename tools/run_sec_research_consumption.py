@@ -354,9 +354,7 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
                     need(same_semantics(old_events, rows), "CONFLICTING_ACCESSION_SECURITY_EVENTS")
                 need(not is_amendment or parents.get(accession) in (None, old["original_accession"]),
                      "AMENDMENT_REPLAY_LINEAGE_CONFLICT")
-                attempt["replayed_requests"].append(request_id)
-                continue
-            original = parents.get(accession)
+            original = old["original_accession"] if old and is_amendment else parents.get(accession)
             parent_id = "SEC_REQUEST:" + digest(encoded([original, sid])) if original else None
             if is_amendment:
                 need(original and parent_id in state["requests"], "AMENDMENT_LINEAGE_REQUIRED")
@@ -364,6 +362,11 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
                 parent_event = json.loads(read_ref(root, parent_record["event_refs"][0]))
                 need(all(r.get("original_submission_date") == parent_event["source_row"].get("filing_date")
                          for r in rows), "AMENDMENT_ORIGINAL_DATE_CONFLICT")
+                need(all(r["form_type"].removesuffix("/A") == parent_event["form_type"].removesuffix("/A")
+                         for r in rows), "AMENDMENT_ORIGINAL_FORM_CONFLICT")
+            if old:
+                attempt["replayed_requests"].append(request_id)
+                continue
             if sid in thesis:
                 linked = json.loads(read_ref(root, thesis[sid]))
                 need(linked.get("schema") in {"a3-candidate-packet-v1", "candidate-registry-filing-request-v1"}
@@ -468,7 +471,7 @@ def main():
         result = consume([], receipt=receipt, raw_by_hash={}, identities=b"{}",
             output_root=Path(args.output_dir), decision_at=args.decision_at)
         print(json.dumps(result, sort_keys=True))
-        return 0
+        return 0 if result["current_eligible"] else 2
     try:
         selected = frame[frame["accession_number"] == args.accession].copy()
         need(not selected.empty, "ACCESSION_NOT_IN_CURRENT_SOURCE_SCOPE")
