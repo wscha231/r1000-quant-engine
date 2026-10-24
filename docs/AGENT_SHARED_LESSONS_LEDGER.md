@@ -8101,3 +8101,33 @@ also runs that unchanged17-case command in its isolated tree only on POSIX,
 with network denial and an exit diagnostic. Linux current-HEAD CI must witness
 this actual branch before closing the POSIX proof; the three original commands
 and their permission assertion remain unchanged.
+
+## 2026-10-25 — Preserve the original envelope while declaring a bounded private view
+
+An exact factor mismatch outside a declared view must remain a full-span
+refusal, not trigger a tolerance or automatic shortening. Verify the complete
+original archive before selecting every member's identical NYSE grid. Retain
+original/selected/excluded hashes, counts and an explicit new anchor; no old
+lifetime or economic result follows from a smaller compatible window.
+
+The Feature consumer pairs RAW/SPLIT by real original receipt/run/raw references.
+Keep the verified capture receipt as an explicitly documented common origin only
+for the opt-in view, and preserve both distinct basis derivations independently.
+Typed identity plus halt/volume proof must retain actual source bytes, effective
+windows and aware clocks. Missing status never becomes an empty halt list.
+A point asset response may contain a real provider ID without proving historical
+identity, halts, volume semantics, supplier retention or current admission.
+
+The first new regression exposed an import-boundary mistake: the legacy guard
+imports its calendar locally. Import the same existing calendar package in the
+new helper; keep unavailable calendars fail closed. A subsequent new assertion
+expected a list from the unchanged immutable Reader receipt; retain its actual
+tuple contract instead. Preserve both failed logs and every original assertion.
+Use external pinned consumer execution for cross-edge proof rather than adding
+heavy Main imports to Source's sparse workflow.
+
+Root static review of E0 found that its new path still required excluded-period
+identity/lifecycle/factors. Keep complete original-byte/schema/date/membership
+verification, while requiring technical eligibility only for the explicit consumed
+grid. Never fill unknown old factors or extend a truthful identity window to make
+a private view pass. Preserve E0 results separately and revalidate the new HEAD.

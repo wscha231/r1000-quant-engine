@@ -7,6 +7,7 @@ claims, capture success or VERIFIED strings. Preparation grants no admission.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import (Context, Decimal, DivisionByZero, InvalidOperation, Overflow,
                      ROUND_HALF_EVEN, localcontext)
 import gzip
@@ -287,6 +288,130 @@ def _selected_checkpoint(evidence, meter, final, receipt, proof):
                          parent_checkpoint_sha256=parent_hash, unselected_price_reads=0)
 
 
+def _technical_proofs(evidence, receipt, proof):
+    """Resolve reviewed local bytes, not caller booleans or ticker enrichment."""
+    if 'private_view' not in evidence:
+        require('technical_metadata' not in evidence, 'EXPLICIT_VIEW_REQUIRED')
+        return {}
+    refs = evidence.get('technical_metadata')
+    require(type(refs) is dict and set(refs) == set(receipt['collected']),
+            'TECHNICAL_METADATA_REQUIRED')
+    out = {}
+    for ticker, pair in refs.items():
+        require(type(pair) is dict and set(pair) == {'identity_evidence', 'status_evidence'},
+                'TECHNICAL_METADATA_SCHEMA')
+        documents = {}
+        for role in ('identity_evidence', 'status_evidence'):
+            raw = proof(pair[role])
+            document = _decode(raw, 64 * 1024)
+            require(type(document) is dict, 'TECHNICAL_EVIDENCE_SCHEMA')
+            fields = (('source_documents',) if role == 'identity_evidence' else
+                      ('halt_source_documents', 'volume_source_documents'))
+            for field in fields:
+                sources = document.get(field)
+                require(type(sources) is list and 1 <= len(sources) <= 8,
+                        'TECHNICAL_SOURCE_DOCUMENTS')
+                for ref in sources:
+                    proof(ref)
+            if role == 'identity_evidence':
+                require(any(ref['sha256'] == evidence['identity_evidence']['sha256']
+                            for ref in document['source_documents']),
+                        'IDENTITY_ORIGINAL_PROOF_BINDING')
+            documents[role] = (document, raw, digest(raw))
+        out[ticker] = documents
+    return out
+
+
+def _private_view(evidence, receipt, observed, decision, real):
+    if 'private_view' not in evidence:
+        return None, None
+    require(real, 'VIEW_REVIEWED_PROOFS_REQUIRED')
+    view = evidence['private_view']
+    require(type(view) is dict and set(view) == {'start', 'end', 'selection_reason'}
+            and view['selection_reason'] == 'SOURCE_EXACT_COMPATIBILITY', 'VIEW_SCHEMA')
+    try:
+        start, end = day(view['start']), day(view['end'])
+        original_start, original_end = day(receipt['start']), day(receipt['end'])
+    except ValueError:
+        raise BindingError('VIEW_WINDOW') from None
+    require(original_start <= start <= end < original_end, 'VIEW_WINDOW')
+    require(end <= decision.date(), 'VIEW_FUTURE')
+    require(0 < (original_end - original_start).days <= MAX_ROWS, 'VIEW_CALENDAR_BOUND')
+    # The same offline NYSE library used by Reader._session_close, once for the
+    # complete original envelope. No alternate holiday/calendar fallback.
+    try:
+        import pandas_market_calendars as mcal
+        schedule = mcal.get_calendar('NYSE').schedule(
+            start_date=original_start, end_date=original_end - timedelta(days=1))
+        closes = {index.date().isoformat(): _clock(close.isoformat())
+                  for index, close in schedule['market_close'].items()}
+    except Exception:
+        raise BindingError('VIEW_CALENDAR_UNAVAILABLE') from None
+    require(view['start'] in closes and view['end'] in closes, 'VIEW_EXCHANGE_SESSION')
+    require(closes[view['end']] <= observed, 'VIEW_NOT_AVAILABLE')
+    return dict(view), closes
+
+
+def _technical_metadata(documents, identities, grids, view, closes, original, created, decision):
+    """Validate supplied typed proof semantics; absent facts never become defaults."""
+    metadata = {}
+    expected = {session for session in closes if view['start'] <= session <= view['end']}
+    require(expected, 'VIEW_EMPTY')
+    for ticker, ident in identities.items():
+        sessions = {session for name, session in grids['raw'] if name == ticker}
+        selected = {session for session in sessions if view['start'] <= session <= view['end']}
+        require(selected == expected, 'VIEW_SESSION_GRID')
+        record, _, identity_sha = documents[ticker]['identity_evidence']
+        status, _, status_sha = documents[ticker]['status_evidence']
+        require(record.get('schema') == 'ohlcv-security-identity-evidence-v1',
+                'TECHNICAL_IDENTITY_SCHEMA')
+        require(status.get('schema') == 'a1-ohlcv-status-volume-evidence-v1',
+                'TECHNICAL_STATUS_SCHEMA')
+        for key in ('instrument_id', 'ticker', 'market', 'mic', 'timezone', 'calendar', 'currency'):
+            require(record.get(key) == ident[key], 'TECHNICAL_IDENTITY_MISMATCH')
+        provider_id = record.get('provider_security_id')
+        require(type(provider_id) is str and len(provider_id) <= 200
+                and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:/-]+', provider_id)
+                and provider_id.upper() not in {'UNKNOWN', 'UNVERIFIED', 'NONE', 'NULL', 'N/A'}
+                and 'FIXTURE' not in provider_id.upper()
+                and provider_id not in (ticker, ident['instrument_id']), 'PROVIDER_SECURITY_ID')
+        require(record.get('asset_class') in {'EQUITY', 'ETF'}, 'TECHNICAL_ASSET_CLASS')
+        for document in (record, status):
+            require(document.get('provider') == capture.SOURCE
+                    and document.get('capture_receipt_sha256') == original['capture_receipt_sha256'],
+                    'TECHNICAL_ORIGINAL_BINDING')
+            require(_clock(document.get('available_from')) <= _clock(document.get('collected_at'))
+                    <= created <= decision <= _clock(document.get('expires_at')),
+                    'TECHNICAL_EVIDENCE_CLOCK')
+        try:
+            require(day(record.get('valid_from')) <= day(min(selected))
+                    <= day(max(selected)) <= day(record.get('valid_through')),
+                    'TECHNICAL_IDENTITY_WINDOW')
+            require(day(status.get('valid_from')) <= day(view['start'])
+                    <= day(view['end']) <= day(status.get('valid_through')),
+                    'TECHNICAL_STATUS_WINDOW')
+        except ValueError as exc:
+            if isinstance(exc, BindingError):
+                raise
+            raise BindingError('TECHNICAL_EFFECTIVE_WINDOW') from None
+        for key in ('instrument_id', 'provider_security_id', 'ticker'):
+            require(status.get(key) == record[key], 'TECHNICAL_STATUS_IDENTITY')
+        halts = status.get('halted_sessions')
+        require(status.get('halt_coverage') == 'COMPLETE_FOR_WINDOW'
+                and type(halts) is list and len(halts) <= MAX_ROWS
+                and all(type(s) is str for s in halts), 'HALT_COVERAGE_UNKNOWN')
+        require(halts == sorted(set(halts)) and all(s in closes
+                and status['valid_from'] <= s <= status['valid_through'] for s in halts),
+                'HALT_COVERAGE_INVALID')
+        require(status.get('volume_basis') == {'raw': 'RAW', 'split': 'SPLIT_ADJUSTED'},
+                'VOLUME_BASIS_UNKNOWN')
+        metadata[ticker] = dict(asset_class=record['asset_class'],
+            provider_security_id=provider_id, identity_evidence_sha256=identity_sha,
+            status_evidence_sha256=status_sha,
+            halted_sessions=[s for s in halts if view['start'] <= s <= view['end']])
+    return metadata
+
+
 def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_objects):
     require(type(trusted) is TrustedSourceBinding, 'TRUSTED_SOURCE_BINDING_REQUIRED')
     require(type(trusted.review_reference) is str and len(trusted.review_reference) <= 200
@@ -395,8 +520,9 @@ def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_o
     event = evidence.get('first_observed_readback')
     require(type(event) is dict, 'FIRST_OBSERVED_BINDING')
     proof(event.get('evidence_ref'))
+    technical = _technical_proofs(evidence, receipt, proof)
     require(used == set(objects), 'UNREFERENCED_REVIEWED_PROOF')
-    return rights, lineage
+    return rights, lineage, technical
 
 
 def prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
@@ -454,8 +580,9 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     original = dict(raw_sha256=digest(raw_zip), normalized_sha256=digest(normalized_gzip),
                     capture_receipt_sha256=digest(capture_receipt))
     real = classification == 'REAL_SOURCE'
-    rights, lineage = (_real_evidence(evidence, evidence_bytes, receipt, original, trusted_source,
-                                     proof_objects) if real else (None, None))
+    rights, lineage, technical = (_real_evidence(
+        evidence, evidence_bytes, receipt, original, trusted_source, proof_objects)
+        if real else (None, None, {}))
     event = evidence.get('first_observed_readback')
     require(type(event) is dict and event.get('kind') == 'FIRST_OBSERVED_COMPLETE_READBACK'
             and event.get('objects') == original, 'FIRST_OBSERVED_BINDING')
@@ -464,6 +591,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
     decision = _clock(decision_time)
     fresh_until = _clock(evidence.get('research_fresh_until'))
     require(observed <= created <= decision <= fresh_until, 'DECISION_WINDOW')
+    view, closes = _private_view(evidence, receipt, observed, decision, real)
     reader_expires_at = evidence['research_fresh_until']
     if real and rights.get('supplier_expiry') is not None:
         supplier_expiry = _clock(rights['supplier_expiry'])
@@ -526,23 +654,43 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 and ident['timezone'] == 'America/New_York'
                 and ident['calendar'] == 'NYSE', 'IDENTITY_SCOPE')
         sessions = {date for name, date in grids['raw'] if name == ticker}
-        require(type(factors[ticker]) is dict and set(factors[ticker]) == sessions,
+        consumed_sessions = ({s for s in sessions if view['start'] <= s <= view['end']}
+                             if view else sessions)
+        require(type(factors[ticker]) is dict and
+                ((consumed_sessions <= set(factors[ticker]) <= sessions) if view
+                 else set(factors[ticker]) == sessions),
                 'SPLIT_FACTOR_COVERAGE')
     require(len({ident['instrument_id'] for ident in identities.values()}) == len(identities),
             'IDENTITY_COLLISION')
+    metadata = (_technical_metadata(technical, identities, grids, view, closes, original,
+                                   created, decision) if view else {})
+    if view:
+        for documents in technical.values():
+            for document, _, _ in documents.values():
+                if _clock(document['expires_at']) < _clock(reader_expires_at):
+                    reader_expires_at = document['expires_at']
     typed = {'raw': {}, 'split': {}}
     for key in sorted(grids['raw']):
         ticker, session = key
         ident = identities[ticker]
+        consumed = not view or view['start'] <= session <= view['end']
         try:
             date = day(session)
-            require(day(ident['valid_from']) <= date <= day(ident['valid_through']),
-                    'LIFECYCLE_WINDOW')
-            require(_session_close(date) <= observed, 'ROW_NOT_AVAILABLE')
+            if consumed:
+                require(day(ident['valid_from']) <= date <= day(ident['valid_through']),
+                        'LIFECYCLE_WINDOW')
+            if view:
+                require(session in closes, 'EXCHANGE_SESSION')
+                close = closes[session]
+            else:
+                close = _session_close(date)
+            require(close <= observed, 'ROW_NOT_AVAILABLE')
         except ValueError as exc:
             if isinstance(exc, BindingError):
                 raise
             raise BindingError('EXCHANGE_SESSION') from None
+        if not consumed:
+            continue  # Verified original bytes; no excluded technical admission.
         factor, _ = _decimal(factors[ticker][session])
         decimal = {}
         for basis in ('raw', 'split'):
@@ -553,17 +701,19 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             for field in ('open', 'high', 'low', 'close', 'volume'):
                 number, value = _decimal(source[field], volume=field == 'volume')
                 decimal[basis][field], row[field] = number, value
-            typed[basis].setdefault(ticker, []).append(row)
+            if not view or view['start'] <= session <= view['end']:
+                typed[basis].setdefault(ticker, []).append(row)
         # Fixed precision, independent of a caller's ambient Decimal context.
         # Inputs <=80 chars; products below need at most160 significant digits.
         with localcontext(Context(prec=200, rounding=ROUND_HALF_EVEN,
                                   Emin=-999999, Emax=999999, capitals=1, clamp=0,
                                   flags=[], traps=[InvalidOperation, DivisionByZero, Overflow])):
-            require(all(decimal['raw'][k] == decimal['split'][k] * factor
-                        for k in ('open', 'high', 'low', 'close'))
-                    and decimal['split']['volume'] == decimal['raw']['volume'] * factor,
-                    'SPLIT_FACTOR_RELATION')
-    bases = []
+            if not view or view['start'] <= session <= view['end']:
+                require(all(decimal['raw'][k] == decimal['split'][k] * factor
+                            for k in ('open', 'high', 'low', 'close'))
+                        and decimal['split']['volume'] == decimal['raw']['volume'] * factor,
+                        'SPLIT_FACTOR_RELATION')
+    pending = []
     for adjustment, basis in (('raw', 'RAW'), ('split', 'SPLIT_ADJUSTED')):
         files, objects = [], []
         for ticker, rows in sorted(typed[adjustment].items()):
@@ -573,12 +723,14 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             ident = {k: v for k, v in identities[ticker].items()
                      if k not in ('valid_from', 'valid_through')}
             ident['adjustment_basis'] = basis
+            if view:
+                ident.update(metadata[ticker], volume_basis=basis)
             files.append(dict(storage='archive', format='jsonl', sha256=sha,
                               bytes=len(raw), rows=len(rows), start=rows[0]['session_date'],
                               end=rows[-1]['session_date'], columns=PRICE_COLUMNS,
                               instrument=ident))
             objects.append((sha, raw))
-        provenance = encoded(dict(
+        provenance_record = dict(
             schema=('a1-reader-derivation-v1' if real else 'a1-reader-derivation-contract-fixture-v1'),
             fixture_only=not real,
             original_objects=original, original_run_id=evidence['original_run_id'],
@@ -601,7 +753,34 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 review_receipt_sha256=trusted_source.review_receipt_sha256,
                 proof_sha256=list(trusted_source.proof_sha256)) if real else None),
             source_admission=False, pit_verified=False,
-            storage_publication='NOT_RUN', consumer_ack='NOT_RUN', economic_validation='NOT_RUN'))
+            storage_publication='NOT_RUN', consumer_ack='NOT_RUN', economic_validation='NOT_RUN')
+        if view:
+            inventory = {}
+            for ticker in sorted(identities):
+                dates = sorted(session for name, session in grids[adjustment] if name == ticker)
+                selected = [s for s in dates if view['start'] <= s <= view['end']]
+                selected_set = set(selected)
+                excluded = [s for s in dates if s not in selected_set]
+                def subset(sessions):
+                    return dict(rows=len(sessions), start=sessions[0] if sessions else None,
+                        end=sessions[-1] if sessions else None,
+                        normalized_rows_sha256=digest(b''.join(
+                            encoded(grids[adjustment][ticker, s]) for s in sessions)),
+                        sessions_sha256=digest(encoded(sessions)))
+                inventory[ticker] = dict(original=subset(dates), selected=subset(selected),
+                                         excluded=subset(excluded))
+            provenance_record['explicit_private_view'] = dict(
+                **view, obv_anchor_session=view['start'], inventory=inventory,
+                original_capture_window=dict(start=receipt['start'], end_exclusive=receipt['end']),
+                original_symbols=receipt['symbols'], original_collected=receipt['collected'],
+                original_normalized_rows=len(lines), selected_rows=sum(v['selected']['rows'] for v in inventory.values()),
+                excluded_rows=sum(v['excluded']['rows'] for v in inventory.values()),
+                factor_validation_scope='EXPLICIT_SELECTED_GRID_ONLY',
+                technical_validation_scope='EXPLICIT_SELECTED_GRID_ONLY',
+                excluded_rows_scope='VERIFIED_ORIGINAL_BYTES_NOT_TECHNICALLY_ADMITTED',
+                original_archive_verification='COMPLETE_BEFORE_SELECTION',
+                technical_evidence=metadata)
+        provenance = encoded(provenance_record)
         source = dict(provider=capture.SOURCE,
                       license=('REVIEWED_ACCOUNT_RIGHTS:' + evidence['owner_rights']['sha256']
                                if real else 'CONTRACT_FIXTURE_ONLY'),
@@ -614,8 +793,37 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                       source_receipt_sha256=digest(provenance),
                       raw_source_sha256=list(original.values()), available_from=event['at'],
                       collected_at=event['at'], expires_at=reader_expires_at)
+        pending.append((basis, files, objects, provenance, source))
+    common = {}
+    if view:
+        # A real common origin is the original verified capture receipt, not
+        # either distinct basis derivation. Keep both derivations independently
+        # addressable and source-bound; no digest is renamed or forced equal.
+        common[digest(capture_receipt)] = capture_receipt
+        reviewed_objects = dict(proof_objects)
+        for documents in technical.values():
+            for role, (document, raw, sha) in documents.items():
+                common[sha] = raw
+                fields = (('source_documents',) if role == 'identity_evidence' else
+                          ('halt_source_documents', 'volume_source_documents'))
+                for field in fields:
+                    for ref in document[field]:
+                        common[ref['sha256']] = reviewed_objects[ref['sha256']]
+        for _, _, _, provenance, _ in pending:
+            common[digest(provenance)] = provenance
+    bases = []
+    for basis, files, objects, provenance, source in pending:
+        if view:
+            source.update(source_receipt_sha256=original['capture_receipt_sha256'],
+                source_receipt_role='ORIGINAL_VERIFIED_CAPTURE_RECEIPT',
+                basis_derivation_receipt_sha256=digest(provenance),
+                derivation_run_id=evidence['derivation_run_id'],
+                raw_source_sha256=sorted(set(original.values()) | set(common)))
+            objects.extend(sorted(common.items()))
         manifest = encoded(dict(schema='research-data-generation-v1', eligible_for_selector=False,
-                                created_at=evidence['created_at'], source_run_id=evidence['derivation_run_id'],
+                                created_at=evidence['created_at'],
+                                source_run_id=(evidence['original_run_id'] if view
+                                               else evidence['derivation_run_id']),
                                 datasets=[dict(dataset_id='ds.us.prices.daily', schema='price-daily-v1',
                                                source=source, files=files)]))
         require(len(manifest) <= 1024 * 1024, 'MANIFEST_BOUND')

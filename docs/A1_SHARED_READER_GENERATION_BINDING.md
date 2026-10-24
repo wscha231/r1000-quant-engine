@@ -1,6 +1,6 @@
 # A1 Source to shared Reader: bounded research preparation
 
-This patch is offline preparation based on master
+The original adapter was offline preparation based on master
 `37809837bd2d67114fae7d4a1c4e2b8ad0344b07`, including merged #627. It does not
 publish a generation, accept rights, admit a Source, integrate Draft #671,
 or enable an updater.
@@ -216,3 +216,84 @@ own run39083896869 final checkpoint; it did not re-download price bytes. AAPL's
 initial16 chain has no original finalized execution binding in that packet, and
 SPY's declared cache differs from the located historical Parquet. This extension
 does not manufacture those missing edges or admit that fixed cohort.
+
+## Explicit private view and consumer metadata
+
+This addition is prepared on protected master
+`070e2579349c9af1dd6e9c346f1b00ca9a005911`, after #673. It reuses the current
+`ds.us.prices.daily` / `price-daily-v1` entry without changing the Registry.
+The original full-span behavior, receipt role and refusal remain the default.
+Opt in through the independently reviewed evidence:
+
+```json
+{"private_view":{"start":"2024-03-01","end":"2026-10-13","selection_reason":"SOURCE_EXACT_COMPATIBILITY"}}
+```
+
+Both endpoints must be actual NYSE sessions inside the original capture window
+and available by the supplied observed readback and decision. Every collected
+member must contain the complete selected session grid in both bases. No
+automatic shortening, ticker omission, missing-Open repair, price rewriting or
+numeric tolerance exists. The unchanged literal Decimal factor predicate runs
+on each selected row. Original archive/hash/reconstruction, complete inventory, duplicate detection,
+row schema and date/calendar checks still run before selection. Invalid excluded
+bytes or unknown original tickers cannot disappear into the view. Identity,
+lifecycle, CA and exact factor eligibility apply only to the selected grid.
+Excluded typed identity/factor facts need not be supplied, parsed or certified;
+they remain nonconsumed original-byte observations. The full-span factor
+relationship and historical eligibility are not claimed for excluded rows.
+
+The requested original4 private scope is MU/WMT/JPM/XOM, each657 selected
+sessions, with original2016-01-04..2026-10-13 envelopes retained. This is
+preregistered Source compatibility, not an economic result or optimization.
+Provenance records original/selected/excluded counts, ranges, normalized-subset
+and session hashes by member/basis, original symbols/normalized count, typed
+objects and explicit OBV anchor. A2024-03-01 anchor is not a2016 lifetime anchor.
+The four-company positive fixture is synthetic, not actual original4 bytes.
+
+Explicit views require REAL_SOURCE's independently supplied trust/proof tuple.
+technical_metadata maps every collected ticker to identity_evidence and
+status_evidence exact hash/byte references in that same reviewed tuple. Each
+typed document is at most64KiB, with bounded nonempty original-source references
+inside the unchanged32-proof/4MiB-each/16MiB-total limits.
+
+The identity document uses the existing Main schema
+ohlcv-security-identity-evidence-v1. It supplies actual instrument/provider IDs,
+ticker, asset class, market, MIC, calendar, timezone, currency, effective interval
+and aware availability/collection/expiry clocks. Its source_documents include
+the reviewed original identity document. It must cover the selected effective
+window and match provider/original capture receipt. Ticker is not a
+provider ID. UNKNOWN, fixture markers, missing/unreviewed hashes, naive clocks
+and conflicts refuse. This pure code verifies consistency with externally
+reviewed bytes, not independent issuer/provider authenticity or legal meaning.
+
+The separate a1-ohlcv-status-volume-evidence-v1 document binds the same IDs,
+ticker/provider/capture receipt, effective interval and aware clocks. It requires
+halt_coverage=COMPLETE_FOR_WINDOW, an explicit sorted unique halted_sessions
+list, volume_basis={raw:RAW,split:SPLIT_ADJUSTED}, and nonempty
+halt_source_documents and volume_source_documents. UNKNOWN halts never become
+an empty list; equal prices/factor1 do not establish volume semantics. Only an
+explicitly proved empty list is empty. Reader expiry is capped by the earliest
+supplied technical-proof, research-freshness or actual supplier expiry. No
+clock, account binding, permission or expiry is created from an absence.
+
+In this opt-in contract source_receipt_role=ORIGINAL_VERIFIED_CAPTURE_RECEIPT,
+source_receipt_sha256 addresses the actual original capture receipt bytes, and
+manifest source_run_id is its reviewed original run. RAW/SPLIT share that real
+origin and the same actual raw_source_sha256 set. Each distinct
+basis_derivation_receipt_sha256 and derivation_run_id is preserved separately.
+Both basis receipts, typed identity/status bytes, their original proof documents
+and the capture receipt are returned as bounded content-addressed objects.
+No basis digest is forced equal or renamed as another receipt. The default
+full-span source_receipt_sha256 continues to address its own basis provenance.
+
+Instrument metadata serializes validated asset_class/provider_security_id,
+identity_evidence_sha256, explicit halted_sessions and the actual volume_basis.
+Cross-edge QA must execute actual Reader.read_components and the unchanged
+current Main Feature function's metadata, RAW pairing and anchor logic, pinning
+consumer/helper bytes, AST and loaded provenance. Heavy Main imports stay out
+of Source's sparse dependency closure. Fixture execution is not actual consumer
+ACK, accepted publication, Source/PIT admission, economics or activation.
+Actual missing rights/identity/clocks/status/trust still block real preparation.
+Existing point asset responses are raw identity facts, not full historical
+identity/lifecycle/halts/volume proof; their existence is not denied because a
+typed consumer document has yet to be prepared.
