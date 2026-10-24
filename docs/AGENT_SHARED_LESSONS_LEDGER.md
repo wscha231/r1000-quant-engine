@@ -7594,3 +7594,47 @@ before spawn; prefer explicit auth/encoding/size failures over unknown-exit
 retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
+
+### 2026-10-24 — Reuse Main H1 against the integrated component Reader
+
+An old clean checkout alone does not transfer ownership. Canonical owner release
+comments plus fresh checkpoint/status/lease and remote-head checks supported
+A0's explicit sequential reassignment. Preserve the original c0146 checkout,
+49 test ASTs and oracle; reconstruct its causal delta on current master and
+reuse the pinned remaining patch, rather than merging an old branch stack.
+Deduplicate instrument IDs before component requests while retaining each
+subject/benchmark role check. An absent optional benchmark must reach the
+Reader's local refusal; hash/clock/identity/resource/Lake errors remain global.
+Explicit component windows must preserve the retained consecutive-suffix OBV
+anchor; reducing to481 rows silently changes a level metric. Synthetic Native
+parity and optional refusal prove integration code, not actual Source generation,
+research-reference ACK, economic admission or portfolio authority.
+
+The first Main H1 preflight hit a sparse-checkout dependency omission before
+arithmetic: aggressive/signals_technical.py was not materialized. Preserve the
+failed log and expose the unchanged existing helper through sparse settings;
+do not replace the shared arithmetic or alter assertions to fix the environment.
+
+An independent exact83 audit found that Reader-global price guards did not
+cover a later consumer identity-proof read: the optional benchmark catch
+swallowed proof HASH_MISMATCH and FEATURE_IDENTITY_CLOCK into partial features.
+The same defect affected a RAW proof read. Preserve the old passing logs as
+limited evidence, add failing-before regressions, and carry proof integrity and
+original clock failures through the global refusal marker. Keep verified
+optional role/price/coverage refusals local; do not globalize every exception.
+
+The first correction d9b13be1 failed the unchanged original QQQ/Composite test:
+putting source-field comparisons inside the global proof guard erased valid SPY
+RS. Preserve that failed64-case Native log, move only proof object/schema/hash
+and original effective/aware clocks across the global boundary, and keep the
+original source-field/role compatibility checks local. Do not alter original
+assertions or treat a focused counterexample PASS as the full regression PASS.
+
+An unchanged helper's1MiB SHA read raised MemoryError during d9 independent
+optimized QA and268 direct optimized Native. Preserve both failures separately
+from product assertions. A same26864-case retry passed with unchanged gates;
+external sampling saw minimum free commit2.51GB and peak process private111MB.
+Post-failure host commit was about95%; the failed instant was not sampled, so
+the transient cause remains unconfirmed. Keep heavy Native and independent QA
+sequential, record runtime/head and memory evidence, and revalidate the final
+head; neither retry success nor high host commit alone diagnoses the cause.
