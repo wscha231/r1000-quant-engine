@@ -34,7 +34,7 @@ PIN_PATHS = ("tools/alpaca_sip_managed_refresh.py", "tools/prepare_a1_managed_oh
              "tools/alpaca_sip_campaign.py", "tools/alpaca_sip_private_backfill_v1.py",
              "tools/twelve_private_capture.py", "tools/configure_macro_research_drive.py",
              "tools/macro_history_sources.py", "tools/run_daily_market_session_gate.py",
-             ".github/workflows/free_data_daily_update.yml")
+             ".github/workflows/free_data_daily_update.yml", "requirements_github.txt")
 ROOT = Path(__file__).resolve().parents[1]
 MAX_STATE = 2_000_000
 JOB = "Managed A1 private OHLCV refresh"
@@ -103,7 +103,7 @@ def validate_control(control, inventory_sha, policy_sha, now):
         reference(control.get(key), MAX_STATE)
     require(control["opening_evidence_ref"]["sha256"] == control.get("opening_evidence_sha256"),
             "MANAGED_OPENING_EVIDENCE")
-    for key in ("owner_sha256", "credential_binding", "opening_evidence_sha256"):
+    for key in ("owner_sha256", "credential_binding", "opening_evidence_sha256", "source_history_sha256"):
         require(isinstance(control.get(key), str) and managed.SHA.fullmatch(control[key]),
                 "MANAGED_IDENTITY_OR_OPENING_PROOF")
     for key in ("private_root_folder_id", "private_data_folder_id", "journal_folder_id", "evidence_folder_id"):
@@ -213,6 +213,22 @@ def run_history(control, gh, context):
 
 
 def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
+    if checkpoint_sha is None:
+        require(isinstance(value, dict) and value.get("schema") == "a1-managed-no-capture-v1"
+                and value.get("status") == "SKIP_MARKET_WINDOW"
+                and value.get("managed_control_sha256") == control_sha
+                and value.get("run_id") == run["id"] and value.get("run_attempt") == 1
+                and value.get("source_sha") == run["head_sha"]
+                and value.get("phase") == "BEFORE_CREDENTIALS"
+                and value.get("provider_requests") == value.get("drive_requests") == 0
+                and value.get("collection_enabled") is False, "MANAGED_NO_CAPTURE_PROOF")
+        observed = campaign.utc(value.get("observed_at_utc"))
+        require(campaign.utc(run.get("created_at")) <= observed <= campaign.utc(run.get("updated_at")),
+                "MANAGED_NO_CAPTURE_CLOCK")
+        gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
+        require(gate["ready"] is False and value.get("market_gate") == gate,
+                "MANAGED_NO_CAPTURE_CALENDAR")
+        return dict(no_capture_verified=True)
     require(isinstance(value, dict) and value.get("schema") == "a1-sip-campaign-meter-v1"
             and value.get("run_id") == run["id"] and value.get("run_attempt") == 1
             and value.get("source_sha") == run["head_sha"]
@@ -228,6 +244,33 @@ def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
     for key in KEYS:
         integer(value["usage"][key], 0, allowance[key], "MANAGED_FINAL_METER")
     return dict(value["usage"])
+
+
+def source_history_fence(control, gh):
+    """Freeze the full bounded original-Source prefix, including old reruns.
+
+    A latest-created ID alone misses an older run's changed attempt/cost. Any
+    added/removed/changed run blocks maintenance until explicit reconciliation.
+    """
+    rows, total = [], None
+    for page in range(1, 5):
+        payload = gh(f"repos/{REPO}/actions/workflows/{campaign.WORKFLOW}/runs?per_page=100&page={page}")
+        if total is None:
+            total = integer(payload.get("total_count"), 0, 400, "MANAGED_SOURCE_HISTORY_BOUND")
+        batch = payload.get("workflow_runs")
+        require(payload.get("total_count") == total and isinstance(batch, list)
+                and len(batch) == min(100, total-len(rows)), "MANAGED_SOURCE_HISTORY_INCOMPLETE")
+        rows.extend(batch)
+        if len(rows) == total:
+            break
+    require(len(rows) == total and len({r.get("id") for r in rows}) == total
+            and all(type(r.get("id")) is int and r["id"] > 0
+                    and type(r.get("run_attempt")) is int and r["run_attempt"] > 0
+                    and r.get("status") == "completed" for r in rows), "MANAGED_SOURCE_HISTORY_UNRESOLVED")
+    fields = ("id", "run_attempt", "head_sha", "status", "conclusion", "created_at", "updated_at")
+    proof = [{k: r.get(k) for k in fields} for r in sorted(rows,key=lambda r:r["id"])]
+    require(sha(proof) == control["source_history_sha256"], "MANAGED_INTERVENING_SOURCE_ACTIVITY")
+    return proof
 
 
 def final_meter_reader(gh, control, control_sha, deadline, clock):
@@ -280,6 +323,7 @@ def rights_and_bootstrap(control, drive):
     require(isinstance(opening, dict) and opening.get("schema") == "a1-managed-opening-accounting-v1"
             and opening.get("opening_usage") == control["opening_usage"]
             and opening.get("credential_binding") == control["credential_binding"]
+            and opening.get("source_history_sha256") == control["source_history_sha256"]
             and opening.get("original_campaigns_unchanged") is True
             and opening.get("unresolved_costs_reserved") is True
             and isinstance(opening.get("source_documents"), list)
@@ -326,12 +370,19 @@ def journal_rows(drive, control):
 def restore_journal(rows, history, control_sha, meter_verifier=None):
     parent = None
     coverage, held = {}, {}
+    expected_states = 0
     for ordinal, run in enumerate(history[:-1], 1):
         if run.get("managed_skipped") is True:
             require(not any(r.get("slot") == ordinal for _, r in rows), "MANAGED_SKIPPED_STATE_CONFLICT")
             continue
         pair = [(h, r) for h, r in rows if r.get("slot") == ordinal]
+        if not pair:
+            require(meter_verifier is not None, "MANAGED_UNCONFIRMED_PRIOR_RUN")
+            require(meter_verifier(run, None) == dict(no_capture_verified=True),
+                    "MANAGED_UNCONFIRMED_PRIOR_RUN")
+            continue
         require(len(pair) == 2, "MANAGED_UNCONFIRMED_PRIOR_RUN")
+        expected_states += 2
         reserved = [(h, r) for h, r in pair if r.get("state") == "RESERVED"]
         terminal = [(h, r) for h, r in pair if r.get("state") in {"COMPLETE", "BLOCKED"}]
         require(len(reserved) == len(terminal) == 1, "MANAGED_UNCONFIRMED_PRIOR_RUN")
@@ -349,7 +400,7 @@ def restore_journal(rows, history, control_sha, meter_verifier=None):
         coverage.update(r1["coverage_updates"])
         held.update(r1["held"])
         parent = h1
-    require(len(rows) == 2 * sum(r.get("managed_skipped") is not True for r in history[:-1]),
+    require(len(rows) == expected_states,
             "MANAGED_REPLAY_OR_FOREIGN_STATE")
     return parent, coverage, held
 
@@ -487,6 +538,7 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                                  historical_identity_verified=False, corporate_action_chain_verified=False,
                                  source_admission=False, pit_verified=False))
             rows += count
+    updates.update({t: coverage[t] for t in reused})
     return updates, held, reused, receipts, rows
 
 
@@ -524,7 +576,7 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     meter.identity["managed_checkpoint_sha256"] = stored["sha256"]
     meter.save()
     return dict(status="REFRESH_CHECKPOINT_VERIFIED", session=terminal["session"],
-                valid_updated=len(terminal["coverage_updates"]), held=len(terminal["held"]),
+                valid_updated=len(terminal["coverage_updates"])-len(terminal["reused"]), held=len(terminal["held"]),
                 reused=len(terminal["reused"]), rows=terminal["rows"], checkpoint_sha256=stored["sha256"],
                 slot=slot, remaining_slots=control["max_runs"] - slot,
                 budget_basis="all slots fully reserved; no automatic refund",
@@ -567,10 +619,16 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     deployed_at = deployed_source(control, gh, ctx)
     require(owner_grant(control, control_sha, gh, now) >= deployed_at, "MANAGED_GRANT_PREDATES_DEPLOYMENT")
     history = run_history(control, gh, ctx)
+    source_history_fence(control, gh)
     gate = managed.evaluate_market_session(now_utc=now, min_close_age_minutes=120)
     if not gate["ready"]:
-        return dict(status="SKIP_MARKET_WINDOW", provider_requests=0, dispatches=0,
-                    collection_enabled=False, source_admission=False, pit_verified=False)
+        marker = dict(schema="a1-managed-no-capture-v1",status="SKIP_MARKET_WINDOW",
+                      managed_control_sha256=control_sha,run_id=ctx["run_id"],run_attempt=ctx["attempt"],
+                      source_sha=ctx["head"],observed_at_utc=now.isoformat(),market_gate=gate,
+                      phase="BEFORE_CREDENTIALS",provider_requests=0,drive_requests=0,dispatches=0,
+                      collection_enabled=False,source_admission=False,pit_verified=False)
+        managed.write_report(args.meter, marker, [args.policy,args.inventory,args.output])
+        return marker
     key, secret = os.getenv("ALPACA_API_KEY", ""), os.getenv("ALPACA_API_SECRET", "")
     require(key and secret and digest((key + "\0" + secret).encode()) == control["credential_binding"],
             "MANAGED_CREDENTIAL_BINDING")

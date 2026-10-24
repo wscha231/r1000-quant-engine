@@ -7657,3 +7657,12 @@ before meter construction. The first new Native fixture failed only on Windows
 cp949 decoding of a UTF-8 workflow; specify UTF-8 explicitly, retain the failure,
 and rerun without relaxing assertions. The separate Source offline suite and
 original campaign/controller files remain unchanged.
+
+Exact-head review then found ordinary holiday successes lacked resumable
+no-capture proof, and already-current bootstrap names could starve an unvisited
+tail. Write a typed pre-credential calendar outcome and authenticate it on the
+next run; persist reused cutoffs alongside new coverage. Independent A6 also
+proved shared concurrency alone cannot account for intervening legacy Source
+costs. Fence the complete bounded run/attempt prefix, including older reruns;
+any change requires cost reconciliation. None of these fixture corrections
+establish supplier rights or approve activation.

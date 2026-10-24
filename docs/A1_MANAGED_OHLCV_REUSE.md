@@ -142,7 +142,7 @@ values must come from actual owner receipts and separately reviewed permission:
 | Cumulative costs | Original `opening_usage`, actual `opening_evidence_ref`/SHA, explicit `per_run_allowance`, `cumulative_ceiling`. Reserve every slot in full. Preserve opening provider/Drive/bytes/storage/active-seconds/dispatch costs and unresolved reservations; never reset the993/174 campaigns. Each slot reserves the full5400-second job timeout including setup/publication, regardless of a shorter worker limit. |
 | Account and private storage | Actual credential binding, owner hash and distinct existing root/data/journal/evidence folder IDs, same OAuth owner, private permissions and at least2GiB verified free space. Nothing sensitive belongs in GitHub. |
 | Rights | `rights_ref`: `a1-reviewed-account-rights-v1`, exact binding, provider, personal noncommercial purpose, reviewed historical-SIP and private-retention permissions, actual source-document refs. Read back all bounded source documents. Supplier expiry is checked only if explicitly documented; execution expiry is not supplier expiry. |
-| Opening accounting | `opening_evidence_ref`: `a1-managed-opening-accounting-v1`, exact opening usage/binding, original-campaign preservation, unresolved costs reserved, actual source-document refs. Owner review is explicit; this adapter does not claim to infer every old platform cost from missing receipts. |
+| Opening accounting | `opening_evidence_ref`: `a1-managed-opening-accounting-v1`, exact opening usage/binding, original-campaign preservation, unresolved costs reserved, actual source-document refs and the same `source_history_sha256` as the control. Hash the original Source workflow's complete bounded run prefix (ID/attempt/head/status/conclusion/created/updated; sorted by ID). Missing pages, active runs, added runs or older rerun attempts block maintenance pending reconciliation. Owner review is explicit; this adapter does not infer old platform cost from missing receipts. |
 | Original reuse | `bootstrap_ref`: `a1-managed-reuse-bootstrap-v1`, inventory hash, opening-usage/evidence hash, existing provider groups/receipt refs and `asset_identity_refs` to actual retained provider-asset bytes. Reconcile only selected groups' actual bytes; compare stable asset IDs and hold missing/changed IDs. This bootstrap has not yet been supplied or certified. |
 | Protected deployment | Exact reviewed PR HEAD/merge, protected current master ancestry and LF-normalized `code_pins` for every runtime dependency listed in `PIN_PATHS`. A Draft is ineligible. |
 | Standing owner grant | An actual immutable OWNER comment on A0, created after deployment and within the execution window. Exactly one `A1_MANAGED_SIP_EXECUTION_V1 <JSON>` line binds `control_sha256`, `rights_sha256`, `opening_evidence_sha256`, expiry and explicit rights/budget review booleans. The control hash excludes only `approval_reference`, whose real comment ID is returned after posting; do not predict an ID or invent an auth hash. |
@@ -169,6 +169,17 @@ meters, changed attempts, broken chains or any prior BLOCKED state fail closed;
 partial raw packs stay intact for explicit reconciliation, not automatic replay.
 The final safe artifact is `a1-managed-ohlcv-<run>`; actual originals stay private.
 Checkpoints are the refresh namespace, not a replacement investment ledger.
+
+A holiday/outside-window return writes an explicit `a1-managed-no-capture-v1`
+artifact before credentials, with the actual clock/calendar and zero Source
+I/O. Continuation authenticates that artifact and recomputes its calendar;
+missing checkpoints alone are never zero-cost proof. Such slots retain their
+full reservation. Already-current bootstrap cutoffs are saved in the terminal
+coverage map so a bounded batch can progress past reused names to the tail.
+The shared concurrency lock prevents simultaneous Source work; the full legacy
+run/attempt fingerprint separately detects intervening Source activity. A
+changed fingerprint requires reconciling actual extra costs and a new reviewed
+standing contract, never silent subtraction or budget renewal.
 
 An incremental update is complete only when raw and split grids both cover every
 requested NYSE session. A last-day bar alone is insufficient. Newly listed or

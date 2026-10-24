@@ -908,6 +908,7 @@ class ManagedExecutionTests(unittest.TestCase):
             bootstrap_ref=dict(file_id='fixture-bootstrap-123', sha256='d'*64, bytes=1),
             opening_evidence_ref=dict(file_id='fixture-opening-123',sha256='1'*64,bytes=1),
             owner_sha256='e'*64, credential_binding='f'*64, opening_evidence_sha256='1'*64,
+            source_history_sha256=runtime.sha([]),
             private_root_folder_id='fixture-root-123', private_data_folder_id='fixture-data-123',
             journal_folder_id='fixture-journal-123', evidence_folder_id='fixture-evidence-123',
             opening_usage={k: 1 for k in runtime.TOTAL_KEYS},
@@ -1061,6 +1062,53 @@ class ManagedExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(self.r.Refused,'MANAGED_METADATA_BUDGET'):
             reader('fixture')
 
+    def test_full_source_prefix_fences_new_runs_and_older_rerun_attempts(self):
+        rows = [dict(id=i,run_attempt=1,head_sha='2'*40,status='completed',conclusion='success',
+                     created_at=f'2026-10-2{i}T00:00:00Z',updated_at=f'2026-10-2{i}T01:00:00Z')
+                for i in [1,2]]
+        self.control['source_history_sha256'] = self.r.sha(rows)
+        fetch = lambda _: dict(total_count=len(rows),workflow_runs=list(reversed(rows)))
+        self.assertEqual(self.r.source_history_fence(self.control,fetch),rows)
+        rows[0]['run_attempt'] = 2  # latest created ID remains2
+        with self.assertRaisesRegex(self.r.Refused,'INTERVENING_SOURCE_ACTIVITY'):
+            self.r.source_history_fence(self.control,fetch)
+        rows[0]['run_attempt'] = 1
+        rows.append(dict(rows[1],id=3))
+        with self.assertRaisesRegex(self.r.Refused,'INTERVENING_SOURCE_ACTIVITY'):
+            self.r.source_history_fence(self.control,fetch)
+
+    def test_partial_source_history_is_not_a_safe_zero_cost_prefix(self):
+        with self.assertRaisesRegex(self.r.Refused,'SOURCE_HISTORY_INCOMPLETE'):
+            self.r.source_history_fence(self.control,lambda _:dict(total_count=2,workflow_runs=[]))
+
+    def no_capture(self):
+        now = self.r.campaign.utc('2026-07-03T23:30:00Z')
+        value = dict(schema='a1-managed-no-capture-v1',status='SKIP_MARKET_WINDOW',
+            managed_control_sha256='a'*64,run_id=1,run_attempt=1,source_sha='2'*40,
+            observed_at_utc=now.isoformat(),phase='BEFORE_CREDENTIALS',provider_requests=0,
+            drive_requests=0,collection_enabled=False,
+            market_gate=self.r.managed.evaluate_market_session(now_utc=now,min_close_age_minutes=120))
+        run = dict(id=1,head_sha='2'*40,created_at='2026-07-03T23:29:00Z',updated_at='2026-07-03T23:31:00Z')
+        return value,run
+
+    def test_holiday_outcome_can_continue_only_with_positive_no_capture_artifact(self):
+        value,run = self.no_capture()
+        verifier = lambda r,h:self.r.verify_final_meter(value,r,h,'a'*64,self.control['per_run_allowance'])
+        self.assertEqual(self.r.restore_journal([], [run,dict(id=2)],'a'*64,verifier), (None,{},{}))
+        value['provider_requests'] = 1
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_PROOF'):
+            self.r.restore_journal([], [run,dict(id=2)],'a'*64,verifier)
+
+    def test_no_capture_clock_or_false_holiday_never_passes(self):
+        value,run = self.no_capture()
+        value['observed_at_utc'] = '2026-10-23T23:30:00Z'
+        run.update(created_at='2026-10-23T23:29:00Z',updated_at='2026-10-23T23:31:00Z')
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_CALENDAR'):
+            self.r.verify_final_meter(value,run,None,'a'*64,self.control['per_run_allowance'])
+        value,run = self.no_capture()
+        run['updated_at'] = '2026-07-03T23:29:59Z'
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_CLOCK'):
+            self.r.verify_final_meter(value,run,None,'a'*64,self.control['per_run_allowance'])
     def test_existing_workflow_reuses_source_lock_and_defaults_disabled(self):
         import yaml
         value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
@@ -1209,6 +1257,23 @@ class ManagedExecutionTests(unittest.TestCase):
                 {'AAPL'},{},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
         self.assertEqual(values[1],{'AAPL':'PROVIDER_SECURITY_ID_CHANGED'})
         self.assertEqual(opener.calls,1)  # asset reference only, no bars
+
+    def test_current_bootstrap_cutoff_is_persisted_and_unvisited_tail_advances(self):
+        drive,meter,opener = self.memory_capture()
+        self.control['max_symbols_per_run'] = 1
+        bootstrap = dict(groups=[],asset_identity_refs=self.fixture_bindings)
+        known = dict(AAPL='2026-10-23',MSFT='2026-10-22')
+        with patch.object(self.r,'bootstrap_coverage',side_effect=lambda d,c,b,n:{t:known[t] for t in n}), \
+             patch.object(self.r.capture.time,'sleep',return_value=None):
+            first = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL','MSFT'},
+                {},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+            self.assertEqual(first[0],{'AAPL':'2026-10-23'})
+            self.assertEqual(first[2],['AAPL'])
+            self.assertEqual(opener.calls,0)
+            second = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL','MSFT'},
+                first[0],{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual(second[0],{'MSFT':'2026-10-23'})
+        self.assertEqual(opener.calls,3)
 
 
 def main():
