@@ -7858,3 +7858,9 @@ can invalidate historical adjustments, so append-only cache reuse needs explicit
 revision/method invalidation. The connected Alpaca bars signature lacks adjustment
 and pagination controls; never label its raw/default response a complete TR feed.
 Firecrawl credit exhaustion was preserved; official docs used web fallback.
+
+Independent A6 reproduced valid-JSON cached integer/timezone overflows that
+escaped the read plan's malformed-cache boundary. Include OverflowError in
+that narrow boundary and retain both huge-weight and UTC-underflow regressions
+under normal/-O. Refresh only the affected selected fund; never mark a failed
+cache ready, print its raw value or relax final export validation.

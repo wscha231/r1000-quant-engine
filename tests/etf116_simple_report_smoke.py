@@ -332,6 +332,18 @@ class SimpleReportTests(unittest.TestCase):
                 report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
             holding_check.assert_not_called()
 
+    def test_read_plan_overflowing_cache_values_request_only_that_fund(self):
+        chosen = self.build()['top5'][0]['ticker']
+        for key, value in (('weight_pct', 10 ** 400),
+                           ('published_at', '0001-01-01T00:00:00+01:00')):
+            changed = copy.deepcopy(self.value)
+            changed['holdings'][chosen][0][key] = value
+            result = report.plan_inputs(changed, FROZEN, evaluation_time=NOW)
+            self.assertEqual(result['holdings_fetch_reasons'], {chosen: 'INVALID_OR_STALE_HOLDINGS_CACHE'})
+            self.assertEqual(len(result['holdings_reuse_sha256']), 4)
+            self.assertFalse(result['report_input_ready'])
+            self.assertNotIn(str(value), json.dumps(result))
+
     def test_read_plan_new_member_and_existing_cadence_refresh(self):
         old = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)['selected_tickers']
         entrant = next(t for t in TICKERS[:7] if t not in old)

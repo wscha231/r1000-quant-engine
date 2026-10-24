@@ -216,7 +216,7 @@ def plan_inputs(packet, frozen, *, evaluation_time=None, holdings_refresh_due=Fa
                 _holdings([fund], {ticker: cached[ticker]}, session=selected['session'],
                           decision=selected['decision'], tickers=selected['tickers'])
                 reuse[ticker] = canonical_hash(cached[ticker])
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, OverflowError):
                 # Cache invalidity requests fresh GETs, never output/error echo.
                 fetch[ticker] = 'INVALID_OR_STALE_HOLDINGS_CACHE'
     result = dict(schema='etf116-simple-report-read-plan-v1', session=selected['session'],
