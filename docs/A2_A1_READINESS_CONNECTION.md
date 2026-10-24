@@ -142,3 +142,33 @@ refresh of the existing actual MU store or a positive three-event E2E receipt.
 This connection produces bounded proposals only. Managed OHLCV daily refresh,
 supplier-rights evidence, protected deployment and actual activation remain
 their separate existing Source path; this PR adds no schedule or dispatch grant.
+
+## Mixed empty windows and retained completion outputs
+
+Missing prices, verified no-bars sessions and unexamined collection work are
+separate diagnostics. Only unexamined sessions enter collection ranges and the
+provider lower bound. Verified empty intervals cannot bridge two genuine gaps.
+A fully examined mixed window is BLOCKED for raw-price review, has no redundant
+collection request and retains its missing prices. All-empty windows remain
+NO_DATA. No identity/request ID, price filling, consumer readiness or budget
+authority is advanced by this distinction.
+
+Connect also retains standalone output descriptors from completed incumbent
+requests, including an A6 qa_report that is not another request's input. It
+applies the existing full V2 schema, descriptor/hash/time/path checks and public
+planner's actual completion identity before evidence publication. Original
+receipts, relative paths, clocks and bytes are unchanged. A disposable bounded
+transport view lets that existing validator read only captured bytes; it is
+deleted after validation and is not a Registry or accepted store. The incumbent
+planner still decides applicability: old keys and unrequested historical rows
+stay ignored, their outputs are not fetched, and no skip is minted. Applicable
+current completions with invalid proof refuse before evidence publication.
+
+Completion outputs and known nested bundle closures share the existing128-read/
+32MiB capture budget, reserved before I/O with remaining-byte bounded reads.
+Source output hardlinks and existing destination aliases/conflicts refuse;
+existing-destination verification consumes the same I/O budget. Every bounded
+input, output, receipt and existing destination is checked before publishing
+any evidence child. Failure leaves an empty proposed queue and preserves
+original inputs and conflicting prior bytes. The final existing materializer
+and public board validation still run against the relocated evidence root.

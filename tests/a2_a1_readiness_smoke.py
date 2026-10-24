@@ -56,6 +56,150 @@ def run(value,values):return live.lookup(value,h.MemoryArtifacts(values),cutoff=
 
 
 class ReadinessTests(unittest.TestCase):
+    def test_retained_completion_invalid_refs_receipts_and_destinations_publish_no_evidence(self):
+        failures=('missing','tampered','expired','future','unknown_receipt','unknown_output',
+                  'duplicate_receipt','wrong_code','wrong_model','wrong_input','wrong_dependency',
+                  'wrong_qa_scope','wrong_reviewed_artifacts','unverified','future_receipt',
+                  'traversal','hardlink','input_collision','destination_conflict','destination_hardlink')
+        for failure in failures:
+            with self.subTest(failure=failure),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);owner,intake,receipt,_=completed_connect_fixture(self,root)
+                ref=receipt['outputs']['qa_report'];path=owner.root/ref['path']
+                if failure=='missing':path.unlink()
+                elif failure=='tampered':path.write_bytes(path.read_bytes()+b' ')
+                elif failure=='expired':ref['expires_at']=owner.at(-1)
+                elif failure=='future':ref.update(available_at=owner.at(1),collected_at=owner.at(1))
+                elif failure=='unknown_receipt':receipt['schema_version']='unknown'
+                elif failure=='unknown_output':receipt['outputs']={'unrecognized':ref}
+                elif failure=='duplicate_receipt':owner.manifest['completed_tasks'].append(copy.deepcopy(receipt))
+                elif failure=='wrong_code':receipt['code_sha']='e'*40
+                elif failure=='wrong_model':receipt['model']['version']='other'
+                elif failure=='wrong_input':receipt['input_hashes']['review_bundle']='f'*64
+                elif failure=='wrong_dependency':
+                    receipt['dependency_identities']={'A1':dict(task_key='a'*64,output_hashes={'data_pit':'b'*64})}
+                elif failure in {'wrong_qa_scope','wrong_reviewed_artifacts'}:
+                    payload=board.read_json(path)
+                    if failure=='wrong_qa_scope':payload['review_bundle_sha256']='f'*64
+                    else:payload['reviewed_artifacts']={}
+                    path.write_bytes(h.canonical(payload));ref['sha256']=board.file_hash(path)
+                elif failure=='unverified':receipt['verification_status']='UNKNOWN'
+                elif failure=='future_receipt':receipt['created_at']=owner.at(1)
+                elif failure=='traversal':ref['path']='../original.json'
+                elif failure=='hardlink':(root/'original').hardlink_to(path)
+                elif failure=='input_collision':
+                    ref.update(path='code.json',sha256=board.file_hash(owner.root/'code.json'))
+                # Bind deliberate output mutations to existing fixture evidence;
+                # path/hash/expiry/scope guards must fail for their real reason,
+                # rather than only an enclosing stale evidence digest.
+                for kind in ('runtime_verification','focused_tests','ci'):
+                    evidence=receipt[kind]
+                    evidence['identity']=board.evidence_identity(kind,evidence['reference'],
+                        receipt['task_key'],receipt['identity'],evidence['head_sha'],
+                        receipt['outputs'],evidence['available_at'])
+                intake.write_bytes(h.canonical(owner.manifest))
+                initial_evidence={}
+                if failure.startswith('destination_'):
+                    fragment=board.read_json(root/'lookup/request_fragment.json')
+                    namespace=h.digest(h.canonical([owner.manifest,fragment]))
+                    dest=root/'out/evidence'/namespace/ref['path'];dest.parent.mkdir(parents=True)
+                    original=root/'original';original.write_bytes(b'original retained bytes')
+                    if failure=='destination_hardlink':dest.hardlink_to(original)
+                    else:dest.write_bytes(b'conflicting previous bytes')
+                    initial_evidence={p:p.read_bytes() for p in (root/'out/evidence').rglob('*') if p.is_file()}
+                before={p:p.read_bytes() for p in owner.root.rglob('*') if p.is_file()}
+                with self.assertRaises((ValueError,OSError)):
+                    live.connect(root/'lookup',intake,owner.root,root/'out')
+                self.assertEqual(before,{p:p.read_bytes() for p in before})
+                self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
+                self.assertEqual(initial_evidence,{p:p.read_bytes() for p in
+                    (root/'out/evidence').rglob('*') if p.is_file()})
+
+    def test_old_key_and_unrequested_history_keep_incumbent_ignore_semantics(self):
+        for kind in ('old_key','request_identity','unrelated_missing','unrelated_oversized'):
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);owner,intake,receipt,_=completed_connect_fixture(self,root)
+                output=owner.root/receipt['outputs']['qa_report']['path'];read=live.read_bytes;opened=[]
+                if kind=='old_key':receipt['task_key']='a'*64
+                elif kind=='request_identity':owner.manifest['requests'][0]['model']['version']='other'
+                else:
+                    history=copy.deepcopy(receipt);history['agent']='A2'
+                    history['outputs']['qa_report']['path']='unrelated_history.json'
+                    if kind=='unrelated_oversized':
+                        (owner.root/'unrelated_history.json').write_bytes(b' '*(h.MAX_BYTES+1))
+                    owner.manifest['completed_tasks'].append(history)
+                if kind in {'old_key','request_identity'}:output.unlink()
+                intake.write_bytes(h.canonical(owner.manifest))
+                original=copy.deepcopy(owner.manifest['completed_tasks'])
+                def track(path,**kw):opened.append(Path(path));return read(path,**kw)
+                with mock.patch.object(live,'read_bytes',side_effect=track):
+                    live.connect(root/'lookup',intake,owner.root,root/'out')
+                task=next(t for t in board.read_json(root/'out/agent_task_queue.json') if t['agent']=='A6')
+                self.assertEqual(task['status'],'READY' if kind in {'old_key','request_identity'} else 'SKIP_UNCHANGED')
+                self.assertEqual(board.read_json(root/'out/intake.json')['completed_tasks'],original)
+                self.assertNotIn(owner.root/'unrelated_history.json',opened)
+                if kind in {'old_key','request_identity'}:self.assertNotIn(output,opened)
+
+    def test_completion_output_symlink_guard_precedes_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);owner,intake,receipt,_=completed_connect_fixture(self,root)
+            target=owner.root/receipt['outputs']['qa_report']['path']
+            original=Path.is_symlink;read=live.read_bytes;opened=[]
+            def guarded(path,**kw):opened.append(Path(path));return read(path,**kw)
+            with mock.patch.object(Path,'is_symlink',lambda p:p==target or original(p)),\
+                    mock.patch.object(live,'read_bytes',side_effect=guarded):
+                with self.assertRaisesRegex(ValueError,'artifact_symlink'):
+                    live.connect(root/'lookup',intake,owner.root,root/'out')
+            self.assertNotIn(target,opened)
+            self.assertEqual(board.read_json(root/'out/agent_task_queue.json'),[])
+            self.assertEqual([p for p in (root/'out/evidence').rglob('*') if p.is_file()],[])
+
+    def test_completion_output_count_and_remaining_bytes_reserved_before_IO(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);owner,intake,receipt,_=completed_connect_fixture(self,root)
+            target=owner.root/receipt['outputs']['qa_report']['path'];read=live.read_bytes;calls=[]
+            def track(path,**kw):
+                value=read(path,**kw);calls.append((Path(path),len(value),kw.get('limit')));return value
+            with mock.patch.object(live,'read_bytes',side_effect=track):
+                live.connect(root/'lookup',intake,owner.root,root/'out')
+            index=next(i for i,c in enumerate(calls) if c[0]==target)
+            prefix_bytes=sum(c[1] for c in calls[:index]);limits=[]
+            def tiny(path,**kw):
+                if Path(path)==target:limits.append(kw['limit'])
+                return read(path,**kw)
+            with mock.patch.object(h,'MAX_TOTAL_BYTES',prefix_bytes+1),\
+                    mock.patch.object(live,'read_bytes',side_effect=tiny):
+                with self.assertRaisesRegex(ValueError,'LOOKUP_FILE_BUDGET'):
+                    live.connect(root/'lookup',intake,owner.root,root/'budget_out')
+            self.assertEqual(limits,[1])
+            self.assertEqual([p for p in (root/'budget_out/evidence').rglob('*') if p.is_file()],[])
+            with tempfile.TemporaryDirectory() as count_tmp:
+                count_root=Path(count_tmp)
+                other,other_intake,other_receipt,_=completed_connect_fixture(self,count_root,
+                    extra_leaves=128-index)
+                output=other.root/other_receipt['outputs']['qa_report']['path'];opened=[]
+                def count(path,**kw):opened.append(Path(path));return read(path,**kw)
+                with mock.patch.object(live,'read_bytes',side_effect=count):
+                    with self.assertRaisesRegex(ValueError,'LOOKUP_BIND_HASH_OR_BUDGET'):
+                        live.connect(count_root/'lookup',other_intake,other.root,count_root/'out')
+                self.assertEqual(len(opened),128)
+                self.assertNotIn(output,opened)
+                self.assertEqual([p for p in (count_root/'out/evidence').rglob('*') if p.is_file()],[])
+
+    def test_connect_retains_completed_A6_standalone_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);owner,intake,receipt,before=completed_connect_fixture(self,root)
+            original=copy.deepcopy(receipt)
+            live.connect(root/'lookup',intake,owner.root,root/'out')
+            tasks=board.read_json(root/'out/agent_task_queue.json')
+            qa=next(t for t in tasks if t['agent']=='A6')
+            self.assertEqual(qa['status'],'SKIP_UNCHANGED')
+            self.assertEqual(qa['task_key'],before['task_key'])
+            transported=board.read_json(root/'out/intake.json')
+            self.assertEqual(transported['completed_tasks'],[original])
+            evidence=next((root/'out/evidence').iterdir())
+            ref=receipt['outputs']['qa_report']
+            self.assertEqual((evidence/ref['path']).read_bytes(),(owner.root/ref['path']).read_bytes())
+
     def test_supported_capture_and_checkpoint_decode_above_default1000(self):
         for aid,counts in (('CAPTURE',(1000,1001,4000)),('CP',(1000,1001,1500))):
             for count in counts:
@@ -576,6 +720,34 @@ class ReadinessTests(unittest.TestCase):
                 self.assertEqual(board.read_json(root/'board/agent_task_queue.json'),[])
                 self.assertEqual(board.read_json(root/'board/manifest.json')['status'],'BLOCKED')
         finally:owner.tearDown();owner.tmp.cleanup()
+
+
+def completed_connect_fixture(testcase,root,*,extra_leaves=0):
+    """Complete the incumbent public A6 path; output is not another input."""
+    from control_plane_agent_contract_smoke import ControlPlaneTests
+    owner=state_fixture.StateTests('test_current_identity_and_semantic_determinism');owner.setUp()
+    testcase.addCleanup(owner.doCleanups)
+    intake,*_=ReadinessTests().nested_connect_fixture(root,owner)
+    if extra_leaves:
+        bundle_ref=owner.manifest['requests'][0]['inputs']['review_bundle']
+        bundle=board.read_json(owner.root/bundle_ref['path'])
+        for i in range(extra_leaves):
+            path=owner.root/('extra'+str(i)+'.json');path.write_bytes(h.canonical({'extra':i}))
+            bundle['artifacts']['extra'+str(i)]=dict(path=path.name,sha256=board.file_hash(path),
+                observed_at=owner.at(-8),available_at=owner.at(-7),collected_at=owner.at(-4),
+                expires_at=owner.at(30),status='VERIFIED')
+        path=owner.root/bundle_ref['path'];path.write_bytes(h.canonical(bundle))
+        bundle_ref['sha256']=board.file_hash(path)
+    cp=ControlPlaneTests();cp.setUp();testcase.addCleanup(cp.doCleanups)
+    cp.root=owner.root;cp.now=owner.now;cp.sha=owner.sha;cp.config=owner.config
+    cp.state=owner.state();receipt=cp.complete('A6')
+    owner.manifest['completed_tasks']=copy.deepcopy(cp.state['completed_tasks'])
+    intake.write_bytes(h.canonical(owner.manifest))
+    tasks=board.build_tasks(owner.state(),owner.root,board.contracts(),owner.now,owner.sha,owner.config,
+        canonical_inputs=owner.manifest,evidence_root=owner.root)
+    before=next(t for t in tasks if t['agent']=='A6')
+    testcase.assertEqual(before['status'],'SKIP_UNCHANGED')
+    return owner,intake,owner.manifest['completed_tasks'][0],before
 
 
 def sec_pending_fixture(root, *, form='4', accession='0000723125-26-000001',

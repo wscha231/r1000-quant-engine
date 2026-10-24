@@ -8053,3 +8053,24 @@ lineage. Historical readback never grants current freshness or OHLCV eligibility
 The first coupled fixture retained an orphan old origin and was correctly refused;
 remove only that synthetic origin, retain the failing log and original assertions.
 Do not promote historical MU proof or supplier rights from these offline tests.
+
+### 2026-10-25 — Separate examined empty prices from fetch work; retain completions
+
+Hosted1bb review exposed two missing boundaries despite scoped passing QA.
+Verified empty sessions remain missing prices, but must not generate new ranges
+or provider estimates, including mixed archives and empties between real gaps.
+Fully examined mixed windows stay BLOCKED, with no fabricated complete coverage.
+
+Relocating requests also requires their valid standalone completion outputs.
+Use the incumbent full V2 schema and public completion planner on a disposable,
+bounded captured-byte view before publication. A receipt's claimed key/status
+is not enough. Preserve output clocks/paths/hashes and the planner's existing
+old-key/unrequested-history behavior without fetching irrelevant outputs. Reject
+invalid applicable proof and aliases; reserve count/remaining bytes before reads.
+Preflight every existing destination before writing any evidence child; preserve
+conflicting originals. A scratch validation view is not a canonical store.
+
+The old two real assertion failures were retained. A first code-byte provenance
+comparison encountered Windows CRLF versus Git LF, so the discriminators were
+also executed against immutable canonical1bb modules outside Source. No private
+evidence normalization or production overwrite was used for that reproduction.

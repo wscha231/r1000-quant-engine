@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -371,13 +372,19 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
     # review bundles. A per-input namespace avoids overwriting prior snapshots.
     root=safe_output(out/'evidence'/h.digest(h.canonical([manifest,fragment])))
     total=0;count=0;staged={}
-    def copy_descriptor(ref, base, depth=0, bundle=False):
+    def capture(path):
         nonlocal total,count
-        h.need(depth <= h.MAX_DEPTH, 'LOOKUP_BIND_DEPTH')
         h.need(count<128 and total<h.MAX_TOTAL_BYTES, 'LOOKUP_BIND_HASH_OR_BUDGET')
         count+=1
-        content=read_bytes(board.artifact_path(base,ref['path']),limit=h.MAX_TOTAL_BYTES-total)
+        content=read_bytes(path,limit=h.MAX_TOTAL_BYTES-total)
         total+=len(content)
+        return content
+    def copy_descriptor(ref, base, depth=0, bundle=False, completion=False):
+        h.need(depth <= h.MAX_DEPTH, 'LOOKUP_BIND_DEPTH')
+        path=board.artifact_path(base,ref['path'])
+        if completion:
+            h.need(path.stat().st_nlink==1,'LOOKUP_COMPLETION_OUTPUT_HARDLINK')
+        content=capture(path)
         h.need(h.digest(content)==ref['sha256'],'LOOKUP_BIND_HASH_OR_BUDGET')
         observed,available,collected,expires=(board.timestamp(ref[k]) for k in
             ('observed_at','available_at','collected_at','expires_at'))
@@ -404,7 +411,7 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
             for child in node['artifacts'].values():
                 h.need(board.timestamp(child['collected_at'])<=collected,
                        'LOOKUP_BIND_BUNDLE_CLOCK')
-                copy_descriptor(child,base,depth+1)
+                copy_descriptor(child,base,depth+1,completion=completion)
         return dict(ref)
     for role,refs in manifest['sources'].items():
         manifest['sources'][role]=[copy_descriptor(ref,sources) for ref in refs]
@@ -423,7 +430,67 @@ def connect(lookup_dir, canonical_inputs, evidence_root, output_dir):
         h.need(copied['path']==ref['path'],'LOOKUP_CHILD_PATH')
     fragment['inputs']['source_inventory']=copy_descriptor(inv_ref,lookup_root)
     manifest['requests']=[*existing,fragment]
+    retained=manifest.get('completed_tasks',[])
+    if retained:
+        # Validate only captured, bounded bytes in a disposable transport view.
+        # The incumbent public planner derives the actual current task identity;
+        # a receipt's own boolean/key is never an authority to copy its outputs.
+        with tempfile.TemporaryDirectory(prefix='a2-a1-completion-check-') as temporary:
+            preview=Path(temporary);written=set()
+            def captured_view():
+                for dest,_,content in staged.values():
+                    relative=dest.relative_to(root)
+                    if relative not in written:
+                        target=board.artifact_path(preview,relative.as_posix())
+                        target.parent.mkdir(parents=True,exist_ok=True)
+                        with target.open('xb') as stream:stream.write(content)
+                        written.add(relative)
+            captured_view()
+            # Materialization applies the existing full V2 receipt schema before
+            # any completion output is read (intake rows alone are untyped).
+            state=materializer.materialize(manifest,preview,now)
+            contract=board.contracts();incumbent={r['agent']:r for r in existing}
+            code_sha,config_hash=board.source_identity()
+            def plan():
+                return {t['agent']:t for t in board.build_tasks(state,preview,contract,
+                    now,code_sha,config_hash,canonical_inputs=manifest,evidence_root=preview)}
+            planned=plan();copied=set()
+            # Dependencies become applicable in the incumbent planner's order.
+            # Old keys/unrequested history remain ignored under that same API;
+            # their unrelated missing/large outputs are never fetched.
+            for _ in range(len(incumbent)+1):
+                applicable=[r for r in retained if r['agent'] in incumbent
+                    and r['agent'] not in copied and planned[r['agent']]['task_key']==r['task_key']
+                    and not any(reason!='completion_output_invalid'
+                        for reason in planned[r['agent']]['reasons'])]
+                if not applicable:break
+                for receipt in applicable:
+                    agent=receipt['agent'];request=incumbent[agent];packet=planned[agent]
+                    h.need(set(receipt['outputs'])==set(contract['agents'][agent]['outputs']),
+                           'LOOKUP_COMPLETION_OUTPUT_ROLES')
+                    causal=list(request['inputs'].values())
+                    if agent=='A6':
+                        bundle=board.read_json(board.artifact_path(preview,request['inputs']['review_bundle']['path']))
+                        causal+=list(bundle['artifacts'].values())
+                    causal += [ref for dep in packet['dependency_outputs'].values()
+                               for ref in dep['outputs'].values()]
+                    board.verify_completion(receipt,packet['identity'],request,
+                        packet['dependency_outputs'],max(board.timestamp(ref['collected_at']) for ref in causal),
+                        board.timestamp(manifest['observed_at']))
+                    for ref in receipt['outputs'].values():
+                        copy_descriptor(ref,sources,completion=True)
+                    copied.add(agent)
+                captured_view();planned=plan()
+            h.need(all(planned[agent]['status']=='SKIP_UNCHANGED' for agent in copied),
+                   'LOOKUP_COMPLETION_NOT_CURRENT')
     h.need(not marker.exists() and not marker.is_symlink(),'LOOKUP_REFRESH_BLOCKED')
+    # Refuse all existing destination aliases/conflicts before writing any child.
+    for dest,_,content in staged.values():
+        h.need(all(not p.exists() or p.is_dir() for p in dest.parents if p.is_relative_to(root)),
+               'LOOKUP_BIND_PATH_CONFLICT')
+        if dest.exists():
+            h.need(dest.is_file() and dest.stat().st_nlink==1,'LOOKUP_OUTPUT_HARDLINK')
+            h.need(capture(dest)==content,'LOOKUP_IMMUTABLE_CONFLICT')
     # Every bounded input/hash/clock/path conflict is checked before publishing
     # any evidence. Immutable writes never truncate a conflicting prior inode.
     for dest,_,content in staged.values():

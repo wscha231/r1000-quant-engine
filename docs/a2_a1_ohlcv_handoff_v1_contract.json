@@ -28,7 +28,8 @@
     "NO_DATA",
     "BLOCKED"
   ],
-  "incremental": "Only a complete prefix of requested declared sessions qualifies; internal gaps are BACKFILL_REQUIRED. Missing ranges never include earlier covered sessions.",
+  "incremental": "Only a complete price prefix of requested declared sessions qualifies; internal price gaps are BACKFILL_REQUIRED. Collection missing_ranges exclude both covered prices and verified empty sessions. Missing price sessions are never zero-filled or promoted to coverage.",
+  "coverage_diagnostics": "missing_sessions/missing_price_ranges describe absent prices; verified_empty_sessions describe checked no-bars evidence; collection_missing_sessions/missing_ranges and the provider lower bound describe only unchecked collection work. A fully examined mixed price/no-bars window is BLOCKED for price review, with no collection proposal and zero provider estimate. All-empty requested windows retain NO_DATA; neither state grants consumer eligibility.",
   "request_schema": "A2_TO_A1_OHLCV_REQUEST",
   "result_schema": "A1_OHLCV_COVERAGE_RESULT",
   "idempotency": "Request ID binds security/issuer/ticker/market/MIC/currency/window/raw+split/provider/feed/campaign/immutable authorization reference, excluding mutable usage counts and event aliases. Prior PENDING/RUNNING/COMPLETE/FAILED/UNKNOWN suppress duplicate proposals but never authenticate completion or trigger retry.",

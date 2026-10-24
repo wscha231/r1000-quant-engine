@@ -227,11 +227,18 @@ def build_plan(inventory, memory, *, cutoff):
                    'SOURCE_CALENDAR_CONFLICT')
             covered = set(expected) & raw_days
             missing = set(expected) - covered
-            if not covered and all(any(left <= day < right for left, right in empty_windows)
-                                   for day in expected):
+            verified_empty = {day for day in expected if
+                any(left <= day < right for left, right in empty_windows)}
+            collection_missing = missing - verified_empty
+            if not covered and not collection_missing:
                 action = 'NO_DATA'
             elif not missing:
                 action = 'REUSE_EXISTING'
+            elif not collection_missing:
+                # Examined no-bars sessions remain missing prices, not work to
+                # repeat or a complete price window eligible for consumption.
+                action = 'BLOCKED'
+                result['status'] = 'BLOCKED'
             elif covered and covered == set(expected[:len(covered)]):
                 action = 'INCREMENTAL_ONLY'
             else:
@@ -263,21 +270,26 @@ def build_plan(inventory, memory, *, cutoff):
                 authorization_sha256=policy['authorization_sha256'] if policy else None)))
             blockers = ['A0_AUTHENTICATED_EVENT_IDENTITY_REQUIRED',
                 'SOURCE_RIGHTS_CALENDAR_CA_PIT_REVIEW_REQUIRED']
+            if action == 'BLOCKED': blockers.append('RAW_PRICE_WINDOW_REVIEW_REQUIRED')
             if policy is None or policy['authorization_sha256'] is None:
                 blockers.append('AUTHORIZED_CAPTURE_SCOPE_REQUIRED')
             if policy is None or policy['usage_evidence_sha256'] is None:
                 blockers.append('ACTUAL_REMAINING_BUDGET_REQUIRED')
-            lower_bound = (0 if not missing or action == 'NO_DATA' else
-                1 + 2*((len(missing)+9999)//10000)) if first['country'] == 'US' else None
+            lower_bound = (0 if not collection_missing else
+                1 + 2*((len(collection_missing)+9999)//10000)) if first['country'] == 'US' else None
             if policy is not None and lower_bound is not None and lower_bound > policy['remaining_provider_gets']:
                 blockers.append('PROVIDER_BUDGET_INSUFFICIENT_LOWER_BOUND')
             if key in prior:
                 blockers.append('PRIOR_REQUEST_' + prior[key] + '_RECONCILE_REQUIRED')
             result.update(coverage_action=action, expected_sessions=len(expected),
                 covered_sessions=len(covered), missing_sessions=sorted(x.isoformat() for x in missing),
-                missing_ranges=_ranges(missing, expected), receipt_sha256s=receipt_hashes,
+                missing_price_ranges=_ranges(missing, expected),
+                verified_empty_sessions=sorted(x.isoformat() for x in verified_empty),
+                collection_missing_sessions=sorted(x.isoformat() for x in collection_missing),
+                missing_ranges=_ranges(collection_missing, expected),
+                minimum_provider_gets_estimate=lower_bound, receipt_sha256s=receipt_hashes,
                 coverage_evidence=evidence, request_id=key, blockers=blockers)
-            if key not in prior and action != 'NO_DATA':
+            if key not in prior and action not in {'NO_DATA', 'BLOCKED'}:
                 requests.append(dict(schema='A2_TO_A1_OHLCV_REQUEST', request_id=key,
                     assigned_by='A0', return_to='A0', mode='DRY_RUN', identity=identity,
                     source_event_keys=sorted(x['event_key'] for x in events),

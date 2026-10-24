@@ -89,6 +89,86 @@ def put(inventory,memory,aid,value):
 
 
 class OHLCVHandoffTests(unittest.TestCase):
+    def test_mixed_empty_union_reordering_and_true_gaps_keep_fetch_ranges_honest(self):
+        for order in ((0,1,2),(2,1,0)):
+            inventory,memory=fixture(['2016-01-07']);receipts=['RECEIPT']
+            windows=(('2016-01-04','2016-01-05'),('2016-01-05','2016-01-06'),
+                     ('2016-01-04','2016-01-06'))
+            for i in order:
+                ids=[role+str(i) for role in ('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT')]
+                for aid,raw in zip(ids,archive([],start=windows[i][0],end=windows[i][1])):
+                    memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+                receipts.append(ids[-1])
+            memory['EMPTY_ALIAS']=memory['EMPTY_RECEIPT0']
+            inventory['artifacts']['EMPTY_ALIAS']={'sha256':h.digest(memory['EMPTY_ALIAS'])}
+            receipts.append('EMPTY_ALIAS')
+            catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids']=receipts
+            put(inventory,memory,'CATALOG',catalog)
+            result=plan(inventory,memory);row=result['coverage_results'][0];request=result['requests'][0]
+            self.assertEqual(row['missing_sessions'],DAYS[:3])
+            self.assertEqual(row['verified_empty_sessions'],DAYS[:2])
+            self.assertEqual(row['collection_missing_sessions'],['2016-01-06'])
+            self.assertEqual(request['missing_ranges'],[dict(start='2016-01-06',end_exclusive='2016-01-07')])
+            self.assertEqual(request['minimum_provider_gets_estimate'],3)
+            self.assertEqual(request['action'],'BACKFILL_REQUIRED')
+            self.assertFalse(request['ready_for_collection'])
+            if order==(0,1,2):key=request['request_id']
+            else:self.assertEqual(request['request_id'],key)
+        # A newly supplied empty interval overlapping retained prices is still
+        # contradictory proof; examined-empty cannot bypass archive validation.
+        for aid,raw in zip(('BAD_RAW','BAD_NORM','BAD_EMPTY'),
+                archive([],start='2016-01-06',end='2016-01-08')):
+            memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+        catalog['securities'][0]['receipt_ids'].append('BAD_EMPTY')
+        put(inventory,memory,'CATALOG',catalog)
+        refused=plan(inventory,memory)
+        self.assertEqual(refused['requests'],[])
+        self.assertIn('PRICE_NO_DATA_CONFLICT',refused['coverage_results'][0]['blockers'])
+
+    def test_verified_empty_between_two_gaps_does_not_bridge_collection(self):
+        inventory,memory=fixture(['2016-01-07'])
+        for aid,raw in zip(('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT'),
+                archive([],start='2016-01-05',end='2016-01-06')):
+            memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+        catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids'].append('EMPTY_RECEIPT')
+        put(inventory,memory,'CATALOG',catalog)
+        result=plan(inventory,memory);request=result['requests'][0]
+        self.assertEqual(request['missing_ranges'],[
+            dict(start='2016-01-04',end_exclusive='2016-01-05'),
+            dict(start='2016-01-06',end_exclusive='2016-01-07')])
+        self.assertEqual(result['coverage_results'][0]['missing_sessions'],DAYS[:3])
+        key=request['request_id']
+        inventory['prior_requests_id']='PRIOR'
+        put(inventory,memory,'PRIOR',dict(schema='a0-ohlcv-request-snapshot-v1',
+            as_of=discovery_fixture.CUTOFF,requests=[dict(request_id=key,status='COMPLETE')]))
+        repeated=plan(inventory,memory)
+        self.assertEqual(repeated['requests'],[])
+        self.assertEqual(repeated['coverage_results'][0]['request_id'],key)
+        self.assertFalse(repeated['coverage_results'][0]['consumer_eligible'])
+
+    def test_mixed_fully_examined_empty_and_prices_never_request_collection(self):
+        inventory,memory=fixture(['2016-01-06','2016-01-07'])
+        receipts=['RECEIPT']
+        for aid,raw in zip(('EMPTY_RAW','EMPTY_NORM','EMPTY_RECEIPT'),
+                archive([],start='2016-01-04',end='2016-01-06')):
+            memory[aid]=raw;inventory['artifacts'][aid]={'sha256':h.digest(raw)}
+        receipts.append('EMPTY_RECEIPT')
+        catalog=h.decode(memory['CATALOG']);catalog['securities'][0]['receipt_ids']=receipts
+        put(inventory,memory,'CATALOG',catalog)
+        policy=h.decode(memory['POLICY']);policy['remaining_provider_gets']=0
+        put(inventory,memory,'POLICY',policy)
+        result=plan(inventory,memory);row=result['coverage_results'][0]
+        self.assertEqual(result['requests'],[])
+        self.assertEqual(row['coverage_action'],'BLOCKED')
+        self.assertEqual(row['covered_sessions'],2)
+        self.assertEqual(row['missing_sessions'],['2016-01-04','2016-01-05'])
+        self.assertEqual(row['verified_empty_sessions'],['2016-01-04','2016-01-05'])
+        self.assertEqual(row['collection_missing_sessions'],[])
+        self.assertEqual(row['missing_ranges'],[])
+        self.assertEqual(row['minimum_provider_gets_estimate'],0)
+        self.assertNotIn('PROVIDER_BUDGET_INSUFFICIENT_LOWER_BOUND',row['blockers'])
+        self.assertFalse(row['consumer_eligible'])
+
     def test_split_verified_empty_receipts_jointly_cover_requested_sessions(self):
         for windows in ((('2016-01-04','2016-01-06'),('2016-01-06','2016-01-08')),
                         (('2016-01-06','2016-01-08'),('2016-01-04','2016-01-06')),
