@@ -732,6 +732,392 @@ def fixed_window_features(
     return row, level_rows
 
 
+
+# Nonranking H1 consumer. Legacy strategy, score and forward-study paths above
+# retain their contracts. This path delegates their arithmetic, never their
+# candidate/portfolio classifications, and reads only exact frozen generations.
+TECH_HORIZONS = (5, 20, 60, 120, 240)
+TECH_MAS = (20, 50, 150, 200)
+TECH_BREAKOUTS = (20, 60, 252)
+TECH_FEATURE_NAMES = (
+    tuple(f"ret_{n}s" for n in TECH_HORIZONS)
+    + tuple(f"rs_log_spy_{n}s" for n in TECH_HORIZONS)
+    + tuple(f"rs_log_spy_change_{n}s" for n in TECH_HORIZONS)
+    + tuple(f"nasdaq_composite_price_relative_{n}s" for n in TECH_HORIZONS)
+    + tuple(f"sma_{n}s" for n in TECH_MAS)
+    + tuple(f"sma_{n}s_slope_pct_per_session_5" for n in TECH_MAS)
+    + ("rvol_20s_prior_only", "volume_z_20s_prior_only", "raw_close_x_raw_volume",
+       "atr_14s", "atr_14s_pct", "realized_volatility_20s_over_63s")
+    + tuple(f"prior_high_{n}s" for n in TECH_BREAKOUTS)
+    + tuple(f"breakout_prior_high_{n}s" for n in TECH_BREAKOUTS)
+    + ("obv_anchored", "obv_change_20s", "close_location_in_bar",
+       "accumulation_day_proxy", "distribution_day_proxy")
+)
+
+
+def research_feature_snapshot(reader, generation: str, *, security_id: str,
+                              session: str, as_of: str,
+                              benchmark_ids: Mapping[str, str] | None = None,
+                              raw_generation: str | None = None) -> dict[str, Any]:
+    """One security/completed session, research only; no writes or collection.
+
+    The Shared Reader authenticates frozen bytes, not Source/PIT admission.
+    Supplementary volume_basis and halted_sessions must be pinned in each
+    instrument's generation metadata. Missing evidence remains missing. The
+    optional RAW generation must share the exact original source receipt/run
+    and raw-object lineage; it is used only for the current turnover proxy.
+    """
+    from aggressive.signals_technical import obv, slope_pct, sma
+    from tools.research_data_access import (
+        ContractError, PREFIX_V1, ResearchDataReader, clock, day, decode,
+        read_object, sha, text, check, _session_close,
+    )
+    from tools.macro_history_sources import digest, encoded
+
+    check(isinstance(reader, ResearchDataReader), "FEATURE_READER_REQUIRED")
+    sha(generation)
+    day(session)
+    decision = clock(as_of)
+    check(decision <= current_utc().to_pydatetime(), "FEATURE_FUTURE_AS_OF")
+    check(type(security_id) is str and bool(security_id), "FEATURE_SECURITY_ID")
+    check(benchmark_ids is None or isinstance(benchmark_ids, Mapping), "FEATURE_BENCHMARK_REFS")
+    refs = dict(benchmark_ids or {})
+    check(set(refs) <= {"SPY", "NASDAQ_COMPOSITE"} and
+          all(type(v) is str and v for v in refs.values()), "FEATURE_BENCHMARK_REFS")
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=session, end_date=session)
+    check(len(schedule) == 1 and schedule["market_close"].iloc[0] <= decision,
+          "FEATURE_SESSION_NOT_COMPLETED")
+    result = dict(
+        schema="run287-ohlcv-research-features-h1-v1", security_id=security_id,
+        ticker=None, session=session, as_of=as_of, source_generation=generation,
+        source_sha=[], source_receipt_sha256=None, source_available_from=None,
+        source_collected_at=None, adjustment_basis=None, benchmark_ref={},
+        raw_ref=None, code_sha=git_head(),
+        code_sha256=sha256_file(Path(__file__)),
+        helper_sha256=sha256_file(REPO_ROOT / "aggressive/signals_technical.py"),
+        features={key: None for key in TECH_FEATURE_NAMES},
+        feature_status={key: "BLOCKED" for key in TECH_FEATURE_NAMES},
+        blocker={key: "SOURCE_NOT_READ" for key in TECH_FEATURE_NAMES},
+        coverage=dict(features_ready=0, features_total=len(TECH_FEATURE_NAMES)),
+        feature_state="BLOCKED_RESEARCH_FEATURES",
+        research_only=True, source_admitted=False, historical_pit_certified=False,
+        eligible_for_selector=False, ranking_allowed=False, ER_allowed=False,
+        portfolio_allowed=False, orders_generated=False,
+    )
+
+    def refuse_all(code):
+        result["features"] = {key: None for key in TECH_FEATURE_NAMES}
+        result["feature_status"] = {key: "BLOCKED" for key in TECH_FEATURE_NAMES}
+        result["blocker"] = {key: code for key in TECH_FEATURE_NAMES}
+        result["coverage"].update(features_ready=0, features_total=len(TECH_FEATURE_NAMES))
+        result["feature_state"] = "BLOCKED_RESEARCH_FEATURES"
+        result["snapshot_sha256"] = digest(encoded(result))
+        return result
+
+    # The cache is invocation-local: every snapshot revalidates its exact
+    # generation, clocks and rights through the public Source component API.
+    component_reads = {}
+    global_refusals = []
+
+    def read_generation(gen, ids, required_ids):
+        try:
+            manifest_raw = read_object(reader.transport, f"{PREFIX_V1}/generations/{gen}",
+                                       gen, 1024 * 1024)
+            manifest = decode(manifest_raw)
+            check(type(manifest) is dict, "GENERATION_SCHEMA")
+            check(type(manifest.get("datasets")) is list, "GENERATION_DATASETS")
+            specs = [v for v in manifest["datasets"]
+                     if type(v) is dict and v.get("dataset_id") == "ds.us.prices.daily"]
+            check(len(specs) == 1, "DATASET_NOT_IN_GENERATION")
+            spec = specs[0]
+            check(type(spec.get("files")) is list, "FILE_INVENTORY")
+            components = []
+            for iid in sorted(set(ids)):
+                files = [v for v in spec["files"] if type(v) is dict and
+                         type(v.get("instrument")) is dict and
+                         v["instrument"].get("instrument_id") == iid]
+                start = min(day(v.get("start")) for v in files).isoformat() if files else session
+                if iid in required_ids:
+                    check(start <= session, "IPO_OR_PRICE_HISTORY_NOT_STARTED")
+                # Reader checks the complete envelope/inventory even if an
+                # optional instrument is absent or has not started yet.
+                components.append(dict(component_id=iid, instrument_id=iid,
+                    required_start=min(start, session), required_end=session,
+                    optional=iid not in required_ids))
+            batch = reader.read_components("ds.us.prices.daily", gen,
+                decision_time=as_of, purpose="research", components=components,
+                consumer_id="ohlcv-technical-feature-h1")
+            component_reads[gen] = (manifest, spec, batch)
+        except ContractError as exc:
+            # Reader exceptions are global; only batch.refusals are local.
+            global_refusals.append(str(exc))
+            raise
+
+    def read_one(gen, iid):
+        if gen not in component_reads:
+            read_generation(gen, [iid], set())  # optional RAW companion
+        manifest, spec, batch = component_reads[gen]
+        if iid in batch.refusals:
+            raise ContractError(batch.refusals[iid])
+        read = batch.results[iid]
+        start = read.receipt["required_start"]
+        frame = pd.DataFrame([dict(r) for r in read.rows])
+        frame.index = pd.DatetimeIndex(frame["session_date"])
+        identity = next(v["instrument"] for v in spec["files"]
+                        if v["instrument"]["instrument_id"] == iid)
+        check(identity.get("calendar") in {"NYSE", "XNYS"} and
+              identity.get("timezone") == "America/New_York" and
+              identity.get("currency") == "USD", "FEATURE_CALENDAR_OR_CURRENCY")
+        # Consumer-only identity closure. The Shared Reader's research purpose
+        # verifies bytes, not a security-master role or venue/calendar proof.
+        source = spec["source"]
+        identity_sha = sha(identity.get("identity_evidence_sha256"))
+        check(identity_sha in source["raw_source_sha256"], "FEATURE_IDENTITY_NOT_SOURCE_BOUND")
+        evidence = decode(read_object(reader.transport,
+            f"{PREFIX_V1}/objects/{identity_sha}", identity_sha, 64 * 1024))
+        check(type(evidence) is dict and
+              evidence.get("schema") == "ohlcv-security-identity-evidence-v1",
+              "FEATURE_IDENTITY_EVIDENCE")
+        for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
+                    "market", "mic", "calendar", "timezone", "currency"):
+            text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
+            check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
+        check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
+        check(identity["asset_class"] in {"EQUITY", "ETF", "INDEX"}, "FEATURE_SECURITY_TYPE")
+        # These venues share the supported US regular-session grid. The
+        # source record must bind the actual MIC; ticker never supplies it.
+        check(identity["mic"] in {"XNYS", "XNAS", "ARCX"}, "FEATURE_MIC_CALENDAR_UNSUPPORTED")
+        check(day(evidence.get("valid_from")) <= day(start) <= day(session) <=
+              day(evidence.get("valid_through")), "FEATURE_IDENTITY_EFFECTIVE_WINDOW")
+        check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
+              clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
+              "FEATURE_IDENTITY_CLOCK")
+        # ARCX is not scheduled by the unchanged Reader research branch.
+        # Keep the same completed regular-close rule in this consumer.
+        check(all(clock(r["available_from"]) >= _session_close(day(r["session_date"]))
+                  for r in read.rows), "FEATURE_BEFORE_SESSION_CLOSE")
+        # Require explicit status coverage, rather than treating a zero volume
+        # bar or an absent halt record as proof that the security was trading.
+        halts = identity.get("halted_sessions")
+        check(type(halts) is list and all(type(v) is str for v in halts),
+              "HALT_COVERAGE_UNKNOWN")
+        check(halts == sorted(set(halts)), "HALT_COVERAGE_INVALID")
+        for v in halts:
+            day(v)
+        check(session not in halts, "TRADING_SUSPENDED")
+        source = spec["source"]
+        ref = dict(generation=gen, source_sha=list(read.receipt["raw_source_sha256"]),
+            file_sha=list(read.receipt["file_sha256"]),
+            read_receipt_sha256=read.receipt["receipt_sha256"],
+            row_set_sha256=read.receipt["row_set_sha256"],
+            validation_scope=read.receipt["validation_scope"],
+            whole_generation_verified=read.receipt["whole_generation_verified"],
+            component_batch_receipt_sha256=batch.receipt["receipt_sha256"],
+            source_receipt_sha256=source["source_receipt_sha256"],
+            source_run_id=manifest["source_run_id"],
+            source_available_from=source["available_from"],
+            source_collected_at=source["collected_at"],
+            classification=source["classification"], pit_status=source["pit_status"],
+            adjustment_basis=identity["adjustment_basis"],
+            security_id=iid, ticker=identity["ticker"],
+            provider_security_id=identity["provider_security_id"],
+            asset_class=identity["asset_class"], mic=identity["mic"], calendar=identity["calendar"],
+            identity_evidence_sha256=identity_sha,
+            identity_valid_from=evidence["valid_from"],
+            identity_valid_through=evidence["valid_through"],
+            identity_available_from=evidence["available_from"],
+            identity_collected_at=evidence["collected_at"])
+        return frame, identity, ref
+
+    try:
+        read_generation(generation, [security_id, *refs.values()], {security_id})
+        px, identity, stock_ref = read_one(generation, security_id)
+        check(identity["asset_class"] in {"EQUITY", "ETF"}, "FEATURE_SUBJECT_TYPE")
+    except ContractError as exc:
+        return refuse_all(str(exc))
+    result.update(ticker=stock_ref["ticker"], source_sha=stock_ref["source_sha"],
+                  source_receipt_sha256=stock_ref["source_receipt_sha256"],
+                  source_available_from=stock_ref["source_available_from"],
+                  source_collected_at=stock_ref["source_collected_at"],
+                  adjustment_basis=stock_ref["adjustment_basis"], source_ref=stock_ref)
+    if stock_ref["adjustment_basis"] != "SPLIT_ADJUSTED":
+        return refuse_all("FEATURE_REQUIRES_SPLIT_ADJUSTED_OHLC")
+    first = px.index[0].date().isoformat()
+    dates = pd.DatetimeIndex(mcal.get_calendar("NYSE").schedule(
+        start_date=first, end_date=session).index).tz_localize(None)
+    check(px.index.isin(dates).all(), "FEATURE_NONSESSION")
+    effective = px.drop(index=pd.DatetimeIndex(identity["halted_sessions"]), errors="ignore")
+    missing = dates[~dates.isin(effective.index)]
+    tail = effective.loc[effective.index > missing[-1]] if len(missing) else effective
+    result["coverage"] = dict(expected_sessions=len(dates), observed_rows=len(px),
+        missing_or_halted_sessions=[d.date().isoformat() for d in missing],
+        consecutive_tail_rows=len(tail), first_observed_session=first,
+        calendar="NYSE", calendar_library=mcal.__version__)
+    # Shared Reader already enforces exact end. Keep an explicit boundary here
+    # so future changes cannot turn a stale end into a current feature snapshot.
+    if tail.empty or tail.index[-1].date().isoformat() != session:
+        return refuse_all("EXACT_COMPLETED_CLOSE_MISSING")
+    # No duplicate return/ATR/RVOL/close-location engine: adapt the existing
+    # past-only calculator, suppressing its strategy and Fibonacci outputs.
+    calc_contract = dict(price_contract=dict(minimum_history_rows=1),
+        return_horizons_trading_days=list(TECH_HORIZONS),
+        location_lookbacks_trading_days=[], fibonacci=dict(ratios=[]))
+    calc_px = tail.copy()
+    calc_px["dollar_volume"] = np.nan  # RAW turnover is independently bound below.
+    base, _ = fixed_window_features(identity["ticker"], calc_px,
+                                    pd.Timestamp(session), calc_contract)
+
+    def emit(key, value=None, reason="INSUFFICIENT_COMPLETED_SESSIONS"):
+        clean = value if type(value) is bool else finite(value)
+        result["features"][key] = clean
+        result["feature_status"][key] = "OK" if clean is not None else "BLOCKED"
+        if clean is None:
+            result["blocker"][key] = reason
+        else:
+            result["blocker"].pop(key, None)
+
+    def enough(count):
+        return len(tail) >= count
+
+    for n in TECH_HORIZONS:
+        emit(f"ret_{n}s", base.get(f"return_{n}d") if enough(n + 1) else None)
+    for n in TECH_MAS:
+        series = sma(tail["close"], n)
+        emit(f"sma_{n}s", series.iloc[-1] if enough(n) else None)
+        emit(f"sma_{n}s_slope_pct_per_session_5",
+             slope_pct(series, 5) if enough(n + 4) else None)
+    emit("atr_14s", base.get("atr14") if enough(15) else None)
+    emit("atr_14s_pct", base.get("atr14_pct") if enough(15) else None)
+    emit("realized_volatility_20s_over_63s",
+         base.get("realized_vol_ratio_20d_63d") if enough(64) else None,
+         "MISSING_64_SESSIONS_OR_ZERO_LONG_VOLATILITY")
+    emit("close_location_in_bar", base.get("close_location_in_bar"), "ZERO_BAR_RANGE")
+    for n in TECH_BREAKOUTS:
+        prior_high = float(tail["high"].iloc[-n-1:-1].max()) if enough(n + 1) else None
+        emit(f"prior_high_{n}s", prior_high)
+        emit(f"breakout_prior_high_{n}s",
+             bool(tail["close"].iloc[-1] > prior_high) if prior_high is not None else None)
+    raw = None
+    raw_reason = "RAW_GENERATION_NOT_PROVIDED"
+    if raw_generation is not None:
+        try:
+            sha(raw_generation)
+            raw, raw_id, raw_ref = read_one(raw_generation, security_id)
+            check(raw_id["adjustment_basis"] == raw_id.get("volume_basis") == "RAW",
+                  "RAW_TURNOVER_BASIS")
+            for key in ("source_receipt_sha256", "source_run_id", "source_sha", "ticker",
+                        "source_available_from", "source_collected_at", "classification",
+                        "identity_evidence_sha256", "provider_security_id", "asset_class", "mic", "calendar"):
+                check(raw_ref[key] == stock_ref[key], "RAW_SOURCE_LINEAGE_MISMATCH")
+            # Raw shares are integral; split-adjusted shares may be fractional.
+            check((raw["volume"] == np.floor(raw["volume"])).all(), "RAW_SHARE_VOLUME_NOT_INTEGER")
+            emit("raw_close_x_raw_volume", float(raw["close"].iloc[-1]) *
+                 float(raw["volume"].iloc[-1]), "RAW_TURNOVER_OVERFLOW")
+            result["raw_ref"] = raw_ref
+        except ContractError as exc:
+            if global_refusals:
+                return refuse_all(global_refusals[-1])
+            raw_reason = str(exc)
+            raw = None
+    if raw is None:
+        emit("raw_close_x_raw_volume", reason=raw_reason)
+
+    # A metadata label alone cannot prove split-volume consistency. Verify the
+    # raw/adjusted price factor and inverse share adjustment on the same rows.
+    volume_reason = "VOLUME_BASIS_UNVERIFIED"
+    volume_ok = False
+    if raw is not None and identity.get("volume_basis") == "SPLIT_ADJUSTED":
+        if tail.index.isin(raw.index).all():
+            companion = raw.loc[tail.index]
+            factor = tail["close"] / companion["close"]
+            prices_match = all(np.allclose(tail[k], companion[k] * factor,
+                rtol=1e-7, atol=0) for k in ("open", "high", "low", "close"))
+            if not prices_match:
+                return refuse_all("RAW_SPLIT_PRICE_BASIS_MISMATCH")
+            volume_ok = bool(np.allclose(
+                tail["volume"] * factor, companion["volume"], rtol=1e-7, atol=0))
+            volume_reason = "RAW_SPLIT_OHLCV_BASIS_MISMATCH"
+        else:
+            volume_reason = "RAW_SPLIT_SESSION_GRID_MISMATCH"
+    result["coverage"]["raw_split_volume_relation_verified"] = volume_ok
+    reason = volume_reason if not volume_ok else "MISSING_21_SESSIONS_OR_ZERO_BASELINE"
+    emit("rvol_20s_prior_only", base.get("volume_ratio_20d_past_only")
+         if volume_ok and enough(21) else None, reason)
+    emit("volume_z_20s_prior_only", base.get("volume_z_20d_past_only")
+         if volume_ok and enough(21) else None,
+         volume_reason if not volume_ok else "MISSING_21_SESSIONS_OR_ZERO_VARIANCE")
+    # OBV is anchored at the stated observed start, never a whole-lifetime claim.
+    obv_series = obv(tail) if volume_ok else None
+    result["obv_anchor_session"] = tail.index[0].date().isoformat()
+    emit("obv_anchored", obv_series.iloc[-1] if obv_series is not None and enough(2) else None,
+         volume_reason if not volume_ok else "MISSING_2_SESSIONS")
+    emit("obv_change_20s", obv_series.iloc[-1] - obv_series.iloc[-21]
+         if obv_series is not None and enough(21) else None, reason)
+    proxy_ready = (result["features"]["volume_z_20s_prior_only"] is not None and
+                   result["features"]["close_location_in_bar"] is not None and enough(2))
+    for proxy in ("accumulation_day", "distribution_day"):
+        emit(proxy + "_proxy", base.get(proxy) if proxy_ready else None,
+             "VOLUME_OR_CLOSE_LOCATION_UNAVAILABLE")
+
+    for label in ("SPY", "NASDAQ_COMPOSITE"):
+        benchmark = None
+        error = "BENCHMARK_NOT_PROVIDED"
+        if label in refs:
+            try:
+                bm, bm_identity, bm_ref = read_one(generation, refs[label])
+                check(bm_identity["ticker"] == "SPY" if label == "SPY" else
+                      bm_identity["ticker"] in {"^IXIC", "IXIC", "COMP", "^COMP"},
+                      "BENCHMARK_IDENTITY_MISMATCH")
+                check(bm_identity["asset_class"] == ("ETF" if label == "SPY" else "INDEX"),
+                      "BENCHMARK_SECURITY_TYPE_MISMATCH")
+                check(bm_ref["adjustment_basis"] == stock_ref["adjustment_basis"],
+                      "BENCHMARK_ADJUSTMENT_MISMATCH")
+                check(bm_ref["pit_status"] == stock_ref["pit_status"] == "VERIFIED",
+                      "BENCHMARK_PIT_UNVERIFIED")
+                benchmark = bm.drop(index=pd.DatetimeIndex(bm_identity["halted_sessions"]),
+                                    errors="ignore")
+                result["benchmark_ref"][label] = bm_ref
+            except ContractError as exc:
+                error = str(exc)
+        result["benchmark_ref"].setdefault(label, dict(generation=generation,
+            security_id=refs.get(label), status="BLOCKED", blocker=error))
+        for n in TECH_HORIZONS:
+            need = dates[-n-1:] if len(dates) >= n + 1 else dates[:0]
+            ready = (benchmark is not None and enough(n + 1) and len(need) == n + 1
+                     and need.isin(benchmark.index).all())
+            if label == "SPY":
+                value = (math.log(float(tail["close"].iloc[-1])) -
+                         math.log(float(tail["close"].iloc[-n-1])) -
+                         math.log(float(benchmark.loc[need[-1], "close"])) +
+                         math.log(float(benchmark.loc[need[0], "close"]))) if ready else None
+                emit(f"rs_log_spy_{n}s", value,
+                     error if benchmark is None else "BENCHMARK_OR_STOCK_SESSION_GAP")
+                # Same-horizon change: RS_n(t) - RS_n(t-n). Needs 2n+1
+                # consecutive matched sessions, not a different-horizon score.
+                need2 = dates[-2*n-1:] if len(dates) >= 2*n + 1 else dates[:0]
+                ready2 = (ready and enough(2*n + 1) and len(need2) == 2*n + 1
+                          and need2.isin(benchmark.index).all())
+                prior = (math.log(float(tail["close"].iloc[-n-1])) -
+                         math.log(float(tail["close"].iloc[-2*n-1])) -
+                         math.log(float(benchmark.loc[need2[n], "close"])) +
+                         math.log(float(benchmark.loc[need2[0], "close"]))) if ready2 else None
+                emit(f"rs_log_spy_change_{n}s", value - prior if ready2 else None,
+                     error if benchmark is None else "MISSING_2N_PLUS_1_MATCHED_SESSIONS")
+            else:
+                relative = ((float(tail["close"].iloc[-1]) / float(tail["close"].iloc[-n-1])) /
+                    (float(benchmark.loc[need[-1], "close"]) /
+                     float(benchmark.loc[need[0], "close"])) - 1.0) if ready else None
+                emit(f"nasdaq_composite_price_relative_{n}s", relative,
+                     error if benchmark is None else "BENCHMARK_OR_STOCK_SESSION_GAP")
+
+    ready_count = sum(v == "OK" for v in result["feature_status"].values())
+    result["coverage"].update(features_ready=ready_count, features_total=len(TECH_FEATURE_NAMES))
+    result["feature_state"] = ("RESEARCH_FEATURES_COMPLETE" if ready_count == len(TECH_FEATURE_NAMES)
+                               else "RESEARCH_FEATURES_PARTIAL")
+    result["snapshot_sha256"] = digest(encoded(result))
+    return result
+
+
 def vix_context(macro: pd.DataFrame, asof: pd.Timestamp) -> dict[str, Any]:
     if macro.empty:
         return {

@@ -7594,3 +7594,23 @@ before spawn; prefer explicit auth/encoding/size failures over unknown-exit
 retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
+
+### 2026-10-24 — Reuse Main H1 against the integrated component Reader
+
+An old clean checkout alone does not transfer ownership. Canonical owner release
+comments plus fresh checkpoint/status/lease and remote-head checks supported
+A0's explicit sequential reassignment. Preserve the original c0146 checkout,
+49 test ASTs and oracle; reconstruct its causal delta on current master and
+reuse the pinned remaining patch, rather than merging an old branch stack.
+Deduplicate instrument IDs before component requests while retaining each
+subject/benchmark role check. An absent optional benchmark must reach the
+Reader's local refusal; hash/clock/identity/resource/Lake errors remain global.
+Explicit component windows must preserve the retained consecutive-suffix OBV
+anchor; reducing to481 rows silently changes a level metric. Synthetic Native
+parity and optional refusal prove integration code, not actual Source generation,
+research-reference ACK, economic admission or portfolio authority.
+
+The first Main H1 preflight hit a sparse-checkout dependency omission before
+arithmetic: aggressive/signals_technical.py was not materialized. Preserve the
+failed log and expose the unchanged existing helper through sparse settings;
+do not replace the shared arithmetic or alter assertions to fix the environment.
