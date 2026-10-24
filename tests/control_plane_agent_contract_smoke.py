@@ -674,8 +674,207 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertTrue((self.root/'cli/report.md').is_file())
 
 
+class ManagedOHLCVTests(unittest.TestCase):
+    """The existing registered A0 contract suite exercises the no-I/O roster adapter."""
+
+    def setUp(self):
+        import copy
+        from tools import prepare_a1_managed_ohlcv as managed
+        self.m = managed
+        self.copy = copy.deepcopy
+        root = Path(__file__).resolve().parents[1]
+        self.inventory, self.sha = managed.load(root / 'data_static/a1_ohlcv_inventory_v1.json')
+        self.policy, self.policy_sha = managed.load(root / 'data_static/a1_ohlcv_managed_v1.json')
+
+    def gate(self, now='2026-10-23T23:30:00Z', force=False):
+        return self.m.evaluate_market_session(now_utc=now, force=force)
+
+    def plan(self, now='2026-10-23T23:30:00Z', **kw):
+        return self.m.prepare(self.inventory, self.policy, self.sha, self.gate(now), now_utc=now, **kw)
+
+    def changed(self, add=(), remove=()):
+        previous = self.copy(self.policy)
+        previous_sha = self.m.digest(self.m.encode(previous))
+        self.policy.update(revision=2, previous_policy_sha256=previous_sha,
+                           active_tickers=sorted((set(previous['active_tickers']) | set(add)) - set(remove)),
+                           watch_tickers=sorted((set(previous['watch_tickers']) | set(remove)) - set(add)),
+                           changes=[dict(ticker=t, action=action, event_id='change-20261024-' + t,
+                                         a0_reference=self.m.A0 + '#issuecomment-12345678')
+                                    for action, rows in [('START_UPDATE', add), ('MOVE_TO_WATCH', remove)]
+                                    for t in rows])
+        return previous, previous_sha
+
+    def test_actual_820_is_deduplicated_and_not_admitted(self):
+        report = self.plan()
+        self.assertEqual(report['active_count'], 820)
+        self.assertEqual(self.inventory['counts'], dict(unique_tickers=820, alpaca_sip=776,
+                                                       twelve_data=312, overlap=268))
+        self.assertTrue(all(r['next_action'] == 'VERIFY_EXISTING_COVERAGE' and
+                            r['missing_interval'] is None and not r['source_admission']
+                            for r in report['requests']))
+        self.assertIn('BRK.B', self.policy['active_tickers'])
+
+    def test_regular_close_plus_two_hours_and_no_provider_calls(self):
+        with patch('urllib.request.urlopen', side_effect=AssertionError('provider')) as get:
+            report = self.plan()
+        get.assert_not_called()
+        self.assertEqual(report['status'], 'PREPARED_NO_CAPTURE')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-10-23T22:00:00+00:00')
+        self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
+        self.assertFalse(report['collection_enabled'])
+
+    def test_close_buffer_cannot_be_forced(self):
+        now = '2026-10-23T21:00:00Z'
+        report = self.m.prepare(self.inventory, self.policy, self.sha, self.gate(now, True), now_utc=now)
+        self.assertEqual(report['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_holiday_is_not_a_completed_refresh(self):
+        self.assertEqual(self.plan('2026-07-03T23:30:00Z')['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_weekend_is_not_a_completed_refresh(self):
+        self.assertEqual(self.plan('2026-10-25T23:30:00Z')['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_early_close_is_calendar_based(self):
+        report = self.plan('2026-11-27T21:00:00Z')
+        self.assertEqual(report['market_close_utc'], '2026-11-27T18:00:00+00:00')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-11-27T20:00:00+00:00')
+
+    def test_winter_close_uses_actual_exchange_time(self):
+        report = self.plan('2026-11-23T23:30:00Z')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-11-23T23:00:00+00:00')
+
+    def test_stale_and_future_receipts_refuse(self):
+        gate = self.gate()
+        for now in ['2026-10-24T00:00:00Z', '2026-10-23T23:29:59Z']:
+            with self.assertRaisesRegex(ValueError, 'MARKET_RECEIPT'):
+                self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc=now)
+
+    def test_forged_close_or_naive_clock_refuses(self):
+        gate = self.gate()
+        gate['market_close_utc'] = '2026-10-23T19:00:00+00:00'
+        with self.assertRaisesRegex(ValueError, 'MARKET_SESSION_CONFLICT'):
+            self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc='2026-10-23T23:30:00Z')
+        gate = self.gate()
+        gate['checked_at_utc'] = '2026-10-23T23:30:00'
+        with self.assertRaisesRegex(ValueError, 'MARKET_CLOCK'):
+            self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc='2026-10-23T23:30:00Z')
+
+    def test_addition_is_review_only_and_removal_preserves_inventory(self):
+        before = self.m.encode(self.inventory)
+        previous, sha = self.changed(add=['TEST'], remove=['AAPL'])
+        report = self.plan(previous=previous, previous_sha=sha)
+        self.assertEqual(report['added'], ['TEST'])
+        self.assertEqual(report['moved_to_watch'], [dict(ticker='AAPL', action='CONTINUE_TRACKING_RETAIN_HISTORY')])
+        self.assertEqual(report['watch_count'], 1)
+        self.assertEqual(report['tracked_count'], 821)
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'AAPL')['management_state'], 'WATCH')
+        self.assertEqual(report['updates_stopped'], [])
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'TEST')['next_action'],
+                         'BACKFILL_REVIEW_REQUIRED')
+        self.assertEqual(self.m.encode(self.inventory), before)
+
+    def test_missing_previous_or_wrong_hash_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        for p, s in [(None, None), (previous, '0' * 64)]:
+            with self.assertRaisesRegex(ValueError, 'PREVIOUS_POLICY'):
+                self.plan(previous=p, previous_sha=s)
+
+    def test_unrecorded_or_duplicate_change_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        record = self.copy(self.policy['changes'][0])
+        for changes in [[], [record, record]]:
+            self.policy['changes'] = changes
+            with self.assertRaisesRegex(ValueError, 'ROSTER_CHANGE_MISMATCH|DUPLICATE_CHANGE'):
+                self.plan(previous=previous, previous_sha=sha)
+
+    def test_wrong_a0_reference_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.policy['changes'][0]['a0_reference'] = 'https://example.com/approval'
+        with self.assertRaisesRegex(ValueError, 'A0_CHANGE_REFERENCE'):
+            self.plan(previous=previous, previous_sha=sha)
+
+    def test_config_boolean_cannot_enable_capture(self):
+        self.policy['automatic_capture_enabled'] = True
+        with self.assertRaisesRegex(ValueError, 'CAPTURE_NOT_IMPLEMENTED'):
+            self.plan()
+
+    def test_watch_cannot_silently_drop_price_tracking(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.policy['watch_tickers'] = []
+        with self.assertRaisesRegex(ValueError, 'WATCH_HISTORY_MUST_BE_RETAINED'):
+            self.plan(previous=previous, previous_sha=sha)
+
+    def test_reentry_reuses_watch_without_duplicate_tracking(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.plan(previous=previous, previous_sha=sha)
+        previous = self.copy(self.policy)
+        sha = self.m.digest(self.m.encode(previous))
+        self.policy.update(revision=3, previous_policy_sha256=sha, watch_tickers=[],
+                           active_tickers=sorted(set(previous['active_tickers']) | {'AAPL'}),
+                           changes=[dict(ticker='AAPL', action='START_UPDATE', event_id='reentry-20261027-AAPL',
+                                         a0_reference=self.m.A0 + '#issuecomment-12345679')])
+        report = self.plan(previous=previous, previous_sha=sha)
+        self.assertEqual((report['active_count'], report['watch_count'], report['tracked_count']), (820, 0, 820))
+        self.assertEqual(report['added'], ['AAPL'])
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'AAPL')['next_action'],
+                         'VERIFY_EXISTING_COVERAGE')
+
+    def test_wrong_inventory_hash_or_count_refuses(self):
+        self.policy['inventory_sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'POLICY_BINDING'):
+            self.plan()
+        self.policy['inventory_sha256'] = self.sha
+        self.inventory['counts']['unique_tickers'] = 821
+        with self.assertRaisesRegex(ValueError, 'INVENTORY_COUNTS'):
+            self.plan()
+
+    def test_repeated_preparation_has_same_identity(self):
+        self.assertEqual(self.plan()['plan_id'], self.plan()['plan_id'])
+
+    def test_git_checkout_preserves_policy_bound_bytes(self):
+        result = subprocess.check_output(['git', '-c', 'safe.directory=' + ROOT.as_posix(),
+            'check-attr', 'eol', 'text', '--', 'data_static/a1_ohlcv_inventory_v1.json',
+            'data_static/a1_ohlcv_managed_v1.json', 'data_static/a1_ohlcv_managed_history/example.json'],
+            cwd=ROOT, text=True)
+        for name in ['a1_ohlcv_inventory_v1.json', 'a1_ohlcv_managed_v1.json']:
+            self.assertIn('data_static/' + name + ': eol: lf', result)
+        self.assertIn('data_static/a1_ohlcv_managed_history/example.json: text: unset', result)
+
+    def test_json_duplicate_and_oversize_refuse(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / 'input.json'
+            p.write_bytes(b'{"a":1,"a":2}')
+            with self.assertRaisesRegex(ValueError, 'DUPLICATE_JSON_KEY'):
+                self.m.load(p)
+            p.write_bytes(b' ' * (self.m.MAX_BYTES + 1))
+            with self.assertRaisesRegex(ValueError, 'INPUT_SIZE'):
+                self.m.load(p)
+
+    def test_failed_input_revokes_prior_report_and_alias_is_preserved(self):
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp)
+            (p / 'bad.json').write_text('{')
+            output = p / 'report.json'
+            output.write_text('{"status":"PREPARED_NO_CAPTURE"}')
+            args = SimpleNamespace(inventory=p / 'bad.json', policy=p / 'bad.json',
+                                   market_gate=p / 'bad.json', output=output, now_utc=None)
+            code, report = self.m.run(args)
+            self.assertEqual((code, report['status']), (2, 'BLOCKED_INPUT'))
+            self.assertEqual(json.loads(output.read_text())['status'], 'BLOCKED_INPUT')
+            before = (p / 'bad.json').read_bytes()
+            args.output = p / 'bad.json'
+            with self.assertRaisesRegex(ValueError, 'OUTPUT_ALIAS'):
+                self.m.run(args)
+            self.assertEqual((p / 'bad.json').read_bytes(), before)
+
+
 def main():
-    result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests))
+    suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(case)
+                             for case in (ControlPlaneTests, ManagedOHLCVTests)])
+    result=unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 
 if __name__=='__main__': raise SystemExit(main())

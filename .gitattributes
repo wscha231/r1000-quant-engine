@@ -1,4 +1,7 @@
 data_static/run287_exact_packet/best_thresholds.json text eol=lf
+data_static/a1_ohlcv_inventory_v1.json text eol=lf
+data_static/a1_ohlcv_managed_v1.json text eol=lf
+data_static/a1_ohlcv_managed_history/*.json -text
 tests/fixtures/run287_canonical_baseline/** -text
 data_static/run287_promotion_gate_contract.json text eol=lf
 data_static/run287_promotion_state.json text eol=lf

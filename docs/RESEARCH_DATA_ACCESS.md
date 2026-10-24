@@ -7,6 +7,18 @@
 
 ## 먼저 확인할 것
 
+### 이미 수집한 미국주식 OHLCV 820종목
+
+가격 원본의 재사용 입구는 [A1 OHLCV 안내](A1_MANAGED_OHLCV_REUSE.md),
+[보존 자료 색인](../data_static/a1_ohlcv_inventory_v1.json),
+[A0 관리목록](../data_static/a1_ohlcv_managed_v1.json)이다.
+기존 완료 영수증을 재사용한 820개 중복 제외 ticker이며
+Alpaca776/Twelve312/중복268이다. 현재 일일 갱신·PIT·권리 승인 수가 아니다.
+별도 `cache_prices` 또는 yfinance 일일 작업의 상태로 이 원본을 대체하지 않는다.
+먼저 private 원본·정규화·영수증의 실제 해시와 필요한 기간을 대사한다.
+집중관리에서 편출돼도 WATCH로 이동해 가격 추적과 원본·연구 이력을 보존한다.
+수집·증분 실행은 만료된 과거 캠페인을 재사용하지 않고 별도 실행 계약을 따른다.
+
 1. 저장소 기본 브랜치의 정확한 SHA와 AGENTS.md를 읽는다. 이 파일이나
    collector가 PR에만 있으면 배포된 기능으로 취급하지 않는다.
 2. `Durable financial and macro history`의 최신 실행·attempt·실패 단계를

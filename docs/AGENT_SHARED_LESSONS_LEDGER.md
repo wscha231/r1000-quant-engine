@@ -7594,3 +7594,46 @@ before spawn; prefer explicit auth/encoding/size failures over unknown-exit
 retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
+
+### 2026-10-24 — Locate retained prices before refreshing a separate cache
+
+The existing820-key owner inventory (Alpaca776/Twelve312/overlap268) is a
+retained-price locator, not current freshness, identity or rights admission.
+A separate scheduled80-symbol yfinance cache can be green while most private
+Source histories are not updated. Publish sanitized source/receipt references,
+reuse exact original raw/split bytes, and preserve original clocks and budgets.
+Drive search can return0 for existing objects; inspect the grounded folder
+before claiming absence. Never turn historical counts into a new current audit.
+
+The human revised removal handling to FOCUS -> WATCH -> FOCUS: retain price
+tracking and history on removal, and reuse it on re-entry. Bind revisions to
+exact previous config bytes, stable events and A0 references; reject watch
+drops, duplicate targets and silent ticker remaps. A calendar-based preparation
+artifact and GitHub schedule are not an active price collector, authenticated
+A0 acceptance or supplier-retention proof. Keep these states explicit.
+
+Keep the private Source offline regression job standard-library-only: it uses
+a sparse checkout without the calendar dependencies. Register the managed
+roster/calendar cases through the existing full A0 contract test entry instead
+of introducing an import dependency into that isolated Source job. Initial
+concurrent broad Native attempts ended with explicit OpenBLAS allocation errors;
+they are not PASS. Retain those logs, bound local BLAS threads and validate
+serially without suppressing any assertions. The bounded20-second diagnostic
+interrupted calendar initialization; focused20 cases had independently passed
+normal/-O before that diagnostic, so it is not proof of a provider timeout.
+
+The first full A0 run found47 missing-schema setup errors in the existing
+sparse Source checkout, not failing roster assertions. Materialize only its
+known tracked control-plane contracts from the exact base and retain their
+hashes/original sparse flags; remove those owned temporary copies after QA.
+
+A0 tests also invoke nested git commands; pass safe.directory only in the test
+process environment rather than changing global trust. Preflight every exact
+reuse_candidates path in its existing contract: a sparse absent decisions.py
+is not a functional A0 failure. Preserve those setup failures separately from
+the final materialized, process-scoped validation.
+
+A public inventory bound by its exact byte hash must survive checkout line
+conversion. Pin LF for the new inventory/current policy and disable text
+conversion for archived policies; test actual git attributes so Windows CRLF
+cannot make an unchanged managed policy refuse its inventory/parent proof.
