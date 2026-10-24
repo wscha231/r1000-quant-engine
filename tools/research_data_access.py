@@ -310,6 +310,8 @@ def read_object(transport, path, expected, limit=MAX_OBJECT):
     sha(expected)
     try:
         raw = transport.read(path)
+    except ContractError:
+        raise
     except (OSError, ValueError):
         raise ContractError('ARCHIVE_UNAVAILABLE') from None
     check(isinstance(raw, bytes) and 0 < len(raw) <= limit, 'OBJECT_SIZE')

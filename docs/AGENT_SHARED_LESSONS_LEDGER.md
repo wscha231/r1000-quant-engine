@@ -1,5 +1,34 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-24 — Separate Source archives from Reader generation acceptance
+
+- A capture checkpoint proves retained original/normalized bytes, not the Reader's
+  identity, CA/lifecycle, rights and availability bindings. Reuse the existing
+  archive verifier and preserve the raw/split distinction; do not relabel an
+  update COMPLETE receipt as a consumed generation.
+- First-observed complete readback can bound PIT_PROXY current research, but is
+  not historical publication. Keep unknown clocks and supplier expiry unknown;
+  bind derivation evidence before the manifest to avoid receipt/hash cycles.
+- A real preparation branch needs an independently supplied Source trust anchor
+  plus exact existing proof bytes; an evidence packet must not approve itself.
+  Bind its original meter/checkpoint/account/capture window and code/config before
+  typing rows. Real acceptance, storage publication, consumer ACK and economics
+  remain NOT_RUN; VERIFIED strings and green synthetic tests grant none of them.
+- Model reused transport defaults exactly: OwnerDrive.check defaults to folders,
+  so file reads must explicitly pass folder=False. Fix Decimal precision,
+  exponent, rounding and trap context together; precision alone inherits hidden
+  caller state. Independent counterexamples caught both fixture blind spots.
+- After #627 is protected and integrated, validate the same prepared fixture
+  through its component API as well as read(): optional absent SPY may be
+  reported locally, while a required missing benchmark must refuse the batch.
+  That compatibility does not authenticate actual Source evidence. The strict
+  real branch can be tested with injected synthetic trust; report that separately
+  from an actual prepared/published generation or account-rights approval.
+- Preserve the distinct supplier and research clocks, but constrain the Reader's
+  effective expiry by both; a provenance-only rights expiry does not guard later
+  reads. Untrusted DEFLATE corruption can raise zlib.error before evidence checks,
+  so translate decoder errors into finite refusal at both verification layers.
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
@@ -7638,3 +7667,56 @@ Post-failure host commit was about95%; the failed instant was not sampled, so
 the transient cause remains unconfirmed. Keep heavy Native and independent QA
 sequential, record runtime/head and memory evidence, and revalidate the final
 head; neither retry success nor high host commit alone diagnoses the cause.
+
+### 2026-10-24 - Bind a selected archive to its own original run, not a later root
+
+A cumulative capture index identifies retained coverage but does not locate a
+selected raw/normalized/receipt group. Exact-ref metadata reuse established MU
+and NVDA as5/7-link ancestors of their original finalized32-name run. A later
+campaign root and its last group were the wrong anchors. Keep actual group
+mapping separate from price recomputation, supplier rights and consumer ACK.
+
+Reuse the existing capture membership rules and pure external logical-genesis
+helper inside the reviewed preparation adapter. Trace exact hash/size/ID links
+only to the selected group, check own-run parent/count boundaries and all
+examined/completed/held/no-data transitions, and read no sibling price payloads.
+The existing32-proof/4MiB-each/16MiB-total ceilings include path/parent metadata.
+Rehashed counterexamples must still reject omitted nodes and shortcuts; a test
+that changes a node but leaves stale parent hashes proves only hash refusal.
+
+An initial external cohort has a logical genesis and a null first previous link,
+not a stored empty Drive object. A legacy initial16 capture needs its own actual
+execution evidence; a later preflight or a newer code pin cannot supply it.
+Rights/identity/CA/clocks remain independent of this lineage correction, and
+synthetic trust tests do not create an actual authenticated Source generation.
+
+Independent static A6 found the original parent ID was not compared with visited
+final/path IDs. Hash/count checks alone did not reject one immutable ID claiming
+two bodies when the selected group followed an earlier unvisited group. Keep
+parent-ID alias checks separate from path-cycle checks so a legitimate exact
+selected-previous==parent boundary is still accepted; cover all three alias forms.
+
+The first registered203 run correctly blocked an older orphan fixture earlier at
+the new parent-ID guard. Preserve that failed receipt and give the orphan its own
+distinct ID to test the intended missing-link boundary, rather than accepting
+multiple rejection codes or weakening either production guard.
+
+### 2026-10-24 - Preserve transport integrity across optional Reader boundaries
+
+Post-Ready Hosted review found exact owner readback corruption was raised as
+BindingError(ValueError), then translated by the Reader into ARCHIVE_UNAVAILABLE.
+An optional sibling could therefore be dropped while other components succeeded.
+The failing-before five-method integration run retained16 failed subcases;
+plain transport already rejected the same-size corrupt bytes as HASH_MISMATCH.
+
+Use the existing Reader ContractError for exact readback size/type and hash
+failures, and preserve it before the broad OSError/ValueError availability catch.
+Changing only the transport exception is insufficient because ContractError is
+also a ValueError. Keep ordinary unavailable-storage refusals local for optional
+components and fatal for required ones. Do not remove standalone byte checks,
+globalize all availability errors, or bypass the Reader with a custom exception.
+
+The first corrected focused run retained two new reference-size fixture failures:
+lowering the declared read limit truncated fake bytes to that size, correctly
+reaching HASH_MISMATCH. Declare one extra byte instead to isolate size refusal
+without truncation; keep the exact OBJECT_SIZE assertion and production checks.
