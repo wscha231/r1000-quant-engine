@@ -313,6 +313,128 @@ class BindingTest(unittest.TestCase):
                     required_sessions=SESSIONS, optional=False)])
         self.assertEqual([kind for kind, _ in owner.calls], ['check', 'read'])
 
+    def paired_component_fixture(self, basis=None):
+        """Reader-only synthetic sibling; not another original capture or ACK."""
+        basis = basis or self.prepare().bases[0]
+        manifest = json.loads(basis.manifest)
+        item = json.loads(encoded(manifest['datasets'][0]['files'][0]))
+        item['instrument'].update(instrument_id='CONTRACT_FIXTURE:US:MSFT', ticker='MSFT')
+        rows = [json.loads(line) for line in basis.objects[0][1].splitlines()]
+        for row in rows:
+            row.update(instrument_id='CONTRACT_FIXTURE:US:MSFT', ticker='MSFT')
+        raw = b''.join(encoded(row) for row in rows)
+        item.update(sha256=digest(raw), bytes=len(raw))
+        manifest['datasets'][0]['files'].append(item)
+        basis = replace(basis, manifest=encoded(manifest),
+                        objects=basis.objects + ((digest(raw), raw),))
+        options = dict(decision_time=DECISION, purpose='research',
+            consumer_id='CONTRACT_FIXTURE:transport-integrity', components=[
+                dict(component_id='subject', instrument_id='CONTRACT_FIXTURE:US:AAPL',
+                     required_start=SESSIONS[0], required_end=SESSIONS[-1], minimum_rows=2,
+                     required_sessions=SESSIONS, optional=False),
+                dict(component_id='sibling', instrument_id='CONTRACT_FIXTURE:US:MSFT',
+                     required_start=SESSIONS[0], required_end=SESSIONS[-1], minimum_rows=2,
+                     required_sessions=SESSIONS, optional=True)])
+        return basis, options
+
+    def test_owner_transport_normal_components_preserve_both_bases(self):
+        for original in self.prepare().bases:
+            with self.subTest(basis=original.basis):
+                basis, options = self.paired_component_fixture(original)
+                transport, owner, _ = fixture_transport(basis)
+                self.assertEqual(owner.calls, [])
+                result = ResearchDataReader(transport).read_components(
+                    'ds.us.prices.daily', basis.generation_id, **options)
+                self.assertEqual(set(result.results), {'subject', 'sibling'})
+                self.assertEqual(result.refusals, {})
+                self.assertTrue(all(len(x.rows) == 2 for x in result.results.values()))
+                self.assertFalse(result.receipt['eligible_for_economics'])
+
+    def test_owner_transport_component_hash_mismatch_is_global_like_plain_transport(self):
+        basis, options = self.paired_component_fixture()
+        for optional in (True, False):
+            for mode in ('owner', 'plain'):
+                with self.subTest(optional=optional, transport=mode):
+                    transport, owner, refs = fixture_transport(basis)
+                    target = refs[-1]
+                    raw = owner.objects[target.file_id]
+                    owner.objects[target.file_id] = bytes([raw[0] ^ 1]) + raw[1:]
+                    if mode == 'plain':
+                        class Plain:
+                            def read(self, path):
+                                ref = next(r for r in refs if r.logical_path == path)
+                                return owner.objects[ref.file_id]
+                        transport = Plain()
+                    options['components'][1]['optional'] = optional
+                    with self.assertRaisesRegex(ContractError, '^HASH_MISMATCH$'):
+                        ResearchDataReader(transport).read_components(
+                            'ds.us.prices.daily', basis.generation_id, **options)
+
+    def test_owner_transport_component_readback_type_and_size_are_global(self):
+        basis, options = self.paired_component_fixture()
+        for optional in (True, False):
+            for kind in ('nonbytes', 'empty', 'short', 'over', 'reference_size'):
+                with self.subTest(optional=optional, corruption=kind):
+                    transport, owner, refs = fixture_transport(basis)
+                    target, original_read = refs[-1], owner.read
+                    raw = owner.objects[target.file_id]
+                    if kind == 'reference_size':
+                        transport = binding.OwnerReferenceReadTransport(owner,
+                            refs[:-1] + (replace(target, bytes=target.bytes + 1),))
+                        payload = None
+                    else:
+                        payload = {'nonbytes': bytearray(raw), 'empty': b'',
+                                   'short': raw[:-1], 'over': raw + b'!'}[kind]
+                    def returned(file_id, limit):
+                        if file_id == target.file_id and payload is not None:
+                            return payload
+                        return original_read(file_id, limit)
+                    options['components'][1]['optional'] = optional
+                    with patch.object(owner, 'read', side_effect=returned), \
+                         self.assertRaisesRegex(ContractError, '^OBJECT_SIZE$'):
+                        ResearchDataReader(transport).read_components(
+                            'ds.us.prices.daily', basis.generation_id, **options)
+
+    def test_owner_transport_actual_unavailability_keeps_optional_semantics(self):
+        basis, options = self.paired_component_fixture()
+        for optional in (True, False):
+            for error in (OSError('SYNTHETIC_UNAVAILABLE'), ValueError('SYNTHETIC_UNAVAILABLE')):
+                with self.subTest(optional=optional, error=type(error).__name__):
+                    transport, owner, refs = fixture_transport(basis)
+                    target, original_read = refs[-1], owner.read
+                    def unavailable(file_id, limit):
+                        if file_id == target.file_id:
+                            raise error
+                        return original_read(file_id, limit)
+                    options['components'][1]['optional'] = optional
+                    with patch.object(owner, 'read', side_effect=unavailable):
+                        if optional:
+                            result = ResearchDataReader(transport).read_components(
+                                'ds.us.prices.daily', basis.generation_id, **options)
+                            self.assertEqual(set(result.results), {'subject'})
+                            self.assertEqual(result.refusals, {'sibling': 'ARCHIVE_UNAVAILABLE'})
+                        else:
+                            with self.assertRaisesRegex(ContractError, '^ARCHIVE_UNAVAILABLE$'):
+                                ResearchDataReader(transport).read_components(
+                                    'ds.us.prices.daily', basis.generation_id, **options)
+
+    def test_reader_preserves_transport_contract_integrity_codes(self):
+        basis, options = self.paired_component_fixture()
+        for code in ('HASH_MISMATCH', 'OBJECT_SIZE'):
+            for optional in (True, False):
+                with self.subTest(code=code, optional=optional):
+                    transport, owner, refs = fixture_transport(basis)
+                    target, original_read = refs[-1], owner.read
+                    def integrity_failure(file_id, limit):
+                        if file_id == target.file_id:
+                            raise ContractError(code)
+                        return original_read(file_id, limit)
+                    options['components'][1]['optional'] = optional
+                    with patch.object(owner, 'read', side_effect=integrity_failure), \
+                         self.assertRaisesRegex(ContractError, '^' + code + '$'):
+                        ResearchDataReader(transport).read_components(
+                            'ds.us.prices.daily', basis.generation_id, **options)
+
     def test_stable_replay_and_immutable_return(self):
         one, two = self.prepare(), self.prepare()
         self.assertEqual(one, two)
@@ -472,9 +594,12 @@ class BindingTest(unittest.TestCase):
 
     def test_transport_readback_hash_and_size_must_match(self):
         transport, owner, refs = fixture_transport(self.prepare().bases[0])
-        owner.objects[refs[0].file_id] = b'bad'
-        with self.assertRaisesRegex(binding.BindingError, 'OWNER_READBACK_MISMATCH'):
-            transport.read(refs[0].logical_path)
+        original = owner.objects[refs[0].file_id]
+        for raw, code in ((b'bad', 'OBJECT_SIZE'),
+                          (bytes([original[0] ^ 1]) + original[1:], 'HASH_MISMATCH')):
+            owner.objects[refs[0].file_id] = raw
+            with self.subTest(code=code), self.assertRaisesRegex(ContractError, '^' + code + '$'):
+                transport.read(refs[0].logical_path)
 
     def test_reference_snapshot_does_not_follow_mutable_inputs(self):
         _, owner, refs = fixture_transport(self.prepare().bases[0])

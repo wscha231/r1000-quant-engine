@@ -7700,3 +7700,23 @@ The first registered203 run correctly blocked an older orphan fixture earlier at
 the new parent-ID guard. Preserve that failed receipt and give the orphan its own
 distinct ID to test the intended missing-link boundary, rather than accepting
 multiple rejection codes or weakening either production guard.
+
+### 2026-10-24 - Preserve transport integrity across optional Reader boundaries
+
+Post-Ready Hosted review found exact owner readback corruption was raised as
+BindingError(ValueError), then translated by the Reader into ARCHIVE_UNAVAILABLE.
+An optional sibling could therefore be dropped while other components succeeded.
+The failing-before five-method integration run retained16 failed subcases;
+plain transport already rejected the same-size corrupt bytes as HASH_MISMATCH.
+
+Use the existing Reader ContractError for exact readback size/type and hash
+failures, and preserve it before the broad OSError/ValueError availability catch.
+Changing only the transport exception is insufficient because ContractError is
+also a ValueError. Keep ordinary unavailable-storage refusals local for optional
+components and fatal for required ones. Do not remove standalone byte checks,
+globalize all availability errors, or bypass the Reader with a custom exception.
+
+The first corrected focused run retained two new reference-size fixture failures:
+lowering the declared read limit truncated fake bytes to that size, correctly
+reaching HASH_MISMATCH. Declare one extra byte instead to isolate size refusal
+without truncation; keep the exact OBJECT_SIZE assertion and production checks.

@@ -67,6 +67,16 @@ directory creation, fallback or write exists. The private reference map must
 stay private. Actual owner/OAuth/private-folder approval and transport accounting
 remain duties of the existing Source lane before any real transport call.
 
+Exact readback type/size failures raise the existing Reader `OBJECT_SIZE`
+ContractError; a same-size hash mismatch raises `HASH_MISMATCH`. The Reader's
+transport boundary preserves ContractError before its general availability
+catch, so neither error can become an optional component refusal. Ordinary
+OSError or plain ValueError from unavailable storage still becomes
+`ARCHIVE_UNAVAILABLE`: optional archive components may be refused locally,
+while required components fail. Standalone exact-reference reads retain these
+integrity checks. Synthetic integrated tests compare normal RAW/SPLIT, optional
+and required corruption, plain-transport hash parity and real unavailability.
+
 Bounds: original archives retain the existing verifier's limits; normalized
 decoded bytes <=32MB, rows <=100,000, each view <=18MiB, manifest <=1MiB,
 references <=258 and total declared references <=128MiB. Preparation returns

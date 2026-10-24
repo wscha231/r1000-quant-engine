@@ -20,7 +20,7 @@ import zlib
 from tools import alpaca_sip_private_backfill_v1 as capture
 from tools.alpaca_sip_source_revision import external_genesis
 from tools.macro_history_sources import digest, encoded
-from tools.research_data_access import PRICE_COLUMNS, _session_close, clock, day
+from tools.research_data_access import ContractError, PRICE_COLUMNS, _session_close, clock, day
 
 MAX_ROWS = 100_000
 MAX_DECODED = 32_000_000
@@ -663,8 +663,10 @@ class OwnerReferenceReadTransport:
         ref = self._refs[logical_path]
         self._drive.check(ref.file_id, ref.parent_id, folder=False)
         raw = self._drive.read(ref.file_id, limit=ref.bytes)
-        require(type(raw) is bytes and len(raw) == ref.bytes and digest(raw) == ref.sha256,
-                'OWNER_READBACK_MISMATCH')
+        if type(raw) is not bytes or len(raw) != ref.bytes:
+            raise ContractError('OBJECT_SIZE')
+        if digest(raw) != ref.sha256:
+            raise ContractError('HASH_MISMATCH')
         return raw
 
     def write(self, *args, **kwargs):
