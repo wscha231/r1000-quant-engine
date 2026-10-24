@@ -25,6 +25,21 @@ All A1–A8 requests originate with A0. A1/A2/A4/A6 can be marked
 Eligibility is a deterministic *future* candidate, not dispatch. A3/A5/A7/A8
 remain ineligible. The global switch stays false.
 
+The optional `a2-a1-ohlcv-source-inventory-v1` A1 input replays Stage2 event
+selection and verifies bounded child-artifact hashes, clocks and price archive
+bytes. A0 derives `identity.parameters.a2_a1_ohlcv` inside its existing A1 task
+packet and `agent_task_queue.json`; this is not another canonical queue/ledger.
+The derived requests/results participate in the existing task key and V2 reuse
+identity. Caller-supplied values for that parameter are rejected, and this
+path is always dispatch-ineligible. The A1/A2 dependency DAG is unchanged.
+
+The payload distinguishes REUSE_EXISTING, INCREMENTAL_ONLY, BACKFILL_REQUIRED,
+NO_DATA and BLOCKED over declared session grids. A captured ticker list cannot
+establish coverage; US archives use the deployed raw/split Source verifier,
+and KR normalized caches are not accepted as equivalent evidence. Original
+source/identity/calendar/rights/CA/PIT authentication remains unverified and
+consumer eligibility false. Every request is DRY_RUN, not a collector permit.
+
 ## A0 decisions and worker handoff
 
 The existing packet and receipt express **Task → Work → Evidence → Confidence →
