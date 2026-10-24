@@ -7629,3 +7629,12 @@ RS. Preserve that failed64-case Native log, move only proof object/schema/hash
 and original effective/aware clocks across the global boundary, and keep the
 original source-field/role compatibility checks local. Do not alter original
 assertions or treat a focused counterexample PASS as the full regression PASS.
+
+An unchanged helper's1MiB SHA read raised MemoryError during d9 independent
+optimized QA and268 direct optimized Native. Preserve both failures separately
+from product assertions. A same26864-case retry passed with unchanged gates;
+external sampling saw minimum free commit2.51GB and peak process private111MB.
+Post-failure host commit was about95%; the failed instant was not sampled, so
+the transient cause remains unconfirmed. Keep heavy Native and independent QA
+sequential, record runtime/head and memory evidence, and revalidate the final
+head; neither retry success nor high host commit alone diagnoses the cause.
