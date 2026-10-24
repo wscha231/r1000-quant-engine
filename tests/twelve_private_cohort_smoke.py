@@ -9,7 +9,7 @@ import gzip
 import zipfile
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -105,6 +105,96 @@ class CohortTests(unittest.TestCase):
         for flag in c.FLAGS:
             self.assertIs(state[flag], False)
         self.assertNotIn('offline-credential-canary', json.dumps(self.progress))
+
+    def test_known_bad_generation_stops_each_subject_before_resume_provider_and_write(self):
+        bad_sha = '3950bf63d87e280d62fc5ea9fb35f2e76643db669961658ebd5db4cea2ca86b5'
+        self.assertEqual(c.BAD_IDENTITY_SCOPE_SHA, bad_sha)
+        # The immutable generation is refused even if a caller renames a subject.
+        for symbol in ('A', 'KKR', 'HBAN', 'MTB', 'S', 'TEST00'):
+            for resume in (None, {'file_id': 'fixture-resume', 'sha256': 'e' * 64}):
+                ref = dict(self.ref, sha256=bad_sha)
+                instrument = dict(symbol=symbol, mic='XNYS')
+                original = copy.deepcopy((ref, instrument, self.drive.objects,
+                                          self.drive.parents, self.drive.free))
+                fetch, capture = Mock(), Mock()
+                with self.subTest(symbol=symbol, resume=resume is not None), \
+                        patch.object(c, 'read', return_value=self.value) as read_scope, \
+                        patch.object(c, 'scope', return_value=[instrument]) as parse_scope, \
+                        patch.object(c, 'verify_initial') as initial, \
+                        patch.object(c, 'resume_completed') as restored, \
+                        patch.object(self.drive, 'write', wraps=self.drive.write) as write:
+                    with self.assertRaisesRegex(m.Refused, '^CURRENT_IDENTITY_MISMATCH$'):
+                        c.collect(self.drive, FOLDERS, 'offline-credential-canary', {}, ACCOUNT,
+                                  ref, resume, 1, provider=fetch, capture=capture,
+                                  progress=self.progress.append)
+                    read_scope.assert_called_once_with(self.drive, ref, FOLDERS['00-control'])
+                    parse_scope.assert_called_once_with(self.value)
+                    initial.assert_not_called()
+                    restored.assert_not_called()
+                    fetch.assert_not_called()
+                    capture.assert_not_called()
+                    write.assert_not_called()
+                self.assertEqual((ref, instrument, self.drive.objects,
+                                  self.drive.parents, self.drive.free), original)
+                self.assertEqual(self.progress, [])
+
+    def test_different_generation_does_not_bypass_existing_identity_checks(self):
+        value = copy.deepcopy(self.value)
+        value['instruments'][0]['currency'] = 'TWD'
+        ref = self.drive.write(FOLDERS['00-control'], m.encoded(value), '.json')
+        self.assertNotEqual(ref['sha256'], c.BAD_IDENTITY_SCOPE_SHA)
+        fetch, capture = Mock(), Mock()
+        before = copy.deepcopy((self.drive.objects, self.drive.parents, self.drive.free))
+        with patch.object(self.drive, 'write', wraps=self.drive.write) as write:
+            with self.assertRaisesRegex(m.Refused, '^CURRENT_IDENTITY_MISMATCH$'):
+                c.collect(self.drive, FOLDERS, 'offline-credential-canary', {}, ACCOUNT,
+                          ref, None, 1, provider=fetch, capture=capture,
+                          progress=self.progress.append)
+            write.assert_not_called()
+        fetch.assert_not_called()
+        capture.assert_not_called()
+        self.assertEqual((self.drive.objects, self.drive.parents, self.drive.free), before)
+        self.assertEqual(self.progress, [])
+
+    def test_actual_run_refuses_bad_scope_before_account_or_drive_preflight(self):
+        ref = dict(self.ref, sha256=c.BAD_IDENTITY_SCOPE_SHA)
+        env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true', TWELVE_KEY_NAME='TWELVE_API_KEY',
+                   TWELVE_API_KEY='offline-credential-canary')
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(m, 'twelve') as fetch, \
+                patch.object(m, 'OwnerDrive') as drive, \
+                patch.object(c, 'collect') as collect:
+            with self.assertRaisesRegex(m.Refused, '^CURRENT_IDENTITY_MISMATCH$'):
+                m.run(True, ref)
+            fetch.assert_not_called()
+            drive.assert_not_called()
+            collect.assert_not_called()
+
+    def test_real_cli_quarantines_bad_scope_without_credentials_or_network(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'tools/twelve_private_capture.py'),
+            '--capture-history', '--cohort-file-id', 'fixture-scope-123',
+            '--cohort-sha256', c.BAD_IDENTITY_SCOPE_SHA],
+            env={'PATH': os.environ.get('PATH', ''), 'A1_PRIVATE_RESEARCH_AUTHORIZED': 'true'},
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(json.loads(result.stdout)['reason'], 'CURRENT_IDENTITY_MISMATCH')
+        self.assertEqual(result.stderr, '')
+
+    def test_present_empty_reference_refuses_but_none_preserves_pilot_preflight(self):
+        env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true', TWELVE_KEY_NAME='TWELVE_API_KEY',
+                   TWELVE_API_KEY='offline-credential-canary')
+        for file_id, sha in (('', ''), (None, None), (0, False)):
+            with self.subTest(file_id=file_id, sha=sha), patch.dict(os.environ, env, clear=True), \
+                    patch.object(m, 'twelve') as fetch, patch.object(m, 'OwnerDrive') as drive:
+                with self.assertRaisesRegex(m.Refused, '^SOURCE_FIELDS$'):
+                    m.run(True, dict(file_id=file_id, sha256=sha))
+                fetch.assert_not_called()
+                drive.assert_not_called()
+        with patch.dict(os.environ, env, clear=True), \
+                patch.object(m, 'twelve', side_effect=RuntimeError('OFFLINE_PILOT_BOUNDARY')) as fetch:
+            with self.assertRaisesRegex(RuntimeError, '^OFFLINE_PILOT_BOUNDARY$'):
+                m.run(True, None)
+            fetch.assert_called_once_with('/api_usage', {}, 'offline-credential-canary')
 
     def test_scope_must_partition_targets_and_preserve_unknowns(self):
         for mutation in ('duplicate', 'missing', 'identity', 'pit'):

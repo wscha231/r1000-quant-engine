@@ -13,6 +13,8 @@ INITIAL = dict(file_id='1mx4ibR_WJ-vLqmKernah5sAWnf70O3o6',
                sha256='1a42a1d8447bf927c1982cce0f8355321a18537e925b6b65ddd271863ba680cb')
 MICS = {'XNGS', 'XNGM', 'XNCM', 'XNYS', 'XASE'}
 FLAGS = ('historical_identity_verified', 'pit_verified', 'source_admission', 'economic_authority')
+# Immutable planned scope with independently verified cross-issuer conflicts.
+BAD_IDENTITY_SCOPE_SHA = '3950bf63d87e280d62fc5ea9fb35f2e76643db669961658ebd5db4cea2ca86b5'
 
 
 def reference(file_id, sha):
@@ -21,6 +23,13 @@ def reference(file_id, sha):
     m.require(isinstance(file_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{10,100}', file_id)
               and isinstance(sha, str) and re.fullmatch(r'[a-f0-9]{64}', sha), 'SOURCE_FIELDS')
     return dict(file_id=file_id, sha256=sha)
+
+
+def require_capture_identity(cohort_ref):
+    m.require(isinstance(cohort_ref, dict) and {'file_id', 'sha256'} <= set(cohort_ref),
+              'SOURCE_FIELDS')
+    m.require(reference(cohort_ref['file_id'], cohort_ref['sha256']) is not None, 'SOURCE_FIELDS')
+    m.require(cohort_ref['sha256'] != BAD_IDENTITY_SCOPE_SHA, 'CURRENT_IDENTITY_MISMATCH')
 
 
 def read(drive, ref, parent):
@@ -214,6 +223,7 @@ def collect(drive, folders, key, rights, account, cohort_ref, resume_ref, maximu
     m.require(type(maximum) is int and 1 <= maximum <= 360, 'SOURCE_FIELDS')
     value = read(drive, cohort_ref, folders['00-control'])
     instruments = scope(value)
+    require_capture_identity(cohort_ref)
     completed, quarantine = (resume_completed(drive, folders, resume_ref, cohort_ref, instruments,
                                               with_quarantine=True) if resume_ref
                              else (verify_initial(drive, folders, instruments), []))
