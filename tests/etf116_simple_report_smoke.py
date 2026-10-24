@@ -285,6 +285,98 @@ class SimpleReportTests(unittest.TestCase):
             self.assertNotIn('https://', child.stdout + child.stderr)
             self.assertFalse((base / 'output').exists())
 
+    def test_read_plan_selects_before_holdings_and_never_computes_or_exports(self):
+        expected = [r['ticker'] for r in self.build()['top5']]
+        del self.value['holdings']
+        with patch('tools.etf116_research_metrics_h1.compute_horizons', side_effect=RuntimeError('NO_RECOMPUTE')), \
+             patch.object(report, 'workbook_bytes', side_effect=RuntimeError('NO_RENDER')), \
+             patch.object(report, 'publish_local', side_effect=RuntimeError('NO_EXPORT')):
+            result = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
+        self.assertEqual(result['selected_tickers'], expected)
+        self.assertEqual(set(result['holdings_fetch_reasons']), set(expected))
+        self.assertEqual(result['funds_requiring_holdings'], 5)
+        self.assertEqual(result['network_calls_performed'], 0)
+        self.assertTrue(result['get_only'])
+        for key in ('metrics_recompute_requested', 'publish_enabled', 'economic_authority',
+                    'source_admission', 'accepted_session', 'report_input_ready'):
+            self.assertFalse(result[key])
+
+    def test_read_plan_reuses_valid_snapshots_with_exact_cache_hash(self):
+        result = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
+        self.assertEqual(result['funds_requiring_holdings'], 0)
+        self.assertTrue(result['report_input_ready'])
+        for ticker, digest in result['holdings_reuse_sha256'].items():
+            self.assertEqual(digest, report.canonical_hash(self.value['holdings'][ticker]))
+        # A plan is not an export authority or a replacement for revalidation.
+        first = result['selected_tickers'][0]
+        self.value['holdings'][first][0]['asof'] = '2026-01-01'
+        with self.assertRaises(report.ReportRefused):
+            self.build()
+
+    def test_read_plan_refreshes_only_missing_stale_or_invalid_selected_funds(self):
+        chosen = [r['ticker'] for r in self.build()['top5']]
+        del self.value['holdings'][chosen[0]]
+        self.value['holdings'][chosen[1]][0]['asof'] = '2026-01-01'
+        self.value['holdings'][chosen[2]][0]['symbol'] = self.value['holdings'][chosen[2]][1]['symbol']
+        unselected = next(t for t in self.value['holdings'] if t not in chosen)
+        self.value['holdings'][unselected] = 'SECRET_UNUSED_CACHE'
+        result = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
+        self.assertEqual(set(result['holdings_fetch_reasons']), set(chosen[:3]))
+        self.assertEqual(set(result['holdings_reuse_sha256']), set(chosen[3:]))
+        self.assertNotIn('SECRET', json.dumps(result))
+
+    def test_read_plan_cohort_invalidity_stops_before_holdings_checks(self):
+        del self.value['fund_metadata'][TICKERS[-1]]
+        with patch.object(report, '_holdings', side_effect=RuntimeError('TOO_EARLY')) as holding_check:
+            with self.assertRaisesRegex(report.ReportRefused, 'FIXED_UNIVERSE_COVERAGE'):
+                report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
+            holding_check.assert_not_called()
+
+    def test_read_plan_new_member_and_existing_cadence_refresh(self):
+        old = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)['selected_tickers']
+        entrant = next(t for t in TICKERS[:7] if t not in old)
+        for h in report.HORIZONS:
+            self.value['metrics_candidate']['ticker_results'][entrant]['horizons'][h]['cagr'] = 10.
+        del self.value['holdings'][entrant]
+        reseal(self.value)
+        changed = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW)
+        self.assertIn(entrant, changed['selected_tickers'])
+        self.assertEqual(set(changed['holdings_fetch_reasons']), {entrant})
+        refresh = report.plan_inputs(self.value, FROZEN, evaluation_time=NOW, holdings_refresh_due=True)
+        self.assertEqual(refresh['funds_requiring_holdings'], 5)
+        self.assertFalse(refresh['holdings_reuse_sha256'])
+        self.assertTrue(all(v == 'EXISTING_CADENCE_REFRESH_DUE' for v in refresh['holdings_fetch_reasons'].values()))
+        with self.assertRaisesRegex(report.ReportRefused, 'HOLDINGS_REFRESH_FLAG'):
+            report.plan_inputs(self.value, FROZEN, evaluation_time=NOW, holdings_refresh_due=1)
+
+    def test_plan_cli_without_holdings_exports_no_workbook_and_echoes_no_source_text(self):
+        # Dynamic clock is only a CONTRACT_FIXTURE for the real CLI boundary.
+        clock = datetime.now(timezone.utc).isoformat()
+        day = clock[:10]
+        self.value['decision_at'] = clock
+        self.value['metrics_candidate']['session'] = day
+        for entry in self.value['metrics_candidate']['ticker_results'].values():
+            entry['asof'] = day
+        for meta in self.value['fund_metadata'].values():
+            meta.update(asof=day, published_at=clock)
+        self.value['fund_metadata'][TICKERS[0]]['fund_name'] = 'SECRET_LABEL'
+        self.value.pop('holdings')
+        reseal(self.value)
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'input.json'
+            raw = json.dumps(self.value).encode()
+            source.write_bytes(raw)
+            child = subprocess.run([sys.executable, '-O' if sys.flags.optimize else '-B',
+                                    str(ROOT / 'tools/etf116_simple_report.py'), '--input', str(source),
+                                    '--input-sha256', hashlib.sha256(raw).hexdigest(), '--plan-only'],
+                                   capture_output=True, text=True, timeout=15)
+            self.assertEqual(child.returncode, 0, child.stderr)
+            result = json.loads(child.stdout)
+            self.assertEqual(result['funds_requiring_holdings'], 5)
+            self.assertNotIn('SECRET', child.stdout + child.stderr)
+            self.assertNotIn('https://', child.stdout + child.stderr)
+            self.assertEqual(list(Path(td).iterdir()), [source])
+
 
 if __name__ == '__main__':
     unittest.main()

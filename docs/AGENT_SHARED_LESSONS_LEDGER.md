@@ -7839,3 +7839,22 @@ Independent A6 reproduced this author-raised concern. Preserve original core XML
 namespaces and change exactly the two clock values; verify QName bindings, not
 only well-formed XML or successful openpyxl reopen. Render all three report tabs:
 the narrow overlap table also needs enough width for its six-cell context row.
+
+### 2026-10-24 — Select before holdings intake; preserve shared ownership
+
+Parallel ETF research can prepare an independent immutable report interface
+without a second Source collector, shared workflow writer or portfolio runtime.
+Borrow a clean/released existing Main under its lease and restore original
+branch/sparse bytes/actual Registry before release. Rebase onto actual master;
+old source-head CI remains historical after new edits.
+
+Use the same complete-cohort selection and holdings validation for a GET-only
+read plan and final export. Reuse valid selected snapshots; fetch only selected
+missing/invalid/stale or existing-cadence due snapshots. A ready plan grants no
+admission or publication authority and final export must revalidate inputs.
+Count fund targets separately from provider requests/pages. Conditional row
+savings are not measured runtime or actual coverage. Corporate-action revisions
+can invalidate historical adjustments, so append-only cache reuse needs explicit
+revision/method invalidation. The connected Alpaca bars signature lacks adjustment
+and pagination controls; never label its raw/default response a complete TR feed.
+Firecrawl credit exhaustion was preserved; official docs used web fallback.

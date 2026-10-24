@@ -77,7 +77,8 @@ def percentile(values, value):
     return (sum(x < value for x in values) + (sum(x == value for x in values) - 1) / 2) / (len(values) - 1)
 
 
-def build(packet, frozen, *, evaluation_time=None):
+def _select(packet, frozen, *, evaluation_time=None):
+    """Shared selection before holdings I/O; never ranks a truncated cohort."""
     now = evaluation_time or datetime.now(timezone.utc)
     require(now.tzinfo is not None, 'EVALUATION_CLOCK')
     require(type(packet) is dict and packet.get('schema') == SCHEMA, 'INPUT_SCHEMA')
@@ -154,13 +155,18 @@ def build(packet, frozen, *, evaluation_time=None):
         row['percentiles'] = components
     rows.sort(key=lambda r: (-r['score'], -r['cagr_3y'], r['expense_ratio'], r['ticker']))
     top = [dict(row, rank=i + 1) for i, row in enumerate(rows[:5])]
+    return dict(session=session, decision=decision, tickers=tickers, metrics=metrics,
+                rows=rows, excluded=excluded, basis=basis, top=top)
+
+
+def _holdings(top, supplied, *, session, decision, tickers):
     holdings, overlap = [], {}
-    supplied = packet.get('holdings')
     require(type(supplied) is dict and set(supplied).issubset(set(tickers)), 'HOLDINGS_SCOPE')
     for fund in top:
         ticker = fund['ticker']
         records = supplied.get(ticker)
         require(type(records) is list and len(records) == 10, 'TOP10_HOLDINGS_REQUIRED')
+        require(all(type(r) is dict for r in records), 'HOLDINGS_RECORDS')
         require({r.get('rank') for r in records} == set(range(1, 11))
                 and all(type(r.get('rank')) is int for r in records), 'HOLDINGS_RANKS')
         seen, total, snapshot = set(), 0., set()
@@ -185,12 +191,58 @@ def build(packet, frozen, *, evaluation_time=None):
         require(total <= 100 + 1e-9 and len(snapshot) == 1, 'HOLDINGS_SNAPSHOT')
         require(all(a['weight_pct'] >= b['weight_pct'] for a, b in zip(
             sorted(records, key=lambda r: r['rank']), sorted(records, key=lambda r: r['rank'])[1:])), 'HOLDINGS_WEIGHT_ORDER')
+    return holdings, overlap
+
+
+def plan_inputs(packet, frozen, *, evaluation_time=None, holdings_refresh_due=False):
+    """Plan GET-only intake for selected funds. Does not execute or admit inputs.
+
+    The existing cadence owner supplies refresh_due; no scheduler or new clock
+    policy is introduced. Every later export revalidates the original inputs.
+    """
+    require(type(holdings_refresh_due) is bool, 'HOLDINGS_REFRESH_FLAG')
+    selected = _select(packet, frozen, evaluation_time=evaluation_time)
+    cached = packet.get('holdings', {})
+    require(type(cached) is dict and set(cached).issubset(set(selected['tickers'])), 'HOLDINGS_SCOPE')
+    fetch, reuse = {}, {}
+    for fund in selected['top']:
+        ticker = fund['ticker']
+        if holdings_refresh_due:
+            fetch[ticker] = 'EXISTING_CADENCE_REFRESH_DUE'
+        elif ticker not in cached:
+            fetch[ticker] = 'MISSING_HOLDINGS_CACHE'
+        else:
+            try:
+                _holdings([fund], {ticker: cached[ticker]}, session=selected['session'],
+                          decision=selected['decision'], tickers=selected['tickers'])
+                reuse[ticker] = canonical_hash(cached[ticker])
+            except (ValueError, KeyError, TypeError):
+                # Cache invalidity requests fresh GETs, never output/error echo.
+                fetch[ticker] = 'INVALID_OR_STALE_HOLDINGS_CACHE'
+    result = dict(schema='etf116-simple-report-read-plan-v1', session=selected['session'],
+                  input_sha256=canonical_hash(packet),
+                  metrics_receipt_sha256=selected['metrics']['candidate_receipt_sha256'],
+                  selected_tickers=[r['ticker'] for r in selected['top']],
+                  qualified_count=len(selected['rows']), frozen_count=len(selected['tickers']),
+                  holdings_fetch_reasons=fetch, holdings_reuse_sha256=reuse,
+                  funds_requiring_holdings=len(fetch), report_input_ready=not fetch,
+                  network_calls_performed=0, get_only=True, metrics_recompute_requested=False,
+                  publish_enabled=False, research_only=True, economic_authority=False,
+                  source_admission=False, accepted_session=False)
+    return dict(result, plan_sha256=canonical_hash(result))
+
+
+def build(packet, frozen, *, evaluation_time=None):
+    selected = _select(packet, frozen, evaluation_time=evaluation_time)
+    session, metrics, top = selected['session'], selected['metrics'], selected['top']
+    holdings, overlap = _holdings(top, packet.get('holdings'), session=session,
+                                 decision=selected['decision'], tickers=selected['tickers'])
     report = dict(schema=OUTPUT_SCHEMA, session=session, decision_at=packet['decision_at'],
                   research_only=True, economic_authority=False, accepted_session=False,
                   allowed_for_existing_sheet_publisher=False, source_admission=False,
                   input_sha256=canonical_hash(packet), metrics_receipt_sha256=metrics['candidate_receipt_sha256'],
-                  series_basis=basis, qualified_count=len(rows), frozen_count=len(tickers),
-                  weights=WEIGHTS, top5=top, holdings=holdings, excluded=excluded,
+                  series_basis=selected['basis'], qualified_count=len(selected['rows']), frozen_count=len(selected['tickers']),
+                  weights=WEIGHTS, top5=top, holdings=holdings, excluded=selected['excluded'],
                   overlap=sorted(overlap.values(), key=lambda r: (-r['fund_count'], r['symbol'])),
                   method='Equal 1/3/5Y CAGR percentile weights20% each; 3Y risk; fee preference10%.',
                   fee_note='Fund expenses are already reflected in TR; no second return deduction.',
@@ -314,7 +366,11 @@ def main():
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--input-sha256', required=True)
     parser.add_argument('--frozen', type=Path, default=ROOT / 'research/etf116_v1/frozen_tickers.txt')
-    parser.add_argument('--output-dir', type=Path, required=True)
+    output = parser.add_mutually_exclusive_group(required=True)
+    output.add_argument('--output-dir', type=Path)
+    output.add_argument('--plan-only', action='store_true')
+    parser.add_argument('--refresh-holdings', action='store_true',
+                        help='Existing cadence owner requests refresh; plan-only, GET-only.')
     args = parser.parse_args()
     try:
         require(not args.input.is_symlink(), 'INPUT_REGULAR_FILE')
@@ -334,7 +390,13 @@ def main():
         def nonfinite(_):
             raise ReportRefused('NONFINITE_JSON')
         packet = json.loads(raw, object_pairs_hook=pairs, parse_constant=nonfinite)
-        report = build(packet, args.frozen.read_text(encoding='utf-8').splitlines())
+        frozen = args.frozen.read_text(encoding='utf-8').splitlines()
+        require(not args.refresh_holdings or args.plan_only, 'PLAN_ONLY_REFRESH_FLAG')
+        if args.plan_only:
+            print(json.dumps(plan_inputs(packet, frozen, holdings_refresh_due=args.refresh_holdings),
+                             sort_keys=True, allow_nan=False))
+            return 0
+        report = build(packet, frozen)
         publish_local(report, args.output_dir)
         print(json.dumps(dict(state='RESEARCH_FILE_EXPORTED', session=report['session'],
                               report_sha256=report['report_sha256'], accepted_session=False)))

@@ -94,3 +94,94 @@ capabilities from PR646 f889ddba, including exact probe blob626041f5 and the typ
 POST outcome correction. Only the three causal existing workflow/test patches
 were strictly applied to current master71111d1b; unrelated SEC work10f62fb3 stays
 on its own preserved branch. Existing PR646 is reused and remains Draft.
+
+## Independent completion and later V7.1 connection (2026-10-24)
+
+The human requested parallel ETF completion while V7.1 integration continues.
+The independent research product is verified ETF inputs -> existing H1 metrics ->
+small workbook -> private Drive file. It does not need the V7.1 portfolio/ER/paper
+runtime. Later consumers read the same immutable JSON and physical-hash receipt.
+No accepted portfolio session or target/order permission follows from ranking.
+
+PR646's old head2fa03544/base71111d1b CI235/235 and A6 are historical after a
+new change. This continuation re-queries master and rebases the same existing
+PR. Borrow Main only after a clean/released handoff and restore it on release;
+remote/read-only work may proceed in parallel, never two local Main writers.
+No new checkout, PR, collector, schedule or common workflow edit is needed.
+
+| Remaining work | Required evidence | V7.1 dependence |
+|---|---|---|
+| Comparable1/3/5Y daily TR | Actual manifest, rights/retention, dividend/split QA, identity and clocks | Reuse a future admitted Reader generation; no duplicate collector |
+| Dated RF and matched-basis SPY | Same-period source and availability; no NAV/market splice | Shared immutable data, not portfolio runtime |
+| Classification/fees for frozen116 | All exclusions explicit, dated issuer records <=45days | None |
+| Selected top5 holdings | Ten stock/classes each, one issuer snapshot <=10days, hash/publication clock | None; intake after selection |
+| Private file publication | Bound runner/code/parent/file, exact immutable readback, unknown-write GET-only recovery | Existing Drive owner transport; no Sheets mutation dependency |
+| Bounded recurring operation | Existing trigger/gate, rights/budget, deduplication, visible stale/blocked state | Reuse shared session gate when integrated; no new scheduler |
+| Later consumer | Exact JSON/receipt hashes, schema/method/basis/clocks and capability checks | Additive read adapter; no recomputation/writer in V7.1 |
+
+Prior verified boundaries remain dailyTR0/116, anchor unconnected, accepted real
+ETF sessions0/2, automation disabled. Update only from actual source/runtime
+receipts. An OHLCV inventory is not dailyTR. The full accepted H3 service still
+needs anchor binding, two real completed sessions and long rotation/capacity;
+those do not prove this lightweight file has been published.
+
+### Minimize transfers first
+
+- Reuse verified history. After bootstrap, append new completed sessions only.
+  Corporate-action corrections or changed method/identity invalidate affected
+  windows; older adjusted values can change. This is a future producer contract,
+  not a second incremental TR calculator implemented here.
+- Reuse sealed H1 results; this adapter recalculates no TR/risk. It consumes
+  only1/3/5Y returns and3Y risk. Preserve all other H1 consumers' defaults.
+- Select using the complete classified cohort, then check only selected funds'
+  top10 caches. Refresh missing/invalid/stale snapshots or existing-cadence due
+  snapshots. Reuse fees/classifications until freshness expiry or source change.
+- Drive receives the small XLSX plus JSON/receipt, not repeated price history.
+  Retain raw/normalized data in the existing approved store.
+
+Conditional counts, not measured production savings:116 -> at most5 holdings
+fund targets is95.69% fewer targets. Fresh caches can reduce that to0; this is
+not an HTTP/page bound. With116 eligible series and1,260 retained sessions,
+146,160 repeated rows ->116 new-session rows is99.92% fewer transferred rows,
+excluding bootstrap, corrections, gaps, provider page minima and SPY. No elapsed
+time, credit or real data-coverage improvement is inferred. At this scale,
+arithmetic should be profiled before adding incremental MDD structures or a
+second engine. Full repository CI cost is development validation, not daily
+report generation cost.
+
+### Implemented two-stage read plan
+
+`plan_inputs` and `build` share one cohort/selection function. Planning requires
+sealed metrics and all116 dated classifications; holdings can be absent/partial.
+It returns selected tickers, valid cache hashes and GET-only fetch reasons.
+`funds_requiring_holdings` counts funds, not calls. Planning performs zero network
+calls, renders no workbook, dispatches nothing and grants no publication rights.
+
+```text
+python tools/etf116_simple_report.py --input report-input.json \
+  --input-sha256 EXACT_BYTES_SHA256 --plan-only
+```
+
+The existing cadence owner may add `--refresh-holdings` when due. After permitted
+GET-only intake, rehash the new input and use existing `--output-dir` export.
+Export revalidates original inputs. `report_input_ready` is only local shape/
+freshness readiness, not source authentication or Drive success.
+
+The later interface is existing `etf116-simple-report-v1` JSON + physical-hash
+receipt: session/decision, input/metrics/report hashes, method/basis, coverage and
+three display datasets. The consumer preserves all research/authority flags.
+No mutable latest alias, target weight, broker or paper authority is inferred.
+
+### Provider research boundary
+
+[Official Alpaca bars API](https://docs.alpaca.markets/us/reference/stockbars)
+supports multiple symbols, explicit adjustments and pagination. It defaults to
+raw; the point limit is across symbols and a page can contain only one symbol.
+The connected bars tool exposes neither adjustment nor page_token. Its output
+cannot be relabeled complete dailyTR. A future approved producer must preserve
+adjustment/feed/entity/pages, rights/retention and dividend/split methodology.
+Connection alone grants no new116-name Source budget. No provider collection
+was executed for this continuation. The Financial Datasets index-fund tool
+declares SEC-filing/as-of holdings, not guaranteed fresh issuer-daily data or
+publication evidence. Firecrawl was unavailable due to insufficient credits;
+the official Alpaca page was read through the web fallback.
