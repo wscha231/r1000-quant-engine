@@ -67,6 +67,8 @@
     "current_coverage_authority": "original receipts + actual selected bytes and clocks; not this static index",
     "removal_policy": "MOVE_TO_WATCH; continue price tracking and preserve history",
     "preparation": "tools/prepare_a1_managed_ohlcv.py",
+    "bounded_execution_adapter": "tools/alpaca_sip_managed_refresh.py",
+    "execution_status": "DRAFT_IMPLEMENTED; WAIT_OWNER_EVIDENCE; NOT_ACTIVATED",
     "existing_workflow": ".github/workflows/free_data_daily_update.yml",
     "automatic_private_capture_enabled": false,
     "supplier_rights_verified": false,

@@ -7637,3 +7637,23 @@ A public inventory bound by its exact byte hash must survive checkout line
 conversion. Pin LF for the new inventory/current policy and disable text
 conversion for archived policies; test actual git attributes so Windows CRLF
 cannot make an unchanged managed policy refuse its inventory/parent proof.
+
+### 2026-10-24 - Separate an implemented refresh adapter from actual activation
+
+The human asked to continue automatic updates while explicitly confirming no
+new account-rights evidence. Implement the guarded runtime in the existing daily
+workflow, but keep policy/variable/control disabled and WAIT_OWNER_EVIDENCE.
+Reuse the existing capture, immutable writes and RuntimeMeter; do not reset old
+budgets, invent a standing numeric grant or claim fixture capture as actual data.
+Reserve every finite execution slot including setup/publication time and unknown
+attempts. Require original private source bytes, immutable owner scope, protected
+deployment, a linked durable reservation and final meter before continuation.
+FOCUS and WATCH both track; a last-day bar cannot hide earlier session gaps.
+
+Hosted review found an archived-parent overwrite when malformed inventory failed
+before parent-path registration. Protect the entire policy-history namespace
+before either success or failure output; also reject runtime meter/input aliases
+before meter construction. The first new Native fixture failed only on Windows
+cp949 decoding of a UTF-8 workflow; specify UTF-8 explicitly, retain the failure,
+and rerun without relaxing assertions. The separate Source offline suite and
+original campaign/controller files remain unchanged.

@@ -91,7 +91,7 @@ def policy_rows(value, inventory_sha):
     require(type(value.get("refresh_delay_minutes")) is int
             and value["refresh_delay_minutes"] == 120, "REFRESH_DELAY")
     # A boolean in a config cannot turn this preparation adapter into a dispatcher.
-    require(value.get("automatic_capture_enabled") is False
+    require(type(value.get("automatic_capture_enabled")) is bool
             and value.get("execution_authorization") is None, "CAPTURE_NOT_IMPLEMENTED")
     active = symbols(value.get("active_tickers"))
     watch = symbols(value.get("watch_tickers"))
@@ -189,13 +189,20 @@ def prepare(inventory, policy, inventory_sha, gate, *, previous=None, previous_s
                 economic_authority=False)
 
 
-def write_report(path, payload, inputs):
+def protect_output(path, inputs):
     output = Path(path)
     require(not output.is_symlink(), "OUTPUT_ALIAS")
     resolved = output.resolve()
     for item in inputs:
+        history = Path(item).parent / "a1_ohlcv_managed_history"
+        require(not resolved.is_relative_to(history.resolve()), "OUTPUT_ALIAS")
         require(resolved != Path(item).resolve(), "OUTPUT_ALIAS")
         require(not (output.exists() and Path(item).exists() and os.path.samefile(output, item)), "OUTPUT_ALIAS")
+    return output
+
+
+def write_report(path, payload, inputs):
+    output = protect_output(path, inputs)
     output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".managed-ohlcv-", dir=output.parent)
     try:
