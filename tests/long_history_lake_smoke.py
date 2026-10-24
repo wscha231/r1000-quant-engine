@@ -842,6 +842,113 @@ class HistoryTest(unittest.TestCase):
         self.assertNotIn("old['raw_objects'][0]",workflow)
 
 
+    def test_sparse_registered_suites_have_complete_isolated_imports(self):
+        import os
+        import re
+        import shutil
+        import subprocess
+        import textwrap
+        workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
+        paths=re.findall(r'^            /(.+)$',workflow,re.MULTILINE)
+        self.assertTrue(paths)
+        self.assertEqual(len(paths),len(set(paths)))
+        child=textwrap.dedent('''
+            import importlib,json,pathlib,sys,unittest
+            root=pathlib.Path(sys.argv[1]).resolve()
+            sys.path[:0]=[str(root/'tests'),str(root)]
+            def leaves(suite):
+                for test in suite:
+                    if isinstance(test,unittest.TestSuite): yield from leaves(test)
+                    else: yield test
+            counts={}
+            for name in ('long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'):
+                module=importlib.import_module(name)
+                cases=list(leaves(unittest.defaultTestLoader.loadTestsFromModule(module)))
+                errors=[str(test._exception) for test in cases if isinstance(test,unittest.loader._FailedTest)]
+                if errors: raise RuntimeError('sparse_suite_load_failed:'+repr(errors))
+                counts[name]=len(cases)
+                if name=='long_history_lake_smoke':
+                    classes={type(test).__module__+'.'+type(test).__name__ for test in cases}
+                    required={'research_data_access_smoke.ReaderTest','a1_reader_generation_binding_smoke.BindingTest'}
+                    if not required<=classes: raise RuntimeError('registered_reader_binding_missing')
+            for name,module in tuple(sys.modules.items()):
+                if name.startswith('tools.') or name.endswith('_smoke'):
+                    origin=getattr(module,'__file__',None)
+                    if origin and not pathlib.Path(origin).resolve().is_relative_to(root):
+                        raise RuntimeError('full_checkout_fallback:'+name)
+            print(json.dumps(counts,sort_keys=True))
+        ''')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            baseline=root/'complete';baseline.mkdir()
+            for name in paths:
+                self.assertRegex(name,r'^[A-Za-z0-9_./-]+$')
+                self.assertNotIn('..',Path(name).parts)
+                source_path=ROOT/name
+                self.assertTrue(source_path.is_file(),name)
+                target=baseline/name;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes(source_path.read_bytes())
+            guard=root/'guard';guard.mkdir()
+            (guard/'sitecustomize.py').write_text(
+                'import socket\nfrom pathlib import Path\n'
+                'def denied(*args,**kwargs):\n'
+                '    Path(__file__).with_name("network-attempt.log").write_text("blocked\\n")\n'
+                '    raise RuntimeError("SPARSE_LOAD_NETWORK_FORBIDDEN")\n'
+                'socket.socket.connect=denied\nsocket.socket.connect_ex=denied\n'
+                'socket.create_connection=denied\n')
+            env=os.environ.copy()
+            for name in tuple(env):
+                if re.search(r'TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY|SERVICE_ACCOUNT|RCLONE|DRIVE|ALPACA|FRED',name,re.I):
+                    env.pop(name)
+            env.update(PYTHONPATH=str(guard),PYTHONDONTWRITEBYTECODE='1',
+                OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',NUMEXPR_NUM_THREADS='1')
+            flags=['-O'] if sys.flags.optimize else []
+            def load(where):
+                result=subprocess.run([sys.executable,*flags,'-B','-c',child,str(where)],
+                    cwd=where,env=env,capture_output=True,text=True,timeout=60)
+                self.assertLessEqual(len(result.stdout)+len(result.stderr),32768)
+                self.assertFalse((guard/'network-attempt.log').exists())
+                return result
+            positive=load(baseline)
+            self.assertEqual(positive.returncode,0,positive.stderr)
+            self.assertEqual(set(json.loads(positive.stdout)),
+                {'long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'})
+            if os.name=='posix':
+                import atexit
+                completed=subprocess.run([sys.executable,*flags,'-B','tests/macro_research_cycle_smoke.py'],
+                    cwd=baseline,env=env,capture_output=True,text=True,timeout=60)
+                self.assertLessEqual(len(completed.stdout)+len(completed.stderr),32768)
+                self.assertFalse((guard/'network-attempt.log').exists())
+                self.assertEqual(completed.returncode,0,completed.stdout+completed.stderr)
+                expected=json.loads(positive.stdout)['macro_research_cycle_smoke']
+                ran=re.findall(r'Ran (\d+) tests?',completed.stderr)
+                self.assertEqual([int(value) for value in ran],[expected])
+                self.assertNotIn('skipped=',completed.stderr)
+                # The existing CI runner retains each smoke's last stdout line.
+                atexit.register(print,'LONG_HISTORY_ISOLATED_POSIX_MACRO_CYCLE_PASS tests='+str(expected)+
+                    ' optimize='+str(sys.flags.optimize)+' sparse_paths='+str(len(paths))+
+                    ' network_attempts=0',flush=True)
+            for omitted,module in (
+                ('tests/a1_reader_generation_binding_smoke.py','a1_reader_generation_binding_smoke'),
+                ('tools/twelve_private_capture.py','twelve_private_capture'),
+            ):
+                with self.subTest(omitted=omitted):
+                    case=root/module;shutil.copytree(baseline,case)
+                    (case/omitted).unlink()
+                    failure=load(case)
+                    self.assertNotEqual(failure.returncode,0)
+                    self.assertIn(module,failure.stderr)
+            trigger=root/'missing-push-path';shutil.copytree(baseline,trigger)
+            config=trigger/'.github/workflows/long_history_research.yml'
+            needle="      - 'tools/twelve_private_capture.py'\n"
+            self.assertEqual(workflow.count(needle),1)
+            config.write_text(workflow.replace(needle,''))
+            with patch(__name__+'.ROOT',trigger):
+                with self.assertRaisesRegex(AssertionError,'Unchecked dependency changes'):
+                    self.test_push_filters_cover_all_consumed_source_paths()
+
+
+
 def load_tests(loader, tests, pattern):
     # Keep the existing registered Tier-1 entry; avoid the shared runner/P0 lane.
     from research_data_access_smoke import ReaderTest
