@@ -70,12 +70,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            data_raw/sec
-            data_pit/sec
-          key: sec-13f-quarterly-${{ runner.os }}-${{ github.run_id }}
+            data_raw/sec/submissions
+            data_raw/sec/filings/13f
+            data_raw/sec/filings/13f_cover
+            data_raw/sec/parsed/13f
+            data_pit/sec/13f_latest
+            data_pit/sec/cusip_ticker_map.parquet
+          key: sec-13f-quarterly-v2-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
-            sec-13f-quarterly-${{ runner.os }}-
-            sec-evidence-${{ runner.os }}-
+            sec-13f-quarterly-v2-${{ runner.os }}-
 
       - name: Configure rclone
         env:
@@ -106,7 +109,18 @@ jobs:
           fi
           echo "GDRIVE_READY=yes" >> "$GITHUB_ENV"
 
-      - name: Restore SEC data lake from Google Drive
+      - name: Select existing 13F managers for scoped restore
+        run: |
+          set -euo pipefail
+          python tools/build_sec_13f_manager_universe.py \
+            --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
+            --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
+            --max-managers 50
+          python tools/run_sec_13f_parser.py \
+            --manager-ciks-file outputs/sec_institutional_signals/manager_ciks.txt \
+            --write-submissions-filter outputs/sec_institutional_signals/restore_submissions.filter
+
+      - name: Restore selected SEC submissions cache
         env:
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
           GDRIVE_FOLDER_NAME: r1000_top30_institutional
@@ -121,31 +135,21 @@ jobs:
           else
             BASE="gdrive:${GDRIVE_FOLDER_NAME}/"
           fi
-          restore_required_dir() {
-            local d="$1"
-            local limit="${2:-6m}"
-            mkdir -p "$d"
-            rclone lsf "$BASE$d" >/dev/null
-            echo "[gdrive] restore $d with timeout $limit"
-            timeout "$limit" rclone copy "$BASE$d" "$d/" --transfers 4 --checkers 8 --stats 30s --stats-one-line
-          }
-          restore_required_dir data_raw/sec 6m
-          restore_required_dir data_pit/sec 6m
-          restore_required_dir outputs/sec_institutional_signals 3m
-          restore_required_dir data_pit/etf_holdings 3m
-          restore_required_dir outputs/sec_ownership_signals 3m
-          restore_required_dir outputs/etf_thematic_signals 3m
-          test -s outputs/sec_ownership_signals/form4_latest.csv
-          test -s outputs/etf_thematic_signals/signals_latest.csv
-          test -s data_pit/etf_holdings/etf_holdings.parquet
+          mkdir -p data_raw/sec
+          timeout 6m rclone copy "${BASE}data_raw/sec" data_raw/sec/ \
+            --filter-from outputs/sec_institutional_signals/restore_submissions.filter \
+            --transfers 4 --checkers 8 --stats 30s --stats-one-line
 
-      - name: Collect and score 13F
+      - name: Collect and parse 13F source
+        id: sec_13f_collection
         env:
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT || 'R1000QuantEngine research andrewcha231@gmail.com' }}
           MANAGER_CIKS_INPUT: ${{ github.event.inputs.manager_ciks || '' }}
           MAX_FILINGS: ${{ github.event.inputs.max_filings || '1500' }}
           HISTORY_START: ${{ github.event.inputs.history_start || '2018-01-01' }}
           SAFETY_DELAY_HOURS: ${{ github.event.inputs.safety_delay_hours || '0' }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
         run: |
           set -euo pipefail
           mkdir -p outputs/full_rebuild_logs outputs/sec_institutional_signals data_pit/sec data_raw/sec
@@ -153,11 +157,6 @@ jobs:
             echo "[sec-13f] subset manager dispatch is non-canonical and cannot publish or chain; use a local smoke run" >&2
             exit 2
           fi
-          python tools/build_sec_13f_manager_universe.py \
-            --output-ciks outputs/sec_institutional_signals/manager_ciks.txt \
-            --output-summary outputs/sec_institutional_signals/manager_universe_summary.json \
-            --max-managers 50 \
-            2>&1 | tee outputs/full_rebuild_logs/sec_13f_manager_universe.log
           MANAGER_CIKS="$(cat outputs/sec_institutional_signals/manager_ciks.txt)"
           if [ -z "${MANAGER_CIKS:-}" ]; then
             echo "[sec-13f] manager CIK list is empty; refusing to run BRK-only fallback"
@@ -199,6 +198,14 @@ jobs:
           fi
           python tools/run_sec_13f_parser.py \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
+            --as-of "$AS_OF_TIMESTAMP" --max-filings "$MAX_FILINGS" \
+            --write-restore-list outputs/sec_institutional_signals/restore_xml_files.txt
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE="gdrive:"; else BASE="gdrive:${GDRIVE_FOLDER_NAME}/"; fi
+          timeout 6m rclone copy "${BASE}data_raw/sec" data_raw/sec/ \
+            --files-from outputs/sec_institutional_signals/restore_xml_files.txt \
+            --transfers 4 --checkers 8 --stats 30s --stats-one-line
+          python tools/run_sec_13f_parser.py \
+            --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --output-dir data_pit/sec \
             --raw-dir data_raw/sec \
             --user-agent "$SEC_USER_AGENT" \
@@ -215,18 +222,53 @@ jobs:
             --audit outputs/sec_institutional_signals/mapping_audit.json \
             --unmapped outputs/sec_institutional_signals/unmapped_13f_holdings.csv \
             --user-agent "$SEC_USER_AGENT" \
-            --refresh-company-tickers \
+            --exact-cusip-only \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_cusip_map.log
           python tools/run_sec_13f_parser.py \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
             --output-dir data_pit/sec \
             --raw-dir data_raw/sec \
             --cusip-map data_pit/sec/cusip_ticker_map.parquet \
+            --exact-cusip-only \
             --user-agent "$SEC_USER_AGENT" \
             --sleep 0.12 \
             --max-filings "$MAX_FILINGS" \
             --as-of "$AS_OF_TIMESTAMP" \
             2>&1 | tee outputs/full_rebuild_logs/sec_13f_parser_mapped.log
+
+      - name: Persist collected 13F source independently of weighted analysis
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE="gdrive:"; else BASE="gdrive:${GDRIVE_FOLDER_NAME}/"; fi
+          timeout 8m rclone copy data_raw/sec/ "${BASE}data_raw/sec/" \
+            --filter-from outputs/sec_institutional_signals/restore_submissions.filter --transfers 4 --checkers 8
+          timeout 8m rclone copy data_raw/sec/ "${BASE}data_raw/sec/" \
+            --files-from outputs/sec_institutional_signals/restore_xml_files.txt --transfers 4 --checkers 8
+          for f in data_pit/sec/13f_latest/sec_filings_index.* data_pit/sec/institutional_13f_holdings.* data_pit/sec/institutional_13f_holdings_summary.json data_pit/sec/cusip_ticker_map.*; do
+            if [ -f "$f" ]; then timeout 3m rclone copyto "$f" "$BASE$f"; fi
+          done
+
+      - name: Restore required Form4 and ETF evidence for weighted analysis
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE="gdrive:"; else BASE="gdrive:${GDRIVE_FOLDER_NAME}/"; fi
+          for f in outputs/sec_ownership_signals/form4_latest.csv data_pit/sec/sec_form4_merge_manifest.json outputs/etf_thematic_signals/signals_latest.csv data_pit/etf_holdings/etf_holdings.parquet; do
+            mkdir -p "$(dirname "$f")"
+            timeout 3m rclone copyto "$BASE$f" "$f"
+            test -s "$f"
+          done
+
+      - name: Validate and score combined 13F Form4 ETF analysis
+        run: |
+          set -euo pipefail
+          AS_OF_DATE="$(TZ=America/New_York date +%F)"
+          AS_OF_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python tools/audit_sec_13f_filing_freshness.py \
             --schedule research/sec_13f_filing_schedule.json \
             --filings-index data_pit/sec/13f_latest/sec_filings_index.parquet \
@@ -234,6 +276,8 @@ jobs:
             --holdings data_pit/sec/institutional_13f_holdings.parquet \
             --require-parsed-holdings \
             --form4-evidence outputs/sec_ownership_signals/form4_latest.csv \
+            --form4-current-receipt data_pit/sec/sec_form4_merge_manifest.json \
+            --require-current-form4-receipt \
             --etf-evidence outputs/etf_thematic_signals/signals_latest.csv \
             --require-weighted-evidence \
             --as-of "$AS_OF_DATE" \
@@ -271,6 +315,8 @@ jobs:
             data_pit/sec/cusip_ticker_map.*
             data_pit/sec/institutional_13f_holdings.*
             data_pit/sec/*13f*summary.json
+            outputs/sec_institutional_signals/restore_xml_files.txt
+            outputs/sec_institutional_signals/restore_submissions.filter
             data_pit/etf_holdings/
             outputs/sec_institutional_signals/
             outputs/sec_ownership_signals/
@@ -299,7 +345,7 @@ jobs:
             echo "[gdrive] sync $src -> $dst"
             timeout 8m rclone copy "$src" "$dst" --transfers 4 --checkers 8 --stats 30s --stats-one-line
           }
-          for d in data_raw/sec data_pit/sec outputs/sec_institutional_signals; do
+          for d in outputs/sec_institutional_signals; do
             if [ -d "$d" ]; then
               sync_dir "$d" "$BASE$d/"
             fi

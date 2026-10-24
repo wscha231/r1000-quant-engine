@@ -473,6 +473,162 @@ def build_position_events(
     return out[EVENT_COLUMNS].sort_values(["available_from", "manager_cik", "ticker"]).reset_index(drop=True)
 
 
+def build_disclosure_research_events(holdings: pd.DataFrame, filing_receipts: dict) -> list[dict]:
+    """Compare complete disclosed constituents without collapsing security classes.
+
+    The supplied receipts must bind the original documents and complete parsing.
+    Mapping/coverage failures permit content review, never an inferred exit.
+    These are manager-aggregate disclosures, not trades attributed to a fund.
+    """
+    import hashlib
+    keys = ("cusip", "title_of_class", "share_type", "put_call",
+            "investment_discretion", "other_manager")
+    snapshots, result, incomplete_periods, originals = {}, [], {}, {}
+    groups = {str(a): f for a, f in holdings.groupby("source_accession", sort=False)}
+    timeline = []
+    for accession, receipt in filing_receipts.items():
+        frame = groups.get(str(accession), holdings.iloc[:0])
+        meta = frame.iloc[0].to_dict() if len(frame) else receipt
+        stamp = pd.Timestamp(meta["accepted_at"])
+        if pd.isna(stamp) or stamp.tzinfo is None:
+            raise ValueError("13F_FILING_CLOCK")
+        timeline.append((stamp.tz_convert("UTC"), str(accession), frame, receipt, meta))
+    if set(groups) - set(filing_receipts):
+        raise ValueError("13F_SOURCE_RECEIPT_REQUIRED")
+    for _, accession, frame, receipt, meta in sorted(timeline, key=lambda x: (x[0], x[1])):
+        if receipt.get("parsing_status") not in {"PARSED", "PARSED_EMPTY"} or not receipt.get("document_sha256"):
+            raise ValueError("13F_SOURCE_RECEIPT_REQUIRED")
+        records = [{k: (None if pd.isna(v) else v) for k, v in r.items()}
+                   for r in frame.to_dict("records")]
+        if not records and receipt.get("parsing_status") != "PARSED_EMPTY":
+            raise ValueError("13F_EMPTY_PARSE_PROOF_REQUIRED")
+        manager, period = str(meta["manager_cik"]), str(meta["report_period"])
+        if any(str(r["manager_cik"]) != manager or str(r["report_period"]) != period for r in records):
+            raise ValueError("13F_MIXED_FILING")
+        current = {}
+        for row in records:
+            key = tuple(row.get(k) for k in keys)
+            if not key[0] or key in current:
+                raise ValueError("13F_AMBIGUOUS_CONSTITUENT_ROWS")
+            for name in ("shares", "market_value_usd"):
+                if row.get(name) is None or not math.isfinite(float(row[name])) or float(row[name]) < 0:
+                    raise ValueError("13F_MISSING_POSITION_MEASURE")
+            current[key] = row
+        row_sources = {key: accession for key in current}
+        amendment = str(meta.get("amendment_type") or "").upper().replace("_", " ").replace("-", " ")
+        same = snapshots.get((manager, period))
+        complete = receipt.get("complete") is True and receipt.get("mapping_complete") is True
+        parent = receipt.get("original_accession")
+        forms = {str(r.get("form_type") or "").upper().strip() for r in records} or {str(meta["form_type"])}
+        if len(forms) != 1:
+            raise ValueError("13F_MIXED_FORM_TYPE")
+        is_amendment = next(iter(forms)).endswith("/A")
+        amendment_types = {str(r.get("amendment_type") or "").upper().replace("_", " ").replace("-", " ") for r in records} or {amendment}
+        amendment_type_known = len(amendment_types) == 1 and amendment in {"RESTATEMENT", "NEW HOLDINGS"}
+        if is_amendment and not amendment_type_known:
+            complete = False
+        # Original identity survives incomplete mapping. A verified full
+        # restatement can establish a boundary without a complete old snapshot.
+        if not is_amendment:
+            root = originals.setdefault((manager, period), accession)
+            if root != accession:
+                raise ValueError("13F_AMBIGUOUS_ORIGINAL")
+        root = originals.get((manager, period))
+        lineage_ok = not is_amendment or (root is not None and parent == root)
+        if not lineage_ok:
+            complete = False
+        previous = same
+        blocked_accessions = []
+        if not is_amendment:
+            # Retain old originals, but never skip a known incomplete revision.
+            prior_period = (pd.Timestamp(period) - pd.offsets.QuarterEnd()).date().isoformat()
+            previous = snapshots.get((manager, prior_period))
+            blocked_accessions = list(incomplete_periods.get((manager, prior_period), []))
+            if blocked_accessions:
+                previous = None
+        if is_amendment and amendment_type_known and amendment == "NEW HOLDINGS":
+            blocked_accessions = list(incomplete_periods.get((manager, period), []))
+            if same is None or blocked_accessions:
+                complete = False
+            else:
+                # Additive reports cannot delete or overwrite an existing constituent.
+                if set(current) & set(same["rows"]):
+                    raise ValueError("13F_ADDITIVE_OVERLAP_REQUIRES_REVIEW")
+                current = {**same["rows"], **current}
+                row_sources = {**same["row_sources"], **row_sources}
+                complete = lineage_ok and same["complete"] and receipt.get("complete") is True and receipt.get("mapping_complete") is True
+        denominator = sum(float(r["market_value_usd"]) for r in current.values())
+        prior_rows = previous["rows"] if previous and previous["complete"] and complete else {}
+        all_keys = set(current) | set(prior_rows)
+        for key in sorted(all_keys, key=str):
+            now_row, old_row = current.get(key), prior_rows.get(key)
+            row = now_row or old_row
+            shares = float(now_row["shares"]) if now_row else None
+            old_shares = float(old_row["shares"]) if old_row else None
+            weight = float(now_row["market_value_usd"]) / denominator if now_row and denominator > 0 else None
+            old_weight = (float(old_row["market_value_usd"]) / previous["denominator"]
+                          if old_row and previous["denominator"] > 0 else None)
+            if not complete:
+                kind = "DISCLOSURE_REVIEW_INCOMPLETE"
+            elif not previous or not previous["complete"]:
+                kind = "INITIAL_OBSERVATION"
+            elif now_row is None:
+                kind = "REPORTED_POSITION_REMOVAL"
+            elif old_row is None:
+                kind = "NEW_REPORTED_POSITION"
+            elif shares > old_shares:
+                kind = "REPORTED_SHARES_INCREASE"
+            elif shares < old_shares:
+                kind = "REPORTED_SHARES_DECREASE"
+            elif weight != old_weight:
+                kind = "WEIGHT_CHANGE_ONLY"
+            else:
+                continue
+            identity = [manager, period, str(accession), receipt["document_sha256"], key]
+            evidence = [("CURRENT_REPORT", accession)]
+            if is_amendment and lineage_ok:
+                evidence.append(("VERIFIED_ORIGINAL", root))
+            evidence.extend(("CURRENT_CONSTITUENT", a) for a in sorted(set(row_sources.values())))
+            if previous:
+                evidence.extend(("PRIOR_CONSTITUENT", a) for a in sorted(set(previous["row_sources"].values())))
+            evidence.extend(("INCOMPLETE_COMPARISON_BOUNDARY", a) for a in blocked_accessions)
+            source_accession = row_sources[key] if now_row else previous["row_sources"][key]
+            result.append(dict(event_id="SEC:" + hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
+                source_type="SEC_FILING", family="13F", accession=str(accession), manager_cik=manager,
+                report_period=period, ticker=row.get("ticker_mapped"), issuer_cik10=row.get("issuer_cik10"),
+                document_sha256=receipt["document_sha256"], form_type=meta.get("form_type"),
+                accepted_at=meta["accepted_at"], available_at=meta["available_from"],
+                event_type=kind, constituent_identity=dict(zip(keys, key)), source_row=row,
+                source_row_accession=source_accession,
+                previous_source_row=old_row,
+                evidence_refs=[dict(role=role, accession=a, document_sha256=filing_receipts[a]["document_sha256"],
+                                    cover_document_sha256=filing_receipts[a].get("cover_document_sha256"))
+                               for role, a in evidence],
+                shares=shares, previous_shares=old_shares,
+                shares_delta=shares-old_shares if shares is not None and old_shares is not None else None,
+                position_weight=weight, previous_position_weight=old_weight,
+                weight_delta=weight-old_weight if weight is not None and old_weight is not None else None,
+                reported_value_denominator=denominator, denominator_complete=complete,
+                is_amendment=is_amendment, original_accession=parent, amendment_type=amendment,
+                amendment_type_recognized=amendment_type_known if is_amendment else None,
+                prior_accession=previous["accession"] if previous else None,
+                comparison_blocker="INCOMPLETE_PRIOR_DISCLOSURE" if blocked_accessions else None,
+                comparison_blocker_accessions=blocked_accessions,
+                scope="MANAGER_AGGREGATE_DISCLOSED_CONSTITUENT", fund_trade_attribution=False,
+                trade_inferred=False, liquidation_confirmed=False,
+                research_only=True, score_contribution=0, production_activation_allowed=False))
+        # Keep verified root identity separate from complete comparison state.
+        if complete:
+            snapshots[manager, period] = dict(rows=current, row_sources=row_sources, complete=True, accession=str(accession),
+                original_accession=root,
+                period=period, denominator=denominator)
+            incomplete_periods.pop((manager, period), None)
+        elif lineage_ok:
+            # An unlinked/rejected revision cannot invalidate an accepted root.
+            incomplete_periods.setdefault((manager, period), []).append(str(accession))
+    return result
+
+
 def render_report(summary: dict[str, Any], events: pd.DataFrame) -> str:
     lines = [
         "# 13F Position Events",
@@ -575,6 +731,346 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+DISCLOSURE_AUTHORITY = dict(research_only=True, score_contribution=0,
+    production_activation_allowed=False, canonical_write=False, selector_eligible=False,
+    portfolio=False, orders_allowed=False, dispatch=False, economic_admission=False,
+    fund_trade_attribution=False, trade_inferred=False, liquidation_confirmed=False)
+
+
+def _disclosure_codec(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _disclosure_digest(raw):
+    import hashlib
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _disclosure_source():
+    from tools import run_sec_13f_parser
+    return run_sec_13f_parser
+
+
+def _disclosure_safe(path):
+    import os
+    path = Path(path).absolute()
+    for p in (path, *path.parents):
+        _disclosure_source().disclosure_need(not p.is_symlink() and
+            not getattr(p, "is_junction", lambda: False)(), "13F_STORE_PATH_ALIAS")
+    if path.exists():
+        _disclosure_source().disclosure_need(path.is_dir() or
+            (path.is_file() and os.stat(path).st_nlink == 1), "13F_STORE_FILE_TYPE")
+    return path
+
+
+def _disclosure_atomic(path, value):
+    import os
+    import uuid
+    path = _disclosure_safe(path)
+    temporary = _disclosure_safe(path.with_name(path.name + ".tmp." + uuid.uuid4().hex))
+    with temporary.open("xb") as stream:
+        stream.write(_disclosure_codec(value))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+
+
+def _disclosure_put(root, raw):
+    import os
+    _disclosure_source().disclosure_need(len(raw) <= _disclosure_source().DISCLOSURE_FILE_LIMIT,
+                                       "13F_ARTIFACT_BYTE_BUDGET")
+    digest = _disclosure_digest(raw)
+    path = _disclosure_safe(root / "artifacts" / digest)
+    if path.exists():
+        _disclosure_source().disclosure_need(path.read_bytes() == raw, "13F_ARTIFACT_CONFLICT")
+    else:
+        with path.open("xb") as stream:
+            stream.write(raw)
+            stream.flush()
+            os.fsync(stream.fileno())
+    return dict(path="artifacts/" + digest, sha256=digest)
+
+
+def _disclosure_ref(root, ref):
+    import re
+    need = _disclosure_source().disclosure_need
+    need(type(ref) is dict and set(ref) == {"path", "sha256"} and
+         type(ref["sha256"]) is str and re.fullmatch("[0-9a-f]{64}", ref["sha256"]) and
+         ref["path"] == "artifacts/" + ref["sha256"], "13F_STORE_REFERENCE")
+    path = _disclosure_safe(root / ref["path"])
+    raw = _disclosure_source().disclosure_read(path)
+    need(_disclosure_digest(raw) == ref["sha256"], "13F_STORE_HASH")
+    return raw
+
+
+def _disclosure_code_pins():
+    return {name: _disclosure_digest((REPO_ROOT / name).read_bytes()) for name in (
+        "tools/run_13f_position_event_builder.py", "tools/run_sec_13f_parser.py",
+        "tools/run_sec_submissions_collector.py")}
+
+
+def _disclosure_events(validated):
+    return build_disclosure_research_events(validated["holdings"], validated["filing_receipts"])
+
+
+def _disclosure_prefix(validated):
+    result = []
+    frame = validated["holdings"]
+    for accession, receipt in validated["filing_receipts"].items():
+        rows = _disclosure_source().disclosure_records(frame[frame["source_accession"] == accession])
+        result.append(dict(accession=accession, manager_cik=receipt["manager_cik"],
+            report_period=receipt["report_period"], form_type=receipt["form_type"],
+            accepted_at=receipt["accepted_at"], available_from=receipt["available_from"],
+            document_sha256=receipt["document_sha256"],
+            cover_document_sha256=receipt["cover_document_sha256"],
+            rows_sha256=_disclosure_digest(_disclosure_codec(rows)),
+            original_accession=receipt["original_accession"], amendment_type=receipt["amendment_type"]))
+    return result
+
+
+def _disclosure_event_table(events, generation):
+    return pd.DataFrame([dict(generation_id=generation, event_id=e["event_id"],
+                              event_json=_disclosure_codec(e).decode("utf-8")) for e in events],
+                        columns=["generation_id", "event_id", "event_json"])
+
+
+def read_disclosure_generation(root, *, historical=False, _pointer_path=None):
+    """Verify every current-generation byte and recompute its complete timeline.
+
+    A parent identifier records history only: comparison operands are all present
+    in this generation's verified, self-contained Source prefix.
+    """
+    source = _disclosure_source()
+    need = source.disclosure_need
+    root = _disclosure_safe(root)
+    pointer_path = _pointer_path if _pointer_path is not None else root / "current_generation.json"
+    pointer = source.disclosure_json(source.disclosure_read(_disclosure_safe(pointer_path)))
+    need(pointer.get("schema") == "sec-13f-disclosure-pointer-v1", "13F_POINTER_SCHEMA")
+    manifest = source.disclosure_json(_disclosure_ref(root, pointer["manifest_ref"]))
+    need(manifest.get("schema") == "sec-13f-disclosure-generation-v1" and
+         manifest["generation_id"] == pointer["generation_id"], "13F_GENERATION_SCHEMA")
+    need(manifest["code_sha256"] == _disclosure_code_pins(), "13F_DERIVATION_CODE_CHANGED")
+    need(type(manifest["source_refs"]) is dict and len(manifest["source_refs"]) <= 1600,
+         "13F_SOURCE_FILE_COUNT")
+    inputs = {}
+    for key, ref in manifest["source_refs"].items():
+        inputs[key] = _disclosure_ref(root, ref)
+        need(sum(map(len, inputs.values())) <= source.DISCLOSURE_BUNDLE_LIMIT, "13F_SOURCE_BUNDLE_BUDGET")
+    identity = dict(source_sha256={k: _disclosure_digest(v) for k, v in inputs.items()},
+                    manager_scope=manifest["manager_scope"], decision_at=manifest["decision_at"],
+                    code_sha256=manifest["code_sha256"])
+    need(_disclosure_digest(_disclosure_codec(identity)) == manifest["input_identity_sha256"],
+         "13F_INPUT_IDENTITY")
+    logical = dict(input_identity_sha256=manifest["input_identity_sha256"],
+                   parent_generation_id=manifest["parent_generation_id"])
+    need(_disclosure_digest(_disclosure_codec(logical)) == manifest["generation_id"],
+         "13F_GENERATION_IDENTITY")
+    validated = source.verify_disclosure_source_inputs(inputs, manager_ciks=manifest["manager_scope"],
+                                                       decision_at=manifest["decision_at"])
+    expected_metadata = dict(filing_receipts=validated["filing_receipts"],
+        source_coverage=validated["source_coverage"],
+        source_status=validated["source_status"], source_checks=validated["source_checks"],
+        last_successful_source_check=validated["last_successful_source_check"],
+        latest_accepted_at=validated["latest_accepted_at"].isoformat() if validated["latest_accepted_at"] else None,
+        current_source_eligible=True, aggregate_analysis_admitted=False,
+        due_quarter_coverage=validated["due_quarter_coverage"])
+    need(all(_disclosure_codec(manifest[k]) == _disclosure_codec(v)
+             for k, v in expected_metadata.items()), "13F_STORED_SOURCE_METADATA")
+    derivation = _disclosure_digest(_disclosure_codec(dict(code_sha256=manifest["code_sha256"],
+        manager_scope=manifest["manager_scope"],
+        mapping_sha256={k: v for k, v in identity["source_sha256"].items() if k.startswith("cusip_map.")})))
+    need(manifest["derivation_contract_sha256"] == derivation, "13F_STORED_DERIVATION_CONTRACT")
+    need(source.exact_utc(manifest["decision_at"]) <= source.exact_utc(manifest["generated_at"]) <=
+         datetime.now(timezone.utc), "13F_STORED_GENERATION_CLOCK")
+    need(manifest["filing_prefix"] == _disclosure_prefix(validated), "13F_STORED_PREFIX")
+    events = _disclosure_events(validated)
+    need(type(manifest["event_count"]) is int and len(events) <= 20000 and
+         len(events) == manifest["event_count"] == len(manifest["events"]),
+         "13F_STORED_EVENT_COUNT")
+    seen = set()
+    for event, stored in zip(events, manifest["events"]):
+        need(event["event_id"] not in seen and stored["event_id"] == event["event_id"] and
+             _disclosure_ref(root, stored["ref"]) == _disclosure_codec(event), "13F_STORED_EVENT_SEMANTICS")
+        seen.add(event["event_id"])
+        for evidence in event["evidence_refs"]:
+            need(evidence["accession"] in validated["filing_receipts"] and
+                 all(evidence[k] == validated["filing_receipts"][evidence["accession"]][k]
+                     for k in ("document_sha256", "cover_document_sha256")),
+                 "13F_CONSTITUENT_RAW_LINEAGE")
+    outputs = {k: _disclosure_ref(root, r) for k, r in manifest["outputs"].items()}
+    csv = source._disclosure_table(outputs["csv"])
+    parquet = source._disclosure_table(outputs["parquet"], True)
+    expected = _disclosure_event_table(events, manifest["generation_id"])
+    need(csv.to_dict("records") == parquet.to_dict("records") == expected.to_dict("records"),
+         "13F_EVENT_TABLE_PARITY")
+    summary = source.disclosure_json(outputs["summary"])
+    need(summary["generation_id"] == manifest["generation_id"] and
+         type(summary["row_count"]) is int and summary["row_count"] == len(events) and
+         summary["output_sha256"] == {k: _disclosure_digest(outputs[k]) for k in ("csv", "parquet")},
+         "13F_EVENT_SUMMARY_PARITY")
+    need(all(manifest.get(k) == v and type(manifest.get(k)) is type(v)
+             for k, v in DISCLOSURE_AUTHORITY.items()), "13F_STORED_AUTHORITY")
+    if not historical:
+        attempt = source.disclosure_json(source.disclosure_read(_disclosure_safe(root / "attempt.json")))
+        need(attempt.get("status") == "COMPLETED_DISCLOSURE_STORAGE" and
+             attempt.get("generation_id") == manifest["generation_id"] and
+             attempt.get("current_eligible") is True, "13F_CURRENT_ATTEMPT_NOT_SUCCESSFUL")
+        now = datetime.now(timezone.utc)
+        need(source.exact_utc(manifest["decision_at"]) <= now and
+             now - source.exact_utc(validated["last_successful_source_check"]) <
+             source.timedelta(hours=36), "STALE")
+    return manifest
+
+
+def run_disclosure_generation(*, holdings, filings_index, raw_dir, cusip_map,
+                              manager_ciks, output_root, decision_at):
+    """One serial, offline research transaction. No collector or Main dispatch."""
+    import io
+    import os
+    source = _disclosure_source()
+    need = source.disclosure_need
+    root = _disclosure_safe(repo_path(output_root))
+    # Typed storage cannot be nested in, or replace, any supplied Source tree.
+    protected = [Path(holdings).absolute().parent, Path(filings_index).absolute().parent,
+                 Path(raw_dir).absolute(), Path(cusip_map).absolute().parent]
+    need(all(not root.is_relative_to(p) and not p.is_relative_to(root) for p in protected),
+         "13F_SOURCE_OUTPUT_OVERLAP")
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / "store.json"
+    if marker.exists():
+        need(source.disclosure_json(source.disclosure_read(_disclosure_safe(marker))) ==
+             {"schema": "sec-13f-disclosure-store-v1"}, "13F_STORE_OWNER")
+    else:
+        need(not list(root.iterdir()), "13F_OUTPUT_NOT_EMPTY")
+        _disclosure_atomic(marker, {"schema": "sec-13f-disclosure-store-v1"})
+    lock = _disclosure_safe(root / ".writer.lock")
+    with lock.open("x") as stream:
+        stream.write("SEC13F_DISCLOSURE_SINGLE_WRITER")
+    generated = datetime.now(timezone.utc).isoformat()
+    attempt = dict(schema="sec-13f-disclosure-attempt-v1", status="BUILDING",
+                   generated_at=generated, decision_at=decision_at, current_eligible=False,
+                   new_events=0, new_notification_intents=0, notifications_sent=0,
+                   **DISCLOSURE_AUTHORITY)
+    try:
+        _disclosure_atomic(root / "attempt.json", attempt)
+        need(source.exact_utc(decision_at) <= datetime.now(timezone.utc), "13F_FUTURE_DECISION")
+        previous = read_disclosure_generation(root, historical=True) if (root / "current_generation.json").exists() else None
+        inputs = source.load_disclosure_source_inputs(holdings=holdings, filings_index=filings_index,
+            raw_dir=raw_dir, cusip_map=cusip_map, manager_ciks=manager_ciks)
+        validated = source.verify_disclosure_source_inputs(inputs, manager_ciks=manager_ciks, decision_at=decision_at)
+        need(datetime.now(timezone.utc) - source.exact_utc(validated["last_successful_source_check"]) <
+             source.timedelta(hours=36), "STALE")
+        code = _disclosure_code_pins()
+        identity = dict(source_sha256={k: _disclosure_digest(v) for k, v in inputs.items()},
+                        manager_scope=validated["manager_scope"], decision_at=decision_at, code_sha256=code)
+        input_id = _disclosure_digest(_disclosure_codec(identity))
+        prefix = _disclosure_prefix(validated)
+        derivation = _disclosure_digest(_disclosure_codec(dict(code_sha256=code,
+            manager_scope=validated["manager_scope"],
+            mapping_sha256={k: v for k, v in identity["source_sha256"].items() if k.startswith("cusip_map.")})))
+        if previous:
+            need(previous["derivation_contract_sha256"] == derivation, "13F_DERIVATION_CONTEXT_CONFLICT")
+            prior_by_acc = {r["accession"]: r for r in previous["filing_prefix"]}
+            current_by_acc = {r["accession"]: r for r in prefix}
+            need(all(current_by_acc.get(a) == r for a, r in prior_by_acc.items()), "13F_HISTORY_PREFIX_CONFLICT")
+            for manager in validated["manager_scope"]:
+                old = [r for r in previous["filing_prefix"] if r["manager_cik"] == manager]
+                new = [r for r in prefix if r["manager_cik"] == manager and r["accession"] not in prior_by_acc]
+                if old:
+                    last = max(source.exact_utc(r["accepted_at"]) for r in old)
+                    need(all(source.exact_utc(r["accepted_at"]) >= last for r in new), "13F_HISTORY_BACKFILL_CONFLICT")
+        if previous and previous["input_identity_sha256"] == input_id:
+            attempt.update(status="COMPLETED_DISCLOSURE_STORAGE", generation_id=previous["generation_id"],
+                           current_eligible=True, replayed=True)
+            _disclosure_atomic(root / "attempt.json", attempt)
+            read_disclosure_generation(root)
+            return attempt
+        events = _disclosure_events(validated)
+        need(len(events) <= 20000 and len({e["event_id"] for e in events}) == len(events), "13F_EVENT_BUDGET_OR_DUPLICATE")
+        previous_events = {e["event_id"]: e["ref"] for e in previous["events"]} if previous else {}
+        current_events = {e["event_id"]: e for e in events}
+        need(all(e in current_events and _disclosure_ref(root, r) == _disclosure_codec(current_events[e])
+                 for e, r in previous_events.items()), "13F_EVENT_CONTEXT_CONFLICT")
+        root.joinpath("artifacts").mkdir(exist_ok=True)
+        source_refs = {k: _disclosure_put(root, v) for k, v in inputs.items()}
+        parent_id = previous["generation_id"] if previous else None
+        generation = _disclosure_digest(_disclosure_codec(dict(input_identity_sha256=input_id,
+                                                               parent_generation_id=parent_id)))
+        stored_events = [dict(event_id=e["event_id"], ref=_disclosure_put(root, _disclosure_codec(e))) for e in events]
+        table = _disclosure_event_table(events, generation)
+        buffer = io.BytesIO()
+        table.to_parquet(buffer, index=False)
+        output_bytes = dict(csv=table.to_csv(index=False).encode("utf-8"), parquet=buffer.getvalue())
+        output_bytes["summary"] = _disclosure_codec(dict(schema="sec-13f-disclosure-tables-v1",
+            generation_id=generation, row_count=len(events),
+            output_sha256={k: _disclosure_digest(v) for k, v in output_bytes.items()}))
+        outputs = {k: _disclosure_put(root, v) for k, v in output_bytes.items()}
+        manifest = dict(schema="sec-13f-disclosure-generation-v1", generation_id=generation,
+            input_identity_sha256=input_id, derivation_contract_sha256=derivation,
+            parent_generation_id=parent_id, parent_purpose="HISTORY_ONLY_SELF_CONTAINED_COMPARISON_PREFIX",
+            generated_at=datetime.now(timezone.utc).isoformat(), decision_at=decision_at,
+            manager_scope=validated["manager_scope"], code_sha256=code, source_refs=source_refs,
+            filing_prefix=prefix, filing_receipts=validated["filing_receipts"],
+            source_status=validated["source_status"], source_checks=validated["source_checks"],
+            source_coverage=validated["source_coverage"],
+            last_successful_source_check=validated["last_successful_source_check"],
+            latest_accepted_at=validated["latest_accepted_at"].isoformat() if validated["latest_accepted_at"] else None,
+            current_source_eligible=True, aggregate_analysis_admitted=False,
+            due_quarter_coverage=validated["due_quarter_coverage"],
+            event_count=len(events), events=stored_events, outputs=outputs, **DISCLOSURE_AUTHORITY)
+        manifest_ref = _disclosure_put(root, _disclosure_codec(manifest))
+        # Verify through the same reader before publishing the current pointer.
+        pending = root / "pending_generation.json"
+        _disclosure_atomic(pending, dict(schema="sec-13f-disclosure-pointer-v1",
+                                        generation_id=generation, manifest_ref=manifest_ref))
+        # The reader accepts an explicit immutable pointer during this one lock.
+        _verify_disclosure_pending(root, pending)
+        _disclosure_atomic(root / "current_generation.json",
+                           source.disclosure_json(source.disclosure_read(pending)))
+        attempt.update(status="COMPLETED_DISCLOSURE_STORAGE", generation_id=generation,
+            current_eligible=True, replayed=False, new_events=len(set(current_events) - set(previous_events)))
+        _disclosure_atomic(root / "attempt.json", attempt)
+        read_disclosure_generation(root)
+        pending.unlink()
+        return attempt
+    except (ValueError, OSError, KeyError, TypeError, RecursionError) as error:
+        reason = str(error) if isinstance(error, ValueError) and str(error).replace("_", "").isalnum() else (
+            "SOURCE_UNAVAILABLE" if isinstance(error, OSError) else "13F_INPUT_CONTRACT_ERROR")
+        attempt.update(status="BLOCKED_DISCLOSURE_STORAGE", reason=reason, current_eligible=False, new_events=0)
+        _disclosure_atomic(root / "attempt.json", attempt)
+        return attempt
+    finally:
+        lock.unlink()
+
+
+def _verify_disclosure_pending(root, pending):
+    # Select a pointer without replacing the historical success pointer.
+    read_disclosure_generation(root, historical=True, _pointer_path=pending)
+
+
+def _disclosure_refuse_owned_store(output_root, reason, decision_at):
+    """Invalidate a named owned store on CLI prerequisite failure, without claiming another lock."""
+    if not output_root:
+        return
+    root = _disclosure_safe(repo_path(output_root))
+    marker = root / "store.json"
+    if not root.is_dir() or not marker.is_file():
+        return
+    source = _disclosure_source()
+    if source.disclosure_json(source.disclosure_read(_disclosure_safe(marker))) != {"schema": "sec-13f-disclosure-store-v1"}:
+        return
+    lock = _disclosure_safe(root / ".writer.lock")
+    with lock.open("x") as stream:
+        stream.write("SEC13F_DISCLOSURE_PREFLIGHT_REFUSAL")
+    try:
+        _disclosure_atomic(root / "attempt.json", dict(schema="sec-13f-disclosure-attempt-v1",
+            status="BLOCKED_DISCLOSURE_STORAGE", generated_at=datetime.now(timezone.utc).isoformat(),
+            decision_at=decision_at, current_eligible=False, reason=reason,
+            new_events=0, new_notification_intents=0, notifications_sent=0, **DISCLOSURE_AUTHORITY))
+    finally:
+        lock.unlink()
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--holdings", default=DEFAULT_13F)
@@ -582,11 +1078,41 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manager-universe", default=DEFAULT_MANAGER_UNIVERSE)
     parser.add_argument("--pit-output", default=DEFAULT_PIT_OUTPUT)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--disclosure-research", action="store_true",
+                        help="Offline source-bound typed generation; no Main research admission")
+    parser.add_argument("--filings-index", default="data_pit/sec/sec_filings_index.parquet")
+    parser.add_argument("--raw-dir", default="data_raw/sec")
+    parser.add_argument("--cusip-map", default="")
+    parser.add_argument("--manager-ciks", default="", help="Explicit comma-separated manager CIK10 scope")
+    parser.add_argument("--decision-at", default="")
+    parser.add_argument("--disclosure-output-dir", default="", help="Explicit separate standalone store")
     return parser.parse_args()
 
 
 def main() -> int:
-    payload = run(parse_args())
+    args = parse_args()
+    if args.disclosure_research:
+        if not all((args.cusip_map, args.manager_ciks, args.decision_at, args.disclosure_output_dir)):
+            try:
+                _disclosure_refuse_owned_store(args.disclosure_output_dir, "13F_RESEARCH_ARGUMENTS_REQUIRED", args.decision_at)
+            except (ValueError, OSError, KeyError, TypeError, RecursionError):
+                pass  # Unowned, aliased or locked stores must remain untouched.
+            print(json.dumps(dict(status="blocked", reason="13F_RESEARCH_ARGUMENTS_REQUIRED")))
+            return 2
+        try:
+            payload = run_disclosure_generation(holdings=repo_path(args.holdings),
+                filings_index=repo_path(args.filings_index), raw_dir=repo_path(args.raw_dir),
+                cusip_map=repo_path(args.cusip_map), manager_ciks=args.manager_ciks.split(","),
+                output_root=repo_path(args.disclosure_output_dir), decision_at=args.decision_at)
+        except (ValueError, OSError, KeyError, TypeError, RecursionError):
+            payload = dict(status="blocked", reason="13F_STORE_PREFLIGHT_REFUSED")
+            try:
+                _disclosure_refuse_owned_store(args.disclosure_output_dir, payload["reason"], args.decision_at)
+            except (ValueError, OSError, KeyError, TypeError, RecursionError):
+                pass
+        print(json.dumps(payload, sort_keys=True))
+        return 0 if payload.get("status") == "COMPLETED_DISCLOSURE_STORAGE" else 2
+    payload = run(args)
     return 0 if payload.get("status") == "completed" else 2
 
 

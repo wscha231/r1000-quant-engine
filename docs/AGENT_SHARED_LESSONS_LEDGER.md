@@ -28,6 +28,90 @@
   effective expiry by both; a provenance-only rights expiry does not guard later
   reads. Untrusted DEFLATE corruption can raise zlib.error before evidence checks,
   so translate decoder errors into finite refusal at both verification layers.
+## 2026-10-23 — Preserve typed SEC completion, reparse replacement and issuer clocks
+
+- Successful checked ownership generations do not require a legacy Form4 signal.
+  Form3/5, holdings and derivatives can have typed rows with zero legacy signals;
+  preserve successful empty checks and CSV headers as well as source failures.
+- Merge only hash/index/count-proved successful whole-accession replacements,
+  including empty parses. Keeping an old v2 transaction absent from a shorter
+  replacement corrupts scope counts. Failed/unproved reparses cannot delete it.
+  A6 reproduced older inactive shards resurrecting a corrected/empty accession
+  during a later unrelated batch. Carry hash-bound canonical scope/tombstones
+  across generations; only the selected proved active reparse may replace them.
+  Revoke current pointers before rejecting corrupt/missing prior scope proof.
+  Apply the same version protection to the filing index: inactive cache clocks
+  must not overwrite a corrected accession while transaction rows stay corrected.
+- Keep the earliest issuer check for conservative expiry, but bind each filing
+  acceptance and event clock to its corresponding checked issuer. Missing issuer
+  proof blocks new intake. Immutable old MU requests retain their original
+  conservative proof for historical readback only; no old manifest is rewritten
+  or promoted to a new current-generation receipt.
+- Unknown/missing/mixed 13F amendment types remain incomplete review and cannot
+  replace a complete boundary or synthesize removals. Only explicit RESTATEMENT
+  and NEW HOLDINGS types have replacement/additive semantics after lineage checks.
+
+- Hosted followup reproduced pandas nullable numeric promotion rejecting real
+  XML semantics. Compare exact finite numeric values while keeping booleans,
+  nulls, strings and structure distinct; replay preserves original stored bytes.
+- Exercise amendment consumption through the actual CLI with explicit parent
+  accession; API-only positives miss absent command inputs. Retain the original
+  13F accession separately from its latest revision across successive amendments.
+
+## 2026-10-22 — Bind SEC research storage to current raw scope and preserve Native semantics
+
+- Existing Main needs its original reader object alternate; missing Git parents
+  are an object-access configuration failure, not absent H: access. Use the
+  incumbent exclusive integration lease and preserve its original branch/sparse
+  state. Do not create another checkout to hide that failure.
+- A new MU submissions check changed accession0001568238-26-000003's accepted
+  clock from historical2026-10-20T23:03:21Z to current2026-10-21T03:03:21Z.
+  Preserve both source generations. Reparse retained original XML when filing
+  metadata or parser identity changes; replace every old row of an attempted
+  accession, including fewer-row/empty results. Accession-only resume can block
+  permanently on old clocks. Bare legacy completion flags do not prove reuse.
+- Bind each persisted event to its checked issuer/accession/form/document scope
+  and reparse raw XML. Stable row IDs are document-local, never DataFrame-index
+  based. Keep nulls, joint owners, codes, holdings, options and notes. P alone
+  does not establish an open-market trade. One accession/security request must
+  survive source-generation replay without another candidate or alert intent.
+- Independent A6 caught an additive13F amendment branch overwriting failed
+  parent-lineage eligibility, Form4 holdings labeled as transactions, unbound
+  source membership, mismatched thesis references, and null report formatting.
+  Keep incomplete snapshots from replacing complete boundaries. Pending A3
+  filing references and locally stored Registry requests are not accepted full
+  A3 assessments, canonical current pointers or investment authority.
+- Exact-head A6 also reproduced a CLI prerequisite failure leaving an old
+  current-success summary when identities were missing. Revoke current success
+  before all prerequisite reads, including selected-accession and raw/identity
+  reads, and persist a distinct consumer-prerequisite failure. A valid historic
+  Registry is not evidence that the current attempted read succeeded.
+- Windows write_text changes LF to CRLF. Frozen JSON replay must compare the
+  same exact bytes: publish JSON bytes explicitly rather than weakening equality.
+  Directory reads raise different OS exception subclasses; classify directory
+  inputs before I/O. Native PowerShell seven-digit fractional clocks fail the
+  existing six-digit exact bridge contract; supply actual Python-compatible
+  clocks rather than relax it. One author future decision probe was discarded
+  and rerun with the actual clock; it is not current-source evidence.
+- Independent A6 found a verified amendment of pending intake still labeled as
+  another discovery. Route it as FILING_CORRECTION_REASSESSMENT / A2 WATCH with
+  its original request reference; do not fabricate an existing full thesis.
+  Reject caller-supplied amendment parents on plain filings, including replay.
+  Preserve the original and prove correction replay creates no extra intent.
+- Product pages are not acquired fund returns. HFR/With/WhaleWisdom yielded
+  documentation, PSH one fund's NAV and HedgeFollow a20-manager holdings-proxy
+  screen. Observed access restrictions and missing comparable/cutoff-bound
+  performance prevent admitting an automated ranking. Missing NAV must not
+  globally block an independently eligible SEC filing research request.
+- Full CI found four ManualFoundation errors after current A3/Registry extension:
+  historical catalog positives were copying new HEAD bytes. Preserve the catalog
+  hashes and production changed-byte refusal; use a separate bounded immutable
+  two-file fixture only in temporary historical positive roots. Test current
+  bytes/tamper and mandatory A6 pins; never refresh old catalog pins to green CI.
+- The shared Drive read verified commit c5a1a025's catalog chain/packs (1153
+  datasets), but its exact execution lookup refused
+  execution_receipt_missing_or_ambiguous. This is storage evidence only, not a
+  completed consumer cycle. Consume no macro/financial rows; do not replay a collector.
 
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
@@ -7720,3 +7804,75 @@ The first corrected focused run retained two new reference-size fixture failures
 lowering the declared read limit truncated fake bytes to that size, correctly
 reaching HASH_MISMATCH. Declare one extra byte instead to isolate size refusal
 without truncation; keep the exact OBJECT_SIZE assertion and production checks.
+### 2026-10-24 — 13F storage must bind comparison operands and failed attempts
+
+A parser's `raw_sha256` can identify universal-newline text rather than physical
+XML bytes. Preserve both hashes and reparse the originals before trusting a
+resealed table/checkpoint. An empty report needs explicit parse proof; an absent
+holdings group is not an empty report. Additive amendments and removals need
+both current and retained/prior constituent originals, including denominator
+evidence. Incremental input must preserve its full verified prefix; missing
+history or a changed map/code context must refuse rather than silently reset.
+
+Independent A6 found that a type-only amendment cover could belong to another
+manager or period, and that a CLI missing argument could leave old current
+success intact. Bind cover filer/period/form/flag plus physical hash; invalidate
+only an explicitly named owned store under its own lock. Preserve unowned paths
+and another writer's lock. Regressions seed prior success before refusal, and
+exercise real serialization/readback in both normal and optimized Python modes.
+Fixture check times must precede source generation and decision times; the
+first no-new fixture violated this order and was corrected without weakening
+the clock guard. Current selected-source storage remains separate from
+due-quarter coverage, mapping completeness, fund NAV ranking and system intake.
+
+Native concurrent CLI checks can exhaust OpenBLAS allocation before reaching
+application code. Preserve the failed child stderr and rerun the same complete
+matrix with explicit BLAS/OpenMP thread ceilings; do not weaken assertions or
+report the first attempt as passing. A partial-clone push can also fail with
+lazy fetch disabled despite a clean local tree. Allow the existing Git promisor
+to retrieve missing objects for that same ordinary fast-forward push; verify
+the exact remote head afterwards without substituting a new checkout.
+
+Preserving the last complete snapshot alone is insufficient after a known
+incomplete revision. Independent A6 reproduced A10 original, A20 plus an unmapped
+constituent in a restatement, then A15 next quarter incorrectly becoming +5.
+It also reproduced a later additive report dropping an unresolved earlier
+addition yet restoring a complete denominator. Retain the original for audit,
+track unresolved revisions separately, and block comparison/additive recovery
+until a full verified restatement replaces the period. Bind blocker accessions
+as evidence; fixtures must test both refusal and full-restatement recovery.
+The existing 33-method consumer suite also caught an overbroad first barrier
+that let wrong-parent revisions invalidate an accepted root. Preserve that
+negative-case assertion: only lineage-verified incomplete revisions establish
+barriers; unlinked review evidence cannot poison accepted comparison state.
+
+Hosted review of SEC PR669 at `42581341` found two additional timeline defects,
+independently reproduced in normal and optimized Python with genuine offline
+Source serializers and stored readback. Latest-filing presence plus paired-table
+parity cannot detect a middle amendment omitted from both tables before the
+first commit. Require every observed 13F inside the selected acceptance interval;
+retain the separate committed-prefix guard. Also keep verified original identity
+apart from complete comparison snapshots: a full same-root RESTATEMENT can
+recover an unmapped original, while additive, unknown and wrong-parent reports
+cannot. Regressions must distinguish correct -5 after full recovery from the
+former null delta and must reject the omitted-amendment false +5. Follow-up
+validation uses synthetic stores and immutable prior actual receipts; no fresh
+provider calls or actual-store publications are implied by this code repair.
+
+### 2026-10-24 - Reconcile SEC causal scope on the integrated Main base
+
+Whole SEC PR35 and its latest six-path correction are different reuse scopes.
+Carry the validated causal implementation without dropping its prerequisite
+Form345/intake helpers. Preserve current historical Reader/CRLF positives and
+SEC/A3 immutable historical positives together; textual union alone can leave
+an empty duplicate helper header. Keep all original test ASTs and hash pins,
+and defer current-head execution claims until the final base and GO.
+
+### 2026-10-24 - Verify the existing Native runtime before SEC regression runs
+
+The system Python3.12 launcher lacked pandas and stopped before any SEC test.
+Preserve that import failure separately from product assertions. Reuse the
+existing Windows research venv after verifying pandas and pyarrow imports;
+record its exact executable and versions, then run the full sequential matrix.
+A missing Git author identity is likewise a local preparation failure: reuse
+the existing Codex identity per command without changing global configuration.

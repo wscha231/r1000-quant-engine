@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from tools.build_sec_13f_cusip_ticker_map import build_cusip_map, load_manual_overrides, read_table  # noqa: E402
 from tools.run_sec_13f_parser import read_cusip_map  # noqa: E402
+from tools import run_sec_13f_parser as parser_module  # noqa: E402
 from tools.run_sec_institutional_signals import build_13f_signal  # noqa: E402
 
 
@@ -212,6 +213,91 @@ class CusipCsvIdentityTests(unittest.TestCase):
         self.assertEqual(receipt["unmapped_unique_cusips"], 1)
         self.assertTrue(receipt["research_only"])
         self.assertFalse(receipt["production_activation_allowed"])
+
+    def test_exact_mode_never_uses_names_seeds_or_provider(self) -> None:
+        with patch("tools.build_sec_13f_cusip_ticker_map.load_company_ticker_name_map", side_effect=AssertionError("name lookup forbidden")), patch("tools.build_sec_13f_cusip_ticker_map.load_seed_maps", side_effect=AssertionError("seed lookup forbidden")):
+            mapped, unmapped, audit = build_cusip_map(
+                _holdings(), raw_dir=self.root / "absent", manual_overrides=self.manual,
+                seed_files=[str(self.root / "seed.csv")], user_agent="",
+                refresh_company_tickers=True, exact_cusip_only=True,
+            )
+        self.assertEqual(mapped.set_index("cusip")["ticker"].to_dict(), {"037833100": "AAPL"})
+        self.assertEqual(unmapped["cusip"].tolist(), ["999999999"])
+        self.assertEqual(audit["issuer_key_source_rows"], 0)
+        self.assertEqual(audit["mapping_policy"], "EXPLICIT_CUSIP_ONLY")
+        self.assertFalse(audit["historical_identity_verified"])
+        self.network.assert_not_called()
+
+    def test_exact_mode_missing_map_keeps_all_unresolved(self) -> None:
+        mapped, unmapped, audit = build_cusip_map(
+            _holdings(), raw_dir=self.raw, manual_overrides=self.root / "absent.csv",
+            seed_files=[], user_agent="", refresh_company_tickers=False,
+            exact_cusip_only=True,
+        )
+        self.assertTrue(mapped.empty)
+        self.assertEqual(set(unmapped["cusip"]), {"037833100", "999999999"})
+        self.assertEqual(audit["mapped_unique_cusips"], 0)
+        self.network.assert_not_called()
+
+    def test_conflicting_explicit_cusip_refuses_in_builder_and_consumer(self) -> None:
+        self.manual.write_text("cusip,ticker\n037833100,AAPL\n037833100,WRONG\n")
+        with self.assertRaisesRegex(ValueError, "13F_CUSIP_MAPPING_CONFLICT"):
+            load_manual_overrides(self.manual)
+        with self.assertRaisesRegex(ValueError, "13F_CUSIP_MAPPING_CONFLICT"):
+            read_cusip_map(self.manual)
+        with self.assertRaisesRegex(ValueError, "13F_CUSIP_MAPPING_CONFLICT"):
+            build_cusip_map(_holdings(), raw_dir=self.raw, manual_overrides=self.manual,
+                           seed_files=[], user_agent="", refresh_company_tickers=False)
+        self.network.assert_not_called()
+
+    def test_identical_explicit_duplicates_reuse_same_mapping(self) -> None:
+        self.manual.write_text("cusip,ticker\n037833100,AAPL\n037833100,aapl\n")
+        self.assertEqual(len(load_manual_overrides(self.manual)), 1)
+        self.assertEqual(read_cusip_map(self.manual), {"037833100": "AAPL"})
+
+    def test_parquet_null_identity_never_becomes_nan_ticker(self) -> None:
+        parquet = self.root / "nullable.parquet"
+        pd.DataFrame({"cusip": ["037833100", "023135106", None],
+                      "ticker": ["AAPL", None, "MSFT"]}).to_parquet(parquet, index=False)
+        self.assertEqual(read_cusip_map(parquet), {"037833100": "AAPL"})
+
+    def test_canonical_workflow_requires_exact_cusip_policy(self) -> None:
+        workflow = (ROOT / ".github/workflows/sec_13f_quarterly_refresh.yml").read_text()
+        mapping_step = workflow.split("python tools/build_sec_13f_cusip_ticker_map.py", 1)[1].split("tee outputs/full_rebuild_logs/sec_13f_cusip_map.log", 1)[0]
+        self.assertIn("--exact-cusip-only", mapping_step)
+        self.assertNotIn("--refresh-company-tickers", mapping_step)
+        self.assertIn("--exact-cusip-only", workflow.split("--cusip-map data_pit/sec/cusip_ticker_map.parquet", 1)[1])
+
+    def test_exact_builder_parquet_nulls_remain_unmapped(self) -> None:
+        manual = self.root / "nulls.parquet"
+        pd.DataFrame({"cusip": ["037833100", "023135106", None],
+                      "ticker": [None, "AMZN", "MSFT"]}).to_parquet(manual, index=False)
+        mapped, _, _ = build_cusip_map(
+            _holdings(), raw_dir=self.raw, manual_overrides=manual, seed_files=[],
+            user_agent="", refresh_company_tickers=False, exact_cusip_only=True)
+        self.assertTrue(mapped.empty)
+        self.assertEqual(load_manual_overrides(manual)["cusip"].tolist(), ["023135106"])
+
+    def test_exact_xml_policy_refuses_conflict_and_ignores_embedded_only(self) -> None:
+        xml = '<informationTable><infoTable><cusip>037833100</cusip><ticker>WRONG</ticker><value>1</value></infoTable></informationTable>'
+        with self.assertRaisesRegex(ValueError, "13F_CUSIP_MAPPING_CONFLICT"):
+            parser_module.parse_13f_xml(xml, cusip_map={"037833100": "AAPL"}, exact_cusip_only=True)
+        unresolved = parser_module.parse_13f_xml(xml, cusip_map={}, exact_cusip_only=True)
+        self.assertEqual(unresolved[0]["ticker_mapped"], "")
+        matching = xml.replace("WRONG", "AAPL")
+        self.assertEqual(parser_module.parse_13f_xml(matching, cusip_map={"037833100": "AAPL"}, exact_cusip_only=True)[0]["ticker_mapped"], "AAPL")
+
+    def test_checkpoint_binds_mapping_policy_and_reuses_only_same_policy(self) -> None:
+        xml = '<informationTable><infoTable><cusip>037833100</cusip><ticker>AAPL</ticker><value>1</value></infoTable></informationTable>'
+        index = pd.DataFrame([{"cik10": "0001067983", "accession_number": "0001067983-26-000001", "primary_document": "primary.xml", "form_type": "13F-HR", "period_of_report": "2026-06-30", "accepted_at": "2026-08-15T00:00:00Z", "available_from": "2026-08-15T00:00:00Z"}])
+        with patch.object(parser_module, "cache_13f_amendment_type", return_value="ORIGINAL"), patch.object(parser_module, "cache_13f_document", return_value=(self.raw / "xml", xml)), patch.object(parser_module, "parse_13f_xml", wraps=parser_module.parse_13f_xml) as parse:
+            for policy, expected_calls in [(False, 1), (False, 0), (True, 1), (True, 0)]:
+                parse.reset_mock()
+                result = parser_module.parse_13f_index(index, raw_dir=self.raw, cusip_map={"037833100": "AAPL"}, exact_cusip_only=policy)
+                self.assertEqual(parse.call_count, expected_calls)
+                receipt = result.attrs["filing_receipts"][0]
+                self.assertEqual(receipt["status"], "PARSED")
+                self.assertEqual(receipt["mapping_policy"], "EXPLICIT_CUSIP_ONLY" if policy else "LEGACY_EMBEDDED_OR_MAP")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import subprocess
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 import pandas as pd
@@ -160,12 +161,13 @@ def test_13f_parser_max_filings_prefers_latest_accepted_at() -> None:
         "available_from": "2026-05-15T18:00:00+00:00",
         "period_of_report": "2026-03-31",
     }
-    frame = parse_13f_index(
-        pd.DataFrame([older, newer]),
-        raw_dir=Path("."),
-        max_filings=1,
-        sleep_s=0.0,
-    )
+    with tempfile.TemporaryDirectory() as tmp, patch.object(parser_module, "cache_13f_document", return_value=(Path("fixture.xml"), SAMPLE_13F)):
+        frame = parse_13f_index(
+            pd.DataFrame([older, newer]),
+            raw_dir=Path(tmp),
+            max_filings=1,
+            sleep_s=0.0,
+        )
     assert len(frame) == 1
     assert frame.iloc[0]["manager_cik"] == "0000000002"
 
@@ -188,16 +190,17 @@ def test_13f_parser_excludes_not_yet_available_filings() -> None:
         parser_module.cache_13f_document = (  # type: ignore[assignment]
             lambda *args, **kwargs: (Path("fixture.xml"), SAMPLE_13F)
         )
-        before = parse_13f_index(
-            pd.DataFrame([base]),
-            raw_dir=Path("."),
-            as_of="2026-08-14T21:59:59+00:00",
-        )
-        after = parse_13f_index(
-            pd.DataFrame([base]),
-            raw_dir=Path("."),
-            as_of="2026-08-14T22:00:00+00:00",
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            before = parse_13f_index(
+                pd.DataFrame([base]),
+                raw_dir=Path(tmp),
+                as_of="2026-08-14T21:59:59+00:00",
+            )
+            after = parse_13f_index(
+                pd.DataFrame([base]),
+                raw_dir=Path(tmp),
+                as_of="2026-08-14T22:00:00+00:00",
+            )
     finally:
         parser_module.cache_13f_document = original_cache  # type: ignore[assignment]
     assert before.empty
@@ -411,4 +414,12 @@ if __name__ == "__main__":
     test_restatement_removal_emits_latest_exit_in_signal()
     test_new_holdings_only_period_does_not_emit_false_exits()
     test_late_prior_period_restatement_cannot_resurrect_position()
+    import importlib.util
+    import unittest
+    spec=importlib.util.spec_from_file_location("sec_13f_scoped_resume_smoke",ROOT/"tests/sec_13f_scoped_resume_smoke.py")
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    suite=unittest.defaultTestLoader.loadTestsFromModule(module)
+    if suite.countTestCases()<7:raise RuntimeError("13F scoped-resume regressions missing")
+    result=unittest.TextTestRunner(verbosity=1).run(suite)
+    if not result.wasSuccessful():raise SystemExit(1)
     print("sec_13f_parser_smoke: PASS")
