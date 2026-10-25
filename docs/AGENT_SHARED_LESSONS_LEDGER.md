@@ -8209,3 +8209,10 @@ These corrected new expectations preserve every protected original assertion.
 Re-run the unchanged failed case, the full registered family and focused normal/-O
 parity on the new exact HEAD. Actual Source preparation, MU/Feature execution,
 collection, current tail repair and economic/portfolio work remain separate.
+
+The first complete Windows run preserved that repaired original oracle but
+failed sparse import because the Source runtime lacks SciPy. Preserve its239-case
+failure receipt. Reuse already installed pinned test packages in an isolated
+validation environment, without overwriting either owner environment, downloading
+packages or adding skips. Retain PyArrow and the existing six Linux-only skips;
+Linux native resource coverage still requires the new GitHub CI head.
