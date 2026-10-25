@@ -8363,6 +8363,62 @@ class FixedSpy665Tests(unittest.TestCase):
         with patch.object(c, "campaign_runs", return_value=[old]), patch.object(c, "campaign_run_pages", return_value=[pr, old]):
             self.assertEqual(cap._fixed_spy_history(c, value, parent, "b"*64)["used"], parent["used"])
 
+
+    @staticmethod
+    def historical_noncollection_fixture():
+        # Exact public metadata captured before this change, not implementation constants.
+        # Invalid workflow blob93a38491 has SHA256 464ef675a92be21267f8d4663c45ca76c0cc80a4e76e8178241e8626dc83ae68.
+        return json.loads("{\"id\":39388523155,\"run_number\":98,\"event\":\"push\",\"run_attempt\":1,\"name\":\".github/workflows/alpaca_sip_private_backfill_v1.yml\",\"path\":\".github/workflows/alpaca_sip_private_backfill_v1.yml\",\"workflow_id\":382519204,\"head_sha\":\"284abcb6a90549d9fe047fce679c8695020fdefd\",\"head_branch\":\"task/a1-named-read39235028468-20261019\",\"display_title\":\"fix(source): bind renewed read392 window to protected deployment\",\"status\":\"completed\",\"conclusion\":\"failure\",\"check_suite_id\":106734505787,\"created_at\":\"2026-10-20T07:44:30Z\",\"updated_at\":\"2026-10-20T07:44:30Z\",\"run_started_at\":\"2026-10-20T07:44:30Z\"}"), json.loads("{\"total_count\":2,\"jobs\":[{\"id\":118514193309,\"run_id\":39388523155,\"run_attempt\":1,\"name\":\"review_head_observed\",\"head_sha\":\"284abcb6a90549d9fe047fce679c8695020fdefd\",\"head_branch\":\"task/a1-named-read39235028468-20261019\",\"workflow_name\":\".github/workflows/alpaca_sip_private_backfill_v1.yml\",\"status\":\"completed\",\"conclusion\":\"success\",\"created_at\":\"2026-10-20T07:44:41Z\",\"started_at\":\"2026-10-20T07:44:41Z\",\"completed_at\":\"2026-10-20T07:44:41Z\",\"steps\":[],\"labels\":[],\"runner_id\":null,\"runner_name\":null,\"runner_group_id\":null,\"runner_group_name\":null},{\"id\":118514203527,\"run_id\":39388523155,\"run_attempt\":1,\"name\":\"review_complete\",\"head_sha\":\"284abcb6a90549d9fe047fce679c8695020fdefd\",\"head_branch\":\"task/a1-named-read39235028468-20261019\",\"workflow_name\":\".github/workflows/alpaca_sip_private_backfill_v1.yml\",\"status\":\"completed\",\"conclusion\":\"failure\",\"created_at\":\"2026-10-20T07:44:42Z\",\"started_at\":\"2026-10-20T07:44:42Z\",\"completed_at\":\"2026-10-20T07:44:42Z\",\"steps\":[],\"labels\":[],\"runner_id\":null,\"runner_name\":null,\"runner_group_id\":null,\"runner_group_name\":null}]}")
+
+    def test_actual_historical_validation_stub_keeps_parent_costs_and_slots(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        old = fixed_spy_run(parent['runs'][0]); stub, jobs = self.historical_noncollection_fixture()
+        original = c.encoded(parent)
+        with patch.object(c, 'campaign_runs', return_value=[old]), patch.object(c, 'campaign_run_pages', return_value=[stub, old]), patch.object(c, 'gh_json', return_value=jobs) as canonical, patch.object(c, 'receipt_for_run') as receipt, patch.object(c, 'job_seconds') as timing:
+            result = cap._fixed_spy_history(c, value, parent, 'b'*64)
+        canonical.assert_called_once_with(f'repos/{c.REPO}/actions/runs/39388523155/jobs?per_page=100')
+        receipt.assert_not_called(); timing.assert_not_called()
+        self.assertEqual((result['runs'], result['used'], result['allowance']), ([old], parent['used'], value['subcaps']))
+        self.assertEqual(c.encoded(parent), original)
+        self.assertEqual(result['phase'], 'preflight')
+
+    def test_historical_validation_identity_drift_never_becomes_a_push_exemption(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value); old = fixed_spy_run(parent['runs'][0])
+        stub, jobs = self.historical_noncollection_fixture()
+        mutations = [('id', 39388523156), ('run_number', 97), ('event', 'workflow_dispatch'),
+            ('event', 'pull_request'), ('run_attempt', 2), ('run_attempt', True), ('head_sha', '0'*40),
+            ('head_branch', 'master'), ('workflow_id', 1), ('path', 'other.yml'),
+            ('name', 'other'), ('display_title', 'a1-sip unknown'), ('status', 'in_progress'),
+            ('conclusion', 'success'), ('check_suite_id', 1), ('created_at', '2026-10-20T07:44:31Z'),
+            ('updated_at', '2026-10-20T07:44:31Z'), ('run_started_at', '2026-10-20T07:44:31Z')]
+        for key, changed in mutations:
+            bad = dict(stub, **{key: changed})
+            with self.subTest(key=key, changed=changed), patch.object(c, 'campaign_runs', return_value=[old]), patch.object(c, 'campaign_run_pages', return_value=[old, bad]), patch.object(c, 'gh_json', return_value=jobs), self.assertRaises(c.Refused):
+                cap._fixed_spy_history(c, value, parent, 'b'*64)
+        with patch.object(c, 'campaign_runs', return_value=[old]), patch.object(c, 'campaign_run_pages', return_value=[old, stub, stub]), patch.object(c, 'gh_json') as canonical, self.assertRaisesRegex(c.Refused, 'SPY665_CENSUS'):
+            cap._fixed_spy_history(c, value, parent, 'b'*64)
+        canonical.assert_not_called()
+
+    def test_historical_validation_requires_exact_runnerless_review_jobs(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value); old = fixed_spy_run(parent['runs'][0])
+        stub, jobs = self.historical_noncollection_fixture()
+        bad_sets = [dict(jobs, total_count=True), dict(jobs, total_count=3),
+            dict(jobs, jobs=jobs['jobs'][:1]), dict(jobs, jobs=[jobs['jobs'][0]]*2),
+            dict(jobs, jobs=jobs['jobs']+[dict(jobs['jobs'][0], id=999, name='capture')])]
+        for key, changed in [('id', 999), ('run_id', 1), ('run_attempt', 2), ('run_attempt', True), ('name', 'capture'),
+            ('head_sha', '0'*40), ('head_branch', 'master'), ('workflow_name', 'other'),
+            ('status', 'in_progress'), ('conclusion', 'cancelled'), ('steps', [dict(name='Collect')]),
+            ('labels', ['ubuntu-latest']), ('runner_id', 1), ('runner_name', 'hosted'),
+            ('runner_group_id', 1), ('runner_group_name', 'hosted'),
+            ('created_at', '2026-10-20T07:44:43Z'), ('started_at', '2026-10-20T07:44:43Z'),
+            ('completed_at', '2026-10-20T07:44:43Z')]:
+            for index in (0, 1):
+                bad = copy.deepcopy(jobs); bad['jobs'][index][key] = changed; bad_sets.append(bad)
+        missing = copy.deepcopy(jobs); missing['jobs'][0].pop('runner_id'); bad_sets.append(missing)
+        for index, bad in enumerate(bad_sets):
+            with self.subTest(index=index), patch.object(c, 'campaign_runs', return_value=[old]), patch.object(c, 'campaign_run_pages', return_value=[old, stub]), patch.object(c, 'gh_json', return_value=bad), self.assertRaisesRegex(c.Refused, 'SPY665_NONCOLLECTION_JOBS'):
+                cap._fixed_spy_history(c, value, parent, 'b'*64)
+
     def test_shared_family_old_prefix_is_preserved_and_foreign_lock_stops(self):
         value = fixed_spy_auth(); parent = fixed_spy_parent(value)
         with tempfile.TemporaryDirectory() as tmp:

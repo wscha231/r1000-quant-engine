@@ -8250,3 +8250,10 @@ failure receipt. Reuse already installed pinned test packages in an isolated
 validation environment, without overwriting either owner environment, downloading
 packages or adding skips. Retain PyArrow and the existing six Linux-only skips;
 Linux native resource coverage still requires the new GitHub CI head.
+
+
+### 2026-10-25 — Fixed SPY canonical census includes a historical validation stub
+
+The actual pre-capture gate stopped with SPY665_UNKNOWN_DISPATCH before any WorkJournal, provider/Drive I/O or dispatch. The complete historical census includes push39388523155/#98 at284abcb6, outside the39 capture/native dispatches. Its immutable workflow blob93a38491a0180e0ba2b99e3a6086fc79c741c76e (SHA256464ef675a92be21267f8d4663c45ca76c0cc80a4e76e8178241e8626dc83ae68) has invalid YAML and a capture condition restricted to workflow_dispatch on master. Canonical jobs are exactly two runnerless, step-free review checks118514193309/118514203527, not collection jobs. Recognize only that exact immutable run and recheck both exact job identities, clocks and absent execution resources on every observation. Unknown push/dispatch, replay, changed metadata, added steps/jobs or a runner still fail closed. Preserve the original39-row parent,104 journal prefix,40-dispatch limit, charged costs and unknown platform costs; absence of artifacts or logs is not zero-spend evidence.
+
+Separately, the Windows read-only owner lookup initially failed DNS because a minimal rclone child environment omitted SystemRoot/WINDIR. Restore only those OS fields in the local T0 helper; do not modify worker authentication or Source gates. Current original-owner hash matched after the fix. Old nullable owner authorization and new explicit-owner input are distinct contracts. No collection success follows from prepared input or a posted but unexecuted grant.
