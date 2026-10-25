@@ -303,6 +303,78 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
     return raw, norm, rec, evidence, trusted, objects
 
 
+def provider_close_fixture(*, names=('AAPL',), known=None):
+    """Small, externally injected SYNTHETIC qualification; no real admission."""
+    sessions = ['2016-01-04', '2016-01-05', '2016-01-06', '2016-01-07',
+                '2016-01-08', '2016-01-11', '2016-01-12']
+    state = list(private_view_fixture(names=names, sessions=sessions,
+        view_start=sessions[1], view_end=sessions[-1]))
+    raw, norm, rec, e, trust, objects = state
+    baseline = binding.prepare(raw, norm, rec, encoded(e), decision_time=DECISION,
+        trusted_source=trust, proof_objects=tuple(sorted(objects.items())))
+    if baseline.status != 'REAL_SOURCE_PREPARED_UNADMITTED':
+        raise RuntimeError('SYNTHETIC_QUALIFICATION_BASELINE_FAILED')
+    def add(value):
+        value = value if type(value) is bytes else encoded(value)
+        h = digest(value); objects[h] = value
+        return dict(sha256=h, bytes=len(value))
+    policy = add(b'SYNTHETIC_PROVIDER_CLOSE_POLICY_NOT_ACTUAL_PROVIDER_OR_RIGHTS_EVIDENCE')
+    q = dict(schema='a1-provider-daily-close-qualification-v1',
+        meaning='PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH', purpose='research',
+        admission_state='RESEARCH_BYTES_ONLY', pit_status='PIT_PROXY',
+        consumer_id='ohlcv-technical-feature-h1', provider=capture.SOURCE,
+        feed='SIP', timeframe='1Day', volume_scope='PROVIDER_NEW_YORK_DAY_TRADE_CONDITIONS',
+        source_run_id=e['original_run_id'],
+        original_objects=dict(raw_sha256=digest(raw), normalized_sha256=digest(norm),
+                              capture_receipt_sha256=digest(rec)),
+        window=dict(start=sessions[1], end=sessions[-1],
+                    sessions_sha256=digest(encoded(sessions[1:]))),
+        observed_at=OBSERVED, available_from=OBSERVED, collected_at=OBSERVED,
+        created_at=e['created_at'], review_decision_at=DECISION,
+        expires_at=e['research_fresh_until'], original_public_available_at=None,
+        original_provider_collected_at=None, physical_halt_coverage='UNKNOWN',
+        instruments={}, source_documents=[policy])
+    for base in baseline.bases:
+        for f in json.loads(base.manifest)['datasets'][0]['files']:
+            ident = f['instrument']; iid = ident['instrument_id']
+            dates = list((known or {}).get(ident['ticker'], ()))
+            item = q['instruments'].setdefault(iid, dict(ticker=ident['ticker'],
+                provider_security_id=ident['provider_security_id'],
+                identity_evidence_sha256=ident['identity_evidence_sha256'], basis_sha256={},
+                known_halted_sessions=dates,
+                known_halt_source_documents=[e['lifecycle']] if dates else []))
+            item['basis_sha256'][base.basis] = f['sha256']
+    qref = add(q)
+    for pair in e['technical_metadata'].values():
+        status = json.loads(objects.pop(pair['status_evidence']['sha256']))
+        status.update(halt_coverage='UNKNOWN', halted_sessions=None,
+                      provider_close_qualification=qref)
+        status.pop('halt_source_documents')
+        pair['status_evidence'] = add(status)
+    state[4] = replace(trust, evidence_sha256=digest(encoded(e)),
+                       proof_sha256=tuple(sorted(objects)))
+    return state
+
+
+def rewrite_provider_qualification(state, transform):
+    """Rebind synthetic reviewed bytes so negatives exercise actual predicates."""
+    e, objects = state[3], state[5]
+    first = next(iter(e['technical_metadata'].values()))
+    status = json.loads(objects[first['status_evidence']['sha256']])
+    qref = status['provider_close_qualification']
+    q = json.loads(objects.pop(qref['sha256']))
+    transform(q)
+    raw = encoded(q); objects[digest(raw)] = raw
+    ref = dict(sha256=digest(raw), bytes=len(raw))
+    for pair in e['technical_metadata'].values():
+        doc = json.loads(objects.pop(pair['status_evidence']['sha256']))
+        doc['provider_close_qualification'] = ref
+        raw = encoded(doc); objects[digest(raw)] = raw
+        pair['status_evidence'] = dict(sha256=digest(raw), bytes=len(raw))
+    state[4] = replace(state[4], evidence_sha256=digest(encoded(e)),
+                       proof_sha256=tuple(sorted(objects)))
+
+
 class BindingTest(unittest.TestCase):
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
@@ -1316,6 +1388,99 @@ class BindingTest(unittest.TestCase):
                     components=[dict(component_id='subject', instrument_id='US.TEST.AAPL',
                                      required_start='2016-01-05', required_end='2016-01-06')],
                     consumer_id='SYNTHETIC_EXPIRED_VIEW_NOT_ACTUAL_ACK')
+
+
+    def test_provider_close_source_and_actual_reader_keep_unknown_separate(self):
+        state = provider_close_fixture()
+        prepared = self.prepare_real(state)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        self.assertEqual(prepared, self.prepare_real(state))
+        for base in prepared.bases:
+            source = json.loads(base.manifest)['datasets'][0]['source']
+            transport, _, _ = fixture_transport(base)
+            result = ResearchDataReader(transport).read_components('ds.us.prices.daily',
+                base.generation_id, decision_time=DECISION, purpose='research',
+                components=[dict(component_id='subject', instrument_id='US.TEST.AAPL',
+                    required_start='2016-01-05', required_end='2016-01-12', minimum_rows=6)],
+                consumer_id='ohlcv-technical-feature-h1')
+            receipt = result.results['subject'].receipt
+            self.assertEqual(receipt['provider_close_qualification_sha256'],
+                             source['provider_close_qualification_sha256'])
+            self.assertEqual(receipt['physical_halt_coverage'], 'UNKNOWN')
+            self.assertIsNone(receipt['instrument_identity']['halted_sessions'])
+            self.assertFalse(receipt['eligible_for_economics'])
+            self.assertFalse(receipt['eligible_for_selector'])
+            self.assertEqual(len(result.results['subject'].rows), 6)
+
+    def test_provider_close_self_review_does_not_replace_external_trust(self):
+        state = provider_close_fixture()
+        state[3]['reviewed'] = True
+        self.assert_real_blocked(state, 'REVIEWED_EVIDENCE_HASH')
+        state = provider_close_fixture()
+        state[4] = {'reviewed': True}
+        self.assert_real_blocked(state, 'TRUSTED_SOURCE_BINDING_REQUIRED')
+
+    def test_provider_close_never_relabels_physical_complete_or_empty(self):
+        for change in [dict(halt_coverage='COMPLETE_FOR_WINDOW', halted_sessions=[]),
+                       dict(halt_coverage='UNKNOWN', halted_sessions=[])]:
+            state = provider_close_fixture()
+            self.replace_view_proof(state, 'status_evidence', lambda d:d.update(change))
+            self.assert_real_blocked(state, 'PROVIDER_CLOSE_PHYSICAL_UNKNOWN', repin=True)
+
+    def test_provider_close_reviewed_semantic_and_clock_counterexamples(self):
+        cases = [
+            ('meaning', 'PHYSICAL_HALTS_COMPLETE', 'PROVIDER_CLOSE_SCHEMA'),
+            ('schema', 'unknown-v0', 'PROVIDER_CLOSE_SCHEMA'),
+            ('consumer_id', 'BUY', 'PROVIDER_CLOSE_USE_SCOPE'),
+            ('purpose', 'training', 'PROVIDER_CLOSE_USE_SCOPE'),
+            ('physical_halt_coverage', 'COMPLETE_FOR_WINDOW', 'PROVIDER_CLOSE_PHYSICAL_UNKNOWN'),
+            ('feed', 'IEX', 'PROVIDER_CLOSE_SOURCE_BINDING'),
+            ('source_run_id', 'other-run', 'PROVIDER_CLOSE_SOURCE_BINDING'),
+            ('original_public_available_at', OBSERVED, 'PROVIDER_CLOSE_PHYSICAL_UNKNOWN'),
+            ('available_from', '2026-10-24T10:00:00Z', 'PROVIDER_CLOSE_CLOCK'),
+            ('expires_at', '2026-10-24T08:59:59Z', 'PROVIDER_CLOSE_CLOCK')]
+        for field, value, code in cases:
+            with self.subTest(field=field):
+                state = provider_close_fixture()
+                rewrite_provider_qualification(state, lambda q:q.update({field:value}))
+                self.assert_real_blocked(state, code)
+
+    def test_provider_close_basis_identity_and_known_positive_bindings(self):
+        changes = [
+            (lambda q:q['instruments']['US.TEST.AAPL'].update(provider_security_id='wrong'),
+             'PROVIDER_CLOSE_IDENTITY'),
+            (lambda q:q['instruments']['US.TEST.AAPL']['basis_sha256'].update(RAW='0'*64),
+             'PROVIDER_CLOSE_BASIS_ROWS'),
+            (lambda q:q['window'].update(sessions_sha256='0'*64), 'PROVIDER_CLOSE_SESSION_GRID'),
+            (lambda q:q['instruments']['US.TEST.AAPL'].update(known_halted_sessions=['2016-01-06']),
+             'PROVIDER_CLOSE_KNOWN_HALTS')]
+        for change, code in changes:
+            with self.subTest(code=code):
+                state = provider_close_fixture()
+                rewrite_provider_qualification(state, change)
+                self.assert_real_blocked(state, code)
+        state = provider_close_fixture(known={'AAPL':['2016-01-08']})
+        prepared = self.prepare_real(state)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        for base in prepared.bases:
+            identity = json.loads(base.manifest)['datasets'][0]['files'][0]['instrument']
+            self.assertEqual(identity['known_halted_sessions'], ['2016-01-08'])
+            self.assertIsNone(identity['halted_sessions'])
+
+    def test_provider_close_actual_reader_rejects_unsupported_use_and_restore(self):
+        base = self.prepare_real(provider_close_fixture()).bases[0]
+        for change in [dict(purpose='training'), dict(purpose='backtest'),
+                       dict(purpose='discovery'), dict(consumer_id='BUY'),
+                       dict(restore_to='SYNTHETIC_MUST_NOT_BE_CREATED')]:
+            with self.subTest(change=change):
+                transport, _, _ = fixture_transport(base)
+                args = dict(decision_time=DECISION, purpose='research',
+                    instrument_ids=['US.TEST.AAPL'], required_start='2016-01-05',
+                    required_end='2016-01-12', consumer_id='ohlcv-technical-feature-h1')
+                args.update(change)
+                with self.assertRaises(ContractError):
+                    ResearchDataReader(transport).read('ds.us.prices.daily', base.generation_id, **args)
+        self.assertFalse(Path('SYNTHETIC_MUST_NOT_BE_CREATED').exists())
 
 
 if __name__ == '__main__':

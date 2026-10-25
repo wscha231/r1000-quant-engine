@@ -8131,3 +8131,27 @@ identity/lifecycle/factors. Keep complete original-byte/schema/date/membership
 verification, while requiring technical eligibility only for the explicit consumed
 grid. Never fill unknown old factors or extend a truthful identity window to make
 a private view pass. Preserve E0 results separately and revalidate the new HEAD.
+
+## 2026-10-25 — Keep provider-close research separate from physical halt status
+
+A nonzero provider daily bar can support a limited archival price policy without
+proving no physical halt. Do not put that witness into legacy COMPLETE/list
+fields: they control suspension refusal and whole-date/suffix exclusion. Use a
+distinct reviewed type, external trust plus independent expected pin, exact
+source/basis/window/clock bindings and physical UNKNOWN. Keep supplied positive
+physical facts and their effects in both routes. Hash or consumer name alone
+is not reviewer authentication; false output flags are not universal authority.
+
+Use small synthetic Source-to-actual-Reader/Feature cases under normal and -O.
+Code acceptance is separate from real generation/MU/store execution and actual
+Registry/A3 context. Keep Source's registered tests free of heavy Main imports;
+the finite external cross-edge runs the existing calculator without new engines
+or a657-session replay. Preserve original methods and assertions.
+
+Native setup failures precede product validation: this Main's partial clone
+needed a bounded current-master fetch after ordinary fetch hit missing objects,
+and sparse checkout omitted existing source-revision and calculator helpers.
+Preserve failed receipts, materialize unchanged dependencies, and verify exact
+base/tree/clean scope. Windows subprocess audit supplies a command-line string;
+allow only the intended read-only git metadata command rather than treating it
+as an arbitrary child or disabling the synthetic network/store guard.

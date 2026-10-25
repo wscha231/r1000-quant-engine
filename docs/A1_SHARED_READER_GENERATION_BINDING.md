@@ -6,6 +6,58 @@ publish a generation, accept rights, admit a Source, integrate Draft #671,
 or enable an updater.
 Actual source bytes, consumer ACK and economic validation remain `NOT_RUN`.
 
+## Separate archival provider-close qualification
+
+This opt-in is a distinct research meaning, not a redefinition of
+`halted_sessions` or `COMPLETE_FOR_WINDOW`. The legacy Source branch and Main's
+default `HALT_COVERAGE_UNKNOWN`, requested-date `TRADING_SUSPENDED`, historical
+whole-date exclusion and consecutive suffix remain. This patch admits no data.
+
+In a reviewed private view, a status record may reference an
+`a1-provider-daily-close-qualification-v1` proof with meaning
+`PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH`. Its status must retain
+`halt_coverage=UNKNOWN` and null `halted_sessions`; an empty legacy list refuses.
+This is a positive provider-price observation witness, not evidence of no
+physical, intraday or close-time halt.
+
+The proof binds original trio/run, instrument/identity proofs, selected session
+hash, both RAW/SPLIT row hashes, policy documents, known positive physical-halt
+facts/source refs and aware current clocks. Unknown original price clocks stay
+null. Known positive facts cannot be omitted or changed in generation metadata;
+they keep the same current-date refusal and historical exclusion in Main.
+Their inventory does not certify complete physical coverage.
+
+Source uses the existing external `TrustedSourceBinding` and exact proof resolver.
+Main additionally needs `expected_qualification_sha256` from independently
+reviewed task/config pins and `trusted_qualification_source`, that authenticated
+Source binding. Never construct either from the manifest being accepted. A
+correct hash, `reviewed=true` or matching `consumer_id` alone is insufficient.
+This explicit caller trust boundary is not remote-caller authentication.
+
+The public Reader API is unchanged. It checks the separate proof and bindings
+before rows, restricts this path to the existing `research` purpose and Feature
+consumer contract, and refuses restore/export. Proof reads retain bounded
+counts/bytes and hashes. Qualification/source/clock errors are global even on
+optional RAW/benchmark routes; ordinary absent optional data remains local.
+Both receipts and Feature retain the qualification digest/meaning.
+
+Main reuses existing arithmetic and source/grid/Decimal/identity/CA/lifecycle/
+factor/rights/completed-session gates. Qualified coverage describes price
+observations with physical status UNKNOWN, never certified physical continuity
+or `missing_or_halted_sessions=[]`. Benchmark VERIFIED and PIT_PROXY
+training/backtest restrictions and false ER/ranking/selector/portfolio/order
+authority remain. Provider New York-day volume is not called regular-session
+volume. Actual calendar close, early closes and DST do not imply an auction-only
+or exact-close-time print. No new threshold, duration policy or full halt crawl.
+
+Code acceptance is finite synthetic normal/optimized Native Source/Reader and
+actual Feature cross-edge, independent exact-head review and CI. Registered
+Source tests do not import Main into the Source sparse workflow. Actual qualified
+generation/MU657/store readback needs separate finite GO. Actual Registry/A3
+ancillary context remains a separate dependency; those products are unchanged.
+Official ER/economic/A5/BUY, target/ledger/order, paper/broker and Fullrun remain
+outside this scope.
+
 ## Reused boundary
 
 `tools/prepare_a1_reader_generation.py` reuses the existing capture archive
