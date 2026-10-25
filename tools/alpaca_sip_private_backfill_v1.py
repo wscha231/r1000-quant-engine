@@ -1237,14 +1237,63 @@ def _fixed_spy_grant(c, auth, reference):
     return digest(encoded(grant))
 
 
+def _fixed_spy_noncollection_run(c, run):
+    """Recognize one failed historical workflow-validation stub, never a push class.
+
+    Its immutable workflow blob 93a38491a0180e0ba2b99e3a6086fc79c741c76e
+    has invalid YAML and permits capture only for workflow_dispatch on master.
+    Canonical runnerless review checks must still match on every observation.
+    This classification refunds no provider, storage or platform expenditure.
+    """
+    if run.get("id") != 39388523155:
+        return False
+    expected = dict(id=39388523155, run_number=98, event="push", run_attempt=1,
+        name=".github/workflows/alpaca_sip_private_backfill_v1.yml",
+        path=".github/workflows/alpaca_sip_private_backfill_v1.yml", workflow_id=382519204,
+        head_sha="284abcb6a90549d9fe047fce679c8695020fdefd",
+        head_branch="task/a1-named-read39235028468-20261019",
+        display_title="fix(source): bind renewed read392 window to protected deployment",
+        status="completed", conclusion="failure", check_suite_id=106734505787,
+        created_at="2026-10-20T07:44:30Z", updated_at="2026-10-20T07:44:30Z",
+        run_started_at="2026-10-20T07:44:30Z")
+    require(all(type(run.get(key)) is type(value) and run[key] == value
+                for key, value in expected.items()),
+            "SPY665_NONCOLLECTION_RUN")
+    jobs = c.gh_json(f"repos/{c.REPO}/actions/runs/39388523155/jobs?per_page=100")
+    require(isinstance(jobs, dict) and type(jobs.get("total_count")) is int
+            and jobs["total_count"] == 2 and isinstance(jobs.get("jobs"), list)
+            and len(jobs["jobs"]) == 2, "SPY665_NONCOLLECTION_JOBS")
+    identities = ((118514193309, "review_head_observed", "success", "2026-10-20T07:44:41Z"),
+                  (118514203527, "review_complete", "failure", "2026-10-20T07:44:42Z"))
+    require(all(isinstance(job, dict) and type(job.get("id")) is int for job in jobs["jobs"])
+            and {job["id"] for job in jobs["jobs"]} == {row[0] for row in identities},
+            "SPY665_NONCOLLECTION_JOBS")
+    for job_id, name, conclusion, clock in identities:
+        job = next(job for job in jobs["jobs"] if job["id"] == job_id)
+        pinned = dict(id=job_id, run_id=39388523155, run_attempt=1, name=name,
+            head_sha=expected["head_sha"], head_branch=expected["head_branch"],
+            workflow_name=expected["name"], status="completed", conclusion=conclusion,
+            created_at=clock, started_at=clock, completed_at=clock,
+            steps=[], labels=[], runner_id=None, runner_name=None,
+            runner_group_id=None, runner_group_name=None)
+        require(set(pinned) <= set(job)
+                and all(type(job[key]) is type(value) and job[key] == value
+                        for key, value in pinned.items()),
+                "SPY665_NONCOLLECTION_JOBS")
+    return True
+
+
 def _fixed_spy_history(c, auth, parent, grant_sha, *, current_run=None, nonce=None):
     """Every canonical dispatch belongs to the closed prefix or this exact tail."""
     runs = c.campaign_runs(auth["workflow_run_floor"])
     all_runs = c.campaign_run_pages(c)
-    require(all(type(r.get("run_number")) is int and r["run_number"] > 0 for r in all_runs),
+    require(all(type(r.get("run_number")) is int and r["run_number"] > 0
+                and type(r.get("id")) is int and r["id"] > 0 for r in all_runs)
+            and len({r["id"] for r in all_runs}) == len(all_runs),
             "SPY665_CENSUS")
+    noncollection = {r["id"] for r in all_runs if _fixed_spy_noncollection_run(c, r)}
     dispatches = [r for r in all_runs if r["run_number"] >= auth["workflow_run_floor"]
-                  and r.get("event") != "pull_request"]
+                  and r.get("event") != "pull_request" and r["id"] not in noncollection]
     require(all(r.get("event") == "workflow_dispatch" for r in dispatches)
             and {r["id"] for r in dispatches} == {r["id"] for r in runs},
             "SPY665_UNKNOWN_DISPATCH")
