@@ -8160,3 +8160,27 @@ Final self-review reproduced a forged qualified TOTAL_RETURN basis escaping as
 KeyError before useful output. Check membership in the qualification's existing
 RAW/SPLIT basis map before indexing; preserve unrestricted legacy basis support
 and assert the finite scoped refusal through the actual Reader, including -O.
+
+## 2026-10-25 — Batch authoritative close checks within one research invocation
+
+Repeated NYSE schedule construction is a static performance candidate, not a
+measured fraction of a real run. Reuse Source's authoritative range pattern
+with its bounded calendar envelope inside each Reader call and Feature snapshot.
+Keep row checks in their original order, including optional components' global
+schema/identity/clock failures. Missing dates, unsupported/oversized ranges and
+batch failures must reach the original finite lookup; no alternate calendar,
+global cache, smaller history or new eligibility policy follows from batching.
+
+Compare exact Reader rows/files/receipt bytes under both lookup strategies at
+the same loaded code pin. Across code revisions, reader_code_sha256 and dependent
+receipt/Feature hashes must change honestly. Preserve fixed calculator/Decimal
+AST and existing assertions. Small synthetic normal/-O parity and schedule counts
+do not establish actual runtime speedup, source admission or economic benefit.
+The completed 534.031301-second actual MU baseline and its outputs are historical
+evidence only; this implementation does not replay it or call Source.prepare.
+
+Initial new test expectations incorrectly called 2026-07-02 an early close and
+omitted the unchanged fixed calculator's grid schedule. Both old/new strategies
+agreed: the authoritative close is 20 UTC; November 27 supplies the actual early
+close case. Preserve the failed log, correct these new expectations, and count
+the existing calculator schedule in the full snapshot observation.

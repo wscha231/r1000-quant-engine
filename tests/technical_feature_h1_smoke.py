@@ -740,8 +740,114 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(proof_reads),2)
 
 
+class CalendarBatchFeatureTests(unittest.TestCase):
+    """Tiny actual Reader/Feature parity, separate from the 510-row oracles."""
+    class OriginalLookup:
+        # Conservative baseline: even the legacy single-date close checks get
+        # invocation-local date reuse here. The product has no cross-call cache.
+        def __init__(self): self.cache = {}
+        def include(self, *_): pass
+        def __getitem__(self, value):
+            if value not in self.cache:
+                self.cache[value] = access._session_close(value)
+            return self.cache[value]
+        def sessions(self, *_): return None
+
+    def compare(self, transform=None, *, days=None, options=None, count=False):
+        with patch(__name__+'.DAYS', list(days or DAYS[-6:])):
+            case = FeatureTests('runTest')
+            case.setUp()
+            if transform is not None:
+                transform(case)
+            calendar = mcal.get_calendar('NYSE')
+            def run():
+                with patch.object(calendar, 'schedule', wraps=calendar.schedule) as schedules, \
+                     patch.object(mcal, 'get_calendar', return_value=calendar):
+                    result = case.call(**(options or {}))
+                    return result, schedules.call_count
+            with patch.object(access, '_SessionCloseMap', self.OriginalLookup):
+                before, old_calls = run()
+            after, new_calls = run()
+            # Same loaded code provenance in both strategies: exact receipts,
+            # source refs, numeric/status/coverage and final semantic hash.
+            self.assertEqual(before, after)
+            if count:
+                # Includes the existing fixed calculator's own grid schedule.
+                self.assertEqual((old_calls, new_calls), (21, 5))
+                replay, replay_calls = run()
+                self.assertEqual(after, replay)
+                self.assertEqual(replay_calls, 5)  # no cache survives the call
+            return after
+
+    def test_calendar_batch_snapshot_reuses_subject_raw_and_coverage(self):
+        result = self.compare(count=True)
+        self.assertIsNotNone(result['features']['ret_5s'])
+        self.assertEqual(result['coverage']['consecutive_tail_rows'], 6)
+        self.assertIsNotNone(result['raw_ref'])
+        for key in ('source_admitted', 'historical_pit_certified', 'eligible_for_selector',
+                    'ranking_allowed', 'ER_allowed', 'portfolio_allowed', 'orders_generated'):
+            self.assertFalse(result[key])
+
+    def test_calendar_batch_dst_and_full_obv_anchor_are_unchanged(self):
+        result = self.compare(days=['2026-03-03', '2026-03-04', '2026-03-05',
+                                    '2026-03-06', '2026-03-09', SESSION])
+        # The declared internal gap keeps the original suffix; it never pads
+        # missing history or extends an accumulation/OBV anchor across it.
+        self.assertEqual(result['coverage']['consecutive_tail_rows'], 1)
+        self.assertIsNone(result['features']['ret_5s'])
+        result = self.compare(days=['2026-03-03', '2026-03-04', '2026-03-05',
+                                    '2026-03-06', '2026-03-09', '2026-03-10'],
+                              options={'session': '2026-03-10'})
+        self.assertIsNotNone(result['features']['ret_5s'])
+        self.assertEqual(result['coverage']['consecutive_tail_rows'], 6)
+        self.assertEqual(result['coverage']['first_observed_session'], '2026-03-03')
+
+    def test_calendar_batch_known_halts_unknown_and_optional_absence_keep_semantics(self):
+        def current(case):
+            case.identity()['halted_sessions'] = [SESSION]
+        result = self.compare(current)
+        self.assertEqual(set(result['blocker'].values()), {'TRADING_SUSPENDED'})
+        def historical(case):
+            case.identity()['halted_sessions'] = [DAYS[-3]]
+        result = self.compare(historical)
+        self.assertEqual(result['coverage']['consecutive_tail_rows'], 2)
+        self.assertIsNone(result['features']['ret_5s'])
+        def unknown(case):
+            case.identity()['halted_sessions'] = None
+        result = self.compare(unknown)
+        self.assertEqual(set(result['blocker'].values()), {'HALT_COVERAGE_UNKNOWN'})
+        def missing(case):
+            case.data_spec['files'] = [f for f in case.data_spec['files']
+                                      if f['instrument']['instrument_id'] != IDS['SPY']]
+        result = self.compare(missing)
+        self.assertIsNotNone(result['features']['ret_5s'])
+        self.assertEqual(result['blocker']['rs_log_spy_5s'], 'MISSING_INSTRUMENT')
+
+    def test_calendar_batch_optional_integrity_and_clocks_stay_global(self):
+        def corrupt(case):
+            h = case.identity(IDS['SPY'])['identity_evidence_sha256']
+            case.transport.objects[f'{access.PREFIX_V1}/objects/{h}'] += b' '
+        result = self.compare(corrupt)
+        self.assertEqual(set(result['blocker'].values()), {'HASH_MISMATCH'})
+        def before_close(case):
+            rows = case.rows[IDS['TEST']]
+            rows[0]['available_from'] = rows[0]['session_date']+'T19:59:59Z'
+            case.add_file(IDS['TEST'])
+        result = self.compare(before_close)
+        self.assertEqual(set(result['blocker'].values()), {'PRE_CLOSE_AVAILABLE_FROM'})
+        # Completion is checked before reading a generation, with the existing
+        # public finite refusal on pre-close and non-session requests.
+        for session, cutoff in ((SESSION, SESSION+'T19:59:59Z'),
+                                ('2026-07-04', ASOF), ('2026-07-03', ASOF)):
+            with self.subTest(session=session), self.assertRaisesRegex(
+                    access.ContractError, '^FEATURE_SESSION_NOT_COMPLETED$'):
+                self.compare(options={'session': session, 'as_of': cutoff})
+
+
 def run_contract_suite():
-    outcome=unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests))
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CalendarBatchFeatureTests))
+    outcome=unittest.TextTestRunner(verbosity=1).run(suite)
     if not outcome.wasSuccessful():raise RuntimeError('TECHNICAL_FEATURE_H1_CONTRACT_FAILED')
 
 
