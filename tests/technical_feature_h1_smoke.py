@@ -745,7 +745,7 @@ class CalendarBatchFeatureTests(unittest.TestCase):
     class OriginalLookup:
         # Conservative baseline: even the legacy single-date close checks get
         # invocation-local date reuse here. The product has no cross-call cache.
-        def __init__(self): self.cache = {}
+        def __init__(self, **_): self.cache = {}
         def include(self, *_): pass
         def __getitem__(self, value):
             if value not in self.cache:
@@ -772,11 +772,12 @@ class CalendarBatchFeatureTests(unittest.TestCase):
             # source refs, numeric/status/coverage and final semantic hash.
             self.assertEqual(before, after)
             if count:
-                # Includes the existing fixed calculator's own grid schedule.
-                self.assertEqual((old_calls, new_calls), (21, 5))
+                # Includes the fixed calculator grid and one original authority
+                # anchor per Reader call and per Feature snapshot close map.
+                self.assertEqual((old_calls, new_calls), (21, 8))
                 replay, replay_calls = run()
                 self.assertEqual(after, replay)
-                self.assertEqual(replay_calls, 5)  # no cache survives the call
+                self.assertEqual(replay_calls, 8)  # no cache survives the call
             return after
 
     def test_calendar_batch_snapshot_reuses_subject_raw_and_coverage(self):

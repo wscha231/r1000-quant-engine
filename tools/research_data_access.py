@@ -121,7 +121,8 @@ class _SessionCloseMap:
     """
     _MAX_DAYS = 100_000
 
-    def __init__(self):
+    def __init__(self, *, allow_batch=False):
+        self._allow_batch = allow_batch
         self._start = self._end = None
         self._closes = None
         self._attempted = False
@@ -136,7 +137,15 @@ class _SessionCloseMap:
             self._closes, self._attempted = None, False
 
     def __getitem__(self, session):
+        if not self._allow_batch:
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
+            return self._individual[session]
         if not self._attempted:
+            # Research reuse starts only after the original authority accepts
+            # the first actual session, at the original row-validation boundary.
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
             self._attempted = True
             if (self._start is not None and self._start <= self._end and
                     (self._end - self._start).days < self._MAX_DAYS):
@@ -146,10 +155,14 @@ class _SessionCloseMap:
                         start_date=self._start, end_date=self._end)
                     self._closes = {index.date(): clock(close.isoformat())
                                    for index, close in schedule['market_close'].items()}
+                    if self._closes.get(session) != self._individual[session]:
+                        self._closes = None
                 except Exception:
                     # Do not replace the first row's original refusal, or move
                     # a calendar failure ahead of schema/identity/clock checks.
                     self._closes = None
+        if session in self._individual:
+            return self._individual[session]
         if self._closes is not None and session in self._closes:
             return self._closes[session]
         if session not in self._individual:
@@ -764,7 +777,7 @@ class ResearchDataReader:
                 raw_proof = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
                 check(len(raw_proof) == size, 'PROVIDER_CLOSE_PROOF_SIZE')
         decompressed_total, row_total = component_request_bytes, 0
-        lake, session_closes = None, _SessionCloseMap()
+        lake, session_closes = None, _SessionCloseMap(allow_batch=purpose == 'research')
         request_by_iid = {r['instrument_id']: r for r in component_requests or []}
         for item, _, scheduled, iid, _ in inventory:
             request = request_by_iid.get(iid)

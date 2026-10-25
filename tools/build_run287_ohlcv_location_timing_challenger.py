@@ -827,7 +827,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     # generation, clocks and rights through the public Source component API.
     component_reads = {}
     global_refusals = []
-    session_closes = _SessionCloseMap()
+    session_closes = _SessionCloseMap(allow_batch=True)  # research-only snapshot
 
     def read_generation(gen, ids, required_ids):
         try:
