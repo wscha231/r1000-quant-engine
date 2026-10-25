@@ -77,7 +77,10 @@ def day(value: Any, code: str) -> date:
 
 def score(value: Any, *, trend: bool) -> float:
     require(type(value) in (int, float), "normalized_score_type")
-    v = float(value)
+    try:
+        v = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise TwoAxisDiagnosticError("normalized_score_range") from exc
     require(math.isfinite(v) and (-1 <= v <= 1 if trend else 0 <= v <= 1),
             "normalized_score_range")
     return v
@@ -103,15 +106,24 @@ def normalize_raw_research_inputs(raw: dict[str, Any], scales: dict[str, Any]) -
                              "global_rs_log_saturation"}, "normalizer_scales")
     for name in scales:
         val = scales[name]
-        require(type(val) in (float, int) and math.isfinite(float(val)) and
-                0 < float(val) <= 1, "normalizer_scale_range")
+        require(type(val) in (float, int), "normalizer_scale_range")
+        try:
+            normalized_scale = float(val)
+        except (OverflowError, ValueError) as exc:
+            raise TwoAxisDiagnosticError("normalizer_scale_range") from exc
+        require(math.isfinite(normalized_scale) and
+                0 < normalized_scale <= 1, "normalizer_scale_range")
     def number_or_none(key: str) -> float | None:
         val = raw.get(key)
         if val is None:
             return None
-        require(type(val) in (int, float) and math.isfinite(float(val)),
-                "raw_normalizer_value")
-        return float(val)
+        require(type(val) in (int, float), "raw_normalizer_value")
+        try:
+            number = float(val)
+        except (OverflowError, ValueError) as exc:
+            raise TwoAxisDiagnosticError("raw_normalizer_value") from exc
+        require(math.isfinite(number), "raw_normalizer_value")
+        return number
     def clip(value: float, lo: float = -1.0, hi: float = 1.0) -> float:
         return float(max(lo, min(hi, value)))
     out: dict[str, float] = {}

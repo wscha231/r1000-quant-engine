@@ -246,5 +246,20 @@ class TrendRiskSmoke(unittest.TestCase):
             compare_snapshots(first,bad)
 
 
+    def test_huge_integer_normalized_score_yields_scoped_error(self):
+        p = copy.deepcopy(self.packet)
+        p["observations"]["ma_21_trend"]["normalized_value"] = 10**1000
+        with self.assertRaisesRegex(TwoAxisDiagnosticError, "normalized_score_range"):
+            self.compute(p)
+
+    def test_huge_integer_normalizer_raw_or_scale_yields_scoped_error(self):
+        scales = {"ma_ratio_saturation": .1, "drawdown_depth_fraction": .2,
+                  "global_rs_log_saturation": .1}
+        with self.assertRaisesRegex(TwoAxisDiagnosticError, "raw_normalizer_value"):
+            normalize_raw_research_inputs({"price_to_ma21_ratio": 10**1000}, scales)
+        with self.assertRaisesRegex(TwoAxisDiagnosticError, "normalizer_scale_range"):
+            normalize_raw_research_inputs({}, {**scales, "ma_ratio_saturation": 10**1000})
+
+
 if __name__ == "__main__":
     unittest.main()

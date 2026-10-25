@@ -2208,4 +2208,9 @@ from tests.candidate_reassessment_clock_smoke import SameClockSemanticBoundaryTe
 from tests.candidate_reassessment_clock_smoke import FilingOwnerBoundaryTests as CandidateReassessmentFilingOwnerBoundaryTests
 from tests.chameleon_library_semantic_boundary_smoke import ContextTransportIdentityBoundaryTests as ChameleonLibraryContextTransportIdentityBoundaryTests
 
+# Research-only A4 trend-risk diagnostics: append to the existing registered H1 suite.
+# This adds tests only; canonical crisis, regime and portfolio policy are unchanged.
+from tests.test_trend_risk_beta_diagnostic_v1 import TrendRiskSmoke as TwoAxisTrendRiskSmoke
+
+
 if __name__=='__main__': unittest.main()
