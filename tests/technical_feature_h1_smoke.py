@@ -505,9 +505,9 @@ class FeatureTests(unittest.TestCase):
     def test_arcx_original_bar_clock_must_follow_completed_close(self):
         self.rows[IDS['SPY']][-1]['available_from']=SESSION+'T19:59:59Z'
         self.add_file(IDS['SPY'])
-        o=self.call(); self.assertIsNone(o['features']['rs_log_spy_20s'])
-        self.assertEqual(o['blocker']['rs_log_spy_20s'],'FEATURE_BEFORE_SESSION_CLOSE')
-        self.assertIsNotNone(o['features']['ret_20s'])
+        # Scheduled ARCX now reaches Reader's existing global clock gate.
+        # Optional absence is local; a false availability clock is not.
+        self.assert_blocked(self.call(),'PRE_CLOSE_AVAILABLE_FROM')
 
     def test_raw_split_provider_identity_must_remain_identical(self):
         original=copy.deepcopy(self.manifest); ident=self.identity()
