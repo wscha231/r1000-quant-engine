@@ -1481,6 +1481,15 @@ class BindingTest(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     ResearchDataReader(transport).read('ds.us.prices.daily', base.generation_id, **args)
         self.assertFalse(Path('SYNTHETIC_MUST_NOT_BE_CREATED').exists())
+        manifest = json.loads(base.manifest)
+        manifest['datasets'][0]['files'][0]['instrument']['adjustment_basis'] = 'TOTAL_RETURN'
+        malformed = replace(base, manifest=encoded(manifest))
+        transport, _, _ = fixture_transport(malformed)
+        with self.assertRaisesRegex(ContractError, '^PROVIDER_CLOSE_BASIS_ROWS$'):
+            ResearchDataReader(transport).read('ds.us.prices.daily', malformed.generation_id,
+                decision_time=DECISION, purpose='research', instrument_ids=['US.TEST.AAPL'],
+                required_start='2016-01-05', required_end='2016-01-12',
+                consumer_id='ohlcv-technical-feature-h1')
 
 
 if __name__ == '__main__':

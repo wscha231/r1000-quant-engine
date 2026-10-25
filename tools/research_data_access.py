@@ -416,6 +416,7 @@ def _validate_provider_close_qualification(q, manifest, spec, decision, *,
         hashes = item['basis_sha256']
         check(type(hashes) is dict and set(hashes) == {'RAW', 'SPLIT_ADJUSTED'} and
               all(sha(h) for h in hashes.values()) and
+              identity['adjustment_basis'] in hashes and
               hashes[identity['adjustment_basis']] == f['sha256'] and iid not in seen,
               'PROVIDER_CLOSE_BASIS_ROWS')
         seen.add(iid)

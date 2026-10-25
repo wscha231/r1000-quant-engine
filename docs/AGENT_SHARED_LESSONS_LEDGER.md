@@ -8155,3 +8155,8 @@ Preserve failed receipts, materialize unchanged dependencies, and verify exact
 base/tree/clean scope. Windows subprocess audit supplies a command-line string;
 allow only the intended read-only git metadata command rather than treating it
 as an arbitrary child or disabling the synthetic network/store guard.
+
+Final self-review reproduced a forged qualified TOTAL_RETURN basis escaping as
+KeyError before useful output. Check membership in the qualification's existing
+RAW/SPLIT basis map before indexing; preserve unrestricted legacy basis support
+and assert the finite scoped refusal through the actual Reader, including -O.
