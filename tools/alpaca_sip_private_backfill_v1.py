@@ -1188,7 +1188,7 @@ def _fixed_spy_parent(c, auth):
     used = dict.fromkeys(c.LIMITS, 0)
     active, ids, nonces, numbers = 0, [], [], []
     for row in parent["runs"]:
-        require(isinstance(row, dict) and set(row) == {"id", "run_number", "nonce", "head_sha",
+        require(isinstance(row, dict) and set(row) == {"id", "run_number", "nonce", "display_title", "head_sha",
                     "auth_sha256", "meter_or_closure_sha256", "usage", "active_seconds"}
                 and type(row.get("id")) is int and row["id"] > 0
                 and type(row.get("run_number")) is int and row["run_number"] > 0
@@ -1197,6 +1197,10 @@ def _fixed_spy_parent(c, auth):
                 and isinstance(row.get("head_sha"), str) and re.fullmatch(r"[0-9a-f]{40}", row["head_sha"])
                 and isinstance(row.get("usage"), dict) and set(row["usage"]) == set(c.LIMITS),
                 "SPY665_PARENT_VECTOR")
+        require(isinstance(row.get("display_title"), str)
+                and re.fullmatch("a1-sip " + re.escape(row["nonce"])
+                    + r"(?: native-read(?:39085031884|39235028468))?", row["display_title"]),
+                "SPY665_PARENT_TITLE")
         for key in ("auth_sha256", "meter_or_closure_sha256"):
             require(isinstance(row.get(key), str) and re.fullmatch(r"[0-9a-f]{64}", row[key]),
                     "SPY665_PARENT_VECTOR")
@@ -1269,7 +1273,7 @@ def _fixed_spy_history(c, auth, parent, grant_sha, *, current_run=None, nonce=No
                 and actual.get("run_attempt") == 1 and actual.get("status") == "completed"
                 and actual.get("head_sha") == pinned["head_sha"]
                 and actual.get("head_branch") == "master"
-                and actual.get("display_title") == "a1-sip " + pinned["nonce"],
+                and actual.get("display_title") == pinned["display_title"],
                 "SPY665_PARENT_CENSUS_DRIFT")
     tail = previous[len(old):]
     require(len(tail) <= len(auth["phases"]), "SPY665_PHASE_LIMIT")

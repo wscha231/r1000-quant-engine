@@ -8169,6 +8169,7 @@ def fixed_spy_parent(value):
     usage = dict(provider_gets=10, drive_requests=20, drive_bytes=1000000, storage_bytes=1000)
     row = dict(id=1, run_number=1, nonce=c.PREFIX+"a"*24, head_sha="2"*40,
         auth_sha256="3"*64, meter_or_closure_sha256="4"*64, usage=usage, active_seconds=100)
+    row["display_title"] = "a1-sip "+row["nonce"]
     return dict(schema="a1-sip-closed-parent-manifest-v1", family_genesis_sha256=c.external_family_genesis(),
         family_prefix_count=1, family_prefix_first_sha256="5"*64, family_prefix_head_sha256="5"*64,
         runs=[row], used=usage, active_seconds=100, event_count=1, closed=True,
@@ -8179,7 +8180,7 @@ def fixed_spy_parent(value):
 
 def fixed_spy_run(row):
     return dict(id=row["id"], run_number=row["run_number"], run_attempt=1, status="completed",
-        event="workflow_dispatch", conclusion="success", head_sha=row["head_sha"], head_branch="master", display_title="a1-sip "+row["nonce"])
+        event="workflow_dispatch", conclusion="success", head_sha=row["head_sha"], head_branch="master", display_title=row["display_title"])
 
 
 class FixedSpy665Tests(unittest.TestCase):
@@ -8230,6 +8231,71 @@ class FixedSpy665Tests(unittest.TestCase):
                 with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, bound)
         with patch.object(c, "gh_json", return_value=comment):
             with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, dict(value, parent_manifest_sha256="0"*64))
+
+    def test_closed_parent_keeps_capture_and_actual_native_title_shapes_with_failed_costs(self):
+        # Public historical metadata shapes only; parent proof, account and costs
+        # are synthetic and cannot authorize an actual capture.
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        identities = [
+            (39083896869, 64, "2e32f1bc05c03df98eeec2f8", "", "b268ef972b3f157501e489ab4d1ba67fe9dfd874"),
+            (39103855450, 71, "d823a3d72ee18bb3b41cd454", " native-read39085031884", "a549c27b1cdd002bdaaa7dd6ab5dfc44fef0aaad"),
+            (39544804083, 107, "7854ae3bbbd3c463b6c2c242", " native-read39235028468", "3d6de8f354015bb93a73b87eac4f3648c6ea453a")]
+        template = parent["runs"][0]
+        parent["runs"] = [dict(template, id=run_id, run_number=number, nonce=c.PREFIX+nonce,
+            display_title="a1-sip "+c.PREFIX+nonce+suffix, head_sha=head)
+            for run_id, number, nonce, suffix, head in identities]
+        parent.update(event_count=3, active_seconds=300,
+            used={key:3*amount for key, amount in template["usage"].items()})
+        value["parent_manifest_sha256"] = c.digest(c.encoded(parent))
+        before = c.encoded(parent)
+        comment = dict(id=11, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER", user=dict(type="User", id=123),
+            created_at=value["not_before_utc"], updated_at=value["not_before_utc"],
+            body="A1_SIP_CLOSED_PARENT_MANIFEST "+before.decode())
+        canonical = [fixed_spy_run(row) for row in parent["runs"]]
+        canonical[-1]["conclusion"] = "failure"
+        with patch.object(c, "gh_json", return_value=comment):
+            checked = cap._fixed_spy_parent(c, value)
+        with patch.object(c, "campaign_runs", return_value=canonical), patch.object(c, "receipt_for_run") as receipt:
+            observed = cap._fixed_spy_history(c, value, checked, "b"*64)
+            receipt.assert_not_called()
+        self.assertEqual((observed["phase"], observed["used"], observed["allowance"]),
+                         ("preflight", parent["used"], value["subcaps"]))
+        self.assertEqual(len(observed["runs"]), 3)
+        active_nonce = c.PREFIX+"f"*24
+        active = dict(canonical[-1], id=39544804084, run_number=108,
+            display_title="a1-sip "+active_nonce, head_sha=value["expected_master"],
+            status="in_progress", conclusion=None)
+        with patch.object(c, "campaign_runs", return_value=canonical+[active]):
+            current = cap._fixed_spy_history(c, value, checked, "b"*64,
+                current_run=active["id"], nonce=active_nonce)
+        self.assertEqual(current["phase"], "preflight")
+        self.assertEqual(c.encoded(parent), before)
+
+    def test_parent_title_missing_unknown_suffix_or_canonical_drift_refuses(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        nonce = parent["runs"][0]["nonce"]
+        for title in (None, "a1-sip "+nonce+" native-read1",
+                      "a1-sip "+nonce+" native-read39085031884 trailing",
+                      "a1-sip "+c.PREFIX+"b"*24):
+            bad = copy.deepcopy(parent)
+            if title is None: bad["runs"][0].pop("display_title")
+            else: bad["runs"][0]["display_title"] = title
+            bound = dict(value, parent_manifest_sha256=c.digest(c.encoded(bad)))
+            comment = dict(id=11, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+                author_association="OWNER", user=dict(type="User", id=123),
+                created_at=value["not_before_utc"], updated_at=value["not_before_utc"],
+                body="A1_SIP_CLOSED_PARENT_MANIFEST "+c.encoded(bad).decode())
+            with self.subTest(title=title), patch.object(c, "gh_json", return_value=comment):
+                with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, bound)
+        for suffix in ("", " native-read39085031884", " native-read39235028468"):
+            pinned = copy.deepcopy(parent)
+            pinned["runs"][0]["display_title"] = "a1-sip "+nonce+suffix
+            canonical = fixed_spy_run(pinned["runs"][0])
+            canonical["display_title"] = "a1-sip "+nonce+(" native-read39085031884" if not suffix else "")
+            with self.subTest(suffix=suffix), patch.object(c, "campaign_runs", return_value=[canonical]):
+                with self.assertRaisesRegex(c.Refused, "SPY665_PARENT_CENSUS_DRIFT"):
+                    cap._fixed_spy_history(c, value, pinned, "b"*64)
 
     def test_preflight_and_capture_share_cumulative_subcaps_and_global_remaining(self):
         value = fixed_spy_auth(); parent = fixed_spy_parent(value); grant = "b"*64

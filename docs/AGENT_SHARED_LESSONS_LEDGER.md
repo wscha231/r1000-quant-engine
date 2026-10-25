@@ -2,6 +2,13 @@
 
 ## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
 
+- Hosted review found that real native-read runs retain typed title suffixes.
+  Reconstructing every closed-parent title as a capture title made a fully
+  settled family unusable. Pin each full historical display_title separately
+  from its strict nonce, validate only the existing typed suffixes, and compare
+  canonical metadata exactly. Preserve failed native-read costs in the parent;
+  never omit those runs or turn them into successful price captures. Cover the
+  actual three metadata shapes plus missing/unknown/changed title refusals.
 - A new data genesis does not grant a new budget. The one-symbol 2024-03-01
   through 2026-10-23 profile must authenticate the closed historical run vector,
   unchanged shared journal prefix, owner/account binding and fresh finite grant.
