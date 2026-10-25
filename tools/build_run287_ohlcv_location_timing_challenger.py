@@ -758,7 +758,9 @@ TECH_FEATURE_NAMES = (
 def research_feature_snapshot(reader, generation: str, *, security_id: str,
                               session: str, as_of: str,
                               benchmark_ids: Mapping[str, str] | None = None,
-                              raw_generation: str | None = None) -> dict[str, Any]:
+                              raw_generation: str | None = None,
+                              expected_qualification_sha256: str | None = None,
+                              trusted_qualification_source=None) -> dict[str, Any]:
     """One security/completed session, research only; no writes or collection.
 
     The Shared Reader authenticates frozen bytes, not Source/PIT admission.
@@ -766,11 +768,18 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     instrument's generation metadata. Missing evidence remains missing. The
     optional RAW generation must share the exact original source receipt/run
     and raw-object lineage; it is used only for the current turnover proxy.
+
+    A distinct provider-close archival path requires BOTH an independently
+    reviewed task/config digest and the existing externally authenticated
+    TrustedSourceBinding. Never derive either trust input from the manifest.
+    This is the same explicit caller trust boundary as Source preparation,
+    not authentication of arbitrary callers or permission for detached reuse.
     """
     from aggressive.signals_technical import obv, slope_pct, sma
     from tools.research_data_access import (
         ContractError, PREFIX_V1, ResearchDataReader, clock, day, decode,
         read_object, sha, text, check, _session_close,
+        PROVIDER_CLOSE_MEANING, _provider_close_references,
     )
     from tools.macro_history_sources import digest, encoded
 
@@ -871,6 +880,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         # Consumer-only identity closure. The Shared Reader's research purpose
         # verifies bytes, not a security-master role or venue/calendar proof.
         source = spec["source"]
+        qualified = False
         try:
             identity_sha = sha(identity.get("identity_evidence_sha256"))
             check(identity_sha in source["raw_source_sha256"], "FEATURE_IDENTITY_NOT_SOURCE_BOUND")
@@ -884,6 +894,38 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
                   clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
                   "FEATURE_IDENTITY_CLOCK")
+            if expected_qualification_sha256 is not None:
+                # Keep the legacy path independent of the optional Source adapter.
+                from tools.prepare_a1_reader_generation import TrustedSourceBinding
+                qsha = sha(expected_qualification_sha256)
+                check(source.get("provider_close_qualification_sha256") == qsha,
+                      "HALT_COVERAGE_UNKNOWN")
+                trust = trusted_qualification_source
+                check(type(trust) is TrustedSourceBinding,
+                      "QUALIFICATION_TRUST_REQUIRED")
+                check(type(trust.proof_sha256) is tuple and qsha in trust.proof_sha256 and
+                      trust.review_receipt_sha256 in trust.proof_sha256 and
+                      trust.review_receipt_sha256 in source["raw_source_sha256"] and
+                      source.get("qualification_review_receipt_sha256") == trust.review_receipt_sha256 and
+                      source.get("qualification_adapter_file_sha256") == trust.adapter_file_sha256 and
+                      source["producer_config_sha256"] == trust.evidence_sha256 and
+                      source["producer_code_sha"] == trust.derivation_code_sha and
+                      source.get("derivation_run_id") == trust.derivation_run_id and
+                      manifest["source_run_id"] == str(trust.original_run_id),
+                      "QUALIFICATION_REVIEW_BINDING")
+                check(read.receipt.get("provider_close_qualification_sha256") == qsha and
+                      batch.receipt.get("provider_close_qualification_sha256") == qsha,
+                      "QUALIFICATION_RECEIPT_BINDING")
+                qualification = decode(read_object(reader.transport,
+                    f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
+                check(all(h in trust.proof_sha256 for h in
+                          _provider_close_references(qualification)) and
+                      identity_sha in trust.proof_sha256,
+                      "QUALIFICATION_REVIEW_BINDING")
+                read_object(reader.transport,
+                    f"{PREFIX_V1}/objects/{trust.review_receipt_sha256}",
+                    trust.review_receipt_sha256, 4 * 1024 * 1024)
+                qualified = True
         except ContractError as exc:
             # Consumer proof integrity is global even for an optional benchmark
             # or RAW companion. It is distinct from the role checks below.
@@ -904,7 +946,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                   for r in read.rows), "FEATURE_BEFORE_SESSION_CLOSE")
         # Require explicit status coverage, rather than treating a zero volume
         # bar or an absent halt record as proof that the security was trading.
-        halts = identity.get("halted_sessions")
+        halts = identity.get("known_halted_sessions") if qualified else identity.get("halted_sessions")
         check(type(halts) is list and all(type(v) is str for v in halts),
               "HALT_COVERAGE_UNKNOWN")
         check(halts == sorted(set(halts)), "HALT_COVERAGE_INVALID")
@@ -933,6 +975,11 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             identity_valid_through=evidence["valid_through"],
             identity_available_from=evidence["available_from"],
             identity_collected_at=evidence["collected_at"])
+        if qualified:
+            ref.update(provider_close_qualification_sha256=qsha,
+                qualification_meaning=PROVIDER_CLOSE_MEANING, physical_halt_coverage="UNKNOWN",
+                volume_scope=qualification["volume_scope"],
+                known_halted_sessions=halts)
         return frame, identity, ref
 
     try:
@@ -952,13 +999,21 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     dates = pd.DatetimeIndex(mcal.get_calendar("NYSE").schedule(
         start_date=first, end_date=session).index).tz_localize(None)
     check(px.index.isin(dates).all(), "FEATURE_NONSESSION")
-    effective = px.drop(index=pd.DatetimeIndex(identity["halted_sessions"]), errors="ignore")
+    known_halts = stock_ref.get("known_halted_sessions", identity["halted_sessions"])
+    effective = px.drop(index=pd.DatetimeIndex(known_halts), errors="ignore")
     missing = dates[~dates.isin(effective.index)]
     tail = effective.loc[effective.index > missing[-1]] if len(missing) else effective
     result["coverage"] = dict(expected_sessions=len(dates), observed_rows=len(px),
         missing_or_halted_sessions=[d.date().isoformat() for d in missing],
         consecutive_tail_rows=len(tail), first_observed_session=first,
         calendar="NYSE", calendar_library=mcal.__version__)
+    if "provider_close_qualification_sha256" in stock_ref:
+        result["provider_close_qualification_sha256"] = stock_ref["provider_close_qualification_sha256"]
+        result["qualification_meaning"] = stock_ref["qualification_meaning"]
+        result["coverage"].pop("missing_or_halted_sessions")
+        result["coverage"]["consecutive_price_observation_rows"] = result["coverage"].pop("consecutive_tail_rows")
+        result["coverage"].update(physical_halt_coverage="UNKNOWN",
+            physical_continuity_certified=False, known_physical_halt_exclusions=len(known_halts))
     # Shared Reader already enforces exact end. Keep an explicit boundary here
     # so future changes cannot turn a stale end into a current feature snapshot.
     if tail.empty or tail.index[-1].date().isoformat() != session:

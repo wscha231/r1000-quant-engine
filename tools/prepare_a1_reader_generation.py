@@ -21,7 +21,8 @@ import zlib
 from tools import alpaca_sip_private_backfill_v1 as capture
 from tools.alpaca_sip_source_revision import external_genesis
 from tools.macro_history_sources import digest, encoded
-from tools.research_data_access import ContractError, PRICE_COLUMNS, _session_close, clock, day
+from tools.research_data_access import (ContractError, PRICE_COLUMNS, _session_close, clock, day,
+    PROVIDER_CLOSE_CONSUMER, _provider_close_references, _validate_provider_close_qualification)
 
 MAX_ROWS = 100_000
 MAX_DECODED = 32_000_000
@@ -288,6 +289,25 @@ def _selected_checkpoint(evidence, meter, final, receipt, proof):
                          parent_checkpoint_sha256=parent_hash, unselected_price_reads=0)
 
 
+def _technical_document_refs(role, document):
+    if role == 'provider_close_qualification':
+        try:
+            return [dict(sha256=h, bytes=n) for h, n in
+                    _provider_close_references(document).items()]
+        except ContractError as exc:
+            raise BindingError(str(exc)) from None
+    fields = (('source_documents',) if role == 'identity_evidence' else
+              ('volume_source_documents',) if 'provider_close_qualification' in document else
+              ('halt_source_documents', 'volume_source_documents'))
+    refs = []
+    for field in fields:
+        sources = document.get(field)
+        require(type(sources) is list and 1 <= len(sources) <= 8,
+                'TECHNICAL_SOURCE_DOCUMENTS')
+        refs.extend(sources)
+    return refs
+
+
 def _technical_proofs(evidence, receipt, proof):
     """Resolve reviewed local bytes, not caller booleans or ticker enrichment."""
     if 'private_view' not in evidence:
@@ -305,19 +325,19 @@ def _technical_proofs(evidence, receipt, proof):
             raw = proof(pair[role])
             document = _decode(raw, 64 * 1024)
             require(type(document) is dict, 'TECHNICAL_EVIDENCE_SCHEMA')
-            fields = (('source_documents',) if role == 'identity_evidence' else
-                      ('halt_source_documents', 'volume_source_documents'))
-            for field in fields:
-                sources = document.get(field)
-                require(type(sources) is list and 1 <= len(sources) <= 8,
-                        'TECHNICAL_SOURCE_DOCUMENTS')
-                for ref in sources:
-                    proof(ref)
+            for ref in _technical_document_refs(role, document):
+                proof(ref)
             if role == 'identity_evidence':
                 require(any(ref['sha256'] == evidence['identity_evidence']['sha256']
                             for ref in document['source_documents']),
                         'IDENTITY_ORIGINAL_PROOF_BINDING')
             documents[role] = (document, raw, digest(raw))
+            if role == 'status_evidence' and 'provider_close_qualification' in document:
+                qraw = proof(document['provider_close_qualification'])
+                qualification = _decode(qraw, 64 * 1024)
+                for ref in _technical_document_refs('provider_close_qualification', qualification):
+                    proof(ref)
+                documents['provider_close_qualification'] = (qualification, qraw, digest(qraw))
         out[ticker] = documents
     return out
 
@@ -396,19 +416,32 @@ def _technical_metadata(documents, identities, grids, view, closes, original, cr
             raise BindingError('TECHNICAL_EFFECTIVE_WINDOW') from None
         for key in ('instrument_id', 'provider_security_id', 'ticker'):
             require(status.get(key) == record[key], 'TECHNICAL_STATUS_IDENTITY')
+        qualification = documents[ticker].get('provider_close_qualification')
         halts = status.get('halted_sessions')
-        require(status.get('halt_coverage') == 'COMPLETE_FOR_WINDOW'
-                and type(halts) is list and len(halts) <= MAX_ROWS
-                and all(type(s) is str for s in halts), 'HALT_COVERAGE_UNKNOWN')
-        require(halts == sorted(set(halts)) and all(s in closes
-                and status['valid_from'] <= s <= status['valid_through'] for s in halts),
-                'HALT_COVERAGE_INVALID')
+        if qualification is None:
+            require(status.get('halt_coverage') == 'COMPLETE_FOR_WINDOW'
+                    and type(halts) is list and len(halts) <= MAX_ROWS
+                    and all(type(s) is str for s in halts), 'HALT_COVERAGE_UNKNOWN')
+            require(halts == sorted(set(halts)) and all(s in closes
+                    and status['valid_from'] <= s <= status['valid_through'] for s in halts),
+                    'HALT_COVERAGE_INVALID')
+        else:
+            require(status.get('halt_coverage') == 'UNKNOWN' and halts is None,
+                    'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
         require(status.get('volume_basis') == {'raw': 'RAW', 'split': 'SPLIT_ADJUSTED'},
                 'VOLUME_BASIS_UNKNOWN')
         metadata[ticker] = dict(asset_class=record['asset_class'],
             provider_security_id=provider_id, identity_evidence_sha256=identity_sha,
             status_evidence_sha256=status_sha,
-            halted_sessions=[s for s in halts if view['start'] <= s <= view['end']])
+            halted_sessions=([s for s in halts if view['start'] <= s <= view['end']]
+                             if qualification is None else None))
+        if qualification is not None:
+            q, _, qsha = qualification
+            known = q['instruments'][ident['instrument_id']]
+            metadata[ticker].update(halt_coverage='UNKNOWN',
+                provider_close_qualification_sha256=qsha,
+                known_halted_sessions=known['known_halted_sessions'],
+                known_halt_source_documents=known['known_halt_source_documents'])
     return metadata
 
 
@@ -664,6 +697,14 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             'IDENTITY_COLLISION')
     metadata = (_technical_metadata(technical, identities, grids, view, closes, original,
                                    created, decision) if view else {})
+    qualifications = [documents['provider_close_qualification'] for documents in technical.values()
+                      if 'provider_close_qualification' in documents]
+    if qualifications:
+        require(len(qualifications) == len(technical) and
+                len({qsha for _, _, qsha in qualifications}) == 1,
+                'PROVIDER_CLOSE_SHARED_SCOPE')
+        require(qualifications[0][0]['original_objects'] == original,
+                'PROVIDER_CLOSE_SOURCE_BINDING')
     if view:
         for documents in technical.values():
             for document, _, _ in documents.values():
@@ -801,14 +842,14 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
         # addressable and source-bound; no digest is renamed or forced equal.
         common[digest(capture_receipt)] = capture_receipt
         reviewed_objects = dict(proof_objects)
+        if qualifications:
+            common[trusted_source.review_receipt_sha256] = reviewed_objects[
+                trusted_source.review_receipt_sha256]
         for documents in technical.values():
             for role, (document, raw, sha) in documents.items():
                 common[sha] = raw
-                fields = (('source_documents',) if role == 'identity_evidence' else
-                          ('halt_source_documents', 'volume_source_documents'))
-                for field in fields:
-                    for ref in document[field]:
-                        common[ref['sha256']] = reviewed_objects[ref['sha256']]
+                for ref in _technical_document_refs(role, document):
+                    common[ref['sha256']] = reviewed_objects[ref['sha256']]
         for _, _, _, provenance, _ in pending:
             common[digest(provenance)] = provenance
     bases = []
@@ -820,12 +861,32 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                 derivation_run_id=evidence['derivation_run_id'],
                 raw_source_sha256=sorted(set(original.values()) | set(common)))
             objects.extend(sorted(common.items()))
-        manifest = encoded(dict(schema='research-data-generation-v1', eligible_for_selector=False,
+        if qualifications:
+            source.update(eligible_purposes=['research'],
+                provider_close_qualification_sha256=qualifications[0][2],
+                qualification_review_receipt_sha256=trusted_source.review_receipt_sha256,
+                qualification_adapter_file_sha256=trusted_source.adapter_file_sha256)
+        manifest_value = dict(schema='research-data-generation-v1', eligible_for_selector=False,
                                 created_at=evidence['created_at'],
                                 source_run_id=(evidence['original_run_id'] if view
                                                else evidence['derivation_run_id']),
                                 datasets=[dict(dataset_id='ds.us.prices.daily', schema='price-daily-v1',
-                                               source=source, files=files)]))
+                                                source=source, files=files)])
+        if qualifications:
+            q = qualifications[0][0]
+            try:
+                _validate_provider_close_qualification(q, manifest_value,
+                    manifest_value['datasets'][0], decision, purpose='research',
+                    consumer_id=PROVIDER_CLOSE_CONSUMER)
+                for ticker, rows in typed['raw' if basis == 'RAW' else 'split'].items():
+                    dates = [r['session_date'] for r in rows]
+                    require(digest(encoded(dates)) == q['window']['sessions_sha256'] and
+                            set(q['instruments'][identities[ticker]['instrument_id']]
+                                ['known_halted_sessions']) <= set(dates),
+                            'PROVIDER_CLOSE_SESSION_GRID')
+            except ContractError as exc:
+                raise BindingError(str(exc)) from None
+        manifest = encoded(manifest_value)
         require(len(manifest) <= 1024 * 1024, 'MANIFEST_BOUND')
         bases.append(PreparedBasis(basis, manifest, provenance, tuple(objects)))
     return Preparation('REAL_SOURCE_PREPARED_UNADMITTED' if real else 'CONTRACT_FIXTURE_PREPARED',
