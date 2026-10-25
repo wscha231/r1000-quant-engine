@@ -236,6 +236,9 @@ def atomic_json(path, value, *, unique_temporary=False):
 
 
 def validate_authorization(auth):
+    if isinstance(auth, dict) and "fixed_profile" in auth:
+        from tools import alpaca_sip_private_backfill_v1 as cap
+        return cap._fixed_spy_authorization(_module(), auth)
     continued = isinstance(auth, dict) and "continuation" in auth
     external = isinstance(auth, dict) and "external_cohort" in auth
     revised = external and isinstance(auth["external_cohort"], dict) and "named_recovery" in auth["external_cohort"]
@@ -1344,7 +1347,7 @@ def verify_worker_source(auth):
             and os.getenv("GITHUB_SHA") == auth["expected_master"]
             and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and os.getenv("GITHUB_RUN_ATTEMPT") == "1", "CAMPAIGN_WORKER_CONTEXT")
-    pins = PINS+((REVISION_MODULE,) if "external_cohort" in auth else ())
+    pins = PINS+((REVISION_MODULE,) if "external_cohort" in auth or "fixed_profile" in auth else ())
     require(set(auth["code_pins"]) == set(pins),"CAMPAIGN_CODE_PINS")
     for path in pins:
         require(digest(bounded_bytes(ROOT / path, 262144)) == auth["code_pins"][path],
@@ -1359,108 +1362,10 @@ def verify_drive_reuse(reuse,identity):
     return _revision_module().verify_drive_reuse(_module(),reuse,identity)
 
 
-def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False):
+def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False):
     from tools import alpaca_sip_private_backfill_v1 as cap
-    stored = cap._private_object(drive, folder, checkpoint)
-    scope = meter.identity.get("cohort_scope")
-    previous = state.get("previous_checkpoint")
-    first_external = scope is not None and meter.examined == 0
-    require(decode(stored) == state and state.get("cohort_scope") == scope
-            and ((previous is None and meter.checkpoint_sha == external_genesis(scope)) if first_external
-                 else isinstance(previous, dict) and previous.get("sha256") == meter.checkpoint_sha),
-            "CAMPAIGN_CHECKPOINT_CHAIN")
-    objects = state["last_objects"]
-    if state["last_status"] == "VERIFIED_RAW_SPLIT":
-        require(len(objects) == 3, "CAMPAIGN_GROUP_OBJECTS")
-        receipt = decode(cap._private_object(drive, folder, objects[2]))
-        raw = cap._private_object(drive, folder, objects[0])
-        normalized = cap._private_object(drive, folder, objects[1])
-        expected_source = os.environ["GITHUB_SHA"]
-        if reused_source and "price174_reuse" in meter.identity:
-            expected_source = _revision_module().price174_reuse_source(_module(),state,objects,receipt,meter,raw,normalized)
-        elif reused_source:
-            reuse = meter.identity.get("drive_orphan_reuse")
-            verify_drive_reuse(reuse, meter.identity)
-            recovery_spec = MATERIALIZATION_RECOVERY if "materialization" in reuse else DRIVE_RECOVERY
-            require(isinstance(reuse, dict) and receipt.get("recovered_from") == reuse
-                    and meter.identity.get("recovery_run") == recovery_spec["run_id"]
-                    and meter.identity.get("examined_before") == meter.examined == DRIVE_RECOVERY["examined"]
-                    and meter.checkpoint_sha == DRIVE_RECOVERY["checkpoint_sha256"]
-                    and receipt.get("symbols") == ["TWST", "UBS", "UL", "UPST"]
-                    and objects[0]["sha256"] == reuse.get("raw_sha256")
-                    and objects[1]["sha256"] == reuse.get("normalized_sha256")
-                    and reuse.get("failed_run_id") == recovery_spec["run_id"]
-                    and reuse.get("capture_source_sha") == DRIVE_RECOVERY["master"]
-                    and reuse.get("derivation_source_sha") == expected_source
-                    and reuse.get("derivation_run_id") == meter.identity["run_id"]
-                    and reuse.get("derivation_auth_sha256") == meter.identity["auth_sha256"]
-                    and reuse.get("parent_checkpoint_sha256") == DRIVE_RECOVERY["checkpoint_sha256"]
-                    and state.get("recovered_from") == reuse
-                    and state.get("source_sha") == DRIVE_RECOVERY["master"]
-                    and reuse.get("external_proof_sha256") == meter.identity["external_proof_sha256"],
-                    "EXTERNAL_ORPHAN_SOURCE")
-            expected_source = DRIVE_RECOVERY["master"]
-        require(receipt.get("raw_object") == objects[0]
-                and receipt.get("normalized_object") == objects[1]
-                and receipt.get("source_sha") == expected_source
-                and receipt.get("seed_sha256") == (scope["input_sha256"] if scope else SEED_SHA)
-                and receipt.get("cohort_scope") == scope
-                and receipt.get("start") == "2016-01-04"
-                and receipt.get("end") == "2026-10-14"
-                and receipt.get("collected") == state["last_collected"]
-                and receipt.get("no_bars") == state["last_no_bars"], "CAMPAIGN_GROUP_RECEIPT")
-        require(all(receipt.get(k) is False for k in
-                    ("source_admission", "pit_verified", "historical_identity_verified",
-                     "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
-        cap.verify_archived_group(raw, normalized, receipt)
-        if reused_source and "materialization" in locals().get("reuse",{}):
-            require(digest(cap.gzip.decompress(normalized)) == reuse["materialization"]["rows_sha256"],
-                    "EXTERNAL_MATERIAL_ROWS")
-        meter.rows += receipt["rows"]
-        meter.states["VALID_COLLECTED"] += len(receipt["collected"])
-        meter.states["VERIFIED_NO_DATA"] += len(receipt["no_bars"])
-    else:
-        require(state["last_status"] in (("HELD_BAR_VALUE", "HELD_PROVIDER_ASSET", "HELD_UNCERTAIN_STORAGE") if scope else ("HELD_BAR_VALUE",))
-                and len(objects) == 1,
-                "CAMPAIGN_GROUP_STATUS")
-        marker = decode(cap._private_object(drive, folder, objects[0]))
-        asset_hold = state["last_status"] == "HELD_PROVIDER_ASSET"
-        storage_hold = state["last_status"] == "HELD_UNCERTAIN_STORAGE"
-        require(marker.get("status") == state["last_status"]
-                and marker.get("reason") == ("DRIVE_CREATE_OUTCOME_UNKNOWN" if storage_hold else "PROVIDER_ASSET_UNAVAILABLE" if asset_hold else "BAR_VALUE")
-                and marker.get("symbols") == state["last_held"]
-                and marker.get("source_sha") == os.environ["GITHUB_SHA"]
-                and marker.get("seed_sha256") == (scope["input_sha256"] if scope else SEED_SHA)
-                and marker.get("cohort_scope") == scope
-                and marker.get("start") == "2016-01-04" and marker.get("end") == "2026-10-14"
-                and marker.get("original_price_bytes_retained") is False,
-                "CAMPAIGN_HELD_MARKER")
-        if storage_hold:
-            cap.verify_storage_hold(marker,state)
-            evidence = marker["uncertain_storage"]
-            require(meter.examined == NATIVE18_RECOVERY["examined"]
-                    and meter.identity.get("recovery_run") == NATIVE18_RECOVERY["run_id"]
-                    and evidence["authorization_sha256"] == meter.identity.get("auth_sha256")
-                    and evidence["external_proof_sha256"] == meter.identity.get("external_proof_sha256")
-                    and evidence["native_settlement_sha256"] == meter.identity.get("native18_settlement_sha256")
-                    and evidence["recovery_run_id"] == meter.identity.get("run_id"),
-                    "EXTERNAL_NATIVE18_HELD")
-            meter.identity["uncertain_storage_hold"] = dict(evidence=evidence,
-                marker_sha256=objects[0]["sha256"],checkpoint_sha256=checkpoint["sha256"])
-        if asset_hold:
-            cap.verify_asset_evidence(marker.get("asset_precheck"), state["last_held"])
-            require(all(not cap.asset_supported(row) for row in marker["asset_precheck"]),
-                    "EXTERNAL_ASSET_EVIDENCE")
-        require(all(marker.get(k) is False for k in
-                    ("source_admission", "pit_verified", "historical_identity_verified",
-                     "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
-        meter.states["QUARANTINED"] += len(state["last_held"])
-    meter.examined = len(state["examined"])
-    meter.checkpoint_sha = checkpoint["sha256"]
-    # Flush the private reference before publishing its SHA in the public
-    # meter. No provider bytes enter this existing Actions log surface.
-    print("CAMPAIGN_VERIFIED_CHECKPOINT " + json.dumps(checkpoint, sort_keys=True), flush=True)
-    meter.save()  # Advances only after a separate, semantic readback.
+    return cap._verify_campaign_group(_module(), drive, folder, state, checkpoint, meter,
+                                      reused_source=reused_source, fixed_spy=fixed_spy)
 
 
 def worker_deadline(run_id, first, expiry=None):
@@ -1591,6 +1496,8 @@ def worker(args, control, journal):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
+    if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "fixed_profile" in control["authorization"]:
+        return cap._fixed_spy_worker(_module(), args, control, journal)
     if isinstance(control,dict) and control.get("schema")=="a1-sp500-gap174-capture-v1":
         return _revision_module().price174_worker(_module(),args,control,journal)
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "external_cohort" in control["authorization"]:
@@ -1792,6 +1699,12 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
+    if "fixed_profile" in auth:
+        require(recovery_run is None and predispatch_recovery is None
+                and continuation_receipt is None and cohort_input is None, "SPY665_CONTROL")
+        from tools import alpaca_sip_private_backfill_v1 as cap
+        return cap._fixed_spy_host(_module(), auth, state_dir, budget_state_dir,
+                                   permission_reference, max_batches)
     if "external_cohort" in auth:
         require(permission_reference is None and continuation_receipt is None, "EXTERNAL_CONTROL")
         return external_host(auth, state_dir, cohort_input, budget_state_dir, predispatch_recovery,

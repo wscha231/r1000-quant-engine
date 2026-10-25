@@ -1,5 +1,39 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
+
+- Hosted review found that real native-read runs retain typed title suffixes.
+  Reconstructing every closed-parent title as a capture title made a fully
+  settled family unusable. Pin each full historical display_title separately
+  from its strict nonce, validate only the existing typed suffixes, and compare
+  canonical metadata exactly. Preserve failed native-read costs in the parent;
+  never omit those runs or turn them into successful price captures. Cover the
+  actual three metadata shapes plus missing/unknown/changed title refusals.
+- A new data genesis does not grant a new budget. The one-symbol 2024-03-01
+  through 2026-10-23 profile must authenticate the closed historical run vector,
+  unchanged shared journal prefix, owner/account binding and fresh finite grant.
+  Unknown dispatches, missing accounting or pending outcomes stop execution;
+  test fixtures and a local approved flag cannot close the real parent.
+- Independent review caught two pre-I/O accounting gaps: count the current
+  completed offline job against the scope's active-time allowance, and compare
+  the complete workflow census with the nonce-filtered campaign history. Bind
+  each final meter to both data genesis and shared prefix, and recheck settled
+  checkpoint references against canonical run output on replay.
+- The existing 262144-byte source guard also tests projected Windows CRLF.
+  LF normalization alone passed the byte read but failed that unchanged oracle.
+  Move the one shared group verifier mechanically into the existing collector,
+  retain its public controller wrapper and controller globals, and rerun old
+  recovery/174 and new scope tests; do not raise the cap or duplicate verifiers.
+- Distinguish workflow POST acceptance from worker success in fixtures and
+  operation. Fsync failure must precede POST; an uncertain POST keeps its one
+  reservation; a failed worker still spends its measured costs. Correcting a
+  synthetic response queue or an end-exclusive query expectation is not actual
+  provider evidence. Owner-authorized manual dispatch remains within the same
+  finite worker caps; the local fsync protocol is guaranteed by the host path.
+- This is code/synthetic preparation only. Actual SPY coverage, provider rights,
+  Source admission, Reader consumption and economic validation need their own
+  current receipts. Preserve the old MU657 and frozen174 records unchanged.
+
 ## 2026-10-24 — Separate Source archives from Reader generation acceptance
 
 - A capture checkpoint proves retained original/normalized bytes, not the Reader's

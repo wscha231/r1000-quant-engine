@@ -935,6 +935,187 @@ class UncertainStorageQuarantineTests(unittest.TestCase):
 
 
 
+class FixedSpyScopeFixtureTests(unittest.TestCase):
+    """Real collector/archive/verifier functions over tiny fake vendor bytes."""
+    def setUp(self):
+        from types import SimpleNamespace
+        self.drive, self.calls = FakePrivateDrive(), []
+        self.args = SimpleNamespace(start=cap.FIXED_SPY_START, end=cap.FIXED_SPY_END,
+            max_new_symbols=1, private_root_folder_id=self.drive.root_id,
+            private_data_folder_id=self.drive.folder, resume_file_id="", resume_sha256="")
+        self.external = dict(input_csv=cap.FIXED_SPY_INPUT.decode(), scope=cap._fixed_spy_scope())
+        self.env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED="true", ALPACA_NONCOMMERCIAL_ACKNOWLEDGED="true",
+            GITHUB_REPOSITORY=cap.REPOSITORY, GITHUB_REF="refs/heads/master", GITHUB_SHA="b"*40,
+            ALPACA_API_KEY="dummy-key", ALPACA_API_SECRET="dummy-secret")
+        self.grid = {basis: [bar("2024-03-01T05:00:00Z"), bar("2026-10-23T04:00:00Z")]
+                     for basis in ("raw", "split")}
+
+    def get(self, url, **kwargs):
+        self.calls.append(url)
+        if "/v2/assets/" in url:
+            self.assertTrue(url.endswith("/SPY"))
+            return cap.encoded(dict(id="00000000-0000-0000-0000-000000000001", symbol="SPY",
+                exchange="ARCA", status="active", **{"class": "us_equity"}))
+        query = parse_qs(urlparse(url).query)
+        self.assertEqual(query["symbols"], ["SPY"])
+        self.assertEqual(query["feed"], ["sip"])
+        self.assertTrue(query["start"][0].startswith(cap.FIXED_SPY_START))
+        self.assertEqual(query["end"], ["2026-10-23T23:59:59Z"])
+        return cap.encoded(dict(bars={"SPY": self.grid[query["adjustment"][0]]}, next_page_token=None))
+
+    def collect(self, on_group=None):
+        with patch.dict("os.environ", self.env, clear=True), patch.object(cap.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            return cap._collect(self.args, drive_factory=lambda *a: self.drive, get=self.get,
+                expected_examined=0, external=self.external, fixed_profile=cap.FIXED_SPY_PROFILE,
+                on_group=on_group)
+
+    def test_exact_subject_window_actual_archive_readback_and_explicit_new_genesis(self):
+        from tools import alpaca_sip_campaign as campaign
+        from types import SimpleNamespace
+        meter = SimpleNamespace(identity=dict(fixed_profile=cap.FIXED_SPY_PROFILE,
+            cohort_scope=cap._fixed_spy_scope()), checkpoint_sha=cap._fixed_spy_genesis(),
+            examined=0, rows=0, states=dict(VALID_COLLECTED=0, VERIFIED_NO_DATA=0, QUARANTINED=0),
+            save=lambda: None)
+        def verify(drive, state, ref):
+            campaign.verify_new_group(drive, drive.folder, state, ref, meter, fixed_spy=True)
+        result = self.collect(verify)
+        self.assertEqual((len(self.calls), meter.examined, meter.rows), (3, 1, 4))
+        self.assertEqual(meter.states, dict(VALID_COLLECTED=1, VERIFIED_NO_DATA=0, QUARANTINED=0))
+        state = cap.decode(self.drive.read(result["checkpoint"]["file_id"]))
+        self.assertIsNone(state["previous_checkpoint"])
+        self.assertEqual((state["start"], state["end"], state["examined"]),
+                         (cap.FIXED_SPY_START, cap.FIXED_SPY_END, ["SPY"]))
+        self.assertFalse(state["source_admission"])
+        self.assertFalse(state["pit_verified"])
+        restored = cap.resume_state(self.drive, self.drive.folder, result["checkpoint"]["file_id"],
+            result["checkpoint"]["sha256"], cap.digest(cap.FIXED_SPY_INPUT), cap.FIXED_SPY_START,
+            cap.FIXED_SPY_END, scope=cap._fixed_spy_scope())
+        self.assertEqual(restored[:3], (["SPY"], ["SPY"], []))
+        # Four synthetic rows are not asserted as665 observed sessions.
+        self.assertEqual(meter.rows, 4)
+
+    def test_scope_changes_refuse_before_provider_or_storage(self):
+        for field, value in (("start", cap.MIN_START), ("end", "2026-10-25"), ("max_new_symbols", 2),
+                             ("resume_sha256", "a"*64)):
+            before = getattr(self.args, field); setattr(self.args, field, value)
+            with self.subTest(field=field), self.assertRaisesRegex(Refused, "SPY665_SCOPE"):
+                self.collect()
+            setattr(self.args, field, before)
+        self.external["input_csv"] = "ticker\nMU\n"
+        with self.assertRaisesRegex(Refused, "SPY665_SCOPE"): self.collect()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.drive.objects, {})
+
+    def test_unequal_basis_grid_and_out_of_window_price_never_publish(self):
+        self.grid["split"] = [bar("2024-03-04T05:00:00Z")]
+        with self.assertRaisesRegex(Refused, "RAW_SPLIT_GRID_MISMATCH"): self.collect()
+        self.assertEqual(self.drive.objects, {})
+        self.calls.clear()
+        self.grid["raw"] = self.grid["split"] = [bar("2026-10-24T04:00:00Z")]
+        with self.assertRaises(Refused): self.collect()
+        self.assertEqual(self.drive.objects, {})
+
+    def test_wrong_window_or_legacy_first_parent_is_not_a_scoped_verified_group(self):
+        from tools import alpaca_sip_campaign as campaign
+        from types import SimpleNamespace
+        result = self.collect()
+        state = cap.decode(self.drive.read(result["checkpoint"]["file_id"]))
+        def meter(genesis):
+            return SimpleNamespace(identity=dict(fixed_profile=cap.FIXED_SPY_PROFILE,
+                cohort_scope=cap._fixed_spy_scope()), checkpoint_sha=genesis, examined=0)
+        with patch.dict("os.environ", self.env, clear=True):
+            with self.assertRaisesRegex(Refused, "CAMPAIGN_CHECKPOINT_CHAIN"):
+                campaign.verify_new_group(self.drive, self.drive.folder, state, result["checkpoint"],
+                    meter(campaign.external_genesis(cap._fixed_spy_scope())), fixed_spy=True)
+            with self.assertRaisesRegex(Refused, "CAMPAIGN_CHECKPOINT_CHAIN"):
+                campaign.verify_new_group(self.drive, self.drive.folder, state, result["checkpoint"],
+                    meter(cap._fixed_spy_genesis()))
+            bad = dict(state, start=cap.MIN_START)
+            with self.assertRaisesRegex(Refused, "SPY665_GROUP_SCOPE"):
+                campaign.verify_new_group(self.drive, self.drive.folder, bad, result["checkpoint"],
+                    meter(cap._fixed_spy_genesis()), fixed_spy=True)
+
+    def test_public_worker_consumes_authenticated_fixed_control_and_real_meter(self):
+        import tempfile
+        from datetime import timedelta
+        from types import SimpleNamespace
+        from tools import alpaca_sip_campaign as campaign
+        import alpaca_sip_campaign_smoke as fixtures
+        value = fixtures.fixed_spy_auth()
+        value.update(phases=["capture"], private_root_folder_id=self.drive.root_id,
+                     private_data_folder_id=self.drive.folder)
+        parent = fixtures.fixed_spy_parent(value)
+        value["parent_manifest_sha256"] = cap.digest(cap.encoded(parent))
+        reference = "https://github.com/"+campaign.REPO+"/issues/448#issuecomment-12"
+        grant = dict(schema="a1-fixed-spy-execution-v1", auth_sha256=cap.digest(cap.encoded(value)),
+            parent_manifest_sha256=value["parent_manifest_sha256"], profile=cap.FIXED_SPY_PROFILE,
+            start=cap.FIXED_SPY_START, end=cap.FIXED_SPY_END, input_sha256=cap.digest(cap.FIXED_SPY_INPUT),
+            eligible_purpose="PRIVATE_NONCOMMERCIAL_RESEARCH", current_account_reviewed=True,
+            supplier_rights_verified=False, source_admission=False, economic_authority=False,
+            not_before_utc=value["not_before_utc"], expires_at_utc=value["expires_at_utc"],
+            account_permission_reference_sha256=cap.digest(value["account_permission_reference"].encode()))
+        def comment(index, tag, record):
+            created = (campaign.utc(value["not_before_utc"])+timedelta(seconds=1)).isoformat()
+            return dict(id=index, issue_url=f"https://api.github.com/repos/{campaign.REPO}/issues/448",
+                author_association="OWNER", user=dict(type="User", id=123), created_at=created,
+                updated_at=created, body=tag+cap.encoded(record).decode())
+        offline_seconds = [20]
+        def gh(path):
+            if path.endswith("/issues/comments/11"):
+                return comment(11, "A1_SIP_CLOSED_PARENT_MANIFEST ", parent)
+            if path.endswith("/issues/comments/12"):
+                return comment(12, "A1_SIP_FIXED_SPY_EXECUTION ", grant)
+            if path.endswith("/actions/runs/2/jobs?per_page=100"):
+                started = campaign.utc()
+                return dict(total_count=2, jobs=[dict(name="offline", status="completed", conclusion="success",
+                    started_at=(started-timedelta(seconds=offline_seconds[0])).isoformat(),
+                    completed_at=started.isoformat()), dict(name="capture", status="in_progress",
+                    started_at=started.isoformat())])
+            self.fail("Unexpected GitHub fixture operation: "+path)
+        asset = cap.encoded(dict(id="00000000-0000-0000-0000-000000000001", symbol="SPY",
+            exchange="ARCA", status="active", **{"class": "us_equity"}))
+        payload = cap.encoded(dict(bars={"SPY": self.grid["raw"]}, next_page_token=None))
+        class FixtureOpener:
+            def __init__(self):
+                self.bodies = [asset, payload, payload]
+                self.calls = 0
+            def open(self, request, **kwargs):
+                self.calls += 1
+                return fixtures.Reply(self.bodies.pop(0))
+        opener = FixtureOpener()
+        real_meter, meters = campaign.RuntimeMeter, []
+        def meter(*a, **kw):
+            result = real_meter(*a, opener=opener, **kw); meters.append(result); return result
+        self.drive.owner, self.drive.free = value["owner_permission_id"], 1000000000
+        nonce = campaign.PREFIX+"b"*24
+        control = dict(authorization=value, nonce=nonce, fixed_spy_grant_reference=reference, preflight_only=False)
+        current = dict(fixtures.fixed_spy_run(parent["runs"][0]), id=2, run_number=2,
+            status="in_progress", conclusion=None, head_sha=value["expected_master"], display_title="a1-sip "+nonce)
+        env = dict(self.env, GITHUB_SHA=value["expected_master"], GITHUB_EVENT_NAME="workflow_dispatch",
+            GITHUB_RUN_ATTEMPT="1", GITHUB_RUN_ID="2", INPUT_CAMPAIGN_NONCE=nonce,
+            ALPACA_API_KEY="fixture-key", ALPACA_API_SECRET="fixture-secret")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/"control.json"; path.write_bytes(cap.encoded(control))
+            args = SimpleNamespace(**dict(vars(self.args), start=cap.MIN_START, campaign_control_file=str(path)))
+            env["RUNNER_TEMP"] = tmp
+            with patch.dict("os.environ", env, clear=True), patch.object(campaign, "gh_json", side_effect=gh), patch.object(campaign, "campaign_runs", return_value=[fixtures.fixed_spy_run(parent["runs"][0]), current]), patch.object(campaign, "campaign_run_pages", return_value=[fixtures.fixed_spy_run(parent["runs"][0]), current]), patch.object(campaign, "RuntimeMeter", side_effect=meter), patch.object(real_meter, "process_deadline", lambda self: contextlib.nullcontext()), patch.object(cap, "OwnerDrive", return_value=self.drive), patch.object(cap.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+                offline_seconds[0] = value["wall_seconds"]
+                with self.assertRaisesRegex(Refused, "CAMPAIGN_DEADLINE"):
+                    cap.run(args)
+                self.assertEqual((meters, opener.calls), ([], 0))
+                self.assertFalse((Path(tmp)/"campaign_meter.json").exists())
+                offline_seconds[0] = 20
+                result = cap.run(args)
+            saved = cap.decode((Path(tmp)/"campaign_meter.json").read_bytes())
+        self.assertEqual((result["rows_new"], result["total_examined"]), (4, 1))
+        self.assertEqual(len(meters), 1)
+        self.assertEqual((opener.calls, opener.bodies), (3, []))
+        self.assertEqual((saved["usage"]["provider_gets"], saved["finalized"], saved["status"]), (3, True, "COMPLETE"))
+        self.assertEqual(saved["fixed_profile"], cap.FIXED_SPY_PROFILE)
+        self.assertFalse(saved["source_admission"])
+        self.assertFalse(saved["economic_authority"])
+
+
 def load_tests(loader, standard_tests, pattern):
     import importlib.util
     path = Path(__file__).with_name('alpaca_sip_campaign_smoke.py')

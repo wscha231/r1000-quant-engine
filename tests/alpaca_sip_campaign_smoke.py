@@ -8150,4 +8150,384 @@ class Price174PremeterHistoryTests(unittest.TestCase):
             self.s.price174_reconcile(c,family,journal,self.auth,observed)
 
 
+def fixed_spy_auth():
+    value = auth()
+    value.update(schema="a1-fixed-spy-authorization-v1", fixed_profile=cap.FIXED_SPY_PROFILE,
+        start=cap.FIXED_SPY_START, end=cap.FIXED_SPY_END, seed_sha256=c.digest(cap.FIXED_SPY_INPUT),
+        initial_checkpoint_sha256=cap._fixed_spy_genesis(), initial_checkpoint_file_id="",
+        limits=dict(c.CONTINUED_LIMITS), parent_manifest_reference="https://github.com/"+c.REPO+"/issues/448#issuecomment-11",
+        parent_manifest_sha256="a"*64,
+        subcaps=dict(provider_gets=3, drive_requests=64, drive_bytes=64*1024**2, storage_bytes=4*1024**2),
+        wall_seconds=900, phases=["preflight", "capture"],
+        not_before_utc=(c.utc()-timedelta(hours=1)).isoformat(),
+        expires_at_utc=(c.utc()+timedelta(hours=1)).isoformat())
+    value["code_pins"][c.REVISION_MODULE] = c.digest((c.ROOT/c.REVISION_MODULE).read_bytes())
+    return value
+
+
+def fixed_spy_parent(value):
+    usage = dict(provider_gets=10, drive_requests=20, drive_bytes=1000000, storage_bytes=1000)
+    row = dict(id=1, run_number=1, nonce=c.PREFIX+"a"*24, head_sha="2"*40,
+        auth_sha256="3"*64, meter_or_closure_sha256="4"*64, usage=usage, active_seconds=100)
+    row["display_title"] = "a1-sip "+row["nonce"]
+    return dict(schema="a1-sip-closed-parent-manifest-v1", family_genesis_sha256=c.external_family_genesis(),
+        family_prefix_count=1, family_prefix_first_sha256="5"*64, family_prefix_head_sha256="5"*64,
+        runs=[row], used=usage, active_seconds=100, event_count=1, closed=True,
+        accepted_evidence_manifest_sha256="6"*64, independent_review_sha256="7"*64,
+        bindings=dict(owner_sha256=c.digest(value["owner_permission_id"].encode()),
+                      credential_binding=value["credential_binding"]), workflow_run_floor=1)
+
+
+def fixed_spy_run(row):
+    return dict(id=row["id"], run_number=row["run_number"], run_attempt=1, status="completed",
+        event="workflow_dispatch", conclusion="success", head_sha=row["head_sha"], head_branch="master", display_title=row["display_title"])
+
+
+class FixedSpy665Tests(unittest.TestCase):
+    def setUp(self):
+        # Keep the two independently read metadata surfaces identical by default.
+        # Unknown-dispatch and drift cases below supply a different full census.
+        self.pages = patch.object(c, "campaign_run_pages", side_effect=lambda _: c.campaign_runs(1))
+        self.pages.start(); self.addCleanup(self.pages.stop)
+
+    def test_exact_profile_authorization_and_all_old_auth_rules_remain(self):
+        value = fixed_spy_auth()
+        self.assertEqual(c.validate_authorization(value), c.digest(c.encoded(value)))
+        self.assertEqual(c.validate_authorization(auth()), c.digest(c.encoded(auth())))
+        changes = [("fixed_profile", "other"), ("start", "2024-03-02"), ("end", "2026-10-25"),
+            ("seed_sha256", "0"*64), ("initial_checkpoint_sha256", c.INITIAL_SHA),
+            ("initial_checkpoint_file_id", "forged-prior"), ("wall_seconds", True),
+            ("phases", ["capture", "capture"]), ("limits", dict(c.LIMITS))]
+        for key, item in changes:
+            bad = copy.deepcopy(value); bad[key] = item
+            with self.subTest(key=key), self.assertRaises(c.Refused), patch.object(c, "gh_json") as io_call:
+                c.validate_authorization(bad)
+            io_call.assert_not_called()
+        bad = copy.deepcopy(value); bad["code_pins"].pop(c.REVISION_MODULE)
+        with self.assertRaisesRegex(c.Refused, "SPY665_CODE_PINS"): c.validate_authorization(bad)
+        for limit in (True, 4, -1):
+            bad = copy.deepcopy(value); bad["subcaps"]["provider_gets"] = limit
+            with self.assertRaises(c.Refused): c.validate_authorization(bad)
+
+    def test_canonical_parent_requires_immutable_owner_and_real_accounting_vector(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        value["parent_manifest_sha256"] = c.digest(c.encoded(parent))
+        comment = dict(id=11, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER", user=dict(type="User", id=123),
+            created_at=value["not_before_utc"], updated_at=value["not_before_utc"],
+            body="A1_SIP_CLOSED_PARENT_MANIFEST "+c.encoded(parent).decode())
+        with patch.object(c, "gh_json", return_value=comment):
+            self.assertEqual(cap._fixed_spy_parent(c, value), parent)
+        for change in ({"author_association": "MEMBER"}, {"updated_at": value["expires_at_utc"]},
+                       {"created_at": value["expires_at_utc"], "updated_at": value["expires_at_utc"]}):
+            with self.subTest(change=change), patch.object(c, "gh_json", return_value=dict(comment, **change)):
+                with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, value)
+        for key, item in (("closed", False), ("used", dict.fromkeys(c.LIMITS, 0)),
+                          ("active_seconds", 0), ("event_count", 0)):
+            bad = copy.deepcopy(parent); bad[key] = item
+            bound = dict(value, parent_manifest_sha256=c.digest(c.encoded(bad)))
+            changed = dict(comment, body="A1_SIP_CLOSED_PARENT_MANIFEST "+c.encoded(bad).decode())
+            with self.subTest(key=key), patch.object(c, "gh_json", return_value=changed):
+                with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, bound)
+        with patch.object(c, "gh_json", return_value=comment):
+            with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, dict(value, parent_manifest_sha256="0"*64))
+
+    def test_closed_parent_keeps_capture_and_actual_native_title_shapes_with_failed_costs(self):
+        # Public historical metadata shapes only; parent proof, account and costs
+        # are synthetic and cannot authorize an actual capture.
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        identities = [
+            (39083896869, 64, "2e32f1bc05c03df98eeec2f8", "", "b268ef972b3f157501e489ab4d1ba67fe9dfd874"),
+            (39103855450, 71, "d823a3d72ee18bb3b41cd454", " native-read39085031884", "a549c27b1cdd002bdaaa7dd6ab5dfc44fef0aaad"),
+            (39544804083, 107, "7854ae3bbbd3c463b6c2c242", " native-read39235028468", "3d6de8f354015bb93a73b87eac4f3648c6ea453a")]
+        template = parent["runs"][0]
+        parent["runs"] = [dict(template, id=run_id, run_number=number, nonce=c.PREFIX+nonce,
+            display_title="a1-sip "+c.PREFIX+nonce+suffix, head_sha=head)
+            for run_id, number, nonce, suffix, head in identities]
+        parent.update(event_count=3, active_seconds=300,
+            used={key:3*amount for key, amount in template["usage"].items()})
+        value["parent_manifest_sha256"] = c.digest(c.encoded(parent))
+        before = c.encoded(parent)
+        comment = dict(id=11, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+            author_association="OWNER", user=dict(type="User", id=123),
+            created_at=value["not_before_utc"], updated_at=value["not_before_utc"],
+            body="A1_SIP_CLOSED_PARENT_MANIFEST "+before.decode())
+        canonical = [fixed_spy_run(row) for row in parent["runs"]]
+        canonical[-1]["conclusion"] = "failure"
+        with patch.object(c, "gh_json", return_value=comment):
+            checked = cap._fixed_spy_parent(c, value)
+        with patch.object(c, "campaign_runs", return_value=canonical), patch.object(c, "receipt_for_run") as receipt:
+            observed = cap._fixed_spy_history(c, value, checked, "b"*64)
+            receipt.assert_not_called()
+        self.assertEqual((observed["phase"], observed["used"], observed["allowance"]),
+                         ("preflight", parent["used"], value["subcaps"]))
+        self.assertEqual(len(observed["runs"]), 3)
+        active_nonce = c.PREFIX+"f"*24
+        active = dict(canonical[-1], id=39544804084, run_number=108,
+            display_title="a1-sip "+active_nonce, head_sha=value["expected_master"],
+            status="in_progress", conclusion=None)
+        with patch.object(c, "campaign_runs", return_value=canonical+[active]):
+            current = cap._fixed_spy_history(c, value, checked, "b"*64,
+                current_run=active["id"], nonce=active_nonce)
+        self.assertEqual(current["phase"], "preflight")
+        self.assertEqual(c.encoded(parent), before)
+
+    def test_parent_title_missing_unknown_suffix_or_canonical_drift_refuses(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        nonce = parent["runs"][0]["nonce"]
+        for title in (None, "a1-sip "+nonce+" native-read1",
+                      "a1-sip "+nonce+" native-read39085031884 trailing",
+                      "a1-sip "+c.PREFIX+"b"*24):
+            bad = copy.deepcopy(parent)
+            if title is None: bad["runs"][0].pop("display_title")
+            else: bad["runs"][0]["display_title"] = title
+            bound = dict(value, parent_manifest_sha256=c.digest(c.encoded(bad)))
+            comment = dict(id=11, issue_url=f"https://api.github.com/repos/{c.REPO}/issues/448",
+                author_association="OWNER", user=dict(type="User", id=123),
+                created_at=value["not_before_utc"], updated_at=value["not_before_utc"],
+                body="A1_SIP_CLOSED_PARENT_MANIFEST "+c.encoded(bad).decode())
+            with self.subTest(title=title), patch.object(c, "gh_json", return_value=comment):
+                with self.assertRaises(c.Refused): cap._fixed_spy_parent(c, bound)
+        for suffix in ("", " native-read39085031884", " native-read39235028468"):
+            pinned = copy.deepcopy(parent)
+            pinned["runs"][0]["display_title"] = "a1-sip "+nonce+suffix
+            canonical = fixed_spy_run(pinned["runs"][0])
+            canonical["display_title"] = "a1-sip "+nonce+(" native-read39085031884" if not suffix else "")
+            with self.subTest(suffix=suffix), patch.object(c, "campaign_runs", return_value=[canonical]):
+                with self.assertRaisesRegex(c.Refused, "SPY665_PARENT_CENSUS_DRIFT"):
+                    cap._fixed_spy_history(c, value, pinned, "b"*64)
+
+    def test_preflight_and_capture_share_cumulative_subcaps_and_global_remaining(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value); grant = "b"*64
+        old = fixed_spy_run(parent["runs"][0])
+        with patch.object(c, "campaign_runs", return_value=[old]):
+            before = cap._fixed_spy_history(c, value, parent, grant)
+        self.assertEqual(before["allowance"], value["subcaps"])
+        run = dict(old, id=2, run_number=2, head_sha=value["expected_master"], display_title="a1-sip "+c.PREFIX+"b"*24)
+        meter = dict(fixed_profile=cap.FIXED_SPY_PROFILE, parent_manifest_sha256=value["parent_manifest_sha256"],
+            scope_grant_sha256=grant, cohort_scope=cap._fixed_spy_scope(), preflight_only=True,
+            parent_checkpoint_sha256=cap._fixed_spy_genesis(), shared_family_prefix_sha256=parent["family_prefix_head_sha256"],
+            bindings=parent["bindings"], account_permission_reference_sha256=c.digest(value["account_permission_reference"].encode()),
+            account_permission_record_sha256=grant,
+            allowance=before["allowance"], examined_before=0, examined_after=0,
+            usage=dict(provider_gets=0, drive_requests=5, drive_bytes=100000, storage_bytes=0), status="COMPLETE")
+        with patch.object(c, "campaign_runs", return_value=[old, run]), patch.object(c, "receipt_for_run", return_value=meter), patch.object(c, "job_seconds", return_value=12):
+            after = cap._fixed_spy_history(c, value, parent, grant)
+        self.assertEqual(after["phase"], "capture")
+        self.assertEqual(after["allowance"]["drive_requests"], 59)
+        self.assertEqual(after["used"]["drive_requests"], parent["used"]["drive_requests"]+5)
+        self.assertEqual(after["scope_active_seconds"], 12)
+        forged = dict(meter, allowance=dict(meter["allowance"], provider_gets=2))
+        with patch.object(c, "campaign_runs", return_value=[old, run]), patch.object(c, "receipt_for_run", return_value=forged):
+            with self.assertRaisesRegex(c.Refused, "SPY665_RECEIPT"): cap._fixed_spy_history(c, value, parent, grant)
+        for key in ("parent_checkpoint_sha256", "shared_family_prefix_sha256", "account_permission_record_sha256"):
+            with self.subTest(key=key), patch.object(c, "campaign_runs", return_value=[old, run]), patch.object(c, "receipt_for_run", return_value=dict(meter, **{key: "0"*64})):
+                with self.assertRaisesRegex(c.Refused, "SPY665_RECEIPT"): cap._fixed_spy_history(c, value, parent, grant)
+        parent["used"]["provider_gets"] = c.CONTINUED_LIMITS["provider_gets"]-2
+        with patch.object(c, "campaign_runs", return_value=[old]):
+            self.assertEqual(cap._fixed_spy_history(c, value, parent, grant)["allowance"]["provider_gets"], 2)
+
+    def test_complete_census_unknown_run_replay_and_global_slots_fail_closed(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value); old = fixed_spy_run(parent["runs"][0])
+        for runs in ([dict(old, head_sha="0"*40)], [], [old, old]):
+            with self.subTest(runs=runs), patch.object(c, "campaign_runs", return_value=runs):
+                with self.assertRaises(c.Refused): cap._fixed_spy_history(c, value, parent, "b"*64)
+        unknown = dict(old, id=2, run_number=2, display_title="a1-sip "+c.PREFIX+"c"*24)
+        with patch.object(c, "campaign_runs", return_value=[old, unknown]), patch.object(c, "receipt_for_run", side_effect=c.Refused("CAMPAIGN_RUN_UNRESOLVED")):
+            with self.assertRaisesRegex(c.Refused, "CAMPAIGN_RUN_UNRESOLVED"):
+                cap._fixed_spy_history(c, value, parent, "b"*64)
+        parent["active_seconds"] = 43200-899
+        with patch.object(c, "campaign_runs", return_value=[old]):
+            with self.assertRaisesRegex(c.Refused, "SPY665_PARENT_REMAINING"):
+                cap._fixed_spy_history(c, value, parent, "b"*64)
+
+    def test_missing_shared_journal_is_not_created_as_a_zero_spend_family(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = Path(tmp)/"budget"; budget.mkdir()
+            expected = budget.parent/("external-budget-"+c.CONTINUATION["auth"][:16])
+            with self.assertRaisesRegex(c.Refused, "SPY665_SHARED_JOURNAL_REQUIRED"):
+                cap._fixed_spy_family(c, value, parent, "b"*64, budget)
+            self.assertFalse(expected.exists())
+
+    def test_full_workflow_census_cannot_hide_foreign_dispatch_or_metadata_drift(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value); old = fixed_spy_run(parent["runs"][0])
+        foreign = dict(old, id=3, run_number=3, display_title="a1-sip unknown-nonce")
+        for full, reason in (([old, foreign], "SPY665_UNKNOWN_DISPATCH"),
+                             ([dict(old, head_sha="0"*40)], "SPY665_CENSUS_DRIFT"),
+                             ([dict(old, event="push")], "SPY665_UNKNOWN_DISPATCH")):
+            with self.subTest(reason=reason), patch.object(c, "campaign_runs", return_value=[old]), patch.object(c, "campaign_run_pages", return_value=full):
+                with self.assertRaisesRegex(c.Refused, reason):
+                    cap._fixed_spy_history(c, value, parent, "b"*64)
+        pr = dict(foreign, event="pull_request")
+        with patch.object(c, "campaign_runs", return_value=[old]), patch.object(c, "campaign_run_pages", return_value=[pr, old]):
+            self.assertEqual(cap._fixed_spy_history(c, value, parent, "b"*64)["used"], parent["used"])
+
+    def test_shared_family_old_prefix_is_preserved_and_foreign_lock_stops(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        with tempfile.TemporaryDirectory() as tmp:
+            budget = Path(tmp)/"budget"; budget.mkdir()
+            directory = budget.parent/("external-budget-"+c.CONTINUATION["auth"][:16])
+            first = c.WorkJournal(directory, c.external_family_genesis())
+            first.append("EXTERNAL_FAMILY_BOUND", budget_state_root=os.path.normcase(str(budget.resolve())),
+                proof_updated_utc=value["not_before_utc"], expires_at_utc=value["expires_at_utc"])
+            original = (directory/"000001.json").read_bytes()
+            parent["family_prefix_first_sha256"] = parent["family_prefix_head_sha256"] = c.digest(original)
+            with self.assertRaisesRegex(c.Refused, "CAMPAIGN_WRITER_LOCK"):
+                cap._fixed_spy_family(c, value, parent, "b"*64, budget)
+            first.close()
+            family = cap._fixed_spy_family(c, value, parent, "b"*64, budget)
+            self.assertEqual((directory/"000001.json").read_bytes(), original)
+            self.assertEqual(family.entries[-1]["kind"], "SPY665_PROFILE_BOUND")
+            self.assertEqual(family.entries[-1]["data_genesis_sha256"], cap._fixed_spy_genesis())
+            self.assertNotEqual(cap._fixed_spy_genesis(), parent["family_prefix_head_sha256"])
+            family.close()
+            bad = dict(parent, family_prefix_head_sha256="0"*64)
+            with self.assertRaisesRegex(c.Refused, "SPY665_SHARED_PREFIX_DRIFT"):
+                cap._fixed_spy_family(c, value, bad, "b"*64, budget)
+            self.assertFalse((directory/"writer.lock").exists())
+
+    def test_unsettled_reservation_and_remote_without_reservation_cannot_restart(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        observed = dict(tail_runs=[], tail_receipts=[])
+        bound = dict(kind="SPY665_PROFILE_BOUND")
+        family = SimpleNamespace(entries=[{}, bound])
+        self.assertEqual(cap._fixed_spy_reconcile(c, family, value, parent, observed), (None, 0))
+        observed["tail_runs"] = [dict(id=2)]
+        with self.assertRaisesRegex(c.Refused, "SPY665_JOURNAL_ROLLBACK_OR_UNKNOWN_RUN"):
+            cap._fixed_spy_reconcile(c, family, value, parent, observed)
+        observed["tail_runs"] = []
+        family.entries.append(dict(kind="SPY665_RESERVED", capture_auth_sha256=c.digest(c.encoded(value)),
+            nonce=c.PREFIX+"b"*24, phase="preflight", allowance=value["subcaps"]))
+        pending, done = cap._fixed_spy_reconcile(c, family, value, parent, observed)
+        self.assertEqual((pending["nonce"], done), (c.PREFIX+"b"*24, 0))
+
+    def test_current_profile_does_not_open_unbudgeted_public_cli(self):
+        args = SimpleNamespace(campaign_control_file=None)
+        with patch.object(cap, "_collect") as collect:
+            with self.assertRaisesRegex(c.Refused, "CAMPAIGN_CONTROL_REQUIRED"): cap.run(args)
+            collect.assert_not_called()
+        env = dict(A1_PRIVATE_RESEARCH_AUTHORIZED="true", ALPACA_NONCOMMERCIAL_ACKNOWLEDGED="true")
+        value = fixed_spy_auth()
+        with patch.dict(os.environ, env, clear=True), patch.object(c, "gh_json") as remote:
+            with self.assertRaisesRegex(c.Refused, "CAMPAIGN_WORKER_CONTEXT"):
+                c.worker(SimpleNamespace(), dict(authorization=value, nonce=c.PREFIX+"b"*24,
+                    fixed_spy_grant_reference="NO_REAL_GRANT", preflight_only=False), "unused")
+            remote.assert_not_called()
+
+    def test_settled_checkpoint_pointer_must_match_canonical_run_output_on_replay(self):
+        value = fixed_spy_auth(); parent = fixed_spy_parent(value)
+        h, nonce = c.digest(c.encoded(value)), c.PREFIX+"b"*24
+        checkpoint = dict(file_id="fixture-current-checkpoint", sha256="e"*64)
+        meter = dict(nonce=nonce, usage=dict.fromkeys(c.LIMITS, 0),
+                     status="COMPLETE", allowance=value["subcaps"])
+        reservation = dict(kind="SPY665_RESERVED", capture_auth_sha256=h, nonce=nonce,
+                           phase="preflight", allowance=value["subcaps"])
+        assigned = dict(kind="SPY665_RUN_ASSIGNED", capture_auth_sha256=h, nonce=nonce, run_id=2)
+        settled = dict(kind="SPY665_SETTLED", capture_auth_sha256=h, nonce=nonce, run_id=2,
+            receipt_sha256=c.digest(c.encoded(meter)), usage=meter["usage"], status="COMPLETE",
+            phase="preflight", checkpoint=checkpoint)
+        observed = dict(tail_runs=[dict(id=2)], tail_receipts=[meter])
+        family = SimpleNamespace(entries=[{}, {}, reservation, assigned, settled])
+        with patch.object(c, "checkpoint_from_log", return_value=checkpoint):
+            self.assertEqual(cap._fixed_spy_reconcile(c, family, value, parent, observed), (None, 1))
+            family.entries[-1] = dict(settled, checkpoint=dict(checkpoint, file_id="forged-current-pointer"))
+            with self.assertRaisesRegex(c.Refused, "SPY665_SETTLEMENT_DRIFT"):
+                cap._fixed_spy_reconcile(c, family, value, parent, observed)
+
+    def host_fixture(self, root):
+        value = fixed_spy_auth(); value["phases"] = ["capture"]
+        parent = fixed_spy_parent(value)
+        budget = root/"budget"; budget.mkdir()
+        directory = root/("external-budget-"+c.CONTINUATION["auth"][:16])
+        family = c.WorkJournal(directory, c.external_family_genesis())
+        family.append("EXTERNAL_FAMILY_BOUND", budget_state_root=os.path.normcase(str(budget.resolve())),
+                      proof_updated_utc=value["not_before_utc"], expires_at_utc=value["expires_at_utc"])
+        family.close()
+        original = (directory/"000001.json").read_bytes()
+        parent["family_prefix_first_sha256"] = parent["family_prefix_head_sha256"] = c.digest(original)
+        value["parent_manifest_sha256"] = c.digest(c.encoded(parent))
+        auth_path = root/"auth.json"; auth_path.write_bytes(c.encoded(value))
+        state = root/("fixed-"+cap.FIXED_SPY_PROFILE)
+        def gh(path):
+            if path.endswith("/branches/master"):
+                return dict(commit=dict(sha=value["expected_master"]))
+            for pin in value["code_pins"]:
+                if path.endswith(f"/contents/{pin}?ref={value['expected_master']}"):
+                    return dict(encoding="base64", content=c.base64.b64encode((c.ROOT/pin).read_bytes()).decode())
+            self.fail("Unexpected host fixture GitHub operation: "+path)
+        return value, parent, budget, directory, original, auth_path, state, gh
+
+    def test_public_host_fsync_failure_or_uncertain_post_preserves_single_reservation(self):
+        for fail_append in (True, False):
+            with self.subTest(fail_append=fail_append), tempfile.TemporaryDirectory() as tmp:
+                value, parent, budget, directory, original, auth_path, state, gh = self.host_fixture(Path(tmp))
+                old = fixed_spy_run(parent["runs"][0]); real_append = c.WorkJournal.append
+                posts = []
+                def append(journal, kind, **payload):
+                    if fail_append and kind == "SPY665_RESERVED":
+                        raise OSError("SYNTHETIC_FSYNC_FAILURE")
+                    return real_append(journal, kind, **payload)
+                def post(command, **kwargs):
+                    # The actual durable entry, not a mocked append ACK, must exist before POST.
+                    record = c.decode((directory/"000003.json").read_bytes())
+                    self.assertEqual(record["kind"], "SPY665_RESERVED")
+                    self.assertEqual(record["nonce"], json.loads(kwargs["input"])["campaign_nonce"])
+                    posts.append(command)
+                    return SimpleNamespace(returncode=1)
+                with patch.object(cap, "_fixed_spy_parent", return_value=parent), patch.object(cap, "_fixed_spy_grant", return_value="b"*64), patch.object(c, "gh_json", side_effect=gh), patch.object(c, "campaign_runs", return_value=[old]), patch.object(c.WorkJournal, "append", append), patch.object(c.subprocess, "run", side_effect=post):
+                    with self.assertRaisesRegex((OSError, c.Refused), "SYNTHETIC_FSYNC_FAILURE|CAMPAIGN_DISPATCH_UNCERTAIN"):
+                        c.host(auth_path, state, budget_state_dir=budget, permission_reference="SYNTHETIC_GRANT", max_batches=1)
+                    self.assertEqual(len(posts), 0 if fail_append else 1)
+                    if not fail_append:
+                        with self.assertRaisesRegex(c.Refused, "CAMPAIGN_ACTIVE_RESERVATION"):
+                            c.host(auth_path, state, budget_state_dir=budget, permission_reference="SYNTHETIC_GRANT", max_batches=1)
+                        self.assertEqual(len(posts), 1)
+                self.assertEqual((directory/"000001.json").read_bytes(), original)
+                self.assertFalse((directory/"writer.lock").exists())
+                self.assertEqual(len(list(directory.glob("*.json"))), 2 if fail_append else 3)
+
+    def test_public_host_settles_actual_tail_cost_even_when_worker_failed(self):
+        for status in ("COMPLETE", "BLOCKED"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                value, parent, budget, directory, original, auth_path, state, gh = self.host_fixture(Path(tmp))
+                old = fixed_spy_run(parent["runs"][0]); runs, meters, posts = [old], [], []
+                def spawn(command, **kwargs):
+                    if command[:3] == ["gh", "workflow", "run"]:
+                        control = json.loads(json.loads(kwargs["input"])["campaign_control"])
+                        durable = c.decode((directory/"000003.json").read_bytes())
+                        self.assertEqual(durable["nonce"], control["nonce"])
+                        runs.append(dict(old, id=2, run_number=2, head_sha=value["expected_master"],
+                            conclusion="success" if status == "COMPLETE" else "failure",
+                            display_title="a1-sip "+control["nonce"]))
+                        meters.append(dict(fixed_profile=cap.FIXED_SPY_PROFILE,
+                            parent_manifest_sha256=value["parent_manifest_sha256"], scope_grant_sha256="b"*64,
+                            parent_checkpoint_sha256=cap._fixed_spy_genesis(), shared_family_prefix_sha256=parent["family_prefix_head_sha256"],
+                            bindings=parent["bindings"], account_permission_reference_sha256=c.digest(value["account_permission_reference"].encode()),
+                            account_permission_record_sha256="b"*64,
+                            cohort_scope=cap._fixed_spy_scope(), preflight_only=False, allowance=value["subcaps"],
+                            examined_before=0, examined_after=1 if status == "COMPLETE" else 0,
+                            usage=dict(provider_gets=3, drive_requests=7, drive_bytes=100000, storage_bytes=1000),
+                            status=status, nonce=control["nonce"]))
+                        posts.append(command)
+                    else:
+                        self.assertEqual(command[:3], ["gh", "run", "watch"])
+                    return SimpleNamespace(returncode=0 if command[:3] == ["gh", "workflow", "run"] or status == "COMPLETE" else 1)
+                with patch.object(cap, "_fixed_spy_parent", return_value=parent), patch.object(cap, "_fixed_spy_grant", return_value="b"*64), patch.object(c, "gh_json", side_effect=gh), patch.object(c, "campaign_runs", side_effect=lambda _: list(runs)), patch.object(c, "receipt_for_run", side_effect=lambda *a: meters[0]), patch.object(c, "job_seconds", return_value=7), patch.object(c, "checkpoint_from_log", return_value=dict(file_id="fixture-checkpoint", sha256="e"*64)), patch.object(c.subprocess, "run", side_effect=spawn):
+                    if status == "COMPLETE":
+                        result = c.host(auth_path, state, budget_state_dir=budget, permission_reference="SYNTHETIC_GRANT", max_batches=1)
+                        self.assertEqual(result["scope_used"]["provider_gets"], 3)
+                        self.assertEqual(result["shared_used"]["provider_gets"], parent["used"]["provider_gets"]+3)
+                        self.assertFalse(result["source_admission"])
+                    else:
+                        with self.assertRaisesRegex(c.Refused, "CAMPAIGN_WORKER_BLOCKED"):
+                            c.host(auth_path, state, budget_state_dir=budget, permission_reference="SYNTHETIC_GRANT", max_batches=1)
+                self.assertEqual(len(posts), 1)
+                settled = c.decode((directory/"000005.json").read_bytes())
+                self.assertEqual((settled["kind"], settled["status"], settled["usage"]["provider_gets"]),
+                                 ("SPY665_SETTLED", status, 3))
+                self.assertEqual((directory/"000001.json").read_bytes(), original)
+                self.assertFalse((directory/"writer.lock").exists())
+
+
 if __name__=='__main__': unittest.main()
