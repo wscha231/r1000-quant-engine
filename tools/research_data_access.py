@@ -744,6 +744,11 @@ class ResearchDataReader:
                          identity['mic'] in {'XNYS', 'XNAS'})
             if purpose in {'training', 'backtest'}:
                 check(scheduled, 'UNSUPPORTED_SESSION_CALENDAR')
+            else:
+                # Arca research bars use the same completed-session checks.
+                # Keep the existing training/backtest venue support unchanged.
+                scheduled = scheduled or (identity['calendar'] in {'NYSE', 'XNYS'} and
+                    identity['timezone'] == 'America/New_York' and identity['mic'] == 'ARCX')
             basis = identity.get('adjustment_basis')
             check(type(basis) is str and basis in {'RAW', 'SPLIT_ADJUSTED', 'TOTAL_RETURN'},
                   'ADJUSTMENT_BASIS')

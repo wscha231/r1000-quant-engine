@@ -683,7 +683,7 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                      if real else ident['instrument_id'].startswith('CONTRACT_FIXTURE:'))
                 and len(ident['instrument_id']) <= 200
                 and ident['ticker'] == ticker and ident['market'] == 'US'
-                and ident['currency'] == 'USD' and ident['mic'] in ('XNYS', 'XNAS')
+                and ident['currency'] == 'USD' and ident['mic'] in ('XNYS', 'XNAS', 'ARCX')
                 and ident['timezone'] == 'America/New_York'
                 and ident['calendar'] == 'NYSE', 'IDENTITY_SCOPE')
         sessions = {date for name, date in grids['raw'] if name == ticker}

@@ -1059,6 +1059,33 @@ class BindingTest(unittest.TestCase):
             self.assertFalse(result.receipt['eligible_for_economics'])
             self.assertEqual(result.receipt['pit_status'], 'PIT_PROXY')
 
+    def test_real_arcx_identity_survives_both_bases_and_reader_without_authority(self):
+        state = real_fixture()
+        state[3]['identity']['AAPL']['mic'] = 'ARCX'
+        prepared = self.prepare_real(state, repin=True)
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        self.assertEqual([b.basis for b in prepared.bases], ['RAW', 'SPLIT_ADJUSTED'])
+        for basis in prepared.bases:
+            spec = json.loads(basis.manifest)['datasets'][0]
+            self.assertEqual(spec['files'][0]['instrument']['mic'], 'ARCX')
+            self.assertEqual(spec['source']['eligible_purposes'], ['research', 'discovery'])
+            transport, _, _ = fixture_transport(basis)
+            result = ResearchDataReader(transport).read('ds.us.prices.daily', basis.generation_id,
+                decision_time=DECISION, purpose='research', instrument_ids=['US.TEST.AAPL'],
+                required_start=SESSIONS[0], required_end=SESSIONS[-1], minimum_rows=2,
+                required_sessions=SESSIONS, consumer_id='SYNTHETIC_ARCX_NOT_ACTUAL_ACK')
+            self.assertEqual(len(result.rows), 2)
+            self.assertEqual(result.receipt['pit_status'], 'PIT_PROXY')
+            self.assertFalse(result.receipt['eligible_for_economics'])
+            self.assertFalse(result.receipt['eligible_for_selector'])
+
+    def test_provider_exchange_alias_and_unknown_mic_remain_refused(self):
+        for mic in ('ARCA', 'XASE', 'UNKNOWN'):
+            with self.subTest(mic=mic):
+                state = real_fixture()
+                state[3]['identity']['AAPL']['mic'] = mic
+                self.assert_real_blocked(state, 'IDENTITY_SCOPE', repin=True)
+
     def test_real_evidence_substitution_cannot_update_its_trust_anchor(self):
         state = real_fixture();state[3]['created_at'] = '2026-10-24T08:31:00Z'
         self.assert_real_blocked(state, 'REVIEWED_EVIDENCE_HASH')
