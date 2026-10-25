@@ -781,7 +781,6 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         read_object, sha, text, check, _session_close,
         PROVIDER_CLOSE_MEANING, _provider_close_references,
     )
-    from tools.prepare_a1_reader_generation import TrustedSourceBinding
     from tools.macro_history_sources import digest, encoded
 
     check(isinstance(reader, ResearchDataReader), "FEATURE_READER_REQUIRED")
@@ -896,6 +895,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                   clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
                   "FEATURE_IDENTITY_CLOCK")
             if expected_qualification_sha256 is not None:
+                # Keep the legacy path independent of the optional Source adapter.
+                from tools.prepare_a1_reader_generation import TrustedSourceBinding
                 qsha = sha(expected_qualification_sha256)
                 check(source.get("provider_close_qualification_sha256") == qsha,
                       "HALT_COVERAGE_UNKNOWN")
@@ -909,6 +910,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                       source.get("qualification_adapter_file_sha256") == trust.adapter_file_sha256 and
                       source["producer_config_sha256"] == trust.evidence_sha256 and
                       source["producer_code_sha"] == trust.derivation_code_sha and
+                      source.get("derivation_run_id") == trust.derivation_run_id and
                       manifest["source_run_id"] == str(trust.original_run_id),
                       "QUALIFICATION_REVIEW_BINDING")
                 check(read.receipt.get("provider_close_qualification_sha256") == qsha and
