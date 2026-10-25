@@ -778,7 +778,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     from aggressive.signals_technical import obv, slope_pct, sma
     from tools.research_data_access import (
         ContractError, PREFIX_V1, ResearchDataReader, clock, day, decode,
-        read_object, sha, text, check, _session_close,
+        read_object, sha, text, check, _SessionCloseMap,
         PROVIDER_CLOSE_MEANING, _provider_close_references,
     )
     from tools.macro_history_sources import digest, encoded
@@ -827,6 +827,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     # generation, clocks and rights through the public Source component API.
     component_reads = {}
     global_refusals = []
+    session_closes = _SessionCloseMap(allow_batch=True)  # research-only snapshot
 
     def read_generation(gen, ids, required_ids):
         try:
@@ -942,7 +943,8 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         check(identity["mic"] in {"XNYS", "XNAS", "ARCX"}, "FEATURE_MIC_CALENDAR_UNSUPPORTED")
         # ARCX is not scheduled by the unchanged Reader research branch.
         # Keep the same completed regular-close rule in this consumer.
-        check(all(clock(r["available_from"]) >= _session_close(day(r["session_date"]))
+        session_closes.include(day(start), day(session))
+        check(all(clock(r["available_from"]) >= session_closes[day(r["session_date"])]
                   for r in read.rows), "FEATURE_BEFORE_SESSION_CLOSE")
         # Require explicit status coverage, rather than treating a zero volume
         # bar or an absent halt record as proof that the security was trading.
@@ -996,8 +998,10 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     if stock_ref["adjustment_basis"] != "SPLIT_ADJUSTED":
         return refuse_all("FEATURE_REQUIRES_SPLIT_ADJUSTED_OHLC")
     first = px.index[0].date().isoformat()
-    dates = pd.DatetimeIndex(mcal.get_calendar("NYSE").schedule(
-        start_date=first, end_date=session).index).tz_localize(None)
+    cached_dates = session_closes.sessions(day(first), day(session))
+    dates = (pd.DatetimeIndex(cached_dates) if cached_dates is not None else
+             pd.DatetimeIndex(mcal.get_calendar("NYSE").schedule(
+                 start_date=first, end_date=session).index).tz_localize(None))
     check(px.index.isin(dates).all(), "FEATURE_NONSESSION")
     known_halts = stock_ref.get("known_halted_sessions", identity["halted_sessions"])
     effective = px.drop(index=pd.DatetimeIndex(known_halts), errors="ignore")

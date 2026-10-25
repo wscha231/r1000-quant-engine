@@ -111,6 +111,73 @@ def _session_close(session):
         raise ContractError('SESSION_CALENDAR_UNAVAILABLE') from None
 
 
+class _SessionCloseMap:
+    """Bounded, lazy NYSE schedule for exactly one read/snapshot invocation.
+
+    The 100,000-day optimization ceiling is the existing Source explicit-view
+    envelope. It is not an eligibility limit: unsupported/oversized ranges,
+    schedule errors, missing sessions and out-of-envelope rows still use the
+    original finite lookup at the original row-validation position.
+    """
+    _MAX_DAYS = 100_000
+
+    def __init__(self, *, allow_batch=False):
+        self._allow_batch = allow_batch
+        self._start = self._end = None
+        self._closes = None
+        self._attempted = False
+        self._individual = {}
+
+    def include(self, start, end):
+        # Callers supply only already validated retained/request date bounds.
+        start = min(self._start, start) if self._start is not None else start
+        end = max(self._end, end) if self._end is not None else end
+        if (start, end) != (self._start, self._end):
+            self._start, self._end = start, end
+            self._closes, self._attempted = None, False
+
+    def __getitem__(self, session):
+        if not self._allow_batch:
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
+            return self._individual[session]
+        if not self._attempted:
+            # Research reuse starts only after the original authority accepts
+            # the first actual session, at the original row-validation boundary.
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
+            self._attempted = True
+            if (self._start is not None and self._start <= self._end and
+                    (self._end - self._start).days < self._MAX_DAYS):
+                try:
+                    import pandas_market_calendars as mcal
+                    schedule = mcal.get_calendar('NYSE').schedule(
+                        start_date=self._start, end_date=self._end)
+                    self._closes = {index.date(): clock(close.isoformat())
+                                   for index, close in schedule['market_close'].items()}
+                    if self._closes.get(session) != self._individual[session]:
+                        self._closes = None
+                except Exception:
+                    # Do not replace the first row's original refusal, or move
+                    # a calendar failure ahead of schema/identity/clock checks.
+                    self._closes = None
+        if session in self._individual:
+            return self._individual[session]
+        if self._closes is not None and session in self._closes:
+            return self._closes[session]
+        if session not in self._individual:
+            self._individual[session] = _session_close(session)
+        return self._individual[session]
+
+    def sessions(self, start, end):
+        # Coverage reuses the authoritative date index only when it is complete
+        # for this range. A failed/unsupported batch retains the original path.
+        if (self._closes is not None and
+                self._start <= start <= end <= self._end):
+            return sorted(d for d in self._closes if start <= d <= end)
+        return None
+
+
 def _freeze(value):
     if type(value) is dict:
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
@@ -710,7 +777,14 @@ class ResearchDataReader:
                 raw_proof = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
                 check(len(raw_proof) == size, 'PROVIDER_CLOSE_PROOF_SIZE')
         decompressed_total, row_total = component_request_bytes, 0
-        lake, session_closes = None, {}
+        lake, session_closes = None, _SessionCloseMap(allow_batch=purpose == 'research')
+        request_by_iid = {r['instrument_id']: r for r in component_requests or []}
+        for item, _, scheduled, iid, _ in inventory:
+            request = request_by_iid.get(iid)
+            if scheduled and (component_requests is None or
+                    (request is not None and item['end'] >= request['required_start'] and
+                     item['start'] <= request['required_end'])):
+                session_closes.include(day(item['start']), day(item['end']))
         rows, verified, seen, failures = [], [], set(), {}
         required_iids = {r['instrument_id'] for r in component_requests or [] if not r['optional']}
         local_refusals = {'ARCHIVE_UNAVAILABLE', 'ROW_COUNT', 'INVALID_PRICE_VALUE',
@@ -741,7 +815,6 @@ class ResearchDataReader:
             except (OSError, ValueError, KeyError, TypeError):
                 raise ContractError('LAKE_VERIFICATION_FAILED') from None
 
-        request_by_iid = {r['instrument_id']: r for r in component_requests or []}
         if component_requests is not None and any(item['storage'] == 'lake' for item in files):
             # Shared provenance is a call prerequisite, even when every selected
             # object is archive-backed. Keep setup outside optional object handling.
@@ -800,8 +873,6 @@ class ResearchDataReader:
                     check(session <= row_available.date() and row_available <= available and
                           row_available <= decision, 'FUTURE_AVAILABLE_FROM')
                     if scheduled:
-                        if session not in session_closes:
-                            session_closes[session] = _session_close(session)
                         check(session_closes[session] <= row_available, 'PRE_CLOSE_AVAILABLE_FROM')
                     dates.append(session)
                 check(len(parsed) == item['rows'], 'ROW_COUNT')

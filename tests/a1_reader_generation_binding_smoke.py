@@ -20,6 +20,7 @@ from tools import alpaca_sip_private_backfill_v1 as capture
 from tools import prepare_a1_reader_generation as binding
 from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import ContractError, PRICE_COLUMNS, ResearchDataReader
+from tools import research_data_access as access
 
 SESSIONS = ['2016-01-04', '2016-01-05']
 OBSERVED = '2026-10-24T08:00:00Z'
@@ -378,6 +379,226 @@ def rewrite_provider_qualification(state, transform):
 class BindingTest(unittest.TestCase):
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
+
+    def test_close_batch_matches_authoritative_dst_early_close_and_invalid_dates(self):
+        # Reader-only tiny cases: no Source.prepare, provider or actual archive.
+        import pandas_market_calendars as mcal
+        dates = ['2026-03-06', '2026-03-09', '2026-07-02', '2026-11-27']
+        lookup = access._SessionCloseMap(allow_batch=True)
+        lookup.include(access.day(dates[0]), access.day(dates[-1]))
+        calendar = mcal.get_calendar('NYSE')
+        with patch.object(calendar, 'schedule', wraps=calendar.schedule) as schedule, \
+             patch.object(mcal, 'get_calendar', return_value=calendar):
+            closes = [lookup[access.day(v)] for v in dates]
+            self.assertEqual(schedule.call_count, 2)  # authority anchor plus range
+            for v, close in zip(dates, closes):
+                self.assertEqual(close, access._session_close(access.day(v)))
+        self.assertEqual([v.hour for v in closes], [21, 20, 20, 18])
+        for value in ('2026-07-03', '2026-07-04'):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                    ContractError, '^INVALID_EXCHANGE_SESSION$'):
+                lookup[access.day(value)]
+
+    def test_close_batch_bounds_failure_and_call_lifetime_keep_original_fallback(self):
+        import pandas_market_calendars as mcal
+        session = access.day('2026-03-09')
+        for start, end in ((access.day('1700-01-01'), access.day('2300-01-01')),
+                           (session, session)):
+            with self.subTest(start=start):
+                lookup = access._SessionCloseMap(allow_batch=True)
+                lookup.include(start, end)
+                with patch.object(mcal, 'get_calendar', side_effect=RuntimeError('calendar')), \
+                     self.assertRaisesRegex(ContractError, '^SESSION_CALENDAR_UNAVAILABLE$'):
+                    lookup[session]
+                self.assertIsNone(lookup.sessions(session, session))
+        # An out-of-envelope day uses its real close; it cannot be accepted
+        # merely because some other date was present in the batch map.
+        lookup = access._SessionCloseMap(allow_batch=True)
+        lookup.include(session, session)
+        prior = access.day('2026-03-06')
+        self.assertEqual(lookup[prior], access._session_close(prior))
+        with patch.object(mcal, 'get_calendar', side_effect=RuntimeError('later outage')):
+            fresh = access._SessionCloseMap(allow_batch=True)
+            fresh.include(session, session)
+            with self.assertRaisesRegex(ContractError, '^SESSION_CALENDAR_UNAVAILABLE$'):
+                fresh[session]
+
+    def close_batch_reader_fixture(self):
+        from research_data_access_smoke import ReaderTest
+        case = ReaderTest('runTest')
+        case.setUp()
+        self.addCleanup(case.doCleanups)
+        for item in case.spec['files']:
+            item['instrument']['calendar'] = 'XNYS'
+        return case
+
+    def test_close_batch_nonresearch_keeps_each_date_authority(self):
+        from r1000_legacy_input_guard import latest_completed_close
+        for purpose in ('training', 'backtest', 'discovery'):
+            with self.subTest(purpose=purpose):
+                case = self.close_batch_reader_fixture()
+                case.spec['source'].update(classification='REAL_SOURCE', pit_status='VERIFIED',
+                    eligible_purposes=['training', 'backtest', 'discovery', 'research'])
+                dates = []
+                def authority(now=None):
+                    dates.append(now.date().isoformat())
+                    if dates[-1] == '2026-07-02':
+                        raise RuntimeError('second session authority unavailable')
+                    return latest_completed_close(now)
+                with patch('r1000_legacy_input_guard.latest_completed_close', side_effect=authority), \
+                     self.assertRaisesRegex(ContractError, '^SESSION_CALENDAR_UNAVAILABLE$'):
+                    case.read(purpose=purpose)
+                self.assertEqual(dates, ['2026-07-01', '2026-07-02'])
+
+    def test_close_batch_research_first_authority_failure_precedes_range(self):
+        import pandas_market_calendars as mcal
+        case = self.close_batch_reader_fixture()
+        with patch('r1000_legacy_input_guard.latest_completed_close',
+                   side_effect=RuntimeError('schedule absent')) as authority, \
+             patch.object(mcal, 'get_calendar', side_effect=AssertionError('RANGE_BEFORE_AUTHORITY')) as calendar, \
+             self.assertRaisesRegex(ContractError, '^SESSION_CALENDAR_UNAVAILABLE$'):
+            case.read(purpose='research')
+        self.assertEqual(authority.call_count, 1)
+        calendar.assert_not_called()
+
+    def test_close_batch_include_is_lazy_and_anchor_is_once_per_range(self):
+        import pandas_market_calendars as mcal
+        first, last = access.day('2026-07-01'), access.day('2026-07-06')
+        lookup = access._SessionCloseMap(allow_batch=True)
+        with patch.object(access, '_session_close', wraps=access._session_close) as authority, \
+             patch.object(mcal, 'get_calendar', wraps=mcal.get_calendar) as calendar:
+            lookup.include(first, last)
+            authority.assert_not_called()
+            calendar.assert_not_called()
+            lookup[first]
+            lookup[access.day('2026-07-02')]
+            lookup[last]
+            self.assertEqual(authority.call_count, 1)
+            self.assertEqual(calendar.call_count, 2)  # legacy anchor, then range
+        self.assertEqual(lookup.sessions(first, last),
+                         [first, access.day('2026-07-02'), last])
+
+    def test_close_batch_anchor_mismatch_disables_range_without_overriding_authority(self):
+        first, last = access.day('2026-07-01'), access.day('2026-07-02')
+        original = access._session_close
+        actual_first = original(first) + timedelta(minutes=1)
+        def authority(session):
+            if session == first:
+                return actual_first
+            raise ContractError('SESSION_CALENDAR_UNAVAILABLE')
+        lookup = access._SessionCloseMap(allow_batch=True)
+        lookup.include(first, last)
+        with patch.object(access, '_session_close', side_effect=authority) as calls:
+            self.assertEqual(lookup[first], actual_first)
+            self.assertIsNone(lookup.sessions(first, last))
+            with self.assertRaisesRegex(ContractError, '^SESSION_CALENDAR_UNAVAILABLE$'):
+                lookup[last]
+            self.assertEqual(calls.call_count, 2)
+
+    def test_close_batch_row_identity_and_clock_still_precede_first_anchor(self):
+        for code, change in (('ROW_IDENTITY', dict(ticker='FOREIGN')),
+                             ('FUTURE_AVAILABLE_FROM', dict(available_from='2027-07-01T21:00:00Z'))):
+            with self.subTest(code=code):
+                case = self.close_batch_reader_fixture()
+                item = case.spec['files'][0]
+                raw = case.transport.read(f'{access.PREFIX_V1}/objects/{item["sha256"]}')
+                rows = [json.loads(v) for v in raw.splitlines()]
+                rows[0].update(change)
+                raw = b''.join(encoded(r) for r in rows)
+                item.update(sha256=digest(raw), bytes=len(raw))
+                case.transport.write(f'{access.PREFIX_V1}/objects/{digest(raw)}', raw)
+                with patch('r1000_legacy_input_guard.latest_completed_close',
+                           side_effect=RuntimeError('schedule absent')) as authority, \
+                     self.assertRaisesRegex(ContractError, '^'+code+'$'):
+                    case.read(purpose='research')
+                authority.assert_not_called()
+
+    def test_close_batch_range_failure_retains_original_per_date_checks(self):
+        import pandas_market_calendars as mcal
+        first, last = access.day('2026-07-01'), access.day('2026-07-06')
+        dates = [first, access.day('2026-07-02'), last]
+        expected = [access._session_close(value) for value in dates]
+        calendar = mcal.get_calendar('NYSE')
+        original_schedule = calendar.schedule
+        def schedule(*args, **kwargs):
+            if kwargs.get('start_date') == first and kwargs.get('end_date') == last:
+                raise RuntimeError('only the range is unavailable')
+            return original_schedule(*args, **kwargs)
+        lookup = access._SessionCloseMap(allow_batch=True)
+        lookup.include(first, last)
+        with patch.object(mcal, 'get_calendar', return_value=calendar), \
+             patch.object(calendar, 'schedule', side_effect=schedule), \
+             patch.object(access, '_session_close', wraps=access._session_close) as authority:
+            self.assertEqual([lookup[value] for value in dates], expected)
+            self.assertEqual(authority.call_count, 3)
+        self.assertIsNone(lookup.sessions(first, last))
+
+    def test_close_batch_reader_exact_bytes_and_schedule_count(self):
+        import pandas_market_calendars as mcal
+        class OriginalLookup:
+            def __init__(self, **_): self.cache = {}
+            def include(self, *_): pass
+            def __getitem__(self, value):
+                if value not in self.cache:
+                    self.cache[value] = access._session_close(value)
+                return self.cache[value]
+        case = self.close_batch_reader_fixture()
+        generation = case.generation()
+        options = dict(decision_time='2026-10-08T07:30:00Z', purpose='research',
+            consumer_id='SYNTHETIC_CLOSE_BATCH_PARITY', components=[
+                dict(component_id=t, instrument_id='FIXTURE:US:'+t,
+                     required_start='2026-07-01', required_end='2026-07-06', minimum_rows=3)
+                for t in ('SPY', 'QQQ')])
+        calendar = mcal.get_calendar('NYSE')
+        def run():
+            with patch.object(calendar, 'schedule', wraps=calendar.schedule) as schedule, \
+                 patch.object(mcal, 'get_calendar', return_value=calendar):
+                batch = case.reader.read_components('ds.us.prices.daily', generation, **options)
+                return batch, schedule.call_count
+        with patch.object(access, '_SessionCloseMap', OriginalLookup):
+            before, old_calls = run()
+        after, new_calls = run()
+        again, replay_calls = run()
+        # One original first-session authority call plus one range per read.
+        self.assertEqual((old_calls, new_calls, replay_calls), (3, 2, 2))
+        self.assertEqual(before.receipt_bytes, after.receipt_bytes)
+        self.assertEqual(after.receipt_bytes, again.receipt_bytes)
+        for key in ('SPY', 'QQQ'):
+            self.assertEqual(before.results[key].rows, after.results[key].rows)
+            self.assertEqual(before.results[key].files, after.results[key].files)
+            self.assertEqual(before.results[key].receipt_bytes, after.results[key].receipt_bytes)
+        # The public full-read route keeps the same exact rows/receipt as well.
+        with patch.object(access, '_SessionCloseMap', OriginalLookup):
+            full_before = case.read(generation)
+        full_after = case.read(generation)
+        self.assertEqual(full_before.rows, full_after.rows)
+        self.assertEqual(full_before.receipt_bytes, full_after.receipt_bytes)
+
+    def test_close_batch_reader_preserves_first_global_clock_and_session_refusals(self):
+        for code, changes in (
+                ('FUTURE_AVAILABLE_FROM', dict(session_date='2026-07-04',
+                                              available_from='2027-07-04T21:00:00Z')),
+                ('PRE_CLOSE_AVAILABLE_FROM', dict(session_date='2026-07-02',
+                                                 available_from='2026-07-02T16:59:59Z')),
+                ('INVALID_EXCHANGE_SESSION', dict(session_date='2026-07-03',
+                                                 available_from='2026-07-03T21:00:00Z')),
+                ('ROW_IDENTITY', dict(ticker='FOREIGN', session_date='2026-07-04'))):
+            with self.subTest(code=code):
+                case = self.close_batch_reader_fixture()
+                item = case.spec['files'][1]
+                raw = case.transport.read(f'{access.PREFIX_V1}/objects/{item["sha256"]}')
+                rows = [json.loads(v) for v in raw.splitlines()]
+                rows[0].update(changes)
+                raw = b''.join(encoded(r) for r in rows)
+                item.update(sha256=digest(raw), bytes=len(raw))
+                case.transport.write(f'{access.PREFIX_V1}/objects/{digest(raw)}', raw)
+                with self.assertRaisesRegex(ContractError, '^'+code+'$'):
+                    case.reader.read_components('ds.us.prices.daily', case.generation(),
+                        decision_time='2026-10-08T07:30:00Z', purpose='research',
+                        consumer_id='SYNTHETIC_GLOBAL_NOT_OPTIONAL', components=[
+                            dict(component_id=t, instrument_id='FIXTURE:US:'+t,
+                                 required_start='2026-07-01', required_end='2026-07-06',
+                                 optional=t == 'QQQ') for t in ('SPY', 'QQQ')])
 
     def prepare(self, **kwargs):
         options = dict(classification='CONTRACT_FIXTURE', decision_time=DECISION)

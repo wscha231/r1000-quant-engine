@@ -8160,3 +8160,59 @@ Final self-review reproduced a forged qualified TOTAL_RETURN basis escaping as
 KeyError before useful output. Check membership in the qualification's existing
 RAW/SPLIT basis map before indexing; preserve unrestricted legacy basis support
 and assert the finite scoped refusal through the actual Reader, including -O.
+
+## 2026-10-25 — Batch authoritative close checks within one research invocation
+
+Repeated NYSE schedule construction is a static performance candidate, not a
+measured fraction of a real run. Reuse Source's authoritative range pattern
+with its bounded calendar envelope inside each Reader call and Feature snapshot.
+Keep row checks in their original order, including optional components' global
+schema/identity/clock failures. Missing dates, unsupported/oversized ranges and
+batch failures must reach the original finite lookup; no alternate calendar,
+global cache, smaller history or new eligibility policy follows from batching.
+
+Compare exact Reader rows/files/receipt bytes under both lookup strategies at
+the same loaded code pin. Across code revisions, reader_code_sha256 and dependent
+receipt/Feature hashes must change honestly. Preserve fixed calculator/Decimal
+AST and existing assertions. Small synthetic normal/-O parity and schedule counts
+do not establish actual runtime speedup, source admission or economic benefit.
+The completed 534.031301-second actual MU baseline and its outputs are historical
+evidence only; this implementation does not replay it or call Source.prepare.
+
+Initial new test expectations incorrectly called 2026-07-02 an early close and
+omitted the unchanged fixed calculator's grid schedule. Both old/new strategies
+agreed: the authoritative close is 20 UTC; November 27 supplies the actual early
+close case. Preserve the failed log, correct these new expectations, and count
+the existing calculator schedule in the full snapshot observation.
+
+## 2026-10-25 — Preserve the original calendar authority before research batching
+
+PR676 at0232 passed focused parity tests but failed the unchanged registered
+Reader backtest calendar-unavailable oracle in CI40158081232 attempt1. Direct
+range lookup had bypassed latest_completed_close. This is a deterministic
+product regression: preserving original test AST without executing the full
+registered Reader/Source family did not establish compatibility. The same
+original test was reproduced failing locally before the repair; do not weaken
+that oracle or relabel the failure as environment/flakiness/review paperwork.
+
+Restrict the optimization to explicit research. Training/backtest/discovery
+retain the original per-date authority, including a failure on a later date.
+The research range is lazy: the first actual session must pass _session_close
+at the existing row boundary, and its close must agree with the range before
+reuse. An anchor mismatch or range failure retains original finite lookups.
+Include-time metadata does no calendar work. Keep schema/identity/clock failures
+ahead of that first anchor, with no persistent cache or altered public API.
+
+The necessary authority anchors increase the new synthetic schedule counts:
+Reader3→2 and Feature conservative21→8, including existing calculator work.
+These corrected new expectations preserve every protected original assertion.
+Re-run the unchanged failed case, the full registered family and focused normal/-O
+parity on the new exact HEAD. Actual Source preparation, MU/Feature execution,
+collection, current tail repair and economic/portfolio work remain separate.
+
+The first complete Windows run preserved that repaired original oracle but
+failed sparse import because the Source runtime lacks SciPy. Preserve its239-case
+failure receipt. Reuse already installed pinned test packages in an isolated
+validation environment, without overwriting either owner environment, downloading
+packages or adding skips. Retain PyArrow and the existing six Linux-only skips;
+Linux native resource coverage still requires the new GitHub CI head.
