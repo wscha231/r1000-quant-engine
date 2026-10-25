@@ -8257,3 +8257,46 @@ Linux native resource coverage still requires the new GitHub CI head.
 The actual pre-capture gate stopped with SPY665_UNKNOWN_DISPATCH before any WorkJournal, provider/Drive I/O or dispatch. The complete historical census includes push39388523155/#98 at284abcb6, outside the39 capture/native dispatches. Its immutable workflow blob93a38491a0180e0ba2b99e3a6086fc79c741c76e (SHA256464ef675a92be21267f8d4663c45ca76c0cc80a4e76e8178241e8626dc83ae68) has invalid YAML and a capture condition restricted to workflow_dispatch on master. Canonical jobs are exactly two runnerless, step-free review checks118514193309/118514203527, not collection jobs. Recognize only that exact immutable run and recheck both exact job identities, clocks and absent execution resources on every observation. Unknown push/dispatch, replay, changed metadata, added steps/jobs or a runner still fail closed. Preserve the original39-row parent,104 journal prefix,40-dispatch limit, charged costs and unknown platform costs; absence of artifacts or logs is not zero-spend evidence.
 
 Separately, the Windows read-only owner lookup initially failed DNS because a minimal rclone child environment omitted SystemRoot/WINDIR. Restore only those OS fields in the local T0 helper; do not modify worker authentication or Source gates. Current original-owner hash matched after the fix. Old nullable owner authorization and new explicit-owner input are distinct contracts. No collection success follows from prepared input or a posted but unexecuted grant.
+
+## 2026-10-25 — Reuse the existing AAII file parser and qualify actual originals
+
+Search existing source registers and libraries before implementing a second
+survey parser. The integrated free_market_context.aaii_observations already
+checks percent/fraction, rounded totals, duplicate dates and collection-only
+availability. Reuse it; a matching caller hash is byte consistency, not publisher,
+license or historical-publication authentication. A local export review has its
+own non-admitted schema, null original publication, no regime and exit2. Keep
+ACTUAL closed until the existing Source archive/receipt path is qualified.
+
+The existing Drive handoffs describe authorized CSV imports, not actual AAII
+originals. Current official page and its linked XLS each returned403 to a single
+direct read. Preserve both failures; do not use web snippets as verified raw
+bytes, retry around access controls, invent clocks or buy a subscription.
+The finite filename miss is not proof of global Drive absence.
+
+The earlier missing-SciPy blocker was solved without downloads by reusing the
+already installed pinned validation wrapper read-only. Native guard setup
+initially mistook Windows NUL/platform cmd-ver and external TEMP probes for
+product writes. Preserve both mode setup failures, permit only that exact
+read-only Windows metadata command/NUL device, and pin fixture temp under the
+allowed T2 evidence root. Product/test assertions and owner environments stay
+unchanged. Current candidate checks are not canonical Main Native or hosted CI.
+
+Independent A6 also reproduced an actual P2: original20,060B/10,000-level fixture
+JSON escaped as RecursionError and produced no BLOCKED JSON. Keep predecessor
+46b1 logs and the two independent counterexamples. The correction limits JSON
+depth24/nodes300,000, translates decoder recursion and guards the CLI. Retain
+the prior37 test bodies and add three negative cases. A prior passing fixture
+suite cannot replace new exact-code Native and independent QA after this fix.
+
+Windows text writeback changed the existing registered smoke to CRLF during
+Main intake. The first unpublished checkpoint retained the resulting diff-check
+failure. Normalize that file and the new contract to LF; the final registered delta
+is only two lines and contract semantics are unchanged. Preserve every test
+body and revalidate the new exact HEAD. A successful commit does not erase an earlier diff failure.
+
+A new suite called by the existing macro smoke also runs in the scheduled
+history sparse checkout. Include its module, existing AAII library, test,
+test package and contract there before publication. The causal scope adds
+only those five checkout paths; triggers, credentials, jobs, schedule and
+collection gates remain byte-identical after removing those lines.
