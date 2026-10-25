@@ -84,7 +84,10 @@ def day(value: Any, code: str) -> date:
 
 def finite(value: Any, code: str) -> float:
     require(type(value) in (int, float), code)
-    number = float(value)
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise MoatDiagnosticError(code) from exc
     require(math.isfinite(number) and abs(number) <= 1_000_000, code)
     return number
 
@@ -215,8 +218,9 @@ def evaluate(packet: dict[str, Any], cutoff: str, raw_resolver: RawResolver) -> 
         require(len(invalidations) == len(set(invalidations)), "duplicate_invalidation")
         refs = item.get("evidence_ids")
         require(type(refs) is list and len(refs) <= MAX_EVIDENCE and
-                len(refs) == len(set(refs)) and all(x in by_id for x in refs),
+                all(type(x) is str and x in by_id for x in refs),
                 "barrier_evidence_refs")
+        require(len(refs) == len(set(refs)), "barrier_evidence_refs")
         support = [by_id[x] for x in refs if by_id[x]["direction"] == "SUPPORT"]
         challenge = [by_id[x] for x in refs if by_id[x]["direction"] == "CHALLENGE"]
         if state == "EVIDENCED":
@@ -239,7 +243,8 @@ def evaluate(packet: dict[str, Any], cutoff: str, raw_resolver: RawResolver) -> 
     for row in metrics:
         require(type(row) is dict, "metric_row")
         name = row.get("name")
-        require(name in METRICS and name not in metric_map, "metric_name_or_duplicate")
+        require(type(name) is str and name in METRICS and name not in metric_map,
+                "metric_name_or_duplicate")
         value = finite(row.get("value"), "metric_value")
         if name == "lead_time_days":
             require(value >= 0, "negative_lead_time")

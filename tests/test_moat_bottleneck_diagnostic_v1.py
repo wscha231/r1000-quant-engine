@@ -234,5 +234,24 @@ class MoatCausalSmoke(unittest.TestCase):
         self.assertFalse(out["oos_validated"])
 
 
+    def test_large_integer_yields_scoped_error_not_python_overflow(self):
+        p = copy.deepcopy(self.packet)
+        p["metrics"][0]["value"] = 10**1000
+        with self.assertRaisesRegex(MoatDiagnosticError, "metric_value"):
+            self.run_model(p)
+
+    def test_nonhashable_evidence_reference_yields_scoped_error(self):
+        p = copy.deepcopy(self.packet)
+        p["barriers"][BARRIERS[0]]["evidence_ids"] = [[]]
+        with self.assertRaisesRegex(MoatDiagnosticError, "barrier_evidence_refs"):
+            self.run_model(p)
+
+    def test_nonhashable_metric_name_yields_scoped_error(self):
+        p = copy.deepcopy(self.packet)
+        p["metrics"][0]["name"] = []
+        with self.assertRaisesRegex(MoatDiagnosticError, "metric_name_or_duplicate"):
+            self.run_model(p)
+
+
 if __name__ == "__main__":
     unittest.main()

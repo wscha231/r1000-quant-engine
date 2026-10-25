@@ -249,5 +249,13 @@ class MoatQualityV2Smoke(unittest.TestCase):
 
 
 
+# Research-only causal Moat diagnostic tests run through this existing Tier-1 wrapper.
+# No selector/portfolio logic or protected test registry is modified.
+def load_tests(loader, tests, pattern):
+    from test_moat_bottleneck_diagnostic_v1 import MoatCausalSmoke
+    tests.addTests(loader.loadTestsFromTestCase(MoatCausalSmoke))
+    return tests
+
+
 if __name__ == "__main__":
     unittest.main()
