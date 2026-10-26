@@ -324,8 +324,12 @@ def test_13f_workflow_refreshes_recent_metadata_and_fails_closed() -> None:
     assert "subset manager dispatch is non-canonical" in workflow
     assert "durable SEC publication requires" in workflow
     assert "canonical SEC restore is unavailable" in workflow
-    assert "restore_required_dir outputs/sec_ownership_signals 3m" in workflow
-    assert "restore_required_dir outputs/etf_thematic_signals 3m" in workflow
+    # Required analysis evidence is restored as explicit files after raw-source
+    # persistence. Directory-wide restore is intentionally no longer used.
+    assert 'timeout 3m rclone copyto "$BASE$f" "$f"' in workflow
+    assert 'test -s "$f"' in workflow
+    assert 'for f in outputs/sec_ownership_signals/form4_latest.csv data_pit/sec/sec_form4_merge_manifest.json outputs/etf_thematic_signals/signals_latest.csv data_pit/etf_holdings/etf_holdings.parquet; do' in workflow
+    assert workflow.index('Persist collected 13F source independently') < workflow.index('Restore required Form4 and ETF evidence') < workflow.index('Validate and score combined 13F Form4 ETF analysis')
     assert "outputs/sec_ownership_signals/" in workflow
     assert "outputs/etf_thematic_signals/" in workflow
     assert "warning: restore for" not in workflow

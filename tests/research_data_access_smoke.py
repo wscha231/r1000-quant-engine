@@ -405,6 +405,41 @@ class ReaderTest(unittest.TestCase):
                 self.blocked('PRE_CLOSE_AVAILABLE_FROM', purpose=purpose,
                              decision_time='2026-10-01T13:00:00Z', **options)
 
+    def test_arcx_research_and_discovery_enforce_completed_session(self):
+        for purpose in ('research', 'discovery'):
+            with self.subTest(purpose=purpose):
+                options = self.real_session('2026-10-01', '2026-10-01T00:00:00Z')
+                self.spec['files'][0]['instrument']['mic'] = 'ARCX'
+                self.blocked('PRE_CLOSE_AVAILABLE_FROM', purpose=purpose,
+                             decision_time='2026-10-01T13:00:00Z', **options)
+
+    def test_arcx_calendar_dst_early_close_holiday_and_unavailable_authority(self):
+        cases = [('2026-03-06', '21:00:00'), ('2026-03-09', '20:00:00'),
+                 ('2025-07-03', '17:00:00')]
+        for purpose in ('research', 'discovery'):
+            for session, close in cases:
+                with self.subTest(purpose=purpose, session=session):
+                    options = self.real_session(session, session + 'T' + close + 'Z')
+                    self.spec['files'][0]['instrument']['mic'] = 'ARCX'
+                    result = self.read(purpose=purpose, **options)
+                    self.assertEqual(len(result.rows), 1)
+                    self.assertFalse(result.receipt['eligible_for_economics'])
+            options = self.real_session('2026-07-03', '2026-07-03T21:00:00Z')
+            self.spec['files'][0]['instrument']['mic'] = 'ARCX'
+            self.blocked('INVALID_EXCHANGE_SESSION', purpose=purpose, **options)
+            options = self.real_session('2026-10-01', '2026-10-01T20:00:00Z')
+            self.spec['files'][0]['instrument']['mic'] = 'ARCX'
+            with patch('r1000_legacy_input_guard.latest_completed_close',
+                       side_effect=RuntimeError('schedule absent')):
+                self.blocked('SESSION_CALENDAR_UNAVAILABLE', purpose=purpose, **options)
+
+    def test_arcx_does_not_expand_training_or_backtest_venue_support(self):
+        options = self.real_session('2026-10-01', '2026-10-01T20:00:00Z')
+        self.spec['files'][0]['instrument']['mic'] = 'ARCX'
+        for purpose in ('training', 'backtest'):
+            with self.subTest(purpose=purpose):
+                self.blocked('UNSUPPORTED_SESSION_CALENDAR', purpose=purpose, **options)
+
     def test_actual_nyse_halfday_dst_and_holiday_boundaries(self):
         cases = [('2026-10-01', '20:00:00'), ('2026-07-02', '20:00:00'),
                  ('2025-07-03', '17:00:00'),

@@ -38,6 +38,22 @@ MAX_PAGES = 25
 GROUP_SIZE = 4
 SYMBOL = re.compile(r"[A-Z][A-Z0-9.-]{0,13}")
 
+# One reviewed research window, independent of the frozen IWB/174 lineage.
+FIXED_SPY_PROFILE = "spy-665-20261023-v1"
+FIXED_SPY_START = "2024-03-01"
+FIXED_SPY_END = "2026-10-24"
+FIXED_SPY_INPUT = b"ticker\nSPY\n"
+
+
+def _fixed_spy_scope():
+    return dict(task_key="R1000-A1-SPY-665-20261025", namespace="spy-665-20261023",
+                input_sha256=digest(FIXED_SPY_INPUT))
+
+
+def _fixed_spy_genesis():
+    return digest(encoded(dict(schema="a1-fixed-spy-data-genesis-v1",
+        cohort_scope=_fixed_spy_scope(), start=FIXED_SPY_START, end=FIXED_SPY_END)))
+
 
 def cohort(raw: bytes) -> list[str]:
     text = raw.decode("utf-8-sig")
@@ -756,7 +772,8 @@ def capture_one_group(drive: OwnerDrive, folder: str, symbols: list[str],
     return [raw_obj, norm_obj, rec_obj], collected, missing, len(normalized)
 
 
-def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=None, external=None):
+def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=None, external=None,
+             fixed_profile=None):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true",
             "USER_AUTHORIZATION_MISSING")
     require(os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
@@ -769,8 +786,15 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
     key = os.getenv("ALPACA_API_KEY", "").strip()
     secret = os.getenv("ALPACA_API_SECRET", "").strip()
     require(key and secret, "CREDENTIALS_MISSING")
-    require(args.start == MIN_START and MIN_START < args.end <= date.today().isoformat(),
-            "DATE_SCOPE")
+    if fixed_profile is None:
+        require(args.start == MIN_START and MIN_START < args.end <= date.today().isoformat(),
+                "DATE_SCOPE")
+    else:
+        require(fixed_profile == FIXED_SPY_PROFILE and args.start == FIXED_SPY_START
+                and args.end == FIXED_SPY_END and args.end <= date.today().isoformat()
+                and args.max_new_symbols == 1 and args.resume_file_id == args.resume_sha256 == ""
+                and external == dict(input_csv=FIXED_SPY_INPUT.decode(), scope=_fixed_spy_scope()),
+                "SPY665_SCOPE")
     require(1 <= args.max_new_symbols <= 32, "BATCH_SCOPE")
     scope, quarantine = None, None
     if external is None:
@@ -944,6 +968,635 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
         }
         print(json.dumps(result, sort_keys=True))
         return result
+
+
+def _verify_campaign_group(c, drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False):
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    start, end, genesis = "2016-01-04", "2026-10-14", None
+    if fixed_spy:
+        c.require(not reused_source and meter.identity.get("fixed_profile") == cap.FIXED_SPY_PROFILE
+                and meter.identity.get("cohort_scope") == cap._fixed_spy_scope()
+                and state.get("start") == cap.FIXED_SPY_START and state.get("end") == cap.FIXED_SPY_END
+                and state.get("seed_sha256") == cap.digest(cap.FIXED_SPY_INPUT)
+                and state.get("source_sha") == c.os.environ.get("GITHUB_SHA"), "SPY665_GROUP_SCOPE")
+        start, end, genesis = cap.FIXED_SPY_START, cap.FIXED_SPY_END, cap._fixed_spy_genesis()
+    stored = cap._private_object(drive, folder, checkpoint)
+    scope = meter.identity.get("cohort_scope")
+    previous = state.get("previous_checkpoint")
+    first_external = scope is not None and meter.examined == 0
+    c.require(c.decode(stored) == state and state.get("cohort_scope") == scope
+            and ((previous is None and meter.checkpoint_sha == (genesis or c.external_genesis(scope))) if first_external
+                 else isinstance(previous, dict) and previous.get("sha256") == meter.checkpoint_sha),
+            "CAMPAIGN_CHECKPOINT_CHAIN")
+    objects = state["last_objects"]
+    if state["last_status"] == "VERIFIED_RAW_SPLIT":
+        c.require(len(objects) == 3, "CAMPAIGN_GROUP_OBJECTS")
+        receipt = c.decode(cap._private_object(drive, folder, objects[2]))
+        raw = cap._private_object(drive, folder, objects[0])
+        normalized = cap._private_object(drive, folder, objects[1])
+        expected_source = c.os.environ["GITHUB_SHA"]
+        if reused_source and "price174_reuse" in meter.identity:
+            expected_source = c._revision_module().price174_reuse_source(c._module(),state,objects,receipt,meter,raw,normalized)
+        elif reused_source:
+            reuse = meter.identity.get("drive_orphan_reuse")
+            c.verify_drive_reuse(reuse, meter.identity)
+            recovery_spec = c.MATERIALIZATION_RECOVERY if "materialization" in reuse else c.DRIVE_RECOVERY
+            c.require(isinstance(reuse, dict) and receipt.get("recovered_from") == reuse
+                    and meter.identity.get("recovery_run") == recovery_spec["run_id"]
+                    and meter.identity.get("examined_before") == meter.examined == c.DRIVE_RECOVERY["examined"]
+                    and meter.checkpoint_sha == c.DRIVE_RECOVERY["checkpoint_sha256"]
+                    and receipt.get("symbols") == ["TWST", "UBS", "UL", "UPST"]
+                    and objects[0]["sha256"] == reuse.get("raw_sha256")
+                    and objects[1]["sha256"] == reuse.get("normalized_sha256")
+                    and reuse.get("failed_run_id") == recovery_spec["run_id"]
+                    and reuse.get("capture_source_sha") == c.DRIVE_RECOVERY["master"]
+                    and reuse.get("derivation_source_sha") == expected_source
+                    and reuse.get("derivation_run_id") == meter.identity["run_id"]
+                    and reuse.get("derivation_auth_sha256") == meter.identity["auth_sha256"]
+                    and reuse.get("parent_checkpoint_sha256") == c.DRIVE_RECOVERY["checkpoint_sha256"]
+                    and state.get("recovered_from") == reuse
+                    and state.get("source_sha") == c.DRIVE_RECOVERY["master"]
+                    and reuse.get("external_proof_sha256") == meter.identity["external_proof_sha256"],
+                    "EXTERNAL_ORPHAN_SOURCE")
+            expected_source = c.DRIVE_RECOVERY["master"]
+        c.require(receipt.get("raw_object") == objects[0]
+                and receipt.get("normalized_object") == objects[1]
+                and receipt.get("source_sha") == expected_source
+                and receipt.get("seed_sha256") == (scope["input_sha256"] if scope else c.SEED_SHA)
+                and receipt.get("cohort_scope") == scope
+                and receipt.get("start") == start
+                and receipt.get("end") == end
+                and receipt.get("collected") == state["last_collected"]
+                and receipt.get("no_bars") == state["last_no_bars"], "CAMPAIGN_GROUP_RECEIPT")
+        c.require(all(receipt.get(k) is False for k in
+                    ("source_admission", "pit_verified", "historical_identity_verified",
+                     "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
+        cap.verify_archived_group(raw, normalized, receipt)
+        if reused_source and "materialization" in locals().get("reuse",{}):
+            c.require(c.digest(cap.gzip.decompress(normalized)) == reuse["materialization"]["rows_sha256"],
+                    "EXTERNAL_MATERIAL_ROWS")
+        meter.rows += receipt["rows"]
+        meter.states["VALID_COLLECTED"] += len(receipt["collected"])
+        meter.states["VERIFIED_NO_DATA"] += len(receipt["no_bars"])
+    else:
+        c.require(state["last_status"] in (("HELD_BAR_VALUE", "HELD_PROVIDER_ASSET", "HELD_UNCERTAIN_STORAGE") if scope else ("HELD_BAR_VALUE",))
+                and len(objects) == 1,
+                "CAMPAIGN_GROUP_STATUS")
+        marker = c.decode(cap._private_object(drive, folder, objects[0]))
+        asset_hold = state["last_status"] == "HELD_PROVIDER_ASSET"
+        storage_hold = state["last_status"] == "HELD_UNCERTAIN_STORAGE"
+        c.require(marker.get("status") == state["last_status"]
+                and marker.get("reason") == ("DRIVE_CREATE_OUTCOME_UNKNOWN" if storage_hold else "PROVIDER_ASSET_UNAVAILABLE" if asset_hold else "BAR_VALUE")
+                and marker.get("symbols") == state["last_held"]
+                and marker.get("source_sha") == c.os.environ["GITHUB_SHA"]
+                and marker.get("seed_sha256") == (scope["input_sha256"] if scope else c.SEED_SHA)
+                and marker.get("cohort_scope") == scope
+                and marker.get("start") == start and marker.get("end") == end
+                and marker.get("original_price_bytes_retained") is False,
+                "CAMPAIGN_HELD_MARKER")
+        if storage_hold:
+            cap.verify_storage_hold(marker,state)
+            evidence = marker["uncertain_storage"]
+            c.require(meter.examined == c.NATIVE18_RECOVERY["examined"]
+                    and meter.identity.get("recovery_run") == c.NATIVE18_RECOVERY["run_id"]
+                    and evidence["authorization_sha256"] == meter.identity.get("auth_sha256")
+                    and evidence["external_proof_sha256"] == meter.identity.get("external_proof_sha256")
+                    and evidence["native_settlement_sha256"] == meter.identity.get("native18_settlement_sha256")
+                    and evidence["recovery_run_id"] == meter.identity.get("run_id"),
+                    "EXTERNAL_NATIVE18_HELD")
+            meter.identity["uncertain_storage_hold"] = dict(evidence=evidence,
+                marker_sha256=objects[0]["sha256"],checkpoint_sha256=checkpoint["sha256"])
+        if asset_hold:
+            cap.verify_asset_evidence(marker.get("asset_precheck"), state["last_held"])
+            c.require(all(not cap.asset_supported(row) for row in marker["asset_precheck"]),
+                    "EXTERNAL_ASSET_EVIDENCE")
+        c.require(all(marker.get(k) is False for k in
+                    ("source_admission", "pit_verified", "historical_identity_verified",
+                     "commercial_use_authorized")), "CAMPAIGN_GROUP_AUTHORITY")
+        meter.states["QUARANTINED"] += len(state["last_held"])
+    meter.examined = len(state["examined"])
+    meter.checkpoint_sha = checkpoint["sha256"]
+    # Flush the private reference before publishing its SHA in the public
+    # meter. No provider bytes enter this existing Actions log surface.
+    print("CAMPAIGN_VERIFIED_CHECKPOINT " + c.json.dumps(checkpoint, sort_keys=True), flush=True)
+    meter.save()  # Advances only after a separate, semantic readback.
+
+
+def _fixed_spy_authorization(c, auth):
+    """Structural validation only; neither a local dict nor tests grant I/O."""
+    extra = {"fixed_profile", "parent_manifest_reference", "parent_manifest_sha256",
+             "subcaps", "wall_seconds", "phases", "not_before_utc", "expires_at_utc"}
+    require(isinstance(auth, dict) and set(auth) == c.AUTH_FIELDS | extra
+            and auth.get("schema") == "a1-fixed-spy-authorization-v1"
+            and auth.get("task_key") == c.TASK
+            and auth.get("fixed_profile") == FIXED_SPY_PROFILE
+            and auth.get("scope_approved") is True
+            and auth.get("private_noncommercial") is True, "SPY665_AUTHORIZATION")
+    require(auth.get("start") == FIXED_SPY_START and auth.get("end") == FIXED_SPY_END
+            and auth.get("seed_sha256") == digest(FIXED_SPY_INPUT)
+            and auth.get("initial_checkpoint_sha256") == _fixed_spy_genesis()
+            and auth.get("initial_checkpoint_file_id") == ""
+            and auth.get("transfer_definition") == c.METRIC, "SPY665_SCOPE")
+    require(auth.get("limits") == c.CONTINUED_LIMITS
+            and all(type(auth["limits"][k]) is int for k in c.LIMITS), "SPY665_LIMITS")
+    caps = dict(provider_gets=3, drive_requests=64, drive_bytes=64*1024**2,
+                storage_bytes=4*1024**2)
+    require(isinstance(auth.get("subcaps"), dict) and set(auth["subcaps"]) == set(caps),
+            "SPY665_SUBCAP")
+    for key in caps:
+        c.integer(auth["subcaps"][key], caps[key], "SPY665_SUBCAP")
+    require(type(auth.get("wall_seconds")) is int and 1 <= auth["wall_seconds"] <= 900
+            and auth.get("phases") in (["capture"], ["preflight", "capture"]),
+            "SPY665_PHASES")
+    require(c.utc(auth["not_before_utc"]) < c.utc(auth["expires_at_utc"])
+            <= c.utc(auth["not_before_utc"]) + timedelta(hours=48), "SPY665_CLOCK")
+    require(type(auth.get("workflow_run_floor")) is int
+            and 1 <= auth["workflow_run_floor"] <= 1_000_000_000
+            and isinstance(auth.get("expected_master"), str)
+            and re.fullmatch(r"[0-9a-f]{40}", auth["expected_master"]), "SPY665_SOURCE")
+    require(isinstance(auth.get("code_pins"), dict)
+            and set(auth["code_pins"]) == set(c.PINS + (c.REVISION_MODULE,))
+            and all(isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v)
+                    for v in auth["code_pins"].values()), "SPY665_CODE_PINS")
+    for key in ("private_root_folder_id", "private_data_folder_id"):
+        require(isinstance(auth.get(key), str)
+                and re.fullmatch(r"[A-Za-z0-9_-]{10,100}", auth[key]), "SPY665_PRIVATE_REF")
+    for key in ("approval_reference", "account_permission_reference"):
+        require(isinstance(auth.get(key), str) and 0 < len(auth[key]) <= 512,
+                "SPY665_ACCOUNT_REFERENCE")
+    require(isinstance(auth.get("owner_permission_id"), str)
+            and 0 < len(auth["owner_permission_id"]) <= 128
+            and isinstance(auth.get("credential_binding"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", auth["credential_binding"])
+            and isinstance(auth.get("parent_manifest_sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", auth["parent_manifest_sha256"])
+            and isinstance(auth.get("parent_manifest_reference"), str)
+            and re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+                             auth["parent_manifest_reference"]), "SPY665_PARENT_BINDING")
+    require(len(encoded(auth)) <= 12000, "CAMPAIGN_CONTROL_SIZE")
+    return digest(encoded(auth))
+
+
+def _fixed_spy_owner_record(c, reference, tag, *, window=None):
+    """Canonical immutable OWNER record, never caller-supplied approved=true."""
+    match = re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)",
+                         reference or "")
+    require(match is not None, "SPY665_OWNER_RECORD")
+    comment = c.gh_json(f"repos/{c.REPO}/issues/comments/{match[1]}")
+    require(isinstance(comment, dict) and type(comment.get("id")) is int
+            and comment["id"] == int(match[1])
+            and comment.get("issue_url") == f"https://api.github.com/repos/{c.REPO}/issues/448"
+            and comment.get("author_association") == "OWNER"
+            and comment.get("user", {}).get("type") == "User"
+            and type(comment["user"].get("id")) is int and comment["user"]["id"] > 0
+            and comment.get("created_at") == comment.get("updated_at")
+            and c.utc(comment.get("created_at")) <= c.utc()
+            and isinstance(comment.get("body"), str)
+            and len(comment["body"].encode()) <= 60000, "SPY665_OWNER_RECORD")
+    if window is not None:
+        require(c.utc(window[0]) <= c.utc(comment["created_at"]) < c.utc(window[1]),
+                "SPY665_OWNER_CLOCK")
+    lines = [line[len(tag):] for line in comment["body"].splitlines() if line.startswith(tag)]
+    require(len(lines) == 1, "SPY665_OWNER_RECORD")
+    return decode(lines[0])
+
+
+def _fixed_spy_parent(c, auth):
+    parent = _fixed_spy_owner_record(c, auth["parent_manifest_reference"],
+                                     "A1_SIP_CLOSED_PARENT_MANIFEST ")
+    fields = {"schema", "family_genesis_sha256", "family_prefix_count",
+              "family_prefix_first_sha256", "family_prefix_head_sha256", "runs", "used",
+              "active_seconds", "event_count", "closed", "accepted_evidence_manifest_sha256",
+              "independent_review_sha256", "bindings", "workflow_run_floor"}
+    require(isinstance(parent, dict) and set(parent) == fields
+            and digest(encoded(parent)) == auth["parent_manifest_sha256"]
+            and parent.get("schema") == "a1-sip-closed-parent-manifest-v1"
+            and parent.get("closed") is True
+            and parent.get("family_genesis_sha256") == c.external_family_genesis()
+            and parent.get("workflow_run_floor") == auth["workflow_run_floor"], "SPY665_PARENT")
+    for key in ("family_prefix_first_sha256", "family_prefix_head_sha256",
+                "accepted_evidence_manifest_sha256", "independent_review_sha256"):
+        require(isinstance(parent.get(key), str) and re.fullmatch(r"[0-9a-f]{64}", parent[key]),
+                "SPY665_PARENT")
+    require(type(parent.get("family_prefix_count")) is int
+            and 1 <= parent["family_prefix_count"] <= 1000
+            and isinstance(parent.get("runs"), list) and 1 <= len(parent["runs"]) <= 40
+            and parent.get("event_count") == len(parent["runs"])
+            and type(parent["event_count"]) is int
+            and isinstance(parent.get("used"), dict) and set(parent["used"]) == set(c.LIMITS),
+            "SPY665_PARENT")
+    used = dict.fromkeys(c.LIMITS, 0)
+    active, ids, nonces, numbers = 0, [], [], []
+    for row in parent["runs"]:
+        require(isinstance(row, dict) and set(row) == {"id", "run_number", "nonce", "display_title", "head_sha",
+                    "auth_sha256", "meter_or_closure_sha256", "usage", "active_seconds"}
+                and type(row.get("id")) is int and row["id"] > 0
+                and type(row.get("run_number")) is int and row["run_number"] > 0
+                and isinstance(row.get("nonce"), str)
+                and re.fullmatch(c.PREFIX+r"[0-9a-f]{24}", row["nonce"])
+                and isinstance(row.get("head_sha"), str) and re.fullmatch(r"[0-9a-f]{40}", row["head_sha"])
+                and isinstance(row.get("usage"), dict) and set(row["usage"]) == set(c.LIMITS),
+                "SPY665_PARENT_VECTOR")
+        require(isinstance(row.get("display_title"), str)
+                and re.fullmatch("a1-sip " + re.escape(row["nonce"])
+                    + r"(?: native-read(?:39085031884|39235028468))?", row["display_title"]),
+                "SPY665_PARENT_TITLE")
+        for key in ("auth_sha256", "meter_or_closure_sha256"):
+            require(isinstance(row.get(key), str) and re.fullmatch(r"[0-9a-f]{64}", row[key]),
+                    "SPY665_PARENT_VECTOR")
+        for key in used:
+            used[key] += c.integer(row["usage"][key], c.CONTINUED_LIMITS[key])
+        active += c.integer(row["active_seconds"], 43200)
+        ids.append(row["id"]); nonces.append(row["nonce"]); numbers.append(row["run_number"])
+    require(ids == sorted(set(ids)) and numbers == sorted(set(numbers))
+            and len(set(nonces)) == len(nonces)
+            and used == parent["used"] and any(used.values())
+            and type(parent.get("active_seconds")) is int and active == parent["active_seconds"]
+            and active <= 43200, "SPY665_PARENT_ACCOUNTING")
+    for key in used:
+        c.integer(used[key], c.CONTINUED_LIMITS[key])
+    require(parent.get("bindings") == dict(owner_sha256=digest(auth["owner_permission_id"].encode()),
+                                            credential_binding=auth["credential_binding"]),
+            "SPY665_ACCOUNT_BINDING")
+    return parent
+
+
+def _fixed_spy_grant(c, auth, reference):
+    h = _fixed_spy_authorization(c, auth)
+    grant = _fixed_spy_owner_record(c, reference, "A1_SIP_FIXED_SPY_EXECUTION ",
+                    window=(auth["not_before_utc"], auth["expires_at_utc"]))
+    expected = dict(schema="a1-fixed-spy-execution-v1", auth_sha256=h,
+        parent_manifest_sha256=auth["parent_manifest_sha256"], profile=FIXED_SPY_PROFILE,
+        start=FIXED_SPY_START, end=FIXED_SPY_END, input_sha256=digest(FIXED_SPY_INPUT),
+        eligible_purpose="PRIVATE_NONCOMMERCIAL_RESEARCH", current_account_reviewed=True,
+        supplier_rights_verified=False, source_admission=False, economic_authority=False,
+        not_before_utc=auth["not_before_utc"], expires_at_utc=auth["expires_at_utc"],
+        account_permission_reference_sha256=digest(auth["account_permission_reference"].encode()))
+    require(grant == expected and c.utc(auth["not_before_utc"]) <= c.utc()
+            < c.utc(auth["expires_at_utc"]), "SPY665_EXECUTION_GRANT")
+    return digest(encoded(grant))
+
+
+def _fixed_spy_noncollection_run(c, run):
+    """Recognize one failed historical workflow-validation stub, never a push class.
+
+    Its immutable workflow blob 93a38491a0180e0ba2b99e3a6086fc79c741c76e
+    has invalid YAML and permits capture only for workflow_dispatch on master.
+    Canonical runnerless review checks must still match on every observation.
+    This classification refunds no provider, storage or platform expenditure.
+    """
+    if run.get("id") != 39388523155:
+        return False
+    expected = dict(id=39388523155, run_number=98, event="push", run_attempt=1,
+        name=".github/workflows/alpaca_sip_private_backfill_v1.yml",
+        path=".github/workflows/alpaca_sip_private_backfill_v1.yml", workflow_id=382519204,
+        head_sha="284abcb6a90549d9fe047fce679c8695020fdefd",
+        head_branch="task/a1-named-read39235028468-20261019",
+        display_title="fix(source): bind renewed read392 window to protected deployment",
+        status="completed", conclusion="failure", check_suite_id=106734505787,
+        created_at="2026-10-20T07:44:30Z", updated_at="2026-10-20T07:44:30Z",
+        run_started_at="2026-10-20T07:44:30Z")
+    require(all(type(run.get(key)) is type(value) and run[key] == value
+                for key, value in expected.items()),
+            "SPY665_NONCOLLECTION_RUN")
+    jobs = c.gh_json(f"repos/{c.REPO}/actions/runs/39388523155/jobs?per_page=100")
+    require(isinstance(jobs, dict) and type(jobs.get("total_count")) is int
+            and jobs["total_count"] == 2 and isinstance(jobs.get("jobs"), list)
+            and len(jobs["jobs"]) == 2, "SPY665_NONCOLLECTION_JOBS")
+    identities = ((118514193309, "review_head_observed", "success", "2026-10-20T07:44:41Z"),
+                  (118514203527, "review_complete", "failure", "2026-10-20T07:44:42Z"))
+    require(all(isinstance(job, dict) and type(job.get("id")) is int for job in jobs["jobs"])
+            and {job["id"] for job in jobs["jobs"]} == {row[0] for row in identities},
+            "SPY665_NONCOLLECTION_JOBS")
+    for job_id, name, conclusion, clock in identities:
+        job = next(job for job in jobs["jobs"] if job["id"] == job_id)
+        pinned = dict(id=job_id, run_id=39388523155, run_attempt=1, name=name,
+            head_sha=expected["head_sha"], head_branch=expected["head_branch"],
+            workflow_name=expected["name"], status="completed", conclusion=conclusion,
+            created_at=clock, started_at=clock, completed_at=clock,
+            steps=[], labels=[], runner_id=None, runner_name=None,
+            runner_group_id=None, runner_group_name=None)
+        require(set(pinned) <= set(job)
+                and all(type(job[key]) is type(value) and job[key] == value
+                        for key, value in pinned.items()),
+                "SPY665_NONCOLLECTION_JOBS")
+    return True
+
+
+def _fixed_spy_history(c, auth, parent, grant_sha, *, current_run=None, nonce=None):
+    """Every canonical dispatch belongs to the closed prefix or this exact tail."""
+    runs = c.campaign_runs(auth["workflow_run_floor"])
+    all_runs = c.campaign_run_pages(c)
+    require(all(type(r.get("run_number")) is int and r["run_number"] > 0
+                and type(r.get("id")) is int and r["id"] > 0 for r in all_runs)
+            and len({r["id"] for r in all_runs}) == len(all_runs),
+            "SPY665_CENSUS")
+    noncollection = {r["id"] for r in all_runs if _fixed_spy_noncollection_run(c, r)}
+    dispatches = [r for r in all_runs if r["run_number"] >= auth["workflow_run_floor"]
+                  and r.get("event") != "pull_request" and r["id"] not in noncollection]
+    require(all(r.get("event") == "workflow_dispatch" for r in dispatches)
+            and {r["id"] for r in dispatches} == {r["id"] for r in runs},
+            "SPY665_UNKNOWN_DISPATCH")
+    fields = ("id", "run_number", "display_title", "head_sha", "head_branch",
+              "run_attempt", "status", "conclusion")
+    require({tuple(r.get(k) for k in fields) for r in dispatches}
+            == {tuple(r.get(k) for k in fields) for r in runs}, "SPY665_CENSUS_DRIFT")
+    require(len(runs) <= 40 and len({r.get("id") for r in runs}) == len(runs)
+            and len({r.get("display_title") for r in runs}) == len(runs), "SPY665_CENSUS")
+    if current_run is not None:
+        require(runs and runs[-1].get("id") == current_run
+                and runs[-1].get("display_title") == "a1-sip " + nonce
+                and runs[-1].get("run_attempt") == 1
+                and runs[-1].get("head_sha") == auth["expected_master"]
+                and runs[-1].get("head_branch") == "master", "SPY665_CURRENT_RUN")
+        previous = runs[:-1]
+    else:
+        previous = runs
+    old = parent["runs"]
+    require(len(previous) >= len(old)
+            and len(old) + len(auth["phases"]) <= 40
+            and parent["active_seconds"] + auth["wall_seconds"] <= 43200,
+            "SPY665_PARENT_REMAINING")
+    for actual, pinned in zip(previous, old):
+        require(actual.get("id") == pinned["id"] and actual.get("run_number") == pinned["run_number"]
+                and actual.get("run_attempt") == 1 and actual.get("status") == "completed"
+                and actual.get("head_sha") == pinned["head_sha"]
+                and actual.get("head_branch") == "master"
+                and actual.get("display_title") == pinned["display_title"],
+                "SPY665_PARENT_CENSUS_DRIFT")
+    tail = previous[len(old):]
+    require(len(tail) <= len(auth["phases"]), "SPY665_PHASE_LIMIT")
+    used, spent, active, receipts, blocked = dict(parent["used"]), dict.fromkeys(c.LIMITS, 0), 0, [], False
+    h = digest(encoded(auth))
+    for phase, run in zip(auth["phases"], tail):
+        allowance = {k: min(auth["limits"][k]-used[k], auth["subcaps"][k]-spent[k]) for k in used}
+        value = c.receipt_for_run(run, h, auth["expected_master"], auth["limits"])
+        require(value.get("fixed_profile") == FIXED_SPY_PROFILE
+                and value.get("parent_manifest_sha256") == auth["parent_manifest_sha256"]
+                and value.get("scope_grant_sha256") == grant_sha
+                and value.get("cohort_scope") == _fixed_spy_scope()
+                and value.get("parent_checkpoint_sha256") == _fixed_spy_genesis()
+                and value.get("shared_family_prefix_sha256") == parent["family_prefix_head_sha256"]
+                and value.get("bindings") == parent["bindings"]
+                and value.get("account_permission_reference_sha256") == digest(auth["account_permission_reference"].encode())
+                and value.get("account_permission_record_sha256") == grant_sha
+                and value.get("preflight_only") is (phase == "preflight")
+                and value.get("allowance") == allowance
+                and value.get("examined_before") == 0
+                and value.get("examined_after") in (0, 1), "SPY665_RECEIPT")
+        for key in used:
+            used[key] += value["usage"][key]
+            spent[key] += value["usage"][key]
+        active += c.job_seconds(run)
+        blocked |= value["status"] != "COMPLETE" or run.get("conclusion") != "success"
+        receipts.append(value)
+    require(active <= auth["wall_seconds"]
+            and parent["active_seconds"] + active <= 43200, "SPY665_ACTIVE_TIME")
+    allowance = {k: min(auth["limits"][k]-used[k], auth["subcaps"][k]-spent[k]) for k in used}
+    for key in allowance:
+        c.integer(allowance[key], auth["limits"][key], "SPY665_REMAINING")
+    require(current_run is None or len(tail) < len(auth["phases"]), "SPY665_PHASE_LIMIT")
+    return dict(runs=runs, tail_runs=tail, tail_receipts=receipts, allowance=allowance,
+                used=used, scope_used=spent, scope_active_seconds=active, blocked=blocked,
+                phase=auth["phases"][len(tail)] if len(tail) < len(auth["phases"]) else None)
+
+
+def _fixed_spy_worker(c, args, control, journal):
+    require(isinstance(control, dict) and set(control) ==
+            {"authorization", "nonce", "fixed_spy_grant_reference", "preflight_only"}, "SPY665_CONTROL")
+    auth, nonce = control["authorization"], control["nonce"]
+    h = _fixed_spy_authorization(c, auth)
+    c.verify_worker_source(auth)
+    require(isinstance(nonce, str) and re.fullmatch(c.PREFIX+r"[0-9a-f]{24}", nonce)
+            and nonce == os.getenv("INPUT_CAMPAIGN_NONCE")
+            and args.start == MIN_START and args.end == FIXED_SPY_END
+            and args.max_new_symbols == 1
+            and args.private_root_folder_id == auth["private_root_folder_id"]
+            and args.private_data_folder_id == auth["private_data_folder_id"]
+            and args.resume_file_id == args.resume_sha256 == ""
+            and type(control["preflight_only"]) is bool, "SPY665_DELIVERY")
+    parent = _fixed_spy_parent(c, auth)
+    grant_sha = _fixed_spy_grant(c, auth, control["fixed_spy_grant_reference"])
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    observed = _fixed_spy_history(c, auth, parent, grant_sha, current_run=run_id, nonce=nonce)
+    preflight = control["preflight_only"]
+    require(not observed["blocked"] and preflight is (observed["phase"] == "preflight"), "SPY665_PHASE")
+    key, secret = os.getenv("ALPACA_API_KEY", "").strip(), os.getenv("ALPACA_API_SECRET", "").strip()
+    require(key and secret and digest((key+"\0"+secret).encode()) == auth["credential_binding"],
+            "CAMPAIGN_CREDENTIAL_BINDING")
+    jobs = c.gh_json(f"repos/{c.REPO}/actions/runs/{run_id}/jobs?per_page=100")
+    require(isinstance(jobs.get("jobs"), list) and jobs.get("total_count") == len(jobs["jobs"]) == 2,
+            "CAMPAIGN_JOB_TIME")
+    live = [j for j in jobs["jobs"] if j.get("name") == "capture" and j.get("status") == "in_progress"]
+    require(len(live) == 1, "CAMPAIGN_JOB_TIME")
+    started = c.utc(live[0].get("started_at"))
+    require(started <= c.utc() + timedelta(seconds=5), "CAMPAIGN_JOB_TIME")
+    offline = [j for j in jobs["jobs"] if j.get("name") == "offline"]
+    require(len(offline) == 1 and offline[0].get("status") == "completed"
+            and offline[0].get("conclusion") == "success", "SPY665_OFFLINE_JOB")
+    offline_started, offline_end = c.utc(offline[0].get("started_at")), c.utc(offline[0].get("completed_at"))
+    offline_seconds = (offline_end-offline_started).total_seconds()
+    require(offline_started <= offline_end <= started and 0 <= offline_seconds <= 7800,
+            "CAMPAIGN_JOB_TIME")
+    deadline = min(c.utc(auth["expires_at_utc"]), started + timedelta(
+        seconds=auth["wall_seconds"]-observed["scope_active_seconds"]-offline_seconds))
+    require(c.utc() < deadline, "CAMPAIGN_DEADLINE")
+    identity = dict(task_key=c.TASK, auth_sha256=h, source_sha=auth["expected_master"],
+        nonce=nonce, run_id=run_id, run_attempt=1, recovery_run=None, preflight_only=preflight,
+        fixed_profile=FIXED_SPY_PROFILE, cohort_scope=_fixed_spy_scope(),
+        parent_manifest_sha256=auth["parent_manifest_sha256"], scope_grant_sha256=grant_sha,
+        shared_family_prefix_sha256=parent["family_prefix_head_sha256"],
+        bindings=parent["bindings"], parent_checkpoint_sha256=_fixed_spy_genesis(), examined_before=0,
+        account_permission_reference_sha256=digest(auth["account_permission_reference"].encode()),
+        account_permission_record_sha256=grant_sha)
+    meter = c.RuntimeMeter(observed["allowance"], journal, deadline.isoformat(), identity,
+                           limits=auth["limits"], asset_symbols=("SPY",))
+    def factory(root, temp):
+        drive = OwnerDrive(root, temp, meter=meter)
+        require(drive.owner == auth["owner_permission_id"]
+                and drive.free >= observed["allowance"]["storage_bytes"], "CAMPAIGN_OWNER_OR_SPACE")
+        meter.identity["free_bytes_at_start"] = drive.free
+        meter.save()
+        return drive
+    private_args = argparse.Namespace(**dict(vars(args), start=FIXED_SPY_START))
+    try:
+        with meter.process_deadline():
+            if preflight:
+                with tempfile.TemporaryDirectory(prefix="a1-spy-preflight-") as temp:
+                    drive = factory(args.private_root_folder_id, temp)
+                    drive.check(args.private_data_folder_id, drive.root_id)
+                result = None
+            else:
+                result = _collect(private_args, drive_factory=factory, get=meter.perform,
+                    expected_examined=0, external=dict(input_csv=FIXED_SPY_INPUT.decode(),
+                        scope=_fixed_spy_scope()), fixed_profile=FIXED_SPY_PROFILE,
+                    on_group=lambda drive, state, ref: c.verify_new_group(drive,
+                        args.private_data_folder_id, state, ref, meter, fixed_spy=True))
+                require(meter.examined == 1 and meter.checkpoint_sha == result["checkpoint"]["sha256"],
+                        "CAMPAIGN_BATCH_CLOSURE")
+        meter.finish("COMPLETE")
+        return result
+    except Refused as exc:
+        meter.finish("BLOCKED", str(exc)); raise
+    except Exception:
+        meter.finish("BLOCKED", "CAMPAIGN_INTERNAL")
+        raise Refused("CAMPAIGN_INTERNAL") from None
+
+
+def _fixed_spy_family(c, auth, parent, grant_sha, budget_state_dir):
+    require(budget_state_dir is not None, "SPY665_SHARED_JOURNAL_REQUIRED")
+    supplied = Path(budget_state_dir)
+    require(supplied.is_dir() and not supplied.is_symlink(), "SPY665_SHARED_JOURNAL_REQUIRED")
+    budget = supplied.resolve()
+    directory = budget.parent / ("external-budget-" + c.CONTINUATION["auth"][:16])
+    require(budget.is_dir() and not budget.is_symlink()
+            and directory.is_dir() and not directory.is_symlink(), "SPY665_SHARED_JOURNAL_REQUIRED")
+    family = c.WorkJournal(directory, c.external_family_genesis())
+    try:
+        count = parent["family_prefix_count"]
+        require(len(family.entries) >= count
+                and family.entries[0].get("kind") == "EXTERNAL_FAMILY_BOUND"
+                and family.entries[0].get("budget_state_root") == os.path.normcase(str(budget))
+                and digest(c.bounded_bytes(directory / "000001.json")) == parent["family_prefix_first_sha256"]
+                and digest(c.bounded_bytes(directory / f"{count:06d}.json")) == parent["family_prefix_head_sha256"],
+                "SPY665_SHARED_PREFIX_DRIFT")
+        binding = dict(profile=FIXED_SPY_PROFILE, capture_auth_sha256=digest(encoded(auth)),
+            scope_grant_sha256=grant_sha, parent_manifest_sha256=auth["parent_manifest_sha256"],
+            shared_parent_sha256=parent["family_prefix_head_sha256"],
+            data_genesis_sha256=_fixed_spy_genesis(), cohort_scope=_fixed_spy_scope())
+        if len(family.entries) == count:
+            family.append("SPY665_PROFILE_BOUND", **binding)
+        first = family.entries[count]
+        require(first.get("kind") == "SPY665_PROFILE_BOUND"
+                and {k: first.get(k) for k in binding} == binding, "SPY665_SHARED_BINDING")
+        return family
+    except BaseException:
+        family.close(); raise
+
+
+def _fixed_spy_reconcile(c, family, auth, parent, observed):
+    """Only this bounded typed tail is new; historical bytes remain untouched."""
+    tail = family.entries[parent["family_prefix_count"] + 1:]
+    pending, phase_index, settled = None, 0, []
+    for entry in tail:
+        kind = entry.get("kind")
+        require(entry.get("capture_auth_sha256") == digest(encoded(auth)), "SPY665_SHARED_TAIL")
+        if kind == "SPY665_RESERVED":
+            require(pending is None and phase_index < len(auth["phases"])
+                    and entry.get("phase") == auth["phases"][phase_index]
+                    and isinstance(entry.get("nonce"), str)
+                    and re.fullmatch(c.PREFIX+r"[0-9a-f]{24}", entry["nonce"]), "SPY665_SHARED_TAIL")
+            pending = dict(entry)
+        elif kind == "SPY665_RUN_ASSIGNED":
+            require(pending is not None and "assigned_run_id" not in pending
+                    and entry.get("nonce") == pending["nonce"]
+                    and type(entry.get("run_id")) is int, "SPY665_SHARED_TAIL")
+            pending["assigned_run_id"] = entry["run_id"]
+        elif kind == "SPY665_SETTLED":
+            require(pending is not None and phase_index < len(observed["tail_runs"]),
+                    "SPY665_SHARED_TAIL")
+            run, value = observed["tail_runs"][phase_index], observed["tail_receipts"][phase_index]
+            require(entry.get("nonce") == pending["nonce"] == value["nonce"]
+                    and entry.get("run_id") == pending.get("assigned_run_id") == run["id"]
+                    and entry.get("receipt_sha256") == digest(encoded(value))
+                    and entry.get("usage") == value["usage"]
+                    and entry.get("status") == value["status"]
+                    and entry.get("phase") == pending["phase"]
+                    and pending.get("allowance") == value["allowance"]
+                    and entry.get("checkpoint") == c.checkpoint_from_log(run, value,
+                        dict(file_id="", sha256=_fixed_spy_genesis())), "SPY665_SETTLEMENT_DRIFT")
+            settled.append(run["id"]); phase_index += 1; pending = None
+        else:
+            raise Refused("SPY665_SHARED_TAIL")
+    require(phase_index <= len(observed["tail_runs"]) <= phase_index + (pending is not None),
+            "SPY665_JOURNAL_ROLLBACK_OR_UNKNOWN_RUN")
+    return pending, phase_index
+
+
+def _fixed_spy_host(c, auth, state_dir, budget_state_dir, grant_reference, max_batches):
+    """One fixed finite tail in the existing shared journal, never a new family."""
+    h = _fixed_spy_authorization(c, auth)
+    require(type(max_batches) is int and 1 <= max_batches <= len(auth["phases"]), "SPY665_PHASE_LIMIT")
+    parent = _fixed_spy_parent(c, auth)
+    grant_sha = _fixed_spy_grant(c, auth, grant_reference)
+    require(budget_state_dir is not None and Path(state_dir).resolve() == Path(budget_state_dir).resolve().parent
+            / ("fixed-" + FIXED_SPY_PROFILE) and not Path(state_dir).is_symlink(), "SPY665_STATE_PATH")
+    family = _fixed_spy_family(c, auth, parent, grant_sha, budget_state_dir)
+    closed_now = 0
+    try:
+        Path(state_dir).mkdir(exist_ok=True)
+        while True:
+            observed = _fixed_spy_history(c, auth, parent, grant_sha)
+            pending, done = _fixed_spy_reconcile(c, family, auth, parent, observed)
+            if pending is not None:
+                matches = [(r, v) for r, v in zip(observed["tail_runs"], observed["tail_receipts"])
+                           if v["nonce"] == pending["nonce"]]
+                require(len(matches) == 1, "CAMPAIGN_ACTIVE_RESERVATION")
+                run, value = matches[0]
+                if "assigned_run_id" not in pending:
+                    family.append("SPY665_RUN_ASSIGNED", capture_auth_sha256=h,
+                                  nonce=pending["nonce"], run_id=run["id"])
+                else:
+                    require(pending["assigned_run_id"] == run["id"], "SPY665_SHARED_TAIL")
+                require(pending["allowance"] == value["allowance"], "SPY665_SETTLEMENT_DRIFT")
+                # A verified checkpoint reference is an output, never admission.
+                ref = c.checkpoint_from_log(run, value, dict(file_id="", sha256=_fixed_spy_genesis()))
+                family.append("SPY665_SETTLED", capture_auth_sha256=h, nonce=value["nonce"],
+                    run_id=run["id"], phase=pending["phase"], receipt_sha256=digest(encoded(value)),
+                    usage=value["usage"], status=value["status"], checkpoint=ref)
+                closed_now += 1
+                continue
+            require(not observed["blocked"], "CAMPAIGN_WORKER_BLOCKED")
+            if observed["phase"] is None or closed_now >= max_batches:
+                result = dict(status="SPY665_PHASE_BOUNDARY", profile=FIXED_SPY_PROFILE,
+                    phases_closed=done, shared_used=observed["used"], scope_used=observed["scope_used"],
+                    source_admission=False, pit_verified=False, economic_authority=False)
+                c.atomic_json(Path(state_dir) / "progress", result)
+                return result
+            require(len(observed["runs"]) < 40
+                    and observed["scope_active_seconds"] < auth["wall_seconds"], "SPY665_DISPATCH_BUDGET")
+            require(c.gh_json(f"repos/{c.REPO}/branches/master")["commit"]["sha"] == auth["expected_master"],
+                    "CAMPAIGN_MASTER_DRIFT")
+            for path in c.PINS + (c.REVISION_MODULE,):
+                value = c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={auth['expected_master']}")
+                require(value.get("encoding") == "base64"
+                        and digest(c.base64.b64decode(value["content"], validate=False)) == auth["code_pins"][path],
+                        "CAMPAIGN_DEPLOYED_CODE")
+            require(_fixed_spy_grant(c, auth, grant_reference) == grant_sha
+                    and _fixed_spy_history(c, auth, parent, grant_sha) == observed, "SPY665_CANONICAL_DRIFT")
+            nonce = c.PREFIX + os.urandom(12).hex()
+            phase = observed["phase"]
+            control = dict(authorization=auth, nonce=nonce, fixed_spy_grant_reference=grant_reference,
+                           preflight_only=phase == "preflight")
+            raw = encoded(control)
+            require(len(raw) <= 16384, "CAMPAIGN_CONTROL_SIZE")
+            family.append("SPY665_RESERVED", capture_auth_sha256=h, nonce=nonce, phase=phase,
+                allowance=observed["allowance"], remaining_active_seconds=auth["wall_seconds"]-observed["scope_active_seconds"],
+                remaining_event_slots=40-len(observed["runs"]))
+            inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
+                private_data_folder_id=auth["private_data_folder_id"], private_research_authorized="true",
+                noncommercial_terms_acknowledged="true", end_date=FIXED_SPY_END, max_new_symbols="1",
+                resume_file_id="", resume_sha256="", campaign_control=raw.decode(), campaign_nonce=nonce)
+            result = c.subprocess.run(["gh", "workflow", "run", c.WORKFLOW, "--repo", c.REPO,
+                "--ref", "master", "--json"], input=c.json.dumps(inputs).encode(),
+                stdout=c.subprocess.DEVNULL, stderr=c.subprocess.DEVNULL, timeout=45)
+            require(result.returncode == 0, "CAMPAIGN_DISPATCH_UNCERTAIN")
+            found = None
+            for _ in range(30):
+                matches = [r for r in c.campaign_runs(auth["workflow_run_floor"])
+                           if r.get("display_title") == "a1-sip " + nonce]
+                require(len(matches) <= 1, "CAMPAIGN_NONCE_REPLAY")
+                if matches:
+                    found = matches[0]; break
+                time.sleep(2)
+            require(found is not None, "CAMPAIGN_DISPATCH_UNCERTAIN")
+            family.append("SPY665_RUN_ASSIGNED", capture_auth_sha256=h, nonce=nonce, run_id=found["id"])
+            c.subprocess.run(["gh", "run", "watch", str(found["id"]), "--repo", c.REPO,
+                "--exit-status", "--interval", "30"], stdout=c.subprocess.DEVNULL,
+                stderr=c.subprocess.DEVNULL, timeout=auth["wall_seconds"]+120)
+            # Re-read finalized actual evidence before accounting; never retry.
+    finally:
+        family.close()
 
 
 def run(args):

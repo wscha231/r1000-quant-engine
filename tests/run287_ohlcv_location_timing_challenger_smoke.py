@@ -773,6 +773,9 @@ def main() -> None:
             assert not (Path(args.output_dir) / name).exists(), name
         assert (Path(args.output_dir) / "summary.json").is_file()
 
+    from tests.technical_feature_h1_smoke import run_contract_suite
+    run_contract_suite()
+
     print("run287 ohlcv location timing challenger smoke: PASS")
 
 

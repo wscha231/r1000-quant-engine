@@ -72,6 +72,7 @@ def test_merge_shards_dedupes_and_builds_signals() -> None:
                 as_of_dates_csv="",
                 as_of_date_column="rebalance_date",
                 window_days=90,
+                signal_mode="historical-data-anchor",
             )
         )
         assert summary["filing_rows"] == 1

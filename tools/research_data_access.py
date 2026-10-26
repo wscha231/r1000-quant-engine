@@ -33,6 +33,9 @@ from tools.run_data_freshness_contract import DATA_SOURCES, parse_dt, sha256_fil
 
 REGISTRY = Path(__file__).resolve().parents[1] / 'data_static/research_dataset_registry_v1.json'
 PREFIX_V1 = 'shared-research-v1'
+PROVIDER_CLOSE_SCHEMA = 'a1-provider-daily-close-qualification-v1'
+PROVIDER_CLOSE_MEANING = 'PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH'
+PROVIDER_CLOSE_CONSUMER = 'ohlcv-technical-feature-h1'
 SCHEMA = 'research-data-generation-v1'
 # Per-read ceilings across every file in the pinned generation.
 MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -106,6 +109,73 @@ def _session_close(session):
         raise
     except Exception:
         raise ContractError('SESSION_CALENDAR_UNAVAILABLE') from None
+
+
+class _SessionCloseMap:
+    """Bounded, lazy NYSE schedule for exactly one read/snapshot invocation.
+
+    The 100,000-day optimization ceiling is the existing Source explicit-view
+    envelope. It is not an eligibility limit: unsupported/oversized ranges,
+    schedule errors, missing sessions and out-of-envelope rows still use the
+    original finite lookup at the original row-validation position.
+    """
+    _MAX_DAYS = 100_000
+
+    def __init__(self, *, allow_batch=False):
+        self._allow_batch = allow_batch
+        self._start = self._end = None
+        self._closes = None
+        self._attempted = False
+        self._individual = {}
+
+    def include(self, start, end):
+        # Callers supply only already validated retained/request date bounds.
+        start = min(self._start, start) if self._start is not None else start
+        end = max(self._end, end) if self._end is not None else end
+        if (start, end) != (self._start, self._end):
+            self._start, self._end = start, end
+            self._closes, self._attempted = None, False
+
+    def __getitem__(self, session):
+        if not self._allow_batch:
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
+            return self._individual[session]
+        if not self._attempted:
+            # Research reuse starts only after the original authority accepts
+            # the first actual session, at the original row-validation boundary.
+            if session not in self._individual:
+                self._individual[session] = _session_close(session)
+            self._attempted = True
+            if (self._start is not None and self._start <= self._end and
+                    (self._end - self._start).days < self._MAX_DAYS):
+                try:
+                    import pandas_market_calendars as mcal
+                    schedule = mcal.get_calendar('NYSE').schedule(
+                        start_date=self._start, end_date=self._end)
+                    self._closes = {index.date(): clock(close.isoformat())
+                                   for index, close in schedule['market_close'].items()}
+                    if self._closes.get(session) != self._individual[session]:
+                        self._closes = None
+                except Exception:
+                    # Do not replace the first row's original refusal, or move
+                    # a calendar failure ahead of schema/identity/clock checks.
+                    self._closes = None
+        if session in self._individual:
+            return self._individual[session]
+        if self._closes is not None and session in self._closes:
+            return self._closes[session]
+        if session not in self._individual:
+            self._individual[session] = _session_close(session)
+        return self._individual[session]
+
+    def sessions(self, start, end):
+        # Coverage reuses the authoritative date index only when it is complete
+        # for this range. A failed/unsupported batch retains the original path.
+        if (self._closes is not None and
+                self._start <= start <= end <= self._end):
+            return sorted(d for d in self._closes if start <= d <= end)
+        return None
 
 
 def _freeze(value):
@@ -310,11 +380,128 @@ def read_object(transport, path, expected, limit=MAX_OBJECT):
     sha(expected)
     try:
         raw = transport.read(path)
+    except ContractError:
+        raise
     except (OSError, ValueError):
         raise ContractError('ARCHIVE_UNAVAILABLE') from None
     check(isinstance(raw, bytes) and 0 < len(raw) <= limit, 'OBJECT_SIZE')
     check(digest(raw) == expected, 'HASH_MISMATCH')
     return raw
+
+
+def _provider_close_references(qualification):
+    """Bounded original documents, not a reviewer/authentication mechanism."""
+    check(type(qualification) is dict and type(qualification.get('instruments')) is dict,
+          'PROVIDER_CLOSE_SCHEMA')
+    groups = [qualification.get('source_documents')]
+    for item in qualification['instruments'].values():
+        check(type(item) is dict, 'PROVIDER_CLOSE_IDENTITY')
+        groups.append(item.get('known_halt_source_documents'))
+    refs = {}
+    for index, group in enumerate(groups):
+        check(type(group) is list and (1 if index == 0 else 0) <= len(group) <= 8,
+              'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
+        for ref in group:
+            check(type(ref) is dict and set(ref) == {'sha256', 'bytes'},
+                  'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
+            h = sha(ref['sha256'])
+            check(type(ref['bytes']) is int and 0 < ref['bytes'] <= 4 * 1024 * 1024,
+                  'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
+            check(h not in refs or refs[h] == ref['bytes'], 'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
+            refs[h] = ref['bytes']
+    check(len(refs) <= 32 and sum(refs.values()) <= 16 * 1024 * 1024,
+          'PROVIDER_CLOSE_PROOF_BOUND')
+    return refs
+
+
+def _validate_provider_close_qualification(q, manifest, spec, decision, *,
+                                           purpose, consumer_id, restore_to=None):
+    """Validate one distinct research meaning; never certify physical halts.
+
+    Source calls this after its existing external trust/proof checks. Reader
+    authenticates bytes, not the reviewer. Main additionally requires the
+    independently supplied trusted Source record and expected qualification pin.
+    """
+    fields = {'schema', 'meaning', 'purpose', 'admission_state', 'pit_status', 'consumer_id',
+              'provider', 'feed', 'timeframe', 'volume_scope', 'source_run_id',
+              'original_objects', 'window', 'observed_at', 'available_from', 'collected_at',
+              'created_at', 'review_decision_at', 'expires_at', 'original_public_available_at',
+              'original_provider_collected_at', 'physical_halt_coverage', 'instruments',
+              'source_documents'}
+    check(type(q) is dict and set(q) == fields and q['schema'] == PROVIDER_CLOSE_SCHEMA
+          and q['meaning'] == PROVIDER_CLOSE_MEANING, 'PROVIDER_CLOSE_SCHEMA')
+    source = spec['source']
+    check(purpose == q['purpose'] == 'research' and
+          consumer_id == q['consumer_id'] == PROVIDER_CLOSE_CONSUMER and restore_to is None,
+          'PROVIDER_CLOSE_USE_SCOPE')
+    check(q['admission_state'] == source['admission_state'] == 'RESEARCH_BYTES_ONLY' and
+          q['pit_status'] == source['pit_status'] == 'PIT_PROXY' and
+          source['eligible_purposes'] == ['research'] and
+          source['classification'] == 'REAL_SOURCE', 'PROVIDER_CLOSE_USE_SCOPE')
+    check(q['provider'] == source['provider'] and q['feed'] == 'SIP' and
+          q['timeframe'] == '1Day' and
+          q['volume_scope'] == 'PROVIDER_NEW_YORK_DAY_TRADE_CONDITIONS' and
+          q['source_run_id'] == manifest['source_run_id'], 'PROVIDER_CLOSE_SOURCE_BINDING')
+    original = q['original_objects']
+    check(type(original) is dict and set(original) == {
+        'raw_sha256', 'normalized_sha256', 'capture_receipt_sha256'},
+        'PROVIDER_CLOSE_SOURCE_BINDING')
+    check(all(sha(h) in source['raw_source_sha256'] for h in original.values()) and
+          original['capture_receipt_sha256'] == source['source_receipt_sha256'],
+          'PROVIDER_CLOSE_SOURCE_BINDING')
+    check(q['physical_halt_coverage'] == 'UNKNOWN' and
+          q['original_public_available_at'] is None and
+          q['original_provider_collected_at'] is None, 'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
+    check(clock(q['observed_at']) == clock(source['available_from']) and
+          clock(q['observed_at']) <= clock(q['available_from']) <= clock(q['collected_at']) <=
+          clock(q['created_at']) == clock(manifest['created_at']) <=
+          clock(q['review_decision_at']) <= decision <= clock(q['expires_at']) and
+          clock(source['expires_at']) <= clock(q['expires_at']), 'PROVIDER_CLOSE_CLOCK')
+    window = q['window']
+    check(type(window) is dict and set(window) == {'start', 'end', 'sessions_sha256'} and
+          day(window['start']) <= day(window['end']) <= decision.date(),
+          'PROVIDER_CLOSE_WINDOW')
+    sha(window['sessions_sha256'])
+    instruments = q['instruments']
+    files = spec['files']
+    check(type(instruments) is dict and bool(instruments) and
+          set(instruments) == {f['instrument']['instrument_id'] for f in files},
+          'PROVIDER_CLOSE_IDENTITY')
+    seen = set()
+    for f in files:
+        identity = f['instrument']
+        iid = identity['instrument_id']
+        item = instruments[iid]
+        check(type(item) is dict and set(item) == {'ticker', 'provider_security_id',
+              'identity_evidence_sha256', 'basis_sha256', 'known_halted_sessions',
+              'known_halt_source_documents'}, 'PROVIDER_CLOSE_IDENTITY')
+        check(all(item[k] == identity.get(k) for k in
+                  ('ticker', 'provider_security_id', 'identity_evidence_sha256')),
+              'PROVIDER_CLOSE_IDENTITY')
+        check(f['start'] == window['start'] and f['end'] == window['end'],
+              'PROVIDER_CLOSE_WINDOW')
+        hashes = item['basis_sha256']
+        check(type(hashes) is dict and set(hashes) == {'RAW', 'SPLIT_ADJUSTED'} and
+              all(sha(h) for h in hashes.values()) and
+              identity['adjustment_basis'] in hashes and
+              hashes[identity['adjustment_basis']] == f['sha256'] and iid not in seen,
+              'PROVIDER_CLOSE_BASIS_ROWS')
+        seen.add(iid)
+        known = item['known_halted_sessions']
+        check(type(known) is list and all(type(s) is str for s in known) and
+              known == sorted(set(known)) and all(
+                  day(window['start']) <= day(s) <= day(window['end']) for s in known),
+              'PROVIDER_CLOSE_KNOWN_HALTS')
+        check(not known or bool(item['known_halt_source_documents']),
+              'PROVIDER_CLOSE_KNOWN_HALTS')
+        check(identity.get('halt_coverage') == 'UNKNOWN' and
+              identity.get('halted_sessions') is None and
+              identity.get('provider_close_qualification_sha256') ==
+                  source.get('provider_close_qualification_sha256') and
+              identity.get('known_halted_sessions') == known and
+              identity.get('known_halt_source_documents') == item['known_halt_source_documents'],
+              'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
+    _provider_close_references(q)
 
 
 class _PinnedTransport:
@@ -557,6 +744,11 @@ class ResearchDataReader:
                          identity['mic'] in {'XNYS', 'XNAS'})
             if purpose in {'training', 'backtest'}:
                 check(scheduled, 'UNSUPPORTED_SESSION_CALENDAR')
+            else:
+                # Arca research bars use the same completed-session checks.
+                # Keep the existing training/backtest venue support unchanged.
+                scheduled = scheduled or (identity['calendar'] in {'NYSE', 'XNYS'} and
+                    identity['timezone'] == 'America/New_York' and identity['mic'] == 'ARCX')
             basis = identity.get('adjustment_basis')
             check(type(basis) is str and basis in {'RAW', 'SPLIT_ADJUSTED', 'TOTAL_RETURN'},
                   'ADJUSTMENT_BASIS')
@@ -577,8 +769,27 @@ class ResearchDataReader:
                     sha(binding.get(key))
                 text(item.get('lake_key'), 'LAKE_DATASET_BINDING')
             inventory.append((item, identity, scheduled, iid, file_sha))
+        qualification = None
+        if 'provider_close_qualification_sha256' in source:
+            qualification_sha = sha(source['provider_close_qualification_sha256'])
+            check(qualification_sha in hashes, 'PROVIDER_CLOSE_NOT_SOURCE_BOUND')
+            qualification = decode(read_object(self.transport,
+                f'{PREFIX_V1}/objects/{qualification_sha}', qualification_sha, 64 * 1024))
+            _validate_provider_close_qualification(qualification, manifest, spec, decision,
+                purpose=purpose, consumer_id=consumer_id, restore_to=restore_to)
+            for h, size in _provider_close_references(qualification).items():
+                check(h in hashes, 'PROVIDER_CLOSE_NOT_SOURCE_BOUND')
+                raw_proof = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
+                check(len(raw_proof) == size, 'PROVIDER_CLOSE_PROOF_SIZE')
         decompressed_total, row_total = component_request_bytes, 0
-        lake, session_closes = None, {}
+        lake, session_closes = None, _SessionCloseMap(allow_batch=purpose == 'research')
+        request_by_iid = {r['instrument_id']: r for r in component_requests or []}
+        for item, _, scheduled, iid, _ in inventory:
+            request = request_by_iid.get(iid)
+            if scheduled and (component_requests is None or
+                    (request is not None and item['end'] >= request['required_start'] and
+                     item['start'] <= request['required_end'])):
+                session_closes.include(day(item['start']), day(item['end']))
         rows, verified, seen, failures = [], [], set(), {}
         required_iids = {r['instrument_id'] for r in component_requests or [] if not r['optional']}
         local_refusals = {'ARCHIVE_UNAVAILABLE', 'ROW_COUNT', 'INVALID_PRICE_VALUE',
@@ -609,7 +820,6 @@ class ResearchDataReader:
             except (OSError, ValueError, KeyError, TypeError):
                 raise ContractError('LAKE_VERIFICATION_FAILED') from None
 
-        request_by_iid = {r['instrument_id']: r for r in component_requests or []}
         if component_requests is not None and any(item['storage'] == 'lake' for item in files):
             # Shared provenance is a call prerequisite, even when every selected
             # object is archive-backed. Keep setup outside optional object handling.
@@ -668,8 +878,6 @@ class ResearchDataReader:
                     check(session <= row_available.date() and row_available <= available and
                           row_available <= decision, 'FUTURE_AVAILABLE_FROM')
                     if scheduled:
-                        if session not in session_closes:
-                            session_closes[session] = _session_close(session)
                         check(session_closes[session] <= row_available, 'PRE_CLOSE_AVAILABLE_FROM')
                     dates.append(session)
                 check(len(parsed) == item['rows'], 'ROW_COUNT')
@@ -689,6 +897,11 @@ class ResearchDataReader:
                     seen.add(row_key)
                 check(dates == sorted(dates), 'UNSORTED_SESSIONS')
                 check(min(dates) == day(item.get('start')) and max(dates) == day(item.get('end')), 'FILE_PERIOD')
+                if qualification is not None:
+                    check(digest(encoded([d.isoformat() for d in dates])) ==
+                          qualification['window']['sessions_sha256'] and
+                          set(qualification['instruments'][iid]['known_halted_sessions']) <=
+                          {d.isoformat() for d in dates}, 'PROVIDER_CLOSE_SESSION_GRID')
                 rows.extend(parsed)  # publish rows only after the entire partition validates.
                 verified.append((file_sha, raw))
             except ContractError as exc:
@@ -761,6 +974,9 @@ class ResearchDataReader:
             receipt.update(validation_scope='REQUESTED_COMPONENTS_ONLY',
                 whole_generation_verified=False, component_id=component_request['component_id'],
                 optional=component_request['optional'], instrument_identity=dict(component_identity))
+        if 'provider_close_qualification_sha256' in source:
+            receipt.update(provider_close_qualification_sha256=source['provider_close_qualification_sha256'],
+                qualification_meaning=PROVIDER_CLOSE_MEANING, physical_halt_coverage='UNKNOWN')
         receipt['receipt_sha256'] = digest(encoded(receipt))
         return ReadResult(tuple(MappingProxyType(row) for row in selected),
                           tuple(verified), _freeze(receipt), encoded(receipt))
@@ -829,6 +1045,9 @@ class ResearchDataReader:
             source_expires_at=source['expires_at'], provider_refresh_count=0,
             calendar_source_verified=False, cache_prices_authority=False,
             eligible_for_economics=False, eligible_for_selector=False)
+        if 'provider_close_qualification_sha256' in source:
+            receipt.update(provider_close_qualification_sha256=source['provider_close_qualification_sha256'],
+                qualification_meaning=PROVIDER_CLOSE_MEANING, physical_halt_coverage='UNKNOWN')
         receipt['receipt_sha256'] = digest(encoded(receipt))
         return ComponentReadResult(MappingProxyType(results), _freeze(refusals),
                                    _freeze(receipt), encoded(receipt))

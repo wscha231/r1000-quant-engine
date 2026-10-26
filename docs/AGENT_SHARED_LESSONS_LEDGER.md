@@ -1,5 +1,152 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
+
+- Hosted review found that real native-read runs retain typed title suffixes.
+  Reconstructing every closed-parent title as a capture title made a fully
+  settled family unusable. Pin each full historical display_title separately
+  from its strict nonce, validate only the existing typed suffixes, and compare
+  canonical metadata exactly. Preserve failed native-read costs in the parent;
+  never omit those runs or turn them into successful price captures. Cover the
+  actual three metadata shapes plus missing/unknown/changed title refusals.
+- A new data genesis does not grant a new budget. The one-symbol 2024-03-01
+  through 2026-10-23 profile must authenticate the closed historical run vector,
+  unchanged shared journal prefix, owner/account binding and fresh finite grant.
+  Unknown dispatches, missing accounting or pending outcomes stop execution;
+  test fixtures and a local approved flag cannot close the real parent.
+- Independent review caught two pre-I/O accounting gaps: count the current
+  completed offline job against the scope's active-time allowance, and compare
+  the complete workflow census with the nonce-filtered campaign history. Bind
+  each final meter to both data genesis and shared prefix, and recheck settled
+  checkpoint references against canonical run output on replay.
+- The existing 262144-byte source guard also tests projected Windows CRLF.
+  LF normalization alone passed the byte read but failed that unchanged oracle.
+  Move the one shared group verifier mechanically into the existing collector,
+  retain its public controller wrapper and controller globals, and rerun old
+  recovery/174 and new scope tests; do not raise the cap or duplicate verifiers.
+- Distinguish workflow POST acceptance from worker success in fixtures and
+  operation. Fsync failure must precede POST; an uncertain POST keeps its one
+  reservation; a failed worker still spends its measured costs. Correcting a
+  synthetic response queue or an end-exclusive query expectation is not actual
+  provider evidence. Owner-authorized manual dispatch remains within the same
+  finite worker caps; the local fsync protocol is guaranteed by the host path.
+- This is code/synthetic preparation only. Actual SPY coverage, provider rights,
+  Source admission, Reader consumption and economic validation need their own
+  current receipts. Preserve the old MU657 and frozen174 records unchanged.
+
+## 2026-10-24 — Separate Source archives from Reader generation acceptance
+
+- A capture checkpoint proves retained original/normalized bytes, not the Reader's
+  identity, CA/lifecycle, rights and availability bindings. Reuse the existing
+  archive verifier and preserve the raw/split distinction; do not relabel an
+  update COMPLETE receipt as a consumed generation.
+- First-observed complete readback can bound PIT_PROXY current research, but is
+  not historical publication. Keep unknown clocks and supplier expiry unknown;
+  bind derivation evidence before the manifest to avoid receipt/hash cycles.
+- A real preparation branch needs an independently supplied Source trust anchor
+  plus exact existing proof bytes; an evidence packet must not approve itself.
+  Bind its original meter/checkpoint/account/capture window and code/config before
+  typing rows. Real acceptance, storage publication, consumer ACK and economics
+  remain NOT_RUN; VERIFIED strings and green synthetic tests grant none of them.
+- Model reused transport defaults exactly: OwnerDrive.check defaults to folders,
+  so file reads must explicitly pass folder=False. Fix Decimal precision,
+  exponent, rounding and trap context together; precision alone inherits hidden
+  caller state. Independent counterexamples caught both fixture blind spots.
+- After #627 is protected and integrated, validate the same prepared fixture
+  through its component API as well as read(): optional absent SPY may be
+  reported locally, while a required missing benchmark must refuse the batch.
+  That compatibility does not authenticate actual Source evidence. The strict
+  real branch can be tested with injected synthetic trust; report that separately
+  from an actual prepared/published generation or account-rights approval.
+- Preserve the distinct supplier and research clocks, but constrain the Reader's
+  effective expiry by both; a provenance-only rights expiry does not guard later
+  reads. Untrusted DEFLATE corruption can raise zlib.error before evidence checks,
+  so translate decoder errors into finite refusal at both verification layers.
+## 2026-10-23 — Preserve typed SEC completion, reparse replacement and issuer clocks
+
+- Successful checked ownership generations do not require a legacy Form4 signal.
+  Form3/5, holdings and derivatives can have typed rows with zero legacy signals;
+  preserve successful empty checks and CSV headers as well as source failures.
+- Merge only hash/index/count-proved successful whole-accession replacements,
+  including empty parses. Keeping an old v2 transaction absent from a shorter
+  replacement corrupts scope counts. Failed/unproved reparses cannot delete it.
+  A6 reproduced older inactive shards resurrecting a corrected/empty accession
+  during a later unrelated batch. Carry hash-bound canonical scope/tombstones
+  across generations; only the selected proved active reparse may replace them.
+  Revoke current pointers before rejecting corrupt/missing prior scope proof.
+  Apply the same version protection to the filing index: inactive cache clocks
+  must not overwrite a corrected accession while transaction rows stay corrected.
+- Keep the earliest issuer check for conservative expiry, but bind each filing
+  acceptance and event clock to its corresponding checked issuer. Missing issuer
+  proof blocks new intake. Immutable old MU requests retain their original
+  conservative proof for historical readback only; no old manifest is rewritten
+  or promoted to a new current-generation receipt.
+- Unknown/missing/mixed 13F amendment types remain incomplete review and cannot
+  replace a complete boundary or synthesize removals. Only explicit RESTATEMENT
+  and NEW HOLDINGS types have replacement/additive semantics after lineage checks.
+
+- Hosted followup reproduced pandas nullable numeric promotion rejecting real
+  XML semantics. Compare exact finite numeric values while keeping booleans,
+  nulls, strings and structure distinct; replay preserves original stored bytes.
+- Exercise amendment consumption through the actual CLI with explicit parent
+  accession; API-only positives miss absent command inputs. Retain the original
+  13F accession separately from its latest revision across successive amendments.
+
+## 2026-10-22 — Bind SEC research storage to current raw scope and preserve Native semantics
+
+- Existing Main needs its original reader object alternate; missing Git parents
+  are an object-access configuration failure, not absent H: access. Use the
+  incumbent exclusive integration lease and preserve its original branch/sparse
+  state. Do not create another checkout to hide that failure.
+- A new MU submissions check changed accession0001568238-26-000003's accepted
+  clock from historical2026-10-20T23:03:21Z to current2026-10-21T03:03:21Z.
+  Preserve both source generations. Reparse retained original XML when filing
+  metadata or parser identity changes; replace every old row of an attempted
+  accession, including fewer-row/empty results. Accession-only resume can block
+  permanently on old clocks. Bare legacy completion flags do not prove reuse.
+- Bind each persisted event to its checked issuer/accession/form/document scope
+  and reparse raw XML. Stable row IDs are document-local, never DataFrame-index
+  based. Keep nulls, joint owners, codes, holdings, options and notes. P alone
+  does not establish an open-market trade. One accession/security request must
+  survive source-generation replay without another candidate or alert intent.
+- Independent A6 caught an additive13F amendment branch overwriting failed
+  parent-lineage eligibility, Form4 holdings labeled as transactions, unbound
+  source membership, mismatched thesis references, and null report formatting.
+  Keep incomplete snapshots from replacing complete boundaries. Pending A3
+  filing references and locally stored Registry requests are not accepted full
+  A3 assessments, canonical current pointers or investment authority.
+- Exact-head A6 also reproduced a CLI prerequisite failure leaving an old
+  current-success summary when identities were missing. Revoke current success
+  before all prerequisite reads, including selected-accession and raw/identity
+  reads, and persist a distinct consumer-prerequisite failure. A valid historic
+  Registry is not evidence that the current attempted read succeeded.
+- Windows write_text changes LF to CRLF. Frozen JSON replay must compare the
+  same exact bytes: publish JSON bytes explicitly rather than weakening equality.
+  Directory reads raise different OS exception subclasses; classify directory
+  inputs before I/O. Native PowerShell seven-digit fractional clocks fail the
+  existing six-digit exact bridge contract; supply actual Python-compatible
+  clocks rather than relax it. One author future decision probe was discarded
+  and rerun with the actual clock; it is not current-source evidence.
+- Independent A6 found a verified amendment of pending intake still labeled as
+  another discovery. Route it as FILING_CORRECTION_REASSESSMENT / A2 WATCH with
+  its original request reference; do not fabricate an existing full thesis.
+  Reject caller-supplied amendment parents on plain filings, including replay.
+  Preserve the original and prove correction replay creates no extra intent.
+- Product pages are not acquired fund returns. HFR/With/WhaleWisdom yielded
+  documentation, PSH one fund's NAV and HedgeFollow a20-manager holdings-proxy
+  screen. Observed access restrictions and missing comparable/cutoff-bound
+  performance prevent admitting an automated ranking. Missing NAV must not
+  globally block an independently eligible SEC filing research request.
+- Full CI found four ManualFoundation errors after current A3/Registry extension:
+  historical catalog positives were copying new HEAD bytes. Preserve the catalog
+  hashes and production changed-byte refusal; use a separate bounded immutable
+  two-file fixture only in temporary historical positive roots. Test current
+  bytes/tamper and mandatory A6 pins; never refresh old catalog pins to green CI.
+- The shared Drive read verified commit c5a1a025's catalog chain/packs (1153
+  datasets), but its exact execution lookup refused
+  execution_receipt_missing_or_ambiguous. This is storage evidence only, not a
+  completed consumer cycle. Consume no macro/financial rows; do not replay a collector.
+
 ## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
 
 - SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
@@ -7595,6 +7742,528 @@ retry. Emit only safe reason/count/hash diagnostics, and preserve the original
 Refused code if even the diagnostic sink fails. Successful mock retries do not
 identify the actual old transport cause or prove operational capture readiness.
 
+### 2026-10-24 — Reuse Main H1 against the integrated component Reader
+
+An old clean checkout alone does not transfer ownership. Canonical owner release
+comments plus fresh checkpoint/status/lease and remote-head checks supported
+A0's explicit sequential reassignment. Preserve the original c0146 checkout,
+49 test ASTs and oracle; reconstruct its causal delta on current master and
+reuse the pinned remaining patch, rather than merging an old branch stack.
+Deduplicate instrument IDs before component requests while retaining each
+subject/benchmark role check. An absent optional benchmark must reach the
+Reader's local refusal; hash/clock/identity/resource/Lake errors remain global.
+Explicit component windows must preserve the retained consecutive-suffix OBV
+anchor; reducing to481 rows silently changes a level metric. Synthetic Native
+parity and optional refusal prove integration code, not actual Source generation,
+research-reference ACK, economic admission or portfolio authority.
+
+The first Main H1 preflight hit a sparse-checkout dependency omission before
+arithmetic: aggressive/signals_technical.py was not materialized. Preserve the
+failed log and expose the unchanged existing helper through sparse settings;
+do not replace the shared arithmetic or alter assertions to fix the environment.
+
+An independent exact83 audit found that Reader-global price guards did not
+cover a later consumer identity-proof read: the optional benchmark catch
+swallowed proof HASH_MISMATCH and FEATURE_IDENTITY_CLOCK into partial features.
+The same defect affected a RAW proof read. Preserve the old passing logs as
+limited evidence, add failing-before regressions, and carry proof integrity and
+original clock failures through the global refusal marker. Keep verified
+optional role/price/coverage refusals local; do not globalize every exception.
+
+The first correction d9b13be1 failed the unchanged original QQQ/Composite test:
+putting source-field comparisons inside the global proof guard erased valid SPY
+RS. Preserve that failed64-case Native log, move only proof object/schema/hash
+and original effective/aware clocks across the global boundary, and keep the
+original source-field/role compatibility checks local. Do not alter original
+assertions or treat a focused counterexample PASS as the full regression PASS.
+
+An unchanged helper's1MiB SHA read raised MemoryError during d9 independent
+optimized QA and268 direct optimized Native. Preserve both failures separately
+from product assertions. A same26864-case retry passed with unchanged gates;
+external sampling saw minimum free commit2.51GB and peak process private111MB.
+Post-failure host commit was about95%; the failed instant was not sampled, so
+the transient cause remains unconfirmed. Keep heavy Native and independent QA
+sequential, record runtime/head and memory evidence, and revalidate the final
+head; neither retry success nor high host commit alone diagnoses the cause.
+
+### 2026-10-24 - Bind a selected archive to its own original run, not a later root
+
+A cumulative capture index identifies retained coverage but does not locate a
+selected raw/normalized/receipt group. Exact-ref metadata reuse established MU
+and NVDA as5/7-link ancestors of their original finalized32-name run. A later
+campaign root and its last group were the wrong anchors. Keep actual group
+mapping separate from price recomputation, supplier rights and consumer ACK.
+
+Reuse the existing capture membership rules and pure external logical-genesis
+helper inside the reviewed preparation adapter. Trace exact hash/size/ID links
+only to the selected group, check own-run parent/count boundaries and all
+examined/completed/held/no-data transitions, and read no sibling price payloads.
+The existing32-proof/4MiB-each/16MiB-total ceilings include path/parent metadata.
+Rehashed counterexamples must still reject omitted nodes and shortcuts; a test
+that changes a node but leaves stale parent hashes proves only hash refusal.
+
+An initial external cohort has a logical genesis and a null first previous link,
+not a stored empty Drive object. A legacy initial16 capture needs its own actual
+execution evidence; a later preflight or a newer code pin cannot supply it.
+Rights/identity/CA/clocks remain independent of this lineage correction, and
+synthetic trust tests do not create an actual authenticated Source generation.
+
+Independent static A6 found the original parent ID was not compared with visited
+final/path IDs. Hash/count checks alone did not reject one immutable ID claiming
+two bodies when the selected group followed an earlier unvisited group. Keep
+parent-ID alias checks separate from path-cycle checks so a legitimate exact
+selected-previous==parent boundary is still accepted; cover all three alias forms.
+
+The first registered203 run correctly blocked an older orphan fixture earlier at
+the new parent-ID guard. Preserve that failed receipt and give the orphan its own
+distinct ID to test the intended missing-link boundary, rather than accepting
+multiple rejection codes or weakening either production guard.
+
+### 2026-10-24 - Preserve transport integrity across optional Reader boundaries
+
+Post-Ready Hosted review found exact owner readback corruption was raised as
+BindingError(ValueError), then translated by the Reader into ARCHIVE_UNAVAILABLE.
+An optional sibling could therefore be dropped while other components succeeded.
+The failing-before five-method integration run retained16 failed subcases;
+plain transport already rejected the same-size corrupt bytes as HASH_MISMATCH.
+
+Use the existing Reader ContractError for exact readback size/type and hash
+failures, and preserve it before the broad OSError/ValueError availability catch.
+Changing only the transport exception is insufficient because ContractError is
+also a ValueError. Keep ordinary unavailable-storage refusals local for optional
+components and fatal for required ones. Do not remove standalone byte checks,
+globalize all availability errors, or bypass the Reader with a custom exception.
+
+The first corrected focused run retained two new reference-size fixture failures:
+lowering the declared read limit truncated fake bytes to that size, correctly
+reaching HASH_MISMATCH. Declare one extra byte instead to isolate size refusal
+without truncation; keep the exact OBJECT_SIZE assertion and production checks.
+### 2026-10-24 — 13F storage must bind comparison operands and failed attempts
+
+A parser's `raw_sha256` can identify universal-newline text rather than physical
+XML bytes. Preserve both hashes and reparse the originals before trusting a
+resealed table/checkpoint. An empty report needs explicit parse proof; an absent
+holdings group is not an empty report. Additive amendments and removals need
+both current and retained/prior constituent originals, including denominator
+evidence. Incremental input must preserve its full verified prefix; missing
+history or a changed map/code context must refuse rather than silently reset.
+
+Independent A6 found that a type-only amendment cover could belong to another
+manager or period, and that a CLI missing argument could leave old current
+success intact. Bind cover filer/period/form/flag plus physical hash; invalidate
+only an explicitly named owned store under its own lock. Preserve unowned paths
+and another writer's lock. Regressions seed prior success before refusal, and
+exercise real serialization/readback in both normal and optimized Python modes.
+Fixture check times must precede source generation and decision times; the
+first no-new fixture violated this order and was corrected without weakening
+the clock guard. Current selected-source storage remains separate from
+due-quarter coverage, mapping completeness, fund NAV ranking and system intake.
+
+Native concurrent CLI checks can exhaust OpenBLAS allocation before reaching
+application code. Preserve the failed child stderr and rerun the same complete
+matrix with explicit BLAS/OpenMP thread ceilings; do not weaken assertions or
+report the first attempt as passing. A partial-clone push can also fail with
+lazy fetch disabled despite a clean local tree. Allow the existing Git promisor
+to retrieve missing objects for that same ordinary fast-forward push; verify
+the exact remote head afterwards without substituting a new checkout.
+
+Preserving the last complete snapshot alone is insufficient after a known
+incomplete revision. Independent A6 reproduced A10 original, A20 plus an unmapped
+constituent in a restatement, then A15 next quarter incorrectly becoming +5.
+It also reproduced a later additive report dropping an unresolved earlier
+addition yet restoring a complete denominator. Retain the original for audit,
+track unresolved revisions separately, and block comparison/additive recovery
+until a full verified restatement replaces the period. Bind blocker accessions
+as evidence; fixtures must test both refusal and full-restatement recovery.
+The existing 33-method consumer suite also caught an overbroad first barrier
+that let wrong-parent revisions invalidate an accepted root. Preserve that
+negative-case assertion: only lineage-verified incomplete revisions establish
+barriers; unlinked review evidence cannot poison accepted comparison state.
+
+Hosted review of SEC PR669 at `42581341` found two additional timeline defects,
+independently reproduced in normal and optimized Python with genuine offline
+Source serializers and stored readback. Latest-filing presence plus paired-table
+parity cannot detect a middle amendment omitted from both tables before the
+first commit. Require every observed 13F inside the selected acceptance interval;
+retain the separate committed-prefix guard. Also keep verified original identity
+apart from complete comparison snapshots: a full same-root RESTATEMENT can
+recover an unmapped original, while additive, unknown and wrong-parent reports
+cannot. Regressions must distinguish correct -5 after full recovery from the
+former null delta and must reject the omitted-amendment false +5. Follow-up
+validation uses synthetic stores and immutable prior actual receipts; no fresh
+provider calls or actual-store publications are implied by this code repair.
+
+### 2026-10-24 - Reconcile SEC causal scope on the integrated Main base
+
+Whole SEC PR35 and its latest six-path correction are different reuse scopes.
+Carry the validated causal implementation without dropping its prerequisite
+Form345/intake helpers. Preserve current historical Reader/CRLF positives and
+SEC/A3 immutable historical positives together; textual union alone can leave
+an empty duplicate helper header. Keep all original test ASTs and hash pins,
+and defer current-head execution claims until the final base and GO.
+
+### 2026-10-24 - Verify the existing Native runtime before SEC regression runs
+
+The system Python3.12 launcher lacked pandas and stopped before any SEC test.
+Preserve that import failure separately from product assertions. Reuse the
+existing Windows research venv after verifying pandas and pyarrow imports;
+record its exact executable and versions, then run the full sequential matrix.
+A missing Git author identity is likewise a local preparation failure: reuse
+the existing Codex identity per command without changing global configuration.
+
+### 2026-10-24 - Preserve SEC source receipts and reject false current success
+
+Hosted review of SEC669 at `9cc35518` found three P2 defects, independently
+reproduced in normal and optimized Python before repair. The index glob
+`sec_filings_index.*` omits `sec_filings_index_summary.json`; explicitly retain
+that source-check receipt in both raw/diagnostic persistence and Actions artifacts,
+without changing the separate success-gated accepted-analysis publication.
+An empty checked Source bundle can still become stale: CLI success must follow
+current eligibility, not only the no-new-filings label. Amendment parents must
+match underlying Form3/4/5 as well as issuer/security and original submission
+date, including stored lineage on replay. Wrong-family refusal must preserve
+the committed Registry manifest while invalidating current-attempt success.
+Filesystem restoration, frozen-clock CLI and cross-form controls are synthetic
+regressions; they do not imply a fresh actual Source check or data admission.
+
+### 2026-10-24 - Current SEC intake must age Source checks against execution UTC
+
+Hosted review of SEC669 at `fc6852b9` found that a backdated decision revived
+four-day-expired empty and nonempty ownership generations. Independent A6
+reproduced CLI/API creation and replay in normal and optimized Python before
+repair. Retain decision-relative provenance/PIT validation and also evaluate
+the same immutable receipt against the captured actual execution UTC before
+any current request or replay. Reuse the existing exact 36-hour boundary:
+the check is stale at 36 hours, not only after it. Do not refresh original
+Source clocks or grant current storage through a historical caller switch.
+Historical hash readback remains separate and cannot promote a failed attempt.
+Fixed-date synthetic positives must declare an execution-clock fixture; preserve
+their original assertions and add counterexamples with actual time later than
+both Source and decision. This clock fixture is test-only and grants no actual
+data admission. Legacy custody pins must be read from their owning receipt,
+rather than assuming every later acquisition receipt copied all older fields.
+
+### 2026-10-22 — Discovery selection is not source authentication or dispatch
+
+Reuse the A2 schema/parser and raw source-graph validator for a bounded
+US/KR supplied-byte selection proposal. Bind the original publication and URL
+to the selected primary source; retain leading-zero KR tickers, issuer/security
+life intervals, exact evidence hashes and existing active caps. A V1/V2 label,
+coherent identity bytes or materiality rationale is not authenticated admission.
+All candidates keep identity/source authentication NOT_VERIFIED, A1 requests0,
+dispatch0 and economic/consumer authority closed until the separate A0 adapter.
+
+Deduplicate by security, issuer, family, primary raw hash and normalized public
+clock. Reordering input can preserve the same candidate/dedup result while its
+exact input-byte SHA changes; never change the source digest to fit an equality
+test. Prior request keys and Registry rows are supplied context, not durable
+completion. Register these regressions through the existing Control Plane
+caller, preserving every old case and the frozen runner program inventory.
+
+The sparse Source Python environment initially lacked the repository-required
+jsonschema/referencing dependencies. Install the existing requirements range
+before Native checks; an import failure is not a failed event-validation case.
+Keep named price174/993 seed, dates, meter and checkpoints outside this adapter.
+
+Independent A6's negative witnesses found that empty URL userinfo passes a
+truthiness test and that a valid/unknown mixed pillar list passes a mere
+intersection check. Reject userinfo by presence (including empty values),
+reject backslashes and preserve the existing canonical-pillar subset rule.
+Keep the prior finding head distinct from the corrected frozen-head evidence.
+
+### 2026-10-23 — Route price-gap preparation through the existing A0 identity
+
+Derive OHLCV proposals only from the hash/time-checked A1 source_inventory and
+its bounded child references; replay original Stage2 inputs instead of trusting
+a worker's candidate/coverage booleans. Put the derived payload in the existing
+A1 task identity parameters so its contents change the existing task key and
+V2 completion binding. Reserve that parameter against caller injection, keep
+the A1/A2 DAG and global dispatch=false, and make this path dispatch-ineligible.
+
+Rebuild retained prices using the unchanged Source raw/split archive verifier.
+Missing Open stays missing. A complete covered prefix supports incremental-only;
+internal holes require backfill. Verified no-bars remains NO_DATA without a new
+request. UNKNOWN is not absent; a KR close proxy is not US raw/split coverage.
+Catalog/calendar/policy assertions and matching hashes are not authenticated
+rights, PIT, corporate actions, membership or capture permission. Keep all
+consumer/collection authority closed and old campaign budgets/journals intact.
+
+An invalid source_inventory produces the existing BLOCKED diagnostic A1 packet,
+not necessarily an empty queue. Verify that the previous derived requests are
+revoked and dispatch stays false; do not change the existing failure semantics
+to satisfy an empty-list fixture assertion.
+
+Independent A6's Stage3 witnesses also require a receipt's as-of/end to stay
+inside the decision cutoff even when raw/normalized reconstruction succeeds.
+Reject no-bars windows that contradict any retained price row in the same
+lineage. Cap child bytes before hashing or reading the entire file; consume the
+same capped snapshot whose hash and descriptor clocks were checked.
+
+### 2026-10-23 — Connect observed research state without inventing registration
+
+The incumbent SEC Main already stores pending MU filing requests. Reuse its
+manifest/artifacts read-only instead of building another Registry. A stored
+pending/V0 record is not an accepted current candidate or a V1/V2 material event.
+Match explicit issuer/security keys when supplied; a ticker-only match stays
+unverified. Price-inventory/checkpoint presence is not row coverage (completed
+can mean no bars), and absence is only within the inspected scope. Keep those
+observations distinct from DATA_READY, collection need and Source/PIT admission.
+Preserve original clocks when refreshing transport. Bind lookup/actual event
+inputs to the existing A0 task identity, revoke old proposals on failed refresh,
+and leave missing news-export input BLOCKED rather than claiming an automated
+ChatGPT report connection. Never overwrite another pending A1 request to connect.
+Preserve the A3 reference's declared status (missing stays UNKNOWN), rather than
+hardcoding pending from record presence. A supplied issuer conflict must fail
+even when the security ID is null; ticker-only lookup never repairs that conflict.
+Independent A6 also requires the lookup's sealed MemoryArtifacts guard before
+any resolver call. Check every explicit input, including subjects and canonical
+intake, against output aliases before revoking old output files; fail-closed
+revocation must never delete or overwrite an aliased source input.
+An existing cache file can be a hard link without being a symlink. Never open
+content-addressed cache objects for truncation: reuse only byte-identical files
+or create exclusively; a conflicting object stays blocked and original-safe.
+Shared ChatGPT report text is an unadmitted handoff, not publisher raw bytes or
+an authenticated V2 event. Keep excerpt/export hashes and claimed timestamps
+separate, bind references in the existing A0 transport and mark future automatic
+delivery NOT_CONNECTED until a real producer/export path has been verified.
+The optional Stage3 transport importer must verify the bounded captured bytes
+and descriptor clocks directly; calling the generic file-hash verifier after a
+capped read reopens the file without that cap and loses same-snapshot binding.
+
+### 2026-10-23 — Validate referenced paths before revocation; preserve A6 closure
+
+A Stage3 inventory outside a scratch output can still name an original child
+inside it. Check its complete bounded path set before unlinking reports, then
+reuse that captured inventory. For relocated canonical A6 intake, copy immutable
+bundle bytes and the known nested bundle closure at original relative paths;
+content-addressing only top-level inputs loses descriptor consistency. Use an
+input-identity scratch namespace, bounded hash/clock reads and path/prefix/metadata
+collision refusal. Stage evidence only after the full closure passes. A valid A6
+READY proposal is not an executed job or newly enabled specialist dispatch.
+Independent A6 also found post-read count/byte checks could consume a129th
+descriptor or oversized final read before refusal. Reserve counts before I/O
+and pass the remaining byte budget into the bounded read itself; test actual
+read calls rather than checking only the final refusal/status.
+Fresh Hosted review also found acquisition/parse failures could precede current
+proposal revocation. Unknown inventory children make catch-and-unlink unsafe.
+An exclusively created scratch failure marker blocks connect while preserving
+all prior/source bytes; only a complete, validated refresh clears a recognized,
+unchanged marker. Treat this marker as invalidation, never Source admission.
+Invalidate independently of old proposal publication safety: a hardlinked prior
+output must not prevent creation of the blocking marker. Preserve the supplied
+root symlink check and marker link guards; check other output paths only after
+the marker is held, leaving aliased bytes intact on failure.
+An unused marker.tmp is another publication path, not part of exclusive marker
+creation: its hardlink must not prevent invalidation either.
+
+### 2026-10-23 — Scope no-data to the target; honor artifact-specific entry caps
+
+Unrelated archived bars before/after a fully verified empty requested window
+must not create a redundant backfill proposal. Use the already validated target
+session coverage; keep identity/basis/cutoff and contradictory no-data guards.
+The shared decoder's1,000-entry default can reject an otherwise supported
+1,001-row inventory/checkpoint before its own declared limits run. Pass only
+the existing artifact-specific10,000/1,500 entry bounds, preserving global byte,
+token/depth/count budgets. Ten-field10,000-row data still exceeds50,000 tokens;
+do not raise that budget to make a logical entry ceiling practically reachable.
+For synthetic archive tests, derive asof via the existing Source mapping_asof
+contract when changing end-exclusive; a mismatched fixture clock proves archive
+refusal, not the target-window defect. Preserve that initial fixture failure
+separately from the corrected old-code reproduction and final passes.
+Fresh review also exposed that requiring one full-window empty receipt loses
+equivalent proof split across archives. Check the union of verified empty
+intervals against every requested session; adjacent/overlapping/reordered proof
+must agree, while a requested-session gap remains incomplete. Preserve the
+old71 split-window failure independently and never mark it A6 clean.
+
+### 2026-10-24 — Preserve protected SEC freshness when reconnecting Source proposals
+
+Reconstruct the existing13-path Source capability on protected b18, keeping the
+current ledger rather than copying its older whole-file version. Check actual
+upstream overlaps; in this integration only the shared ledger overlapped. Use
+protected Main factories/parser with temporary synthetic stores to prove pending
+FILING/V0, hash/identity/clock refusal, replay identity and amendment family/parent
+lineage. Historical readback never grants current freshness or OHLCV eligibility.
+The first coupled fixture retained an orphan old origin and was correctly refused;
+remove only that synthetic origin, retain the failing log and original assertions.
+Do not promote historical MU proof or supplier rights from these offline tests.
+
+### 2026-10-25 — Separate examined empty prices from fetch work; retain completions
+
+Hosted1bb review exposed two missing boundaries despite scoped passing QA.
+Verified empty sessions remain missing prices, but must not generate new ranges
+or provider estimates, including mixed archives and empties between real gaps.
+Fully examined mixed windows stay BLOCKED, with no fabricated complete coverage.
+
+Relocating requests also requires their valid standalone completion outputs.
+Use the incumbent full V2 schema and public completion planner on a disposable,
+bounded captured-byte view before publication. A receipt's claimed key/status
+is not enough. Preserve output clocks/paths/hashes and the planner's existing
+old-key/unrequested-history behavior without fetching irrelevant outputs. Reject
+invalid applicable proof and aliases; reserve count/remaining bytes before reads.
+Preflight every existing destination before writing any evidence child; preserve
+conflicting originals. A scratch validation view is not a canonical store.
+
+The old two real assertion failures were retained. A first code-byte provenance
+comparison encountered Windows CRLF versus Git LF, so the discriminators were
+also executed against immutable canonical1bb modules outside Source. No private
+evidence normalization or production overwrite was used for that reproduction.
+
+
+## 2026-10-25 — Validate registered long-history tests in their actual sparse tree
+
+The original786 workflow offline command fails at load_tests before Source or
+Drive access: the registered BindingTest module and its helper/runtime imports
+are outside the18-file checkout. Add the existing dependency closure to both
+sparse paths and push filters; importing a helper does not register its unrelated
+campaign tests. Preserve all original registered methods, package pins, the
+event_name!=push producer guard, single-writer scope and schedules.
+
+The new regression copies only declared paths into an isolated tree, loads all
+three existing suites without executing itself recursively, and rejects direct
+Binding, transitive capture-module and push-filter omissions. A complete local
+checkout or inherited repository PYTHONPATH cannot certify this workflow. Run
+the unchanged three commands there under normal/-O with network denied. Package
+bootstrap, when explicitly authorized, is separate test-only setup with its own
+request/byte/wheel hashes; it is never a provider/Drive collection or data receipt.
+This H1 repair cannot establish g29 execution completion, original source clocks,
+rights, PIT, consumer admission or automatic operation.
+
+Windows Native must retain the existing macro-cycle0600-vs0666 failure; it is
+not a pass or a new skip. Under A0's explicit substitute proof, the new regression
+also runs that unchanged17-case command in its isolated tree only on POSIX,
+with network denial and an exit diagnostic. Linux current-HEAD CI must witness
+this actual branch before closing the POSIX proof; the three original commands
+and their permission assertion remain unchanged.
+
+## 2026-10-25 — Preserve the original envelope while declaring a bounded private view
+
+An exact factor mismatch outside a declared view must remain a full-span
+refusal, not trigger a tolerance or automatic shortening. Verify the complete
+original archive before selecting every member's identical NYSE grid. Retain
+original/selected/excluded hashes, counts and an explicit new anchor; no old
+lifetime or economic result follows from a smaller compatible window.
+
+The Feature consumer pairs RAW/SPLIT by real original receipt/run/raw references.
+Keep the verified capture receipt as an explicitly documented common origin only
+for the opt-in view, and preserve both distinct basis derivations independently.
+Typed identity plus halt/volume proof must retain actual source bytes, effective
+windows and aware clocks. Missing status never becomes an empty halt list.
+A point asset response may contain a real provider ID without proving historical
+identity, halts, volume semantics, supplier retention or current admission.
+
+The first new regression exposed an import-boundary mistake: the legacy guard
+imports its calendar locally. Import the same existing calendar package in the
+new helper; keep unavailable calendars fail closed. A subsequent new assertion
+expected a list from the unchanged immutable Reader receipt; retain its actual
+tuple contract instead. Preserve both failed logs and every original assertion.
+Use external pinned consumer execution for cross-edge proof rather than adding
+heavy Main imports to Source's sparse workflow.
+
+Root static review of E0 found that its new path still required excluded-period
+identity/lifecycle/factors. Keep complete original-byte/schema/date/membership
+verification, while requiring technical eligibility only for the explicit consumed
+grid. Never fill unknown old factors or extend a truthful identity window to make
+a private view pass. Preserve E0 results separately and revalidate the new HEAD.
+
+## 2026-10-25 — Keep provider-close research separate from physical halt status
+
+A nonzero provider daily bar can support a limited archival price policy without
+proving no physical halt. Do not put that witness into legacy COMPLETE/list
+fields: they control suspension refusal and whole-date/suffix exclusion. Use a
+distinct reviewed type, external trust plus independent expected pin, exact
+source/basis/window/clock bindings and physical UNKNOWN. Keep supplied positive
+physical facts and their effects in both routes. Hash or consumer name alone
+is not reviewer authentication; false output flags are not universal authority.
+
+Use small synthetic Source-to-actual-Reader/Feature cases under normal and -O.
+Code acceptance is separate from real generation/MU/store execution and actual
+Registry/A3 context. Keep Source's registered tests free of heavy Main imports;
+the finite external cross-edge runs the existing calculator without new engines
+or a657-session replay. Preserve original methods and assertions.
+
+Native setup failures precede product validation: this Main's partial clone
+needed a bounded current-master fetch after ordinary fetch hit missing objects,
+and sparse checkout omitted existing source-revision and calculator helpers.
+Preserve failed receipts, materialize unchanged dependencies, and verify exact
+base/tree/clean scope. Windows subprocess audit supplies a command-line string;
+allow only the intended read-only git metadata command rather than treating it
+as an arbitrary child or disabling the synthetic network/store guard.
+
+Final self-review reproduced a forged qualified TOTAL_RETURN basis escaping as
+KeyError before useful output. Check membership in the qualification's existing
+RAW/SPLIT basis map before indexing; preserve unrestricted legacy basis support
+and assert the finite scoped refusal through the actual Reader, including -O.
+
+## 2026-10-25 — Batch authoritative close checks within one research invocation
+
+Repeated NYSE schedule construction is a static performance candidate, not a
+measured fraction of a real run. Reuse Source's authoritative range pattern
+with its bounded calendar envelope inside each Reader call and Feature snapshot.
+Keep row checks in their original order, including optional components' global
+schema/identity/clock failures. Missing dates, unsupported/oversized ranges and
+batch failures must reach the original finite lookup; no alternate calendar,
+global cache, smaller history or new eligibility policy follows from batching.
+
+Compare exact Reader rows/files/receipt bytes under both lookup strategies at
+the same loaded code pin. Across code revisions, reader_code_sha256 and dependent
+receipt/Feature hashes must change honestly. Preserve fixed calculator/Decimal
+AST and existing assertions. Small synthetic normal/-O parity and schedule counts
+do not establish actual runtime speedup, source admission or economic benefit.
+The completed 534.031301-second actual MU baseline and its outputs are historical
+evidence only; this implementation does not replay it or call Source.prepare.
+
+Initial new test expectations incorrectly called 2026-07-02 an early close and
+omitted the unchanged fixed calculator's grid schedule. Both old/new strategies
+agreed: the authoritative close is 20 UTC; November 27 supplies the actual early
+close case. Preserve the failed log, correct these new expectations, and count
+the existing calculator schedule in the full snapshot observation.
+
+## 2026-10-25 — Preserve the original calendar authority before research batching
+
+PR676 at0232 passed focused parity tests but failed the unchanged registered
+Reader backtest calendar-unavailable oracle in CI40158081232 attempt1. Direct
+range lookup had bypassed latest_completed_close. This is a deterministic
+product regression: preserving original test AST without executing the full
+registered Reader/Source family did not establish compatibility. The same
+original test was reproduced failing locally before the repair; do not weaken
+that oracle or relabel the failure as environment/flakiness/review paperwork.
+
+Restrict the optimization to explicit research. Training/backtest/discovery
+retain the original per-date authority, including a failure on a later date.
+The research range is lazy: the first actual session must pass _session_close
+at the existing row boundary, and its close must agree with the range before
+reuse. An anchor mismatch or range failure retains original finite lookups.
+Include-time metadata does no calendar work. Keep schema/identity/clock failures
+ahead of that first anchor, with no persistent cache or altered public API.
+
+The necessary authority anchors increase the new synthetic schedule counts:
+Reader3→2 and Feature conservative21→8, including existing calculator work.
+These corrected new expectations preserve every protected original assertion.
+Re-run the unchanged failed case, the full registered family and focused normal/-O
+parity on the new exact HEAD. Actual Source preparation, MU/Feature execution,
+collection, current tail repair and economic/portfolio work remain separate.
+
+The first complete Windows run preserved that repaired original oracle but
+failed sparse import because the Source runtime lacks SciPy. Preserve its239-case
+failure receipt. Reuse already installed pinned test packages in an isolated
+validation environment, without overwriting either owner environment, downloading
+packages or adding skips. Retain PyArrow and the existing six Linux-only skips;
+Linux native resource coverage still requires the new GitHub CI head.
+
+
+### 2026-10-25 — Fixed SPY canonical census includes a historical validation stub
+
+The actual pre-capture gate stopped with SPY665_UNKNOWN_DISPATCH before any WorkJournal, provider/Drive I/O or dispatch. The complete historical census includes push39388523155/#98 at284abcb6, outside the39 capture/native dispatches. Its immutable workflow blob93a38491a0180e0ba2b99e3a6086fc79c741c76e (SHA256464ef675a92be21267f8d4663c45ca76c0cc80a4e76e8178241e8626dc83ae68) has invalid YAML and a capture condition restricted to workflow_dispatch on master. Canonical jobs are exactly two runnerless, step-free review checks118514193309/118514203527, not collection jobs. Recognize only that exact immutable run and recheck both exact job identities, clocks and absent execution resources on every observation. Unknown push/dispatch, replay, changed metadata, added steps/jobs or a runner still fail closed. Preserve the original39-row parent,104 journal prefix,40-dispatch limit, charged costs and unknown platform costs; absence of artifacts or logs is not zero-spend evidence.
+
+Separately, the Windows read-only owner lookup initially failed DNS because a minimal rclone child environment omitted SystemRoot/WINDIR. Restore only those OS fields in the local T0 helper; do not modify worker authentication or Source gates. Current original-owner hash matched after the fix. Old nullable owner authorization and new explicit-owner input are distinct contracts. No collection success follows from prepared input or a posted but unexecuted grant.
+
+### 2026-10-25 — Actual SPY Arca identity and completed research sessions
+
+Actual SPY665 capture40183239445 on protectede5de29de returned provider exchange ARCA. Preserve its MIC ARCX rather than relabel it XNYS. The existing Source identity scope excluded ARCX, and standalone Reader research treated that venue as unscheduled. Accept ARCX in Source preparation and apply the existing NYSE completed-session checks to research/discovery with the exact New York timezone/calendar. Preserve the original training/backtest venue support, PIT_PROXY restrictions, rights, physical-halt unknowns and false economic/selector authority. Test original-byte reconstruction separately from Source preparation and consumer ACK; no new collection or dividend/total-return claim follows from this H1.
+
+Exact02d2 general CI40184822034 passed234/235 but exposed one stale Feature test oracle: an ARCX benchmark row available before close now reaches Reader's PRE_CLOSE_AVAILABLE_FROM before Feature's older local check. Clock provenance errors remain global even for optional benchmarks; only ordinary optional absence/data refusal is local. Strengthen the existing cross-edge test to require the global refusal, preserving product guards and the separate valid/absent optional-benchmark tests. Source/Reader-only Native coverage did not cover this Main oracle; include the existing68-case Feature suite in this causal validation. Preserve the original failing CI and require fresh exact-head review/checks after the test correction.
+
 ### 2026-10-24 — Locate retained prices before refreshing a separate cache
 
 The existing820-key owner inventory (Alpaca776/Twelve312/overlap268) is a
@@ -7666,3 +8335,26 @@ proved shared concurrency alone cannot account for intervening legacy Source
 costs. Fence the complete bounded run/attempt prefix, including older reruns;
 any change requires cost reconciliation. None of these fixture corrections
 establish supplier rights or approve activation.
+
+### 2026-10-26 - Reconcile managed refresh on the deployed research path
+
+Retained 820-ticker history and PR671 already implement managed incremental
+refresh; reuse those exact capabilities instead of adding another collector.
+The selected MU657 generation is not the complete retained-price inventory.
+Current-master integration must preserve the newly registered SEC/A2 tests
+alongside both managed suites. Past rights observations, CI and finite Source
+grants do not certify the new head or authorize standing managed maintenance.
+
+Host commit exhaustion made threaded Git and PowerShell fail despite free
+physical RAM. A one-thread Git configuration and small sequential cmd/Python
+operations recovered local inspection; do not count resource-failed checks
+as passes or change user processes/OS settings. A shallow no-merge-base result
+was resolved by a bounded history fetch: it was not unrelated ancestry.
+
+After reboot, fresh registered validation completed169 cases with165 passing
+and4 import errors because the existing Source environment lacked requests,
+already declared in requirements_github.txt. Preserve that exact failure and
+reconcile the declared test environment before a new-head PASS claim; do not
+remove the newly integrated SEC/A2 compatibility tests to make Source green.
+The declared requests dependency was then installed in the same existing test
+environment; all4 original failed compatibility methods passed unchanged.

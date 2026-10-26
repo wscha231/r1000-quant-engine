@@ -78,6 +78,29 @@ def _stamp(value: Any) -> datetime:
         raise ReferenceIndexError("invalid_timestamp") from exc
 
 
+def filing_request_record(*, request_id: str, asset_id: str, issuer_id: str,
+                          event_refs: list[dict], intake_ref: dict, a3_filing_refs: list[dict],
+                          existing_thesis_ref: dict | None, supersedes_request_id: str | None) -> dict:
+    """Pending filing references in the existing Registry, never a current A3 row."""
+    for value in (request_id, asset_id, issuer_id):
+        _identifier(value, "filing_request_identity")
+    _require(bool(event_refs) and len(event_refs) == len(a3_filing_refs), "filing_reference_count")
+    for ref in [*event_refs, intake_ref, *a3_filing_refs]:
+        _require(type(ref) is dict and set(ref) == {"path", "sha256"}, "filing_reference_shape")
+        _require(isinstance(ref["sha256"], str) and _HASH.fullmatch(ref["sha256"]) is not None, "filing_reference_hash")
+    return dict(schema="candidate-registry-filing-request-v1", request_id=request_id,
+        asset_id=asset_id, issuer_id=issuer_id,
+        request_kind=("FILING_CORRECTION_REASSESSMENT" if supersedes_request_id else
+                      "THESIS_REASSESSMENT" if existing_thesis_ref else "CANDIDATE_RESEARCH_INTAKE"),
+        existing_thesis_ref=existing_thesis_ref, supersedes_request_id=supersedes_request_id,
+        event_refs=event_refs, a2_intake_ref=intake_ref, a3_filing_review_refs=a3_filing_refs,
+        status="RESEARCH_PENDING", reference_status="FILING_EVIDENCE_BOUND",
+        current_selection_status="NOT_VERIFIED", domain_admission_status="NOT_VERIFIED",
+        a3_packet_ref=None, a3_result_ref=None, validated_er_ref=None,
+        reuse_authorized=False, A5_eligible_input=False, canonical_write_allowed=False,
+        selector_eligible=False, orders_allowed=False, research_only=True)
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False, allow_nan=False, default=_json_default).encode("utf-8")

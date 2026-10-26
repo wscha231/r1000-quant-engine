@@ -1277,8 +1277,19 @@ class ManagedExecutionTests(unittest.TestCase):
 
 
 def main():
-    suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(case)
-                             for case in (ControlPlaneTests, ManagedOHLCVTests, ManagedExecutionTests)])
+    # Keep the existing registered caller and all original contract cases.
+    # Stage2 remains supplied-byte proposal validation, never A0 dispatch.
+    from a2_a1_discovery_gate_v1_smoke import DiscoveryGateTests
+    from a2_a1_ohlcv_handoff_v1_smoke import OHLCVHandoffTests, BoardOHLCVTests
+    from a2_a1_readiness_smoke import ReadinessTests, Post669CompatibilityTests
+    suite=unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ManagedOHLCVTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ManagedExecutionTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(DiscoveryGateTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(OHLCVHandoffTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BoardOHLCVTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ReadinessTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(Post669CompatibilityTests))
     result=unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 

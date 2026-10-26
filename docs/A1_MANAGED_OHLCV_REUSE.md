@@ -128,7 +128,10 @@ Three independent enablement conditions remain unset: the deployed policy's
 alone cannot authorize execution. No secret, variable, OWNER attestation, rights
 document or numeric maintenance grant is created by this PR. With the committed
 false policy the adapter returns `WAIT_OWNER_EVIDENCE` before credentials or
-remote reads. The human explicitly confirmed rights evidence is still absent.
+remote reads. This status describes disabled execution; it does not prove
+that all current account-rights evidence is absent. Later scoped Source
+acceptances must be matched to this distinct standing-maintenance binding;
+a spent or expired one-session grant cannot activate this adapter.
 
 ### Actual standing contract required before activation
 
