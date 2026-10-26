@@ -224,3 +224,9 @@ Require the new reviewed deployment and exact code pins before using this
 field. Older code accepted extra control keys but did not enforce this subset.
 This option creates no execution grant, numeric budget, enablement or Source/PIT
 admission, and does not change the calendar, private rights or publication gates.
+
+An explicit manual dispatch with `managed_refresh=true` runs only the guarded
+managed job: the legacy `daily_update` job is skipped so a small witness cannot
+also initiate its free-data engine validation/replays or cache synchronization.
+Ordinary scheduled runs and manual requests with `managed_refresh=false` retain
+their existing daily behavior. This uses the same workflow and schedule.

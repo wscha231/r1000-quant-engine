@@ -1330,6 +1330,18 @@ class ManagedExecutionTests(unittest.TestCase):
         self.assertEqual(opener.calls,3)
 
 
+    def test_managed_only_dispatch_isolates_legacy_validation_and_keeps_schedule(self):
+        import yaml
+        value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
+        self.assertEqual(value['jobs']['daily_update']['if'],
+            "${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}")
+        trigger = value.get('on',value.get(True))
+        self.assertEqual(trigger['schedule'],[dict(cron='30 23 * * 1-5')])
+        self.assertFalse(trigger['workflow_dispatch']['inputs']['managed_refresh']['default'])
+        self.assertIn('inputs.managed_refresh',value['jobs']['managed_a1_refresh']['if'])
+        self.assertEqual(value['jobs']['managed_a1_refresh']['concurrency'],
+                         dict(group='a1-private-research-single-writer',**{'cancel-in-progress':False}))
+
     def test_execution_subset_is_canonical_bounded_and_owner_hash_bound(self):
         original = copy.deepcopy(self.control)
         whole_hash = self.validate()
