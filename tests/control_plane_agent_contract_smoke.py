@@ -674,6 +674,662 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertTrue((self.root/'cli/report.md').is_file())
 
 
+class ManagedOHLCVTests(unittest.TestCase):
+    """The existing registered A0 contract suite exercises the no-I/O roster adapter."""
+
+    def setUp(self):
+        import copy
+        from tools import prepare_a1_managed_ohlcv as managed
+        self.m = managed
+        self.copy = copy.deepcopy
+        root = Path(__file__).resolve().parents[1]
+        self.inventory, self.sha = managed.load(root / 'data_static/a1_ohlcv_inventory_v1.json')
+        self.policy, self.policy_sha = managed.load(root / 'data_static/a1_ohlcv_managed_v1.json')
+
+    def gate(self, now='2026-10-23T23:30:00Z', force=False):
+        return self.m.evaluate_market_session(now_utc=now, force=force)
+
+    def plan(self, now='2026-10-23T23:30:00Z', **kw):
+        return self.m.prepare(self.inventory, self.policy, self.sha, self.gate(now), now_utc=now, **kw)
+
+    def changed(self, add=(), remove=()):
+        previous = self.copy(self.policy)
+        previous_sha = self.m.digest(self.m.encode(previous))
+        self.policy.update(revision=2, previous_policy_sha256=previous_sha,
+                           active_tickers=sorted((set(previous['active_tickers']) | set(add)) - set(remove)),
+                           watch_tickers=sorted((set(previous['watch_tickers']) | set(remove)) - set(add)),
+                           changes=[dict(ticker=t, action=action, event_id='change-20261024-' + t,
+                                         a0_reference=self.m.A0 + '#issuecomment-12345678')
+                                    for action, rows in [('START_UPDATE', add), ('MOVE_TO_WATCH', remove)]
+                                    for t in rows])
+        return previous, previous_sha
+
+    def test_actual_820_is_deduplicated_and_not_admitted(self):
+        report = self.plan()
+        self.assertEqual(report['active_count'], 820)
+        self.assertEqual(self.inventory['counts'], dict(unique_tickers=820, alpaca_sip=776,
+                                                       twelve_data=312, overlap=268))
+        self.assertTrue(all(r['next_action'] == 'VERIFY_EXISTING_COVERAGE' and
+                            r['missing_interval'] is None and not r['source_admission']
+                            for r in report['requests']))
+        self.assertIn('BRK.B', self.policy['active_tickers'])
+
+    def test_regular_close_plus_two_hours_and_no_provider_calls(self):
+        with patch('urllib.request.urlopen', side_effect=AssertionError('provider')) as get:
+            report = self.plan()
+        get.assert_not_called()
+        self.assertEqual(report['status'], 'PREPARED_NO_CAPTURE')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-10-23T22:00:00+00:00')
+        self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
+        self.assertFalse(report['collection_enabled'])
+
+    def test_close_buffer_cannot_be_forced(self):
+        now = '2026-10-23T21:00:00Z'
+        report = self.m.prepare(self.inventory, self.policy, self.sha, self.gate(now, True), now_utc=now)
+        self.assertEqual(report['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_holiday_is_not_a_completed_refresh(self):
+        self.assertEqual(self.plan('2026-07-03T23:30:00Z')['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_weekend_is_not_a_completed_refresh(self):
+        self.assertEqual(self.plan('2026-10-25T23:30:00Z')['status'], 'SKIP_MARKET_WINDOW')
+
+    def test_early_close_is_calendar_based(self):
+        report = self.plan('2026-11-27T21:00:00Z')
+        self.assertEqual(report['market_close_utc'], '2026-11-27T18:00:00+00:00')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-11-27T20:00:00+00:00')
+
+    def test_winter_close_uses_actual_exchange_time(self):
+        report = self.plan('2026-11-23T23:30:00Z')
+        self.assertEqual(report['earliest_refresh_utc'], '2026-11-23T23:00:00+00:00')
+
+    def test_stale_and_future_receipts_refuse(self):
+        gate = self.gate()
+        for now in ['2026-10-24T00:00:00Z', '2026-10-23T23:29:59Z']:
+            with self.assertRaisesRegex(ValueError, 'MARKET_RECEIPT'):
+                self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc=now)
+
+    def test_forged_close_or_naive_clock_refuses(self):
+        gate = self.gate()
+        gate['market_close_utc'] = '2026-10-23T19:00:00+00:00'
+        with self.assertRaisesRegex(ValueError, 'MARKET_SESSION_CONFLICT'):
+            self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc='2026-10-23T23:30:00Z')
+        gate = self.gate()
+        gate['checked_at_utc'] = '2026-10-23T23:30:00'
+        with self.assertRaisesRegex(ValueError, 'MARKET_CLOCK'):
+            self.m.prepare(self.inventory, self.policy, self.sha, gate, now_utc='2026-10-23T23:30:00Z')
+
+    def test_addition_is_review_only_and_removal_preserves_inventory(self):
+        before = self.m.encode(self.inventory)
+        previous, sha = self.changed(add=['TEST'], remove=['AAPL'])
+        report = self.plan(previous=previous, previous_sha=sha)
+        self.assertEqual(report['added'], ['TEST'])
+        self.assertEqual(report['moved_to_watch'], [dict(ticker='AAPL', action='CONTINUE_TRACKING_RETAIN_HISTORY')])
+        self.assertEqual(report['watch_count'], 1)
+        self.assertEqual(report['tracked_count'], 821)
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'AAPL')['management_state'], 'WATCH')
+        self.assertEqual(report['updates_stopped'], [])
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'TEST')['next_action'],
+                         'BACKFILL_REVIEW_REQUIRED')
+        self.assertEqual(self.m.encode(self.inventory), before)
+
+    def test_missing_previous_or_wrong_hash_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        for p, s in [(None, None), (previous, '0' * 64)]:
+            with self.assertRaisesRegex(ValueError, 'PREVIOUS_POLICY'):
+                self.plan(previous=p, previous_sha=s)
+
+    def test_unrecorded_or_duplicate_change_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        record = self.copy(self.policy['changes'][0])
+        for changes in [[], [record, record]]:
+            self.policy['changes'] = changes
+            with self.assertRaisesRegex(ValueError, 'ROSTER_CHANGE_MISMATCH|DUPLICATE_CHANGE'):
+                self.plan(previous=previous, previous_sha=sha)
+
+    def test_wrong_a0_reference_refuses(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.policy['changes'][0]['a0_reference'] = 'https://example.com/approval'
+        with self.assertRaisesRegex(ValueError, 'A0_CHANGE_REFERENCE'):
+            self.plan(previous=previous, previous_sha=sha)
+
+    def test_config_boolean_cannot_enable_capture(self):
+        self.policy['automatic_capture_enabled'] = True
+        self.assertFalse(self.plan()['collection_enabled'])
+
+    def test_watch_cannot_silently_drop_price_tracking(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.policy['watch_tickers'] = []
+        with self.assertRaisesRegex(ValueError, 'WATCH_HISTORY_MUST_BE_RETAINED'):
+            self.plan(previous=previous, previous_sha=sha)
+
+    def test_reentry_reuses_watch_without_duplicate_tracking(self):
+        previous, sha = self.changed(remove=['AAPL'])
+        self.plan(previous=previous, previous_sha=sha)
+        previous = self.copy(self.policy)
+        sha = self.m.digest(self.m.encode(previous))
+        self.policy.update(revision=3, previous_policy_sha256=sha, watch_tickers=[],
+                           active_tickers=sorted(set(previous['active_tickers']) | {'AAPL'}),
+                           changes=[dict(ticker='AAPL', action='START_UPDATE', event_id='reentry-20261027-AAPL',
+                                         a0_reference=self.m.A0 + '#issuecomment-12345679')])
+        report = self.plan(previous=previous, previous_sha=sha)
+        self.assertEqual((report['active_count'], report['watch_count'], report['tracked_count']), (820, 0, 820))
+        self.assertEqual(report['added'], ['AAPL'])
+        self.assertEqual(next(r for r in report['requests'] if r['ticker'] == 'AAPL')['next_action'],
+                         'VERIFY_EXISTING_COVERAGE')
+
+    def test_wrong_inventory_hash_or_count_refuses(self):
+        self.policy['inventory_sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'POLICY_BINDING'):
+            self.plan()
+        self.policy['inventory_sha256'] = self.sha
+        self.inventory['counts']['unique_tickers'] = 821
+        with self.assertRaisesRegex(ValueError, 'INVENTORY_COUNTS'):
+            self.plan()
+
+    def test_repeated_preparation_has_same_identity(self):
+        self.assertEqual(self.plan()['plan_id'], self.plan()['plan_id'])
+
+    def test_git_checkout_preserves_policy_bound_bytes(self):
+        result = subprocess.check_output(['git', '-c', 'safe.directory=' + ROOT.as_posix(),
+            'check-attr', 'eol', 'text', '--', 'data_static/a1_ohlcv_inventory_v1.json',
+            'data_static/a1_ohlcv_managed_v1.json', 'data_static/a1_ohlcv_managed_history/example.json'],
+            cwd=ROOT, text=True)
+        for name in ['a1_ohlcv_inventory_v1.json', 'a1_ohlcv_managed_v1.json']:
+            self.assertIn('data_static/' + name + ': eol: lf', result)
+        self.assertIn('data_static/a1_ohlcv_managed_history/example.json: text: unset', result)
+
+    def test_json_duplicate_and_oversize_refuse(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / 'input.json'
+            p.write_bytes(b'{"a":1,"a":2}')
+            with self.assertRaisesRegex(ValueError, 'DUPLICATE_JSON_KEY'):
+                self.m.load(p)
+            p.write_bytes(b' ' * (self.m.MAX_BYTES + 1))
+            with self.assertRaisesRegex(ValueError, 'INPUT_SIZE'):
+                self.m.load(p)
+
+    def test_failed_input_revokes_prior_report_and_alias_is_preserved(self):
+        import tempfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp)
+            (p / 'bad.json').write_text('{')
+            output = p / 'report.json'
+            output.write_text('{"status":"PREPARED_NO_CAPTURE"}')
+            args = SimpleNamespace(inventory=p / 'bad.json', policy=p / 'bad.json',
+                                   market_gate=p / 'bad.json', output=output, now_utc=None)
+            code, report = self.m.run(args)
+            self.assertEqual((code, report['status']), (2, 'BLOCKED_INPUT'))
+            self.assertEqual(json.loads(output.read_text())['status'], 'BLOCKED_INPUT')
+            before = (p / 'bad.json').read_bytes()
+            args.output = p / 'bad.json'
+            with self.assertRaisesRegex(ValueError, 'OUTPUT_ALIAS'):
+                self.m.run(args)
+            self.assertEqual((p / 'bad.json').read_bytes(), before)
+
+    def test_malformed_inventory_cannot_destroy_archived_policy(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp)
+            history = p / 'a1_ohlcv_managed_history'
+            history.mkdir()
+            archive = history / ('a' * 64 + '.json')
+            archive.write_bytes(b'EXACT_PRIVATE_PARENT_BYTES')
+            args = SimpleNamespace(inventory=p / 'missing', policy=p / 'bad', market_gate=p / 'bad',
+                                   output=archive, now_utc=None)
+            with self.assertRaisesRegex(ValueError, 'OUTPUT_ALIAS'):
+                self.m.run(args)
+            self.assertEqual(archive.read_bytes(), b'EXACT_PRIVATE_PARENT_BYTES')
+
+
+class ManagedExecutionTests(unittest.TestCase):
+    """Synthetic standing controls and injected transport; never actual rights proof."""
+
+    def setUp(self):
+        from tools import alpaca_sip_managed_refresh as runtime
+        from types import SimpleNamespace
+        self.r, self.ns = runtime, SimpleNamespace
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.now = runtime.campaign.utc('2026-10-23T23:30:00Z')
+        env = patch.dict('os.environ', {'GITHUB_SHA':'2'*40})
+        env.start()
+        self.addCleanup(env.stop)
+        self.control = dict(schema=runtime.SCHEMA, repository=runtime.REPO,
+            task_key='R1000-SYNTHETIC-MANAGED-OFFLINE-ONLY',
+            inventory_sha256='a'*64, policy_sha256='b'*64,
+            not_before='2026-10-23T00:00:00Z', expires_at='2026-10-24T00:00:00Z',
+            max_runs=2, max_symbols_per_run=4, max_active_seconds_per_run=300,
+            private_noncommercial=True, supplier_rights_verified=True, source_admission=False,
+            rights_ref=dict(file_id='fixture-rights-123', sha256='c'*64, bytes=1),
+            bootstrap_ref=dict(file_id='fixture-bootstrap-123', sha256='d'*64, bytes=1),
+            opening_evidence_ref=dict(file_id='fixture-opening-123',sha256='1'*64,bytes=1),
+            owner_sha256='e'*64, credential_binding='f'*64, opening_evidence_sha256='1'*64,
+            source_history_sha256=runtime.sha([]),
+            private_root_folder_id='fixture-root-123', private_data_folder_id='fixture-data-123',
+            journal_folder_id='fixture-journal-123', evidence_folder_id='fixture-evidence-123',
+            opening_usage={k: 1 for k in runtime.TOTAL_KEYS},
+            per_run_allowance=dict(provider_gets=50, drive_requests=200, drive_bytes=500_000_000, storage_bytes=500_000),
+            cumulative_ceiling=dict(provider_gets=101, drive_requests=401, drive_bytes=1_000_000_001,
+                                    storage_bytes=1_000_001, active_seconds=10801, dispatches=3),
+            authorized_tickers=['AAPL', 'MSFT'], backfill_tickers=[],
+            deployment=dict(pull_request=671, reviewed_head='2'*40, merge_sha='3'*40),
+            code_pins={p: '4'*64 for p in runtime.PIN_PATHS},
+            approval_reference=runtime.managed.A0+'#issuecomment-12345678')
+
+    def validate(self):
+        return self.r.validate_control(self.control, 'a'*64, 'b'*64, self.now)
+
+    def test_absent_rights_stops_before_credentials_github_or_drive(self):
+        args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',
+                       inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
+                       meter=self.root/'meter.json', output=self.root/'result.json')
+        with patch.dict('os.environ', {}, clear=True):
+            result = self.r.run(args, gh=lambda _: self.fail('remote metadata'),
+                                drive_factory=lambda *a, **k: self.fail('Drive'))
+        self.assertEqual((result['status'], result['provider_requests']), ('WAIT_OWNER_EVIDENCE', 0))
+        self.assertFalse(args.meter.exists())
+
+    def test_enabled_boolean_still_requires_private_execution_contract(self):
+        args = self.ns(policy=self.root/'policy.json', inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
+                       meter=self.root/'meter.json', output=self.root/'result.json')
+        policy, _ = self.r.managed.load(ROOT/'data_static/a1_ohlcv_managed_v1.json')
+        policy['automatic_capture_enabled'] = True
+        args.policy.write_bytes(self.r.encoded(policy))
+        with patch.dict('os.environ', {}, clear=True), self.assertRaisesRegex(self.r.Refused, 'MANAGED_CONTROL_REQUIRED'):
+            self.r.run(args, gh=lambda _: self.fail('remote metadata'))
+
+    def test_output_or_meter_alias_refuses_before_mutation(self):
+        args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',
+                       inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
+                       meter=ROOT/'data_static/a1_ohlcv_managed_v1.json', output=self.root/'result')
+        before = args.policy.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'OUTPUT_ALIAS'):
+            self.r.run(args)
+        self.assertEqual(before, args.policy.read_bytes())
+
+    def test_opening_costs_and_full_reservation_not_reset(self):
+        self.validate()
+        for key in self.r.TOTAL_KEYS:
+            with self.subTest(key=key):
+                old = self.control['cumulative_ceiling'][key]
+                self.control['cumulative_ceiling'][key] = old-1
+                with self.assertRaisesRegex(self.r.Refused, 'MANAGED_CUMULATIVE_RESERVATION'):
+                    self.validate()
+                self.control['cumulative_ceiling'][key] = old
+
+    def test_expired_or_unreviewed_control_refuses(self):
+        self.control['supplier_rights_verified'] = False
+        with self.assertRaisesRegex(self.r.Refused, 'WAIT_OWNER_EVIDENCE'):
+            self.validate()
+        self.control['supplier_rights_verified'] = True
+        self.control['expires_at'] = '2026-10-23T23:30:00Z'
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_WINDOW'):
+            self.validate()
+
+    def test_actual_comment_locator_does_not_require_predicted_id(self):
+        h = self.validate()
+        self.control['approval_reference'] = self.r.managed.A0+'#issuecomment-99999999'
+        self.assertEqual(h, self.validate())
+        self.control['max_symbols_per_run'] = 3
+        self.assertNotEqual(h, self.validate())
+
+    def grant(self):
+        return dict(id=12345678, author_association='OWNER', user=dict(type='User'),
+            issue_url=f'https://api.github.com/repos/{self.r.REPO}/issues/448',
+            created_at='2026-10-23T01:00:00Z', updated_at='2026-10-23T01:00:00Z',
+            body=self.r.TAG+json.dumps(dict(control_sha256=self.validate(),
+                rights_sha256='c'*64, opening_evidence_sha256='1'*64,
+                expires_at=self.control['expires_at'], private_retention_reviewed=True,
+                historical_sip_reviewed=True, standing_budget_approved=True)))
+
+    def test_owner_proof_is_exact_immutable_and_no_waiver(self):
+        grant = self.grant()
+        self.r.owner_grant(self.control, self.validate(), lambda _: grant, self.now)
+        for field, value in [('author_association', 'MEMBER'), ('updated_at', '2026-10-23T02:00:00Z'),
+                             ('body', 'generic free plan or API success')]:
+            bad = dict(grant, **{field: value})
+            with self.assertRaises(self.r.Refused):
+                self.r.owner_grant(self.control, self.validate(), lambda _: bad, self.now)
+
+    def test_missing_window_incremental_reuse_and_twelve_hold(self):
+        windows, reused, held = self.r.missing_windows(['AAPL','MSFT','T'],
+            dict(AAPL='2026-10-22', MSFT='2026-10-23'), '2026-10-23', set())
+        self.assertEqual(windows, {('2026-10-23','2026-10-24'): ['AAPL']})
+        self.assertEqual(reused, ['MSFT'])
+        self.assertEqual(held, {'T': 'MISSING_VERIFIED_ALPACA_COVERAGE'})
+
+    def test_unknown_journal_or_failed_run_never_replayed(self):
+        history = [dict(id=1,head_sha='2'*40), dict(id=2,head_sha='2'*40)]
+        with self.assertRaisesRegex(self.r.Refused, 'UNCONFIRMED_PRIOR_RUN'):
+            self.r.restore_journal([], history, 'a'*64)
+        base = dict(slot=1,run_id=1,source_sha='2'*40,control_sha256='a'*64)
+        rows = [('b'*64, dict(base,state='RESERVED',parent_sha256=None)),
+                ('c'*64, dict(base,state='BLOCKED',parent_sha256='b'*64))]
+        with self.assertRaisesRegex(self.r.Refused, 'PRIOR_FAILURE_REQUIRES_RECONCILIATION'):
+            self.r.restore_journal(rows, history, 'a'*64)
+
+    def test_prior_complete_needs_final_meter_and_exact_chain(self):
+        history = [dict(id=1,head_sha='2'*40), dict(id=2,head_sha='2'*40)]
+        base = dict(slot=1,run_id=1,source_sha='2'*40,control_sha256='a'*64)
+        rows = [('b'*64, dict(base,state='RESERVED',parent_sha256=None)),
+                ('c'*64, dict(base,state='COMPLETE',parent_sha256='b'*64,
+                              coverage_updates={'AAPL':'2026-10-22'},held={}))]
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_FINAL_METER_REQUIRED'):
+            self.r.restore_journal(rows, history, 'a'*64)
+        observed = []
+        result = self.r.restore_journal(rows, history, 'a'*64, lambda run,h: observed.append(h))
+        self.assertEqual(result, ('c'*64, {'AAPL':'2026-10-22'}, {}))
+        self.assertEqual(observed, ['c'*64])
+
+    def test_positive_skipped_job_requires_no_checkpoint(self):
+        history = [dict(id=1,managed_skipped=True), dict(id=2)]
+        self.assertEqual(self.r.restore_journal([],history,'a'*64), (None,{},{}))
+        with self.assertRaisesRegex(self.r.Refused, 'SKIPPED_STATE_CONFLICT'):
+            self.r.restore_journal([('b'*64,dict(slot=1))],history,'a'*64)
+
+    def test_final_meter_covers_checkpoint_publication(self):
+        meter = dict(schema='a1-sip-campaign-meter-v1',run_id=1,run_attempt=1,source_sha='2'*40,
+            managed_control_sha256='a'*64,managed_checkpoint_sha256='b'*64,finalized=True,status='COMPLETE',
+            allowance=self.control['per_run_allowance'],transfer_definition=self.r.campaign.METRIC,
+            source_admission=False,pit_verified=False,economic_authority=False,
+            usage={k:1 for k in self.r.KEYS})
+        run = dict(id=1,head_sha='2'*40)
+        self.r.verify_final_meter(meter,run,'b'*64,'a'*64,self.control['per_run_allowance'])
+        meter['finalized'] = False
+        with self.assertRaisesRegex(self.r.Refused,'MANAGED_FINAL_METER'):
+            self.r.verify_final_meter(meter,run,'b'*64,'a'*64,self.control['per_run_allowance'])
+
+    def test_full_session_grid_does_not_accept_last_day_only(self):
+        import gzip
+        rows = [dict(ticker='AAPL',adjustment=a,date=d) for a in ['raw','split']
+                for d in ['2026-10-22','2026-10-23']]
+        pack = lambda v: gzip.compress(b''.join(self.r.encoded(r) for r in v))
+        self.assertEqual(self.r.complete_grid(pack(rows),['AAPL'],'2026-10-22','2026-10-24'), {'AAPL'})
+        self.assertEqual(self.r.complete_grid(pack(rows[1:]),['AAPL'],'2026-10-22','2026-10-24'), set())
+
+    def test_metadata_reads_keep_original_deadline_and_bound_calls(self):
+        reader = self.r.MetadataReader(lambda _: {}, self.now+timedelta(seconds=46), lambda:self.now)
+        self.assertEqual(reader('fixture'), {})
+        reader.calls = 170
+        with self.assertRaisesRegex(self.r.Refused,'MANAGED_METADATA_BUDGET'):
+            reader('fixture')
+        reader.calls = 0
+        reader.deadline = self.now+timedelta(seconds=44)
+        with self.assertRaisesRegex(self.r.Refused,'MANAGED_METADATA_BUDGET'):
+            reader('fixture')
+
+    def test_full_source_prefix_fences_new_runs_and_older_rerun_attempts(self):
+        rows = [dict(id=i,run_attempt=1,head_sha='2'*40,status='completed',conclusion='success',
+                     created_at=f'2026-10-2{i}T00:00:00Z',updated_at=f'2026-10-2{i}T01:00:00Z')
+                for i in [1,2]]
+        self.control['source_history_sha256'] = self.r.sha(rows)
+        fetch = lambda _: dict(total_count=len(rows),workflow_runs=list(reversed(rows)))
+        self.assertEqual(self.r.source_history_fence(self.control,fetch),rows)
+        rows[0]['run_attempt'] = 2  # latest created ID remains2
+        with self.assertRaisesRegex(self.r.Refused,'INTERVENING_SOURCE_ACTIVITY'):
+            self.r.source_history_fence(self.control,fetch)
+        rows[0]['run_attempt'] = 1
+        rows.append(dict(rows[1],id=3))
+        with self.assertRaisesRegex(self.r.Refused,'INTERVENING_SOURCE_ACTIVITY'):
+            self.r.source_history_fence(self.control,fetch)
+
+    def test_partial_source_history_is_not_a_safe_zero_cost_prefix(self):
+        with self.assertRaisesRegex(self.r.Refused,'SOURCE_HISTORY_INCOMPLETE'):
+            self.r.source_history_fence(self.control,lambda _:dict(total_count=2,workflow_runs=[]))
+
+    def no_capture(self):
+        now = self.r.campaign.utc('2026-07-03T23:30:00Z')
+        value = dict(schema='a1-managed-no-capture-v1',status='SKIP_MARKET_WINDOW',
+            managed_control_sha256='a'*64,run_id=1,run_attempt=1,source_sha='2'*40,
+            observed_at_utc=now.isoformat(),phase='BEFORE_CREDENTIALS',provider_requests=0,
+            drive_requests=0,collection_enabled=False,
+            market_gate=self.r.managed.evaluate_market_session(now_utc=now,min_close_age_minutes=120))
+        run = dict(id=1,head_sha='2'*40,created_at='2026-07-03T23:29:00Z',updated_at='2026-07-03T23:31:00Z')
+        return value,run
+
+    def test_holiday_outcome_can_continue_only_with_positive_no_capture_artifact(self):
+        value,run = self.no_capture()
+        verifier = lambda r,h:self.r.verify_final_meter(value,r,h,'a'*64,self.control['per_run_allowance'])
+        self.assertEqual(self.r.restore_journal([], [run,dict(id=2)],'a'*64,verifier), (None,{},{}))
+        value['provider_requests'] = 1
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_PROOF'):
+            self.r.restore_journal([], [run,dict(id=2)],'a'*64,verifier)
+
+    def test_no_capture_clock_or_false_holiday_never_passes(self):
+        value,run = self.no_capture()
+        value['observed_at_utc'] = '2026-10-23T23:30:00Z'
+        run.update(created_at='2026-10-23T23:29:00Z',updated_at='2026-10-23T23:31:00Z')
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_CALENDAR'):
+            self.r.verify_final_meter(value,run,None,'a'*64,self.control['per_run_allowance'])
+        value,run = self.no_capture()
+        run['updated_at'] = '2026-07-03T23:29:59Z'
+        with self.assertRaisesRegex(self.r.Refused,'NO_CAPTURE_CLOCK'):
+            self.r.verify_final_meter(value,run,None,'a'*64,self.control['per_run_allowance'])
+    def test_existing_workflow_reuses_source_lock_and_defaults_disabled(self):
+        import yaml
+        value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
+        job = value['jobs']['managed_a1_refresh']
+        self.assertEqual(job['concurrency']['group'], 'a1-private-research-single-writer')
+        self.assertFalse(job['concurrency']['cancel-in-progress'])
+        self.assertIn("A1_MANAGED_OHLCV_ENABLED == 'true'",job['if'])
+        self.assertIn('inputs.managed_refresh',job['if'])
+        self.assertNotIn('run_free_data_engine_validation',str(job))
+
+    def memory_capture(self, fail=False):
+        """Existing capture/readback code with real RuntimeMeter, entirely in RAM."""
+        from urllib.parse import parse_qs, urlsplit
+        import re
+        r, ns, control = self.r, self.ns, self.control
+        class Reply:
+            status = 200
+            def __init__(self, body):
+                self.body = body
+                self.fp = ns(raw=ns(_sock=ns(settimeout=lambda _:None)))
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read1(self, n):
+                result, self.body = self.body[:n], self.body[n:]
+                return result
+        class Opener:
+            calls = 0
+            def open(self, request, **kw):
+                self.calls += 1
+                if fail: raise OSError('FIXTURE_PRIVATE_TRANSPORT_CANARY')
+                u = urlsplit(request.full_url)
+                if '/assets/' in u.path:
+                    value = dict(symbol=u.path.rsplit('/',1)[1],id='00000000-0000-0000-0000-000000000001',
+                                 exchange='NASDAQ',status='active',**{'class':'us_equity'})
+                else:
+                    names = parse_qs(u.query)['symbols'][0].split(',')
+                    value = dict(bars={t:[dict(t='2026-10-23T04:00:00Z',o=10,h=11,l=9,c=10.5,v=100)]
+                                       for t in names},next_page_token=None)
+                return Reply(r.encoded(value))
+        opener = Opener()
+        identity = dict(run_id=1,run_attempt=1,source_sha='2'*40,managed_control_sha256='a'*64,
+                        parent_checkpoint_sha256=None,examined_before=0)
+        meter = r.campaign.RuntimeMeter(control['per_run_allowance'],self.root/'fixture-meter.json',
+                                       (self.now+timedelta(seconds=300)).isoformat(),identity,
+                                       clock=lambda:self.now,opener=opener)
+        class Drive:
+            root_id, token = control['private_root_folder_id'], 'fixture-token'
+            objects, parents, names = {}, {}, {}
+            def cost(self): meter.debit(dict(drive_requests=1,drive_bytes=100))
+            def check(self, fid, parent=None, folder=False):
+                self.cost()
+                r.require(fid in self.objects and self.parents[fid] == parent,'FIXTURE_OWNER')
+            def read(self, fid, limit=16_000_000):
+                self.cost()
+                value = self.objects[fid]
+                r.require(len(value)<=limit,'FIXTURE_LIMIT')
+                return value
+            def request(self, url, **kw):
+                self.cost()
+                q = parse_qs(urlsplit(url).query)['q'][0]
+                parent = re.search(r"'([^']+)' in parents",q).group(1)
+                name = re.search(r"name = '([^']+)'",q)
+                return r.encoded(dict(files=[dict(id=f,name=self.names[f],size=str(len(b)))
+                    for f,b in self.objects.items() if self.parents[f]==parent
+                    and (name is None or self.names[f]==name.group(1))]))
+            def write(self, folder, body, ext):
+                self.cost()
+                meter.reserve_storage(len(body))
+                fid = 'fixture-object-'+str(len(self.objects)+1).zfill(6)
+                self.objects[fid],self.parents[fid],self.names[fid]=body,folder,r.digest(body)+ext
+                return dict(file_id=fid,sha256=r.digest(body),bytes=len(body))
+        drive = Drive()
+        bindings = {}
+        for t in ['AAPL','MSFT']:
+            raw = r.encoded(dict(symbol=t,id='00000000-0000-0000-0000-000000000001',
+                exchange='NASDAQ',status='active',**{'class':'us_equity'}))
+            bindings[t] = drive.write(control['evidence_folder_id'],raw,'.json')
+        self.fixture_bindings = bindings
+        return drive, meter, opener
+
+    def retained_bootstrap(self, dates, start='2026-10-21', end='2026-10-24'):
+        """Build original response/normalized/receipt bytes with the real capture."""
+        drive, meter, opener = self.memory_capture()
+        original_open = opener.open
+        def response(request, **kw):
+            reply = original_open(request, **kw)
+            value = self.r.decode(reply.body)
+            for ticker, bars in value.get('bars', {}).items():
+                value['bars'][ticker] = [dict(bars[0], t=day+'T04:00:00Z') for day in dates[ticker]]
+            reply.body = self.r.encoded(value)
+            return reply
+        opener.open = response
+        names = sorted(dates)
+        meter.asset_symbols = tuple(names)
+        with patch.object(self.r.capture.time, 'sleep', return_value=None):
+            objects, _, _, _ = self.r.capture.capture_one_group(
+                drive, self.control['private_data_folder_id'], names, start, end,
+                'fixture-api-key', 'fixture-api-secret', 'a'*64, '2'*40, get=meter.perform)
+        receipt = self.r.decode(drive.read(objects[-1]['file_id']))
+        self.r.capture.verify_archived_group(drive.read(objects[0]['file_id']),
+            drive.read(objects[1]['file_id']), receipt)
+        bootstrap = dict(groups=[dict(provider='alpaca_sip', symbols=names, receipt=objects[-1])])
+        return drive, bootstrap, opener
+
+    def test_retained_bootstrap_refuses_leading_and_interior_session_gaps(self):
+        for days in (['2026-10-23'], ['2026-10-21', '2026-10-23']):
+            with self.subTest(days=days):
+                drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days})
+                calls = opener.calls
+                with self.assertRaisesRegex(self.r.Refused, '^MANAGED_BOOTSTRAP_INCOMPLETE_GRID$'):
+                    self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'})
+                self.assertEqual(opener.calls, calls)
+
+    def test_retained_bootstrap_complete_grid_reuses_without_provider(self):
+        days = ['2026-10-21', '2026-10-22', '2026-10-23']
+        # End-exclusive Monday includes a normal weekend, which needs no bars.
+        drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days}, end='2026-10-26')
+        calls = opener.calls
+        coverage = self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'})
+        self.assertEqual(coverage, {'AAPL':'2026-10-23'})
+        self.assertEqual(self.r.missing_windows({'AAPL'}, coverage, '2026-10-23', set()),
+                         ({}, ['AAPL'], {}))
+        self.assertEqual(opener.calls, calls)
+
+    def test_retained_unrequested_sibling_gap_does_not_certify_or_block_target(self):
+        days = ['2026-10-21', '2026-10-22', '2026-10-23']
+        drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days, 'MSFT':[days[-1]]})
+        calls = opener.calls
+        self.assertEqual(self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'}),
+                         {'AAPL':'2026-10-23'})
+        with self.assertRaisesRegex(self.r.Refused, '^MANAGED_BOOTSTRAP_INCOMPLETE_GRID$'):
+            self.r.bootstrap_coverage(drive, self.control, bootstrap, {'MSFT'})
+        self.assertEqual(opener.calls, calls)
+
+    def test_synthetic_watch_increment_and_durable_resume_reuses_without_provider(self):
+        drive,meter,opener = self.memory_capture()
+        policy = dict(active_tickers=['AAPL'],watch_tickers=['MSFT'])
+        history = [dict(id=1,head_sha='2'*40)]
+        ctx = dict(run_id=1,head='2'*40)
+        bootstrap = dict(groups=[],asset_identity_refs=self.fixture_bindings)
+        # Inject only already-verified prior cutoffs; the original capture,
+        # raw/split verifier, metered provider and journal paths are real code.
+        with patch.object(self.r,'bootstrap_coverage',return_value={'AAPL':'2026-10-22','MSFT':'2026-10-22'}), \
+             patch.object(self.r.capture.time,'sleep',return_value=None):
+            result = self.r.execute(self.control,'a'*64,policy,bootstrap,history,drive,meter,ctx,
+                                   'fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual((result['valid_updated'],result['held'],result['rows']), (2,0,4))
+        self.assertEqual(meter.used['provider_gets'],4)  # 2 asset + raw/split group
+        self.assertEqual(opener.calls,4)
+        meter.finish('COMPLETE')
+        value = json.loads(meter.journal.read_text(encoding='utf-8'))
+        self.r.verify_final_meter(value,history[0],result['checkpoint_sha256'],'a'*64,self.control['per_run_allowance'])
+        calls = opener.calls
+        history.append(dict(id=2,head_sha='2'*40))
+        ctx['run_id'] = 2
+        with patch.object(self.r,'bootstrap_coverage',return_value={}):
+            second = self.r.execute(self.control,'a'*64,policy,bootstrap,history,drive,meter,ctx,
+                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda run,h:None)
+        self.assertEqual((second['valid_updated'],second['reused']), (0,2))
+        self.assertEqual(opener.calls,calls)
+        self.assertEqual(len(self.r.journal_rows(drive,self.control)),4)
+
+    def test_failed_provider_preserves_reservation_and_blocks_next_run(self):
+        drive,meter,_ = self.memory_capture(fail=True)
+        history = [dict(id=1,head_sha='2'*40)]
+        with patch.object(self.r,'bootstrap_coverage',return_value={'AAPL':'2026-10-22'}):
+            with self.assertRaisesRegex(self.r.Refused,'NETWORK'):
+                self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                    dict(groups=[],asset_identity_refs=self.fixture_bindings),history,drive,meter,dict(run_id=1,head='2'*40),
+                    'fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual(meter.used['provider_gets'],1)
+        rows = self.r.journal_rows(drive,self.control)
+        with self.assertRaisesRegex(self.r.Refused,'PRIOR_FAILURE_REQUIRES_RECONCILIATION'):
+            self.r.restore_journal(rows,history+[dict(id=2)],'a'*64,lambda *a:None)
+
+    def test_unconfirmed_reservation_prevents_even_first_provider_call(self):
+        drive,meter,opener = self.memory_capture()
+        with patch.object(self.r.capture,'persist_object',side_effect=self.r.Refused('FIXTURE_SAVE_FAILED')):
+            with self.assertRaisesRegex(self.r.Refused,'FIXTURE_SAVE_FAILED'):
+                self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                    dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,
+                    dict(run_id=1,head='2'*40),'fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual((opener.calls,meter.used['provider_gets']), (0,0))
+
+    def test_missing_stable_asset_proof_never_issues_provider_request(self):
+        drive,meter,opener = self.memory_capture()
+        with patch.object(self.r,'bootstrap_coverage',return_value={'AAPL':'2026-10-22'}):
+            values = self.r.collect_groups(drive,meter,self.control,dict(groups=[]),{'AAPL'},
+                {},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual(values[1],{'AAPL':'MISSING_STABLE_PROVIDER_IDENTITY_PROOF'})
+        self.assertEqual(opener.calls,0)
+
+    def test_changed_asset_id_is_held_without_bar_download(self):
+        drive,meter,opener = self.memory_capture()
+        raw = self.r.encoded(dict(symbol='AAPL',id='00000000-0000-0000-0000-000000000099',
+                exchange='NASDAQ',status='active',**{'class':'us_equity'}))
+        ref = drive.write(self.control['evidence_folder_id'],raw,'.json')
+        with patch.object(self.r,'bootstrap_coverage',return_value={'AAPL':'2026-10-22'}):
+            values = self.r.collect_groups(drive,meter,self.control,dict(groups=[],asset_identity_refs={'AAPL':ref}),
+                {'AAPL'},{},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual(values[1],{'AAPL':'PROVIDER_SECURITY_ID_CHANGED'})
+        self.assertEqual(opener.calls,1)  # asset reference only, no bars
+
+    def test_current_bootstrap_cutoff_is_persisted_and_unvisited_tail_advances(self):
+        drive,meter,opener = self.memory_capture()
+        self.control['max_symbols_per_run'] = 1
+        bootstrap = dict(groups=[],asset_identity_refs=self.fixture_bindings)
+        known = dict(AAPL='2026-10-23',MSFT='2026-10-22')
+        with patch.object(self.r,'bootstrap_coverage',side_effect=lambda d,c,b,n:{t:known[t] for t in n}), \
+             patch.object(self.r.capture.time,'sleep',return_value=None):
+            first = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL','MSFT'},
+                {},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+            self.assertEqual(first[0],{'AAPL':'2026-10-23'})
+            self.assertEqual(first[2],['AAPL'])
+            self.assertEqual(opener.calls,0)
+            second = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL','MSFT'},
+                first[0],{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual(second[0],{'MSFT':'2026-10-23'})
+        self.assertEqual(opener.calls,3)
+
+
 def main():
     # Keep the existing registered caller and all original contract cases.
     # Stage2 remains supplied-byte proposal validation, never A0 dispatch.
@@ -681,6 +1337,8 @@ def main():
     from a2_a1_ohlcv_handoff_v1_smoke import OHLCVHandoffTests, BoardOHLCVTests
     from a2_a1_readiness_smoke import ReadinessTests, Post669CompatibilityTests
     suite=unittest.defaultTestLoader.loadTestsFromTestCase(ControlPlaneTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ManagedOHLCVTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(ManagedExecutionTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(DiscoveryGateTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(OHLCVHandoffTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BoardOHLCVTests))
