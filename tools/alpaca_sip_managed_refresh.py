@@ -83,6 +83,18 @@ def private_bytes(drive, folder, ref, maximum=16_000_000):
     return raw
 
 
+def execution_scope(control):
+    """An absent subset preserves the full policy; a present subset is exact."""
+    if "execution_tickers" not in control:
+        return None
+    value = control["execution_tickers"]
+    require(isinstance(value, list) and value
+            and len(value) <= control["max_symbols_per_run"], "MANAGED_EXECUTION_SCOPE")
+    names = managed.symbols(value)
+    require(names <= set(control["authorized_tickers"]), "MANAGED_EXECUTION_SCOPE")
+    return names
+
+
 def validate_control(control, inventory_sha, policy_sha, now):
     require(isinstance(control, dict) and control.get("schema") == SCHEMA, "MANAGED_CONTROL")
     require(control.get("repository") == REPO
@@ -129,6 +141,7 @@ def validate_control(control, inventory_sha, policy_sha, now):
     require(isinstance(control.get("backfill_tickers"), list)
             and managed.symbols(control["backfill_tickers"]) <= set(control.get("authorized_tickers", []))
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
+    execution_scope(control)
     require(isinstance(control.get("deployment"), dict)
             and set(control.get("code_pins", {})) == set(PIN_PATHS)
             and all(isinstance(h, str) and managed.SHA.fullmatch(h)
@@ -546,8 +559,16 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
 
 def execute(control, control_sha, policy, bootstrap, history, drive, meter, context,
             key, secret, clock=campaign.utc, meter_verifier=None):
+    tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
+    require(tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
+    subset = execution_scope(control)
+    if subset is not None:
+        require(subset <= tracked, "MANAGED_EXECUTION_SCOPE")
+        tracked = subset
     prior = journal_rows(drive, control)
     parent, coverage, old_held = restore_journal(prior, history, control_sha, meter_verifier)
+    if subset is not None:
+        require(set(coverage) | set(old_held) <= tracked, "MANAGED_EXECUTION_STATE_SCOPE")
     slot = len(history)
     base = dict(schema="a1-managed-run-checkpoint-v1", control_sha256=control_sha,
                 run_id=context["run_id"], slot=slot, source_sha=context["head"])
@@ -559,8 +580,6 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     terminal = dict(base, parent_sha256=reserved["sha256"], state="BLOCKED",
                     coverage_updates={}, held={}, receipts=[], reason="MANAGED_INTERRUPTED")
     try:
-        tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
-        require(tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
         gate = managed.evaluate_market_session(now_utc=clock(), min_close_age_minutes=120)
         require(gate["ready"], "MANAGED_MARKET_WINDOW")
         values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
