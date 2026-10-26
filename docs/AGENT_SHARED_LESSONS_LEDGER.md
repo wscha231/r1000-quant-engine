@@ -8419,3 +8419,13 @@ the real capture/verifier with injected responses, including valid weekends.
   captured asset response, not just matching newly supplied identity/status
   documents. Preserve the second interrupted Native attempt while completing
   this review finding; freeze all repairs before the final broad run.
+- Hosted PR685 at606b passed234/235 files but agent_board/manual-foundation
+  correctly refused the edited docs/RESEARCH_DATA_ACCESS.md: an existing
+  historical catalog pins that file. Local Source/Reader/control/Feature
+ 454+454 and independent QA did not cover this manual catalog dependency.
+  Restore the guide's exact base bytes, keep new API guidance in the existing
+  plan/PR/lesson, and validate the affected registered entrypoint. Do not
+  regenerate a historical catalog, normalize away a real edit, weaken the
+  guard or call the failed whole CI successful. The repaired head needs its
+  own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
+  earlier454+454 remain explicitly scoped historical evidence.
