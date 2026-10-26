@@ -8385,3 +8385,47 @@ the real capture/verifier with injected responses, including valid weekends.
 - A managed-list size cap is not a requested-symbol selector: the first unvisited alphabetical name wins even when the desired MU data already has exact retained originals. Use an optional immutable control-hash-bound execution subset for a small witness; preserve all820 policy names, the full policy authorization check and original costs. Reject invalid/untracked subsets and foreign restored cutoffs/holds before reservation. Changing scope cannot reuse a populated old-control journal. Older deployed code ignored extra control keys, so a hash-bound field alone is insufficient without new reviewed deployment pins.
 - The initial new subset regression had3PASS/1FAIL because its oracle assumed civil-date wire values; a second normal/-O run exposed the same new fixture's incorrect end-bound expectation. Read the existing query serializer: start is UTC00:00:00 and the exclusive civil end is encoded as the prior day23:59:59Z. Preserve these negatives, correct only the new oracle and retain all original116 methods; do not change the collector or weaken the missing-range boundary to fit a fixture.
 - Review the whole workflow before dispatching a bounded managed witness: its prior manual managed_refresh flag also started the unrelated legacy daily job. Exclude that legacy job only for an explicit managed-only manual request; preserve the existing scheduled/manual-default behavior and single-writer lock. A clean runtime-only subset review did not certify this cross-job isolation.
+
+### 2026-10-26 — Preserve retained history across managed research derivations
+
+- Managed maintenance produces a different checkpoint/meter chain from the
+  original capture campaign. Validate its actual control, deployed head, OWNER
+  grant, protected master, job/worker clocks and terminal publication costs;
+  never forge a legacy receipt to reuse a parser. A run-created timestamp is
+  not the worker start or a replacement for its deadline.
+- A refreshed qualification cannot silently extend a supplier's expiry.
+  Independent early QA found that nested composition initially dropped the
+  inherited supplier expiry and did not authenticate SPLIT provenance bytes.
+  Preserve the inherited minimum across generations and bind/bound every
+  basis derivation, including its actual derived-file hashes. Keep historical
+  review cutoffs and row availability clocks unchanged.
+- Matching an overlap close does not establish all historical revisions,
+  split-chain completeness or absence of halts. Require fresh external common
+  basis review, exact RAW/SPLIT OHLCV overlap and full requested session grid;
+  preserve UNKNOWN/null and known positive halt facts. External review is an
+  input authority, not an auto-generated trust anchor or economic admission.
+- New synthetic regression preparation exposed an incorrect expected clock
+  spelling (Z versus +00:00) and a sparse checkout missing aggressive helpers.
+  Retain those negative logs; correct only the new oracle and materialize exact
+  immutable test dependencies. A local synthetic pass is not actual collection,
+  current MU coverage, durable publication, A3 acceptance or ER/A5 validation.
+- Subsequent QA rejected detached hash-valid blobs outside a parent's declared
+  files/source hashes; byte integrity alone is not lineage membership. Bind
+  managed asset precheck clocks to the actual reservation/collection window.
+  The first broad Native attempt passed109 Source methods, then was stopped
+  during Reader tests for these two final changes; retain its logs without
+  calling that a final-byte or current-head validation pass.
+- Managed reference evidence also needs the stable provider UUID to match the
+  captured asset response, not just matching newly supplied identity/status
+  documents. Preserve the second interrupted Native attempt while completing
+  this review finding; freeze all repairs before the final broad run.
+- Hosted PR685 at606b passed234/235 files but agent_board/manual-foundation
+  correctly refused the edited docs/RESEARCH_DATA_ACCESS.md: an existing
+  historical catalog pins that file. Local Source/Reader/control/Feature
+ 454+454 and independent QA did not cover this manual catalog dependency.
+  Restore the guide's exact base bytes, keep new API guidance in the existing
+  plan/PR/lesson, and validate the affected registered entrypoint. Do not
+  regenerate a historical catalog, normalize away a real edit, weaken the
+  guard or call the failed whole CI successful. The repaired head needs its
+  own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
+  earlier454+454 remain explicitly scoped historical evidence.

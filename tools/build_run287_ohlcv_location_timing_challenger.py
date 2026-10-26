@@ -897,29 +897,22 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                   "FEATURE_IDENTITY_CLOCK")
             if expected_qualification_sha256 is not None:
                 # Keep the legacy path independent of the optional Source adapter.
-                from tools.prepare_a1_reader_generation import TrustedSourceBinding
+                from tools.prepare_a1_reader_generation import (
+                    TrustedSourceBinding, TrustedCompositionBinding,
+                    qualification_trust_matches)
                 qsha = sha(expected_qualification_sha256)
                 check(source.get("provider_close_qualification_sha256") == qsha,
                       "HALT_COVERAGE_UNKNOWN")
                 trust = trusted_qualification_source
-                check(type(trust) is TrustedSourceBinding,
+                check(type(trust) in (TrustedSourceBinding, TrustedCompositionBinding),
                       "QUALIFICATION_TRUST_REQUIRED")
-                check(type(trust.proof_sha256) is tuple and qsha in trust.proof_sha256 and
-                      trust.review_receipt_sha256 in trust.proof_sha256 and
-                      trust.review_receipt_sha256 in source["raw_source_sha256"] and
-                      source.get("qualification_review_receipt_sha256") == trust.review_receipt_sha256 and
-                      source.get("qualification_adapter_file_sha256") == trust.adapter_file_sha256 and
-                      source["producer_config_sha256"] == trust.evidence_sha256 and
-                      source["producer_code_sha"] == trust.derivation_code_sha and
-                      source.get("derivation_run_id") == trust.derivation_run_id and
-                      manifest["source_run_id"] == str(trust.original_run_id),
-                      "QUALIFICATION_REVIEW_BINDING")
                 check(read.receipt.get("provider_close_qualification_sha256") == qsha and
                       batch.receipt.get("provider_close_qualification_sha256") == qsha,
                       "QUALIFICATION_RECEIPT_BINDING")
                 qualification = decode(read_object(reader.transport,
                     f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
-                check(all(h in trust.proof_sha256 for h in
+                check(qualification_trust_matches(trust, manifest, source, qualification) and
+                      all(h in trust.proof_sha256 for h in
                           _provider_close_references(qualification)) and
                       identity_sha in trust.proof_sha256,
                       "QUALIFICATION_REVIEW_BINDING")

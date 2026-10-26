@@ -108,6 +108,8 @@ def validate_control(control, inventory_sha, policy_sha, now):
     runs = integer(control.get("max_runs"), 1, 40, "MANAGED_RUN_LIMIT")
     integer(control.get("max_symbols_per_run"), 1, managed.MAX_SYMBOLS, "MANAGED_SYMBOL_LIMIT")
     integer(control.get("max_active_seconds_per_run"), 1, 4800, "MANAGED_ACTIVE_LIMIT")
+    require(type(control.get("include_previous_close", False)) is bool,
+            "MANAGED_ANCHOR_SCOPE")
     require(control.get("private_noncommercial") is True
             and control.get("supplier_rights_verified") is True
             and control.get("source_admission") is False, "WAIT_OWNER_EVIDENCE")
@@ -455,7 +457,8 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
     return found
 
 
-def missing_windows(targets, coverage, target_session, backfill):
+def missing_windows(targets, coverage, target_session, backfill, *, include_previous_close=False):
+    require(type(include_previous_close) is bool, "MANAGED_ANCHOR_SCOPE")
     windows, reused, held = {}, [], {}
     end = (date.fromisoformat(target_session) + timedelta(days=1)).isoformat()
     for ticker in sorted(targets):
@@ -466,7 +469,7 @@ def missing_windows(targets, coverage, target_session, backfill):
             if last == target_session:
                 reused.append(ticker)
                 continue
-            start = (date.fromisoformat(last) + timedelta(days=1)).isoformat()
+            start = last if include_previous_close else (date.fromisoformat(last) + timedelta(days=1)).isoformat()
         elif ticker in backfill:
             start = capture.MIN_START
         else:
@@ -500,7 +503,8 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
     needs = set(candidates) - set(prior_coverage)
     coverage = bootstrap_coverage(drive, control, bootstrap, needs)
     coverage.update(prior_coverage)
-    windows, reused, held = missing_windows(candidates, coverage, session, set(control["backfill_tickers"]))
+    windows, reused, held = missing_windows(candidates, coverage, session, set(control["backfill_tickers"]),
+        include_previous_close=control.get("include_previous_close", False))
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
     identities = {}
@@ -655,7 +659,9 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
             "MANAGED_CREDENTIAL_BINDING")
     identity = dict(managed_control_sha256=control_sha, run_id=ctx["run_id"],
                     run_attempt=ctx["attempt"], source_sha=ctx["head"],
-                    parent_checkpoint_sha256=None, examined_before=0)
+                    parent_checkpoint_sha256=None, examined_before=0,
+                    managed_worker_started_at=now.isoformat(),
+                    managed_worker_deadline=deadline.isoformat())
     journal = Path(args.meter)
     journal.parent.mkdir(parents=True, exist_ok=True)
     meter = campaign.RuntimeMeter(control["per_run_allowance"], journal,

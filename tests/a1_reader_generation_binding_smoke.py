@@ -212,22 +212,35 @@ def rewrite_ancestor(state, transform, *, relink=True):
 
 
 def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
-                         view_start='2016-01-05', view_end='2016-01-06', selected_only=True):
+                         view_start='2016-01-05', view_end='2016-01-06', selected_only=True,
+                         capture_scope=None, capture_start='2016-01-04',
+                         price_offset=0, first_factor='2',asset_clock=OBSERVED):
     """Local fake capture + injected synthetic trust, never actual original4 bytes."""
     sessions = list(sessions or ['2016-01-04', '2016-01-05', '2016-01-06'])
     drive = FakePrivateDrive()
     def get(url, **kwargs):
         bars = {}
         for ticker in names:
-            bars[ticker] = [dict(t=s + 'T05:00:00Z', o=10 + i % 17,
-                h=12 + i % 17, l=9 + i % 17, c=11 + i % 17, v=100 + i % 7)
+            bars[ticker] = [dict(t=s + 'T05:00:00Z', o=10 + (i+price_offset) % 17,
+                h=12 + (i+price_offset) % 17, l=9 + (i+price_offset) % 17,
+                c=11 + (i+price_offset) % 17, v=100 + (i+price_offset) % 7)
                 for i, s in enumerate(sessions) if (ticker, s) != omit]
         return encoded(dict(bars=bars, next_page_token=None))
     source_sha = hashlib.sha1(b'CONTRACT_FIXTURE_SOURCE_CODE').hexdigest()
     end = (binding.day(sessions[-1]) + timedelta(days=1)).isoformat()
+    assets = None
+    if capture_scope is not None:
+        assets = []
+        for index, name in enumerate(names):
+            body = encoded(dict(symbol=name, **{'class':'us_equity'},
+                id='00000000-0000-0000-0000-' + str(index+1).zfill(12),
+                exchange='NASDAQ',status='active'))
+            assets.append(dict(symbol=name,url='https://paper-api.alpaca.markets/v2/assets/'+name,
+                collected_at_utc=asset_clock,http_status=200,response_utf8=body.decode(),sha256=digest(body)))
     refs, _, _, _ = capture.capture_one_group(drive, drive.folder, list(names),
-        '2016-01-04', end, 'fixture-key', 'fixture-secret',
-        digest(b'CONTRACT_FIXTURE_SEED'), source_sha, get=get)
+        capture_start, end, 'fixture-key', 'fixture-secret',
+        digest(b'CONTRACT_FIXTURE_SEED'), source_sha, get=get, scope=capture_scope,
+        asset_evidence=assets)
     raw, norm, rec = (drive.objects[r['file_id']] for r in refs)
     receipt, objects = json.loads(rec), {}
     def add(value):
@@ -276,7 +289,7 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
             valid_from=view_start if selected_only else sessions[0],
             valid_through=view_end if selected_only else sessions[-1])
         evidence['identity'][ticker] = ident
-        evidence['split_factors'][ticker] = {s: ('2' if s == sessions[0] else '1')
+        evidence['split_factors'][ticker] = {s: (first_factor if s == sessions[0] else '1')
             for s in sessions if (ticker, s) != omit
             and (not selected_only or view_start <= s <= view_end)}
         common = dict(provider=capture.SOURCE, capture_receipt_sha256=digest(rec),
@@ -304,12 +317,16 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
     return raw, norm, rec, evidence, trusted, objects
 
 
-def provider_close_fixture(*, names=('AAPL',), known=None):
+def provider_close_fixture(*, names=('AAPL',), known=None, sessions=None,
+                           view_start=None, price_offset=0, first_factor='2',
+                           capture_start='2016-01-04'):
     """Small, externally injected SYNTHETIC qualification; no real admission."""
-    sessions = ['2016-01-04', '2016-01-05', '2016-01-06', '2016-01-07',
-                '2016-01-08', '2016-01-11', '2016-01-12']
+    sessions = sessions or ['2016-01-04', '2016-01-05', '2016-01-06', '2016-01-07',
+                           '2016-01-08', '2016-01-11', '2016-01-12']
+    view_start = view_start or sessions[1]
     state = list(private_view_fixture(names=names, sessions=sessions,
-        view_start=sessions[1], view_end=sessions[-1]))
+        view_start=view_start, view_end=sessions[-1],price_offset=price_offset,
+        first_factor=first_factor,capture_start=capture_start))
     raw, norm, rec, e, trust, objects = state
     baseline = binding.prepare(raw, norm, rec, encoded(e), decision_time=DECISION,
         trusted_source=trust, proof_objects=tuple(sorted(objects.items())))
@@ -328,8 +345,8 @@ def provider_close_fixture(*, names=('AAPL',), known=None):
         source_run_id=e['original_run_id'],
         original_objects=dict(raw_sha256=digest(raw), normalized_sha256=digest(norm),
                               capture_receipt_sha256=digest(rec)),
-        window=dict(start=sessions[1], end=sessions[-1],
-                    sessions_sha256=digest(encoded(sessions[1:]))),
+        window=dict(start=view_start, end=sessions[-1],
+                    sessions_sha256=digest(encoded([s for s in sessions if s >= view_start]))),
         observed_at=OBSERVED, available_from=OBSERVED, collected_at=OBSERVED,
         created_at=e['created_at'], review_decision_at=DECISION,
         expires_at=e['research_fresh_until'], original_public_available_at=None,
@@ -376,9 +393,387 @@ def rewrite_provider_qualification(state, transform):
                        proof_sha256=tuple(sorted(objects)))
 
 
+def composition_fixture(*, tail_offset=6, tail_start='2016-01-12',old_input=None,
+                        tail_days=None,rights_expiry=None,observed='2026-10-26T01:00:00Z',
+                        created='2026-10-26T01:30:00Z',decision='2026-10-26T02:00:00Z',
+                        old_known=None):
+    """Synthetic two-parent review only; no actual rights or current data."""
+    old = provider_close_fixture(known=old_known)
+    tail_days = tail_days or [tail_start,'2016-01-13','2016-01-14','2016-01-15']
+    tail = provider_close_fixture(sessions=tail_days,view_start=tail_start,
+        capture_start=tail_start,price_offset=tail_offset,first_factor='1')
+    states = (old,tail)
+    parents = tuple(binding.prepare(*s[:3],encoded(s[3]),decision_time=DECISION,
+        trusted_source=s[4],proof_objects=tuple(sorted(s[5].items()))).bases for s in states)
+    if any(len(p) != 2 for p in parents):
+        raise RuntimeError('SYNTHETIC_PARENT_FAILED')
+    bindings=tuple(s[4] for s in states)
+    parent_decisions=(DECISION,DECISION)
+    if old_input is not None:
+        parents=(old_input[0],parents[1]);bindings=(old_input[1],bindings[1])
+        parent_decisions=(old_input[2],DECISION)
+    pairs = tuple(tuple(b.generation_id for b in p) for p in parents)
+    trust = binding.TrustedCompositionBinding(
+        review_reference=old[4].review_reference,review_receipt_sha256='0'*64,
+        evidence_sha256='0'*64,proof_sha256=(),credential_binding=old[4].credential_binding,
+        derivation_run_id='synthetic-two-parent-research',derivation_code_sha='e'*40,
+        adapter_file_sha256=digest(Path(binding.__file__).read_bytes()),
+        parent_generation_pairs=pairs,parent_decisions=parent_decisions,
+        parent_bindings=bindings)
+    # A negative anchor fixture needs no candidate review: the same actual
+    # read/anchor predicate must refuse before a new qualification is issued.
+    data = binding._composition_material(parents,trust,'US.TEST.AAPL')
+    objects = {}
+    def add(value):
+        raw = value if type(value) is bytes else encoded(value)
+        objects[digest(raw)] = raw
+        return dict(sha256=digest(raw),bytes=len(raw))
+    review = add(b'SYNTHETIC_FRESH_COMPOSITION_REVIEW_NOT_ACTUAL_ACCEPTANCE')
+    doc = add(b'SYNTHETIC_CURRENT_BASIS_RIGHTS_IDENTITY_SOURCE_NOT_ACTUAL_EVIDENCE')
+    rights = add(dict(schema='a1-reviewed-account-rights-v1',provider='alpaca',
+        credential_binding=trust.credential_binding,purpose='PRIVATE_NONCOMMERCIAL_RESEARCH',
+        historical_sip_allowed=True,private_retention_allowed=True,
+        source_documents=[doc],supplier_expiry=rights_expiry))
+    clocks = dict(available_from=observed,collected_at=observed,
+                  expires_at='2026-10-27T02:00:00Z')
+    common = dict(composition_context_id='synthetic-two-parent-context',
+        parent_generation_pairs=[list(p) for p in pairs],**clocks)
+    ident = {k:data['identity'][k] for k in ('instrument_id','provider_security_id','ticker',
+             'asset_class','market','mic','calendar','timezone','currency')}
+    identity = add(dict(ident,**common,schema='ohlcv-security-identity-evidence-v1',
+        provider=capture.SOURCE,valid_from='2016-01-05',valid_through=tail_days[-1],
+        source_documents=[doc]))
+    status = add(dict(common,schema='a1-ohlcv-status-volume-evidence-v1',provider=capture.SOURCE,
+        instrument_id=ident['instrument_id'],provider_security_id=ident['provider_security_id'],
+        ticker='AAPL',valid_from='2016-01-05',valid_through=tail_days[-1],halt_coverage='UNKNOWN',
+        halted_sessions=None,known_halted_sessions=data['known_halted_sessions'],
+        known_halt_source_documents=[doc] if data['known_halted_sessions'] else [],
+        volume_basis=dict(raw='RAW',split='SPLIT_ADJUSTED'),volume_source_documents=[doc]))
+    anchor_fields = ('instrument_id','ticker','session_date','open','high','low','close','volume')
+    anchor = {b:next(r for r in rows if r['session_date']==data['anchor'])
+              for b,rows in data['rows'].items()}
+    basis = add(dict(schema='a1-reviewed-common-split-basis-v1',
+        context_id='synthetic-two-parent-context',**common,
+        instrument_id=ident['instrument_id'],provider_security_id=ident['provider_security_id'],
+        anchor_session=data['anchor'],common_split_basis_verified=True,rebase_allowed=False,
+        physical_halt_coverage='UNKNOWN',historical_revision_certified=False,split_factor=data['factor'],
+        raw_anchor_sha256=digest(encoded({k:anchor['RAW'][k] for k in anchor_fields})),
+        split_anchor_sha256=digest(encoded({k:anchor['SPLIT_ADJUSTED'][k] for k in anchor_fields})),
+        source_documents=[doc]))
+    for parent in data['parents']:
+        for name in ('raw_manifest','split_manifest','qualification'):
+            ref=parent[name];objects[ref['sha256']]=data['objects'][ref['sha256']]
+    q = dict(schema=access.PROVIDER_COMPOSITION_SCHEMA,
+        meaning=access.PROVIDER_CLOSE_MEANING,purpose='research',admission_state='RESEARCH_BYTES_ONLY',
+        pit_status='PIT_PROXY',consumer_id=access.PROVIDER_CLOSE_CONSUMER,provider=capture.SOURCE,
+        feed='SIP',timeframe='1Day',volume_scope='PROVIDER_NEW_YORK_DAY_TRADE_CONDITIONS',
+        source_run_id=trust.derivation_run_id,parents=data['parents'],
+        context_id='synthetic-two-parent-context',common_basis=basis,owner_rights=rights,
+        window=dict(start='2016-01-05',end=tail_days[-1],
+            sessions_sha256=digest(encoded([r['session_date'] for r in data['rows']['RAW']]))),
+        observed_at=clocks['available_from'],**clocks,created_at=created,
+        review_decision_at=decision,original_public_available_at=None,
+        original_provider_collected_at=None,physical_halt_coverage='UNKNOWN',
+        source_documents=[review,identity,status,doc],instruments={'US.TEST.AAPL':dict(
+            ticker='AAPL',provider_security_id=ident['provider_security_id'],
+            identity_evidence_sha256=identity['sha256'],known_halted_sessions=data['known_halted_sessions'],
+            known_halt_source_documents=[doc] if data['known_halted_sessions'] else [],
+            basis_sha256={b:digest(b''.join(encoded(r) for r in rows))
+                                                       for b,rows in data['rows'].items()})})
+    e = dict(schema='a1-reader-composition-evidence-v1',fixture_only=False,
+        derivation_run_id=trust.derivation_run_id,derivation_code_sha=trust.derivation_code_sha,
+        created_at=q['created_at'],research_fresh_until=q['expires_at'],security_id='US.TEST.AAPL',
+        context_id=q['context_id'],qualification=add(q),common_basis=basis,owner_rights=rights,
+        identity_evidence=identity,status_evidence=status)
+    trust=replace(trust,review_receipt_sha256=review['sha256'],evidence_sha256=digest(encoded(e)),
+                  proof_sha256=tuple(sorted(objects)))
+    return parents,e,trust,objects
+
+
+def rewrite_composition_doc(state,key,transform):
+    """Rebind only synthetic external pins to exercise semantic refusals."""
+    parents,e,trust,objects=state
+    q=json.loads(objects.pop(e['qualification']['sha256']))
+    if key=='qualification':
+        transform(q)
+    else:
+        ref=e[key];doc=json.loads(objects.pop(ref['sha256']));transform(doc)
+        raw=encoded(doc);new=dict(sha256=digest(raw),bytes=len(raw));objects[new['sha256']]=raw
+        def rebind(value):
+            if type(value) is dict:
+                return new if value==ref else {k:rebind(v) for k,v in value.items()}
+            return [rebind(v) for v in value] if type(value) is list else value
+        q=rebind(q);e[key]=new
+    raw=encoded(q);objects[digest(raw)]=raw;e['qualification']=dict(sha256=digest(raw),bytes=len(raw))
+    return parents,e,replace(trust,evidence_sha256=digest(encoded(e)),
+                            proof_sha256=tuple(sorted(objects))),objects
+
+
+def managed_fixture(*,asset_clock='2016-01-06T23:30:01Z',technical_security_id=None):
+    """Pure synthetic managed contract, not an execution or rights approval."""
+    from tools import alpaca_sip_managed_refresh as managed
+    inventory = digest(b'CONTRACT_FIXTURE_SEED')
+    task = 'R1000-SYNTHETIC-MANAGED-BINDING-ONLY'
+    state = list(private_view_fixture(asset_clock=asset_clock,capture_scope=dict(task_key=task,
+        namespace='managed-refresh-v1', input_sha256=inventory)))
+    raw, norm, rec, e, trust, objects = state
+    receipt = json.loads(rec)
+    objects.pop(e['original_execution']['sha256'])
+    objects.pop(e['original_checkpoint']['sha256'])
+    def add(value):
+        b = encoded(value); objects[digest(b)] = b
+        return dict(file_id='synthetic_object_123', sha256=digest(b), bytes=len(b))
+    for name,pair in e['technical_metadata'].items():
+        asset=next(a for a in receipt['asset_precheck'] if a['symbol']==name)
+        provider_id=technical_security_id or json.loads(asset['response_utf8'])['id']
+        for role in ('identity_evidence','status_evidence'):
+            document=json.loads(objects.pop(pair[role]['sha256']))
+            document['provider_security_id']=provider_id
+            pair[role]=add(document)
+    def ref(label):
+        return dict(file_id='synthetic_ref_123', sha256=digest(label.encode()), bytes=1)
+    allowance = dict(provider_gets=3, drive_requests=256, drive_bytes=134217728, storage_bytes=8388608)
+    control = dict(schema=managed.SCHEMA, repository=managed.REPO, task_key=task,
+        inventory_sha256=inventory, policy_sha256='a'*64,
+        not_before='2016-01-06T23:00:00Z', expires_at='2016-01-07T23:00:00Z',
+        max_runs=1, max_symbols_per_run=1, max_active_seconds_per_run=900,
+        private_noncommercial=True, supplier_rights_verified=True, source_admission=False,
+        rights_ref=ref('rights'), bootstrap_ref=ref('bootstrap'), opening_evidence_ref=ref('opening'),
+        opening_evidence_sha256=digest(b'opening'), source_history_sha256='b'*64,
+        owner_sha256='c'*64, credential_binding=trust.credential_binding,
+        private_root_folder_id='synthetic_root_123', private_data_folder_id='synthetic_data_123',
+        evidence_folder_id='synthetic_evidence_123', journal_folder_id='synthetic_journal_123',
+        opening_usage={k:0 for k in managed.TOTAL_KEYS}, per_run_allowance=allowance,
+        cumulative_ceiling=dict(allowance, active_seconds=5400, dispatches=1),
+        authorized_tickers=['AAPL'], execution_tickers=['AAPL'], backfill_tickers=[],
+        deployment=dict(pull_request=1, reviewed_head=trust.original_source_sha,
+                        merge_sha=trust.original_source_sha),
+        code_pins={p:'d'*64 for p in managed.PIN_PATHS},
+        approval_reference=managed.managed.A0+'#issuecomment-1')
+    ch = managed.validate_control(control, inventory, 'a'*64,
+                                  managed.campaign.utc('2016-01-06T23:30:00Z'))
+    reserved = dict(schema='a1-managed-run-checkpoint-v1', control_sha256=ch,
+        run_id=trust.original_run_id, source_sha=trust.original_source_sha, slot=1,
+        state='RESERVED', parent_sha256=None, reserved_allowance=allowance,
+        created_at='2016-01-06T23:30:01Z')
+    reserve_ref = add(reserved)
+    group = dict(objects=[receipt['raw_object'], receipt['normalized_object'],
+                           dict(file_id='synthetic_receipt',sha256=digest(rec),bytes=len(rec))],
+        collection_started_at='2016-01-06T23:30:02Z', collection_finished_at='2016-01-06T23:30:03Z',
+        public_available_at=None, historical_identity_verified=False,
+        corporate_action_chain_verified=False, source_admission=False, pit_verified=False)
+    terminal = dict(reserved, state='COMPLETE', parent_sha256=reserve_ref['sha256'],
+        coverage_updates={'AAPL':'2016-01-06'}, held={}, reused=[], receipts=[group],
+        reason=None, session='2016-01-06', completed_at='2016-01-06T23:30:04Z',
+        meter_usage_before_checkpoint_publication=dict(provider_gets=1,drive_requests=0,
+                                                       drive_bytes=1,storage_bytes=1))
+    terminal_ref = add(terminal)
+    meter = dict(schema='a1-sip-campaign-meter-v1', run_id=trust.original_run_id, run_attempt=1,
+        source_sha=trust.original_source_sha, managed_control_sha256=ch,
+        managed_checkpoint_sha256=terminal_ref['sha256'], finalized=True, status='COMPLETE',
+        allowance=allowance, usage={k:1 for k in allowance}, transfer_definition=managed.campaign.METRIC,
+        source_admission=False, pit_verified=False, economic_authority=False,
+        managed_worker_started_at='2016-01-06T23:30:00Z',
+        managed_worker_deadline='2016-01-06T23:45:00Z')
+    approval = dict(id=1,author_association='OWNER',user=dict(type='User'),
+        issue_url='https://api.github.com/repos/'+managed.REPO+'/issues/448',
+        created_at='2016-01-06T23:29:59Z',updated_at='2016-01-06T23:29:59Z',
+        body=managed.TAG+encoded(dict(control_sha256=ch,rights_sha256=control['rights_ref']['sha256'],
+            opening_evidence_sha256=control['opening_evidence_sha256'],expires_at=control['expires_at'],
+            private_retention_reviewed=True,historical_sip_reviewed=True,standing_budget_approved=True)).decode().strip())
+    run = dict(id=trust.original_run_id,run_attempt=1,head_sha=trust.original_source_sha,
+        head_branch='master',event='workflow_dispatch',status='completed',conclusion='success',
+        path='.github/workflows/free_data_daily_update.yml',repository=dict(full_name=managed.REPO),
+        created_at='2016-01-06T23:30:00Z',updated_at='2016-01-06T23:31:00Z')
+    e.update(original_execution=add(meter),original_checkpoint=terminal_ref,
+        managed_control=add(control),managed_reservation=reserve_ref,managed_run=add(run),
+        managed_approval=add(approval),managed_deployment=add(dict(number=1,merged=True,
+            merge_commit_sha=trust.original_source_sha,head=dict(sha=trust.original_source_sha),
+            base=dict(ref='master'),merged_at='2016-01-06T23:00:00Z')),
+        managed_master=add(dict(name='master',protected=True,commit=dict(sha=trust.original_source_sha))),
+        managed_job=add(dict(id=123,run_id=trust.original_run_id,head_sha=trust.original_source_sha,
+            name=managed.JOB,status='completed',conclusion='success',
+            started_at='2016-01-06T23:30:00Z',completed_at='2016-01-06T23:30:59Z')))
+    state[4]=replace(trust,evidence_sha256=digest(encoded(e)),proof_sha256=tuple(sorted(objects)))
+    return state, ch
+
+
 class BindingTest(unittest.TestCase):
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
+
+    def test_composition_preserves_parent_bytes_clocks_and_expiry(self):
+        parents,e,trust,objects=composition_fixture()
+        result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(result.status,'REAL_SOURCE_COMPOSED_UNADMITTED',result.blockers)
+        self.assertEqual(result,binding.compose_prepared(parents,encoded(e),
+            decision_time='2026-10-26T02:00:00Z',trusted_source=trust,
+            proof_objects=tuple(sorted(objects.items()))))
+        for base in result.bases:
+            transport,_,_=fixture_transport(base)
+            batch=ResearchDataReader(transport).read_components('ds.us.prices.daily',base.generation_id,
+                decision_time='2026-10-26T02:00:00Z',purpose='research',
+                components=[dict(component_id='subject',instrument_id='US.TEST.AAPL',
+                    required_start='2016-01-05',required_end='2016-01-15',minimum_rows=9)],
+                consumer_id=access.PROVIDER_CLOSE_CONSUMER)
+            rows=batch.results['subject'].rows
+            self.assertEqual(len(rows),9)
+            self.assertEqual(rows[0]['available_from'],OBSERVED)
+            self.assertEqual(rows[-1]['available_from'],OBSERVED)
+            source=json.loads(base.manifest)['datasets'][0]['source']
+            q=json.loads(dict(base.objects)[source['provider_close_qualification_sha256']])
+            self.assertEqual(q['parents'][0]['source_expires_at'],'2026-10-25T09:00:00Z')
+            self.assertTrue(binding.qualification_trust_matches(trust,json.loads(base.manifest),source,q))
+            self.assertFalse(batch.results['subject'].receipt['eligible_for_economics'])
+            for pair in parents:
+                for parent in pair:
+                    self.assertEqual(dict(base.objects)[parent.generation_id],parent.manifest)
+
+    def test_composition_rejects_anchor_conflict_before_new_review(self):
+        with self.assertRaisesRegex(binding.BindingError,'^COMPOSITION_ANCHOR_CONFLICT$'):
+            composition_fixture(tail_offset=7)
+
+    def test_composition_requires_external_current_review_and_original_parent_pin(self):
+        parents,e,trust,objects=composition_fixture()
+        for bad in (None,replace(trust,evidence_sha256='0'*64),
+                    replace(trust,parent_generation_pairs=(('0'*64,'1'*64),trust.parent_generation_pairs[1]))):
+            with self.subTest(trust=type(bad).__name__):
+                result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+                    trusted_source=bad,proof_objects=tuple(sorted(objects.items())))
+                self.assertEqual(result.status,'BLOCKED')
+        result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-28T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(result.blockers,('COMPOSITION_FRESH_REVIEW',))
+
+    def test_composition_rejects_unbound_split_provenance(self):
+        parents,e,trust,objects=composition_fixture()
+        bad=replace(parents[0][1],provenance=b'{}')
+        result=binding.compose_prepared(((parents[0][0],bad),parents[1]),encoded(e),
+            decision_time='2026-10-26T02:00:00Z',trusted_source=trust,
+            proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(result.blockers,('COMPOSITION_PARENT_DERIVATION',))
+
+    def test_composition_rejects_detached_parent_blob(self):
+        parents,e,trust,objects=composition_fixture()
+        blob=b'SYNTHETIC_DETACHED_NOT_DECLARED_IN_ACCEPTED_PARENT'
+        bad=replace(parents[0][0],objects=parents[0][0].objects+((digest(blob),blob),))
+        result=binding.compose_prepared(((bad,parents[0][1]),parents[1]),encoded(e),
+            decision_time='2026-10-26T02:00:00Z',trusted_source=trust,
+            proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(result.blockers,('COMPOSITION_DETACHED_PARENT_OBJECT',))
+
+    def test_managed_asset_clock_must_belong_to_the_actual_collection_window(self):
+        for badclock in ('2016-01-06T23:29:59Z',OBSERVED):
+            with self.subTest(clock=badclock):
+                s,ch=managed_fixture(asset_clock=badclock)
+                result=binding.prepare_managed(*s[:3],encoded(s[3]),decision_time=DECISION,
+                    trusted_source=s[4],expected_managed_control_sha256=ch,
+                    proof_objects=tuple(sorted(s[5].items())))
+                self.assertEqual(result.blockers,('MANAGED_ASSET_CLOCKS',))
+
+    def test_managed_asset_id_must_match_current_technical_identity(self):
+        s,ch=managed_fixture(technical_security_id='00000000-0000-0000-0000-999999999999')
+        result=binding.prepare_managed(*s[:3],encoded(s[3]),decision_time=DECISION,
+            trusted_source=s[4],expected_managed_control_sha256=ch,
+            proof_objects=tuple(sorted(s[5].items())))
+        self.assertEqual(result.blockers,('MANAGED_ASSET_IDENTITY',))
+
+    def test_composition_fresh_basis_rights_clocks_and_unknown_status_fail_closed(self):
+        cases=[('common_basis',lambda d:d.update(common_split_basis_verified=False),'COMPOSITION_COMMON_BASIS'),
+               ('common_basis',lambda d:d.update(rebase_allowed=True),'COMPOSITION_COMMON_BASIS'),
+               ('common_basis',lambda d:d.update(split_factor='nonnumeric'),'NUMERIC_VALUE'),
+               ('status_evidence',lambda d:d.update(halted_sessions=[]),'COMPOSITION_CURRENT_STATUS'),
+               ('identity_evidence',lambda d:d.update(provider_security_id='wrong'),'COMPOSITION_CURRENT_IDENTITY'),
+               ('identity_evidence',lambda d:d.update(expires_at='2026-10-26T01:59:59Z'),
+                'COMPOSITION_CURRENT_DOCUMENT_CLOCK'),
+               ('owner_rights',lambda d:d.update(supplier_expiry='2026-10-26T01:59:59Z'),
+                'COMPOSITION_SUPPLIER_EXPIRED'),
+               ('qualification',lambda d:d.update(observed_at='2026-10-23T01:00:00Z'),
+                'COMPOSITION_BEFORE_INPUT')]
+        for key,change,code in cases:
+            with self.subTest(key=key,code=code):
+                parents,e,trust,objects=rewrite_composition_doc(composition_fixture(),key,change)
+                result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+                    trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+                self.assertEqual(result.blockers,(code,))
+
+    def test_composition_preserves_known_halt_facts_and_rejects_dropped_fact(self):
+        state=composition_fixture(old_known={'AAPL':['2016-01-08']})
+        parents,e,trust,objects=state
+        good=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(good.status,'REAL_SOURCE_COMPOSED_UNADMITTED',good.blockers)
+        self.assertEqual(json.loads(good.bases[0].manifest)['datasets'][0]['files'][0]
+                         ['instrument']['known_halted_sessions'],['2016-01-08'])
+        parents,e,trust,objects=rewrite_composition_doc(state,'status_evidence',
+            lambda d:d.update(known_halted_sessions=[],known_halt_source_documents=[]))
+        bad=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(bad.blockers,('COMPOSITION_CURRENT_STATUS',))
+
+    def test_composition_preserves_supplier_expiry_across_repeated_composition(self):
+        parents,e,trust,objects=composition_fixture(rights_expiry='2026-10-26T04:00:00Z')
+        first=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(first.status,'REAL_SOURCE_COMPOSED_UNADMITTED',first.blockers)
+        p2,e2,t2,o2=composition_fixture(old_input=(first.bases,trust,'2026-10-26T02:00:00Z'),
+            tail_start='2016-01-15',tail_days=['2016-01-15','2016-01-19','2016-01-20'],
+            tail_offset=9,observed='2026-10-26T02:30:00Z',created='2026-10-26T03:00:00Z',
+            decision='2026-10-26T03:30:00Z')
+        second=binding.compose_prepared(p2,encoded(e2),decision_time='2026-10-26T03:30:00Z',
+            trusted_source=t2,proof_objects=tuple(sorted(o2.items())))
+        self.assertEqual(second.status,'REAL_SOURCE_COMPOSED_UNADMITTED',second.blockers)
+        for base in second.bases:
+            self.assertEqual(json.loads(base.provenance)['supplier_rights_expiry'],
+                             '2026-10-26T04:00:00+00:00')
+        p3,e3,t3,o3=composition_fixture(old_input=(second.bases,t2,'2026-10-26T03:30:00Z'),
+            tail_start='2016-01-20',tail_days=['2016-01-20','2016-01-21','2016-01-22'],
+            tail_offset=11,observed='2026-10-26T04:30:00Z',created='2026-10-26T05:00:00Z',
+            decision='2026-10-26T05:30:00Z')
+        third=binding.compose_prepared(p3,encoded(e3),decision_time='2026-10-26T05:30:00Z',
+            trusted_source=t3,proof_objects=tuple(sorted(o3.items())))
+        self.assertEqual(third.blockers,('COMPOSITION_SUPPLIER_EXPIRED',))
+
+    def test_managed_rejects_regressed_meter_wrong_job_and_unprotected_master(self):
+        cases=[('managed_master',lambda d:d.update(protected=False),'MANAGED_PROTECTED_MASTER'),
+               ('managed_job',lambda d:d.update(name='wrong'),'MANAGED_ORIGINAL_JOB'),
+               ('managed_job',lambda d:d.update(completed_at='2016-01-06T23:29:59Z'),'MANAGED_JOB_WINDOW'),
+               ('original_execution',lambda d:d.pop('managed_worker_started_at'),'EXPLICIT_CLOCK_REQUIRED'),
+               ('original_execution',lambda d:d.update(managed_worker_deadline='2016-01-06T23:46:00Z'),
+                'MANAGED_JOB_WINDOW')]
+        for key,change,code in cases:
+            with self.subTest(key=key,code=code):
+                s,ch=managed_fixture();oldref=s[3][key]
+                doc=json.loads(s[5].pop(oldref['sha256']));change(doc);raw=encoded(doc)
+                s[5][digest(raw)]=raw;s[3][key]=dict(oldref,sha256=digest(raw),bytes=len(raw))
+                s[4]=replace(s[4],evidence_sha256=digest(encoded(s[3])),proof_sha256=tuple(sorted(s[5])))
+                result=binding.prepare_managed(*s[:3],encoded(s[3]),decision_time=DECISION,
+                    trusted_source=s[4],expected_managed_control_sha256=ch,
+                    proof_objects=tuple(sorted(s[5].items())))
+                self.assertEqual(result.blockers,(code,))
+
+    def test_managed_proof_is_distinct_and_does_not_forge_legacy_checkpoint(self):
+        s, ch = managed_fixture()
+        args = dict(decision_time=DECISION, trusted_source=s[4], proof_objects=tuple(sorted(s[5].items())))
+        legacy = binding.prepare(*s[:3], encoded(s[3]), **args)
+        self.assertEqual(legacy.status, 'BLOCKED')
+        result = binding.prepare_managed(*s[:3], encoded(s[3]),
+                    expected_managed_control_sha256=ch, **args)
+        self.assertEqual(result.status, 'REAL_SOURCE_PREPARED_UNADMITTED', result.blockers)
+        for b in result.bases:
+            lineage=json.loads(b.provenance)['original_checkpoint_lineage']
+            self.assertEqual(lineage['kind'],'MANAGED_MAINTENANCE')
+            self.assertEqual(lineage['managed_control_sha256'],ch)
+            self.assertEqual(lineage['collection_started_at'],'2016-01-06T23:30:02Z')
+
+    def test_managed_proof_needs_independent_exact_control_pin(self):
+        s, ch = managed_fixture()
+        result=binding.prepare_managed(*s[:3],encoded(s[3]),decision_time=DECISION,
+            trusted_source=s[4],expected_managed_control_sha256='0'*64,
+            proof_objects=tuple(sorted(s[5].items())))
+        self.assertEqual(result.status,'BLOCKED')
+        self.assertIn('MANAGED_REVIEWED_CONTROL',result.blockers)
 
     def test_close_batch_matches_authoritative_dst_early_close_and_invalid_dates(self):
         # Reader-only tiny cases: no Source.prepare, provider or actual archive.

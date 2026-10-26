@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from functools import lru_cache
 import importlib.util
+import json
 import math
 from pathlib import Path
 import sys
@@ -740,6 +741,40 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(proof_reads),2)
 
 
+class CompositionFeatureTests(unittest.TestCase):
+    def test_actual_reader_and_feature_accept_only_external_composition_review(self):
+        from a1_reader_generation_binding_smoke import composition_fixture
+        from tools import prepare_a1_reader_generation as binding
+        parents,e,trust,proofs=composition_fixture()
+        result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-26T02:00:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(proofs.items())))
+        self.assertEqual(result.status,'REAL_SOURCE_COMPOSED_UNADMITTED',result.blockers)
+        transport=MemoryTransport()
+        for base in result.bases:
+            transport.objects[f'{access.PREFIX_V1}/generations/{base.generation_id}']=base.manifest
+            for h,raw in base.objects:
+                transport.objects[f'{access.PREFIX_V1}/objects/{h}']=raw
+        raw,split=result.bases
+        qsha=json.loads(split.manifest)['datasets'][0]['source']['provider_close_qualification_sha256']
+        args=dict(security_id='US.TEST.AAPL',session='2016-01-15',as_of='2026-10-26T02:00:00Z',
+            raw_generation=raw.generation_id,expected_qualification_sha256=qsha,
+            benchmark_ids={'SPY':'US.TEST.SPY'})
+        reader=access.ResearchDataReader(transport)
+        good=target.research_feature_snapshot(reader,split.generation_id,
+            trusted_qualification_source=trust,**args)
+        self.assertIsNotNone(good['features']['ret_5s'],good['blocker'])
+        self.assertIsNotNone(good['raw_ref'])
+        self.assertEqual(good['blocker']['rs_log_spy_20s'],'MISSING_INSTRUMENT')
+        self.assertEqual(good,target.research_feature_snapshot(reader,split.generation_id,
+            trusted_qualification_source=trust,**args))
+        for flag in ('source_admitted','historical_pit_certified','ranking_allowed','ER_allowed',
+                     'portfolio_allowed','orders_generated'):
+            self.assertFalse(good[flag])
+        bad=target.research_feature_snapshot(reader,split.generation_id,
+            trusted_qualification_source=None,**args)
+        self.assertIsNone(bad['features']['ret_5s'])
+
+
 class CalendarBatchFeatureTests(unittest.TestCase):
     """Tiny actual Reader/Feature parity, separate from the 510-row oracles."""
     class OriginalLookup:
@@ -847,6 +882,7 @@ class CalendarBatchFeatureTests(unittest.TestCase):
 
 def run_contract_suite():
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CompositionFeatureTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CalendarBatchFeatureTests))
     outcome=unittest.TextTestRunner(verbosity=1).run(suite)
     if not outcome.wasSuccessful():raise RuntimeError('TECHNICAL_FEATURE_H1_CONTRACT_FAILED')

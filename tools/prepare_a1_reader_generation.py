@@ -22,7 +22,8 @@ from tools import alpaca_sip_private_backfill_v1 as capture
 from tools.alpaca_sip_source_revision import external_genesis
 from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import (ContractError, PRICE_COLUMNS, _session_close, clock, day,
-    PROVIDER_CLOSE_CONSUMER, _provider_close_references, _validate_provider_close_qualification)
+    PROVIDER_CLOSE_CONSUMER, PROVIDER_COMPOSITION_SCHEMA,
+    _provider_close_references, _validate_provider_close_qualification)
 
 MAX_ROWS = 100_000
 MAX_DECODED = 32_000_000
@@ -138,6 +139,211 @@ class TrustedSourceBinding:
     derivation_run_id: str
     derivation_code_sha: str
     adapter_file_sha256: str
+
+
+@dataclass(frozen=True)
+class TrustedCompositionBinding:
+    """Fresh external review of two exact immutable parent pairs, research only."""
+    review_reference: str
+    review_receipt_sha256: str
+    evidence_sha256: str
+    proof_sha256: tuple[str, ...]
+    credential_binding: str
+    derivation_run_id: str
+    derivation_code_sha: str
+    adapter_file_sha256: str
+    parent_generation_pairs: tuple[tuple[str, str], tuple[str, str]]
+    parent_decisions: tuple[str, str]
+    parent_bindings: tuple[object, object]
+
+
+def qualification_trust_matches(trust, manifest, source, qualification):
+    """Consistency with an external caller pin; never self-create authority."""
+    if type(trust) not in (TrustedSourceBinding, TrustedCompositionBinding):
+        return False
+    composed = type(trust) is TrustedCompositionBinding
+    pins = trust.proof_sha256
+    if not (type(pins) is tuple and 1 <= len(pins) <= (64 if composed else MAX_PROOFS)
+            and len(set(pins)) == len(pins)
+            and all(type(h) is str and HASH.fullmatch(h) for h in pins)):
+        return False
+    if not (source.get('provider_close_qualification_sha256') in pins
+            and trust.review_receipt_sha256 in pins
+            and trust.review_receipt_sha256 in source.get('raw_source_sha256', [])
+            and source.get('qualification_review_receipt_sha256') == trust.review_receipt_sha256
+            and source.get('qualification_adapter_file_sha256') == trust.adapter_file_sha256
+            and source.get('producer_config_sha256') == trust.evidence_sha256
+            and source.get('producer_code_sha') == trust.derivation_code_sha
+            and source.get('derivation_run_id') == trust.derivation_run_id):
+        return False
+    if not composed:
+        return (qualification.get('schema') != PROVIDER_COMPOSITION_SCHEMA
+                and manifest.get('source_run_id') == str(trust.original_run_id))
+    pairs = [[p['raw_manifest']['sha256'], p['split_manifest']['sha256']]
+             for p in qualification.get('parents', [])]
+    return (qualification.get('schema') == PROVIDER_COMPOSITION_SCHEMA
+            and manifest.get('source_run_id') == trust.derivation_run_id
+            and pairs == [list(p) for p in trust.parent_generation_pairs])
+
+
+def _composition_material(parents, trusted, security_id):
+    """Read the selected immutable inputs at their original admitted cutoffs.
+
+    A past qualification is historical provenance here. Fresh composition
+    rights/identity/basis/status review below is still mandatory for current use.
+    This helper creates no qualified manifest or admission.
+    """
+    from tools.research_data_access import ResearchDataReader, PREFIX_V1
+    require(type(trusted) is TrustedCompositionBinding and type(parents) is tuple
+            and len(parents) == 2 and type(trusted.parent_generation_pairs) is tuple
+            and len(trusted.parent_generation_pairs) == 2
+            and type(trusted.parent_decisions) is tuple and len(trusted.parent_decisions) == 2
+            and type(trusted.parent_bindings) is tuple and len(trusted.parent_bindings) == 2,
+            'COMPOSITION_TRUST_REQUIRED')
+    require(type(security_id) is str and 0 < len(security_id) <= 200, 'COMPOSITION_IDENTITY')
+    memory, total = {}, 0
+    for pair, expected in zip(parents, trusted.parent_generation_pairs):
+        require(type(pair) is tuple and len(pair) == 2 and type(expected) is tuple
+                and len(expected) == 2, 'COMPOSITION_PARENT_PAIR')
+        for basis, wanted, h in zip(pair, ('RAW','SPLIT_ADJUSTED'), expected):
+            require(type(basis) is PreparedBasis and basis.basis == wanted
+                    and digest(basis.manifest) == _hash(h)
+                    and type(basis.objects) is tuple and len(basis.objects) <= MAX_REFS,
+                    'COMPOSITION_PARENT_PAIR')
+            parent_manifest = _decode(basis.manifest,1024*1024)
+            price_specs = [s for s in parent_manifest.get('datasets',[]) if type(s) is dict
+                           and s.get('dataset_id') == 'ds.us.prices.daily']
+            require(len(price_specs) == 1 and type(basis.provenance) is bytes
+                    and 0 < len(basis.provenance) <= 1024*1024
+                    and digest(basis.provenance) == price_specs[0]['source'].get('basis_derivation_receipt_sha256'),
+                    'COMPOSITION_PARENT_DERIVATION')
+            derivation = _decode(basis.provenance,1024*1024)
+            require(derivation.get('schema') in ('a1-reader-derivation-v1','a1-reviewed-source-composition-v1')
+                    and derivation.get('basis') == basis.basis
+                    and type(derivation.get('derived_objects')) is list
+                    and all(f['sha256'] in derivation['derived_objects'] for f in price_specs[0]['files']),
+                    'COMPOSITION_PARENT_DERIVATION')
+            declared = set(price_specs[0]['source']['raw_source_sha256']) | {
+                f['sha256'] for f in price_specs[0]['files']} | {h,digest(basis.provenance)}
+            require(all(type(item) is tuple and len(item) == 2 and item[0] in declared
+                        for item in basis.objects), 'COMPOSITION_DETACHED_PARENT_OBJECT')
+            for key, raw in ((h,basis.manifest),(digest(basis.provenance),basis.provenance),*basis.objects):
+                _hash(key)
+                require(type(raw) is bytes and 0 < len(raw) <= MAX_VIEW and digest(raw) == key,
+                        'COMPOSITION_INPUT_HASH')
+                require(key not in memory or memory[key] == raw, 'COMPOSITION_INPUT_COLLISION')
+                if key not in memory:
+                    total += len(raw)
+                    require(total <= MAX_REFERENCE_BYTES, 'COMPOSITION_INPUT_BOUND')
+                    memory[key] = raw
+    class LocalInputs:
+        def read(self, path):
+            require(type(path) is str and LOGICAL.fullmatch(path), 'COMPOSITION_INPUT_PATH')
+            h = path.rsplit('/',1)[-1]
+            require(h in memory, 'COMPOSITION_MISSING_INPUT')
+            return memory[h]
+    reader = ResearchDataReader(LocalInputs())
+    legs, descriptors, identities = [], [], []
+    for index, pair in enumerate(parents):
+        arrays, refs, specs, manifests, qualifications = {}, {}, [], [], []
+        for basis in pair:
+            manifest = _decode(basis.manifest, 1024*1024)
+            candidates = [s for s in manifest.get('datasets', [])
+                          if type(s) is dict and s.get('dataset_id') == 'ds.us.prices.daily']
+            require(len(candidates) == 1, 'COMPOSITION_PARENT_DATASET')
+            spec = candidates[0]
+            files = [f for f in spec.get('files', []) if type(f) is dict
+                     and f.get('instrument', {}).get('instrument_id') == security_id]
+            require(len(files) == 1 and files[0]['instrument']['adjustment_basis'] == basis.basis,
+                    'COMPOSITION_PARENT_INSTRUMENT')
+            f = files[0]; qh = spec['source'].get('provider_close_qualification_sha256')
+            require(qh in memory, 'COMPOSITION_PARENT_QUALIFICATION')
+            q = _decode(memory[qh], 64*1024)
+            binding = trusted.parent_bindings[index]
+            require(qualification_trust_matches(binding, manifest, spec['source'], q)
+                    and binding.credential_binding == trusted.credential_binding,
+                    'COMPOSITION_PARENT_REVIEW')
+            batch = reader.read_components('ds.us.prices.daily', basis.generation_id,
+                decision_time=trusted.parent_decisions[index], purpose='research',
+                components=[dict(component_id=security_id,instrument_id=security_id,
+                                 required_start=f['start'],required_end=f['end'])],
+                consumer_id=PROVIDER_CLOSE_CONSUMER)
+            require(not batch.refusals, 'COMPOSITION_PARENT_READ')
+            arrays[basis.basis] = [dict(r) for r in batch.results[security_id].rows]
+            refs[basis.basis] = dict(sha256=basis.generation_id, bytes=len(basis.manifest))
+            specs.append(spec); manifests.append(manifest); qualifications.append(q)
+            require(f['instrument']['volume_basis'] == basis.basis,
+                    'COMPOSITION_PARENT_VOLUME_BASIS')
+        require(qualifications[0] == qualifications[1]
+                and specs[0]['source']['raw_source_sha256'] == specs[1]['source']['raw_source_sha256']
+                and manifests[0]['source_run_id'] == manifests[1]['source_run_id']
+                and specs[0]['source']['source_receipt_sha256'] == specs[1]['source']['source_receipt_sha256'],
+                'COMPOSITION_PARENT_RAW_SPLIT_LINEAGE')
+        derivations = [_decode(b.provenance,1024*1024) for b in pair]
+        require(derivations[0].get('supplier_rights_expiry') == derivations[1].get('supplier_rights_expiry')
+                and all(specs[0]['source'].get(k) == specs[1]['source'].get(k) for k in
+                    ('producer_code_sha','producer_config_sha256','derivation_run_id')),
+                'COMPOSITION_PARENT_RAW_SPLIT_LINEAGE')
+        source = specs[0]['source']; q = qualifications[0]
+        identity = next(f['instrument'] for f in specs[0]['files']
+                        if f['instrument']['instrument_id'] == security_id)
+        provenance = _decode(pair[0].provenance, 1024*1024)
+        require(digest(pair[0].provenance) == source.get('basis_derivation_receipt_sha256'),
+                'COMPOSITION_PARENT_DERIVATION')
+        supplier = provenance.get('supplier_rights_expiry')
+        if supplier is not None:
+            _clock(supplier)
+        qh = source['provider_close_qualification_sha256']
+        descriptors.append(dict(raw_manifest=refs['RAW'],split_manifest=refs['SPLIT_ADJUSTED'],
+            qualification=dict(sha256=qh,bytes=len(memory[qh])),source_run_id=manifests[0]['source_run_id'],
+            review_decision_at=trusted.parent_decisions[index],source_available_from=source['available_from'],
+            source_collected_at=source['collected_at'],source_expires_at=source['expires_at'],
+            supplier_expiry=supplier,original_review_receipt_sha256=trusted.parent_bindings[index].review_receipt_sha256,
+            original_adapter_file_sha256=trusted.parent_bindings[index].adapter_file_sha256,
+            window=dict(start=arrays['RAW'][0]['session_date'],end=arrays['RAW'][-1]['session_date'])))
+        require([r['session_date'] for r in arrays['RAW']] ==
+                [r['session_date'] for r in arrays['SPLIT_ADJUSTED']], 'COMPOSITION_PARENT_GRID')
+        legs.append(arrays); identities.append(identity)
+    for key in ('instrument_id','provider_security_id','ticker','asset_class','provider',
+                'market','mic','calendar','timezone','currency'):
+        if key == 'provider':
+            require(all(_decode(p[0].manifest,1024*1024)['datasets'][0]['source']['provider'] == capture.SOURCE
+                        for p in parents), 'COMPOSITION_PROVIDER')
+        else:
+            require(identities[0].get(key) == identities[1].get(key)
+                    and identities[0].get(key) is not None, 'COMPOSITION_IDENTITY')
+    anchor = legs[0]['RAW'][-1]['session_date']
+    require(legs[1]['RAW'][0]['session_date'] == anchor and len(legs[1]['RAW']) >= 2
+            and legs[1]['RAW'][-1]['session_date'] > anchor, 'COMPOSITION_OVERLAP')
+    fields = ('open','high','low','close','volume')
+    for basis in ('RAW','SPLIT_ADJUSTED'):
+        before, after = legs[0][basis][-1], legs[1][basis][0]
+        require(all(Decimal(str(before[k])) == Decimal(str(after[k])) for k in fields),
+                'COMPOSITION_ANCHOR_CONFLICT')
+    raw_anchor, split_anchor = legs[0]['RAW'][-1], legs[0]['SPLIT_ADJUSTED'][-1]
+    with localcontext(Context(prec=200,rounding=ROUND_HALF_EVEN,
+            Emin=-999999,Emax=999999,capitals=1,clamp=0,flags=[],
+            traps=[InvalidOperation,DivisionByZero,Overflow])):
+        factor = Decimal(str(raw_anchor['close'])) / Decimal(str(split_anchor['close']))
+        require(all(Decimal(str(raw_anchor[k])) == Decimal(str(split_anchor[k]))*factor
+                    for k in fields[:-1])
+                and Decimal(str(split_anchor['volume'])) == Decimal(str(raw_anchor['volume']))*factor,
+                'COMPOSITION_ANCHOR_FACTOR')
+    rows = {b: legs[0][b] + legs[1][b][1:] for b in ('RAW','SPLIT_ADJUSTED')}
+    dates = [r['session_date'] for r in rows['RAW']]
+    require(len(dates) <= MAX_ROWS and len(dates) == len(set(dates)), 'COMPOSITION_ROW_BOUND')
+    import pandas_market_calendars as mcal
+    expected = list(mcal.get_calendar('NYSE').schedule(start_date=dates[0],end_date=dates[-1])
+                    .index.strftime('%Y-%m-%d'))
+    require(dates == expected and dates == [r['session_date'] for r in rows['SPLIT_ADJUSTED']],
+            'COMPOSITION_SESSION_GRID')
+    known = set()
+    for index, pair in enumerate(parents):
+        manifest = _decode(pair[0].manifest,1024*1024)
+        qh = manifest['datasets'][0]['source']['provider_close_qualification_sha256']
+        known.update(_decode(memory[qh],64*1024)['instruments'][security_id]['known_halted_sessions'])
+    return dict(rows=rows,parents=descriptors,identity=identities[0],objects=memory,
+                anchor=anchor,factor=str(factor),known_halted_sessions=sorted(known))
 
 
 def _checkpoint_reference(ref):
@@ -445,7 +651,167 @@ def _technical_metadata(documents, identities, grids, view, closes, original, cr
     return metadata
 
 
-def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_objects):
+def _managed_execution(evidence, meter, terminal, receipt, original, trusted, proof, expected):
+    """Verify managed provenance as managed provenance, never legacy receipts."""
+    from tools import alpaca_sip_managed_refresh as managed
+    control = _decode(proof(evidence.get('managed_control')), 64 * 1024)
+    run = _decode(proof(evidence.get('managed_run')), 1024 * 1024)
+    approval = _decode(proof(evidence.get('managed_approval')), 64 * 1024)
+    deployment = _decode(proof(evidence.get('managed_deployment')), 1024 * 1024)
+    master = _decode(proof(evidence.get('managed_master')), 1024 * 1024)
+    job = _decode(proof(evidence.get('managed_job')), 1024 * 1024)
+    reserved = _decode(proof(evidence.get('managed_reservation')), 1024 * 1024)
+    _hash(expected)
+    require(type(run) is dict and run.get('id') == trusted.original_run_id
+            and type(run.get('id')) is int
+            and run.get('run_attempt') == trusted.original_run_attempt == 1
+            and run.get('head_sha') == trusted.original_source_sha
+            and run.get('head_branch') == 'master'
+            and run.get('event') in {'schedule', 'workflow_dispatch'}
+            and run.get('status') == 'completed' and run.get('conclusion') == 'success'
+            and run.get('path') == '.github/workflows/free_data_daily_update.yml'
+            and type(run.get('repository')) is dict
+            and run['repository'].get('full_name') == managed.REPO,
+            'MANAGED_ORIGINAL_RUN')
+    started, ended = _clock(run.get('created_at')), _clock(run.get('updated_at'))
+    worker_start = _clock(meter.get('managed_worker_started_at'))
+    worker_deadline = _clock(meter.get('managed_worker_deadline'))
+    try:
+        require(managed.validate_control(control, receipt['seed_sha256'],
+                    control.get('policy_sha256'), worker_start) == expected,
+                'MANAGED_REVIEWED_CONTROL')
+        require(control['credential_binding'] == trusted.credential_binding,
+                'MANAGED_CREDENTIAL_BINDING')
+        grant_at = managed.owner_grant(control, expected, lambda path: approval, worker_start)
+        managed.verify_final_meter(meter, run, evidence['original_checkpoint']['sha256'],
+                                   expected, control['per_run_allowance'])
+    except ValueError as exc:
+        if isinstance(exc, BindingError):
+            raise
+        raise BindingError('MANAGED_EXECUTION_PROOF') from None
+    d = control['deployment']
+    require(type(deployment) is dict and deployment.get('number') == d['pull_request']
+            and deployment.get('merged') is True
+            and deployment.get('base', {}).get('ref') == 'master'
+            and deployment.get('merge_commit_sha') == d['merge_sha']
+            and type(deployment.get('head')) is dict
+            and deployment['head'].get('sha') == d['reviewed_head']
+            and _clock(deployment.get('merged_at')) <= grant_at <= worker_start <= ended,
+            'MANAGED_PROTECTED_DEPLOYMENT')
+    require(type(master) is dict and master.get('name') == 'master'
+            and master.get('protected') is True and type(master.get('commit')) is dict,
+            'MANAGED_PROTECTED_MASTER')
+    master_head = master['commit'].get('sha')
+    require(type(master_head) is str and re.fullmatch('[a-f0-9]{40}', master_head),
+            'MANAGED_PROTECTED_MASTER')
+    if master_head != run['head_sha']:
+        successor = _decode(proof(evidence.get('managed_master_ancestry')), 1024 * 1024)
+        require(type(successor) is dict and successor.get('status') == 'ahead'
+                and successor.get('merge_base_commit', {}).get('sha') == run['head_sha']
+                and type(successor.get('commits')) is list and successor['commits']
+                and successor['commits'][-1].get('sha') == master_head,
+                'MANAGED_MASTER_ANCESTRY')
+    require(type(job) is dict and type(job.get('id')) is int and job['id'] > 0
+            and job.get('run_id') == run['id'] and job.get('head_sha') == run['head_sha']
+            and job.get('name') == managed.JOB and job.get('status') == 'completed'
+            and job.get('conclusion') == 'success', 'MANAGED_ORIGINAL_JOB')
+    job_start, job_end = _clock(job.get('started_at')), _clock(job.get('completed_at'))
+    require(started <= job_start <= job_end <= ended
+            and job_start <= worker_start < worker_deadline
+            and worker_deadline <= min(_clock(control['expires_at']),
+                worker_start + timedelta(seconds=control['max_active_seconds_per_run']))
+            and (job_end-job_start).total_seconds() <= managed.JOB_RESERVATION_SECONDS,
+            'MANAGED_JOB_WINDOW')
+    if run['head_sha'] != d['merge_sha']:
+        ancestry = _decode(proof(evidence.get('managed_ancestry')), 1024 * 1024)
+        require(type(ancestry) is dict and ancestry.get('status') == 'ahead'
+                and type(ancestry.get('merge_base_commit')) is dict
+                and ancestry['merge_base_commit'].get('sha') == d['merge_sha']
+                and type(ancestry.get('commits')) is list and ancestry['commits']
+                and ancestry['commits'][-1].get('sha') == run['head_sha'],
+                'MANAGED_DEPLOYMENT_ANCESTRY')
+    require(type(terminal) is dict and type(reserved) is dict
+            and all(v.get('schema') == 'a1-managed-run-checkpoint-v1'
+                    and v.get('run_id') == run['id']
+                    and v.get('source_sha') == run['head_sha']
+                    and v.get('control_sha256') == expected for v in (terminal, reserved))
+            and reserved.get('state') == 'RESERVED' and terminal.get('state') == 'COMPLETE'
+            and terminal.get('reason') is None
+            and type(terminal.get('slot')) is int
+            and terminal['slot'] == reserved.get('slot')
+            and 1 <= terminal['slot'] <= control['max_runs']
+            and reserved.get('reserved_allowance') == control['per_run_allowance']
+            and terminal.get('parent_sha256') == evidence['managed_reservation']['sha256']
+            and worker_start <= _clock(reserved.get('created_at'))
+            <= _clock(terminal.get('completed_at')) < worker_deadline
+            and _clock(terminal['completed_at']) <= job_end
+            and _clock(control['not_before']) <= _clock(reserved['created_at'])
+            <= _clock(terminal['completed_at']) < _clock(control['expires_at'])
+            and (_clock(terminal['completed_at'])-_clock(reserved['created_at'])).total_seconds()
+                <= control['max_active_seconds_per_run'],
+            'MANAGED_CHECKPOINT_BINDING')
+    prior_usage = terminal.get('meter_usage_before_checkpoint_publication')
+    require(type(prior_usage) is dict and set(prior_usage) == set(managed.KEYS)
+            and all(type(prior_usage[k]) is int and 0 <= prior_usage[k] <= meter['usage'][k]
+                    for k in managed.KEYS)
+            and prior_usage['provider_gets'] == meter['usage']['provider_gets']
+            and prior_usage['drive_requests'] < meter['usage']['drive_requests'],
+            'MANAGED_PUBLICATION_METER')
+    scopes = set(control['authorized_tickers'])
+    subset = managed.execution_scope(control)
+    if subset is not None:
+        scopes &= subset
+    names = set(receipt['collected'])
+    require(names and set(receipt['symbols']) <= scopes
+            and receipt.get('cohort_scope') == dict(task_key=control['task_key'],
+                namespace='managed-refresh-v1', input_sha256=control['inventory_sha256'])
+            and type(terminal.get('coverage_updates')) is dict
+            and type(terminal.get('held')) is dict
+            and all(t not in terminal['held'] and
+                    terminal['coverage_updates'].get(t) == terminal.get('session') for t in names)
+            and receipt.get('end') == (day(terminal.get('session')) + timedelta(days=1)).isoformat(),
+            'MANAGED_CAPTURE_COVERAGE')
+    records = terminal.get('receipts')
+    require(type(records) is list and 1 <= len(records) <= 1500,
+            'MANAGED_RECEIPT_MEMBERSHIP')
+    matches = [r for r in records if type(r) is dict and type(r.get('objects')) is list
+               and len(r['objects']) == 3
+               and r['objects'][2].get('sha256') == original['capture_receipt_sha256']]
+    require(len(matches) == 1 and matches[0]['objects'][0] == receipt['raw_object']
+            and matches[0]['objects'][1] == receipt['normalized_object'],
+            'MANAGED_RECEIPT_MEMBERSHIP')
+    selected = matches[0]
+    collected_from, collected_to = (_clock(selected.get(k)) for k in
+        ('collection_started_at', 'collection_finished_at'))
+    assets = receipt.get('asset_precheck')
+    require(type(assets) is list and len(assets) == len(receipt['symbols'])
+            and all(type(a) is dict and _clock(reserved['created_at'])
+                    <= _clock(a.get('collected_at_utc')) <= collected_from for a in assets),
+            'MANAGED_ASSET_CLOCKS')
+    require(_clock(reserved['created_at']) <= collected_from <= collected_to
+            <= _clock(terminal['completed_at']) <= ended
+            and _clock(control['not_before']) <= collected_from <= collected_to
+                < _clock(control['expires_at'])
+            and _clock(evidence.get('first_observed_readback', {}).get('at'))
+                >= _clock(terminal['completed_at'])
+            and selected.get('public_available_at') is None
+            and all(selected.get(k) is False for k in
+                ('historical_identity_verified', 'corporate_action_chain_verified',
+                 'source_admission', 'pit_verified')),
+            'MANAGED_CAPTURE_CLOCKS')
+    gate = managed.managed.evaluate_market_session(now_utc=collected_from, min_close_age_minutes=120)
+    require(gate['ready'] and gate['session_date'] == terminal['session'], 'MANAGED_CAPTURE_SESSION')
+    return dict(kind='MANAGED_MAINTENANCE', managed_control_sha256=expected,
+                final_checkpoint_sha256=evidence['original_checkpoint']['sha256'],
+                selected_capture_receipt_sha256=original['capture_receipt_sha256'],
+                reservation_sha256=evidence['managed_reservation']['sha256'],
+                collection_started_at=selected['collection_started_at'],
+                collection_finished_at=selected['collection_finished_at'],
+                source_public_available_at=None, unselected_price_reads=0)
+
+
+def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_objects, *,
+                   managed_control_sha256=None):
     require(type(trusted) is TrustedSourceBinding, 'TRUSTED_SOURCE_BINDING_REQUIRED')
     require(type(trusted.review_reference) is str and len(trusted.review_reference) <= 200
             and re.fullmatch(
@@ -504,32 +870,36 @@ def _real_evidence(evidence, evidence_bytes, receipt, original, trusted, proof_o
             'DERIVATION_BINDING')
     meter = _decode(proof(evidence.get('original_execution')), 1024 * 1024)
     checkpoint = _decode(proof(evidence.get('original_checkpoint')), 1024 * 1024)
-    require(type(meter) is dict and meter.get('schema') == 'a1-sip-campaign-meter-v1'
-            and meter.get('status') == 'COMPLETE' and meter.get('finalized') is True
-            and meter.get('preflight_only') is False
-            and meter.get('run_id') == trusted.original_run_id
-            and type(meter.get('run_id')) is int
-            and meter.get('run_attempt') == trusted.original_run_attempt
-            and type(meter.get('run_attempt')) is int
-            and meter.get('source_sha') == receipt['source_sha']
-            and type(meter.get('bindings')) is dict
-            and meter['bindings'].get('credential_binding') == trusted.credential_binding
-            and meter.get('checkpoint_sha256') == evidence['original_checkpoint']['sha256'],
-            'ORIGINAL_EXECUTION_BINDING')
-    checkpoint, lineage = _selected_checkpoint(evidence, meter, checkpoint, receipt, proof)
-    require(type(checkpoint) is dict and checkpoint.get('schema') == capture.SCHEMA
-            and checkpoint.get('state') == 'PRIVATE_RESEARCH_ONLY'
-            and checkpoint.get('source') == capture.SOURCE
-            and checkpoint.get('last_status') == 'VERIFIED_RAW_SPLIT'
-            and all(checkpoint.get(k) == receipt.get(k)
-                    for k in ('source_sha', 'seed_sha256', 'start', 'end'))
-            and type(checkpoint.get('last_objects')) is list
-            and len(checkpoint['last_objects']) == 3
-            and checkpoint['last_objects'][0] == receipt['raw_object']
-            and checkpoint['last_objects'][1] == receipt['normalized_object']
-            and type(checkpoint['last_objects'][2]) is dict
-            and checkpoint['last_objects'][2].get('sha256') == original['capture_receipt_sha256'],
-            'ORIGINAL_CHECKPOINT_BINDING')
+    if managed_control_sha256 is not None:
+        lineage = _managed_execution(evidence, meter, checkpoint, receipt, original,
+                                     trusted, proof, managed_control_sha256)
+    else:
+        require(type(meter) is dict and meter.get('schema') == 'a1-sip-campaign-meter-v1'
+                and meter.get('status') == 'COMPLETE' and meter.get('finalized') is True
+                and meter.get('preflight_only') is False
+                and meter.get('run_id') == trusted.original_run_id
+                and type(meter.get('run_id')) is int
+                and meter.get('run_attempt') == trusted.original_run_attempt
+                and type(meter.get('run_attempt')) is int
+                and meter.get('source_sha') == receipt['source_sha']
+                and type(meter.get('bindings')) is dict
+                and meter['bindings'].get('credential_binding') == trusted.credential_binding
+                and meter.get('checkpoint_sha256') == evidence['original_checkpoint']['sha256'],
+                'ORIGINAL_EXECUTION_BINDING')
+        checkpoint, lineage = _selected_checkpoint(evidence, meter, checkpoint, receipt, proof)
+        require(type(checkpoint) is dict and checkpoint.get('schema') == capture.SCHEMA
+                and checkpoint.get('state') == 'PRIVATE_RESEARCH_ONLY'
+                and checkpoint.get('source') == capture.SOURCE
+                and checkpoint.get('last_status') == 'VERIFIED_RAW_SPLIT'
+                and all(checkpoint.get(k) == receipt.get(k)
+                        for k in ('source_sha', 'seed_sha256', 'start', 'end'))
+                and type(checkpoint.get('last_objects')) is list
+                and len(checkpoint['last_objects']) == 3
+                and checkpoint['last_objects'][0] == receipt['raw_object']
+                and checkpoint['last_objects'][1] == receipt['normalized_object']
+                and type(checkpoint['last_objects'][2]) is dict
+                and checkpoint['last_objects'][2].get('sha256') == original['capture_receipt_sha256'],
+                'ORIGINAL_CHECKPOINT_BINDING')
     rights = _decode(proof(evidence.get('owner_rights')), 1024 * 1024)
     require(type(rights) is dict and rights.get('schema') == 'a1-reviewed-account-rights-v1'
             and rights.get('provider') == 'alpaca'
@@ -579,8 +949,29 @@ def prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
         return Preparation('BLOCKED', ('REAL_EVIDENCE_SCHEMA',))
 
 
+def prepare_managed(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
+                    decision_time, trusted_source, expected_managed_control_sha256,
+                    proof_objects=()):
+    """Explicit managed lineage; the legacy prepare() route is unchanged.
+
+    The expected control pin is supplied independently by the reviewed caller,
+    not inferred from the capture or manifest. No network or wall-clock reads.
+    """
+    try:
+        _hash(expected_managed_control_sha256)
+        return _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes,
+            classification='REAL_SOURCE', decision_time=decision_time,
+            trusted_source=trusted_source, proof_objects=proof_objects,
+            managed_control_sha256=expected_managed_control_sha256)
+    except BindingError as exc:
+        return Preparation('BLOCKED', (str(exc),))
+    except (KeyError, TypeError, AttributeError, OverflowError, RecursionError):
+        return Preparation('BLOCKED', ('REAL_EVIDENCE_SCHEMA',))
+
+
 def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
-             classification, decision_time, trusted_source, proof_objects):
+             classification, decision_time, trusted_source, proof_objects,
+             managed_control_sha256=None):
     evidence = _decode(evidence_bytes, 1024 * 1024)
     require(type(evidence) is dict, 'EVIDENCE_SCHEMA')
     require(classification in ('REAL_SOURCE', 'CONTRACT_FIXTURE'), 'CLASSIFICATION')
@@ -614,7 +1005,8 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
                     capture_receipt_sha256=digest(capture_receipt))
     real = classification == 'REAL_SOURCE'
     rights, lineage, technical = (_real_evidence(
-        evidence, evidence_bytes, receipt, original, trusted_source, proof_objects)
+        evidence, evidence_bytes, receipt, original, trusted_source, proof_objects,
+        managed_control_sha256=managed_control_sha256)
         if real else (None, None, {}))
     event = evidence.get('first_observed_readback')
     require(type(event) is dict and event.get('kind') == 'FIRST_OBSERVED_COMPLETE_READBACK'
@@ -697,6 +1089,13 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
             'IDENTITY_COLLISION')
     metadata = (_technical_metadata(technical, identities, grids, view, closes, original,
                                    created, decision) if view else {})
+    if managed_control_sha256 is not None:
+        require(view is not None and set(metadata) == set(receipt['collected']),
+                'MANAGED_TECHNICAL_VIEW_REQUIRED')
+        captured_ids = {a['symbol']:capture.asset_record(a['response_utf8'].encode(),a['symbol'])['id']
+                        for a in receipt['asset_precheck'] if a['http_status'] == 200}
+        require(all(captured_ids.get(t) == metadata[t]['provider_security_id'] for t in metadata),
+                'MANAGED_ASSET_IDENTITY')
     qualifications = [documents['provider_close_qualification'] for documents in technical.values()
                       if 'provider_close_qualification' in documents]
     if qualifications:
@@ -891,6 +1290,213 @@ def _prepare(raw_zip, normalized_gzip, capture_receipt, evidence_bytes, *,
         bases.append(PreparedBasis(basis, manifest, provenance, tuple(objects)))
     return Preparation('REAL_SOURCE_PREPARED_UNADMITTED' if real else 'CONTRACT_FIXTURE_PREPARED',
                        (), tuple(bases))
+
+
+def compose_prepared(parents, evidence_bytes, *, decision_time, trusted_source, proof_objects):
+    """Two immutable price inputs -> one freshly reviewed research derivation.
+
+    This never changes a capture receipt, a parent's qualification/expiry, or
+    its rows' original availability. Fresh current review is an explicit input.
+    """
+    try:
+        return _compose_prepared(parents, evidence_bytes, decision_time,
+                                 trusted_source, proof_objects)
+    except (BindingError, ContractError) as exc:
+        return Preparation('BLOCKED', (str(exc),))
+    except (KeyError, TypeError, AttributeError, ValueError, OverflowError, RecursionError):
+        return Preparation('BLOCKED', ('COMPOSITION_EVIDENCE_SCHEMA',))
+
+
+def _compose_prepared(parents, evidence_bytes, decision_time, trusted, proof_objects):
+    require(type(trusted) is TrustedCompositionBinding, 'COMPOSITION_TRUST_REQUIRED')
+    e = _decode(evidence_bytes,64*1024)
+    require(type(trusted.review_reference) is str and re.fullmatch(
+        r'https://github\.com/wscha231/r1000-quant-engine/issues/(448|590)#issuecomment-[0-9]+',
+        trusted.review_reference), 'TRUSTED_REVIEW_REFERENCE')
+    require(digest(evidence_bytes) == _hash(trusted.evidence_sha256)
+            and digest(Path(__file__).read_bytes()) == _hash(trusted.adapter_file_sha256),
+            'COMPOSITION_REVIEW_PIN')
+    _hash(trusted.credential_binding); _hash(trusted.review_receipt_sha256)
+    require(type(trusted.derivation_code_sha) is str
+            and re.fullmatch('[a-f0-9]{40}',trusted.derivation_code_sha)
+            and type(trusted.derivation_run_id) is str and len(trusted.derivation_run_id) <= 160
+            and re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.:/-]*',trusted.derivation_run_id)
+            and 'FIXTURE' not in trusted.derivation_run_id.upper(), 'COMPOSITION_DERIVATION')
+    require(type(trusted.proof_sha256) is tuple and 1 <= len(trusted.proof_sha256) <= 64
+            and len(set(trusted.proof_sha256)) == len(trusted.proof_sha256)
+            and type(proof_objects) is tuple and len(proof_objects) == len(trusted.proof_sha256),
+            'COMPOSITION_PROOF_BOUND')
+    proofs, total = {}, 0
+    for item in proof_objects:
+        require(type(item) is tuple and len(item) == 2, 'COMPOSITION_PROOF_BOUND')
+        h, raw = item; _hash(h)
+        require(type(raw) is bytes and 0 < len(raw) <= 4*1024*1024 and digest(raw) == h
+                and h not in proofs, 'COMPOSITION_PROOF_HASH')
+        total += len(raw); require(total <= MAX_PROOF_BYTES, 'COMPOSITION_PROOF_BOUND')
+        proofs[h] = raw
+    require(set(proofs) == set(trusted.proof_sha256)
+            and trusted.review_receipt_sha256 in proofs, 'COMPOSITION_REVIEWED_PROOFS')
+    used = {trusted.review_receipt_sha256}
+    def proof(ref, limit=4*1024*1024):
+        require(type(ref) is dict and type(ref.get('sha256')) is str
+                and ref['sha256'] in proofs and type(ref.get('bytes')) is int
+                and 0 < ref['bytes'] <= limit and len(proofs[ref['sha256']]) == ref['bytes'],
+                'COMPOSITION_PROOF_REFERENCE')
+        used.add(ref['sha256']); return proofs[ref['sha256']]
+    require(type(e) is dict and e.get('schema') == 'a1-reader-composition-evidence-v1'
+            and e.get('fixture_only') is False
+            and e.get('derivation_run_id') == trusted.derivation_run_id
+            and e.get('derivation_code_sha') == trusted.derivation_code_sha,
+            'COMPOSITION_EVIDENCE_SCHEMA')
+    decision, created = _clock(decision_time), _clock(e.get('created_at'))
+    require(created <= decision <= _clock(e.get('research_fresh_until')), 'COMPOSITION_FRESH_REVIEW')
+    data = _composition_material(parents,trusted,e.get('security_id'))
+    iid = e['security_id']; dates = [r['session_date'] for r in data['rows']['RAW']]
+    qraw = proof(e.get('qualification'),64*1024); q = _decode(qraw,64*1024); qsha = digest(qraw)
+    require(q.get('schema') == PROVIDER_COMPOSITION_SCHEMA and q.get('parents') == data['parents']
+            and q.get('context_id') == e.get('context_id')
+            and q.get('source_run_id') == trusted.derivation_run_id,
+            'COMPOSITION_QUALIFICATION_BINDING')
+    refs = _provider_close_references(q)
+    require(trusted.review_receipt_sha256 in refs, 'COMPOSITION_CURRENT_REVIEW_UNBOUND')
+    for h, size in refs.items():
+        proof(dict(sha256=h,bytes=size))
+    require(q.get('common_basis') == e.get('common_basis')
+            and q.get('owner_rights') == e.get('owner_rights'), 'COMPOSITION_QUALIFICATION_BINDING')
+    rights = _decode(proof(e.get('owner_rights')),1024*1024)
+    require(rights.get('schema') == 'a1-reviewed-account-rights-v1' and rights.get('provider') == 'alpaca'
+            and rights.get('credential_binding') == trusted.credential_binding
+            and rights.get('purpose') == 'PRIVATE_NONCOMMERCIAL_RESEARCH'
+            and rights.get('historical_sip_allowed') is True
+            and rights.get('private_retention_allowed') is True, 'WAIT_OWNER_EVIDENCE')
+    rights_docs = rights.get('source_documents')
+    require(type(rights_docs) is list and 1 <= len(rights_docs) <= 8, 'RIGHTS_SOURCE_DOCUMENTS')
+    for r in rights_docs: proof(r)
+    basis = _decode(proof(e.get('common_basis'),64*1024),64*1024)
+    pairs = [list(p) for p in trusted.parent_generation_pairs]
+    require(basis.get('schema') == 'a1-reviewed-common-split-basis-v1'
+            and basis.get('context_id') == e['context_id']
+            and basis.get('parent_generation_pairs') == pairs
+            and basis.get('instrument_id') == iid
+            and basis.get('provider_security_id') == data['identity']['provider_security_id']
+            and basis.get('anchor_session') == data['anchor']
+            and basis.get('common_split_basis_verified') is True and basis.get('rebase_allowed') is False
+            and basis.get('physical_halt_coverage') == 'UNKNOWN'
+            and basis.get('historical_revision_certified') is False
+            and _decimal(str(basis.get('split_factor')))[0] == Decimal(data['factor']),
+            'COMPOSITION_COMMON_BASIS')
+    anchor_fields = ('instrument_id','ticker','session_date','open','high','low','close','volume')
+    for name, adjustment in (('raw_anchor_sha256','RAW'),('split_anchor_sha256','SPLIT_ADJUSTED')):
+        row = next(r for r in data['rows'][adjustment] if r['session_date'] == data['anchor'])
+        require(basis.get(name) == digest(encoded({k:row[k] for k in anchor_fields})),
+                'COMPOSITION_COMMON_BASIS')
+    sources = basis.get('source_documents')
+    require(type(sources) is list and 1 <= len(sources) <= 8, 'COMPOSITION_BASIS_SOURCES')
+    for r in sources: proof(r)
+    identity_raw = proof(e.get('identity_evidence'),64*1024)
+    status_raw = proof(e.get('status_evidence'),64*1024)
+    identity, status = _decode(identity_raw,64*1024), _decode(status_raw,64*1024)
+    require(identity.get('schema') == 'ohlcv-security-identity-evidence-v1'
+            and status.get('schema') == 'a1-ohlcv-status-volume-evidence-v1',
+            'COMPOSITION_TECHNICAL_SCHEMA')
+    expires = _clock(e['research_fresh_until'])
+    for document in (basis,identity,status):
+        require(document.get('composition_context_id', document.get('context_id')) == e['context_id']
+                and document.get('parent_generation_pairs') == pairs
+                and _clock(document.get('available_from')) <= _clock(document.get('collected_at'))
+                <= created <= decision <= _clock(document.get('expires_at')),
+                'COMPOSITION_CURRENT_DOCUMENT_CLOCK')
+        expires = min(expires,_clock(document['expires_at']))
+    for document in (identity,status):
+        require(day(document.get('valid_from')) <= day(dates[0]) <= day(dates[-1])
+                <= day(document.get('valid_through')), 'COMPOSITION_CURRENT_IDENTITY_WINDOW')
+        require(document.get('provider') == capture.SOURCE
+                and all(document.get(k) == data['identity'][k] for k in
+                    ('instrument_id','provider_security_id','ticker')), 'COMPOSITION_CURRENT_IDENTITY')
+        doc_refs = (document.get('source_documents') if document is identity
+                    else document.get('volume_source_documents'))
+        require(type(doc_refs) is list and 1 <= len(doc_refs) <= 8, 'COMPOSITION_CURRENT_SOURCES')
+        for r in doc_refs: proof(r)
+    for key in ('asset_class','market','mic','calendar','timezone','currency'):
+        require(identity.get(key) == data['identity'][key], 'COMPOSITION_CURRENT_IDENTITY')
+    known = status.get('known_halted_sessions')
+    require(status.get('halt_coverage') == 'UNKNOWN' and status.get('halted_sessions') is None
+            and status.get('volume_basis') == {'raw':'RAW','split':'SPLIT_ADJUSTED'}
+            and type(known) is list and known == sorted(set(known))
+            and set(data['known_halted_sessions']) <= set(known), 'COMPOSITION_CURRENT_STATUS')
+    halt_refs = status.get('known_halt_source_documents')
+    require(type(halt_refs) is list and len(halt_refs) <= 8 and (not known or halt_refs),
+            'COMPOSITION_CURRENT_STATUS')
+    for r in halt_refs: proof(r)
+    supplier_expiries = []
+    for expiry in [rights.get('supplier_expiry'),*[p['supplier_expiry'] for p in data['parents']]]:
+        if expiry is not None:
+            require(decision <= _clock(expiry), 'COMPOSITION_SUPPLIER_EXPIRED')
+            supplier_expiries.append(_clock(expiry))
+            expires = min(expires,_clock(expiry))
+    supplier_expiry = min(supplier_expiries).isoformat() if supplier_expiries else None
+    require(used == set(proofs), 'UNREFERENCED_REVIEWED_PROOF')
+    require(q['window'] == dict(start=dates[0],end=dates[-1],sessions_sha256=digest(encoded(dates)))
+            and _clock(q['created_at']) == created and _clock(q['expires_at']) >= expires,
+            'COMPOSITION_WINDOW_OR_CLOCK')
+    require(_clock(q['observed_at']) >= max(_clock(p['source_collected_at']) for p in data['parents']),
+            'COMPOSITION_BEFORE_INPUT')
+    item = q['instruments'].get(iid)
+    require(type(item) is dict and item.get('identity_evidence_sha256') == digest(identity_raw)
+            and item.get('known_halted_sessions') == known
+            and item.get('known_halt_source_documents') == halt_refs,
+            'COMPOSITION_CURRENT_STATUS')
+    blobs = {}
+    for adjustment, rows in data['rows'].items():
+        raw = b''.join(encoded(r) for r in rows)
+        require(0 < len(raw) <= MAX_VIEW and item['basis_sha256'][adjustment] == digest(raw),
+                'COMPOSITION_TYPED_ROWS')
+        blobs[adjustment] = raw
+    record = dict(schema='a1-reviewed-source-composition-v1',context_id=e['context_id'],
+        parents=data['parents'],composition_evidence_sha256=digest(evidence_bytes),
+        qualification_sha256=qsha,anchor_session=data['anchor'],parent_row_clocks_preserved=True,
+        supplier_rights_expiry=supplier_expiry,source_admission=False,pit_verified=False,
+        economics=False,orders=False)
+    envelope = encoded(record); common = dict(data['objects']); common.update(proofs)
+    common[digest(evidence_bytes)] = evidence_bytes;common[digest(envelope)] = envelope
+    provenance = {}
+    for adjustment in blobs:
+        provenance[adjustment] = encoded(dict(record,basis=adjustment,
+            derived_objects=[digest(blobs[adjustment])],supplier_rights_expiry=supplier_expiry))
+        common[digest(provenance[adjustment])] = provenance[adjustment]
+    require(len(common) + 1 <= MAX_REFS
+            and sum(len(b) for b in common.values()) + max(len(b) for b in blobs.values()) <= MAX_REFERENCE_BYTES,
+            'COMPOSITION_OUTPUT_BOUND')
+    output = []
+    for adjustment, blob in blobs.items():
+        ident = {k:identity[k] for k in ('instrument_id','ticker','asset_class','provider_security_id',
+                  'market','mic','calendar','timezone','currency')}
+        ident.update(adjustment_basis=adjustment,volume_basis=adjustment,
+            identity_evidence_sha256=digest(identity_raw),status_evidence_sha256=digest(status_raw),
+            halt_coverage='UNKNOWN',halted_sessions=None,known_halted_sessions=known,
+            known_halt_source_documents=halt_refs,provider_close_qualification_sha256=qsha)
+        f = dict(storage='archive',format='jsonl',sha256=digest(blob),bytes=len(blob),rows=len(dates),
+                 start=dates[0],end=dates[-1],columns=PRICE_COLUMNS,instrument=ident)
+        source = dict(provider=capture.SOURCE,license='OWNER_ACCEPTED_PRIVATE_RESEARCH',
+            access_policy='PRIVATE_NONCOMMERCIAL_RESEARCH',classification='REAL_SOURCE',
+            admission_state='RESEARCH_BYTES_ONLY',eligible_purposes=['research'],pit_status='PIT_PROXY',
+            corporate_action_status='VERIFIED',lifecycle_status='VERIFIED',
+            producer_code_sha=trusted.derivation_code_sha,producer_config_sha256=digest(evidence_bytes),
+            source_receipt_sha256=digest(envelope),source_receipt_role='REVIEWED_SOURCE_COMPOSITION',
+            basis_derivation_receipt_sha256=digest(provenance[adjustment]),
+            raw_source_sha256=sorted(common),available_from=q['observed_at'],collected_at=q['collected_at'],
+            expires_at=expires.isoformat(),derivation_run_id=trusted.derivation_run_id,
+            composition_input_generations=pairs,provider_close_qualification_sha256=qsha,
+            qualification_review_receipt_sha256=trusted.review_receipt_sha256,
+            qualification_adapter_file_sha256=trusted.adapter_file_sha256)
+        manifest = dict(schema='research-data-generation-v1',eligible_for_selector=False,
+            created_at=e['created_at'],source_run_id=trusted.derivation_run_id,
+            datasets=[dict(dataset_id='ds.us.prices.daily',schema='price-daily-v1',source=source,files=[f])])
+        _validate_provider_close_qualification(q,manifest,manifest['datasets'][0],decision,
+            purpose='research',consumer_id=PROVIDER_CLOSE_CONSUMER)
+        objects = dict(common);objects[digest(blob)] = blob
+        output.append(PreparedBasis(adjustment,encoded(manifest),provenance[adjustment],tuple(sorted(objects.items()))))
+    return Preparation('REAL_SOURCE_COMPOSED_UNADMITTED',(),tuple(output))
 
 
 @dataclass(frozen=True)
