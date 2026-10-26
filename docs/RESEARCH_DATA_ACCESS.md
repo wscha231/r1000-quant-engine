@@ -105,6 +105,37 @@ SEC의 filed 날짜와 ALFRED vintage 날짜는 실제 장중 공개시각과 �
 
 ## 현재 알려진 범위와 미완료 항목
 
+### 보존 가격과 managed 증분의 연구 연결
+
+`tools.prepare_a1_reader_generation.prepare_managed`는 기존 managed worker의
+실제 control, OWNER grant, 배포·master·run·job, RESERVED/COMPLETE checkpoint,
+최종 meter와 원본 trio를 검증한다. legacy campaign 영수증으로 바꾸지 않는다.
+호출자는 승인된 외부 Source 기록에서 control SHA와 `TrustedSourceBinding`을
+별도로 전달해야 한다. 수집 시작·종료, worker deadline, 완료 세션과 최초
+readback 시각이 맞지 않으면 BLOCKED다. 이 API는 수집·업로드를 하지 않는다.
+
+`include_previous_close=true`는 검증된 보존 cutoff가 있는 종목의 증분 요청에
+직전 완료 거래일 하나를 포함한다. 기본값은 false이며, 보존 이력이 없는
+종목의 backfill 권한을 만들지 않는다. control hash가 달라지므로 실제 사용에는
+새 배포 pin·유한 실행 grant와 일치하는 journal이 필요하다.
+
+`compose_prepared`는 기존 두 RAW/SPLIT generation 쌍을 각자의 과거 검토
+cutoff에서 읽고, 동일 security·통화·MIC·거래일·가격/거래량 basis와 경계일의
+정확한 OHLCV를 확인한다. 경계 충돌·누락 거래일·검토되지 않은 재조정은
+차단한다. 원본·행 가용시각·과거 qualification·만료일을 보존하며, 새 파생
+generation에는 별도의 `TrustedCompositionBinding`과 현재 이용 목적·identity·
+status·공통 split basis 검토가 필요하다. 조상의 supplier expiry 최솟값도
+계속 상속한다. 과거 연구 freshness 만료와 공급자 권한 만료는 다른 사실이다.
+
+단일 경계 일치는 전체 과거 수정 이력·corporate action chain·물리적 거래정지
+완전성을 인증하지 않는다. physical halt coverage는 UNKNOWN/null로 유지하고
+알려진 거래정지 사실은 보존한다. Main은 외부 qualification SHA와 검토 binding을
+함께 받아 기존 Reader component API로 연구 Feature만 계산한다. 선택적 SPY
+부재는 기업 단독 연구를 삭제하지 않지만, SPY 적격성 검사를 면제하지도 않는다.
+모든 경로는 RESEARCH_BYTES_ONLY/PIT_PROXY이며 ER·포트·주문 권한은 없다.
+입력·proof·행·바이트 한도를 넘으면 BLOCKED이며, 이 연결은 무제한 재귀 보관이나
+자동 수집·지속 운용 검증 완료를 뜻하지 않는다.
+
 2026-09-12 확대 수집은 27 pack/503,129,850바이트, SEC 1,104 발행기업과
 15,173,078 fact를 보존했다. FRED 30개, ALFRED 11개, World Bank
 20개 국가/지표 조합이 수집됐으며 전체 상태는 PARTIAL이었다. 이는 이전

@@ -1045,6 +1045,29 @@ class ManagedExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(self.r.Refused, 'PRIOR_FAILURE_REQUIRES_RECONCILIATION'):
             self.r.restore_journal(rows, history, 'a'*64)
 
+    def test_opt_in_anchor_is_one_verified_previous_close_without_new_backfill(self):
+        windows, reused, held = self.r.missing_windows(['AAPL', 'MSFT', 'T'],
+            dict(AAPL='2026-10-22', MSFT='2026-10-23'), '2026-10-23', set(),
+            include_previous_close=True)
+        self.assertEqual(windows, {('2026-10-22', '2026-10-24'): ['AAPL']})
+        self.assertEqual(reused, ['MSFT'])
+        self.assertEqual(held, {'T': 'MISSING_VERIFIED_ALPACA_COVERAGE'})
+
+    def test_anchor_flag_changes_the_control_hash_and_is_exact_bool(self):
+        before = self.validate()
+        self.control['include_previous_close'] = True
+        self.assertNotEqual(before, self.validate())
+        for bad in [None, 1, 0, 'true', []]:
+            with self.subTest(value=bad):
+                self.control['include_previous_close'] = bad
+                with self.assertRaisesRegex(self.r.Refused, 'MANAGED_ANCHOR_SCOPE'):
+                    self.validate()
+
+    def test_anchor_flag_false_preserves_original_incremental_window(self):
+        args = ({'AAPL'}, {'AAPL':'2026-10-22'}, '2026-10-23', set())
+        self.assertEqual(self.r.missing_windows(*args),
+                         self.r.missing_windows(*args, include_previous_close=False))
+
     def test_prior_complete_needs_final_meter_and_exact_chain(self):
         history = [dict(id=1,head_sha='2'*40), dict(id=2,head_sha='2'*40)]
         base = dict(slot=1,run_id=1,source_sha='2'*40,control_sha256='a'*64)
