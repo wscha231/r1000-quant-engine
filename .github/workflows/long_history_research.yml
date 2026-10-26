@@ -26,6 +26,11 @@ on:
       - 'tests/long_history_lake_smoke.py'
       - 'tests/macro_technical_evidence_smoke.py'
       - 'tests/macro_research_cycle_smoke.py'
+      - 'tools/macro_survey_research.py'
+      - 'tools/free_market_context.py'
+      - 'tests/macro_survey_research_smoke.py'
+      - 'tests/__init__.py'
+      - 'docs/macro_survey_research_contract.json'
       - '.github/workflows/long_history_research.yml'
   workflow_dispatch:
   schedule:

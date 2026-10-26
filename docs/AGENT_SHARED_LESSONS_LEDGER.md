@@ -8258,6 +8258,12 @@ The actual pre-capture gate stopped with SPY665_UNKNOWN_DISPATCH before any Work
 
 Separately, the Windows read-only owner lookup initially failed DNS because a minimal rclone child environment omitted SystemRoot/WINDIR. Restore only those OS fields in the local T0 helper; do not modify worker authentication or Source gates. Current original-owner hash matched after the fix. Old nullable owner authorization and new explicit-owner input are distinct contracts. No collection success follows from prepared input or a posted but unexecuted grant.
 
+### 2026-10-25 — Actual SPY Arca identity and completed research sessions
+
+Actual SPY665 capture40183239445 on protectede5de29de returned provider exchange ARCA. Preserve its MIC ARCX rather than relabel it XNYS. The existing Source identity scope excluded ARCX, and standalone Reader research treated that venue as unscheduled. Accept ARCX in Source preparation and apply the existing NYSE completed-session checks to research/discovery with the exact New York timezone/calendar. Preserve the original training/backtest venue support, PIT_PROXY restrictions, rights, physical-halt unknowns and false economic/selector authority. Test original-byte reconstruction separately from Source preparation and consumer ACK; no new collection or dividend/total-return claim follows from this H1.
+
+Exact02d2 general CI40184822034 passed234/235 but exposed one stale Feature test oracle: an ARCX benchmark row available before close now reaches Reader's PRE_CLOSE_AVAILABLE_FROM before Feature's older local check. Clock provenance errors remain global even for optional benchmarks; only ordinary optional absence/data refusal is local. Strengthen the existing cross-edge test to require the global refusal, preserving product guards and the separate valid/absent optional-benchmark tests. Source/Reader-only Native coverage did not cover this Main oracle; include the existing68-case Feature suite in this causal validation. Preserve the original failing CI and require fresh exact-head review/checks after the test correction.
+
 ## 2026-10-25 — Reuse the existing AAII file parser and qualify actual originals
 
 Search existing source registers and libraries before implementing a second
@@ -8300,3 +8306,15 @@ history sparse checkout. Include its module, existing AAII library, test,
 test package and contract there before publication. The causal scope adds
 only those five checkout paths; triggers, credentials, jobs, schedule and
 collection gates remain byte-identical after removing those lines.
+
+## 2026-10-26 - Keep sparse dependencies and push filters symmetric
+
+PR682's actual Tier-1 run40186534212/job121148387562 passed the survey
+program but failed the unchanged HistoryTest dependency-trigger oracle:
+the five added sparse checkout paths were absent from push.paths. Preserve
+the failure and original assertion; add those same paths to push.paths only.
+The producer's event_name!=push guard, schedules, jobs, credentials and Source
+budgets remain unchanged. A successful survey-only Native suite did not prove
+workflow registration completeness. Reconcile the existing feature against
+current master while retaining both append-only lesson tails; no Source
+checkout or active staged changes may be overwritten.
