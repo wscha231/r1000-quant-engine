@@ -433,9 +433,11 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
         for line in body.splitlines():
             row = decode(line)
             dates[row["ticker"]][row["adjustment"]].add(row["date"])
+        complete = complete_grid(norm, names, receipt["start"], receipt["end"])
         for t in names:
             require(dates[t]["raw"] == dates[t]["split"], "MANAGED_GRID")
-            if dates[t]["raw"]:
+            if t in targets:
+                require(t in complete, "MANAGED_BOOTSTRAP_INCOMPLETE_GRID")
                 found[t] = max(dates[t]["raw"])
     return found
 

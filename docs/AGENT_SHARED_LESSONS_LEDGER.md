@@ -8358,3 +8358,11 @@ reconcile the declared test environment before a new-head PASS claim; do not
 remove the newly integrated SEC/A2 compatibility tests to make Source green.
 The declared requests dependency was then installed in the same existing test
 environment; all4 original failed compatibility methods passed unchanged.
+
+Hosted699 review found that original-to-normalized membership and matching
+raw/split date sets do not certify a retained archive's requested session grid.
+Before advancing a bootstrap cutoff, reuse the existing complete_grid check
+against the receipt's original start/end window. Refuse a required leading or
+interior gap before provider calls; do not certify or block an unrequested
+sibling merely because it shares the original pack. Regression fixtures use
+the real capture/verifier with injected responses, including valid weekends.

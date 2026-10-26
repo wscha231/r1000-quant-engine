@@ -1189,6 +1189,60 @@ class ManagedExecutionTests(unittest.TestCase):
         self.fixture_bindings = bindings
         return drive, meter, opener
 
+    def retained_bootstrap(self, dates, start='2026-10-21', end='2026-10-24'):
+        """Build original response/normalized/receipt bytes with the real capture."""
+        drive, meter, opener = self.memory_capture()
+        original_open = opener.open
+        def response(request, **kw):
+            reply = original_open(request, **kw)
+            value = self.r.decode(reply.body)
+            for ticker, bars in value.get('bars', {}).items():
+                value['bars'][ticker] = [dict(bars[0], t=day+'T04:00:00Z') for day in dates[ticker]]
+            reply.body = self.r.encoded(value)
+            return reply
+        opener.open = response
+        names = sorted(dates)
+        meter.asset_symbols = tuple(names)
+        with patch.object(self.r.capture.time, 'sleep', return_value=None):
+            objects, _, _, _ = self.r.capture.capture_one_group(
+                drive, self.control['private_data_folder_id'], names, start, end,
+                'fixture-api-key', 'fixture-api-secret', 'a'*64, '2'*40, get=meter.perform)
+        receipt = self.r.decode(drive.read(objects[-1]['file_id']))
+        self.r.capture.verify_archived_group(drive.read(objects[0]['file_id']),
+            drive.read(objects[1]['file_id']), receipt)
+        bootstrap = dict(groups=[dict(provider='alpaca_sip', symbols=names, receipt=objects[-1])])
+        return drive, bootstrap, opener
+
+    def test_retained_bootstrap_refuses_leading_and_interior_session_gaps(self):
+        for days in (['2026-10-23'], ['2026-10-21', '2026-10-23']):
+            with self.subTest(days=days):
+                drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days})
+                calls = opener.calls
+                with self.assertRaisesRegex(self.r.Refused, '^MANAGED_BOOTSTRAP_INCOMPLETE_GRID$'):
+                    self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'})
+                self.assertEqual(opener.calls, calls)
+
+    def test_retained_bootstrap_complete_grid_reuses_without_provider(self):
+        days = ['2026-10-21', '2026-10-22', '2026-10-23']
+        # End-exclusive Monday includes a normal weekend, which needs no bars.
+        drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days}, end='2026-10-26')
+        calls = opener.calls
+        coverage = self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'})
+        self.assertEqual(coverage, {'AAPL':'2026-10-23'})
+        self.assertEqual(self.r.missing_windows({'AAPL'}, coverage, '2026-10-23', set()),
+                         ({}, ['AAPL'], {}))
+        self.assertEqual(opener.calls, calls)
+
+    def test_retained_unrequested_sibling_gap_does_not_certify_or_block_target(self):
+        days = ['2026-10-21', '2026-10-22', '2026-10-23']
+        drive, bootstrap, opener = self.retained_bootstrap({'AAPL':days, 'MSFT':[days[-1]]})
+        calls = opener.calls
+        self.assertEqual(self.r.bootstrap_coverage(drive, self.control, bootstrap, {'AAPL'}),
+                         {'AAPL':'2026-10-23'})
+        with self.assertRaisesRegex(self.r.Refused, '^MANAGED_BOOTSTRAP_INCOMPLETE_GRID$'):
+            self.r.bootstrap_coverage(drive, self.control, bootstrap, {'MSFT'})
+        self.assertEqual(opener.calls, calls)
+
     def test_synthetic_watch_increment_and_durable_resume_reuses_without_provider(self):
         drive,meter,opener = self.memory_capture()
         policy = dict(active_tickers=['AAPL'],watch_tickers=['MSFT'])

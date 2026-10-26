@@ -160,7 +160,12 @@ and synthetic test controls do not approve any new numeric resource grant.
 FOCUS and WATCH both receive tracking. The adapter reads back only relevant
 original groups, verifies raw/split provenance and derives each last observed
 date from actual normalized bytes. It requests only the missing interval;
-already-current names reuse existing data. Twelve-only names remain held until
+already-current names reuse existing data. Retained bootstrap cutoffs require
+complete raw/split NYSE grids across the
+original receipt window. A last bar never certifies an earlier missing session;
+required gaps stop for explicit lifecycle/coverage reconciliation before new
+provider requests. Unrequested siblings do not gain a certified cutoff.
+Twelve-only names remain held until
 an explicit provider-transition/backfill scope is reviewed. No old Twelve bytes
 are overwritten or silently represented as Alpaca coverage. Unsupported assets,
 no-data and incomplete session grids remain held with separate reasons.
