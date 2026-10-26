@@ -202,3 +202,31 @@ Offline tests inject synthetic transport/owner storage and exercise the existing
 collector and real meter; no test is an actual provider/Drive execution receipt.
 Operational activation and the first small real witness remain blocked pending
 the missing evidence and protected deployment. No activation is claimed here.
+
+### Select a bounded witness without changing the managed roster
+
+The private standing control may include `execution_tickers`: a nonempty,
+sorted, unique list no longer than `max_symbols_per_run`. Every selected name
+must belong to both `authorized_tickers` and the exact deployed FOCUS/WATCH
+policy. The full policy still has to be covered by the authorized roster.
+Only the explicit subset enters bootstrap, identity and incremental collection;
+unselected names keep their history and receive no fabricated cutoff or hold.
+Omitting this field preserves the existing full-policy scheduling behavior.
+
+The subset is immutable within the reviewed control and its OWNER grant hash.
+Scope and restored coverage/hold keys are checked before a new reservation.
+Changing the subset changes the control hash: it cannot continue a populated
+journal for the old control. A later expansion needs reviewed continuation
+accounting, original reuse receipts and a distinct valid control/grant; never
+clear old states or reset opening costs to switch scopes.
+
+Require the new reviewed deployment and exact code pins before using this
+field. Older code accepted extra control keys but did not enforce this subset.
+This option creates no execution grant, numeric budget, enablement or Source/PIT
+admission, and does not change the calendar, private rights or publication gates.
+
+An explicit manual dispatch with `managed_refresh=true` runs only the guarded
+managed job: the legacy `daily_update` job is skipped so a small witness cannot
+also initiate its free-data engine validation/replays or cache synchronization.
+Ordinary scheduled runs and manual requests with `managed_refresh=false` retain
+their existing daily behavior. This uses the same workflow and schedule.

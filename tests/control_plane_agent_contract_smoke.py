@@ -1330,6 +1330,140 @@ class ManagedExecutionTests(unittest.TestCase):
         self.assertEqual(opener.calls,3)
 
 
+    def test_managed_only_dispatch_isolates_legacy_validation_and_keeps_schedule(self):
+        import yaml
+        value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
+        self.assertEqual(value['jobs']['daily_update']['if'],
+            "${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}")
+        trigger = value.get('on',value.get(True))
+        self.assertEqual(trigger['schedule'],[dict(cron='30 23 * * 1-5')])
+        self.assertFalse(trigger['workflow_dispatch']['inputs']['managed_refresh']['default'])
+        self.assertIn('inputs.managed_refresh',value['jobs']['managed_a1_refresh']['if'])
+        self.assertEqual(value['jobs']['managed_a1_refresh']['concurrency'],
+                         dict(group='a1-private-research-single-writer',**{'cancel-in-progress':False}))
+
+    def test_execution_subset_is_canonical_bounded_and_owner_hash_bound(self):
+        original = copy.deepcopy(self.control)
+        whole_hash = self.validate()
+        self.control.update(max_symbols_per_run=1, execution_tickers=['MSFT'])
+        narrow_hash = self.validate()
+        self.assertNotEqual(narrow_hash, whole_hash)
+        self.assertEqual(self.r.execution_scope(self.control), {'MSFT'})
+        grant = self.grant()
+        self.control['execution_tickers'] = ['AAPL']
+        with self.assertRaisesRegex(self.r.Refused, 'MANAGED_OWNER_SCOPE'):
+            self.r.owner_grant(self.control, self.validate(), lambda _:grant, self.now)
+        for value,limit in ((None,1), ([],1), ('MSFT',1), (['MSFT','MSFT'],2),
+                            (['MSFT','AAPL'],2), (['AAPL','MSFT'],1), (['UNKNOWN'],1), ([False],1)):
+            with self.subTest(value=value):
+                self.control = copy.deepcopy(original)
+                self.control.update(max_symbols_per_run=limit, execution_tickers=value)
+                with self.assertRaises((self.r.Refused, ValueError)):
+                    self.validate()
+        self.control = original
+        self.assertIsNone(self.r.execution_scope(self.control))
+        self.assertEqual(self.validate(), whole_hash)
+
+    def test_execution_subset_refuses_untracked_or_broadened_policy_before_io(self):
+        drive,meter,opener = self.memory_capture()
+        self.control.update(max_symbols_per_run=1, execution_tickers=['MSFT'])
+        history,ctx = [dict(id=1,head_sha='2'*40)],dict(run_id=1,head='2'*40)
+        with patch.object(self.r,'journal_rows',side_effect=AssertionError('journal read')):
+            with self.assertRaisesRegex(self.r.Refused,'^MANAGED_EXECUTION_SCOPE$'):
+                self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now)
+            self.control['authorized_tickers'] = ['MSFT']
+            with self.assertRaisesRegex(self.r.Refused,'^MANAGED_POLICY_SCOPE_CHANGED$'):
+                self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
+                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now)
+        self.assertEqual(opener.calls,0)
+
+    def test_execution_subset_real_capture_skips_alphabetical_sibling_and_resumes(self):
+        from urllib.parse import parse_qs, urlsplit
+        drive,meter,opener = self.memory_capture()
+        original_open = opener.open
+        def old_response(request, **kw):
+            reply = original_open(request, **kw)
+            value = self.r.decode(reply.body)
+            for bars in value.get('bars',{}).values():
+                bars[0]['t'] = '2026-10-22T04:00:00Z'
+            reply.body = self.r.encoded(value)
+            return reply
+        opener.open = old_response
+        meter.asset_symbols = ('AAPL','MSFT')
+        with patch.object(self.r.capture.time,'sleep',return_value=None):
+            originals,_,_,_ = self.r.capture.capture_one_group(drive,
+                self.control['private_data_folder_id'],['AAPL','MSFT'],'2026-10-22','2026-10-23',
+                'fixture-api-key','fixture-api-secret','a'*64,'2'*40,get=meter.perform)
+        old_bytes = {r['file_id']:drive.objects[r['file_id']] for r in originals}
+        requested = []
+        def next_response(request, **kw):
+            requested.append(request.full_url)
+            return original_open(request, **kw)
+        opener.open = next_response
+        self.control.update(max_symbols_per_run=1,execution_tickers=['MSFT'])
+        control_sha = self.validate()
+        meter.identity['managed_control_sha256'] = control_sha
+        bootstrap = dict(groups=[dict(provider='alpaca_sip',symbols=['AAPL','MSFT'],
+            receipt=originals[-1])],asset_identity_refs=self.fixture_bindings)
+        policy = dict(active_tickers=['AAPL'],watch_tickers=['MSFT'])
+        before_policy = copy.deepcopy(policy)
+        history,ctx = [dict(id=1,head_sha='2'*40)],dict(run_id=1,head='2'*40)
+        calls = opener.calls
+        with patch.object(self.r.capture.time,'sleep',return_value=None):
+            result = self.r.execute(self.control,control_sha,policy,bootstrap,history,
+                drive,meter,ctx,'fixture-api-key','fixture-api-secret',lambda:self.now)
+        self.assertEqual((result['valid_updated'],result['held'],result['rows']), (1,0,2))
+        self.assertEqual(opener.calls-calls,3)  # selected asset + raw/split; no AAPL I/O
+        self.assertEqual(len(requested),3)
+        for url in requested:
+            parsed = urlsplit(url)
+            if '/assets/' in parsed.path:
+                self.assertTrue(parsed.path.endswith('/MSFT'))
+            else:
+                self.assertEqual(parse_qs(parsed.query)['symbols'],['MSFT'])
+                self.assertEqual(parse_qs(parsed.query)['start'],['2026-10-23T00:00:00Z'])
+                self.assertEqual(parse_qs(parsed.query)['end'],['2026-10-23T23:59:59Z'])
+        self.assertEqual(policy,before_policy)
+        self.assertEqual({fid:drive.objects[fid] for fid in old_bytes},old_bytes)
+        terminal = next(r for _,r in self.r.journal_rows(drive,self.control) if r['state']=='COMPLETE')
+        self.assertEqual(terminal['coverage_updates'],{'MSFT':'2026-10-23'})
+        meter.finish('COMPLETE')
+        value = json.loads(meter.journal.read_text(encoding='utf-8'))
+        self.r.verify_final_meter(value,history[0],result['checkpoint_sha256'],control_sha,
+                                  self.control['per_run_allowance'])
+        calls = opener.calls
+        history.append(dict(id=2,head_sha='2'*40)); ctx['run_id'] = 2
+        second = self.r.execute(self.control,control_sha,policy,bootstrap,history,drive,meter,ctx,
+            'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None)
+        self.assertEqual((second['valid_updated'],second['reused']), (0,1))
+        self.assertEqual(opener.calls,calls)
+        self.control['execution_tickers'] = ['AAPL']
+        with self.assertRaisesRegex(self.r.Refused,'MANAGED_STATE_CHAIN'):
+            self.r.execute(self.control,self.validate(),policy,bootstrap,history,drive,meter,ctx,
+                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None)
+        self.assertEqual(opener.calls,calls)
+        self.assertEqual(len(self.r.journal_rows(drive,self.control)),4)
+
+    def test_execution_subset_refuses_foreign_restored_cutoffs_or_holds_before_reserve(self):
+        drive,meter,opener = self.memory_capture()
+        self.control.update(max_symbols_per_run=1, execution_tickers=['MSFT'])
+        history = [dict(id=1,head_sha='2'*40),dict(id=2,head_sha='2'*40)]
+        base = dict(slot=1,run_id=1,source_sha='2'*40,control_sha256='a'*64)
+        for field in ('coverage_updates','held'):
+            with self.subTest(field=field):
+                done = dict(base,state='COMPLETE',parent_sha256='b'*64,coverage_updates={},held={})
+                done[field] = {'AAPL':'2026-10-22' if field=='coverage_updates' else 'OLD_HOLD'}
+                rows = [('b'*64,dict(base,state='RESERVED',parent_sha256=None)),('c'*64,done)]
+                with patch.object(self.r,'journal_rows',return_value=rows), \
+                     patch.object(self.r.capture,'persist_object',side_effect=AssertionError('reservation')):
+                    with self.assertRaisesRegex(self.r.Refused,'^MANAGED_EXECUTION_STATE_SCOPE$'):
+                        self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
+                            dict(groups=[]),history,drive,meter,dict(run_id=2,head='2'*40),
+                            'fixture-key','fixture-secret',lambda:self.now,lambda *a:None)
+        self.assertEqual(opener.calls,0)
+
+
 def main():
     # Keep the existing registered caller and all original contract cases.
     # Stage2 remains supplied-byte proposal validation, never A0 dispatch.
