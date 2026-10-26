@@ -122,16 +122,35 @@ actual skipped managed-job record proves it produced no Source checkpoint.
 Unknown/failed prior attempts stop continuation. Never blindly rerun a workflow
 that also contains the older daily replay work.
 
-Three independent enablement conditions remain unset: the deployed policy's
+Three independent enablement conditions are required: the protected policy's
 `automatic_capture_enabled=true`, repository variable
-`A1_MANAGED_OHLCV_ENABLED=true`, and private `A1_MANAGED_OHLCV_CONTROL`. A boolean
-alone cannot authorize execution. No secret, variable, OWNER attestation, rights
-document or numeric maintenance grant is created by this PR. With the committed
-false policy the adapter returns `WAIT_OWNER_EVIDENCE` before credentials or
-remote reads. This status describes disabled execution; it does not prove
-that all current account-rights evidence is absent. Later scoped Source
+`A1_MANAGED_OHLCV_ENABLED=true`, and private `A1_MANAGED_OHLCV_CONTROL`. Revision2
+prepares the policy condition while retaining the exact820-member roster,
+120-minute buffer and null `execution_authorization`. The original revision1
+bytes are archived under their actual SHA256. This policy change creates no
+secret, variable, OWNER attestation or numeric maintenance grant. The existing
+calendar, deployment, rights, budget, identity and journal gates all remain.
+
+Archived revision1 still returns `WAIT_OWNER_EVIDENCE` before credentials or
+remote reads. A true policy without the private contract instead refuses
+`MANAGED_CONTROL_REQUIRED` at the same no-remote boundary. Neither status proves
+that all current account-rights evidence is absent. Existing scoped Source
 acceptances must be matched to this distinct standing-maintenance binding;
-a spent or expired one-session grant cannot activate this adapter.
+a spent or expired one-session grant cannot activate this adapter. The existing
+registered tests pin the original revision1 oracles separately from actual
+revision2 transition and missing-contract tests.
+
+On2026-10-26 Root's separate finite T2 preparation reused the existing account
+review, three original rights documents,108 original accounting records and
+the retained MU group. It appended/read back six immutable private evidence
+objects and a genuinely empty managed journal; selected MU coverage remains
+2016-01-04..2026-10-13. Actual preparation used zero provider requests/dispatches,
+63 Drive requests and142893 stored bytes. Both finite preparation reservations
+remain charged, including an earlier local pre-import watchdog refusal; the
+original40of40 Source dispatches are still spent. This is a selected evidence
+binding, not a fresh820-name audit, Source/Reader admission or activation.
+Use the actual private references and current receipt when preparing a separate
+one-MU maintenance contract. No private object IDs or credentials belong here.
 
 ### Actual standing contract required before activation
 
@@ -146,7 +165,7 @@ values must come from actual owner receipts and separately reviewed permission:
 | Account and private storage | Actual credential binding, owner hash and distinct existing root/data/journal/evidence folder IDs, same OAuth owner, private permissions and at least2GiB verified free space. Nothing sensitive belongs in GitHub. |
 | Rights | `rights_ref`: `a1-reviewed-account-rights-v1`, exact binding, provider, personal noncommercial purpose, reviewed historical-SIP and private-retention permissions, actual source-document refs. Read back all bounded source documents. Supplier expiry is checked only if explicitly documented; execution expiry is not supplier expiry. |
 | Opening accounting | `opening_evidence_ref`: `a1-managed-opening-accounting-v1`, exact opening usage/binding, original-campaign preservation, unresolved costs reserved, actual source-document refs and the same `source_history_sha256` as the control. Hash the original Source workflow's complete bounded run prefix (ID/attempt/head/status/conclusion/created/updated; sorted by ID). Missing pages, active runs, added runs or older rerun attempts block maintenance pending reconciliation. Owner review is explicit; this adapter does not infer old platform cost from missing receipts. |
-| Original reuse | `bootstrap_ref`: `a1-managed-reuse-bootstrap-v1`, inventory hash, opening-usage/evidence hash, existing provider groups/receipt refs and `asset_identity_refs` to actual retained provider-asset bytes. Reconcile only selected groups' actual bytes; compare stable asset IDs and hold missing/changed IDs. This bootstrap has not yet been supplied or certified. |
+| Original reuse | `bootstrap_ref`: `a1-managed-reuse-bootstrap-v1`, deployed inventory hash, opening-usage/evidence hash, existing provider groups/receipt refs and `asset_identity_refs` to actual retained provider-asset bytes. Reconcile only selected groups' actual bytes; compare stable asset IDs and hold missing/changed IDs. The separate2026-10-26 preparation supplied a selected MU binding with original clocks; it does not certify unrequested siblings or the whole roster. |
 | Protected deployment | Exact reviewed PR HEAD/merge, protected current master ancestry and LF-normalized `code_pins` for every runtime dependency listed in `PIN_PATHS`. A Draft is ineligible. |
 | Standing owner grant | An actual immutable OWNER comment on A0, created after deployment and within the execution window. Exactly one `A1_MANAGED_SIP_EXECUTION_V1 <JSON>` line binds `control_sha256`, `rights_sha256`, `opening_evidence_sha256`, expiry and explicit rights/budget review booleans. The control hash excludes only `approval_reference`, whose real comment ID is returned after posting; do not predict an ID or invent an auth hash. |
 

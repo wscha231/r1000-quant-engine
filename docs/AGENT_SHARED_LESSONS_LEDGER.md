@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-26 - Version enablement independently from a finite maintenance grant
+
+- Archive exact revision1 policy bytes and bind revision2 to that actual parent
+  hash. A policy-only enablement retains the roster, watch history, close buffer
+  and null execution authorization; repository variable/private control/OWNER
+  grant and every runtime gate remain separate. Preserve old revision1 test
+  oracles as an immutable fixture, and independently validate actual revision2
+  transition and missing-contract refusal before any remote I/O.
+- Reuse actual selected private evidence rather than collecting rights or prices
+  again. The MU preparation read back existing originals and six immutable
+  evidence objects with provider0/dispatch0. Preserve the original108-record,
+  40of40 spent family plus both full preparation reservations. A prior Windows
+  venv redirector refusal preceded product imports/credentials/I/O; the corrected
+  direct-base child required real-process timeout QA as well as static guards.
+  Evidence preparation does not grant Source/PIT, portfolio or live authority.
+
 ## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
 
 - Hosted review found that real native-read runs retain typed title suffixes.

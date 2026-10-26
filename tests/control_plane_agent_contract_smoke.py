@@ -14,8 +14,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
+MANAGED_INITIAL_POLICY_SHA = '1ac3387de165a091bc99d20e218f7f3140f5f26d21ca6c0b0ea7dba73d66c420'
 sys.path.insert(0, str(ROOT))
 from tools import run_agent_board as board
+
+
+def managed_initial_policy_file():
+    """Keep original revision-one oracles pinned across operational revisions."""
+    return ROOT / 'data_static/a1_ohlcv_managed_history' / (MANAGED_INITIAL_POLICY_SHA + '.json')
 
 
 class ControlPlaneTests(unittest.TestCase):
@@ -684,7 +690,8 @@ class ManagedOHLCVTests(unittest.TestCase):
         self.copy = copy.deepcopy
         root = Path(__file__).resolve().parents[1]
         self.inventory, self.sha = managed.load(root / 'data_static/a1_ohlcv_inventory_v1.json')
-        self.policy, self.policy_sha = managed.load(root / 'data_static/a1_ohlcv_managed_v1.json')
+        self.policy, self.policy_sha = managed.load(managed_initial_policy_file())
+        self.assertEqual(self.policy_sha, MANAGED_INITIAL_POLICY_SHA)
 
     def gate(self, now='2026-10-23T23:30:00Z', force=False):
         return self.m.evaluate_market_session(now_utc=now, force=force)
@@ -720,6 +727,23 @@ class ManagedOHLCVTests(unittest.TestCase):
         get.assert_not_called()
         self.assertEqual(report['status'], 'PREPARED_NO_CAPTURE')
         self.assertEqual(report['earliest_refresh_utc'], '2026-10-23T22:00:00+00:00')
+        self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
+        self.assertFalse(report['collection_enabled'])
+
+    def test_versioned_activation_preserves_roster_and_preparation_boundary(self):
+        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        self.assertEqual(policy['revision'], 2)
+        self.assertEqual(policy['previous_policy_sha256'], self.policy_sha)
+        self.assertTrue(policy['automatic_capture_enabled'])
+        self.assertIsNone(policy['execution_authorization'])
+        self.assertEqual(policy['active_tickers'], self.policy['active_tickers'])
+        self.assertEqual((policy['watch_tickers'], policy['changes']), ([], []))
+        with patch('urllib.request.urlopen', side_effect=AssertionError('provider')) as get:
+            report = self.m.prepare(self.inventory, policy, self.sha, self.gate(),
+                                    previous=self.policy, previous_sha=self.policy_sha,
+                                    now_utc='2026-10-23T23:30:00Z')
+        get.assert_not_called()
+        self.assertEqual(report['status'], 'PREPARED_NO_CAPTURE')
         self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
         self.assertFalse(report['collection_enabled'])
 
@@ -924,7 +948,7 @@ class ManagedExecutionTests(unittest.TestCase):
         return self.r.validate_control(self.control, 'a'*64, 'b'*64, self.now)
 
     def test_absent_rights_stops_before_credentials_github_or_drive(self):
-        args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',
+        args = self.ns(policy=managed_initial_policy_file(),
                        inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
                        meter=self.root/'meter.json', output=self.root/'result.json')
         with patch.dict('os.environ', {}, clear=True):
@@ -936,11 +960,20 @@ class ManagedExecutionTests(unittest.TestCase):
     def test_enabled_boolean_still_requires_private_execution_contract(self):
         args = self.ns(policy=self.root/'policy.json', inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
                        meter=self.root/'meter.json', output=self.root/'result.json')
-        policy, _ = self.r.managed.load(ROOT/'data_static/a1_ohlcv_managed_v1.json')
+        policy, _ = self.r.managed.load(managed_initial_policy_file())
         policy['automatic_capture_enabled'] = True
         args.policy.write_bytes(self.r.encoded(policy))
         with patch.dict('os.environ', {}, clear=True), self.assertRaisesRegex(self.r.Refused, 'MANAGED_CONTROL_REQUIRED'):
             self.r.run(args, gh=lambda _: self.fail('remote metadata'))
+
+    def test_deployed_activation_still_refuses_missing_contract_before_remote_io(self):
+        args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',
+                       inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
+                       meter=self.root/'meter.json', output=self.root/'result.json')
+        with patch.dict('os.environ', {}, clear=True), self.assertRaisesRegex(self.r.Refused, 'MANAGED_CONTROL_REQUIRED'):
+            self.r.run(args, gh=lambda _: self.fail('remote metadata'),
+                       drive_factory=lambda *a, **k: self.fail('Drive'))
+        self.assertFalse(args.meter.exists())
 
     def test_output_or_meter_alias_refuses_before_mutation(self):
         args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',

@@ -1,9 +1,9 @@
 {
   "schema": "a1-managed-ohlcv-policy-v1",
-  "revision": 1,
+  "revision": 2,
   "inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
   "baseline_inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
-  "previous_policy_sha256": null,
+  "previous_policy_sha256": "1ac3387de165a091bc99d20e218f7f3140f5f26d21ca6c0b0ea7dba73d66c420",
   "active_tickers": [
     "A",
     "AA",
@@ -830,7 +830,7 @@
   "control_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448",
   "user_scope_reference": "https://github.com/wscha231/r1000-quant-engine/issues/590#issuecomment-6378954941",
   "refresh_delay_minutes": 120,
-  "automatic_capture_enabled": false,
+  "automatic_capture_enabled": true,
   "execution_authorization": null,
   "watch_tickers": []
 }
