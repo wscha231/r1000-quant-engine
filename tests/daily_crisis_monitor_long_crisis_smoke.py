@@ -979,4 +979,6 @@ if __name__ == "__main__":
     run_orchestrator_regime_tests()
     from daily_crisis_report_clock_smoke import run_tests
     run_tests()
+    from market_analysis_engine_smoke import run_tests as run_market_analysis_tests
+    run_market_analysis_tests()
     print("daily_crisis_monitor_long_crisis_smoke: PASS")

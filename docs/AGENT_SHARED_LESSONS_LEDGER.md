@@ -8568,3 +8568,76 @@ the real capture/verifier with injected responses, including valid weekends.
   filters and sparse paths, execute the real portable macro-evidence suite
   inside that checkout, and prove omission fails without network access.
   Preserve2898's clean scoped review; the repaired head needs fresh gates.
+
+### 2026-10-27 - Unify market context through the incumbent model and consumer
+
+- VIX, NFCI and participant/survey data measure different things. Reuse the
+  existing risk contract and source parsers instead of adding a second set of
+  thresholds or summing overlapping observations as independent alpha votes.
+  Exact WDTGAL/WTREGEN and RRPTSYD/RRPONTSYD identities remain separate.
+- An engine and daily consumer connection do not establish a recurring Source
+  publication. Require the actual original bundle, immutable request pin,
+  per-source collection clocks and current session; never freshen historical
+  observations by changing a request timestamp or fall back to an older success.
+- The optional NY Fed SCE standardized export preserves mean stock probability,
+  not AAII bullish share. Native XLSX acquisition failed DNS again (one attempt,
+  no retry); original/conversion verification remains false. No paid fallback.
+- The initial repository-inspection script hit Windows cp949 encoding on a
+  Unicode doc. Use process-local PYTHONIOENCODING=utf-8; no product-data changes.
+- The first engine run completed26 methods with one failed new oracle and two
+  sandbox TEMP-cleanup errors. The incumbent risk validator deliberately slices
+  to an explicit earlier as-of; the unified request already rejects an earlier
+  current session. Correct only the new direct-call oracle to request a session
+  beyond the data. Use a process-scoped writable TEMP; preserve the first log.
+- Keep the new engine, active umbrella test and runtime-read contract in the
+  existing independent A6 fixed proof closure; the unchanged fixed registry
+  entry must not import a helper omitted from its isolated verification pack.
+- Explicit staging initially refused the two new docs outside Main's sparse
+  definition. Keep the existing sparse configuration and use git add --sparse
+  for only this task's named paths; no broad staging or new worktree.
+- Main had no Git author configured, so the first commit was refused. Use
+  per-command Codex author identity, preserving user/global Git configuration.
+- Independent A6 reproduced exact22028 non-object price-array elements escaping
+  load_report as AttributeError in normal/-O. Retain those original fixtures and
+  RED receipt. Require each price row to be an object before use, and move current
+  calendar/session resolution inside the same structured-refusal boundary. Cover
+  both through actual pinned-file reads; a last report must not survive as a new
+  successful assessment. Actual stale Drive propagation was not observed.
+- Connect parsed market rows to the existing candidate-reassessment snapshot
+  API, preserving source-authentication, dispatch, ER/ranking and canonical-write
+  flags false. This is a typed research consumer, not Registry admission.
+- The exact22028 whole daily umbrella passed its32 currentness and22 regime
+  tests but exceeded a300-second bound during unchanged clock tests. The new
+  engine suite was after that boundary and was not reached in this attempt.
+  Preserve the timeout and do not relabel it a whole-suite pass. Final repair
+  validation uses affected native subsets; hosted whole CI is a separate gate.
+- The first added reassessment regression correctly found that native observation
+  snapshots do not emit the review-plan CLOSED flags. The wrapper now seals
+  those explicit false flags around the unchanged native typed rows; no existing
+  bridge schema/dispatch policy was changed. Preserve the31-case failed log.
+- Hosted exactb74 Codex found two additional P2 integration failures despite
+  the scoped Native/A6 passes. Preserve the reproduced SNAPSHOT_CONTRACT and
+  invalid_context_numeric errors. Generic snapshot hash verification did not
+  exercise plan_reassessment's exact schema reconstruction. Keep the native
+  snapshot unchanged and put review CLOSED flags on the enclosing report;
+  test an actual plan_reassessment handoff. Reuse clock.context_table's bounded
+  CSV plus incumbent pandas null parsing for blank optional numeric/boolean
+  warmup cells. Do not weaken native snapshot or missing-value validators.
+- Adopting the byte-identical publication commit refreshed sparse flags and
+  omitted the two new out-of-pattern docs. The first repair doc read refused.
+  Restore only those exact tracked Git blobs before the focused edit/validation;
+  preserve the existing sparse configuration and source files.
+- Check input bounds against the actual incumbent producer's full history,
+  not only a260-session fixture. The retained partial panel is900221B/2961rows;
+  at the same serialized scale42 components x1500 sessions projects19.2MB
+  (an estimate, not acquired full data). Use the existing native reader's32MiB
+  bound specifically for the metric panel and64MiB total, preserving8MiB for
+  ordinary sources, exact hashes and all native semantic/risk validators.
+  Reader boundary regressions cover above8MiB, above32MiB and ordinary sources.
+
+
+### 2026-10-27 — A0 current market-context reuse pin repair
+
+- PR689 exact6d5 fullCI40495168133/job122158677659 passed234/235 programs, then the registered ManualTests correctly refused catalog_dependency_changed:tools/chameleon_market_context_v2.py. Preserve that hosted negative and exact6d5 Native Git-LF two-method RED (errors2); the earlier engine36/mode and fixed-proof3 scopes did not certify the full reuse catalog.
+- Update only group_577 dependency hash for the reviewed context Git-LF bytes2127c43f... to dc607900.... Preserve all historical catalog identities, frozen577 SEC witnesses, current guards and test bodies. SEC2 differs from current production bytes intentionally; do not repin frozen historical sources as an incidental fix.
+- Source4f and Main6d5 retained evidence already consumes the same four actual originals and original collection clocks. Verified9 runtime Git blobs, ZIP CRC and45 indexed members; replay remains current-vintage/DATA_BLOCKED with empty unadmitted candidate exposure, not accepted Source/PIT or recurring publication. ZIP member paths are not necessarily the flat local proof paths.
