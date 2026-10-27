@@ -15,6 +15,10 @@ on:
       - 'tools/alpaca_sip_private_backfill_v1.py'
       - 'tools/twelve_private_capture.py'
       - 'tools/alpaca_sip_source_revision.py'
+      - 'tools/alpaca_sip_managed_refresh.py'
+      - 'tools/alpaca_sip_campaign.py'
+      - 'tools/prepare_a1_managed_ohlcv.py'
+      - 'tools/run_daily_market_session_gate.py'
       - 'r1000_legacy_input_guard.py'
       - 'tests/research_data_access_smoke.py'
       - 'tests/a1_reader_generation_binding_smoke.py'
@@ -70,6 +74,10 @@ jobs:
             /tools/alpaca_sip_private_backfill_v1.py
             /tools/twelve_private_capture.py
             /tools/alpaca_sip_source_revision.py
+            /tools/alpaca_sip_managed_refresh.py
+            /tools/alpaca_sip_campaign.py
+            /tools/prepare_a1_managed_ohlcv.py
+            /tools/run_daily_market_session_gate.py
             /r1000_legacy_input_guard.py
             /tests/research_data_access_smoke.py
             /tests/a1_reader_generation_binding_smoke.py

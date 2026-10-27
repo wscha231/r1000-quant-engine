@@ -383,6 +383,53 @@ class SurveyTests(unittest.TestCase):
                 self.assertEqual(survey.read_json(output.read_bytes())["status"], "BLOCKED_INPUT")
 
 
+    def test_export_oversized_csv_is_static_value_error(self):
+        raw = (b"date,bullish,neutral,bearish\n2026-10-21,"
+               + b"0" * 131073 + b",20,50\n")
+        self.assertEqual(len(raw), 131120)
+        self.assertEqual(survey.digest(raw),
+            "ec28589cf12ce0638054a99c8f9b9c8fb7adc54044771f99d31b9be7e12031cc")
+        limit = survey.csv.field_size_limit()
+        with self.assertRaisesRegex(ValueError, "^aaii_csv_parse_error$"):
+            survey.inspect_aaii_export(raw, expected_sha256=survey.digest(raw),
+                collected_at="2026-10-22T12:00:00Z",
+                decision_at="2026-10-22T13:00:00Z", unit="percent")
+        self.assertEqual(survey.csv.field_size_limit(), limit)
+
+    def test_cli_oversized_export_publishes_blocked_report(self):
+        raw = (b"date,bullish,neutral,bearish\n2026-10-21,"
+               + b"0" * 131073 + b",20,50\n")
+        with tempfile.TemporaryDirectory() as temp:
+            source, output = Path(temp) / "oversized.csv", Path(temp) / "blocked.json"
+            source.write_bytes(raw)
+            args = ["survey", "--input", str(source),
+                "--decision-at", "2026-10-22T13:00:00Z",
+                "--evidence-mode", survey.EXPORT_REVIEW_MODE,
+                "--expected-input-sha256", survey.digest(raw),
+                "--collected-at", "2026-10-22T12:00:00Z", "--unit", "percent",
+                "--report", str(output)]
+            with patch.object(sys, "argv", args), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(survey.main(), 2)
+            result = survey.read_json(output.read_bytes())
+            self.assertEqual(result["status"], "BLOCKED_INPUT")
+            self.assertEqual(result["reasons"], ["SURVEY_INPUT_REJECTED"])
+            for key, expected in survey.SAFETY.items():
+                self.assertIs(result[key], expected)
+
+    def test_export_csv_field_limit_boundary_remains_accepted(self):
+        limit = survey.csv.field_size_limit()
+        raw = (b"date,bullish,neutral,bearish,note\n2026-10-21,30,20,50,"
+               + b"x" * limit + b"\n")
+        result = survey.inspect_aaii_export(raw, expected_sha256=survey.digest(raw),
+            collected_at="2026-10-22T12:00:00Z",
+            decision_at="2026-10-22T13:00:00Z", unit="percent")
+        self.assertEqual(result["status"], "UNADMITTED_RESEARCH_CONTEXT")
+        self.assertEqual(survey.csv.field_size_limit(), limit)
+        self.assertFalse(result["source_authenticated"])
+        self.assertFalse(result["historical_pit_verified"])
+
+
+
 def run_tests():
     result = unittest.TextTestRunner(verbosity=2).run(
         unittest.defaultTestLoader.loadTestsFromTestCase(SurveyTests))

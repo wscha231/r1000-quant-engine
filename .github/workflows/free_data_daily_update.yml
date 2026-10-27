@@ -3,6 +3,10 @@ name: Free Data Daily Update
 on:
   workflow_dispatch:
     inputs:
+      managed_refresh:
+        description: 'Explicit private A1 maintenance request; requires deployed policy and standing OWNER evidence'
+        type: boolean
+        default: false
       force_run:
         description: 'Run even if no fresh NYSE close is detected'
         type: boolean
@@ -27,7 +31,59 @@ permissions:
   contents: read
 
 jobs:
+  managed_a1_refresh:
+    name: Managed A1 private OHLCV refresh
+    if: >-
+      vars.A1_MANAGED_OHLCV_ENABLED == 'true' &&
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && inputs.managed_refresh))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    concurrency:
+      group: a1-private-research-single-writer
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements_github.txt
+      - name: Install existing Source dependencies
+        run: pip install -r requirements_github.txt
+      - name: Verify standing rights, cumulative reservation and missing intervals
+        env:
+          PYTHONPATH: .
+          A1_MANAGED_OHLCV_CONTROL: ${{ secrets.A1_MANAGED_OHLCV_CONTROL }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m tools.alpaca_sip_managed_refresh \
+            --inventory data_static/a1_ohlcv_inventory_v1.json \
+            --policy data_static/a1_ohlcv_managed_v1.json \
+            --output outputs/a1_managed_execution/managed_result.json \
+            --meter outputs/a1_managed_execution/managed_meter.json
+      - name: Publish safe maintenance result and final meter
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a1-managed-ohlcv-${{ github.run_id }}
+          path: outputs/a1_managed_execution/*.json
+          if-no-files-found: error
+          retention-days: 90
+
   daily_update:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -104,6 +160,29 @@ jobs:
           )
           print(f"[a7] status={state} reason={reason} "
                 f"session={receipt['candidate_session_date']}")
+          PY
+
+      - name: Prepare managed A1 OHLCV reuse (no capture)
+        if: steps.market.outputs.ready == 'yes'
+        run: |
+          python -m tools.prepare_a1_managed_ohlcv \
+            --inventory data_static/a1_ohlcv_inventory_v1.json \
+            --policy data_static/a1_ohlcv_managed_v1.json \
+            --market-gate outputs/free_data_daily_update/market_gate.json \
+            --output outputs/a1_managed_ohlcv/refresh_plan.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p = json.loads(Path('outputs/a1_managed_ohlcv/refresh_plan.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write('### Existing A1 OHLCV reuse and managed refresh\n\n')
+              f.write(f"Status: **{p['status']}**; focus: {p['active_count']}; "
+                      f"watch: {p['watch_count']}; total tracked: {p['tracked_count']}; "
+                      f"added/reentered: {len(p['added'])}; moved to watch: {len(p['moved_to_watch'])}.\n\n")
+              f.write(f"Session: {p['session_date']}; earliest refresh: {p['earliest_refresh_utc']}.\n\n")
+              f.write('**Preparation only — collection_enabled=false, provider requests=0.** '
+                      'The separate free-price refresh below does not update the private A1 histories.\n')
           PY
 
       - name: Restore GitHub cache
@@ -234,6 +313,7 @@ jobs:
             manifests/free_data/latest_manifest.json
             outputs/free_data_daily_update/market_gate.json
             outputs/free_data_daily_update/operating_status.json
+            outputs/a1_managed_ohlcv/
           if-no-files-found: error
           retention-days: 90
 
@@ -262,3 +342,6 @@ jobs:
           rclone copy outputs/free_data_proxy_backtest "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_data_proxy_backtest/"
           rclone copy outputs/free_historical_data_coverage "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/free_historical_data_coverage/"
           rclone copy outputs/ten_year_backtest_readiness "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/ten_year_backtest_readiness/"
+          if [ -d outputs/a1_managed_ohlcv ]; then
+            rclone copy outputs/a1_managed_ohlcv "$BASE/research_runs/${SAFE_BRANCH}/${GITHUB_RUN_ID}/a1_managed_ohlcv/"
+          fi

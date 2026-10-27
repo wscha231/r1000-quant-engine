@@ -119,8 +119,11 @@ def inspect_aaii_export(raw, *, expected_sha256, collected_at, decision_at, unit
     require(type(collected_at) is str and type(decision_at) is str, "review_clock_type")
     decision, collected = stamp(decision_at), stamp(collected_at)
     require(collected <= decision <= _now(), "review_clock_order")
-    rows = free_context.aaii_observations(raw, collected_at=collected_at,
-                                         cutoff=decision_at, unit=unit)
+    try:
+        rows = free_context.aaii_observations(raw, collected_at=collected_at,
+                                             cutoff=decision_at, unit=unit)
+    except csv.Error:
+        raise ValueError("aaii_csv_parse_error") from None
     require(bool(rows) and len(rows) <= MAX_RECORDS, "record_scope")
     contract_raw, contract = _contract()
     policy = next(s for s in contract["sources"] if s["id"] == "AAII")

@@ -34,6 +34,7 @@ from tools.run_data_freshness_contract import DATA_SOURCES, parse_dt, sha256_fil
 REGISTRY = Path(__file__).resolve().parents[1] / 'data_static/research_dataset_registry_v1.json'
 PREFIX_V1 = 'shared-research-v1'
 PROVIDER_CLOSE_SCHEMA = 'a1-provider-daily-close-qualification-v1'
+PROVIDER_COMPOSITION_SCHEMA = 'a1-provider-daily-close-composition-v1'
 PROVIDER_CLOSE_MEANING = 'PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH'
 PROVIDER_CLOSE_CONSUMER = 'ohlcv-technical-feature-h1'
 SCHEMA = 'research-data-generation-v1'
@@ -394,12 +395,21 @@ def _provider_close_references(qualification):
     check(type(qualification) is dict and type(qualification.get('instruments')) is dict,
           'PROVIDER_CLOSE_SCHEMA')
     groups = [qualification.get('source_documents')]
+    composed = qualification.get('schema') == PROVIDER_COMPOSITION_SCHEMA
+    if composed:
+        parents = qualification.get('parents')
+        check(type(parents) is list and len(parents) == 2, 'COMPOSITION_PARENTS')
+        groups.append([qualification.get('common_basis'), qualification.get('owner_rights')])
+        for parent in parents:
+            check(type(parent) is dict, 'COMPOSITION_PARENTS')
+            groups.append([parent.get('qualification'), parent.get('raw_manifest'),
+                           parent.get('split_manifest')])
     for item in qualification['instruments'].values():
         check(type(item) is dict, 'PROVIDER_CLOSE_IDENTITY')
         groups.append(item.get('known_halt_source_documents'))
     refs = {}
     for index, group in enumerate(groups):
-        check(type(group) is list and (1 if index == 0 else 0) <= len(group) <= 8,
+        check(type(group) is list and (1 if index == 0 else 0) <= len(group) <= (32 if composed else 8),
               'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
         for ref in group:
             check(type(ref) is dict and set(ref) == {'sha256', 'bytes'},
@@ -409,7 +419,7 @@ def _provider_close_references(qualification):
                   'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
             check(h not in refs or refs[h] == ref['bytes'], 'PROVIDER_CLOSE_SOURCE_DOCUMENTS')
             refs[h] = ref['bytes']
-    check(len(refs) <= 32 and sum(refs.values()) <= 16 * 1024 * 1024,
+    check(len(refs) <= (64 if composed else 32) and sum(refs.values()) <= 16 * 1024 * 1024,
           'PROVIDER_CLOSE_PROOF_BOUND')
     return refs
 
@@ -422,6 +432,9 @@ def _validate_provider_close_qualification(q, manifest, spec, decision, *,
     authenticates bytes, not the reviewer. Main additionally requires the
     independently supplied trusted Source record and expected qualification pin.
     """
+    if type(q) is dict and q.get('schema') == PROVIDER_COMPOSITION_SCHEMA:
+        return _validate_provider_close_composition(q, manifest, spec, decision,
+            purpose=purpose, consumer_id=consumer_id, restore_to=restore_to)
     fields = {'schema', 'meaning', 'purpose', 'admission_state', 'pit_status', 'consumer_id',
               'provider', 'feed', 'timeframe', 'volume_scope', 'source_run_id',
               'original_objects', 'window', 'observed_at', 'available_from', 'collected_at',
@@ -501,6 +514,102 @@ def _validate_provider_close_qualification(q, manifest, spec, decision, *,
               identity.get('known_halted_sessions') == known and
               identity.get('known_halt_source_documents') == item['known_halt_source_documents'],
               'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
+    _provider_close_references(q)
+
+
+def _validate_provider_close_composition(q, manifest, spec, decision, *,
+                                         purpose, consumer_id, restore_to=None):
+    """A new research derivation; its parents never become a new capture."""
+    fields = {'schema','meaning','purpose','admission_state','pit_status','consumer_id',
+        'provider','feed','timeframe','volume_scope','source_run_id','window','observed_at',
+        'available_from','collected_at','created_at','review_decision_at','expires_at',
+        'original_public_available_at','original_provider_collected_at','physical_halt_coverage',
+        'instruments','source_documents','parents','context_id','common_basis','owner_rights'}
+    check(type(q) is dict and set(q) == fields and q['schema'] == PROVIDER_COMPOSITION_SCHEMA
+          and q['meaning'] == PROVIDER_CLOSE_MEANING, 'COMPOSITION_SCHEMA')
+    source = spec['source']
+    check(purpose == q['purpose'] == 'research' and restore_to is None
+          and consumer_id == q['consumer_id'] == PROVIDER_CLOSE_CONSUMER
+          and q['admission_state'] == source['admission_state'] == 'RESEARCH_BYTES_ONLY'
+          and q['pit_status'] == source['pit_status'] == 'PIT_PROXY'
+          and source['classification'] == 'REAL_SOURCE'
+          and source['eligible_purposes'] == ['research'], 'COMPOSITION_USE_SCOPE')
+    check(q['provider'] == source['provider'] and q['feed'] == 'SIP' and q['timeframe'] == '1Day'
+          and q['volume_scope'] == 'PROVIDER_NEW_YORK_DAY_TRADE_CONDITIONS'
+          and q['source_run_id'] == manifest['source_run_id'] == source.get('derivation_run_id')
+          and source.get('source_receipt_role') == 'REVIEWED_SOURCE_COMPOSITION'
+          and sha(source['source_receipt_sha256']) in source['raw_source_sha256'],
+          'COMPOSITION_SOURCE_BINDING')
+    text(q['context_id'], 'COMPOSITION_CONTEXT')
+    check(q['physical_halt_coverage'] == 'UNKNOWN' and q['original_public_available_at'] is None
+          and q['original_provider_collected_at'] is None, 'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
+    check(clock(q['observed_at']) == clock(source['available_from'])
+          and clock(q['observed_at']) <= clock(q['available_from']) <= clock(q['collected_at'])
+          <= clock(q['created_at']) == clock(manifest['created_at'])
+          <= clock(q['review_decision_at']) <= decision <= clock(q['expires_at'])
+          and clock(source['expires_at']) <= clock(q['expires_at']), 'COMPOSITION_CLOCK')
+    parents = q['parents']
+    check(type(parents) is list and len(parents) == 2, 'COMPOSITION_PARENTS')
+    parent_fields = {'raw_manifest','split_manifest','qualification','source_run_id',
+        'review_decision_at','source_available_from','source_collected_at','source_expires_at',
+        'supplier_expiry','original_review_receipt_sha256','original_adapter_file_sha256','window'}
+    for parent in parents:
+        check(type(parent) is dict and set(parent) == parent_fields, 'COMPOSITION_PARENTS')
+        for key in ('raw_manifest','split_manifest','qualification'):
+            ref = parent[key]
+            check(type(ref) is dict and set(ref) == {'sha256','bytes'}
+                  and sha(ref['sha256']) in source['raw_source_sha256']
+                  and type(ref['bytes']) is int and 0 < ref['bytes'] <= 1024*1024,
+                  'COMPOSITION_PARENT_REFERENCE')
+        check(parent['raw_manifest']['sha256'] != parent['split_manifest']['sha256'],
+              'COMPOSITION_PARENT_REFERENCE')
+        sha(parent['original_review_receipt_sha256']); sha(parent['original_adapter_file_sha256'])
+        text(parent['source_run_id'], 'COMPOSITION_PARENT_SOURCE')
+        check(clock(parent['source_available_from']) <= clock(parent['source_collected_at'])
+              <= clock(parent['review_decision_at']) <= clock(parent['source_expires_at'])
+              and clock(parent['review_decision_at']) <= clock(q['observed_at']),
+              'COMPOSITION_PARENT_CLOCK')
+        if parent['supplier_expiry'] is not None:
+            check(decision <= clock(parent['supplier_expiry']), 'COMPOSITION_SUPPLIER_EXPIRED')
+        window = parent['window']
+        check(type(window) is dict and set(window) == {'start','end'}
+              and day(window['start']) <= day(window['end']), 'COMPOSITION_PARENT_WINDOW')
+    pairs = [[p['raw_manifest']['sha256'],p['split_manifest']['sha256']] for p in parents]
+    check(source.get('composition_input_generations') == pairs
+          and len({h for pair in pairs for h in pair}) == 4, 'COMPOSITION_INPUT_BINDING')
+    window = q['window']
+    check(type(window) is dict and set(window) == {'start','end','sessions_sha256'}
+          and window['start'] == parents[0]['window']['start']
+          and parents[1]['window']['start'] == parents[0]['window']['end']
+          and window['end'] == parents[1]['window']['end']
+          and day(window['start']) <= day(parents[0]['window']['end']) < day(window['end'])
+          <= decision.date(), 'COMPOSITION_WINDOW')
+    sha(window['sessions_sha256'])
+    instruments = q['instruments']
+    check(type(instruments) is dict and len(instruments) == 1 and len(spec['files']) == 1,
+          'COMPOSITION_SELECTED_INSTRUMENT')
+    f = spec['files'][0]; identity = f['instrument']; iid = identity['instrument_id']
+    check(set(instruments) == {iid}, 'COMPOSITION_SELECTED_INSTRUMENT')
+    item = instruments[iid]
+    check(type(item) is dict and set(item) == {'ticker','provider_security_id',
+          'identity_evidence_sha256','basis_sha256','known_halted_sessions','known_halt_source_documents'}
+          and all(item[k] == identity.get(k) for k in
+                  ('ticker','provider_security_id','identity_evidence_sha256')),
+          'COMPOSITION_IDENTITY')
+    hashes = item['basis_sha256']
+    check(type(hashes) is dict and set(hashes) == {'RAW','SPLIT_ADJUSTED'}
+          and all(sha(h) for h in hashes.values())
+          and hashes.get(identity['adjustment_basis']) == f['sha256']
+          and f['start'] == window['start'] and f['end'] == window['end'], 'COMPOSITION_BASIS_ROWS')
+    known = item['known_halted_sessions']
+    check(type(known) is list and known == sorted(set(known))
+          and all(type(s) is str and day(window['start']) <= day(s) <= day(window['end']) for s in known)
+          and (not known or bool(item['known_halt_source_documents'])), 'PROVIDER_CLOSE_KNOWN_HALTS')
+    check(identity.get('halt_coverage') == 'UNKNOWN' and identity.get('halted_sessions') is None
+          and identity.get('provider_close_qualification_sha256') == source.get('provider_close_qualification_sha256')
+          and identity.get('known_halted_sessions') == known
+          and identity.get('known_halt_source_documents') == item['known_halt_source_documents'],
+          'PROVIDER_CLOSE_PHYSICAL_UNKNOWN')
     _provider_close_references(q)
 
 

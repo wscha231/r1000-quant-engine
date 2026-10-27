@@ -1,5 +1,21 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-26 - Version enablement independently from a finite maintenance grant
+
+- Archive exact revision1 policy bytes and bind revision2 to that actual parent
+  hash. A policy-only enablement retains the roster, watch history, close buffer
+  and null execution authorization; repository variable/private control/OWNER
+  grant and every runtime gate remain separate. Preserve old revision1 test
+  oracles as an immutable fixture, and independently validate actual revision2
+  transition and missing-contract refusal before any remote I/O.
+- Reuse actual selected private evidence rather than collecting rights or prices
+  again. The MU preparation read back existing originals and six immutable
+  evidence objects with provider0/dispatch0. Preserve the original108-record,
+  40of40 spent family plus both full preparation reservations. A prior Windows
+  venv redirector refusal preceded product imports/credentials/I/O; the corrected
+  direct-base child required real-process timeout QA as well as static guards.
+  Evidence preparation does not grant Source/PIT, portfolio or live authority.
+
 ## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
 
 - Hosted review found that real native-read runs retain typed title suffixes.
@@ -8264,6 +8280,155 @@ Actual SPY665 capture40183239445 on protectede5de29de returned provider exchange
 
 Exact02d2 general CI40184822034 passed234/235 but exposed one stale Feature test oracle: an ARCX benchmark row available before close now reaches Reader's PRE_CLOSE_AVAILABLE_FROM before Feature's older local check. Clock provenance errors remain global even for optional benchmarks; only ordinary optional absence/data refusal is local. Strengthen the existing cross-edge test to require the global refusal, preserving product guards and the separate valid/absent optional-benchmark tests. Source/Reader-only Native coverage did not cover this Main oracle; include the existing68-case Feature suite in this causal validation. Preserve the original failing CI and require fresh exact-head review/checks after the test correction.
 
+### 2026-10-24 — Locate retained prices before refreshing a separate cache
+
+The existing820-key owner inventory (Alpaca776/Twelve312/overlap268) is a
+retained-price locator, not current freshness, identity or rights admission.
+A separate scheduled80-symbol yfinance cache can be green while most private
+Source histories are not updated. Publish sanitized source/receipt references,
+reuse exact original raw/split bytes, and preserve original clocks and budgets.
+Drive search can return0 for existing objects; inspect the grounded folder
+before claiming absence. Never turn historical counts into a new current audit.
+
+The human revised removal handling to FOCUS -> WATCH -> FOCUS: retain price
+tracking and history on removal, and reuse it on re-entry. Bind revisions to
+exact previous config bytes, stable events and A0 references; reject watch
+drops, duplicate targets and silent ticker remaps. A calendar-based preparation
+artifact and GitHub schedule are not an active price collector, authenticated
+A0 acceptance or supplier-retention proof. Keep these states explicit.
+
+Keep the private Source offline regression job standard-library-only: it uses
+a sparse checkout without the calendar dependencies. Register the managed
+roster/calendar cases through the existing full A0 contract test entry instead
+of introducing an import dependency into that isolated Source job. Initial
+concurrent broad Native attempts ended with explicit OpenBLAS allocation errors;
+they are not PASS. Retain those logs, bound local BLAS threads and validate
+serially without suppressing any assertions. The bounded20-second diagnostic
+interrupted calendar initialization; focused20 cases had independently passed
+normal/-O before that diagnostic, so it is not proof of a provider timeout.
+
+The first full A0 run found47 missing-schema setup errors in the existing
+sparse Source checkout, not failing roster assertions. Materialize only its
+known tracked control-plane contracts from the exact base and retain their
+hashes/original sparse flags; remove those owned temporary copies after QA.
+
+A0 tests also invoke nested git commands; pass safe.directory only in the test
+process environment rather than changing global trust. Preflight every exact
+reuse_candidates path in its existing contract: a sparse absent decisions.py
+is not a functional A0 failure. Preserve those setup failures separately from
+the final materialized, process-scoped validation.
+
+A public inventory bound by its exact byte hash must survive checkout line
+conversion. Pin LF for the new inventory/current policy and disable text
+conversion for archived policies; test actual git attributes so Windows CRLF
+cannot make an unchanged managed policy refuse its inventory/parent proof.
+
+### 2026-10-24 - Separate an implemented refresh adapter from actual activation
+
+The human asked to continue automatic updates while explicitly confirming no
+new account-rights evidence. Implement the guarded runtime in the existing daily
+workflow, but keep policy/variable/control disabled and WAIT_OWNER_EVIDENCE.
+Reuse the existing capture, immutable writes and RuntimeMeter; do not reset old
+budgets, invent a standing numeric grant or claim fixture capture as actual data.
+Reserve every finite execution slot including setup/publication time and unknown
+attempts. Require original private source bytes, immutable owner scope, protected
+deployment, a linked durable reservation and final meter before continuation.
+FOCUS and WATCH both track; a last-day bar cannot hide earlier session gaps.
+
+Hosted review found an archived-parent overwrite when malformed inventory failed
+before parent-path registration. Protect the entire policy-history namespace
+before either success or failure output; also reject runtime meter/input aliases
+before meter construction. The first new Native fixture failed only on Windows
+cp949 decoding of a UTF-8 workflow; specify UTF-8 explicitly, retain the failure,
+and rerun without relaxing assertions. The separate Source offline suite and
+original campaign/controller files remain unchanged.
+
+Exact-head review then found ordinary holiday successes lacked resumable
+no-capture proof, and already-current bootstrap names could starve an unvisited
+tail. Write a typed pre-credential calendar outcome and authenticate it on the
+next run; persist reused cutoffs alongside new coverage. Independent A6 also
+proved shared concurrency alone cannot account for intervening legacy Source
+costs. Fence the complete bounded run/attempt prefix, including older reruns;
+any change requires cost reconciliation. None of these fixture corrections
+establish supplier rights or approve activation.
+
+### 2026-10-26 - Reconcile managed refresh on the deployed research path
+
+Retained 820-ticker history and PR671 already implement managed incremental
+refresh; reuse those exact capabilities instead of adding another collector.
+The selected MU657 generation is not the complete retained-price inventory.
+Current-master integration must preserve the newly registered SEC/A2 tests
+alongside both managed suites. Past rights observations, CI and finite Source
+grants do not certify the new head or authorize standing managed maintenance.
+
+Host commit exhaustion made threaded Git and PowerShell fail despite free
+physical RAM. A one-thread Git configuration and small sequential cmd/Python
+operations recovered local inspection; do not count resource-failed checks
+as passes or change user processes/OS settings. A shallow no-merge-base result
+was resolved by a bounded history fetch: it was not unrelated ancestry.
+
+After reboot, fresh registered validation completed169 cases with165 passing
+and4 import errors because the existing Source environment lacked requests,
+already declared in requirements_github.txt. Preserve that exact failure and
+reconcile the declared test environment before a new-head PASS claim; do not
+remove the newly integrated SEC/A2 compatibility tests to make Source green.
+The declared requests dependency was then installed in the same existing test
+environment; all4 original failed compatibility methods passed unchanged.
+
+Hosted699 review found that original-to-normalized membership and matching
+raw/split date sets do not certify a retained archive's requested session grid.
+Before advancing a bootstrap cutoff, reuse the existing complete_grid check
+against the receipt's original start/end window. Refuse a required leading or
+interior gap before provider calls; do not certify or block an unrequested
+sibling merely because it shares the original pack. Regression fixtures use
+the real capture/verifier with injected responses, including valid weekends.
+- A managed-list size cap is not a requested-symbol selector: the first unvisited alphabetical name wins even when the desired MU data already has exact retained originals. Use an optional immutable control-hash-bound execution subset for a small witness; preserve all820 policy names, the full policy authorization check and original costs. Reject invalid/untracked subsets and foreign restored cutoffs/holds before reservation. Changing scope cannot reuse a populated old-control journal. Older deployed code ignored extra control keys, so a hash-bound field alone is insufficient without new reviewed deployment pins.
+- The initial new subset regression had3PASS/1FAIL because its oracle assumed civil-date wire values; a second normal/-O run exposed the same new fixture's incorrect end-bound expectation. Read the existing query serializer: start is UTC00:00:00 and the exclusive civil end is encoded as the prior day23:59:59Z. Preserve these negatives, correct only the new oracle and retain all original116 methods; do not change the collector or weaken the missing-range boundary to fit a fixture.
+- Review the whole workflow before dispatching a bounded managed witness: its prior manual managed_refresh flag also started the unrelated legacy daily job. Exclude that legacy job only for an explicit managed-only manual request; preserve the existing scheduled/manual-default behavior and single-writer lock. A clean runtime-only subset review did not certify this cross-job isolation.
+
+### 2026-10-26 — Preserve retained history across managed research derivations
+
+- Managed maintenance produces a different checkpoint/meter chain from the
+  original capture campaign. Validate its actual control, deployed head, OWNER
+  grant, protected master, job/worker clocks and terminal publication costs;
+  never forge a legacy receipt to reuse a parser. A run-created timestamp is
+  not the worker start or a replacement for its deadline.
+- A refreshed qualification cannot silently extend a supplier's expiry.
+  Independent early QA found that nested composition initially dropped the
+  inherited supplier expiry and did not authenticate SPLIT provenance bytes.
+  Preserve the inherited minimum across generations and bind/bound every
+  basis derivation, including its actual derived-file hashes. Keep historical
+  review cutoffs and row availability clocks unchanged.
+- Matching an overlap close does not establish all historical revisions,
+  split-chain completeness or absence of halts. Require fresh external common
+  basis review, exact RAW/SPLIT OHLCV overlap and full requested session grid;
+  preserve UNKNOWN/null and known positive halt facts. External review is an
+  input authority, not an auto-generated trust anchor or economic admission.
+- New synthetic regression preparation exposed an incorrect expected clock
+  spelling (Z versus +00:00) and a sparse checkout missing aggressive helpers.
+  Retain those negative logs; correct only the new oracle and materialize exact
+  immutable test dependencies. A local synthetic pass is not actual collection,
+  current MU coverage, durable publication, A3 acceptance or ER/A5 validation.
+- Subsequent QA rejected detached hash-valid blobs outside a parent's declared
+  files/source hashes; byte integrity alone is not lineage membership. Bind
+  managed asset precheck clocks to the actual reservation/collection window.
+  The first broad Native attempt passed109 Source methods, then was stopped
+  during Reader tests for these two final changes; retain its logs without
+  calling that a final-byte or current-head validation pass.
+- Managed reference evidence also needs the stable provider UUID to match the
+  captured asset response, not just matching newly supplied identity/status
+  documents. Preserve the second interrupted Native attempt while completing
+  this review finding; freeze all repairs before the final broad run.
+- Hosted PR685 at606b passed234/235 files but agent_board/manual-foundation
+  correctly refused the edited docs/RESEARCH_DATA_ACCESS.md: an existing
+  historical catalog pins that file. Local Source/Reader/control/Feature
+ 454+454 and independent QA did not cover this manual catalog dependency.
+  Restore the guide's exact base bytes, keep new API guidance in the existing
+  plan/PR/lesson, and validate the affected registered entrypoint. Do not
+  regenerate a historical catalog, normalize away a real edit, weaken the
+  guard or call the failed whole CI successful. The repaired head needs its
+  own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
+  earlier454+454 remain explicitly scoped historical evidence.
 ## 2026-10-25 — Reuse the existing AAII file parser and qualify actual originals
 
 Search existing source registers and libraries before implementing a second
@@ -8318,3 +8483,41 @@ budgets remain unchanged. A successful survey-only Native suite did not prove
 workflow registration completeness. Reconcile the existing feature against
 current master while retaining both append-only lesson tails; no Source
 checkout or active staged changes may be overwritten.
+
+## 2026-10-27 - Separate native shutdown failures from survey assertions
+
+Survey PR682 run40255225065/job121355519145 passed234/235 programs.
+The sole failed SEC CUSIP program reported all15 unittest methods OK before
+"terminate called without an active exception"; the root cause is unconfirmed.
+Do not remove its assertions, suppress a nonzero exit or patch unrelated SEC
+logic on that evidence. Current protected2144 native validation passes the same
+registered SEC program unchanged after a process-local permitted TEMP is used.
+The initial Windows external-TEMP cleanup failure remains a separate negative.
+
+Reconcile the existing survey branch with protected2144 before fresh exact-head
+validation, preserving both append-only lessons and the current history sparse
+checkout additions. Prior b30 Native62 and prior235-file CI are historical
+evidence, not checks of the reconciled head.
+
+Official AAII XLS, Philly MBOS CSV and NY Fed BLS CSV acquisitions each failed
+local DNS on2026-10-27; no source bytes were received. Search can display official
+pages but its CSV/XLS reader refuses those MIME types. Connected Firecrawl is out
+of credits. Preserve these failures, avoid repeated requests or fabricated raw
+files, and keep actual Source/PIT/automatic operation blocked. The prepared
+intake/archive/refresh candidates remain separate offline-only work.
+
+Independent A6 then reproduced a separate P2 at native04a7503: the exact
+131120-byte CSV (ec28589c...12031cc) raised csv.Error in both modes and
+created no BLOCKED report. The native survey export adapter now translates
+that parser error into a static ValueError. Preserve the original40 test
+methods and add direct-API, CLI-report and unchanged-field-limit boundary
+regressions. Do not globally raise CSV limits or promote the separate intake
+candidate just to hide the failure. The predecessor62 passes do not cover
+this repaired head. apply_patch failed to write this Windows checkout; the
+same scoped local edit was applied with the existing Python runtime.
+
+The first repair commit was stopped by diff-check on one new blank-line space.
+The subsequently launched65-method checks used uncommitted working bytes,
+so those receipts are explicitly labeled UNCOMMITTED_CSV_FIX, not exact04a.
+Remove the whitespace, commit and rerun against pinned Git blob identities.
+Do not use a HEAD string alone to authenticate a dirty-worktree validation.
