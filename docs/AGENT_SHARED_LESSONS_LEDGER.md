@@ -8562,3 +8562,9 @@ the real capture/verifier with injected responses, including valid weekends.
   The separate unchanged macro-cycle suite also fails its POSIX0600 assertion
   on Windows (mode0666). Its last successful lesson command does not turn that
   multi-command session into an aggregate pass; Linux CI must verify the mode.
+- The first2898 review did not establish the scheduled checkout's deferred
+  A4-contract read. Its isolated regression loaded all modules but executed
+  only the macro-cycle suite. Add the exact A4 JSON to both existing push
+  filters and sparse paths, execute the real portable macro-evidence suite
+  inside that checkout, and prove omission fails without network access.
+  Preserve2898's clean scoped review; the repaired head needs fresh gates.

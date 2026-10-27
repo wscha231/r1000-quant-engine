@@ -944,6 +944,23 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(positive.returncode,0,positive.stderr)
             self.assertEqual(set(json.loads(positive.stdout)),
                 {'long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'})
+            # Module import alone cannot prove deferred runtime file reads.
+            # Execute the actual portable macro suite in the declared checkout.
+            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py']
+            macro=subprocess.run(macro_command,cwd=baseline,env=env,
+                                 capture_output=True,text=True,timeout=60)
+            self.assertLessEqual(len(macro.stdout)+len(macro.stderr),32768)
+            self.assertFalse((guard/'network-attempt.log').exists())
+            self.assertEqual(macro.returncode,0,macro.stdout+macro.stderr)
+            self.assertEqual([int(n) for n in re.findall(r'Ran (\d+) tests?',macro.stderr)],
+                             [json.loads(positive.stdout)['macro_technical_evidence_smoke']])
+            missing_contract=root/'missing-a4-contract';shutil.copytree(baseline,missing_contract)
+            (missing_contract/'docs/run287_chameleon_macro_inputs_contract.json').unlink()
+            refused=subprocess.run(macro_command,cwd=missing_contract,env=env,
+                                   capture_output=True,text=True,timeout=60)
+            self.assertNotEqual(refused.returncode,0)
+            self.assertIn('run287_chameleon_macro_inputs_contract.json',refused.stderr)
+            self.assertFalse((guard/'network-attempt.log').exists())
             if os.name=='posix':
                 import atexit
                 completed=subprocess.run([sys.executable,*flags,'-B','tests/macro_research_cycle_smoke.py'],
