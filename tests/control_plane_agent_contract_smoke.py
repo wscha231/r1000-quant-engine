@@ -918,14 +918,14 @@ class ManagedExecutionTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.now = runtime.campaign.utc('2026-10-23T23:30:00Z')
+        self.now = runtime.campaign.utc('2026-10-24T00:30:00Z')
         env = patch.dict('os.environ', {'GITHUB_SHA':'2'*40})
         env.start()
         self.addCleanup(env.stop)
         self.control = dict(schema=runtime.SCHEMA, repository=runtime.REPO,
             task_key='R1000-SYNTHETIC-MANAGED-OFFLINE-ONLY',
             inventory_sha256='a'*64, policy_sha256='b'*64,
-            not_before='2026-10-23T00:00:00Z', expires_at='2026-10-24T00:00:00Z',
+            not_before='2026-10-23T00:00:00Z', expires_at='2026-10-24T02:00:00Z',
             max_runs=2, max_symbols_per_run=4, max_active_seconds_per_run=300,
             private_noncommercial=True, supplier_rights_verified=True, source_admission=False,
             rights_ref=dict(file_id='fixture-rights-123', sha256='c'*64, bytes=1),
@@ -1136,6 +1136,95 @@ class ManagedExecutionTests(unittest.TestCase):
     def test_partial_source_history_is_not_a_safe_zero_cost_prefix(self):
         with self.assertRaisesRegex(self.r.Refused,'SOURCE_HISTORY_INCOMPLETE'):
             self.r.source_history_fence(self.control,lambda _:dict(total_count=2,workflow_runs=[]))
+
+    def test_provider_endpoint_is_the_actual_inclusive_query_end_with_delay(self):
+        from urllib.parse import parse_qs, urlsplit
+        now = self.r.campaign.utc('2026-10-27T00:14:59Z')
+        gate = self.r.provider_endpoint_gate('2026-10-26', now)
+        calls = []
+        def get(url, **_):
+            calls.append(url)
+            return self.r.encoded(dict(bars={'AAPL':[]}, next_page_token=None))
+        # Exercise the retained query builder, not a second copied endpoint formula.
+        self.r.capture.request_pages(['AAPL'], 'raw', '2026-10-26', '2026-10-27',
+                                     'fixture-key', 'fixture-secret', get=get, pause=lambda _:None)
+        actual = parse_qs(urlsplit(calls[0]).query)['end'][0]
+        self.assertEqual(self.r.campaign.utc(actual).isoformat(), gate['requested_inclusive_end_utc'])
+        self.assertTrue(gate['ready'])
+        self.assertFalse(self.r.provider_endpoint_gate('2026-10-26', now-timedelta(microseconds=1))['ready'])
+        self.assertFalse(self.r.provider_endpoint_gate('2026-10-26',
+                         self.r.campaign.utc('2026-10-26T23:30:00Z'))['ready'])
+        self.assertFalse(self.r.provider_endpoint_gate('2026-10-27', now)['ready'])
+
+    def test_past_endpoint_uses_real_calendar_across_dst_early_close_and_holidays(self):
+        for clock, ready, session in (
+            ('2026-10-27T00:30:00Z', True, '2026-10-26'),
+            ('2026-10-31T00:30:00Z', True, '2026-10-30'),
+            ('2026-11-03T00:30:00Z', True, '2026-11-02'),
+            ('2026-11-28T00:30:00Z', True, '2026-11-27'),
+            ('2026-07-04T00:30:00Z', False, '2026-07-02'),
+            ('2026-10-25T00:30:00Z', False, '2026-10-23'),
+            ('2026-10-26T19:30:00Z', False, '2026-10-23'),
+        ):
+            with self.subTest(clock=clock):
+                now = self.r.campaign.utc(clock)
+                market = self.r.managed.evaluate_market_session(now_utc=now, min_close_age_minutes=120)
+                self.assertEqual((market['ready'], market['session_date']), (ready, session))
+                if ready:
+                    self.assertTrue(self.r.provider_endpoint_gate(session, now)['ready'])
+
+    def test_endpoint_wait_precedes_credentials_drive_and_reservation_and_replays(self):
+        now = self.r.campaign.utc('2026-10-23T23:30:00Z')
+        args = self.ns(policy=ROOT/'data_static/a1_ohlcv_managed_v1.json',
+                       inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
+                       meter=self.root/'endpoint-wait.json', output=self.root/'wait-result.json')
+        # Deployment/OWNER/history are synthetic boundaries; calendar, endpoint,
+        # actual run orchestration, marker write and replay verification are real.
+        def forbidden(*_, **__): self.fail('credentials, Drive or reservation reached')
+        env = {'A1_MANAGED_OHLCV_CONTROL':json.dumps(self.control),
+               'ALPACA_API_KEY':'', 'ALPACA_API_SECRET':''}
+        with patch.dict('os.environ', env), \
+             patch.object(self.r,'validate_control',return_value='a'*64), \
+             patch.object(self.r,'deployed_source',return_value=now-timedelta(seconds=2)), \
+             patch.object(self.r,'owner_grant',return_value=now-timedelta(seconds=1)), \
+             patch.object(self.r,'run_history',return_value=[]), \
+             patch.object(self.r,'source_history_fence',return_value=[]), \
+             patch.object(self.r,'context_from_env',return_value=dict(run_id=1,attempt=1,head='2'*40)), \
+             patch.object(self.r.campaign,'RuntimeMeter',side_effect=forbidden), \
+             patch.object(self.r.capture,'persist_object',side_effect=forbidden):
+            value = self.r.run(args, gh=forbidden, drive_factory=forbidden, clock=lambda:now)
+        self.assertEqual(value['status'],'SKIP_PROVIDER_ENDPOINT_WINDOW')
+        self.assertEqual((value['provider_requests'],value['drive_requests'],value['dispatches']),(0,0,0))
+        self.assertFalse(value['collection_enabled'])
+        self.assertTrue(value['market_gate']['ready'])
+        self.assertEqual(json.loads(args.meter.read_text(encoding='utf-8')), value)
+        run = dict(id=1,head_sha='2'*40,created_at='2026-10-23T23:29:00Z',updated_at='2026-10-23T23:31:00Z')
+        verifier = lambda r,h:self.r.verify_final_meter(value,r,h,'a'*64,self.control['per_run_allowance'])
+        self.assertEqual(self.r.restore_journal([], [run,dict(id=2)],'a'*64,verifier), (None,{},{}))
+        for field in ('earliest_request_at_utc','requested_inclusive_end_utc'):
+            changed = copy.deepcopy(value)
+            changed['provider_endpoint_gate'][field] = '2026-10-23T20:00:00+00:00'
+            with self.assertRaisesRegex(self.r.Refused,'MANAGED_NO_CAPTURE_PROVIDER_CLOCK'):
+                self.r.verify_final_meter(changed,run,None,'a'*64,self.control['per_run_allowance'])
+        # A calendar-ready request after the delay cannot claim this no-capture reason.
+        value['observed_at_utc'] = '2026-10-24T00:30:00+00:00'
+        value['market_gate'] = self.r.managed.evaluate_market_session(
+            now_utc=self.now,min_close_age_minutes=120)
+        value['provider_endpoint_gate'] = self.r.provider_endpoint_gate('2026-10-23', self.now)
+        run['updated_at'] = '2026-10-24T00:31:00Z'
+        with self.assertRaisesRegex(self.r.Refused,'MANAGED_NO_CAPTURE_PROVIDER_CLOCK'):
+            self.r.verify_final_meter(value,run,None,'a'*64,self.control['per_run_allowance'])
+
+    def test_execution_rechecks_provider_endpoint_before_any_provider_get(self):
+        drive,meter,opener = self.memory_capture()
+        now = self.r.campaign.utc('2026-10-23T23:30:00Z')
+        with self.assertRaisesRegex(self.r.Refused,'^MANAGED_PROVIDER_ENDPOINT_WINDOW$'):
+            self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
+                dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,dict(run_id=1,head='2'*40),
+                'fixture-key','fixture-secret',lambda:now)
+        self.assertEqual(opener.calls,0)
+        states = [row['state'] for _,row in self.r.journal_rows(drive,self.control)]
+        self.assertCountEqual(states,['RESERVED','BLOCKED'])
 
     def no_capture(self):
         now = self.r.campaign.utc('2026-07-03T23:30:00Z')

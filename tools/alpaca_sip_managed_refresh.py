@@ -39,6 +39,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_STATE = 2_000_000
 JOB = "Managed A1 private OHLCV refresh"
 JOB_RESERVATION_SECONDS = 5400  # job timeout, including setup/final artifact
+PROVIDER_END_DELAY_MINUTES = 15  # conservative historical SIP, no real-time assumption
 
 
 class MetadataReader:
@@ -227,10 +228,27 @@ def run_history(control, gh, context):
     return rows
 
 
+def provider_endpoint_gate(session, now):
+    """Gate the collector's actual inclusive UTC-day end, not the NYSE close.
+
+    request_pages preserves the entire requested day through 23:59:59Z. A
+    completed exchange session alone does not make that endpoint historical.
+    Keep the conservative delayed-feed boundary even for a real-time account.
+    """
+    endpoint = campaign.utc(session + "T23:59:59Z")
+    earliest = endpoint + timedelta(minutes=PROVIDER_END_DELAY_MINUTES)
+    return dict(schema="a1-managed-provider-endpoint-gate-v1",
+                ready=now >= earliest, session_date=session,
+                requested_inclusive_end_utc=endpoint.isoformat(),
+                earliest_request_at_utc=earliest.isoformat(),
+                delay_minutes=PROVIDER_END_DELAY_MINUTES,
+                checked_at_utc=now.isoformat())
+
+
 def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
     if checkpoint_sha is None:
         require(isinstance(value, dict) and value.get("schema") == "a1-managed-no-capture-v1"
-                and value.get("status") == "SKIP_MARKET_WINDOW"
+                and value.get("status") in {"SKIP_MARKET_WINDOW", "SKIP_PROVIDER_ENDPOINT_WINDOW"}
                 and value.get("managed_control_sha256") == control_sha
                 and value.get("run_id") == run["id"] and value.get("run_attempt") == 1
                 and value.get("source_sha") == run["head_sha"]
@@ -241,8 +259,14 @@ def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
         require(campaign.utc(run.get("created_at")) <= observed <= campaign.utc(run.get("updated_at")),
                 "MANAGED_NO_CAPTURE_CLOCK")
         gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
-        require(gate["ready"] is False and value.get("market_gate") == gate,
-                "MANAGED_NO_CAPTURE_CALENDAR")
+        require(value.get("market_gate") == gate, "MANAGED_NO_CAPTURE_CALENDAR")
+        if value["status"] == "SKIP_MARKET_WINDOW":
+            require(gate["ready"] is False, "MANAGED_NO_CAPTURE_CALENDAR")
+        else:
+            endpoint = provider_endpoint_gate(gate["session_date"], observed)
+            require(gate["ready"] is True and endpoint["ready"] is False
+                    and value.get("provider_endpoint_gate") == endpoint,
+                    "MANAGED_NO_CAPTURE_PROVIDER_CLOCK")
         return dict(no_capture_verified=True)
     require(isinstance(value, dict) and value.get("schema") == "a1-sip-campaign-meter-v1"
             and value.get("run_id") == run["id"] and value.get("run_attempt") == 1
@@ -586,6 +610,8 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     try:
         gate = managed.evaluate_market_session(now_utc=clock(), min_close_age_minutes=120)
         require(gate["ready"], "MANAGED_MARKET_WINDOW")
+        require(provider_endpoint_gate(gate["session_date"], clock())["ready"],
+                "MANAGED_PROVIDER_ENDPOINT_WINDOW")
         values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
                                 gate["session_date"], key, secret, clock)
         updates, held, reused, receipts, rows = values
@@ -645,13 +671,19 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     require(owner_grant(control, control_sha, gh, now) >= deployed_at, "MANAGED_GRANT_PREDATES_DEPLOYMENT")
     history = run_history(control, gh, ctx)
     source_history_fence(control, gh)
-    gate = managed.evaluate_market_session(now_utc=now, min_close_age_minutes=120)
-    if not gate["ready"]:
-        marker = dict(schema="a1-managed-no-capture-v1",status="SKIP_MARKET_WINDOW",
+    observed = clock()  # metadata validation must not freeze the provider clock
+    gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
+    endpoint = provider_endpoint_gate(gate["session_date"], observed) if gate["ready"] else None
+    if not gate["ready"] or not endpoint["ready"]:
+        marker = dict(schema="a1-managed-no-capture-v1",
+                      status="SKIP_MARKET_WINDOW" if not gate["ready"] else "SKIP_PROVIDER_ENDPOINT_WINDOW",
                       managed_control_sha256=control_sha,run_id=ctx["run_id"],run_attempt=ctx["attempt"],
-                      source_sha=ctx["head"],observed_at_utc=now.isoformat(),market_gate=gate,
+                      source_sha=ctx["head"],observed_at_utc=observed.isoformat(),market_gate=gate,
                       phase="BEFORE_CREDENTIALS",provider_requests=0,drive_requests=0,dispatches=0,
-                      collection_enabled=False,source_admission=False,pit_verified=False)
+                      collection_enabled=False,source_admission=False,pit_verified=False,
+                      economic_authority=False)
+        if endpoint is not None:
+            marker["provider_endpoint_gate"] = endpoint
         managed.write_report(args.meter, marker, [args.policy,args.inventory,args.output])
         return marker
     key, secret = os.getenv("ALPACA_API_KEY", ""), os.getenv("ALPACA_API_SECRET", "")
