@@ -3,6 +3,7 @@
 from __future__ import annotations
 import copy
 import base64
+import hashlib
 import contextlib
 import io
 import json
@@ -15,6 +16,7 @@ import re
 import shutil
 import subprocess
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 import pandas as pd
@@ -121,6 +123,98 @@ class AdmissionTests(unittest.TestCase):
             directory_sync = patch.object(c, "_fsync_directory")
             directory_sync.start()
             self.addCleanup(directory_sync.stop)
+
+    def legacy_handoff_archive(self, root, damage=''):
+        from tools import earnings_estimate_drive_generation as drive
+        parquet = io.BytesIO()
+        pd.DataFrame([legacy_snapshot()]).to_parquet(parquet)
+        archive, daily = drive.ARCHIVE, drive.DAILY
+        checkpoint = dict(last_collection_attempt_ack=dict(status='acknowledged'),
+            ticker_states=[dict(ticker='LEG', selection_count=3, last_selected_at_utc='2026-04-01T18:00:00Z')])
+        members = {
+            archive+'/estimates_20260401.parquet': parquet.getvalue(),
+            archive+'/collection_checkpoint.json': json.dumps(checkpoint).encode(),
+            archive+'/archive_index.jsonl': b'{"archived_at_utc":"2026-04-01T18:00:00Z"}\n',
+            drive.SIGNALS: parquet.getvalue(),
+            daily+'/summary.json': json.dumps(dict(status='blocked_partial_coverage',
+                snapshot_path=archive+'/estimates_20260401.parquet', fetch_date='2026-04-01')).encode(),
+            daily+'/collection_queue.csv': b'ticker,selection_count,last_selected_at_utc\nLEG,3,2026-04-01T18:00:00Z\n',
+            daily+'/archive_manifest.json': b'{"publishable":false}',
+            'outputs/paper_account/DO_NOT_IMPORT.json': b'{"never":"source"}',
+        }
+        if damage == 'missing': del members[drive.SIGNALS]
+        if damage == 'marker': members[archive+'/collector_transaction.json'] = b'{}'
+        if damage == 'traversal': members['../escape'] = b'bad'
+        if damage == 'snapshot': members[archive+'/estimates_20260401.parquet'] = b'broken'
+        if damage == 'queue_split':
+            members[daily+'/collection_queue.csv'] = b'ticker,selection_count\nLEG,4\n'
+        if damage == 'queue_duplicate':
+            members[daily+'/collection_queue.csv'] += b'leg,3,2026-04-01T18:00:00Z\n'
+        if damage == 'summary_marker':
+            members[daily+'/summary.json'] = b'{"transaction_commit":{"commit_id":"invented"}}'
+        target = root/'legacy.zip'
+        with zipfile.ZipFile(target, 'w') as output:
+            for name, raw in members.items(): output.writestr(name, raw)
+            if damage == 'duplicate':
+                with self.assertWarns(UserWarning): output.writestr(drive.SIGNALS, members[drive.SIGNALS])
+        raw = target.read_bytes()
+        preset = {**drive.LEGACY_20261003, 'zip_bytes':len(raw), 'zip_sha256':hashlib.sha256(raw).hexdigest(),
+            'source_files':7, 'snapshot_files':1, 'queue_rows':1}
+        return target, preset, members
+
+    def test_legacy_handoff_preserves_bytes_and_refuses_current_publication(self):
+        from tools import earnings_estimate_drive_generation as drive
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive, preset, members = self.legacy_handoff_archive(root)
+            original = archive.read_bytes()
+            with patch.object(drive, 'LEGACY_20261003', preset), \
+                 patch.object(drive, 'transfer', side_effect=AssertionError('remote transport forbidden')), \
+                 patch.object(c, 'collect_live_snapshot', side_effect=AssertionError('provider forbidden')):
+                result = drive.prepare_legacy_handoff(archive, root/'prepared')
+                payload = root/'prepared/payload'
+                for name in result['preserved_files']:
+                    self.assertEqual((payload/name).read_bytes(), members[name])
+                self.assertEqual(len(result['preserved_files']), 7)
+                self.assertEqual(result['queue_rows'], 1)
+                self.assertEqual(result['current_state_refusal'], 'missing_collector_transaction_marker')
+                self.assertFalse((payload/drive.ARCHIVE/'collector_transaction.json').exists())
+                self.assertFalse((payload/'outputs/paper_account').exists())
+                for flag in ('source_admitted','source_clock_renewed','publisher_allowed',
+                             'collector_transaction_created','forward_collection_executed','canonical_write_performed'):
+                    self.assertIs(result[flag], False)
+                self.assertEqual(result['provider_calls'], 0)
+                with self.assertRaisesRegex(ValueError, 'missing_collector_transaction_marker'):
+                    manifest.require_verified_collector_state(payload/drive.ARCHIVE,
+                        summary_path=payload/drive.DAILY/'summary.json',
+                        checkpoint_path=payload/drive.ARCHIVE/'collection_checkpoint.json',
+                        queue_path=payload/drive.DAILY/'collection_queue.csv', signals_path=payload/drive.SIGNALS)
+                with self.assertRaisesRegex(ValueError, 'generation_nonpublishable_manifest'):
+                    drive.validate_payload(payload)
+                with self.assertRaisesRegex(ValueError, 'legacy_output_must_be_new_and_separate'):
+                    drive.prepare_legacy_handoff(archive, root/'prepared')
+                self.assertEqual(archive.read_bytes(), original)
+
+    def test_legacy_handoff_rejects_damaged_or_unpinned_baselines(self):
+        from tools import earnings_estimate_drive_generation as drive
+        failures = dict(missing='legacy_source_inventory', marker='already_has_transaction_marker',
+            traversal='legacy_archive_member_path', duplicate='legacy_archive_inventory',
+            snapshot='archive_snapshot_invalid', queue_split='incomplete_legacy_collector_transaction',
+            queue_duplicate='legacy_queue_identity_or_count', summary_marker='legacy_summary_is_not_markerless_baseline')
+        for damage, reason in failures.items():
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                archive, preset, _ = self.legacy_handoff_archive(root, damage)
+                with patch.object(drive, 'LEGACY_20261003', preset), self.assertRaisesRegex(ValueError, reason):
+                    drive.prepare_legacy_handoff(archive, root/'prepared')
+                self.assertFalse((root/'prepared/prepared_handoff.json').exists())
+                self.assertFalse((root/'escape').exists())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            archive, _, _ = self.legacy_handoff_archive(root)
+            with self.assertRaisesRegex(ValueError, 'legacy_archive_identity_mismatch'):
+                drive.prepare_legacy_handoff(archive, root/'prepared')
+            self.assertFalse((root/'prepared').exists())
 
     def test_provider_revision_boundary_ignores_other_provider_without_fallback(self):
         old = snapshot('2026-05-30T18:00:00Z', 1, fetch_source='fmp')

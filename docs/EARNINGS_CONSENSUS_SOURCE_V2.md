@@ -320,3 +320,43 @@ unknown vintage blocks an older exact consensus. Known-ticker unresolved or
 conflicting identities remain conservative blockers. Older superseded vintages,
 post-event collection, another provider and unrelated identities on a new ticker
 do not invalidate the requested consensus; exact renamed observations still work.
+
+## Explicit legacy baseline preparation (2026-10-28)
+
+Run37100587799 at30915e05c1ffe3cecd2c46b229af20844e514f3d predates the
+collector transaction marker. Its successful Actions conclusion is not a
+current transaction receipt. Artifact11266510471 is4478824 bytes with SHA256
+314f3560b512bd5f8762d049a3781251d1ecb5099df155a3422dd3e201503a91.
+The independently retained Drive comparison matched seven key files, but did
+not establish the current live Source head or authorize an overwrite.
+
+The existing generation helper offers an explicit local preparation operation:
+
+```text
+python tools/earnings_estimate_drive_generation.py prepare-legacy --legacy-archive <held-original.zip> --output-dir <new-local-directory>
+```
+
+Only that pinned artifact is supported. The operation validates all63 snapshot
+files and checkpoint/queue consistency, preserves the993-row queue and70 Source
+files byte for byte, and excludes unrelated paper/price outputs. It requires a
+new directory and refuses arbitrary ZIPs, unsafe paths, duplicate members,
+transaction markers, damaged snapshots and split acknowledgements. Its receipt
+is a prepared handoff, not a Source publication. Failed preparation has no valid
+receipt; preserve diagnostic files and use a new output directory on retry.
+
+No collector marker is manufactured, and no original Source clocks, checkpoint
+counters, manifest or summary are rewritten. The original partial coverage
+(10 of60 attempted tickers with forward estimates) and historical admission
+limits remain. The normal current-state guard continues to return
+missing_collector_transaction_marker; publish/restore and daily planning do not
+consume this preparation as an accepted generation. No network or provider call
+is performed by preparation.
+
+The next Source owner must separately verify the live accepted generation/flat
+base, full archive inventory and retained queue, plus provider purpose/rights,
+cohort and budget. A bounded genuine forward collector transaction under that
+explicit recovery contract may then establish new current transaction evidence
+through the existing writer. Publication requires the unchanged manifest and
+immutable-generation readback gates. This preparation neither dispatches that
+collection nor closes the automatic-recovery, current-data or A3/A8 admission
+requirements. Never blindly rerun the failed daily workflow against this copy.
