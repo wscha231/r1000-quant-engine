@@ -73,6 +73,28 @@ at least **120 minutes after the actual close**. Weekends, holidays and stale
 sessions skip. Force cannot bypass this buffer. It records the session and due
 time instead of inferring the US close from a fixed Korean time.
 
+The managed collector separately gates its actual inclusive request end,
+`session_dateT23:59:59Z`, plus15 minutes, before reading credentials or starting
+Drive/meter/reservation work. The prior23:30 UTC slot could have a completed
+NYSE session while that UTC-day endpoint was still in the future. An on-time
+managed run at that slot must wait; a sufficiently delayed run or a separately
+authorized later manual request still needs both clock gates. The legacy job
+and its schedule are unchanged. Before rescheduling this shared workflow,
+reconcile its existing00:15 UTC readiness and01:15 UTC selection dependencies;
+this code fix does not certify recurring private refresh. No real-time
+entitlement is assumed.
+[Alpaca's historical bars API](https://docs.alpaca.markets/us/reference/stockbars)
+defines an inclusive end and a15-minute delay without real-time feed access.
+
+An early endpoint returns `SKIP_PROVIDER_ENDPOINT_WINDOW` with a replayable
+`a1-managed-no-capture-v1` marker, the exact market/provider clock proofs and
+zero provider/Drive requests. It is a wait, not a completed refresh. A later
+run still reserves its full slot; no failure or skipped interval is refunded.
+Replay recomputes both gates at the original observed clock, while the prior
+`SKIP_MARKET_WINDOW` marker remains verifiable under its original contract.
+Execution rechecks the endpoint after its durable reservation; if the session
+changes or the clock regresses, it records BLOCKED before any provider GET.
+
 The existing daily job prepares `outputs/a1_managed_ohlcv/refresh_plan.json`,
 shows focus/watch/add/re-entry counts in its GitHub run summary, and copies the
 non-sensitive plan to its existing

@@ -8429,3 +8429,39 @@ the real capture/verifier with injected responses, including valid weekends.
   guard or call the failed whole CI successful. The repaired head needs its
   own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
   earlier454+454 remain explicitly scoped historical evidence.
+
+### 2026-10-27 — completed NYSE close and available provider endpoint are separate
+
+- Actual managed run40419688628 failed at ALPACA_BARS403; successful run40436288597
+  collected the missing MU tail after UTC midnight. The old403 body was not
+  retained, so endpoint timing is a verified request defect, not a proven
+  exclusive explanation for that403 or an account-wide entitlement conclusion.
+- The retained collector sends the inclusive last civil day through23:59:59Z.
+  A23:30 UTC schedule can pass close+120 minutes while requesting a future end.
+  Gate this exact endpoint plus the conservative15-minute historical-feed delay
+  before credentials/Drive, and replay its immutable no-capture proof separately
+  from a calendar skip. Rescheduling the shared event needs the existing00:15
+  readiness/01:15 selection dependency review; do not move it independently.
+  Holidays, stale sessions, DST and early closes still use the actual NYSE gate.
+- A green code test or a no-capture marker is not a completed Source refresh,
+  new execution budget, rights renewal, PIT admission or Paper publication.
+  Preserve all42 spent Source slots and existing actual MU666 receipts; do not
+  run a collector or transactional workflow to validate this code-only fix.
+- Official API documentation was obtained with the web tool after the connected
+  Firecrawl scraper reported exhausted credits. Do not retry paid retrieval
+  with altered parameters or infer provider rights from public API docs.
+- Source's existing sparse checkout omits research/, so the first whole-control
+  script imports failed before tests. Preserve those diagnostics and materialize
+  only the required existing tracked subtree; changing PYTHONPATH cannot restore
+  absent files. The focused41 managed methods passed before this environment fix.
+- The next186-case attempt reached the tests but99 cases failed on Git's Windows
+  ownership check. Use process-scoped GIT_CONFIG safe.directory for this existing
+  checkout; do not change product code or global trust to conceal the fixture
+  environment. Only the subsequent current-byte pass is validation evidence.
+- Independent A6 reproduced a whole-day backward-clock counterexample at the
+  first3ff head: both recomputed gates could be READY for a different prior
+  session and reach the synthetic provider canary. Keep that negative result.
+  The execution API now requires the original preflight explicitly, rejects
+  clock regression and session replacement, and records RESERVED/BLOCKED with
+  zero provider GETs. Revalidate the repaired head; the prior186+186 pass and
+  any earlier Codex/CI evidence do not cover this repair.
