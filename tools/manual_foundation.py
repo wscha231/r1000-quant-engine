@@ -1078,6 +1078,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/daily_crisis_report_clock.py',
     'tests/theme_classification_smoke.py',
     'research/a2_research_intake_v1.py',
+    'tools/run_a2_research_intake.py',
     'tests/a2_research_intake_v1_smoke.py',
 )
 CLASSES = {'REUSE_NOW', 'SELECTIVE_PORT', 'HISTORICAL_LESSON', 'DO_NOT_REPEAT', 'SUPERSEDED'}

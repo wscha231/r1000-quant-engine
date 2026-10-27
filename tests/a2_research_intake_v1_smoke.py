@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -437,8 +438,151 @@ class IntakeTests(unittest.TestCase):
             else:
                 c,m=cohort(); m['SCHEMA:'+name]+=b' '; self.rejects(self.check_cohort,c,m)
         from tools import manual_foundation as manual
-        expected={'research/a2_research_intake_v1.py','tests/a2_research_intake_v1_smoke.py'}
+        expected={'research/a2_research_intake_v1.py','tools/run_a2_research_intake.py',
+                  'tests/a2_research_intake_v1_smoke.py'}
         self.assertLessEqual(expected,set(manual.A6_FIXED_PROOF_PROGRAMS))
         self.assertLessEqual({'research/control_plane/'+name for name,sha in h.SCHEMAS.values()},set(manual.A6_FIXED_PROOF_INPUTS))
+
+    def file_intake_fixture(self, root, events=None):
+        from tools import run_a2_research_intake as caller
+        values = {'events.json': h.canonical(envelope([event()] if events is None else events)),
+                  'identities.json': identities(), 'original.bin': b'Already-held original fixture; no retrieval.'}
+        for name, raw in values.items(): (root/name).write_bytes(raw)
+        ref = lambda name: dict(path=name, sha256=h.digest(values[name]))
+        request = dict(schema='a2-file-intake-v1', events=ref('events.json'),
+            identities=ref('identities.json'), artifacts=[dict(artifact_id='RAW', **ref('original.bin'))],
+            event_sources={e['event_id']: ['RAW'] for e in ([event()] if events is None else events)})
+        return caller, request
+
+    def file_intake_prepare(self, root, caller, request):
+        raw = h.canonical(request); (root/'request.json').write_bytes(raw)
+        return caller.prepare(input_root=root, request_path='request.json',
+                              request_sha256=h.digest(raw), cutoff=CUTOFF)
+
+    def test_file_caller_preserves_existing_proposal_and_hash_bound_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller, request=self.file_intake_fixture(root)
+            with patch('socket.socket', side_effect=RuntimeError('NETWORK_FORBIDDEN')):
+                first=self.file_intake_prepare(root,caller,request)
+                second=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(h.canonical(first),h.canonical(second))
+            self.assertEqual(first['proposal'],self.check_events([event()]))
+            self.assertEqual(first['event_source_bindings']['E:0'][0]['sha256'],h.digest((root/'original.bin').read_bytes()))
+            self.assertFalse(first['recurring_pipeline_connected'])
+            self.assertFalse(any(first['authority'].values()))
+            self.assertEqual(first['source_authenticity'],'NOT_VERIFIED')
+
+    def test_file_caller_refuses_unpinned_manifest_and_tampered_raw(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            raw=h.canonical(request); (root/'request.json').write_bytes(raw)
+            with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_HASH_MISMATCH$'):
+                caller.prepare(input_root=root,request_path='request.json',request_sha256='0'*64,cutoff=CUTOFF)
+            (root/'original.bin').write_bytes(b'changed')
+            with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_HASH_MISMATCH$'):
+                self.file_intake_prepare(root,caller,request)
+
+    def test_file_caller_requires_complete_event_source_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            for bad in ({}, {'E:0':['MISSING']}, {'E:0':[]}, {'E:0':['RAW','RAW']}, {'E:0':['RAW'],'EXTRA':['RAW']}):
+                request['event_sources']=bad
+                with self.subTest(bad=bad),self.assertRaises(caller.intake.IntakeError):
+                    self.file_intake_prepare(root,caller,request)
+
+    def test_file_caller_refuses_traversal_links_and_duplicate_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            for bad in ('../original.bin','/original.bin','a/../original.bin','a//b','C:/secret','https://example.com/raw'):
+                changed=copy.deepcopy(request); changed['artifacts'][0]['path']=bad
+                with self.subTest(bad=bad),self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_PATH$'):
+                    self.file_intake_prepare(root,caller,changed)
+            changed=copy.deepcopy(request); changed['artifacts']*=2
+            with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_ARTIFACT_ID$'):
+                self.file_intake_prepare(root,caller,changed)
+            changed=copy.deepcopy(request); changed['artifacts'][0]['artifact_id']='SCHEMA:untrusted'
+            with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_ARTIFACT_ID$'):
+                self.file_intake_prepare(root,caller,changed)
+            try: (root/'linked.bin').symlink_to(root/'original.bin')
+            except OSError: pass  # Windows may deny creating symlinks; portable cases above still run.
+            else:
+                changed=copy.deepcopy(request); changed['artifacts'][0]['path']='linked.bin'
+                with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_LINK$'):
+                    self.file_intake_prepare(root,caller,changed)
+
+    def test_file_caller_bounds_files_before_allocation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            with (root/'original.bin').open('wb') as stream: stream.truncate(caller.intake.MAX_BYTES+1)
+            with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_BYTE_BUDGET$'):
+                self.file_intake_prepare(root,caller,request)
+            (root/'original.bin').write_bytes(b'Already-held original fixture; no retrieval.')
+            raw=h.canonical(request)
+            with patch.object(caller.intake,'MAX_TOTAL_BYTES',len(raw)+1):
+                with self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_TOTAL_BUDGET$'):
+                    self.file_intake_prepare(root,caller,request)
+
+    def test_file_caller_refuses_special_files_before_open(self):
+        import os
+        from tools import run_a2_research_intake as caller
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'directory').mkdir()
+            names=['directory']
+            if hasattr(os,'mkfifo'):
+                os.mkfifo(root/'fifo'); names.append('fifo')
+            files=caller.Files(root)
+            with patch.object(caller.Path,'open',side_effect=RuntimeError('MUST_REFUSE_BEFORE_OPEN')):
+                for name in names:
+                    with self.subTest(name=name),self.assertRaisesRegex(caller.intake.IntakeError,'^FILE_REGULAR$'):
+                        files.read(dict(path=name,sha256='0'*64),'fixture')
+
+    def test_file_caller_keeps_api_missing_duplicate_and_clock_refusals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for rows in ([event(published_at=None)],[event(),event()],[event(published_at='2026-10-16T00:00:00Z')]):
+                caller,request=self.file_intake_fixture(root,rows)
+                with self.subTest(rows=rows),self.assertRaises(caller.intake.IntakeError):
+                    self.file_intake_prepare(root,caller,request)
+
+    def test_file_caller_cli_never_overwrites_success_or_publishes_failed_input(self):
+        import contextlib, io
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            raw=h.canonical(request); (root/'request.json').write_bytes(raw)
+            output=root/'proposal.json'
+            args=['--input-root',str(root),'--request','request.json','--request-sha256',h.digest(raw),
+                  '--cutoff',CUTOFF,'--output',str(output)]
+            with contextlib.redirect_stdout(io.StringIO()): self.assertEqual(caller.main(args),0)
+            original=output.read_bytes()
+            with contextlib.redirect_stdout(io.StringIO()),patch.object(caller,'prepare',side_effect=RuntimeError('NO_RECOMPUTE')):
+                self.assertEqual(caller.main(args),2)
+            self.assertEqual(output.read_bytes(),original)
+            bad=copy.deepcopy(request); bad['events']['sha256']='0'*64
+            raw=h.canonical(bad); (root/'request.json').write_bytes(raw)
+            args[args.index('--request-sha256')+1]=h.digest(raw)
+            args[args.index('--output')+1]=str(root/'failed.json')
+            with contextlib.redirect_stdout(io.StringIO()): self.assertEqual(caller.main(args),2)
+            self.assertFalse((root/'failed.json').exists())
+
+    def test_file_caller_write_barrier_and_cleanup_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.file_intake_fixture(root)
+            result=self.file_intake_prepare(root,caller,request)
+            output=root/'proposal.json'
+            def fail_sync(fd):
+                self.assertFalse(output.exists())
+                raise OSError('synthetic fsync refusal')
+            with patch.object(caller.os,'fsync',side_effect=fail_sync):
+                with self.assertRaises(OSError): caller.write_result(output,result)
+            self.assertFalse(output.exists()); self.assertEqual(list(root.glob('.a2-intake-*.tmp')),[])
+            with patch.object(caller.os,'link',side_effect=OSError('synthetic final-name refusal')):
+                with self.assertRaises(OSError): caller.write_result(output,result)
+            self.assertFalse(output.exists()); self.assertEqual(list(root.glob('.a2-intake-*.tmp')),[])
+            with patch.object(caller.Path,'unlink',side_effect=OSError('synthetic cleanup refusal')):
+                summary=caller.write_result(output,result)
+            self.assertEqual(summary['status'],'READ_ONLY_RESEARCH_PROPOSAL')
+            self.assertFalse(summary['temporary_cleanup_complete'])
+            self.assertEqual(output.read_bytes(),h.canonical(result))
+            for abandoned in root.glob('.a2-intake-*.tmp'): abandoned.unlink()
 
 if __name__=='__main__': unittest.main()
