@@ -350,6 +350,57 @@ def prepare_legacy_handoff(archive_path, output_root):
     return result
 
 
+def verify_legacy_handoff(receipt_path, *, snapshot_dir, summary_path, signals_path,
+                          checkpoint_path, queue_path):
+    """Bind one new local candidate to the pinned original, never a live base.
+
+    Reuse preparation's positive whole-archive validation in disposable storage.
+    A consumed, changed or relocated candidate cannot reuse this entry proof.
+    Only the existing collector may create its genuine next transaction.
+    """
+    receipt_path = Path(receipt_path)
+    if (receipt_path.is_symlink() or not receipt_path.is_file()
+            or receipt_path.stat().st_size > 256 * 1024):
+        raise ValueError('legacy_prepared_receipt_required')
+    receipt_bytes = receipt_path.read_bytes()
+    receipt = json.loads(receipt_bytes)
+    payload = receipt_path.parent / 'payload'
+    expected_paths = {
+        'snapshot': payload / ARCHIVE, 'summary': payload / DAILY / 'summary.json',
+        'signals': payload / SIGNALS, 'checkpoint': payload / ARCHIVE / 'collection_checkpoint.json',
+        'queue': payload / DAILY / 'collection_queue.csv',
+    }
+    supplied = dict(snapshot=snapshot_dir, summary=summary_path, signals=signals_path,
+                    checkpoint=checkpoint_path, queue=queue_path)
+    if (not isinstance(receipt, dict) or receipt_path.name != 'prepared_handoff.json'
+            or payload.is_symlink() or payload.resolve().parent != receipt_path.parent.resolve()
+            or receipt.get('schema') != 'earnings-prepared-legacy-handoff-v1'
+            or receipt.get('status') != 'VERIFIED_LEGACY_BASELINE_PREPARED_NOT_CURRENT'
+            or receipt.get('source_artifact') != LEGACY_20261003
+            or receipt.get('adapter_sha256') != sha256_file(Path(__file__))
+            or Path(str(receipt.get('payload', ''))).resolve() != payload.resolve()
+            or any(Path(supplied[key]).resolve() != path.resolve() for key, path in expected_paths.items())):
+        raise ValueError('legacy_prepared_binding_mismatch')
+    with tempfile.TemporaryDirectory(prefix='earnings-legacy-verify-') as temp:
+        expected = prepare_legacy_handoff(receipt.get('original_archive', ''), Path(temp) / 'checked')
+    if (receipt.get('preserved_files') != expected['preserved_files']
+            or files(payload) != expected['preserved_files']):
+        raise ValueError('legacy_prepared_bytes_changed_or_consumed')
+    original_summary = json.loads((payload / DAILY / 'summary.json').read_text(encoding='utf-8'))
+    return {
+        'schema': 'earnings-verified-legacy-forward-parent-v1',
+        'prepared_receipt_sha256': hashlib.sha256(receipt_bytes).hexdigest(),
+        'original_artifact': dict(LEGACY_20261003),
+        'baseline_inventory_sha256': hashlib.sha256(encoded(expected['preserved_files'])).hexdigest(),
+        'baseline_checkpoint_sha256': sha256_file(checkpoint_path),
+        'baseline_queue_sha256': sha256_file(queue_path),
+        'baseline_summary_sha256': sha256_file(summary_path),
+        'baseline_status': original_summary.get('status'),
+        'baseline_generated_at_utc': original_summary.get('generated_at_utc'),
+        'baseline_is_current_transaction': False, 'live_source_base_verified': False,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('publish', 'restore', 'prepare-legacy'))

@@ -360,3 +360,39 @@ through the existing writer. Publication requires the unchanged manifest and
 immutable-generation readback gates. This preparation neither dispatches that
 collection nor closes the automatic-recovery, current-data or A3/A8 admission
 requirements. Never blindly rerun the failed daily workflow against this copy.
+
+### Opt-in forward transition through the existing collector
+
+Native preflight confirmed that ordinary manual planning also returns
+missing_collector_transaction_marker on the preserved legacy baseline. No
+existing manual flag bypasses that refusal. The collector therefore accepts
+an explicit --legacy-baseline-receipt only together with manual planning,
+nonempty attempt identity, current UTC date and1-5 retained queue tickers.
+Fixture-directory collection is forbidden in this entry. Scheduled workflow
+inputs and the default planner are unchanged; they do not opt in automatically.
+
+The receipt must bind the exact prepared directory/component paths and current
+helper code. The verifier revalidates the pinned original ZIP, all63 snapshots,
+and the candidate's entire70-file inventory before any planning write. Changed,
+relocated, already consumed, extra-member or forged candidates fail before
+provider calls. The local plan preserves original checkpoint counters/clocks
+and selects only the explicit cohort; it is not a current accepted transaction.
+
+After a real forward response the existing collector stages the new snapshot,
+signals, checkpoint, queue and summary. Only its normal pending-to-committed
+transaction creates a new collector marker. The new summary retains the old
+artifact, inventory/checkpoint/queue/summary hashes and blocked legacy status
+under legacy_baseline_handoff. Older snapshot bytes and clocks are unchanged.
+Existing data quality, PIT, immutable-publication and consumer gates still
+apply; scoped source completion is not full-universe coverage or ER admission.
+
+The explicit receipt is single-use for entry: after planning/collection its
+bytes no longer match that pristine baseline. A failure leaves an unpublished,
+unaccepted candidate and must be diagnosed before another bounded attempt.
+Pending/rolled-back markers retain the existing repair requirement. A completed
+new transaction uses ordinary current-state verification/publication, never the
+legacy entry again. The old ZIP remains the immutable original in every case.
+
+This code path has isolated provider-double transaction tests; actual provider
+collection and publication remain NOT_RUN until the live-base, rights, cohort,
+budget and writer authorization in the recovery contract have been verified.
