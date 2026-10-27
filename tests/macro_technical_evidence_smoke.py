@@ -25,6 +25,88 @@ def alfred_page(rows):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_a4_exact_fred_series_have_distinct_registered_units_and_frequencies(self):
+        import json
+        specs = {row['id']: row for row in source.registry()['series']}
+        contract = json.loads((ROOT/'docs/run287_chameleon_macro_inputs_contract.json').read_bytes())
+        self.assertTrue({row['series_id'] for row in contract['fred'].values()} <= set(specs))
+        expected = {'BAMLC0A0CM': ('daily', 'percent'), 'DGS3MO': ('daily', 'percent'),
+                    'WDTGAL': ('weekly', 'millions_usd'), 'RRPTSYD': ('daily', 'billions_usd')}
+        for sid, (frequency, unit) in expected.items():
+            self.assertEqual((specs[sid]['frequency'], specs[sid]['unit']), (frequency, unit))
+            self.assertEqual(specs[sid]['source_url'], 'https://fred.stlouisfed.org/series/'+sid)
+            self.assertEqual(specs[sid]['initial_inference'], 'SHADOW_ONLY')
+        self.assertIn('WTREGEN', specs)  # Weekly average is not Wednesday WDTGAL.
+        self.assertIn('RRPONTSYD', specs)  # Overnight-only is not total RRPTSYD.
+
+    def test_held_four_series_use_existing_bundle_and_preserve_original_clocks(self):
+        series = ['BAMLC0A0CM', 'DGS3MO', 'WDTGAL', 'RRPTSYD']
+        calls = []
+        def held(sid, start, through, mode):
+            calls.append((sid, mode))
+            return ([('observation_date,'+sid+'\n2026-10-21,1.25\n').encode()],
+                    '2026-10-27T07:00:00Z')
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, path = source.collect(tmp, series, '2026-10-01', '2026-10-26', fetcher=held)
+            _, records = source.load_bundle(tmp, path)
+            self.assertEqual(calls, [(sid, 'current') for sid in series])
+            self.assertEqual(set(records), set(series))
+            self.assertFalse(receipt['durable_remote_verified'])
+            self.assertFalse(receipt['historical_price_pit_verified'])
+            snapshot = Path(tmp)/'objects'/receipt['registry_sha256']
+            self.assertEqual(snapshot.read_bytes(), source.REGISTRY.read_bytes())
+            for rows in records.values():
+                self.assertEqual(rows[0]['available_at'], '2026-10-27T07:00:00Z')
+                self.assertIsNone(rows[0]['published_at'])
+                self.assertEqual(rows[0]['evidence'], 'current_only')
+
+    def test_registry_version_change_needs_explicit_original_bytes_for_read_only_reuse(self):
+        import json
+        original = source.REGISTRY.read_bytes()
+        changed = json.loads(original)
+        changed['series'][0]['unit'] = 'SYNTHETIC_DIFFERENT_UNIT'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            receipt, path = source.collect(root, ['UNRATE'], '2020-01-01', '2020-01-31',
+                fetcher=lambda *args: ([b'DATE,UNRATE\n2020-01-01,3.5\n'], '2026-10-27T07:00:00Z'))
+            replacement = root/'new-registry.json'
+            replacement.write_bytes(source.encoded(changed))
+            with patch.object(source, 'REGISTRY', replacement):
+                with self.assertRaisesRegex(ValueError, 'registry_changed'):
+                    source.load_bundle(root, path)  # Default analysis guard stays strict.
+                self.assertEqual(source.load_bundle(root, path, registry_raw=original)[1]['UNRATE'][0]['value'], 3.5)
+                (root/'objects'/receipt['registry_sha256']).unlink()  # Legacy bundle without snapshot.
+                with self.assertRaisesRegex(ValueError, 'registry_changed'):
+                    source.load_bundle(root, path)
+                self.assertIn('UNRATE', source.load_bundle(root, path, registry_raw=original)[1])
+                with self.assertRaisesRegex(ValueError, 'registry_changed'):
+                    source.load_bundle(root, path, registry_raw=replacement.read_bytes())
+            (root/'objects'/receipt['registry_sha256']).write_bytes(b'{}')
+            with self.assertRaisesRegex(ValueError, 'registry_snapshot_hash'):
+                source.load_bundle(root, path, registry_raw=original)
+
+    def test_registry_is_pinned_before_fetch_and_cannot_escape_its_source_scope(self):
+        import copy
+        original = source.REGISTRY.read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); selected = root/'registry.json'; selected.write_bytes(original)
+            def held(*args):
+                selected.write_bytes(b'{"schema":"changed-during-fetch"}')
+                return ([b'DATE,UNRATE\n2020-01-01,3.5\n'], '2026-10-27T07:00:00Z')
+            with patch.object(source, 'REGISTRY', selected):
+                receipt, path = source.collect(root, ['UNRATE'], '2020-01-01', '2020-01-31', fetcher=held)
+            self.assertEqual(receipt['registry_sha256'], source.digest(original))
+            self.assertIn('UNRATE', source.load_bundle(root, path)[1])
+            for change in ('unknown', 'duplicate', 'path'):
+                bad = copy.deepcopy(receipt)
+                if change == 'unknown': bad['sources'][0]['series'] = 'UNREGISTERED_SERIES'
+                elif change == 'duplicate': bad['sources'].append(copy.deepcopy(bad['sources'][0]))
+                else: bad['registry_sha256'] = '../registry.json'
+                raw = source.encoded(bad); other = root/'receipts'/(source.digest(raw)+'.json')
+                other.write_bytes(raw)
+                with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'registry_source_scope|registry_identity'):
+                    source.load_bundle(root, other)
+
     def test_alfred_fetch_paginates_beyond_legacy_200k_cap(self):
         total = 225_001
         offsets = []
