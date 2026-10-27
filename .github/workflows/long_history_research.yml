@@ -30,6 +30,11 @@ on:
       - 'tests/long_history_lake_smoke.py'
       - 'tests/macro_technical_evidence_smoke.py'
       - 'tests/macro_research_cycle_smoke.py'
+      - 'tools/macro_survey_research.py'
+      - 'tools/free_market_context.py'
+      - 'tests/macro_survey_research_smoke.py'
+      - 'tests/__init__.py'
+      - 'docs/macro_survey_research_contract.json'
       - '.github/workflows/long_history_research.yml'
   workflow_dispatch:
   schedule:
@@ -58,6 +63,8 @@ jobs:
             /tools/long_history_lake.py
             /tools/macro_history_sources.py
             /tools/macro_technical_study.py
+            /tools/macro_survey_research.py
+            /tools/free_market_context.py
             /tools/macro_research_cycle.py
             /tools/macro_research_checkpoint.py
             /tools/configure_macro_research_drive.py
@@ -80,8 +87,11 @@ jobs:
             /docs/research_data_access.json
             /tests/long_history_lake_smoke.py
             /tests/macro_technical_evidence_smoke.py
+            /tests/macro_survey_research_smoke.py
+            /tests/__init__.py
             /tests/macro_research_cycle_smoke.py
             /docs/macro_indicator_registry.json
+            /docs/macro_survey_research_contract.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

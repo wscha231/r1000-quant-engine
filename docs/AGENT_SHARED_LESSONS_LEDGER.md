@@ -8429,3 +8429,95 @@ the real capture/verifier with injected responses, including valid weekends.
   guard or call the failed whole CI successful. The repaired head needs its
   own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
   earlier454+454 remain explicitly scoped historical evidence.
+## 2026-10-25 — Reuse the existing AAII file parser and qualify actual originals
+
+Search existing source registers and libraries before implementing a second
+survey parser. The integrated free_market_context.aaii_observations already
+checks percent/fraction, rounded totals, duplicate dates and collection-only
+availability. Reuse it; a matching caller hash is byte consistency, not publisher,
+license or historical-publication authentication. A local export review has its
+own non-admitted schema, null original publication, no regime and exit2. Keep
+ACTUAL closed until the existing Source archive/receipt path is qualified.
+
+The existing Drive handoffs describe authorized CSV imports, not actual AAII
+originals. Current official page and its linked XLS each returned403 to a single
+direct read. Preserve both failures; do not use web snippets as verified raw
+bytes, retry around access controls, invent clocks or buy a subscription.
+The finite filename miss is not proof of global Drive absence.
+
+The earlier missing-SciPy blocker was solved without downloads by reusing the
+already installed pinned validation wrapper read-only. Native guard setup
+initially mistook Windows NUL/platform cmd-ver and external TEMP probes for
+product writes. Preserve both mode setup failures, permit only that exact
+read-only Windows metadata command/NUL device, and pin fixture temp under the
+allowed T2 evidence root. Product/test assertions and owner environments stay
+unchanged. Current candidate checks are not canonical Main Native or hosted CI.
+
+Independent A6 also reproduced an actual P2: original20,060B/10,000-level fixture
+JSON escaped as RecursionError and produced no BLOCKED JSON. Keep predecessor
+46b1 logs and the two independent counterexamples. The correction limits JSON
+depth24/nodes300,000, translates decoder recursion and guards the CLI. Retain
+the prior37 test bodies and add three negative cases. A prior passing fixture
+suite cannot replace new exact-code Native and independent QA after this fix.
+
+Windows text writeback changed the existing registered smoke to CRLF during
+Main intake. The first unpublished checkpoint retained the resulting diff-check
+failure. Normalize that file and the new contract to LF; the final registered delta
+is only two lines and contract semantics are unchanged. Preserve every test
+body and revalidate the new exact HEAD. A successful commit does not erase an earlier diff failure.
+
+A new suite called by the existing macro smoke also runs in the scheduled
+history sparse checkout. Include its module, existing AAII library, test,
+test package and contract there before publication. The causal scope adds
+only those five checkout paths; triggers, credentials, jobs, schedule and
+collection gates remain byte-identical after removing those lines.
+
+## 2026-10-26 - Keep sparse dependencies and push filters symmetric
+
+PR682's actual Tier-1 run40186534212/job121148387562 passed the survey
+program but failed the unchanged HistoryTest dependency-trigger oracle:
+the five added sparse checkout paths were absent from push.paths. Preserve
+the failure and original assertion; add those same paths to push.paths only.
+The producer's event_name!=push guard, schedules, jobs, credentials and Source
+budgets remain unchanged. A successful survey-only Native suite did not prove
+workflow registration completeness. Reconcile the existing feature against
+current master while retaining both append-only lesson tails; no Source
+checkout or active staged changes may be overwritten.
+
+## 2026-10-27 - Separate native shutdown failures from survey assertions
+
+Survey PR682 run40255225065/job121355519145 passed234/235 programs.
+The sole failed SEC CUSIP program reported all15 unittest methods OK before
+"terminate called without an active exception"; the root cause is unconfirmed.
+Do not remove its assertions, suppress a nonzero exit or patch unrelated SEC
+logic on that evidence. Current protected2144 native validation passes the same
+registered SEC program unchanged after a process-local permitted TEMP is used.
+The initial Windows external-TEMP cleanup failure remains a separate negative.
+
+Reconcile the existing survey branch with protected2144 before fresh exact-head
+validation, preserving both append-only lessons and the current history sparse
+checkout additions. Prior b30 Native62 and prior235-file CI are historical
+evidence, not checks of the reconciled head.
+
+Official AAII XLS, Philly MBOS CSV and NY Fed BLS CSV acquisitions each failed
+local DNS on2026-10-27; no source bytes were received. Search can display official
+pages but its CSV/XLS reader refuses those MIME types. Connected Firecrawl is out
+of credits. Preserve these failures, avoid repeated requests or fabricated raw
+files, and keep actual Source/PIT/automatic operation blocked. The prepared
+intake/archive/refresh candidates remain separate offline-only work.
+
+Independent A6 then reproduced a separate P2 at native04a7503: the exact
+131120-byte CSV (ec28589c...12031cc) raised csv.Error in both modes and
+created no BLOCKED report. The native survey export adapter now translates
+that parser error into a static ValueError. Preserve the original40 test
+methods and add direct-API, CLI-report and unchanged-field-limit boundary
+regressions. Do not globally raise CSV limits or promote the separate intake
+candidate just to hide the failure. The predecessor62 passes do not cover
+this repaired head. apply_patch failed to write this Windows checkout; the
+same scoped local edit was applied with the existing Python runtime.
+
+The first repair commit was stopped by diff-check on one new blank-line space.
+The subsequently launched65-method checks used uncommitted working bytes,
+so those receipts are explicitly labeled UNCOMMITTED_CSV_FIX, not exact04a.
+Remove the whitespace, commit and rerun against pinned Git blob identities.
+Do not use a HEAD string alone to authenticate a dirty-worktree validation.

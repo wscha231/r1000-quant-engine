@@ -207,6 +207,8 @@ def run_tests():
     result=unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(EvidenceTests))
     if not result.wasSuccessful():
         raise AssertionError("macro_technical_evidence_smoke_failed")
+    from tests.macro_survey_research_smoke import run_tests as run_survey_tests
+    run_survey_tests()
 
 
 if __name__ == "__main__":

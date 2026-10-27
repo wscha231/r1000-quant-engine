@@ -1,0 +1,150 @@
+{
+  "schema": "r1000-macro-survey-research-v1",
+  "mode": "RESEARCH_ONLY_DIAGNOSTIC",
+  "actual_source_admission": "BLOCKED_PENDING_EXISTING_SOURCE_OWNER_BINDING",
+  "default_collection_enabled": false,
+  "historical_pit_verified": false,
+  "economic_authority": false,
+  "intended_use": [
+    "entry_pace_research",
+    "sector_hypothesis_prioritization",
+    "winner_thesis_review",
+    "reentry_research"
+  ],
+  "prohibited_use": [
+    "automatic_buy_sell",
+    "target_weights",
+    "replace_control",
+    "normal_regime_from_missing_data"
+  ],
+  "required_clocks": [
+    "reference_period",
+    "published_at",
+    "available_at",
+    "collected_at",
+    "decision_at"
+  ],
+  "sources": [
+    {
+      "id": "ISM_MANUFACTURING",
+      "priority": 1,
+      "frequency": "monthly",
+      "unit": "diffusion_index_0_100",
+      "components": [
+        "pmi",
+        "new_orders",
+        "production",
+        "employment",
+        "inventories",
+        "prices",
+        "supplier_deliveries"
+      ],
+      "max_publication_age_days": 45,
+      "source_url": "https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/",
+      "acquisition_status": "BLOCKED_WRITTEN_STORAGE_DERIVATION_RIGHTS_AND_ARCHIVE",
+      "interpretation": "Keep headline composite distinct from components; delivery delays may reflect supply disruption. PMI50 is not an equity trade rule."
+    },
+    {
+      "id": "ISM_SERVICES",
+      "priority": 1,
+      "frequency": "monthly",
+      "unit": "diffusion_index_0_100",
+      "components": [
+        "pmi",
+        "business_activity",
+        "new_orders",
+        "employment",
+        "prices",
+        "supplier_deliveries"
+      ],
+      "max_publication_age_days": 45,
+      "source_url": "https://www.ismworld.org/supply-management-news-and-reports/reports/ism-pmi-reports/",
+      "acquisition_status": "BLOCKED_WRITTEN_STORAGE_DERIVATION_RIGHTS_AND_ARCHIVE",
+      "interpretation": "Do not splice providers or flash/final. Demand and price components remain separate."
+    },
+    {
+      "id": "AAII",
+      "priority": 1,
+      "frequency": "weekly",
+      "unit": "percentage_points_0_100",
+      "components": [
+        "bullish",
+        "neutral",
+        "bearish"
+      ],
+      "max_publication_age_days": 10,
+      "source_url": "https://www.aaii.com/sentimentsurvey",
+      "acquisition_status": "BLOCKED_SOURCE_OWNER_ARCHIVE_RIGHTS_RELEASE_CLOCK",
+      "interpretation": "Participating individual investors six-month outlook, not actual portfolio positions; spread is not a contrarian trade."
+    }
+  ],
+  "conditional_candidates": [
+    {
+      "id": "NAAIM",
+      "source_url": "https://naaim.org/programs/naaim-exposure-index/",
+      "status": "BLOCKED_CURRENT_SUBSCRIPTION_RIGHTS_ARCHIVE",
+      "warning": "Public values are three months delayed; exposure is participating manager positioning, not all institutional sentiment."
+    },
+    {
+      "id": "STATE_STREET_RISK_APPETITE",
+      "status": "BLOCKED_SOURCE_ARCHIVE_CLOCK_RIGHTS",
+      "warning": "Monthly institutional flows; separate from holdings and legacy Investor Confidence Index."
+    },
+    {
+      "id": "STATE_STREET_HOLDINGS",
+      "status": "BLOCKED_SOURCE_ARCHIVE_CLOCK_RIGHTS",
+      "warning": "Positions, not flows; serviced assets are not the entire institutional universe."
+    },
+    {
+      "id": "CBOE_EQUITY_PUT_CALL",
+      "status": "BLOCKED_EXPLICIT_ARCHIVE",
+      "warning": "Preserve equity/index separation and early-exercise volume caveat."
+    },
+    {
+      "id": "CBOE_INDEX_PUT_CALL",
+      "status": "BLOCKED_EXPLICIT_ARCHIVE",
+      "warning": "Existing Chameleon unsupported component, not a second competing risk axis."
+    },
+    {
+      "id": "PHILADELPHIA_FED_MBOS",
+      "source_url": "https://www.philadelphiafed.org/surveys-and-data/regional-economic-analysis/manufacturing-business-outlook-survey",
+      "status": "RESEARCH_CANDIDATE_SOURCE_QUALIFICATION_REQUIRED",
+      "warning": "Regional diffusion; not interchangeable with national ISM."
+    }
+  ],
+  "research_design": {
+    "family": "A4_SURVEY_INCREMENTAL_V1_20261024",
+    "status": "PREREGISTRATION_PREPARED_NOT_ACCEPTED",
+    "arms": [
+      "Control",
+      "Control_plus_ISM",
+      "Control_plus_ISM_plus_AAII"
+    ],
+    "horizons_sessions": [
+      1,
+      5,
+      21,
+      63,
+      126
+    ],
+    "freeze_before_outcome_access": true,
+    "comparison": "Same available release archive, exchange-session entry, investment inputs, PIT, costs and cash policy; chronological purged walk-forward plus separately frozen OOS.",
+    "new_oos_run": false,
+    "previous_negative_336_384_results_preserved": true,
+    "sector_results": "BLOCKED_WITHOUT_ELIGIBLE_TOTAL_RETURN_CA_AND_HISTORICAL_UNIVERSE",
+    "shadow_economics": "BLOCKED_WITHOUT_MATCHED_PIT_BOOK_FILLS_COSTS"
+  },
+  "local_export_review": {
+    "parser": "tools.free_market_context.aaii_observations",
+    "mode": "LOCAL_EXPORT_REVIEW_ONLY",
+    "actual_source_admitted": false,
+    "publication_policy": "UNKNOWN; available only from original collection, never historical backfill",
+    "unit_required": [
+      "percent",
+      "fraction"
+    ],
+    "exact_raw_hash_required": true,
+    "cli_exit_code": 2,
+    "independent_raw_publisher_authentication": false
+  }
+}
