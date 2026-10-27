@@ -102,6 +102,48 @@ including selector/ER/target/portfolio/paper/broker/orders/promotion/execute/
 production/dispatch/admission/ledger/canonical_write/learning. No automatic A3,
 A0, A5, champion, paper or broker operation is connected.
 
+## Bounded file caller (2026-10-27)
+
+`tools/run_a2_research_intake.py` loads already-held event evidence into the
+same `validate_events` API. It supplies no collector, new Registry or scheduler.
+The caller owns a stable read-only tree and pins the request file's SHA256.
+The closed request has `schema=a2-file-intake-v1`, `events` and `identities`
+references (each exactly `path` and `sha256`), `artifacts` (each exactly
+`artifact_id`, `path`, `sha256`), and `event_sources` mapping every event ID to
+one through ten supplied artifact IDs. Paths are relative, without traversal,
+URLs, symlinks or Windows reparse points. The reviewed event schema is loaded
+by its existing exact code pin; supplied artifacts cannot replace it.
+
+All selected files are hash checked. Files are bounded before allocation to
+4MiB each and 32MiB total, including request, events and identity bytes; the
+existing API additionally enforces its sealed inventory/schema budgets. Each
+event must bind held source bytes, but this binding alone authenticates neither
+the publisher/publication clock nor the claim, identity, independence or rights.
+A caller-supplied label stays an assertion. V0 stays DISCOVERY_ONLY, assessment
+false and score zero. Missing publication time, malformed input or conflicting
+bytes are refused by the existing checks.
+
+Example (explicit paths and actual hashes must be supplied):
+
+```sh
+python tools/run_a2_research_intake.py --input-root /held/evidence \
+  --request request.json --request-sha256 <actual-request-sha256> \
+  --cutoff 2026-10-27T06:01:34.219574+00:00 --output /scratch/new-proposal.json
+```
+
+The parent output directory must exist. The caller creates one new local result
+file only; an existing path is refused before recomputation and never replaced.
+The final name is created only after an isolated temporary file has completed
+write/flush/fsync/close. Atomic create-only hard-link publication fails closed
+when unsupported; the result is not a durable account commit. A later temporary
+cleanup failure is separate metadata, not a reversal of successful publication.
+Its read set, request hash, source bindings and actual code-file hashes support
+reproduction. The caller prints only bounded status/hash metadata. A filesystem
+write failure is not a completed result. No canonical queue/current pointer,
+accepted source, paper/book, learning or A3/ER/A5 admission is written. This
+manual caller closes the file-to-A2 edge; recurring upstream delivery and
+authenticated downstream admission remain separate work.
+
 ## Validation and real-data boundary
 
 The new synthetic suite is registered through the existing A3 `load_tests`
@@ -119,6 +161,8 @@ missing raw/time/identity/review/market evidence stays BLOCKED_PROOF and is
 reported separately from fixtures. Source #618 and Main #620/#621 are separate
 unmerged scopes; this branch is not their integrated master or deployment.
 
-H1 remains NO_CODEX and Draft-only. Native and independent A6 evidence do not
-authorize Ready, maintainer attestation, merge, fullrun, collection, learning,
-Source/PIT promotion, portfolio/book/order changes or notifications.
+The original H1 preparation was NO_CODEX and Draft-only; that historical label
+is not the current branch/PR status. Read current GitHub HEAD, reviews and checks
+for integration evidence. Native and independent A6 evidence alone do not
+authorize merge, fullrun, collection, learning, Source/PIT promotion,
+portfolio/book/order changes or notifications.

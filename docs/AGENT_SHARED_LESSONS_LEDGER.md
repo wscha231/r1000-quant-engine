@@ -8429,3 +8429,57 @@ the real capture/verifier with injected responses, including valid weekends.
   guard or call the failed whole CI successful. The repaired head needs its
   own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
   earlier454+454 remain explicitly scoped historical evidence.
+
+## 2026-10-27 — Actual news and archive macro consumer edges
+
+- A news-monitor chat's V2 label is not a typed accepted event. Retain the
+  original bytes/hash and actual publication/collection clocks, then call the
+  existing A2 API. Oracle's modified timestamp could not replace unknown
+  publication time. A retained Amkor original passed only V0 WATCH discovery;
+  missing-time and duplicate cases were refused. The initial harness guessed
+  DUPLICATE_EVENT, but exact duplicates first fail schema uniqueItems; preserve
+  that failed harness and test the actual validation boundary without loosening
+  either guard.
+- The bounded file caller reuses validate_events and closed authority. It
+  checks a pinned request and every selected source hash, requires per-event
+  source bindings, bounds local reads and creates a new output only. File/hash
+  consistency does not authenticate article claims, rights, identity or PIT;
+  this local entrypoint does not establish recurring delivery or A3/ER/A5.
+- Resolve a lake object through catalog.locations and its immutable pack;
+  searching Drive for the inner object hash can return zero for existing data.
+  The retained HY object had786 observations ending2026-10-21, unknown published
+  timestamps and no matching g29 completion in the observed execution list.
+  Its literal date/value serialization reached the existing A4 parser once,
+  but is derived data, not an original FRED graph HTTP response or current PIT
+  admission. Do not run the full graph-labelled builder on that serialization.
+- Actual crisis run40433254637/artifact12703058297 requires2026-10-26 yet reads
+  risk_as_of2026-03-20 and correctly remains DATA_BLOCKED. Artifact upload/Drive
+  sync success does not repair stale inputs. Exact FRED membership9/13 also
+  leaves4missing, and a similarly named series cannot be silently aliased.
+- The first validation command used --include (additive) instead of --only
+  (restrictive). Its unintended238-file local run was explicitly stopped during
+  the first registered offline credential smoke and is not a validation pass.
+  Keep direct focused A2/A3 results separate; use --only with --include when a
+  selected file is nested under another registered entrypoint. Include the new
+  caller in the existing independent A6 fixed proof dependency set, rather than
+  leaving an import needed by those tests outside the copied proof closure.
+- Independent A6 found that a direct final-file write could leave success JSON
+  after fsync failed. Retain that pre-repair finding. Stage/flush/fsync/close
+  before create-only final-name publication; cover fsync, final-link and
+  post-publication cleanup failures explicitly. The first finite Native wrapper
+  passed215+215 A3 methods but its registered AgentBoard route found a missing
+  sparse-checkout test dependency before running; it is not a final validation
+  pass. Restore exact current-code dependencies, not a synthetic success.
+- A special file must be refused by lstat before opening it: a POSIX FIFO can
+  block before fstat. The final caller adds that pre-open regular-file guard.
+  The repaired full registered AgentBoard local attempt exceeded its600-second
+  bound and its verified orphan test process tree was stopped. Preserve its
+ 216+216 A3 passes as pre-final-guard evidence; the whole broad run did not pass.
+  Use focused final A2/A3 and affected fixed-proof membership tests locally;
+  current-head hosted CI remains a separate required completion gate.
+- The final focused wrapper preserved217+217 A3 passes but the unchanged broad
+  Control Plane normal route reached its180-second bound before completion;
+  its optimized route was not run. Do not report that wrapper as all green.
+  The affected manual fixed-proof membership/replacement tests and explicit new
+  caller omitted-pin/stale-byte attacks passed separately. Keep local scoped
+  validation, unrelated broad timeout and hosted required-check status distinct.
