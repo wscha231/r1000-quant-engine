@@ -586,7 +586,7 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
 
 
 def execute(control, control_sha, policy, bootstrap, history, drive, meter, context,
-            key, secret, clock=campaign.utc, meter_verifier=None):
+            key, secret, clock=campaign.utc, meter_verifier=None, *, market_preflight):
     tracked = set(policy["active_tickers"]) | set(policy["watch_tickers"])
     require(tracked <= set(control["authorized_tickers"]), "MANAGED_POLICY_SCOPE_CHANGED")
     subset = execution_scope(control)
@@ -608,9 +608,15 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     terminal = dict(base, parent_sha256=reserved["sha256"], state="BLOCKED",
                     coverage_updates={}, held={}, receipts=[], reason="MANAGED_INTERRUPTED")
     try:
-        gate = managed.evaluate_market_session(now_utc=clock(), min_close_age_minutes=120)
+        observed = clock()
+        require(observed >= campaign.utc(market_preflight["checked_at_utc"]),
+                "MANAGED_MARKET_CLOCK_REGRESSION")
+        gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
         require(gate["ready"], "MANAGED_MARKET_WINDOW")
-        require(provider_endpoint_gate(gate["session_date"], clock())["ready"],
+        require(market_preflight["ready"] is True
+                and gate["session_date"] == market_preflight["session_date"],
+                "MANAGED_MARKET_SESSION_CHANGED")
+        require(provider_endpoint_gate(gate["session_date"], observed)["ready"],
                 "MANAGED_PROVIDER_ENDPOINT_WINDOW")
         values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
                                 gate["session_date"], key, secret, clock)
@@ -672,6 +678,7 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     history = run_history(control, gh, ctx)
     source_history_fence(control, gh)
     observed = clock()  # metadata validation must not freeze the provider clock
+    require(observed >= now, "MANAGED_MARKET_CLOCK_REGRESSION")
     gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
     endpoint = provider_endpoint_gate(gate["session_date"], observed) if gate["ready"] else None
     if not gate["ready"] or not endpoint["ready"]:
@@ -707,7 +714,8 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
                 drive.check(control[field], drive.root_id)
             bootstrap = rights_and_bootstrap(control, drive)
             result = execute(control, control_sha, policy, bootstrap, history, drive, meter, ctx,
-                             key, secret, clock, final_meter_reader(gh, control, control_sha, deadline, clock))
+                             key, secret, clock, final_meter_reader(gh, control, control_sha, deadline, clock),
+                             market_preflight=gate)
         meter.finish("COMPLETE")
         result.update(provider_requests=meter.used["provider_gets"],
                       measured_usage=dict(meter.used), reserved_usage=control["per_run_allowance"],

@@ -947,6 +947,9 @@ class ManagedExecutionTests(unittest.TestCase):
     def validate(self):
         return self.r.validate_control(self.control, 'a'*64, 'b'*64, self.now)
 
+    def preflight(self, now=None):
+        return self.r.managed.evaluate_market_session(now_utc=now or self.now, min_close_age_minutes=120)
+
     def test_absent_rights_stops_before_credentials_github_or_drive(self):
         args = self.ns(policy=managed_initial_policy_file(),
                        inventory=ROOT/'data_static/a1_ohlcv_inventory_v1.json',
@@ -1193,6 +1196,13 @@ class ManagedExecutionTests(unittest.TestCase):
              patch.object(self.r.campaign,'RuntimeMeter',side_effect=forbidden), \
              patch.object(self.r.capture,'persist_object',side_effect=forbidden):
             value = self.r.run(args, gh=forbidden, drive_factory=forbidden, clock=lambda:now)
+            # A regression during metadata reads also refuses before credentials.
+            ticks = iter((now+timedelta(days=1), now))
+            args2 = self.ns(policy=args.policy, inventory=args.inventory,
+                            meter=self.root/'regressed-meter.json', output=self.root/'regressed-result.json')
+            with self.assertRaisesRegex(self.r.Refused,'^MANAGED_MARKET_CLOCK_REGRESSION$'):
+                self.r.run(args2, gh=forbidden, drive_factory=forbidden, clock=lambda:next(ticks))
+            self.assertFalse(args2.meter.exists())
         self.assertEqual(value['status'],'SKIP_PROVIDER_ENDPOINT_WINDOW')
         self.assertEqual((value['provider_requests'],value['drive_requests'],value['dispatches']),(0,0,0))
         self.assertFalse(value['collection_enabled'])
@@ -1221,10 +1231,30 @@ class ManagedExecutionTests(unittest.TestCase):
         with self.assertRaisesRegex(self.r.Refused,'^MANAGED_PROVIDER_ENDPOINT_WINDOW$'):
             self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
                 dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,dict(run_id=1,head='2'*40),
-                'fixture-key','fixture-secret',lambda:now)
+                'fixture-key','fixture-secret',lambda:now, market_preflight=self.preflight(now))
         self.assertEqual(opener.calls,0)
         states = [row['state'] for _,row in self.r.journal_rows(drive,self.control)]
         self.assertCountEqual(states,['RESERVED','BLOCKED'])
+
+    def test_execution_keeps_original_session_and_rejects_whole_day_clock_rollback(self):
+        for changed, reason in (
+            ('2026-10-23T00:30:00Z', 'MANAGED_MARKET_CLOCK_REGRESSION'),
+            ('2026-10-27T00:30:00Z', 'MANAGED_MARKET_SESSION_CHANGED'),
+        ):
+            with self.subTest(changed=changed):
+                drive,meter,opener = self.memory_capture(fail=True)
+                now = self.r.campaign.utc(changed)
+                other = self.preflight(now)
+                self.assertTrue(other['ready'])
+                self.assertTrue(self.r.provider_endpoint_gate(other['session_date'],now)['ready'])
+                self.assertNotEqual(other['session_date'], self.preflight()['session_date'])
+                with self.assertRaisesRegex(self.r.Refused,'^'+reason+'$'):
+                    self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
+                        dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,dict(run_id=1,head='2'*40),
+                        'fixture-key','fixture-secret',lambda:now,market_preflight=self.preflight())
+                self.assertEqual((opener.calls,meter.used['provider_gets']),(0,0))
+                self.assertCountEqual([row['state'] for _,row in self.r.journal_rows(drive,self.control)],
+                                      ['RESERVED','BLOCKED'])
 
     def no_capture(self):
         now = self.r.campaign.utc('2026-07-03T23:30:00Z')
@@ -1399,7 +1429,7 @@ class ManagedExecutionTests(unittest.TestCase):
         with patch.object(self.r,'bootstrap_coverage',return_value={'AAPL':'2026-10-22','MSFT':'2026-10-22'}), \
              patch.object(self.r.capture.time,'sleep',return_value=None):
             result = self.r.execute(self.control,'a'*64,policy,bootstrap,history,drive,meter,ctx,
-                                   'fixture-api-key','fixture-api-secret',lambda:self.now)
+                                   'fixture-api-key','fixture-api-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual((result['valid_updated'],result['held'],result['rows']), (2,0,4))
         self.assertEqual(meter.used['provider_gets'],4)  # 2 asset + raw/split group
         self.assertEqual(opener.calls,4)
@@ -1411,7 +1441,7 @@ class ManagedExecutionTests(unittest.TestCase):
         ctx['run_id'] = 2
         with patch.object(self.r,'bootstrap_coverage',return_value={}):
             second = self.r.execute(self.control,'a'*64,policy,bootstrap,history,drive,meter,ctx,
-                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda run,h:None)
+                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda run,h:None, market_preflight=self.preflight(self.now))
         self.assertEqual((second['valid_updated'],second['reused']), (0,2))
         self.assertEqual(opener.calls,calls)
         self.assertEqual(len(self.r.journal_rows(drive,self.control)),4)
@@ -1423,7 +1453,7 @@ class ManagedExecutionTests(unittest.TestCase):
             with self.assertRaisesRegex(self.r.Refused,'NETWORK'):
                 self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
                     dict(groups=[],asset_identity_refs=self.fixture_bindings),history,drive,meter,dict(run_id=1,head='2'*40),
-                    'fixture-api-key','fixture-api-secret',lambda:self.now)
+                    'fixture-api-key','fixture-api-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual(meter.used['provider_gets'],1)
         rows = self.r.journal_rows(drive,self.control)
         with self.assertRaisesRegex(self.r.Refused,'PRIOR_FAILURE_REQUIRES_RECONCILIATION'):
@@ -1435,7 +1465,7 @@ class ManagedExecutionTests(unittest.TestCase):
             with self.assertRaisesRegex(self.r.Refused,'FIXTURE_SAVE_FAILED'):
                 self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
                     dict(groups=[]),[dict(id=1,head_sha='2'*40)],drive,meter,
-                    dict(run_id=1,head='2'*40),'fixture-api-key','fixture-api-secret',lambda:self.now)
+                    dict(run_id=1,head='2'*40),'fixture-api-key','fixture-api-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual((opener.calls,meter.used['provider_gets']), (0,0))
 
     def test_missing_stable_asset_proof_never_issues_provider_request(self):
@@ -1516,11 +1546,11 @@ class ManagedExecutionTests(unittest.TestCase):
         with patch.object(self.r,'journal_rows',side_effect=AssertionError('journal read')):
             with self.assertRaisesRegex(self.r.Refused,'^MANAGED_EXECUTION_SCOPE$'):
                 self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=[]),
-                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now)
+                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now, market_preflight=self.preflight(self.now))
             self.control['authorized_tickers'] = ['MSFT']
             with self.assertRaisesRegex(self.r.Refused,'^MANAGED_POLICY_SCOPE_CHANGED$'):
                 self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
-                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now)
+                    dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual(opener.calls,0)
 
     def test_execution_subset_real_capture_skips_alphabetical_sibling_and_resumes(self):
@@ -1557,7 +1587,7 @@ class ManagedExecutionTests(unittest.TestCase):
         calls = opener.calls
         with patch.object(self.r.capture.time,'sleep',return_value=None):
             result = self.r.execute(self.control,control_sha,policy,bootstrap,history,
-                drive,meter,ctx,'fixture-api-key','fixture-api-secret',lambda:self.now)
+                drive,meter,ctx,'fixture-api-key','fixture-api-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual((result['valid_updated'],result['held'],result['rows']), (1,0,2))
         self.assertEqual(opener.calls-calls,3)  # selected asset + raw/split; no AAPL I/O
         self.assertEqual(len(requested),3)
@@ -1580,13 +1610,13 @@ class ManagedExecutionTests(unittest.TestCase):
         calls = opener.calls
         history.append(dict(id=2,head_sha='2'*40)); ctx['run_id'] = 2
         second = self.r.execute(self.control,control_sha,policy,bootstrap,history,drive,meter,ctx,
-            'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None)
+            'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None, market_preflight=self.preflight(self.now))
         self.assertEqual((second['valid_updated'],second['reused']), (0,1))
         self.assertEqual(opener.calls,calls)
         self.control['execution_tickers'] = ['AAPL']
         with self.assertRaisesRegex(self.r.Refused,'MANAGED_STATE_CHAIN'):
             self.r.execute(self.control,self.validate(),policy,bootstrap,history,drive,meter,ctx,
-                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None)
+                'fixture-api-key','fixture-api-secret',lambda:self.now,lambda *a:None, market_preflight=self.preflight(self.now))
         self.assertEqual(opener.calls,calls)
         self.assertEqual(len(self.r.journal_rows(drive,self.control)),4)
 
@@ -1605,7 +1635,7 @@ class ManagedExecutionTests(unittest.TestCase):
                     with self.assertRaisesRegex(self.r.Refused,'^MANAGED_EXECUTION_STATE_SCOPE$'):
                         self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
                             dict(groups=[]),history,drive,meter,dict(run_id=2,head='2'*40),
-                            'fixture-key','fixture-secret',lambda:self.now,lambda *a:None)
+                            'fixture-key','fixture-secret',lambda:self.now,lambda *a:None, market_preflight=self.preflight(self.now))
         self.assertEqual(opener.calls,0)
 
 

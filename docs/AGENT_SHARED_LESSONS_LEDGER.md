@@ -8458,3 +8458,10 @@ the real capture/verifier with injected responses, including valid weekends.
   ownership check. Use process-scoped GIT_CONFIG safe.directory for this existing
   checkout; do not change product code or global trust to conceal the fixture
   environment. Only the subsequent current-byte pass is validation evidence.
+- Independent A6 reproduced a whole-day backward-clock counterexample at the
+  first3ff head: both recomputed gates could be READY for a different prior
+  session and reach the synthetic provider canary. Keep that negative result.
+  The execution API now requires the original preflight explicitly, rejects
+  clock regression and session replacement, and records RESERVED/BLOCKED with
+  zero provider GETs. Revalidate the repaired head; the prior186+186 pass and
+  any earlier Codex/CI evidence do not cover this repair.
