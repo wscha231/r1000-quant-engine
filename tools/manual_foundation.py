@@ -220,6 +220,7 @@ BOARD_INPUT_DEPENDENCIES = [
 # Retain canonical contract reads from the registered tests and their default
 # loaders/fingerprints, reviewed at 8f9d258. Code pins alone do not bind them.
 A6_FIXED_PROOF_INPUTS = (
+    "docs/market_analysis_contract_v1.json",
     "tests/fixtures/manual_foundation_long_history_lake_v1.py.gz",
     "tests/fixtures/manual_foundation_sec_source_v1.json.gz",
     "tests/fixtures/manual_foundation_a3_registry_v1.json.gz",
@@ -1074,6 +1075,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/verify_run287_complete_current_cross_section.py',
     'tools/verify_sec_13f_publication.py',
     'tools/write_run287_price_refresh_attempt.py',
+    'tests/market_analysis_engine_smoke.py',
+    'tools/market_analysis_engine.py',
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',
     'tests/theme_classification_smoke.py',

@@ -1,0 +1,97 @@
+{
+  "schema": "market-analysis-contract-v1",
+  "task_key": "R1000-A4-INTEGRATED-MARKET-ANALYSIS-H1-20261027",
+  "authority": "RESEARCH_ONLY",
+  "request_schema": "market-analysis-request-v1",
+  "market": "US",
+  "native_risk_contract": "docs/run287_chameleon_macro_risk_contract.json",
+  "risk_rules_changed": false,
+  "native_context": "tools/chameleon_market_context_v2.py",
+  "network_requests_per_engine_run": 0,
+  "input_limits": {
+    "max_inputs": 40,
+    "max_request_bytes": 262144,
+    "max_file_bytes": 8388608,
+    "max_total_bytes": 33554432,
+    "max_request_lifetime_days": 4
+  },
+  "source_policy": {
+    "consumable_states": [
+      "COLLECTED",
+      "UNCHANGED"
+    ],
+    "forbidden_states": [
+      "BLOCKED",
+      "STALE_RETAINED",
+      "FAILED"
+    ],
+    "latest_null": "NO_OLD_VALUE_FALLBACK",
+    "current_vintage": "FREE_PROXY_ONLY",
+    "published_at": "NEVER_INFER_FROM_OBSERVATION_OR_REQUEST_TIME",
+    "source_admission": false
+  },
+  "refresh_routes": [
+    {
+      "family": "price_breadth",
+      "cadence": "NYSE completed session",
+      "producer": "existing qualified OHLCV and free.price_theme_context",
+      "current_admission": "NOT_CERTIFIED_BY_ENGINE"
+    },
+    {
+      "family": "volatility_credit_rates_liquidity",
+      "cadence": "daily or series-specific",
+      "producer": "existing original capture plus Chameleon source adapter",
+      "current_admission": "PER_SOURCE_RECEIPTS_REQUIRED"
+    },
+    {
+      "family": "financial_conditions",
+      "cadence": "weekly",
+      "source_ids": [
+        "fred:NFCI",
+        "fred:ANFCI",
+        "fred:STLFSI4"
+      ],
+      "overlap": "Do not sum as independent votes"
+    },
+    {
+      "family": "positioning",
+      "cadence": "weekly",
+      "producer": "existing free.cot_observations TFF_FUTURES",
+      "clock": "Tuesday observation is not Friday publication; collection only unless release proven"
+    },
+    {
+      "family": "household_expectations",
+      "cadence": "monthly",
+      "source_url": "https://www.newyorkfed.org/microeconomics/sce",
+      "input_kind": "sce_export",
+      "original_workbook_conversion_verified": false,
+      "raw_format": "month,mean_probability_stock_prices_higher_12m_percent",
+      "meaning": "Mean subjective probability stocks higher in twelve months; not AAII bullish share",
+      "status": "STANDARDIZED_EXPORT_ADAPTER_ONLY"
+    }
+  ],
+  "aaii_required": false,
+  "consumers": {
+    "A4": "risk/context research report",
+    "A2_A3": "thesis context only",
+    "A5": "research context only; no portfolio policy effect",
+    "A8": "forward observation only"
+  },
+  "existing_workflow": ".github/workflows/daily_crisis_monitor.yml",
+  "new_scheduler": false,
+  "safety": {
+    "regime_authorized": false,
+    "source_admission_allowed": false,
+    "portfolio_overlay_allowed": false,
+    "target_book_write_allowed": false,
+    "order_generation_allowed": false,
+    "ledger_mutation_allowed": false,
+    "production_activation_allowed": false
+  },
+  "candidate_reassessment_consumer": {
+    "adapter": "tools/candidate_reassessment_bridge.py:macro_rows_from_context",
+    "snapshot": "tools/candidate_reassessment_bridge.py:snapshot",
+    "canonical_write": false,
+    "economic_admission": false
+  }
+}

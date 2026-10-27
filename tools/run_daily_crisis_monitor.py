@@ -408,6 +408,24 @@ def current_source_coverage(meta: dict[str, Any], session: str, path: Path | Non
                 authenticated_source_pit=False, source_count=len(actual))
 
 
+def attach_market_analysis(payload, args, now):
+    """Current research consumer edge; never changes legacy state or holdings."""
+    request = getattr(args, "market_analysis_request", None)
+    if request is None:
+        return
+    from tools import market_analysis_engine as market
+    expected = getattr(args, "expected_market_analysis_request_sha256", None)
+    pin_path = getattr(args, "market_analysis_request_sha_file", None)
+    if not expected and pin_path:
+        try:
+            expected = market.bounded(repo_path(pin_path), 128).decode("ascii").strip()
+        except (OSError, ValueError, UnicodeError):
+            expected = None
+    payload["market_analysis"] = market.load_report(
+        repo_path(request), repo_path(args.market_analysis_root) if args.market_analysis_root else None,
+        expected, cutoff=now)
+
+
 def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "report_slot", None):
         return build_clock_report(args)
@@ -415,6 +433,15 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
     now = clock.trusted_now().isoformat()
     latest_run = repo_path(args.latest_run)
     output_dir = repo_path(args.output_dir)
+    if getattr(args, "market_analysis_request", None):
+        market_root = getattr(args, "market_analysis_root", None)
+        if market_root:
+            root = repo_path(market_root).resolve()
+            if output_dir.resolve().is_relative_to(root) or root.is_relative_to(output_dir.resolve()):
+                raise ValueError("MARKET_INPUT_OUTPUT_OVERLAP")
+        request = repo_path(args.market_analysis_request).resolve()
+        if request.is_relative_to(output_dir.resolve()):
+            raise ValueError("MARKET_INPUT_OUTPUT_OVERLAP")
     output_dir.mkdir(parents=True, exist_ok=True)
     history_path = repo_path(args.history)
     history = read_json(history_path)
@@ -520,6 +547,7 @@ def build_monitor(args: argparse.Namespace) -> dict[str, Any]:
             "DEGRADED_DATA": "block new risk and apply conservative review cap",
         },
     }
+    attach_market_analysis(payload, args, now)
     (output_dir / "crisis_action_status.md").write_text(render_report(payload), encoding="utf-8")
     (output_dir / "summary.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if args.update_history and health["current_report_status"] != "BLOCKED":
@@ -636,6 +664,9 @@ def render_report(payload: dict[str, Any]) -> str:
             "",
         ]
     )
+    if "market_analysis" in payload:
+        from tools.market_analysis_engine import render_report as render_market
+        lines += ["", render_market(payload["market_analysis"])]
     return "\n".join(lines)
 
 
@@ -669,6 +700,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-snapshot-sha256", help="Accepted same-session portfolio summary hash; missing suppresses action candidates")
     parser.add_argument("--current-source-expectations", help="Accepted dated current observation-coverage snapshot")
     parser.add_argument("--expected-current-source-expectations-sha256", help="Externally accepted coverage file hash; never inferred from collected values")
+    parser.add_argument("--market-analysis-request", help="Pinned current unified research request")
+    parser.add_argument("--market-analysis-root", help="Bounded local mirror of existing Source originals")
+    parser.add_argument("--expected-market-analysis-request-sha256")
+    parser.add_argument("--market-analysis-request-sha-file", help="Source integrity pin; not Source/PIT approval")
     parser.add_argument("--update-history", action="store_true")
     parser.add_argument("--report-slot", choices=("INTRADAY", "AFTER_CLOSE"))
     parser.add_argument("--report-session", type=report_session)
@@ -704,7 +739,10 @@ def main() -> int:
                       ("current_report_status", "data_health", "blockers")}
                      if "current_report_status" in payload else
                      {"state": payload["state"], "raw_state": payload["raw_state"]}, indent=2))
-    return 2 if payload.get("current_report_status") == "BLOCKED" else 0
+    if "market_analysis" in payload:
+        print(json.dumps({"market_analysis_status": payload["market_analysis"]["status"]}))
+    return 2 if (payload.get("current_report_status") == "BLOCKED" or
+                 payload.get("market_analysis", {}).get("status") == "DATA_BLOCKED") else 0
 
 
 if __name__ == "__main__":

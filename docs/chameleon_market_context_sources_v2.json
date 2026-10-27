@@ -216,6 +216,72 @@
       "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
       "original_publication": "NOT_INFERRED",
       "source_url": "https://fred.stlouisfed.org/series/DTWEXBGS"
+    },
+    {
+      "source_id": "fred:WDTGAL",
+      "logical_id": "tga_weekly_close",
+      "unit": "millions_usd",
+      "max_observation_age_calendar_days": 14,
+      "family": "LIQUIDITY",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/WDTGAL"
+    },
+    {
+      "source_id": "fred:STLFSI4",
+      "logical_id": "stlfsi4",
+      "unit": "index",
+      "max_observation_age_calendar_days": 14,
+      "family": "FINANCIAL_CONDITIONS_COMPOSITE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/STLFSI4"
+    },
+    {
+      "source_id": "fred:RRPTSYD",
+      "logical_id": "rrp_total_daily",
+      "unit": "billions_usd",
+      "max_observation_age_calendar_days": 5,
+      "family": "LIQUIDITY",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/RRPTSYD"
+    },
+    {
+      "source_id": "fred:ANFCI",
+      "logical_id": "anfci",
+      "unit": "index",
+      "max_observation_age_calendar_days": 14,
+      "family": "FINANCIAL_CONDITIONS_COMPOSITE",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/ANFCI"
+    },
+    {
+      "source_id": "fred:BAMLC0A0CM",
+      "logical_id": "ig_oas",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "CREDIT",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/BAMLC0A0CM"
+    },
+    {
+      "source_id": "fred:DGS3MO",
+      "logical_id": "yield_3mo",
+      "unit": "percent",
+      "max_observation_age_calendar_days": 5,
+      "family": "RATES",
+      "collection": "EXISTING_LICENSED_INPUT_ONLY",
+      "historical_truth": "FREE_PROXY_CURRENT_VINTAGE",
+      "original_publication": "NOT_INFERRED",
+      "source_url": "https://fred.stlouisfed.org/series/DGS3MO"
     }
   ],
   "other_sources": [
