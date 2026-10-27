@@ -8576,3 +8576,15 @@ the real capture/verifier with injected responses, including valid weekends.
   snapshots do not emit the review-plan CLOSED flags. The wrapper now seals
   those explicit false flags around the unchanged native typed rows; no existing
   bridge schema/dispatch policy was changed. Preserve the31-case failed log.
+- Hosted exactb74 Codex found two additional P2 integration failures despite
+  the scoped Native/A6 passes. Preserve the reproduced SNAPSHOT_CONTRACT and
+  invalid_context_numeric errors. Generic snapshot hash verification did not
+  exercise plan_reassessment's exact schema reconstruction. Keep the native
+  snapshot unchanged and put review CLOSED flags on the enclosing report;
+  test an actual plan_reassessment handoff. Reuse clock.context_table's bounded
+  CSV plus incumbent pandas null parsing for blank optional numeric/boolean
+  warmup cells. Do not weaken native snapshot or missing-value validators.
+- Adopting the byte-identical publication commit refreshed sparse flags and
+  omitted the two new out-of-pattern docs. The first repair doc read refused.
+  Restore only those exact tracked Git blobs before the focused edit/validation;
+  preserve the existing sparse configuration and source files.

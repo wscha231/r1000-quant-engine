@@ -21,7 +21,9 @@ votes that double-count VIX or NFCI's underlying credit/rate components.
   contract market codes, open interest and net/long/short provenance.
 - Existing candidate-reassessment context adapter and snapshot: A2/A3 typed
   review inputs receive parsed macro, SENTIMENT and POSITIONING rows while every
-  dispatch, ER/ranking and canonical-write flag remains false.
+  dispatch, ER/ranking and canonical-write flag remains false on the enclosing
+  report. The native observation snapshot itself is not extended; it reaches
+  plan_reassessment under its exact reconstruction contract.
 - Existing daily crisis workflow, artifact and Drive status publication. No new
   scheduler. `run_daily_crisis_monitor` embeds `market_analysis` in its summary
   and readable report. A blocked unified report returns nonzero, even if an

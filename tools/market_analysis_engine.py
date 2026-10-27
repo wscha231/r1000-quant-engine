@@ -156,7 +156,7 @@ def native_risk(blobs, session, cutoff):
     decisions = {d: g["decision_time_utc"].iloc[0] for d,g in metrics.groupby("decision_date")}
     sessions = {d: (int(g["nyse_session_ordinal"].iloc[0]), str(g["calendar_source_sha256"].iloc[0]))
                 for d,g in metrics.groupby("decision_date")}
-    raw_context = clock.table(blobs["risk_context"]) if "risk_context" in blobs else None
+    raw_context = clock.context_table(blobs["risk_context"]) if "risk_context" in blobs else None
     ctx = risk.validate_context(raw_context, cfg, pd.Timestamp(session), decisions, sessions, calendar)
     components = risk.compute_component_percentiles(metrics, cfg)
     axes = risk.aggregate_axes(components, cfg)
@@ -211,11 +211,13 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     survey_panel = free.trailing_context(surveys, cutoff=cutoff, max_age_days=75, lookback=120, minimum=24)
     model = native_risk(native, session, cutoff)
     reassessment = reassessment_snapshot(composed, survey_panel, cutoff=cutoff, expires_at=req["expires_at"])
+    from tools.candidate_reassessment_bridge import CLOSED as review_authority
     result = {"schema": SCHEMA, "status": model["status"], "market": "US", "session": session,
         "cutoff": cutoff, "request_sha256": expected_sha,
         "market_assessment": model, "existing_market_context": composed,
         "household_expectations": survey_panel,
         "candidate_reassessment_snapshot": reassessment,
+        "candidate_reassessment_authority": dict(review_authority),
         "source_receipts": receipts, "network_requests_executed": 0,
         "input_producer_authenticated": False,
         "source_and_pit_admission": False,
@@ -252,11 +254,9 @@ def reassessment_snapshot(composed, survey_panel, *, cutoff, expires_at):
             identity={"unit":r["unit"], "dataset":r["dataset"]}, values={"value":r["current_value"]},
             status=r["status"], available_at=r["available_at"], collected_at=r["collected_at"],
             revision_id="market-context-observation", source_sha256=r["source_sha256"], causal_event_id=None))
-    snapshot = bridge.snapshot(rows, scope_id="US_MARKET_CONTEXT", cutoff=cutoff, expires_at=expires_at)
-    # The native observation snapshot only asserts source_authenticated=false.
-    # This consumer also records the closed review-plan authority explicitly.
-    body = {k:v for k,v in snapshot.items() if k != "content_sha256"}
-    return bridge.seal({**body, **bridge.CLOSED})
+    # plan_reassessment reconstructs this exact native observation schema.
+    # Review-plan authority belongs on the enclosing market report.
+    return bridge.snapshot(rows, scope_id="US_MARKET_CONTEXT", cutoff=cutoff, expires_at=expires_at)
 
 
 def implementation_identity():

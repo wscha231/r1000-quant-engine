@@ -232,7 +232,7 @@ class IntegratedMarketTests(unittest.TestCase):
         self.assertEqual(len(snap["rows"]),1)
         self.assertEqual(snap["rows"][0]["entity_id"],"nfci")
         self.assertEqual(snap["rows"][0]["values"]["value"],-.3)
-        for key in bridge.CLOSED:self.assertIs(snap[key],False)
+        for key in bridge.CLOSED:self.assertIs(out["candidate_reassessment_authority"][key],False)
 
     def test_invalid_current_input_overwrites_previous_success_with_blocked_summary(self):
         with tempfile.TemporaryDirectory() as d:
@@ -255,6 +255,18 @@ class IntegratedMarketTests(unittest.TestCase):
             self.assertIsNone(saved["market_analysis"]["market_assessment"]["state"])
             self.assertIn("Unified Market Analysis",(output/"crisis_action_status.md").read_text())
             self.assertEqual(report["paper_action_candidates"],[])
+
+    def test_engine_snapshot_reaches_existing_plan_reassessment(self):
+        from tools import candidate_reassessment_bridge as bridge
+        raw=b"observation_date,NFCI\n2026-10-23,-0.3\n"
+        report=analyze(request([source(raw)]),{"raw.csv":raw})
+        snapshot=report["candidate_reassessment_snapshot"]
+        index=bridge.exposure_index(candidates=[],edges=[],available_at=NOW,expires_at=request()["expires_at"])
+        identity=dict(code_sha="b"*40,config_sha256="c"*64,model_version="SYNTHETIC_INTEGRATION",
+                      parameters_sha256="d"*64,dependency_sha256="e"*64)
+        plan=bridge.plan_reassessment(None,snapshot,index,now=NOW,contract_identity=identity)
+        self.assertEqual(plan["current_snapshot_sha256"],snapshot["content_sha256"])
+        for key in bridge.CLOSED:self.assertIs(plan[key],False)
 
     def test_monitor_handoff_cannot_change_legacy_state(self):
         with tempfile.TemporaryDirectory() as d:
@@ -298,6 +310,19 @@ class NativeRiskPipelineTests(unittest.TestCase):
         for key,value in m.SAFETY.items():self.assertEqual(out[key],value)
         self.assertFalse(out["source_and_pit_admission"])
         self.assertEqual(out["household_expectations"],[])
+
+    def test_producer_context_optional_blanks_preserve_native_missing_values(self):
+        # The incumbent CSV producer emits blanks during warmup and where an
+        # optional fundamental/leadership input was never supplied.
+        frame=m.clock.context_table(self.blobs["risk_context"])
+        for name in m.risk.load_contract()["context_columns"]["optional_numeric"]+m.risk.load_contract()["context_columns"]["optional_boolean"]:
+            frame.loc[0,name]=None
+            frame.loc[len(frame)-1,name]=None
+        raw=frame.to_csv(index=False).encode()
+        result=m.native_risk({**self.blobs,"risk_context":raw},DAY,NOW)
+        self.assertEqual(result["status"],"READY_RESEARCH_ONLY")
+        self.assertEqual(result["risk_score"],50.)
+        self.assertEqual(result["ready_axis_count"],10)
 
     def test_same_calendar_different_metric_session_refused(self):
         with self.assertRaises(ValueError):m.native_risk(self.blobs,"2026-10-27",NOW)
