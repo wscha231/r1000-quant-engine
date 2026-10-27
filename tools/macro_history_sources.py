@@ -203,11 +203,17 @@ def period_gaps(records, frequency):
 
 
 def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
-    specs = {s["id"]: s for s in registry()["series"]}
+    # Pin the same registry bytes used for selection and receipt identity.
+    # New series must not make already-held bundles unreadable after a config
+    # update, or let a mid-run registry edit re-label the selected inputs.
+    registry_raw = REGISTRY.read_bytes()
+    specs = {s["id"]: s for s in json.loads(registry_raw)["series"]}
     require(mode in ("current", "alfred") and 0 < len(series_ids) <= 40, "collection_scope")
     require(len(series_ids) == len(set(series_ids)) and set(series_ids) <= set(specs), "unknown_series")
     require(date.fromisoformat(start) <= date.fromisoformat(through) <= stamp(utc_now()).date(), "collection_window")
     store = Path(store)
+    registry_hash = digest(registry_raw)
+    exclusive(store / "objects" / registry_hash, registry_raw)
     items = []
     for series in series_ids:
         try:
@@ -244,7 +250,7 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
             reason = str(exc) if str(exc) in PUBLIC_ERRORS else "SOURCE_CONTRACT_OR_KEY"
             items.append(dict(series=series, status="BLOCKED", reason=reason))
     receipt = dict(schema="macro-history-bundle-v1", mode=mode, requested_start=start,
-        requested_through=through, created_at=utc_now(), registry_sha256=digest(REGISTRY.read_bytes()),
+        requested_through=through, created_at=utc_now(), registry_sha256=registry_hash,
         sources=items, durable_remote_verified=False, historical_price_pit_verified=False)
     raw = encoded(receipt)
     path = store / "receipts" / (digest(raw)+".json")
@@ -252,14 +258,42 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
     return receipt, path
 
 
-def load_bundle(store, receipt_path):
+def load_bundle(store, receipt_path, *, registry_raw=None):
+    """Read the receipt's exact registry version, never a newer replacement.
+
+    New bundles retain their registry as a content-addressed object. Historical
+    byte readers may supply original registry bytes explicitly. The default
+    analysis caller still requires equality with the current registry, so a
+    changed frequency/unit/config cannot silently reinterpret an old bundle.
+    A corrupt stored snapshot is refused, never replaced by current bytes.
+    This is byte/provenance validation, not Source/PIT or economic admission.
+    """
     raw = Path(receipt_path).read_bytes()
     require(Path(receipt_path).stem == digest(raw), "receipt_hash")
     receipt = json.loads(raw)
     require(receipt["schema"] == "macro-history-bundle-v1", "receipt_schema")
-    require(receipt["registry_sha256"] == digest(REGISTRY.read_bytes()), "registry_changed")
-    records = {}
+    expected = receipt["registry_sha256"]
+    require(isinstance(expected, str) and re.fullmatch("[0-9a-f]{64}", expected) is not None,
+            "registry_identity")
+    snapshot = Path(store) / "objects" / expected
+    if registry_raw is None:
+        registry_raw = REGISTRY.read_bytes()
+    require(type(registry_raw) is bytes and 0 < len(registry_raw) <= MAX_BYTES
+            and digest(registry_raw) == expected, "registry_changed")
+    if snapshot.exists():
+        with snapshot.open("rb") as stream:
+            stored = stream.read(MAX_BYTES + 1)
+        require(digest(stored) == expected, "registry_snapshot_hash")
+    version = json.loads(registry_raw)
+    require(version.get("schema") == "macro-indicator-registry-v1"
+            and isinstance(version.get("series"), list), "registry_schema")
+    registered = {row["id"] for row in version["series"]}
+    require(len(registered) == len(version["series"]), "registry_duplicate_series")
+    records, seen = {}, set()
     for source in receipt["sources"]:
+        require(source["series"] in registered and source["series"] not in seen,
+                "registry_source_scope")
+        seen.add(source["series"])
         if source["status"] != "COLLECTED":
             continue
         hashes = source["raw_sha256"] + [source["records_sha256"]]

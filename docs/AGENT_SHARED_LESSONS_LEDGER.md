@@ -8529,3 +8529,36 @@ the real capture/verifier with injected responses, including valid weekends.
   reads and exact protected/news file comparisons succeeded. Corrupt objects
   were not established. Preserve the warning and scoped readback; no pack or
   object deletion/cleanup was performed as a workaround.
+
+## 2026-10-27 — Match A4's exact macro inputs without replacing history
+
+- A4 requests BAMLC0A0CM, DGS3MO, WDTGAL and RRPTSYD, but the existing Source
+  registry omitted all four. Extend that registry and reuse its collector/Lake;
+  do not introduce another collector or require a whole-cohort rerun. WDTGAL
+  is the Wednesday Treasury balance in millions of dollars, not WTREGEN's
+  weekly average. RRPTSYD is distinct from overnight-only RRPONTSYD and uses
+  billions. Keep both existing series; never silently alias their values.
+- FRED's ICE corporate OAS notes limit the currently available series to three
+  years from April2026. Preserve already-held originals, actual returned dates
+  and provider terms; a requested six-year window is not six years of data.
+  Official metadata: https://fred.stlouisfed.org/series/BAMLC0A0CM,
+  https://fred.stlouisfed.org/series/DGS3MO,
+  https://fred.stlouisfed.org/series/WDTGAL,
+  https://fred.stlouisfed.org/series/RRPTSYD.
+- Seal the registry bytes once before collection and retain their hash object.
+  An explicit original registry permits historical bundle byte readback; the
+  default analysis guard still refuses a changed current registry. Old Lake
+  catalogs/objects remain immutable and incompatible analysis stays blocked.
+  Update only affected dependency pins in the existing reuse catalog; preserve
+  its historical source identities, no-dispatch constraints and strict checks.
+- Main currently has another active market-analysis writer. Preserve its lease
+  and edits; this change uses only the existing free Source lane. Code and local
+  held-byte replay do not certify a new Drive generation, current Regime,
+  economic validation, portfolio authority or three normal automated cycles.
+- Pin Git-LF code bytes in the reuse catalog, not Windows checkout CRLF hashes.
+  The first extra Native manual-proof run found six unrelated CRLF mismatches
+  in historical fixtures; preserve those failures and use only hash-verified
+  Git-LF fixture bytes for a scoped replay, without weakening runtime guards.
+  The separate unchanged macro-cycle suite also fails its POSIX0600 assertion
+  on Windows (mode0666). Its last successful lesson command does not turn that
+  multi-command session into an aggregate pass; Linux CI must verify the mode.

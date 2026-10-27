@@ -31,6 +31,37 @@ class HistoryTest(unittest.TestCase):
         lake.dataset('sec/0000000001',[b'original'],[dict(end='2016-12-31',filed='2017-02-01',value=value,concept='Revenue',unit='USD')],
             dict(evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rows=1))
 
+    def test_a4_missing_four_flow_through_existing_lake_without_alias_or_history_rewrite(self):
+        from tools.long_history_lake import collect_macros, registry
+        wanted = {'BAMLC0A0CM', 'DGS3MO', 'WDTGAL', 'RRPTSYD'}
+        specs = [row for row in registry()['series'] if row['id'] in wanted]
+        self.assertEqual(len(specs), 4)
+        self.put(); first = self.lake.publish('before-four', {})
+        next_lake = Lake(self.t, self.root/'with-four')
+        calls = []
+        def held(sid, start, through, mode):
+            calls.append((sid, mode))
+            return ([('observation_date,'+sid+'\n2026-10-21,1.25\n').encode()],
+                    '2026-10-27T07:00:00+00:00')
+        with patch('tools.long_history_lake.registry', return_value={'series': specs}), \
+             patch('tools.long_history_lake.WB_INDICATORS', ()), \
+             patch('tools.long_history_lake.fetch_fred_retry', side_effect=held):
+            collect_macros(next_lake, '2026-10-01', '2026-10-26')
+        self.assertEqual(set(calls), {(sid, 'current') for sid in wanted})
+        for spec in specs:
+            entry = next_lake.catalog['datasets']['current/'+spec['id']]
+            self.assertEqual(entry['unit'], spec['unit'])
+            self.assertEqual(entry['frequency'], spec['frequency'])
+            self.assertEqual(entry['evidence'], 'current_only')
+            self.assertEqual(entry['first_available_at'], '2026-10-27T07:00:00+00:00')
+        next_lake.publish('after-four', {})
+        restored = Lake(self.t, self.root/'read-four')
+        for sid in wanted:
+            self.assertEqual(restored.get_records('current/'+sid)[0]['value'], 1.25)
+        original = json.loads(restored.read_hash('catalogs', first['catalog_sha256']))
+        self.assertEqual(set(original['datasets']), {'sec/0000000001'})
+        self.assertEqual(restored.get_records('sec/0000000001')[0]['value'], 100)
+
     def test_roundtrip_and_version_preservation(self):
         self.put(); first=self.lake.publish('one',{})
         next_lake=Lake(self.t,self.root/'second'); self.put(next_lake,90)
