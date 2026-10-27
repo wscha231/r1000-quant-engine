@@ -8595,3 +8595,10 @@ the real capture/verifier with injected responses, including valid weekends.
   bound specifically for the metric panel and64MiB total, preserving8MiB for
   ordinary sources, exact hashes and all native semantic/risk validators.
   Reader boundary regressions cover above8MiB, above32MiB and ordinary sources.
+
+
+### 2026-10-27 — A0 current market-context reuse pin repair
+
+- PR689 exact6d5 fullCI40495168133/job122158677659 passed234/235 programs, then the registered ManualTests correctly refused catalog_dependency_changed:tools/chameleon_market_context_v2.py. Preserve that hosted negative and exact6d5 Native Git-LF two-method RED (errors2); the earlier engine36/mode and fixed-proof3 scopes did not certify the full reuse catalog.
+- Update only group_577 dependency hash for the reviewed context Git-LF bytes2127c43f... to dc607900.... Preserve all historical catalog identities, frozen577 SEC witnesses, current guards and test bodies. SEC2 differs from current production bytes intentionally; do not repin frozen historical sources as an incidental fix.
+- Source4f and Main6d5 retained evidence already consumes the same four actual originals and original collection clocks. Verified9 runtime Git blobs, ZIP CRC and45 indexed members; replay remains current-vintage/DATA_BLOCKED with empty unadmitted candidate exposure, not accepted Source/PIT or recurring publication. ZIP member paths are not necessarily the flat local proof paths.

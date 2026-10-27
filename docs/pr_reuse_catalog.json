@@ -876,7 +876,7 @@
         "r1000_trade_journal.py": "40de0697e923306c80111e06e30c46fd36f42e7c237df587a16319ef9012d56f",
         "tools/build_run287_chameleon_macro_inputs.py": "3f3a46d0a7d03a8ceec4721236da9d055a80377a3d881acbe8b32ab071d81812",
         "tools/build_run287_chameleon_macro_risk.py": "5de7373a04097ae7c396d107a65da76ec5a578c75a8fa4563c3a740ced8ed024",
-        "tools/chameleon_market_context_v2.py": "2127c43fdb04c2eb0e52ed8ffd8cad998f730c59f6506e6e9b4803d0c1f7d9d3",
+        "tools/chameleon_market_context_v2.py": "dc6079008a0aa591286969d88819163a3c8365663b749e56b6d9c48ae888066d",
         "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
         "tools/eodhd_calendar_trends.py": "45835a01480231310c47f855d784ddfba26ea731a0ee4309edbb7324045f5107",
         "tools/etf_leadership_snapshot.py": "9fa8d66db01519fc3c8d36d3909b540e1303f96322789ee4ad1eb0770de587e4",
