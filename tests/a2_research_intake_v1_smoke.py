@@ -585,4 +585,94 @@ class IntakeTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(),h.canonical(result))
             for abandoned in root.glob('.a2-intake-*.tmp'): abandoned.unlink()
 
+    def candidate_queue_fixture(self, root):
+        from tools import run_a2_research_intake as caller
+        raw=b'ticker,native_score,available_from\nS0,99,2020-01-01\nOTHER,100,2099-01-01\nOLD0,,\n'
+        (root/'native.csv').write_bytes(raw)
+        id_raw=identities(); (root/'identities.json').write_bytes(id_raw)
+        source=dict(kind='RELATIVE_STRENGTH', file=dict(path='native.csv',sha256=h.digest(raw)),
+            ticker_column='ticker', tickers=['S0','OLD0'], polarity='CANDIDATE', observed_at=T)
+        request=dict(schema='a2-candidate-queue-files-v1',
+            identities=dict(path='identities.json',sha256=h.digest(id_raw)),sources=[source])
+        return caller,request
+
+    def test_candidate_sources_join_existing_queue_without_score_or_freshness_admission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.candidate_queue_fixture(root)
+            for kind in ('SEC_OWNERSHIP','SEC_13F','POST_DISCLOSURE','FUNDAMENTAL_EARNINGS','ESTIMATE_REVISION','FUSION_REVIEW'):
+                request['sources'].append(dict(request['sources'][0],kind=kind,polarity='RISK_WATCH'))
+            with patch('socket.socket',side_effect=RuntimeError('NETWORK_FORBIDDEN')):
+                result=self.file_intake_prepare(root,caller,request)
+                repeat=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(result,repeat)
+            self.assertEqual(result['queue']['direct_score_contribution'],0)
+            self.assertEqual(len(result['queue']['items']),1)  # S0 and OLD0 share one supplied security.
+            item=result['queue']['items'][0]
+            self.assertEqual(item['state'],'DATA_PENDING')
+            self.assertEqual(len(item['membership_reasons']),14)
+            self.assertEqual(set(item['channel_status'].values()),{'CONSUMER_RECEIPT_MISSING'})
+            self.assertFalse(any(item['authority'].values()))
+            self.assertFalse(result['proposal']['reuse_authorized'])
+            self.assertEqual(result['source_freshness'],'NOT_VERIFIED')
+            self.assertFalse(result['recurring_pipeline_connected'])
+            self.assertEqual(len([r for r in result['read_set'] if r['role']=='candidate_csv']),1)
+            self.assertEqual(result['source_independence'],'NOT_VERIFIED')
+            for producer in result['producer_bindings']:
+                self.assertEqual((producer['total_rows'],producer['selected_rows']),(3,2))
+                self.assertIsNone(producer['source_publication_at'])
+                self.assertFalse(producer['observation_is_publication'])
+            # The native 99, blank, stale and future source cells never become scores/clocks.
+            self.assertNotIn('native_score',str(result['queue']))
+            self.assertEqual({r['valid_until'] for r in item['membership_reasons']},{''})
+
+    def test_candidate_selection_and_identity_ambiguity_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.candidate_queue_fixture(root)
+            for tickers in (['MISSING'],['S0','S0'],[],['OTHER']):
+                changed=copy.deepcopy(request); changed['sources'][0]['tickers']=tickers
+                with self.subTest(tickers=tickers),self.assertRaises(caller.intake.IntakeError):
+                    self.file_intake_prepare(root,caller,changed)
+            values=json.loads(identities(2)); values['rows'][1]['tickers'].append('S0')
+            raw=h.canonical(values); (root/'identities.json').write_bytes(raw)
+            request['identities']['sha256']=h.digest(raw)
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_EXACT_SECURITY_MAPPING'):
+                self.file_intake_prepare(root,caller,request)
+
+    def test_candidate_queue_refuses_hash_clock_schema_and_csv_conflicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.candidate_queue_fixture(root)
+            for field,value in (('observed_at','2099-01-01T00:00:00Z'),('kind','AUTO_BUY'),
+                                ('polarity','BUY'),('ticker_column','absent')):
+                changed=copy.deepcopy(request); changed['sources'][0][field]=value
+                with self.subTest(field=field),self.assertRaises(caller.intake.IntakeError):
+                    self.file_intake_prepare(root,caller,changed)
+            request['sources']*=2
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_DUPLICATE_SOURCE'):
+                self.file_intake_prepare(root,caller,request)
+            request['sources']=request['sources'][:1]
+            for raw in (b'ticker,ticker\nS0,S0\n',b'ticker,x\nS0\n',b'ticker,x\nS0,1,2\n',b'\xff'):
+                (root/'native.csv').write_bytes(raw)
+                request['sources'][0]['file']['sha256']=h.digest(raw)
+                with self.subTest(raw=raw),self.assertRaises(caller.intake.IntakeError):
+                    self.file_intake_prepare(root,caller,request)
+            (root/'native.csv').write_bytes(b'changed')
+            with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_HASH_MISMATCH'):
+                self.file_intake_prepare(root,caller,request)
+
+    def test_candidate_csv_has_separate_cap_with_shared_total_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); caller,request=self.candidate_queue_fixture(root)
+            raw=b'ticker,x\nS0,\n'+(b'OTHER,'+b'x'*8000+b'\n')*550
+            self.assertGreater(len(raw),h.MAX_BYTES)
+            (root/'native.csv').write_bytes(raw)
+            request['sources'][0].update(file=dict(path='native.csv',sha256=h.digest(raw)),tickers=['S0'])
+            result=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(result['producer_bindings'][0]['total_rows'],551)
+            with patch.object(caller.intake,'MAX_TOTAL_BYTES',len(raw)-1):
+                with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_BYTE_BUDGET|FILE_TOTAL_BUDGET'):
+                    self.file_intake_prepare(root,caller,request)
+            with (root/'native.csv').open('wb') as stream: stream.truncate(16*1024*1024+1)
+            with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_BYTE_BUDGET'):
+                self.file_intake_prepare(root,caller,request)
+
 if __name__=='__main__': unittest.main()

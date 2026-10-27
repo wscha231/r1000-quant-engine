@@ -102,6 +102,85 @@ including selector/ER/target/portfolio/paper/broker/orders/promotion/execute/
 production/dispatch/admission/ledger/canonical_write/learning. No automatic A3,
 A0, A5, champion, paper or broker operation is connected.
 
+## Existing candidate producers to the pending queue (2026-10-27)
+
+Task: `R1000-A2-EXISTING-CANDIDATE-QUEUE-CONNECTION-20261027`.
+Audit base: `12556c6253e54a4d5a20a3dcf8cf247ad7a48a56`, #448 / #670.
+
+| Family | Existing producer / consumer | Boundary still requiring evidence |
+|---|---|---|
+| Form3/4/5, including amendments | `run_sec_form4_parser` -> `build_ownership_research_events` -> `run_sec_research_consumption` -> existing A2 / Registry filing request / A3 filing reference | Pending content review is not a completed Thesis; P code is not verified execution venue. |
+| 13F | `run_sec_13f_parser` -> `run_13f_position_event_builder` -> post-disclosure candidates; `build_top_manager_discovery_signals` -> SEC-enriched replay -> candidate lanes | Authenticated 13F Main admission remains blocked in the existing SEC consumer; mapping, report completeness and amendment lineage cannot be bypassed. |
+| Financial quality / operating acceleration | `r1000_candidate_lanes.score_candidate_lanes` quality, emerging and cyclical lanes | Existing replay inputs and missing-value defaults do not establish current financial coverage, source clocks or research eligibility. |
+| Earnings estimates | `collect_earnings_estimates_finnhub.compute_estimate_revision_features` -> free-data selection overlay | Two comparable vintages, explicit validity and confirmation are necessary; no analyst-breadth source remains UNKNOWN. |
+| Relative strength / leadership | `r1000_candidate_lanes` market-leader / emerging lanes, existing technical Reader route | Benchmark, sessions, price basis and actual consumer receipts remain separate gates. |
+| Cross-source shortlist | `run_post_disclosure_alpha_candidates`, `run_fusion_candidate_review` | Their ranked CSV/replay outputs previously had no shared file-to-pending-queue caller. |
+
+The daily operating workflow calls SEC-enriched replay on its restored-target
+revaluation book. That is not a fresh broad-universe discovery run. The full
+rebuild sidecar also calls the existing manager and fusion producers; this audit
+does not authorize executing that full rebuild or promote any legacy blend.
+
+At the audit observation, Form345 run40436717028/head2144fb9 succeeded, including
+its Drive sync step; this alone does not certify every form or full coverage.
+13F run40270200680/head55c35a2 preserved collected Source independently, then
+failed combined weighted analysis: required-period parsed-manager coverage
+0.1470588235, mapped-row coverage0.0376809578, one parse-error manager and no
+parsed required amendment. Earnings run40455721621/head2144fb9 failed before
+collection with `missing_collector_transaction_marker`. Preserve these
+failures and held data; neither a queue proposal nor a new observation clock
+repairs them. No workflow was dispatched or rerun for this connection.
+
+`tools/run_a2_research_intake.py` now also accepts a closed request:
+
+```json
+{
+  "schema": "a2-candidate-queue-files-v1",
+  "identities": {"path": "identities.json", "sha256": "<actual SHA256>"},
+  "sources": [{
+    "kind": "RELATIVE_STRENGTH",
+    "file": {"path": "scored_latest.csv", "sha256": "<actual SHA256>"},
+    "ticker_column": "ticker",
+    "tickers": ["MU"],
+    "polarity": "CANDIDATE",
+    "observed_at": "<explicit aware time this output was observed>"
+  }]
+}
+```
+
+Use the same CLI below with the actual request hash and cutoff. Supported kinds
+are SEC_OWNERSHIP, SEC_13F, POST_DISCLOSURE, FUNDAMENTAL_EARNINGS,
+RELATIVE_STRENGTH, ESTIMATE_REVISION and FUSION_REVIEW. Kinds and CANDIDATE or
+RISK_WATCH polarity are caller assertions, not inferred favorable signals.
+The exact selected tickers must exist in the held CSV and map unambiguously
+through the existing supplied US/USD identity contract. No new ranking,
+threshold, CUSIP inference or automatic universe/Registry membership is added.
+
+The adapter hashes every complete source file and selected data row, records
+all source-row and selected-row denominators, combines reasons by exact
+security, and calls the existing `validate_queue`. Aliases share a security;
+different securities do not. Native scores and blank cells remain in the
+hash-bound originals and never become direct scores or fabricated zeros.
+Output includes the original queue envelope and validated proposal so an
+existing A0/A1 consumer can inspect required channels and reuse held inputs.
+
+All items remain DATA_PENDING with missing consumer receipts and unknown source
+publication/expiry. observed_at is an output-observation assertion, never a
+fresh filing, price, revision or publication clock. This permits review of an
+old output without certifying it as current. There is no collector, persistent
+watch, recurring producer delivery, consumer ACK, dispatch or current pointer.
+Authenticated Form345 consumption and the blocked 13F admission path remain
+unchanged. A pending queue does not substitute for either.
+
+CSV input is capped at16MiB/file,10000 data rows and2048 distinct columns to
+accommodate the incumbent7.48MB scored table. JSON retains4MiB/object; total
+held input remains32MiB. There are at most10 sources and1000 explicitly selected
+tickers/source. Duplicate sources, ambiguous identities, missing selections,
+malformed CSV, mismatched hashes, traversal and future observations refuse.
+An identical path/hash CSV reused for several reason families is read once in
+that execution; relabeling the same bytes cannot certify independent sources.
+The existing create-only output writer and closed authority flags apply.
+
 ## Bounded file caller (2026-10-27)
 
 `tools/run_a2_research_intake.py` loads already-held event evidence into the
