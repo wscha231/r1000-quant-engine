@@ -268,6 +268,34 @@ class IntegratedMarketTests(unittest.TestCase):
         self.assertEqual(plan["current_snapshot_sha256"],snapshot["content_sha256"])
         for key in bridge.CLOSED:self.assertIs(plan[key],False)
 
+    def test_full_native_metric_reader_accepts_above_eight_mib_with_hash_binding(self):
+        # Reader boundary only: calculation semantics are exercised separately
+        # by the complete native pipeline fixtures.
+        raw=b"0"*(m.MAX_FILE_BYTES+1)
+        spec=source(raw,kind="risk_metrics")
+        req=encode(request([spec]))
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/"raw.csv").write_bytes(raw);(root/"request.json").write_bytes(req)
+            model=dict(status="DATA_BLOCKED",state=None,risk_score=None,axes=[],ready_axis_count=0,
+                       required_axes_ready=False,blockers=["SYNTHETIC_READER_ONLY"])
+            with patch.object(m,"native_risk",return_value=model) as native:
+                out=m.load_report(root/"request.json",root,m.sha(req),cutoff=NOW)
+            native.assert_called_once()
+            self.assertEqual(len(native.call_args.args[0]["risk_metrics"]),len(raw))
+            self.assertEqual(out["source_receipts"][0]["sha256"],m.sha(raw))
+            self.assertEqual(out["status"],"DATA_BLOCKED")
+
+    def test_large_native_and_ordinary_source_caps_still_refuse_before_parsing(self):
+        for kind,size in (("risk_metrics",m.MAX_NATIVE_METRIC_BYTES+1),("macro",m.MAX_FILE_BYTES+1)):
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as d:
+                root=Path(d);raw=b"0"*size;req=encode(request([source(raw,kind=kind)]))
+                (root/"raw.csv").write_bytes(raw);(root/"request.json").write_bytes(req)
+                with patch.object(m,"native_risk") as native,patch.object(m.context,"macro_source_rows") as macro:
+                    out=m.load_report(root/"request.json",root,m.sha(req),cutoff=NOW)
+                native.assert_not_called();macro.assert_not_called()
+                self.assertEqual(out["status"],"DATA_BLOCKED")
+                self.assertIsNone(out["market_assessment"]["state"])
+
     def test_monitor_handoff_cannot_change_legacy_state(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);raw=encode(request());p=root/"request.json";p.write_bytes(raw)

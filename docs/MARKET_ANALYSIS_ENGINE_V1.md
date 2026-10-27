@@ -99,8 +99,9 @@ values never fall back to favorable earlier values. Failed/stale-retained source
 statuses, changed bytes, duplicated roles, path escape and future clocks refuse
 the request. No last-good report is consumed as this invocation's success.
 
-The reader caps requests at256KiB, each input at8MiB, total selected bytes at32MiB
-and inputs at40. It refuses symlinks/special files before opening and rechecks
+The reader caps requests at256KiB, ordinary inputs at8MiB, the native metric
+panel at32MiB, total selected bytes at64MiB and inputs at40. A full six-year
+metric panel can exceed8MiB; its bound matches the incumbent report reader. It refuses symlinks/special files before opening and rechecks
 file identity. The engine performs zero network requests. Code and contracts
 are fingerprinted for the output; no API credentials enter the request.
 

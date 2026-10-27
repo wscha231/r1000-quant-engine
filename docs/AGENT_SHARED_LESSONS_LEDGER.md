@@ -8588,3 +8588,10 @@ the real capture/verifier with injected responses, including valid weekends.
   omitted the two new out-of-pattern docs. The first repair doc read refused.
   Restore only those exact tracked Git blobs before the focused edit/validation;
   preserve the existing sparse configuration and source files.
+- Check input bounds against the actual incumbent producer's full history,
+  not only a260-session fixture. The retained partial panel is900221B/2961rows;
+  at the same serialized scale42 components x1500 sessions projects19.2MB
+  (an estimate, not acquired full data). Use the existing native reader's32MiB
+  bound specifically for the metric panel and64MiB total, preserving8MiB for
+  ordinary sources, exact hashes and all native semantic/risk validators.
+  Reader boundary regressions cover above8MiB, above32MiB and ordinary sources.

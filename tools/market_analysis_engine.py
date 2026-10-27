@@ -29,8 +29,9 @@ SAFETY = {**context.SAFETY, "source_admission_allowed": False,
           "portfolio_overlay_allowed": False, "policy_handoff_implemented": False,
           "notification_enabled": False, "ledger_mutation_allowed": False,
           "order_generation_allowed": False, "target_book_write_allowed": False}
-MAX_TOTAL_BYTES = 32 * 1024**2
+MAX_TOTAL_BYTES = 64 * 1024**2
 MAX_FILE_BYTES = 8 * 1024**2
+MAX_NATIVE_METRIC_BYTES = 32 * 1024**2
 MAX_INPUTS = 40
 
 
@@ -180,6 +181,12 @@ def native_risk(blobs, session, cutoff):
         "calibration_or_economic_approval": False})
 
 
+def input_limit(spec):
+    # Full six-year native metric panels exceed the ordinary source-file cap.
+    # Match the incumbent report reader's32MiB metric bound, not its risk policy.
+    return MAX_NATIVE_METRIC_BYTES if spec["kind"] == "risk_metrics" else MAX_FILE_BYTES
+
+
 def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     req = verify_request(raw_request, expected_sha, cutoff, session)
     need(type(supplied) is dict and set(supplied) == {s["path"] for s in req["inputs"]}, "INPUT_SET")
@@ -188,7 +195,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     need(sum(len(x) for x in supplied.values()) <= MAX_TOTAL_BYTES, "TOTAL_INPUT_BUDGET")
     for spec in req["inputs"]:
         raw = supplied[spec["path"]]
-        need(type(raw) is bytes and 0 < len(raw) <= MAX_FILE_BYTES and sha(raw) == spec["sha256"], "INPUT_BYTES_HASH")
+        need(type(raw) is bytes and 0 < len(raw) <= input_limit(spec) and sha(raw) == spec["sha256"], "INPUT_BYTES_HASH")
         kind, collected = spec["kind"], spec["collected_at"]
         receipts.append({k: spec[k] for k in ("kind", "path", "sha256", "status", "collected_at")})
         if kind == "macro":
@@ -289,7 +296,7 @@ def load_report(request_path, source_root, expected_sha, *, cutoff, session=None
             for parent in [path, *path.parents]:
                 if parent == root: break
                 need(not parent.is_symlink(), "INPUT_SYMLINK")
-            supplied[spec["path"]] = bounded(path, min(MAX_FILE_BYTES, remaining))
+            supplied[spec["path"]] = bounded(path, min(input_limit(spec), remaining))
             remaining -= len(supplied[spec["path"]])
         result = analyze(raw, supplied, expected_sha=expected_sha, cutoff=cutoff, session=session)
         need(identity == implementation_identity(), "IMPLEMENTATION_CHANGED")
