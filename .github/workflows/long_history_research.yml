@@ -27,6 +27,7 @@ on:
       - 'docs/research_dataset_generation_v1.schema.json'
       - 'docs/research_data_access.json'
       - 'docs/macro_indicator_registry.json'
+      - 'docs/run287_chameleon_macro_inputs_contract.json'
       - 'tests/long_history_lake_smoke.py'
       - 'tests/macro_technical_evidence_smoke.py'
       - 'tests/macro_research_cycle_smoke.py'
@@ -82,6 +83,7 @@ jobs:
             /tests/macro_technical_evidence_smoke.py
             /tests/macro_research_cycle_smoke.py
             /docs/macro_indicator_registry.json
+            /docs/run287_chameleon_macro_inputs_contract.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

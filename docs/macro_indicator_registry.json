@@ -421,6 +421,62 @@
       "default_refresh_class": "monthly",
       "raw_redistribution": "source_terms_review_required",
       "initial_inference": "SHADOW_ONLY"
+    },
+    {
+      "id": "BAMLC0A0CM",
+      "name": "ICE BofA investment-grade corporate option-adjusted spread",
+      "frequency": "daily",
+      "group": "credit",
+      "unit": "percent",
+      "source_url": "https://fred.stlouisfed.org/series/BAMLC0A0CM",
+      "calendar_url": "https://fred.stlouisfed.org/releases/calendar",
+      "calendar_adapter": "FRED_API_release_dates_or_official_timestamp_input",
+      "revision_overlap": "full_history_on_revision; recent_10_observations",
+      "default_refresh_class": "daily",
+      "raw_redistribution": "source_terms_review_required",
+      "initial_inference": "SHADOW_ONLY"
+    },
+    {
+      "id": "DGS3MO",
+      "name": "3-month Treasury constant maturity investment yield",
+      "frequency": "daily",
+      "group": "rates",
+      "unit": "percent",
+      "source_url": "https://fred.stlouisfed.org/series/DGS3MO",
+      "calendar_url": "https://fred.stlouisfed.org/releases/calendar",
+      "calendar_adapter": "FRED_API_release_dates_or_official_timestamp_input",
+      "revision_overlap": "full_history_on_revision; recent_10_observations",
+      "default_refresh_class": "daily",
+      "raw_redistribution": "source_terms_review_required",
+      "initial_inference": "SHADOW_ONLY"
+    },
+    {
+      "id": "WDTGAL",
+      "name": "Treasury General Account Wednesday level",
+      "frequency": "weekly",
+      "group": "liquidity",
+      "unit": "millions_usd",
+      "source_url": "https://fred.stlouisfed.org/series/WDTGAL",
+      "calendar_url": "https://fred.stlouisfed.org/releases/calendar",
+      "calendar_adapter": "FRED_API_release_dates_or_official_timestamp_input",
+      "revision_overlap": "full_history_on_revision; recent_10_observations",
+      "default_refresh_class": "weekly",
+      "raw_redistribution": "source_terms_review_required",
+      "initial_inference": "SHADOW_ONLY"
+    },
+    {
+      "id": "RRPTSYD",
+      "name": "Federal Reserve temporary reverse repo Treasury securities",
+      "frequency": "daily",
+      "group": "liquidity",
+      "unit": "billions_usd",
+      "source_url": "https://fred.stlouisfed.org/series/RRPTSYD",
+      "calendar_url": "https://fred.stlouisfed.org/releases/calendar",
+      "calendar_adapter": "FRED_API_release_dates_or_official_timestamp_input",
+      "revision_overlap": "full_history_on_revision; recent_10_observations",
+      "default_refresh_class": "daily",
+      "raw_redistribution": "source_terms_review_required",
+      "initial_inference": "SHADOW_ONLY"
     }
   ],
   "planned_sources": [
