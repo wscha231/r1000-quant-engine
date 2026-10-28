@@ -8836,3 +8836,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   must preserve the genuine Refused deadline, prevent body entry and restore
   the timer/handler. Native Windows skips only this platform-specific case;
   injected cancellation identity and ordinary logger-failure tests still run.
+- The current-head focused run reached two historical-fixture setup errors
+  because their child Git processes did not inherit a parent command's `-c
+  safe.directory`. Preserve those logs and pass the same exact directory through
+  process-scoped Git config to descendants; never alter global Git trust or the
+  fixture/catalog oracle to obtain a pass.
