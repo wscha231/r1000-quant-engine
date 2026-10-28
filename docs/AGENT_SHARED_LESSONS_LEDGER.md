@@ -8841,3 +8841,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   safe.directory`. Preserve those logs and pass the same exact directory through
   process-scoped Git config to descendants; never alter global Git trust or the
   fixture/catalog oracle to obtain a pass.
+- Codex P1 on ccac found a wider cancellation boundary: the helper rethrew
+  Refused/TimeoutError/InterruptedError, but main's ordinary study-error handler
+  caught their ValueError/OSError bases and published reports/execution evidence.
+  Native main probes reproduced return2 plus both writes for all three kinds.
+  Preserve that RED and explicitly rethrow cancellation before the partial-study
+  handler. Test real main through STUDY/LOCAL_STUDY_REPORTS BEGIN/END, including
+  actual POSIX sink timers in Linux, same exception and no later durable writes.
+  Ordinary study failures must retain partial status and normal publication;
+  ordinary logger failures must retain the identical normal business I/O.

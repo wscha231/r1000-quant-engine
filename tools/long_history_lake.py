@@ -38,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
     fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
 from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes
+from tools.twelve_private_capture import Refused
 
 SCHEMA = 'long-history-catalog-v1'
 PREFIX = 'long-history-v1'
@@ -1015,6 +1016,9 @@ def main():
             (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
             (reports/'engine-context.json').write_bytes(encoded(context))
         result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+    except (Refused,TimeoutError,InterruptedError):
+        # Cancellation is not a partial study result and must not publish a receipt.
+        raise
     except (ValueError,KeyError,TypeError,OSError) as exc:
         result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
     result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])

@@ -254,3 +254,15 @@ remain separate evidence. Inventory SHA256:
 The product regression includes real POSIX timer delivery from inside a fake
 log sink; current-head Linux CI must execute it. Native Windows retains an
 explicit platform skip and never certifies that POSIX execution itself.
+
+The main study boundary separately rethrows the existing Refused cancellation
+class and TimeoutError/InterruptedError before its ordinary partial-study error
+handler. Helper-only cancellation proof does not cover a surrounding handler
+that catches those base classes. main-level probes verify that cancellation at
+STUDY or LOCAL_STUDY_REPORTS stops before report/execution publication, while
+ordinary study failures retain their prior partial-receipt behavior. Actual
+POSIX timers in both phase sinks are a distinct Linux regression requirement.
+This is an explicit cancellation behavior correction; ordinary collection,
+hash/restore, successful publication and non-cancellation partial-study I/O
+remain unchanged. The already-declared sparse checkout contains the existing
+Refused module and its dependencies; no new collector or dependency is added.
