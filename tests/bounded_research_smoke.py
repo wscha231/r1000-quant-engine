@@ -37,7 +37,7 @@ class BoundedResearchTests(unittest.TestCase):
         self.signal.update(schema_version=research.ARCHIVE, observation_id=self.oid,
             event_id=research.raw_hash(f'{research.ARCHIVE}|risk_signal_observed|{self.oid}'.encode()),
             event_type='risk_signal_observed', recorded_at_utc=self.at(-10), benchmark_ticker='SPY',
-            review_only=True, **{flag: False for flag in research.FLAGS})
+            review_only=True, threshold_tuning_allowed=False, **{flag: False for flag in research.FLAGS})
         self.outcome = {key:self.signal[key] for key in ('schema_version','observation_id','family',
             'decision_date','ticker','risk_state','benchmark_ticker','review_only',*research.FLAGS)}
         self.outcome.update(event_id=research.raw_hash(f'{research.ARCHIVE}|forward_outcome_observed|{self.oid}|5'.encode()),
@@ -47,6 +47,7 @@ class BoundedResearchTests(unittest.TestCase):
             benchmark_total_return=.03, spy_excess_total_return=.07, ticker_max_drawdown=-.02,
             ticker_max_gain=.12, ticker_recovery_from_trough=.11,
             actionable_ticker_total_return=.09, actionable_spy_excess_total_return=.06,
+            actionable_benchmark_total_return=.03,
             actionable_ticker_max_drawdown=-.01, actionable_metrics_status='completed',
             ticker_price_path_sha256='a'*64, benchmark_price_path_sha256='b'*64)
         self.events = [self.signal, self.outcome]
@@ -71,6 +72,7 @@ class BoundedResearchTests(unittest.TestCase):
             summary.update(signal_observation_count=0,forward_outcome_event_count=0)
         event_bytes = ('\n'.join(json.dumps(event) for event in self.events)+'\n').encode() if self.events else b''
         summary['outputs'] = {'event_log_sha256': research.raw_hash(event_bytes)}
+        summary['outcome_chain'] = self.chain(event_bytes,len(self.events))
         data = {'events':event_bytes,'summary':json.dumps(summary).encode(),
             'calendar':json.dumps({'sessions':self.sessions}).encode()}
         producer = dict(repository='wscha231/r1000-quant-engine', branch='master', head_sha='1'*40,
@@ -86,6 +88,20 @@ class BoundedResearchTests(unittest.TestCase):
 
     def save_intake(self):
         self.intake.write_text(json.dumps(self.payload), encoding='utf-8')
+
+    def chain(self, raw, count, *, parent_bytes=0, parent_count=0):
+        parent=bool(parent_bytes)
+        return dict(schema_version='run287-risk-outcome-chain-v1',status='VERIFIED_APPEND_ONLY',
+            exact_parent_prefix_verified=True,append_only_verified=True,current_as_of_date=self.sessions[-1],
+            parent_anchor_status='VERIFIED_PARENT' if parent else 'GENESIS_EMPTY',parent_anchor_sha256='c'*64,
+            parent_event_log_sha256=research.raw_hash(raw[:parent_bytes]),parent_event_log_bytes=parent_bytes,
+            parent_event_count=parent_count,carried_quarantined_prefix_event_count=0,
+            current_event_log_sha256=research.raw_hash(raw),current_event_log_bytes=len(raw),
+            current_event_count=count,trusted_event_count=count,parent_summary_sha256='d'*64 if parent else '',
+            parent_summary_bytes=100 if parent else 0,parent_as_of_date=self.decision if parent else '',
+            parent_acceptance_status='VERIFIED_ACCEPTED_HEAD' if parent else 'NO_PRIOR_STATE',
+            parent_accepted_manifest_sha256='e'*64 if parent else '',parent_accepted_manifest_bytes=100 if parent else 0,
+            parent_accepted_manifest_as_of_date=self.decision if parent else '')
 
     def replace_source(self, role, value):
         raw = json.dumps(value).encode()
@@ -129,7 +145,8 @@ class BoundedResearchTests(unittest.TestCase):
 
     def test_future_returns_do_not_rewrite_past_intent(self):
         first=self.run_preview()['rows'][0]
-        self.outcome['ticker_total_return']=9.9
+        self.outcome.update(ticker_total_return=.15,spy_excess_total_return=.12,
+                            ticker_max_gain=.20,ticker_recovery_from_trough=.17)
         self.make_intake()
         second=self.run_preview()['rows'][0]
         self.assertEqual(first['intent_sha256'],second['intent_sha256'])
@@ -179,7 +196,7 @@ class BoundedResearchTests(unittest.TestCase):
         self.save_intake()
         with patch.object(research,'bounded_read',wraps=research.bounded_read) as reads:
             self.assert_block('artifact_time_boundary')
-        self.assertEqual([c.args[0] for c in reads.call_args_list],[self.intake])
+        self.assertEqual([c.args[0] for c in reads.call_args_list],[self.cfg,self.intake])
 
     def test_failed_producer_cannot_enter_research(self):
         self.payload['producer']['conclusion']='failure'
@@ -233,6 +250,7 @@ class BoundedResearchTests(unittest.TestCase):
     def test_one_day_completed_outcome_keeps_actionable_metrics_not_applicable(self):
         self.outcome.update(horizon_trading_days=1,outcome_date=self.sessions[1],
             actionable_metrics_status='not_applicable_at_1d',
+            actionable_benchmark_total_return=None,
             event_id=research.raw_hash(f'{research.ARCHIVE}|forward_outcome_observed|{self.oid}|1'.encode()),
             **{name:None for name in research.ACTIONABLE_METRICS})
         self.make_intake()
@@ -248,6 +266,215 @@ class BoundedResearchTests(unittest.TestCase):
         self.outcome['actionable_metrics_status']='not_applicable_at_1d'
         self.make_intake()
         self.assert_block('actionable_status_conflict')
+
+    def test_completed_metrics_require_native_algebra_and_ranges(self):
+        good=dict(self.outcome)
+        faults=(('spy_excess_total_return',99),('ticker_max_drawdown',.5),
+                ('ticker_total_return',-2),('benchmark_total_return',-2),
+                ('ticker_max_gain',.05),('ticker_recovery_from_trough',.02),
+                ('actionable_spy_excess_total_return',99),('actionable_ticker_max_drawdown',.1),
+                ('actionable_benchmark_total_return',None),('actionable_benchmark_total_return',True),
+                ('actionable_benchmark_total_return',-2),('actionable_ticker_max_gain',.01),
+                ('actionable_ticker_recovery_from_trough',-.01),('benchmark_max_drawdown',.1))
+        for field,value in faults:
+            with self.subTest(field=field,value=value):
+                self.events=[self.signal,{**good,field:value}]
+                self.make_intake()
+                self.assertNotIn('identity',self.run_preview())
+                self.assertFalse((self.out/'a8_research.json').exists())
+                self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+
+    def test_actual_native_producer_functions_supply_valid_synthetic_controls(self):
+        import pandas as pd
+        from tools.resolve_run287_risk_outcomes import capture_signal_events,outcome_event
+        keys=('family','decision_date','ticker','risk_state','advisory_action','reason_codes','history_observations',
+              'signal_return_1d','signal_spy_excess_return_1d','signal_return_21d','signal_spy_excess_return_21d',
+              'signal_drawdown_63d','proposed_entries','observation_id','signal_snapshot_sha256')
+        events,failures=capture_signal_events([{k:self.signal[k] for k in keys}],[],recorded_at=self.at(-10))
+        self.assertEqual(failures,[])
+        signal=events[0]
+        index=pd.DatetimeIndex(self.sessions)
+        ticker=pd.DataFrame({'close':[100,101,99,103,104,110,109,111,112,113]},index=index)
+        benchmark=pd.DataFrame({'close':[100,101,100.5,102,103,104,103.9,105,106,106.5]},index=index)
+        for horizon in (1,5):
+            with self.subTest(horizon=horizon):
+                outcome,status=outcome_event(signal,horizon,ticker,benchmark,index,
+                    as_of_date=index[-1],recorded_at=self.at(-9),ticker_hash='a'*64,benchmark_hash='b'*64)
+                self.assertEqual(status,'completed')
+                self.events=[signal,outcome]
+                self.make_intake()
+                result=self.run_preview()
+                self.assertEqual(result['rows'][0]['outcomes'][str(horizon)]['status'],'PRODUCER_DIAGNOSTIC_ONLY')
+                self.assertEqual(result['rows'][0]['intent_sha256'],signal['signal_snapshot_sha256'])
+                self.assertFalse(result['real_input_verified'])
+                self.assertFalse(result['economic_validated'])
+
+    def test_signal_native_tuning_authority_is_required_false(self):
+        for value in ('MISSING',None,True,0,'false'):
+            with self.subTest(value=value):
+                bad=dict(self.signal)
+                if value=='MISSING': bad.pop('threshold_tuning_allowed')
+                else: bad['threshold_tuning_allowed']=value
+                self.events=[bad,self.outcome]
+                self.make_intake()
+                self.assertNotIn('identity',self.run_preview())
+                self.assertFalse((self.out/'a8_research.json').exists())
+
+    def test_extra_event_authority_cannot_conflict_with_false_summary(self):
+        self.outcome['mechanism_promotion_allowed']=True
+        self.make_intake()
+        self.assert_block('source_authority_conflict')
+
+    def test_native_chain_current_metadata_and_shape_are_required(self):
+        good=board.read_json(self.source/'summary.json')
+        faults=(('status','UNVERIFIED'),('current_event_log_sha256','f'*64),
+                ('current_event_log_bytes',0),('current_event_count',True),
+                ('current_as_of_date',self.decision),('trusted_event_count',1),
+                ('append_only_verified',False),('exact_parent_prefix_verified',False))
+        for field,value in (('MISSING',None),*faults):
+            with self.subTest(field=field):
+                summary=copy.deepcopy(good)
+                if field=='MISSING': summary.pop('outcome_chain')
+                else: summary['outcome_chain'][field]=value
+                self.replace_source('summary',summary)
+                self.assertNotIn('identity',self.run_preview())
+                self.assertFalse((self.out/'a8_research.json').exists())
+
+    def test_native_child_chain_binds_exact_parent_prefix_without_authentication(self):
+        raw=(self.source/'events.json').read_bytes()
+        prefix=len(raw.splitlines(keepends=True)[0])
+        summary=board.read_json(self.source/'summary.json')
+        summary['outcome_chain']=self.chain(raw,2,parent_bytes=prefix,parent_count=1)
+        self.replace_source('summary',summary)
+        result=self.run_preview()
+        self.assertEqual(len(result['rows']),1)
+        self.assertFalse(result['real_input_verified'])
+        self.assertFalse(result['economic_validated'])
+        summary['outcome_chain']['parent_event_log_sha256']='f'*64
+        self.replace_source('summary',summary)
+        self.assert_block('outcome_chain_parent_prefix_conflict')
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+
+    def test_parent_prefix_boundary_and_event_count_cannot_be_rebound(self):
+        raw=(self.source/'events.json').read_bytes()
+        prefix=len(raw.splitlines(keepends=True)[0])
+        for size,count in ((prefix+1,1),(prefix,2)):
+            with self.subTest(size=size,count=count):
+                summary=board.read_json(self.source/'summary.json')
+                summary['outcome_chain']=self.chain(raw,2,parent_bytes=size,parent_count=count)
+                self.replace_source('summary',summary)
+                self.assertNotIn('identity',self.run_preview())
+                self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+
+    def test_quarantined_legacy_prefix_is_not_admitted_to_preview_cohort(self):
+        raw=(self.source/'events.json').read_bytes()
+        summary=board.read_json(self.source/'summary.json')
+        chain=self.chain(raw,2,parent_bytes=len(raw.splitlines(keepends=True)[0]),parent_count=1)
+        chain.update(parent_acceptance_status='QUARANTINED_LEGACY',parent_accepted_manifest_sha256='',
+            parent_accepted_manifest_bytes=0,parent_accepted_manifest_as_of_date='',
+            carried_quarantined_prefix_event_count=1,trusted_event_count=1)
+        summary['outcome_chain']=chain
+        self.replace_source('summary',summary)
+        self.assert_block('outcome_chain_quarantined_evidence')
+
+    def test_native_log_framing_is_required_even_with_matching_hashes(self):
+        original=(self.source/'events.json').read_bytes()
+        for raw in (original.rstrip(b'\n'),original+b'\n'):
+            with self.subTest(raw_size=len(raw)):
+                (self.source/'events.json').write_bytes(raw)
+                self.payload['inputs']['events']['sha256']=research.raw_hash(raw)
+                summary=board.read_json(self.source/'summary.json')
+                summary['outputs']['event_log_sha256']=research.raw_hash(raw)
+                summary['outcome_chain']=self.chain(raw,2)
+                self.replace_source('summary',summary)
+                self.assert_block('outcome_chain_invalid')
+
+    def test_intake_replacement_during_readback_revokes_and_can_resume(self):
+        actual=research.readback
+        def replaced(*args):
+            value=actual(*args)
+            self.payload['producer']['run_id']=124
+            self.save_intake()
+            return value
+        with patch.object(research,'readback',side_effect=replaced):
+            self.assert_block('intake_changed_during_preview')
+        old=board.read_json(self.out/'a8_research.json')
+        self.assertEqual(old['producer']['run_id'],123)
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+        new=self.run_preview()
+        self.assertEqual(new['producer']['run_id'],124)
+        self.assertNotEqual(old['identity'],new['identity'])
+        self.assertEqual(new['model_calls'],0)
+
+    def rejecting_registry_copy(self):
+        original=self.registry
+        self.registry=self.scratch/'registry.json'
+        self.registry.write_bytes(original.read_bytes())
+        rejection=board.read_json(self.registry)
+        rejection['entries'].append(dict(id='synthetic-provenance-rejection',blocked_reuse=True,status='REJECTED',
+            signal='decision_outcome_provenance',mechanism='missing_cost_intent_admission',
+            book='model_proposal',window='forward_only',evidence=[]))
+        return original,board.file_hash(original),rejection
+
+    def test_registry_replacement_between_parse_and_hash_cannot_reuse_allowed_result(self):
+        original,original_hash,rejection=self.rejecting_registry_copy()
+        snapshot=self.registry.read_bytes()
+        actual=research.raw_hash
+        changed=False
+        def replaced(raw):
+            nonlocal changed
+            if raw==snapshot and not changed:
+                changed=True
+                board.write_json(self.registry,rejection)
+            return actual(raw)
+        with patch.object(research,'raw_hash',side_effect=replaced):
+            self.assert_block('registry_changed_during_preview')
+        self.assertTrue(changed)
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+        old=board.read_json(self.out/'a8_research.json')
+        self.assertEqual(old['hypotheses'][0]['do_not_repeat']['status'],'ALLOWED_NEW_COMBINATION')
+        new=self.run_preview()
+        self.assertNotEqual(old['identity'],new['identity'])
+        self.assertEqual(new['hypotheses'][0]['do_not_repeat']['status'],'BLOCKED_DO_NOT_REPEAT')
+        self.assertEqual(new['hypotheses'][0]['status'],'REJECTED')
+        self.assertEqual(board.file_hash(original),original_hash)
+
+    def test_cached_result_rechecks_registry_before_manifest_acceptance(self):
+        original,original_hash,rejection=self.rejecting_registry_copy()
+        self.run_preview()
+        actual=research.readback
+        def replaced(*args):
+            value=actual(*args)
+            board.write_json(self.registry,rejection)
+            return value
+        with patch.object(research,'readback',side_effect=replaced):
+            self.assert_block('registry_changed_during_preview')
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+        self.assertEqual(board.file_hash(original),original_hash)
+
+    def test_config_replacement_during_readback_revokes_old_identity(self):
+        actual=research.readback
+        def replaced(*args):
+            value=actual(*args)
+            cfg=board.read_json(self.cfg)
+            cfg['_fixture_revision']=1
+            board.write_json(self.cfg,cfg)
+            return value
+        with patch.object(research,'readback',side_effect=replaced):
+            self.assert_block('config_changed_during_preview')
+        old=board.read_json(self.out/'a8_research.json')
+        self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
+        new=self.run_preview()
+        self.assertNotEqual(old['identity'],new['identity'])
+        self.assertFalse(new['ai_invoked'])
+
+    def test_budget_smaller_than_policy_is_rejected_before_preview_writes(self):
+        cfg=board.read_json(self.cfg)
+        cfg['preview']['max_input_bytes']=1
+        board.write_json(self.cfg,cfg)
+        with self.assertRaisesRegex(board.ContractError,'input_budget_below_policy_size'):
+            self.run_preview()
+        self.assertFalse(self.out.exists())
 
     def test_candidate_portfolio_cannot_split_one_native_decision_unit(self):
         for portfolio in ('main','concentrated',' ',None):
@@ -420,11 +647,15 @@ class BoundedResearchTests(unittest.TestCase):
         self.assertNotIn('members',board.read_json(self.out/'manifest.json'))
 
     def test_aggregate_read_budget_accepts_exact_bound_and_rejects_one_byte_less(self):
-        exact=self.intake.stat().st_size+2*sum((self.source/(role+'.json')).stat().st_size
-                                            for role in ('events','summary','calendar'))
         cfg=board.read_json(self.cfg)
-        cfg['preview']['max_input_bytes']=exact
-        board.write_json(self.cfg,cfg)
+        # The policy names its own allowance; settle its serialized byte length
+        # before testing the exact sum of all six initial reads and rechecks.
+        for _ in range(4):
+            exact=2*(self.intake.stat().st_size+self.registry.stat().st_size+self.cfg.stat().st_size+
+                     sum((self.source/(role+'.json')).stat().st_size for role in ('events','summary','calendar')))
+            if cfg['preview']['max_input_bytes']==exact: break
+            cfg['preview']['max_input_bytes']=exact
+            board.write_json(self.cfg,cfg)
         consumed=[]
         actual_read=research.bounded_read
         def counted(path,limit):
@@ -434,7 +665,7 @@ class BoundedResearchTests(unittest.TestCase):
         with patch.object(research,'bounded_read',side_effect=counted):
             self.assertIn('identity',self.run_preview())
         self.assertEqual(sum(consumed),exact)
-        self.assertEqual(len(consumed),7)
+        self.assertEqual(len(consumed),12)
         cfg['preview']['max_input_bytes']=exact-1
         board.write_json(self.cfg,cfg)
         self.assert_block('byte_budget')

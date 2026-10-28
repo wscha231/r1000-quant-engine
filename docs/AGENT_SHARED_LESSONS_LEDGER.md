@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-28 — Resume A8 on live contracts and seal every consumed snapshot (#573)
+
+- A continuation must recheck live master and outstanding threads. Master
+  advanced to212fa4e4 while PR573 stayed atb4e35998; preserve the master's
+  manual-foundation hook and all6095/8674 lines of the two lesson histories.
+  PR640's separate bundle queue is not authority to import its unmerged code.
+- Finite diagnostics still need native algebra/ranges and an explicit false
+  signal tuning field. Test actual native producer functions on synthetic1d/5d
+  controls; retain unavailable costs/PIT/ER and every closed economic gate.
+- Reuse native chain shape/current-log/prefix checks, but pass no fabricated
+  accepted-manifest identity and grant no origin authentication. Quarantined
+  legacy prefixes cannot silently enter the trusted preview cohort.
+- Parse and hash exactly one registry/config snapshot; recheck those bytes and
+  intake before committing the manifest even on cache reuse. A changed intake
+  or rejection registry revokes membership; a stable new rejection is REJECTED.
+  Count those reads in the existing aggregate allowance, without raising it.
+- The native chain checker can reject duplicate IDs before a more specific
+  adapter guard. Preserve existing duplicate-delivery diagnostics by validating
+  event semantics before chain metadata; no sidecar is saved before both pass.
+- An all-inherited-tree whitespace check flagged accepted master Markdown hard
+  breaks and blank EOF lines. Verify this PR against current master instead of
+  repairing unrelated accepted files. Keep one final exact-head review per pass.
+
 ## 2026-10-04 — Finite metrics and a source hash do not finish A8 admission (#573)
 
 - Approved corrections of the five findings on head6d2fe16a passed focused

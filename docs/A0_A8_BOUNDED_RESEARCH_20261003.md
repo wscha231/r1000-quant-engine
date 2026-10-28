@@ -2,10 +2,57 @@
 
 TASK_KEY: R1000-A0-A8-BOUNDED-RESEARCH-AUTOMATION-V1-20261003.
 Owner: A0/A8. Repository: wscha231/r1000-quant-engine.
-Integrated base: master@a53aebc353db8d2d0bcd054415c1181a3ab7eff0.
+Integrated base: master@212fa4e4712d00a237ed4f7c69765bc9e32a831a.
 Original implementation base: master@26b546173c1aafcb8fcc4d2e8e7fe575b52b2a8d.
 Branch: h1/a0-a8-bounded-research-20261003.
 Standing execution: DISABLED. Research state: BLOCKED / WAIT_DEPENDENCY.
+
+## Continuation and admission correction — 2026-10-28
+
+Task: R1000-A0-A8-ADMISSION-INTEGRITY-CORRECTION2-20261028.
+The user's continuation resumes the five outstanding P2 findings from
+review5402992983 on headb4e359981b50229ef913604859e88e028c52437a.
+Reuse the already-approved worktree and PR573. Integrate current master,
+preserve both lesson histories, and retain the master's manual-foundation
+regressions alongside the existing bounded-research hook. PR640 remains a
+separate local-bundle connection; none of its unmerged code is imported.
+The four-file correction scope is bounded_research.py, its existing smoke,
+this document and the shared lessons. Integration retains the original
+eight-file PR scope; config and manual-workflow bytes are unchanged.
+
+The correction validates native excess-return algebra, return/drawdown/
+excursion ranges and actionable metrics without changing economic policy.
+Signal threshold-tuning permission must be explicitly false; known event
+authority fields cannot contradict the false summary. Native chain shape,
+current log hash/bytes/count/date, complete parent prefix and quarantine
+state are checked. Quarantined legacy evidence refuses cohort admission.
+
+This is local consistency only. The native shape helper receives an explicitly
+unknown accepted-manifest hash because this intake does not supply an accepted
+manifest. A producer ZIP hash is never substituted for that manifest. Neither
+the shape helper nor a parent declaration authenticates GitHub/Drive, a trust
+anchor, actual price paths or PIT. All A1/economic/runtime/durable dependencies
+remain blocked, and REAL_INPUT_VERIFIED stays false.
+
+Intake, registry and config bind the exact bytes consumed. Registry and policy
+are parsed and hashed from their immutable snapshots, then all three are
+rechecked alongside source artifacts before manifest commit, including cache
+reuse. Any change revokes membership. A stable rejecting registry produces a
+REJECTED hypothesis; it cannot reuse an earlier allowed result under new bytes.
+The same4 MiB aggregate allowance now includes config, registry, intake and
+all rechecks. A policy smaller than its own bytes is invalid before preview
+writes; no cap is increased. Admission and approval consumption remain separate.
+
+The suite contains68 synthetic tests, including native producer controls at
+horizons1/5, parent-prefix/framing/quarantine refusal, registry parse/hash and
+cache races, intake/config replacement, and exact aggregate-capacity checks.
+Use normal and optimized Python plus the existing registered A0/manual suites.
+Publish only after local validation; bind required CI and one final independent
+review to the resulting frozen exact head. Earlier reviews remain historical.
+Ready conversion, merge, standing activation, actual research/model/experiment,
+Drive research writes, fullrun/holdout and account/strategy changes remain out
+of scope. Final remote evidence and the next continuation point belong in the
+PR and the dated local work report, without another code commit for reporting.
 
 Base-refresh task: R1000-A0-A8-BOUNDED-RESEARCH-BASE-REFRESH-20261003.
 The first base refresh integrated master659ded58 at head6d2fe16a, preserving
@@ -15,7 +62,7 @@ five admission/resource defects; that head is not final approval evidence.
 The approved correction below also integrates the subsequent master advance
 without rewriting history. Merge to master and activation remain unapproved.
 
-## Approved correction pass work report — 2026-10-04
+## Historical approved correction pass work report — 2026-10-04
 
 Task: R1000-A0-A8-BOUNDED-RESEARCH-CORRECTION-20261004. H1 only.
 Starting PR head: 6d2fe16a6bdd783c3bd85a41cb7ca3839bb6a00c.
@@ -34,7 +81,7 @@ PR's eight-file diff.
 | Aggregate source I/O | Intake, initial source reads and final source rechecks share one allowance. Physical reads never request the former extra sentinel byte. Test 2.5 MB padding, exact aggregate capacity and one-byte-short rejection; failure revokes manifest membership. |
 | Native identity | Candidate portfolio must be absent/empty; held portfolio must be nonblank and normalized, with positive marked weight. Reject noncanonical ticker aliases and internally rehashed duplicate candidate units. Preserve separate legitimate held portfolios and the original 24-character identities. |
 
-The focused suite now contains 54 synthetic tests, including 13 added
+That pass's focused suite contained 54 synthetic tests, including 13 added
 regressions. CI, the final exact head, review responses and unresolved-thread
 readback are recorded in PR573 after publication, without changing the reviewed
 tree just to append remote status. Tests establish offline admission behavior;
@@ -186,7 +233,7 @@ are under activation_proposal_only and are not applied. enabled=true is rejected
 
 Validation is registered through the existing agent_board_smoke Tier-1 entry;
 the protected run_pr_validation runner is unchanged. Focused regressions cover
-54 synthetic cases, including native summary/metric/identity admission,
+68 synthetic cases, including native summary/metric/identity/chain admission,
 aggregate source-read accounting, relative-intake isolation,
 separate-process exclusion, partial-save resume,
 expiry/maturity/dependency changes, output/time budgets, malicious instructions,

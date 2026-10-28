@@ -21,7 +21,8 @@ from pathlib import Path
 
 from tools import run_agent_board as board
 from tools.check_run287_do_not_repeat import evaluate_candidate
-from tools.manage_run287_risk_outcome_accepted_heads import OUTCOME_FALSE_SAFETY_FIELDS
+from tools.manage_run287_risk_outcome_accepted_heads import (
+    OUTCOME_FALSE_SAFETY_FIELDS, _strict_event_log_metadata, _validate_outcome_chain)
 
 SCHEMA = 'bounded-research-preview-v1'
 ARCHIVE = 'run287-risk-outcome-archive-v1'
@@ -97,12 +98,14 @@ def exclusive_lock(out):
         yield
 
 
-def configuration(path=CONFIG):
-    value = board.read_json(path)
-    require(value.get('schema_version') == 'bounded-research-config-v1' and
+def configuration(path=CONFIG, *, snapshot=False):
+    raw = bounded_read(path, 4194304)
+    value = strict_json(raw)
+    require(isinstance(value, dict) and value.get('schema_version') == 'bounded-research-config-v1' and
             value.get('enabled') is False and value.get('mode') == 'RESEARCH_ONLY',
             'activation_requires_separate_scoped_contract')
     limits = value['preview']
+    require(isinstance(limits, dict), 'budget_schema')
     require(set(limits) == {'timeout_seconds', 'max_input_bytes', 'max_output_bytes', 'max_events',
             'max_model_calls', 'max_tokens', 'daily_cost_usd', 'monthly_cost_usd',
             'io_retries', 'comparisons'}, 'budget_schema')
@@ -112,7 +115,8 @@ def configuration(path=CONFIG):
         require(type(limits[name]) is int and 0 < limits[name] <= maximum, 'invalid_finite_budget:' + name)
     for name in set(limits) - bounded_names:
         require(type(limits[name]) is int and limits[name] == 0, 'unapproved_paid_or_execution_budget')
-    return value
+    require(limits['max_input_bytes'] >= len(raw), 'input_budget_below_policy_size')
+    return (value, raw) if snapshot else value
 
 
 def bounded_read(path, limit):
@@ -138,6 +142,56 @@ def metric(value):
     return {'status': 'PRODUCER_DIAGNOSTIC_ONLY', 'value': value}
 
 
+def completed_metric_relationships(event, horizon):
+    """Check native positive-price identities; this does not verify price paths."""
+    for prefix in ('', 'actionable_') if horizon > 1 else ('',):
+        ret = event[prefix + 'ticker_total_return']
+        benchmark = event.get(prefix + 'benchmark_total_return')
+        require(type(benchmark) in (int, float) and math.isfinite(benchmark),
+                'incomplete_completed_outcome:' + prefix + 'benchmark_total_return')
+        require(ret >= -1 and benchmark >= -1, 'completed_return_range')
+        expected = ret - benchmark
+        require(math.isfinite(expected) and math.isclose(event[prefix + 'spy_excess_total_return'],
+                expected, rel_tol=1e-12, abs_tol=1e-12), 'completed_excess_conflict')
+        dd = event[prefix + 'ticker_max_drawdown']
+        require(-1 <= dd <= 0 and dd <= min(0, ret) + 1e-12, 'completed_drawdown_range')
+        for suffix in ('ticker_max_gain', 'ticker_recovery_from_trough'):
+            name = prefix + suffix
+            value = event.get(name)
+            # Core values are required; native extra actionable diagnostics are
+            # validated when present, rather than inventing missing values.
+            if not prefix or name in event:
+                require(type(value) in (int, float) and math.isfinite(value) and
+                        value >= 0 and value + 1e-12 >= max(0, ret), 'completed_excursion_range:' + name)
+    if 'benchmark_max_drawdown' in event:
+        value = event['benchmark_max_drawdown']
+        require(type(value) in (int, float) and math.isfinite(value) and -1 <= value <= 0 and
+                value <= min(0, event['benchmark_total_return']) + 1e-12, 'completed_benchmark_drawdown_range')
+    if horizon == 1:
+        require(all(event.get(name) is None for name in ('actionable_benchmark_total_return',
+                'actionable_ticker_max_gain', 'actionable_ticker_recovery_from_trough')),
+                'invalid_1d_actionable_metric')
+
+
+def native_chain_consistency(summary, raw, event_count):
+    # No accepted manifest is supplied by this offline intake. Reuse only the
+    # native shape check with an explicitly unknown hash, never authenticate an
+    # accepted head or substitute the producer ZIP hash for a manifest hash.
+    try:
+        chain = _validate_outcome_chain(summary.get('outcome_chain'),
+            accepted_manifest_sha256='', accepted_as_of_date=summary['as_of_date'])
+        current = _strict_event_log_metadata(raw)
+        prefix = _strict_event_log_metadata(raw[:chain['parent_event_log_bytes']])
+    except ValueError as error:
+        raise board.ContractError('outcome_chain_invalid') from error
+    require((chain['current_event_log_sha256'], chain['current_event_log_bytes'],
+             chain['current_event_count']) == current[:3] and current[2] == event_count,
+            'outcome_chain_current_conflict')
+    require(chain['carried_quarantined_prefix_event_count'] == 0, 'outcome_chain_quarantined_evidence')
+    require(prefix[0] == chain['parent_event_log_sha256'] and
+            prefix[2] == chain['parent_event_count'], 'outcome_chain_parent_prefix_conflict')
+
+
 def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
     """Preserve producer cohort and intent; never derive intent from outcomes."""
     require(len(events) <= limit, 'event_budget_exhausted')
@@ -154,7 +208,8 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
         require(isinstance(eid, str) and re.fullmatch('[0-9a-f]{64}', eid), 'event_id_missing')
         require(eid not in ids, 'duplicate_event_delivery_in_snapshot')
         ids.add(eid)
-        require(event.get('review_only') is True and all(event.get(flag) is False for flag in FLAGS),
+        require(event.get('review_only') is True and all(event.get(flag) is False for flag in FLAGS) and
+                all(event.get(flag, False) is False for flag in OUTCOME_FALSE_SAFETY_FIELDS),
                 'source_authority_conflict')
         require(event.get('data_class', 'Model Proposal') == 'Model Proposal', 'data_class_mix')
         require(board.timestamp(event['recorded_at_utc']) <= now, 'future_event')
@@ -180,6 +235,7 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
         expected_oid = raw_hash(f"{ARCHIVE}|{event['family']}|{decision}|{portfolio}|{ticker}".encode())[:24]
         require(oid == expected_oid, 'security_observation_conflict')
         if event['event_type'] == 'risk_signal_observed':
+            require(event.get('threshold_tuning_allowed') is False, 'signal_authority_conflict')
             require(oid not in signals, 'conflicting_decision')
             if event['family'] == 'held':
                 weight = event.get('marked_weight')
@@ -212,6 +268,7 @@ def inspect_events(events, sessions, now, limit, check_deadline=lambda: None):
                             'incomplete_completed_outcome:' + name)
             require(event.get('actionable_metrics_status') ==
                     ('not_applicable_at_1d' if horizon == 1 else 'completed'), 'actionable_status_conflict')
+            completed_metric_relationships(event, horizon)
             require(decision < event['outcome_date'] <= event['evaluated_as_of_date'] <= now.date().isoformat(),
                     'future_outcome')
             require(event['evaluated_as_of_date'] <= recorded.date().isoformat(), 'event_clock_conflict')
@@ -275,12 +332,12 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
     """Explicit T1/T2 scratch preview; all execution and persistence gates stay false."""
     root, out = output_geometry(root, out)
     start = time.monotonic()
-    cfg = configuration(config_path)
+    cfg, config_bytes = configuration(config_path, snapshot=True)
     budget = cfg['preview']
     def check_deadline():
         require(time.monotonic() - start <= budget['timeout_seconds'], 'preview_timeout')
     inputs = {}
-    total = 0
+    total = len(config_bytes)
     def read_input(path):
         nonlocal total
         raw = bounded_read(path, budget['max_input_bytes'] - total)
@@ -363,10 +420,17 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                     'summary_event_count_conflict')
             rows = inspect_events(events, strict_json(inputs['calendar'])['sessions'], now,
                                   budget['max_events'], check_deadline)
-            registry = board.read_json(registry_path)
-            require(registry.get('schema_version') == 'run287-do-not-repeat-registry-v1', 'registry_missing')
+            check_deadline()
+            native_chain_consistency(summary, inputs['events'], len(events))
+            check_deadline()
+            registry_bytes = read_input(registry_path)
+            registry = strict_json(registry_bytes)
+            require(isinstance(registry, dict) and
+                    registry.get('schema_version') == 'run287-do-not-repeat-registry-v1' and
+                    isinstance(registry.get('entries'), list) and
+                    all(isinstance(entry, dict) for entry in registry['entries']), 'registry_missing')
             key = board.digest({'intake': raw_hash(intake_bytes), 'code_sha': code_sha, 'config_hash': config_hash,
-                'config': board.file_hash(config_path), 'registry': board.file_hash(registry_path),
+                'config': raw_hash(config_bytes), 'registry': raw_hash(registry_bytes),
                 'date': now.date().isoformat(), 'board_blockers': board_blockers,
                 'dependencies': dependency_identity,
                 'temporal': [{k: item[k] for k in ('available_at', 'collected_at', 'expires_at')}
@@ -389,7 +453,7 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                     'expected_improvement': 'Evaluation integrity; economic improvement UNKNOWN',
                     'cost_risk': 'No paid call or economic mutation; provenance gaps remain blocking',
                     'rejection_condition': 'Conflicting original provenance or inadmissible source',
-                    'status': 'WAIT_DEPENDENCY', 'do_not_repeat': repetition}
+                    'status': 'WAIT_DEPENDENCY' if repetition['allowed'] else 'REJECTED', 'do_not_repeat': repetition}
                 result = {'schema_version': SCHEMA, 'identity': key, 'status': 'BLOCKED',
                     'stage': 'WAIT_DEPENDENCY', 'rows': rows, 'metrics': unavailable_metrics(),
                     'hypotheses': [hypothesis] if rows else [],
@@ -413,6 +477,11 @@ def prepare(root, out, intake_path, *, now, code_sha, config_hash, board_blocker
                 require(readback(out / 'a8_research.json', key) == result, 'scratch_readback_failed')
                 reused = False
             # Recheck actual input bytes and current expiry before committing the manifest.
+            for path, original, reason in ((intake_path, intake_bytes, 'intake_changed_during_preview'),
+                    (registry_path, registry_bytes, 'registry_changed_during_preview'),
+                    (config_path, config_bytes, 'config_changed_during_preview')):
+                check_deadline()
+                require(raw_hash(read_input(path)) == raw_hash(original), reason)
             for role, descriptor in intake['inputs'].items():
                 check_deadline()
                 require(raw_hash(read_input(board.artifact_path(root, descriptor['path'])))
