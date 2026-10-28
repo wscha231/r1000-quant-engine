@@ -8698,3 +8698,25 @@ the real capture/verifier with injected responses, including valid weekends.
   TestCase aliases, producing542 cases per mode and one class-identity failure;
   both original logs remain. Correct the harness instead of changing product
   registration or weakening the identity assertion.
+
+
+- PR694 exact706ebca Codex found two finite-provider-bound gaps: inactivity
+  timeout does not interrupt a slowly delivered chunk, and Requests prepares
+  redirect _next by consuming its body even when allow_redirects=false. Use a
+  real POSIX wall deadline through body completion and an early status hook;
+  preserve foreign timers and close rejected responses before body iteration.
+  Reuse actual Session.send with an adapter double, not a Session.send double
+  that skips the failing library machinery. Separate controlled preparation
+  clocks from the real blocked-body timer; Windows refusal/doubles are not
+  POSIX proof. Linux/-O checks must use explicit raises, never removable assert.
+
+- Independent A6 static review highlighted cost loss after an oversized chunk:
+  recording only after reservation can report0 for65 observed bytes at cap64.
+  Persist observed yielded bytes before refusing, preserve the cap reservation
+  and incomplete/exceeded state; wire cost remains unknown. No new budget is
+  created, and failed collection/publication remains blocked.
+
+- A6 also identified request/response ticker confusion: a MU query alone does
+  not bind an explicit AAPL response to MU. Check every declared symbol/ticker
+  before the unchanged normalizer, retain missing identity as unverified, and
+  never turn a ticker match into security/issuer certification.

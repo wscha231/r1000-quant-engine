@@ -514,3 +514,41 @@ Provider response bytes and collector logs remain private local attempt material
 original data, credentials and account references are excluded from that upload.
 This change is T2 implementation/synthetic verification only. Actual provider,
 Drive write, collector dispatch, Source publication and Paper remain NOT_RUN.
+
+
+### Exact-head review correction: provider stream bounds
+
+Hosted Codex review of706ebca identified two P2 defects. A Requests timeout is
+an inactivity timeout; slow delivery can keep a65536-byte read blocked past the
+total window. Also, Session.send constructs response._next even with redirects
+disabled, consuming a redirect body before a later status check can meter it.
+Both old-head findings remain evidence; that head is not final approval.
+
+The bounded Source provider call now uses an independent main-thread POSIX
+ITIMER_REAL deadline spanning headers and the complete body. It refuses a foreign
+active alarm and always clears its own timer/restores the previous handler.
+Actual execution is Linux/POSIX only. Windows Native integration doubles replace
+this guard explicitly and test unsupported-host refusal; they do not prove POSIX
+interruption. Linux CI additionally exercises a genuinely blocked body, existing
+alarm preservation and an optimized child with non-removable checks. Preparation
+I/O uses a controlled monotonic fixture, so it cannot consume the short provider
+timer before the tested phase.
+
+A first response hook rejects/closes every non2xx response before Requests can
+read a redirect body. HTTP failures retain their actual status for the unchanged
+collector's entitlement/error classification. Tests use the real Session.send
+and redirect machinery with only HTTPAdapter.send doubled. A3MiB redirect raw
+body must never be read. Known partial streams keep the full approved response
+cap reserved; observed yielded body bytes are not a wire-byte measurement.
+Actual provider/Drive collection/publication remains NOT_RUN.
+
+Observed yielded body bytes are persisted before refusal, including an over-cap
+chunk: a64-byte cap/65-byte first chunk reports65, exceeded=true and complete=false.
+The full cap reservation remains. Zero observed bytes on an incomplete stream
+is not evidence of zero wire cost; no new wire-cost guarantee is claimed.
+
+The MU wrapper checks every explicit response symbol/ticker before normalization:
+AAPL or conflicting/nontext declarations are refused, even at a MU request URL.
+Absent declarations remain REQUEST_TICKER_ONLY_UNVERIFIED. An explicit MU match
+is ticker evidence only, not issuer/security identity certification; the result
+keeps provider_response_security_identity_verified=false and admission=false.

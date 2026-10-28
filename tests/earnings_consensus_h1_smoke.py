@@ -453,16 +453,39 @@ class AdmissionTests(unittest.TestCase):
             if command=='copy':shutil.copytree(source,target,dirs_exist_ok=True)
             else:shutil.copy2(source,target)
             return ''
+        import time
+        real_monotonic=time.monotonic
+        body_clock={'started':None}
         def send(session,request,**kwargs):
-            self.assertEqual(kwargs['allow_redirects'],False)
             self.assertTrue(kwargs['stream']);self.assertLessEqual(kwargs['timeout'],20)
             calls.append(('PROVIDER',request.method,'MU'))
-            response=c.requests.Response();response.status_code=403 if damage=='vendor' else 200
+            response=c.requests.Response();response.status_code=403 if damage=='vendor' else 302 if damage=='redirect' else 200
+            response.url=request.url;response.request=request
             payload=[] if damage=='empty' else [dict(date='2027-12-31',estimatedEpsAvg=2,
                 estimatedRevenueAvg=100,numberAnalystsEstimatedEps=5,numberAnalystsEstimatedRevenue=5)]
+            if damage=='wrong_symbol':payload[0]['symbol']='AAPL'
+            if damage=='wrong_ticker':payload[0]['ticker']='AAPL'
             response._content=json.dumps(payload).encode();response._content_consumed=True
+            if damage in ('redirect','drip'):
+                class Raw:
+                    closed=False
+                    bytes_read=0
+                    def stream(raw,amount,decode_content=True):
+                        if damage=='drip':
+                            body_clock['started']=real_monotonic()
+                            calls.append(('ALARM_PRESENT',str(signal.getitimer(signal.ITIMER_REAL)[0]>0),''))
+                            time.sleep(3)  # No chunk arrives before the independent deadline.
+                        raw.bytes_read+=3*1024*1024
+                        calls.append(('BODY_READ',str(raw.bytes_read),'unexpected'))
+                        yield b'x'*(3*1024*1024)
+                    def close(raw):raw.closed=True;calls.append(('RAW_CLOSED','yes',''))
+                    def release_conn(raw):pass
+                response._content=False;response._content_consumed=False;response.raw=Raw()
+                if damage=='redirect':response.headers['Location']='https://financialmodelingprep.com/other'
             if damage=='parent_changed':(remote/drive.SIGNALS).write_bytes(b'changed')
             return response
+        send.body_clock=body_clock
+        send.real_monotonic=real_monotonic
         return transfer,send
 
     def test_bounded_source_forward_real_collector_and_publication_double(self):
@@ -474,11 +497,19 @@ class AdmissionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             archive,preset,remote,records,inventory,contract,path,environment=self.forward_fixture(root)
+            if damage=='drip':
+                contract['budget']['active_seconds']=1;path.write_bytes(drive.encoded(contract))
+            if damage=='response_cap':
+                contract['budget']['provider_response_bytes']=64;path.write_bytes(drive.encoded(contract))
             original=archive.read_bytes();calls=[];transfer,send=self.forward_doubles(remote,damage,calls)
-            with patch.object(drive,'LEGACY_20261003',preset),patch.object(drive,'FORWARD_INVENTORY',inventory), \
+            guard=(contextlib.nullcontext() if os.name=='posix' else patch.object(
+                drive,'provider_deadline',side_effect=lambda seconds:contextlib.nullcontext()))
+            clock=(patch.object(drive.time,'monotonic',side_effect=lambda:0.0 if send.body_clock['started'] is None
+                else send.real_monotonic()-send.body_clock['started']) if damage=='drip' else contextlib.nullcontext())
+            with clock,guard,patch.object(drive,'LEGACY_20261003',preset),patch.object(drive,'FORWARD_INVENTORY',inventory), \
                  patch.object(drive,'forward_now',return_value=datetime(2026,7,1,18,tzinfo=timezone.utc)), \
                  patch.dict(os.environ,environment),patch.object(drive,'transfer',side_effect=transfer), \
-                 patch.object(c.requests.Session,'send',send):
+                 patch.object(c.requests.adapters.HTTPAdapter,'send',send):
                 result=drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,drive.sha256_file(path))
                 if damage=='valid':
                     self.assertTrue(result['source_published'],result)
@@ -493,8 +524,14 @@ class AdmissionTests(unittest.TestCase):
                 self.assertIsNone(result['meter']['drive_http_requests'])
                 self.assertFalse(result['source_admitted']);self.assertFalse(result['paper_consumer_executed'])
                 self.assertEqual((remote/drive.HEAD).exists(),damage in ('valid','head_readback'))
-                if damage in ('vendor','empty','parent_changed'):
+                if damage in ('vendor','empty','parent_changed','redirect','drip','response_cap','wrong_symbol','wrong_ticker'):
                     self.assertFalse(result['publication_attempted'])
+            if damage=='drip':
+                self.assertTrue(any(row[:2]==('ALARM_PRESENT','True') for row in calls),result)
+                self.assertLess(result['meter']['active_elapsed_seconds'],2.8)
+            if damage in ('redirect','drip'):
+                self.assertFalse(any(row[0]=='BODY_READ' for row in calls),result)
+                self.assertTrue(any(row[0]=='RAW_CLOSED' for row in calls),result)
             self.assertEqual(archive.read_bytes(),original)
             if damage!='parent_changed':
                 for name,record in records.items():self.assertEqual(drive.sha256_file(remote/name),record['sha256'])
@@ -544,6 +581,67 @@ class AdmissionTests(unittest.TestCase):
                         drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,
                             '0'*64 if damage=='wrong_hash' else drive.sha256_file(path))
                     transport.assert_not_called();collector.assert_not_called()
+
+
+    def test_bounded_source_forward_redirect_rejected_before_requests_reads_body(self):
+        # Actual Session.send/response hooks/redirect processing; adapter only is doubled.
+        self.run_bounded_forward_case('redirect')
+
+    def test_bounded_source_forward_posix_interrupts_inflight_body_and_restores_alarm(self):
+        from tools import earnings_estimate_drive_generation as drive
+        import time
+        if os.name!='posix':
+            with self.assertRaisesRegex(ValueError,'posix_deadline_required'):
+                with drive.provider_deadline(.05):self.fail('unsupported actual host must refuse')
+            return  # Native provider doubles do not claim actual POSIX execution.
+        before=signal.getsignal(signal.SIGALRM)
+        self.run_bounded_forward_case('drip')
+        self.assertEqual(signal.getsignal(signal.SIGALRM),before)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL),(0.0,0.0))
+        signal.setitimer(signal.ITIMER_REAL,1)
+        try:
+            with self.assertRaisesRegex(ValueError,'existing_alarm'):
+                with drive.provider_deadline(.05):self.fail('must not replace a foreign timer')
+            self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        finally:signal.setitimer(signal.ITIMER_REAL,0)
+        # The same real primitive must also work in an independently optimized child.
+        script=("import signal,time;from tools.earnings_estimate_drive_generation import provider_deadline;"
+            "h=signal.getsignal(signal.SIGALRM)\n"
+            "try:\n with provider_deadline(.05): time.sleep(1)\n"
+            "except TimeoutError: pass\nelse: raise RuntimeError('deadline did not interrupt')\n"
+            "if signal.getsignal(signal.SIGALRM)!=h: raise RuntimeError('handler not restored')\n"
+            "if signal.getitimer(signal.ITIMER_REAL)!=(0.0,0.0): raise RuntimeError('timer not cleared')\n"
+            "print('EARNINGS_FORWARD_POSIX_DEADLINE_OPTIMIZED_PASS')")
+        child=subprocess.run([sys.executable,'-B','-O','-c',script],cwd=ROOT,
+            capture_output=True,text=True,timeout=10)
+        self.assertEqual(child.returncode,0,child.stdout+child.stderr)
+        self.assertIn('EARNINGS_FORWARD_POSIX_DEADLINE_OPTIMIZED_PASS',child.stdout)
+        print('EARNINGS_FORWARD_POSIX_PROVIDER_DEADLINE_PASS optimized_child=1 provider_network=0')
+
+
+    def test_bounded_source_forward_oversized_chunk_keeps_actual_observed_cost(self):
+        result=self.run_bounded_forward_case('response_cap')
+        self.assertEqual(result['meter']['provider_response_budget_reserved_bytes'],64)
+        self.assertEqual(result['meter']['provider_response_bytes'],65)
+        self.assertTrue(result['meter']['provider_response_limit_exceeded'])
+        self.assertFalse(result['meter']['provider_response_complete'])
+        self.assertFalse(result['source_published'])
+
+
+    def test_bounded_source_forward_response_identity_conflict_and_missingness(self):
+        from tools import earnings_estimate_drive_generation as drive
+        for damage in ('wrong_symbol','wrong_ticker'):
+            with self.subTest(damage=damage):
+                result=self.run_bounded_forward_case(damage)
+                self.assertFalse(result['source_published'])
+                self.assertFalse(result['provider_response_security_identity_verified'])
+                self.assertEqual(result['meter']['provider_response_identity_refusal'],
+                    'EXPLICIT_TICKER_CONFLICT_OR_INVALID_RESPONSE')
+        result=self.run_bounded_forward_case('valid')
+        self.assertEqual(result['meter']['provider_response_ticker_evidence'],'REQUEST_TICKER_ONLY_UNVERIFIED')
+        self.assertFalse(result['provider_response_security_identity_verified'])
+        self.assertEqual(drive.forward_response_ticker_evidence(b'[{"symbol":"MU"}]'),
+            'EXPLICIT_TICKER_MATCH_ONLY_NOT_SECURITY_VERIFIED')
 
     def test_bounded_source_forward_budget_reservations_fail_before_next_operation(self):
         from tools import earnings_estimate_drive_generation as drive

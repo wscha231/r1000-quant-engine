@@ -20,6 +20,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import signal
+import threading
+from contextlib import contextmanager
 import zipfile
 from datetime import datetime, timezone
 
@@ -587,13 +590,55 @@ def forward_contract(path, expected_sha256):
     return value, context
 
 
+def forward_response_ticker_evidence(raw):
+    """A matching query is not proof of the response's security identity."""
+    payload=json.loads(raw)
+    rows=payload.get('data') if isinstance(payload,dict) else payload
+    if not isinstance(rows,list) or any(not isinstance(row,dict) for row in rows):
+        raise ValueError('source_forward_provider_response_shape')
+    declarations=[]
+    for row in ([payload] if isinstance(payload,dict) else [])+rows:
+        for key in ('symbol','ticker'):
+            if key not in row or row[key] in (None,''):
+                continue
+            if not isinstance(row[key],str) or row[key].strip().upper()!='MU':
+                raise ValueError('source_forward_response_ticker_conflict')
+            declarations.append('MU')
+    return ('EXPLICIT_TICKER_MATCH_ONLY_NOT_SECURITY_VERIFIED' if declarations
+            else 'REQUEST_TICKER_ONLY_UNVERIFIED')
+
+
+@contextmanager
+def provider_deadline(seconds):
+    """Interrupt an in-flight POSIX read; Requests timeouts cover inactivity only."""
+    if (not hasattr(signal,'setitimer') or not hasattr(signal,'ITIMER_REAL')
+            or threading.current_thread() is not threading.main_thread()):
+        raise ValueError('source_forward_posix_deadline_required')
+    if seconds <= 0:
+        raise TimeoutError('source_forward_deadline')
+    previous=signal.getitimer(signal.ITIMER_REAL)
+    if previous != (0.0,0.0):
+        raise ValueError('source_forward_existing_alarm')
+    handler=signal.getsignal(signal.SIGALRM)
+    def expired(signum,frame):
+        raise TimeoutError('source_forward_deadline')
+    signal.signal(signal.SIGALRM,expired)
+    try:
+        signal.setitimer(signal.ITIMER_REAL,seconds)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL,0)
+        signal.signal(signal.SIGALRM,handler)
+
+
 class ForwardBudget:
     """Finite attempt reservations, not a claim to measure backend HTTP calls."""
     def __init__(self, contract, output):
         self.contract,self.output = contract,output
         self.started = time.monotonic()
         self.usage = dict(provider_gets=0, provider_response_bytes=0, drive_processes=0,
-            transfer_reservation_bytes=0, drive_http_requests=None, head_write_attempted=False)
+            transfer_reservation_bytes=0, drive_http_requests=None, head_write_attempted=False,
+            provider_response_complete=False)
 
     def save(self):
         target=self.output/'attempt_meter.json'
@@ -668,7 +713,8 @@ def bounded_forward_legacy(base, archive_path, output_root, contract_path, expec
     receipt=dict(schema='earnings-source-bounded-forward-result-v1',status='BLOCKED',
         contract_sha256=expected_sha256,execution=context,collection_executed=False,
         publication_attempted=False,source_published=False,source_admitted=False,
-        pit_admitted=False,paper_consumer_executed=False,canonical_research_admission=False)
+        pit_admitted=False,paper_consumer_executed=False,canonical_research_admission=False,
+        provider_response_security_identity_verified=False)
     original_transfer,original_session,original_argv=transfer,collector.requests.Session,sys.argv
 
     class BoundedSession(original_session):
@@ -680,22 +726,48 @@ def bounded_forward_legacy(base, archive_path, output_root, contract_path, expec
                     or query['page'] != ['0'] or query['limit'] != ['10']
                     or query['apikey'] != [os.environ[contract['credential_name']]]):
                 raise ValueError('source_forward_provider_scope')
-            meter.reserve('provider_gets',1)
-            kwargs.update(allow_redirects=False,stream=True,timeout=min(20,meter.remaining()))
-            response=super().send(request,**kwargs)
-            try:
+            def reject_status(response,*args,**kwargs):
                 if not 200 <= response.status_code < 300:
-                    raise ValueError('source_forward_provider_http_failure')
-                body=bytearray()
-                for chunk in response.iter_content(chunk_size=65536):
-                    meter.reserve('provider_response_bytes',len(chunk)); body.extend(chunk)
-                response._content=bytes(body); response._content_consumed=True
-                meter.usage['provider_body_sha256']=hashlib.sha256(body).hexdigest(); meter.save()
-                # Kept in the private local attempt only, never in public diagnostics.
-                (output/'provider_response.private.json').write_bytes(body)
+                    response.close()
+                    raise collector.requests.HTTPError('source_forward_provider_http_failure',response=response)
                 return response
-            finally:
-                response.close()
+            # Session.send may consume redirect bodies while creating _next even
+            # with allow_redirects=False. A response hook runs before that work.
+            request.hooks={**request.hooks,'response':[reject_status,*request.hooks.get('response',[])]}
+            with provider_deadline(meter.remaining()):
+                meter.usage['provider_response_budget_reserved_bytes']=contract['budget']['provider_response_bytes']
+                meter.reserve('provider_gets',1)
+                kwargs.update(allow_redirects=False,stream=True,timeout=min(20,meter.remaining()))
+                response=super().send(request,**kwargs)
+                try:
+                    reject_status(response)  # Also enforces status for injected adapters.
+                    body=bytearray()
+                    meter.usage['provider_response_complete']=False;meter.save()
+                    chunk_size=min(65536,contract['budget']['provider_response_bytes']+1)
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        # These bytes have already been observed. Persist them even
+                        # when the next limit/deadline check refuses the response.
+                        meter.usage['provider_response_bytes']+=len(chunk)
+                        exceeded=meter.usage['provider_response_bytes']>contract['budget']['provider_response_bytes']
+                        meter.usage['provider_response_limit_exceeded']=exceeded;meter.save()
+                        if exceeded:
+                            raise ValueError('source_forward_budget_provider_response_bytes')
+                        meter.check();body.extend(chunk)
+                    meter.usage['provider_response_complete']=True;meter.save()
+                    response._content=bytes(body); response._content_consumed=True
+                    meter.usage['provider_body_sha256']=hashlib.sha256(body).hexdigest(); meter.save()
+                    # Kept in the private local attempt only, never public diagnostics.
+                    (output/'provider_response.private.json').write_bytes(body)
+                    try:
+                        meter.usage['provider_response_ticker_evidence']=forward_response_ticker_evidence(body)
+                    except ValueError:
+                        meter.usage['provider_response_identity_refusal']='EXPLICIT_TICKER_CONFLICT_OR_INVALID_RESPONSE'
+                        meter.save()
+                        raise
+                    meter.save()
+                    return response
+                finally:
+                    response.close()
 
     session=BoundedSession()
     globals()['transfer']=lambda *a,**k:meter.transfer(original_transfer,*a,**k)
@@ -722,6 +794,7 @@ def bounded_forward_legacy(base, archive_path, output_root, contract_path, expec
         with (output/'collector.private.log').open('w',encoding='utf-8') as log, contextlib.redirect_stdout(log):
             receipt['collection_executed']=True
             code=collector.main()
+        meter.check()
         summary=json.loads((payload/DAILY/'summary.json').read_text())
         if (code != 0 or summary.get('status') != 'completed' or summary.get('error_count') != 0
                 or summary.get('ticker_count_requested') != 1
@@ -754,7 +827,7 @@ def bounded_forward_legacy(base, archive_path, output_root, contract_path, expec
             receipt['status']='PUBLICATION_OUTCOME_UNCERTAIN_STOP'
     finally:
         globals()['transfer']=original_transfer;collector.requests.Session=original_session;sys.argv=original_argv
-        session.close();meter.save()
+        session.close();meter.usage['active_elapsed_seconds']=round(time.monotonic()-meter.started,6);meter.save()
         receipt['meter']=dict(meter.usage);receipt['completed_at']=forward_now().isoformat()
         (output/'forward_result.json').write_bytes(encoded(receipt))
     return receipt
