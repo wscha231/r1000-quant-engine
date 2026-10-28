@@ -12,6 +12,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
@@ -401,14 +402,136 @@ def verify_legacy_handoff(receipt_path, *, snapshot_dir, summary_path, signals_p
     }
 
 
+def preflight_legacy_base(base, archive_path, output_root, expected_archive_folder_id):
+    """Read the configured Source only; never restore into a consumer or publish.
+
+    The expected folder ID comes from a separately grounded Drive read, not
+    from the connection being tested. Matching bytes do not grant collection.
+    """
+    output = Path(output_root)
+    if (not isinstance(base, str) or re.fullmatch(r'gdrive:(?:[A-Za-z0-9_/-]+/)?', base) is None
+            or '..' in PurePosixPath(base.split(':', 1)[1]).parts
+            or re.fullmatch(r'[A-Za-z0-9_-]{10,150}', str(expected_archive_folder_id)) is None):
+        raise ValueError('source_preflight_invalid_binding')
+    if output.exists() or output.is_symlink():
+        raise ValueError('source_preflight_output_must_be_new')
+    output = output.resolve()  # An rclone destination must be an absolute local path.
+    output.mkdir(parents=True)
+    receipt = {
+        'schema': 'earnings-source-readonly-preflight-v1', 'status': 'BLOCKED',
+        'observed_at': datetime.now(timezone.utc).isoformat(), 'base': base,
+        'expected_archive_folder_id': expected_archive_folder_id,
+        'namespace_verified': False, 'generation_head_absence_verified': False,
+        'legacy_bytes_verified': False, 'observation_is_atomic': False,
+        'provider_calls': 0, 'provider_credentials_probed': False,
+        'provider_rights_verified': None, 'collection_executed': False,
+        'source_published': False, 'source_admitted': False,
+        'paper_consumer_executed': False, 'paper_state_restored_or_mutated': False,
+        'canonical_write_performed': False,
+        'recovery_execution_authorized': False, 'research_only': True,
+        'adapter_sha256': sha256_file(Path(__file__)),
+        'execution': {key: os.environ.get(key) for key in (
+            'GITHUB_REPOSITORY', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT')},
+    }
+
+    def listing(remote, *, directory=False):
+        raw = transfer('lsjson', remote, '--max-depth', '1', '--no-modtime', '--no-mimetype',
+                       *(() if directory else ('--stat',)))
+        if len(raw.encode('utf-8')) > 1024 * 1024:
+            raise ValueError('source_preflight_metadata_budget')
+        value = json.loads(raw)
+        if directory:
+            if not isinstance(value, list) or len(value) > 1000:
+                raise ValueError('source_preflight_invalid_listing')
+        elif not isinstance(value, dict):
+            raise ValueError('source_preflight_invalid_stat')
+        return value
+
+    def head_absent():
+        value = transfer('lsf', base + str(PurePosixPath(HEAD).parent),
+                         '--files-only', '--max-depth', '1', allow_missing=True)
+        if value is not None and Path(HEAD).name in value.splitlines():
+            raise ValueError('source_preflight_current_head_requires_normal_verification')
+
+    try:
+        expected = prepare_legacy_handoff(archive_path, output / 'expected')
+        records = expected['preserved_files']
+        parent = listing(base + str(PurePosixPath(ARCHIVE).parent), directory=True)
+        folders = [row for row in parent if row.get('Name') == PurePosixPath(ARCHIVE).name]
+        if (len(folders) != 1 or folders[0].get('IsDir') is not True
+                or folders[0].get('ID') != expected_archive_folder_id):
+            raise ValueError('source_preflight_namespace_mismatch')
+        receipt['observed_archive_folder_id'] = folders[0]['ID']
+        receipt['namespace_verified'] = True
+        head_absent()
+        archive_records = {name.removeprefix(ARCHIVE + '/'): record for name, record in records.items()
+                           if name.startswith(ARCHIVE + '/')}
+
+        def archive_inventory():
+            inventory = listing(base + ARCHIVE, directory=True)
+            names = [row.get('Path') for row in inventory]
+            if (len(names) != len(set(names)) or set(names) != set(archive_records)
+                    or any(row.get('IsDir') is not False
+                           or type(row.get('Size')) is not int
+                           or row['Size'] != archive_records[row['Path']]['size_bytes']
+                           for row in inventory)):
+                raise ValueError('source_preflight_archive_inventory_changed')
+            return sorted((row['Path'], row.get('ID'), row['Size']) for row in inventory)
+
+        before = archive_inventory()
+        observed = output / 'observed'
+        target = observed / ARCHIVE
+        target.mkdir(parents=True)
+        # The exact census and hard read budget precede a fresh remote-to-local copy.
+        transfer('copy', base + ARCHIVE, target, '--checksum', '--max-depth', '1',
+                 '--max-size', '2MiB', '--max-transfer', '16MiB', '--transfers', '1', '--checkers', '1')
+        for name, record in records.items():
+            if name.startswith(ARCHIVE + '/'):
+                continue
+            stat = listing(base + name)
+            if (stat.get('IsDir') is not False or type(stat.get('Size')) is not int
+                    or stat['Size'] != record['size_bytes']):
+                raise ValueError('source_preflight_component_size_changed')
+            target = observed / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            transfer('copyto', base + name, target, '--checksum', '--max-transfer', '2MiB')
+        if files(observed) != records:
+            raise ValueError('source_preflight_original_bytes_mismatch')
+        if before != archive_inventory():
+            raise ValueError('source_preflight_archive_changed_during_read')
+        head_absent()
+        summary = json.loads((observed / DAILY / 'summary.json').read_text(encoding='utf-8'))
+        receipt.update(status='LEGACY_SOURCE_BYTES_VERIFIED_READ_ONLY',
+            generation_head_absence_verified=True, legacy_bytes_verified=True,
+            source_files=len(records), snapshot_files=expected['snapshot_files'], queue_rows=expected['queue_rows'],
+            source_inventory_sha256=hashlib.sha256(encoded(records)).hexdigest(),
+            original_artifact=dict(LEGACY_20261003), files=records,
+            original_status=summary.get('status'), original_generated_at_utc=summary.get('generated_at_utc'),
+            next_action='VERIFY_PROVIDER_RIGHTS_BUDGET_AND_EXACT_FORWARD_ATTEMPT_SEPARATELY')
+    except Exception as exc:
+        reason = str(exc)
+        receipt['reason'] = reason if re.fullmatch(r'[A-Za-z0-9_:.-]{1,160}', reason) else type(exc).__name__
+    receipt['completed_at'] = datetime.now(timezone.utc).isoformat()
+    (output / 'source_preflight.json').write_bytes(encoded(receipt))
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('publish', 'restore', 'prepare-legacy'))
+    parser.add_argument('operation', choices=('publish', 'restore', 'prepare-legacy', 'preflight-legacy'))
     parser.add_argument('--base')
     parser.add_argument('--workspace', default=str(ROOT))
     parser.add_argument('--legacy-archive')
     parser.add_argument('--output-dir')
+    parser.add_argument('--expected-archive-folder-id')
     args = parser.parse_args()
+    if args.operation == 'preflight-legacy':
+        if not all((args.base, args.legacy_archive, args.output_dir, args.expected_archive_folder_id)):
+            parser.error('preflight-legacy requires base, pinned archive, new output and independently known folder ID')
+        result = preflight_legacy_base(args.base, args.legacy_archive, args.output_dir, args.expected_archive_folder_id)
+        print(json.dumps({key: result.get(key) for key in ('status', 'reason', 'namespace_verified',
+            'generation_head_absence_verified', 'source_files', 'legacy_bytes_verified')}))
+        return 0 if result['legacy_bytes_verified'] else 2
     if args.operation == 'prepare-legacy':
         if not args.legacy_archive or not args.output_dir or args.base:
             parser.error('prepare-legacy requires --legacy-archive and --output-dir only; no remote base')
