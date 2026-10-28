@@ -263,3 +263,8 @@ Each submissions input is bounded to2MiB. The operator must recheck sole Main
 custody, exact store/source pins and actual execution time. No data collection,
 accepted Drive publication, historical PIT certification, full A3/ER/A5/A8,
 portfolio, target or order authority is created.
+
+The explicit mode refuses CHECKED_NO_NEW rather than reporting an unperformed
+correction as current success. Derived-event Source scope clocks, A2 publication /
+availability / collection clocks, and reconstructed A3 pending references are
+compared during readback, including after reference bytes have been rehashed.

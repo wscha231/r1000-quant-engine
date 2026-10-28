@@ -125,6 +125,16 @@ def verify_store(root, state):
             read_ref(root, correction["old_submissions_ref"]), read_ref(root, correction["current_submissions_ref"]))
         need(correction["proof"] == proof and correction["reason"] == "SOURCE_ACCEPTANCE_CLOCK_RECONCILIATION",
              "CLOCK_CORRECTION_PROOF")
+        a2_input = json.loads(read_ref(root, after_record["a2_intake_ref"]))["input"]
+        need(a2_input["as_of"] == corrected["decision_at"], "CLOCK_CORRECTION_A2_DECISION")
+        for event, row, a3_ref, raw_ref in zip(after, a2_input["events"],
+                after_record["a3_filing_review_refs"], corrected["raw_refs"]):
+            need(row["published_at"] == event["accepted_at"] and row["available_at"] == event["available_at"]
+                 and row["collected_at"] == row["observed_at"] == receipt["generated_at"], "CLOCK_CORRECTION_A2_CLOCK_EDGE")
+            expected_a3 = a3.filing_review_reference(event, security_id=after_record["asset_id"],
+                issuer_id=after_record["issuer_id"], raw=read_ref(root, raw_ref),
+                source_receipt_sha256=corrected["source_receipt_ref"]["sha256"])
+            need(same_semantics(json.loads(read_ref(root, a3_ref)), expected_a3), "CLOCK_CORRECTION_A3_EDGE")
     return state
 
 
@@ -347,6 +357,9 @@ def verify_clock_change(before, after, receipt, old_raw, current_raw):
                 del value["source_row"][field]
             return value
         need(same_semantics(without_clocks(old), without_clocks(new)), "CLOCK_CORRECTION_NONCLOCK_CONFLICT")
+        need(receipt.get("event_scope", {}).get(new["event_id"]) == {k: new[k] for k in
+             ("document_sha256", "issuer_cik10", "accession", "form_type", "ticker", "accepted_at", "available_at")},
+             "CLOCK_CORRECTION_EVENT_SOURCE_SCOPE")
         delta = (bridge.stamp(new["accepted_at"]) - bridge.stamp(old["accepted_at"])).total_seconds()
         changed |= delta != 0
         deltas.append(dict(event_id=old["event_id"], before_accepted_at=old["accepted_at"],
@@ -419,6 +432,7 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             atomic(current_path, encoded(attempt))
             return attempt
         if status == "CHECKED_NO_NEW":
+            need(clock_correction is None, "CLOCK_CORRECTION_REQUIRES_CURRENT_FILING")
             need(not events, "NO_NEW_STATUS_WITH_EVENTS")
             attempt["stored_requests"] = len(state["requests"])
             atomic(current_path, encoded(attempt))
@@ -626,6 +640,9 @@ def main():
         print(json.dumps(result, sort_keys=True))
         return 2
     if receipt["status"] == "CHECKED_NO_NEW":
+        if correction is not None:
+            print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
+            return 2
         result = consume([], receipt=receipt, raw_by_hash={}, identities=b"{}",
             output_root=Path(args.output_dir), decision_at=args.decision_at)
         print(json.dumps(result, sort_keys=True))

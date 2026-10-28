@@ -237,6 +237,14 @@ class ClockCorrectionTests(unittest.TestCase):
         self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
         args += ["--clock-correction-old-submissions", str(old_path), "--clock-correction-current-submissions", str(new_path),
                  "--clock-correction-expected-parent-sha256", self.proof["expected_original_request_sha256"]]
+        empty = source("CHECKED_NO_NEW"); empty.update(event_scope={})
+        with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()), \
+                patch.object(c, "verify_ownership_generation", return_value=(empty, pd.DataFrame())):
+            self.assertEqual(c.main(), 2)
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+        with self.assertRaisesRegex(ValueError, "REQUIRES_CURRENT_FILING"):
+            c.consume([], receipt=empty, raw_by_hash={}, identities=b"{}", output_root=self.store,
+                      decision_at=NOW, clock_correction=self.proof)
         with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()):
             self.assertEqual(c.main(), 0)
         self.assertIn(self.request_id, c.readback(self.store)["clock_corrections"])
@@ -251,6 +259,44 @@ class ClockCorrectionTests(unittest.TestCase):
             edited = copy.deepcopy(state)
             edited["clock_corrections"][self.request_id] = c.put(self.store, changed)
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, reason):
+                c.verify_store(self.store, edited)
+
+    def test_current_payload_and_event_scope_clocks_must_match(self):
+        forged = copy.deepcopy(self.receipt)
+        manifest = json.loads(forged["original_manifest_utf8"])
+        shifted = (pd.Timestamp(ACCEPTED) + timedelta(hours=1)).isoformat()
+        for row in manifest["source_filings"]:
+            row["accepted_at"] = row["available_at"] = shifted
+        for row in forged["event_scope"].values():
+            row["accepted_at"] = row["available_at"] = shifted
+        manifest["latest_accepted_at"] = forged["latest_accepted_at"] = shifted
+        forged["original_manifest_utf8"] = json.dumps(manifest, sort_keys=True)
+        forged["original_manifest_sha256"] = c.digest(forged["original_manifest_utf8"].encode())
+        self.assertEqual(c.source_state(forged, NOW), "CHECKED_NEW_OR_EXISTING")
+        with self.assertRaisesRegex(ValueError, "EVENT_SOURCE_SCOPE"):
+            c.verify_clock_change(self.old_events, self.events, forged,
+                self.proof["old_submissions"], self.proof["current_submissions"])
+
+    def test_rehashed_corrected_a2_a3_clock_edges_refuse(self):
+        self.correct()
+        state = c.readback(self.store)
+        saved = json.loads(c.read_ref(self.store, state["clock_corrections"][self.request_id]))
+        for edge in ("A2", "A3"):
+            correction = copy.deepcopy(saved)
+            request = correction["corrected_request"]
+            record = json.loads(c.read_ref(self.store, request["registry_ref"]))
+            if edge == "A2":
+                value = json.loads(c.read_ref(self.store, record["a2_intake_ref"]))
+                value["input"]["events"][0]["published_at"] = self.old_time
+                record["a2_intake_ref"] = c.put(self.store, value)
+            else:
+                value = json.loads(c.read_ref(self.store, record["a3_filing_review_refs"][0]))
+                value["accepted_at"] = self.old_time
+                record["a3_filing_review_refs"][0] = c.put(self.store, value)
+            request["registry_ref"] = c.put(self.store, record)
+            edited = copy.deepcopy(state)
+            edited["clock_corrections"][self.request_id] = c.put(self.store, correction)
+            with self.subTest(edge=edge), self.assertRaisesRegex(ValueError, "CLOCK_CORRECTION_" + edge):
                 c.verify_store(self.store, edited)
 
 
