@@ -321,6 +321,100 @@ class AdmissionTests(unittest.TestCase):
                         summary_path=payload/drive.DAILY/'summary.json',checkpoint_path=payload/drive.ARCHIVE/'collection_checkpoint.json',
                         queue_path=payload/drive.DAILY/'collection_queue.csv',signals_path=payload/drive.SIGNALS)
 
+    def test_source_preflight_reads_exact_namespace_and_preserves_remote_state(self):
+        from tools import earnings_estimate_drive_generation as drive
+        cases = ('valid','namespace','current_head','head_appears','duplicate','changed_bytes',
+                 'missing','partial_copy','archive_id_changes','wrong_zip')
+        for damage in cases:
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp); remote=root/'remote'; output=root/'inspection'
+                archive,preset,members=self.legacy_handoff_archive(root)
+                for name,raw in members.items():
+                    if name.startswith(drive.ARCHIVE+'/') or name in (drive.SIGNALS,
+                            drive.DAILY+'/summary.json',drive.DAILY+'/collection_queue.csv',drive.DAILY+'/archive_manifest.json'):
+                        target=remote/name; target.parent.mkdir(parents=True,exist_ok=True); target.write_bytes(raw)
+                if damage=='changed_bytes':
+                    target=remote/drive.SIGNALS; raw=target.read_bytes(); target.write_bytes(raw[:-1]+bytes([raw[-1]^1]))
+                if damage=='missing': (remote/drive.ARCHIVE/'archive_index.jsonl').unlink()
+                if damage=='wrong_zip': archive.write_bytes(b'not-the-pinned-archive')
+                before=drive.files(remote); original=archive.read_bytes(); calls=[]
+                head_reads=archive_reads=0
+                def transfer(command,left,right=None,*options,**kwargs):
+                    nonlocal head_reads,archive_reads
+                    self.assertIn(command,('lsjson','lsf','copy','copyto'))
+                    self.assertTrue(str(left).startswith('gdrive:fixture/'))
+                    source=remote/str(left).removeprefix('gdrive:fixture/')
+                    calls.append(command)
+                    if command=='lsf':
+                        head_reads+=1
+                        return Path(drive.HEAD).name+'\n' if damage=='current_head' or (damage=='head_appears' and head_reads>1) else ''
+                    def stat(path):
+                        return dict(Name=path.name,Path=path.name,IsDir=path.is_dir(),
+                            Size=-1 if path.is_dir() else path.stat().st_size,
+                            ID=('SOURCE_FOLDER_12345' if path.is_dir() else 'file_'+path.name))
+                    if command=='lsjson':
+                        if '--stat' in options: return json.dumps(stat(source))
+                        rows=[stat(p) for p in source.iterdir()]
+                        if source==remote/drive.ARCHIVE:
+                            archive_reads+=1
+                            if damage=='duplicate': rows.append(rows[0])
+                            if damage=='archive_id_changes' and archive_reads>1: rows[0]['ID']='different'
+                        elif damage=='namespace':
+                            for row in rows:
+                                if row['Name']=='earnings_estimates': row['ID']='OTHER_FOLDER_12345'
+                        return json.dumps(rows)
+                    target=Path(right)
+                    self.assertTrue(target.is_absolute())
+                    self.assertTrue(target.resolve().is_relative_to((output/'observed').resolve()))
+                    self.assertIn('--checksum',options)
+                    self.assertIn('--max-transfer',options)
+                    if damage=='partial_copy': raise RuntimeError('generation_transfer_failed:copy:exit9')
+                    if command=='copy': shutil.copytree(source,target,dirs_exist_ok=True)
+                    else: shutil.copy2(source,target)
+                    return ''
+                with patch.object(drive,'LEGACY_20261003',preset),patch.object(drive,'transfer',side_effect=transfer), \
+                     patch.object(c,'collect_live_snapshot',side_effect=AssertionError('provider forbidden')) as provider:
+                    result=drive.preflight_legacy_base('gdrive:fixture/',archive,output,'SOURCE_FOLDER_12345')
+                    provider.assert_not_called()
+                self.assertEqual(drive.files(remote),before)
+                self.assertEqual(archive.read_bytes(),original)
+                self.assertTrue((output/'source_preflight.json').is_file())
+                for key in ('collection_executed','source_published','source_admitted','paper_consumer_executed',
+                            'paper_state_restored_or_mutated',
+                            'canonical_write_performed','recovery_execution_authorized','observation_is_atomic'):
+                    self.assertIs(result[key],False)
+                if damage=='valid':
+                    self.assertEqual(result['status'],'LEGACY_SOURCE_BYTES_VERIFIED_READ_ONLY')
+                    self.assertTrue(result['namespace_verified'])
+                    self.assertTrue(result['generation_head_absence_verified'])
+                    self.assertEqual(result['source_files'],7)
+                    self.assertEqual(result['queue_rows'],1)
+                else:
+                    self.assertEqual(result['status'],'BLOCKED')
+                    self.assertFalse(result['legacy_bytes_verified'])
+                    if damage in ('namespace','current_head','duplicate','missing','wrong_zip'):
+                        self.assertNotIn('copy',calls)
+
+    def test_source_preflight_workflow_excludes_daily_paper_and_provider_paths(self):
+        import yaml
+        workflow=yaml.load((ROOT/'.github/workflows/earnings_estimates_daily.yml').read_text(),Loader=yaml.BaseLoader)
+        inputs=workflow['on']['workflow_dispatch']['inputs']
+        self.assertEqual(inputs['read_only_source_preflight']['default'],'false')
+        self.assertEqual(workflow['jobs']['archive']['if'],"${{ github.event_name != 'workflow_dispatch' || !inputs.read_only_source_preflight }}")
+        job=workflow['jobs']['source_preflight']
+        self.assertEqual(job['if'],"${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight }}")
+        self.assertEqual(job['timeout-minutes'],'15')
+        self.assertNotIn('needs',job)
+        steps=job['steps']; scripts='\n'.join(step.get('run','') for step in steps)
+        for forbidden in ('collect_earnings_estimates_finnhub.py',' publish --','rclone sync','free_data_forward_paper_ledger','free_data_selection_overlay'):
+            self.assertNotIn(forbidden,scripts)
+        keys={key for step in steps for key in step.get('env',{})}
+        self.assertFalse({'FMP_API_KEY','FMP_API_KEY2','FINNHUB_API_KEY','ALPHAVANTAGE_API_KEY'} & keys)
+        self.assertEqual(steps[-1]['if'],'always()')
+        self.assertEqual(steps[-1]['uses'],'actions/upload-artifact@v4')
+        self.assertNotIn('observed',steps[-1]['with']['path'])
+        self.assertIn('preflight-legacy',scripts)
+
     def test_provider_revision_boundary_ignores_other_provider_without_fallback(self):
         old = snapshot('2026-05-30T18:00:00Z', 1, fetch_source='fmp')
         other = snapshot('2026-05-31T18:00:00Z', 1.5, fetch_source='finnhub')

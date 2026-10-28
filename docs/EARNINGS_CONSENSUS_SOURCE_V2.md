@@ -396,3 +396,45 @@ legacy entry again. The old ZIP remains the immutable original in every case.
 This code path has isolated provider-double transaction tests; actual provider
 collection and publication remain NOT_RUN until the live-base, rights, cohort,
 budget and writer authorization in the recovery contract have been verified.
+
+### Read-only inspection with the actual Actions connection
+
+PR691's protected integration does not prove that a Native Drive connection
+and the configured Actions connection address the same Source. Native provider
+keys are absent; replaying the whole daily workflow would also involve paper
+paths. Do not use an intentionally invalid collection date to probe that job.
+
+The existing daily workflow has an explicit manual read_only_source_preflight
+input, default false. True runs only source_preflight; the entire archive job
+is skipped. Normal scheduled/manual defaults retain their previous archive
+behavior and global writer concurrency. The preflight job loads only the
+existing Drive read credentials, never provider keys, and downloads the exact
+retained Actions artifact11266510471. Its download blocks if the artifact is
+expired/missing; preparation rejects changed bytes. There is no alternative
+artifact/cache fallback in this diagnostic job.
+
+The operator supplies expected_archive_folder_id from an independently grounded
+connected Drive read. preflight-legacy compares it with the actual folder ID
+resolved through the Actions Source connection. It refuses a current generation
+head rather than falling back to flat history. With confirmed head absence
+in that configured view, it checks the exact flat archive inventory and bounded
+component sizes, reads Source bytes only into a new absolute local directory,
+and compares all70 Source files to the pinned original. Archive metadata and
+head absence are checked again after the read. No cache, consumer restore,
+collection, marker creation, publication or Paper consumer/restore/mutation is
+performed. Whole-ZIP CRC validation may visit unrelated archived members; only
+Source files are extracted, and archived Paper bytes are not consumed as state.
+
+The job uses at most15 minutes, remote-to-local copies with existing checksums,
+one transfer/checker, a16MiB archive read cap and2MiB component caps. These are
+diagnostic I/O bounds, not a provider collection budget. The diagnostic receipt
+retains the actual repository/code/run/attempt, folder binding, Source hashes
+and original clocks/status. Failure diagnostics are preserved with always();
+only small JSON receipts are uploaded, not another raw Source/Paper archive.
+
+LEGACY_SOURCE_BYTES_VERIFIED_READ_ONLY means that this configured connection
+observed matching legacy bytes. It is not an atomic snapshot, publication lock,
+current provider entitlement/freshness, Source/PIT admission or recovery grant.
+Actual provider rights, budget, current parent and named forward attempt remain
+separate prerequisites and must be reconciled again before mutation. Existing
+collector/publication/consumer checks are unchanged.
