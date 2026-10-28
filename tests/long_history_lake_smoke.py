@@ -31,6 +31,191 @@ class HistoryTest(unittest.TestCase):
         lake.dataset('sec/0000000001',[b'original'],[dict(end='2016-12-31',filed='2017-02-01',value=value,concept='Revenue',unit='USD')],
             dict(evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rows=1))
 
+
+    def test_phase_progress_is_paired_bounded_and_uses_monotonic_elapsed(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        stream=io.StringIO()
+        with patch('tools.long_history_lake.time.monotonic_ns',side_effect=[1000000000,1025000000]), redirect_stdout(stream):
+            with _history_phase('COMMIT_INVENTORY') as counts:
+                counts['commits']=3
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()]
+        self.assertEqual([e['state'] for e in events],['BEGIN','END'])
+        self.assertEqual(events[0]['phase_id'],events[1]['phase_id'])
+        self.assertEqual(events[1]['elapsed_ms'],25)
+        self.assertEqual(events[1]['commits'],3)
+
+    def test_phase_refuses_unknown_fields_and_never_prints_secret_exception(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        secret='https://private.invalid/object?token=PUBLIC_SENTINEL_SECRET'
+        stream=io.StringIO()
+        failure=KeyboardInterrupt(secret)
+        with redirect_stdout(stream):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                with _history_phase('STUDY'):
+                    raise failure
+            self.assertIs(caught.exception,failure)
+            for kwargs in ({'stage':secret},{'stage':'STUDY','remote':secret},
+                           {'stage':'STUDY','rows':True},{'stage':'STUDY','commit_sha256':secret}):
+                entered=False
+                with _history_phase(**kwargs):
+                    entered=True
+                self.assertTrue(entered, 'telemetry is not an authorization gate')
+        self.assertNotIn(secret,stream.getvalue())
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()]
+        self.assertEqual([e['state'] for e in events],['BEGIN','ERROR'])
+
+    def test_phase_after_commit_write_is_not_postcommit_or_execution_success(self):
+        import io
+        from contextlib import redirect_stdout
+        stream=io.StringIO()
+        self.put()
+        real_write=self.t.write
+        def write(path,raw):
+            real_write(path,raw)
+            if '/commits/' in path:
+                self.t.read=lambda name: (_ for _ in ()).throw(OSError('PUBLIC_SENTINEL_SECRET'))
+        with patch.object(self.t,'write',side_effect=write),redirect_stdout(stream):
+            with self.assertRaisesRegex(OSError,'PUBLIC_SENTINEL_SECRET'):
+                self.lake.publish('interrupted',{})
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()
+                if line.startswith('LONG_HISTORY_PHASE ')]
+        pairs=[(e['stage'],e['state']) for e in events]
+        self.assertIn(('COMMIT_WRITE','END'),pairs)
+        self.assertIn(('POST_COMMIT_RESTORE','ERROR'),pairs)
+        self.assertNotIn(('POST_COMMIT_RESTORE','END'),pairs)
+        self.assertEqual(len(self.t.names(PREFIX+'/commits')),1)
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertNotIn('PUBLIC_SENTINEL_SECRET',stream.getvalue())
+
+    def test_phase_failure_to_emit_error_keeps_original_operation_failure(self):
+        from tools.long_history_lake import _history_phase
+        failure=ValueError('original_failure')
+        with patch('builtins.print',side_effect=[None,OSError('PUBLIC_SENTINEL_SECRET')]):
+            with self.assertRaises(ValueError) as caught:
+                with _history_phase('STUDY'):
+                    raise failure
+        self.assertIs(caught.exception,failure)
+
+
+    def test_phase_sink_failures_preserve_body_result_and_original_failure(self):
+        from tools.long_history_lake import _history_phase
+        for state in ('BEGIN','END','ERROR'):
+            for error in (ValueError,TypeError,RuntimeError,BrokenPipeError):
+                with self.subTest(state=state,error=error):
+                    entered=[]
+                    original=ValueError('operation_failure')
+                    def sink(line,*args,**kwargs):
+                        if line.startswith('LONG_HISTORY_PHASE ') and json.loads(line.split(' ',1)[1])['state']==state:
+                            raise error('PUBLIC_SENTINEL_SECRET')
+                    with patch('builtins.print',side_effect=sink):
+                        if state=='ERROR':
+                            with self.assertRaises(ValueError) as caught:
+                                with _history_phase('STUDY'):
+                                    entered.append(1)
+                                    raise original
+                            self.assertIs(caught.exception,original)
+                        else:
+                            with _history_phase('STUDY'):
+                                entered.append(1)
+                    self.assertEqual(entered,[1])
+
+    def test_phase_build_and_serialization_failure_remain_nonblocking(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        for target in ('json.dumps','time.monotonic_ns'):
+            stream=io.StringIO()
+            with self.subTest(target=target),redirect_stdout(stream), \
+                 patch('tools.long_history_lake.'+target,side_effect=ValueError('PUBLIC_SENTINEL_SECRET')):
+                entered=False
+                with _history_phase('STUDY'):
+                    entered=True
+                self.assertTrue(entered)
+            self.assertNotIn('PUBLIC_SENTINEL_SECRET',stream.getvalue())
+
+    def test_phase_cancellation_and_deadline_during_emit_propagate(self):
+        from tools.long_history_lake import _history_phase
+        from tools.twelve_private_capture import Refused
+        for state in ('BEGIN','END','ERROR'):
+            for kind in (KeyboardInterrupt,SystemExit,GeneratorExit,TimeoutError,InterruptedError,Refused):
+                with self.subTest(state=state,kind=kind):
+                    failure=kind('CAMPAIGN_DEADLINE' if kind is Refused else 'PUBLIC_CANCEL_SENTINEL')
+                    original=ValueError('operation_failure')
+                    entered=[]
+                    def sink(line,*args,**kwargs):
+                        if line.startswith('LONG_HISTORY_PHASE ') and json.loads(line.split(' ',1)[1])['state']==state:
+                            raise failure
+                    with patch('builtins.print',side_effect=sink):
+                        with self.assertRaises(BaseException) as caught:
+                            with _history_phase('STUDY'):
+                                entered.append(1)
+                                if state=='ERROR':
+                                    raise original
+                    self.assertIs(caught.exception,failure)
+                    self.assertEqual(entered,[] if state=='BEGIN' else [1])
+                    if state=='ERROR':
+                        self.assertIs(failure.__context__,original)
+
+    def test_phase_commit_end_sink_failure_still_runs_postcommit_verification(self):
+        import io
+        from contextlib import redirect_stdout
+        self.put()
+        output=io.StringIO()
+        real_print=print
+        def sink(line,*args,**kwargs):
+            if isinstance(line,str) and line.startswith('LONG_HISTORY_PHASE '):
+                event=json.loads(line.split(' ',1)[1])
+                if event['stage']=='COMMIT_WRITE' and event['state']=='END':
+                    raise BrokenPipeError('PUBLIC_SENTINEL_SECRET')
+            real_print(line,*args,**kwargs)
+        with redirect_stdout(output),patch('builtins.print',side_effect=sink), \
+             patch.object(self.lake,'restore_catalog',wraps=self.lake.restore_catalog) as restored:
+            result=self.lake.publish('one',{})
+        self.assertEqual(restored.call_count,3)
+        self.assertEqual(result['commit_sha256'],self.lake.restore_catalog()[0])
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertNotIn('PUBLIC_SENTINEL_SECRET',output.getvalue())
+        events=[json.loads(line.split(' ',1)[1]) for line in output.getvalue().splitlines()
+                if line.startswith('LONG_HISTORY_PHASE ')]
+        self.assertIn(('POST_COMMIT_RESTORE','END'),[(e['stage'],e['state']) for e in events])
+
+    @unittest.skipUnless(hasattr(__import__('signal'),'setitimer'),'POSIX timer required')
+    def test_phase_real_posix_deadline_interrupts_logger_before_body(self):
+        import signal
+        import time
+        from tools.long_history_lake import _history_phase
+        from tools.twelve_private_capture import Refused
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        previous=signal.getsignal(signal.SIGALRM)
+        failure=Refused('CAMPAIGN_DEADLINE')
+        entered=[]
+        sink_entered=[]
+        def deadline(*unused):
+            raise failure
+        def sink(line,*args,**kwargs):
+            sink_entered.append(True)
+            signal.setitimer(signal.ITIMER_REAL,0.01)
+            time.sleep(1)
+            self.fail('actual POSIX deadline did not interrupt the sink')
+        try:
+            signal.signal(signal.SIGALRM,deadline)
+            with patch('builtins.print',side_effect=sink):
+                with self.assertRaises(Refused) as caught:
+                    with _history_phase('STUDY'):
+                        entered.append(True)
+            self.assertIs(caught.exception,failure)
+            self.assertEqual(entered,[])
+            self.assertEqual(sink_entered,[True])
+        finally:
+            signal.setitimer(signal.ITIMER_REAL,0)
+            signal.signal(signal.SIGALRM,previous)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        self.assertEqual(signal.getsignal(signal.SIGALRM),previous)
+
     def test_a4_missing_four_flow_through_existing_lake_without_alias_or_history_rewrite(self):
         from tools.long_history_lake import collect_macros, registry
         wanted = {'BAMLC0A0CM', 'DGS3MO', 'WDTGAL', 'RRPTSYD'}

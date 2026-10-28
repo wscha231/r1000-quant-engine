@@ -201,3 +201,56 @@ consumer construction). At the measured 503,129,850-byte inventory that is about
 a calculation, not an observed network benchmark. Real runtime/bytes must be
 measured before treating the scheduled design as sustainable. Do not optimize
 this by allowing a warm local cache to conceal deleted or corrupt remote packs.
+
+
+## Prepared phase diagnostics — 2026-10-29 (not deployed)
+
+This separate H1 proposal adds LONG_HISTORY_PHASE progress around the existing
+restore, per-object hash read, publication checkpoints and post-publication
+consumer/study/report/execution steps. BEGIN/END share a process-local phase ID;
+ERROR records an interrupted operation without copying exception text. A final
+BEGIN with no terminal record means outcome unknown, never completed. Monotonic
+elapsed milliseconds and allowlisted nonnegative integer counts are observations;
+application_bytes counts returned/written application bodies, not measured socket
+transfer, Drive billable requests, or a numeric execution budget.
+
+Only fixed stage names, counts and syntactically verified commit/catalog hashes
+are emitted. Paths, object IDs, provider URLs, credentials and exception bodies
+are excluded. Existing PACK_VERIFIED and final LONG_HISTORY_SUMMARY remain.
+Progress never substitutes for hash verification, a durable execution receipt,
+matching generation, consumer readback, quality or Source/PIT admission.
+
+The three observed history jobs reached the unchanged 120-minute limit. g29's
+commit creation clock was 183.599 seconds before its origin job cancellation;
+that is not measured remote-write/ACK completion. The precise slow inner call
+is unproven. This patch does not reduce the six restores, skip any remote check,
+increase timeout, retry a job, collect data, or recover/publish a receipt.
+Retain BEGIN/END/error evidence in existing Actions logs and the existing always
+diagnostic upload route; no new accepted ledger or scheduler is introduced.
+Actual exact-g29 recovery remains a separate bounded, independently reviewed
+execution contract with distinct recovery provenance and original failure kept.
+
+
+V1 prospective QA found that logger BEGIN/END failure could stop the original
+operation and ERROR logger ValueError could replace its original exception.
+Preserve V1 and its actual counterexample receipts. V2 disables progress for
+that phase after an exact ordinary diagnostic build/serialization/output error;
+no missing END is interpreted as success. Progress is never an authorization
+gate. BaseException cancellation, TimeoutError/InterruptedError and custom
+subclasses such as the existing Refused deadline propagate unchanged. Unknown
+non-allowlisted logger failures also propagate; no generic deadline suppression
+or continuation past cancellation is introduced. Existing operation/hash/receipt
+logic and every actual read/write remain unchanged. The synthetic commit-END
+broken-pipe counterexample now completes original post-commit verification.
+Actual POSIX signal delivery and product CI remain future deployment checks.
+
+For the fixed g29 chain, Root's 2026-10-29 metadata-only inventory declares
+57 packs /4,246 members and864,629,649 logical pack bytes. Six identical full
+restores project5,187,777,894 pack bytes. This replaces neither the dated
+503MB observation above nor a measured current network cost. Pack content/CRC
+was not read by that inventory; exact consumer/runtime and failed-retry cost
+remain separate evidence. Inventory SHA256:
+`b7410ead0691c3bbc99686e5811298e051780a6ecc4f311e152094259ca8a635`.
+The product regression includes real POSIX timer delivery from inside a fake
+log sink; current-head Linux CI must execute it. Native Windows retains an
+explicit platform skip and never certifies that POSIX execution itself.
