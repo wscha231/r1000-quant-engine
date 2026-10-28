@@ -8686,3 +8686,114 @@ the real capture/verifier with injected responses, including valid weekends.
 - PR695 exacteb78 CI40702991037/job122867511889 passed234/236 programs in3877.50s but refused a duplicate direct intake registration: ManualTests requires the protected235-program list and artifact inventory rejected post_publication_protected_delta:tools/run_pr_validation.py. The new65-method intake and228-method A3 routes had passed; extending existing IntakeTests already reaches the registered A3/agent-board path. Restore the runner's exact protected bytes and keep every new test. Do not change the235 assertion, publication guard, tests or baseline to accept an unnecessary runner mutation. Preserve the failed hosted logs and bind new checks/reviews to the repaired head.
 - Native inventory validation first refused frozen_publication_is_not_live_head_ancestor in the existing shallow Main clone. This local graph limitation is separate from the hosted protected-runner failure; complete the commit graph with a filtered fetch before checking the repaired HEAD, rather than altering the lineage validator.
 - After restoring ancestry, Native generation passed the lineage guards but full byte-stability refused Arrow26 output against the frozen Arrow23.0.1 parquet. The77x43 logical tables match; writer/schema metadata differ. Preserve the diagnostic and use the pinned CI/runtime for full byte certification. Do not rebaseline the frozen artifact or change the shared Source environment to hide the mismatch.
+
+
+## 2026-10-28 — Bind a new finite allocation without reviving spent campaigns
+
+- A valid new three-ticker CSV passed the external parser, while changing the
+  old authorization's task/date/limits separately failed CAMPAIGN_AUTHORIZATION,
+  CAMPAIGN_SCOPE and CAMPAIGN_LIMITS. Preserve those old guards; recognize only
+  the separately reviewed one-attempt allocation and keep its own reservation
+  in the existing Journal architecture, with an unchanged historical prefix.
+- Initial focused preparation had13cases:10passed,2failed and1errored. The
+  synthetic Drive lacked the existing content-addressed lookup interface, and
+  NEW3-prefixed failure codes violated the meter's unchanged A-Z/underscore
+  reason rule, masking the actual error with CAMPAIGN_REASON. Complete the
+  fixture and use NEW_THREE failure codes; do not weaken the meter validator.
+- Bind one deterministic allocation nonce across control revisions, fsync
+  before POST, preserve uncertain reservations and permit accounting-only
+  settlement after expiry. Collection success is not licence/perpetual
+  retention, historical completeness, Reader/Source/PIT or economic admission.
+
+- Independent A6 found that the new settlement called the real shared receipt
+  reader with NEW3_CAPS, but that reader accepted only the two legacy limits.
+  The initial test mocked the reader and hid the genuine CAMPAIGN_LIMITS refusal.
+  Preserve the failed version; add an exact typed profile/cap pair and bind the
+  parsed meter to that same profile. Exercise actual success/failure/overcap
+  artifact parsing and idempotent settlement; no arbitrary limit relaxation.
+- Early isolated registered runs omitted the unchanged fixed-seed fixture and
+  produced setup errors. Preserve those logs as invalid preparation inputs,
+  restore the exact original seed bytes, and rerun the registered route. Do
+  not alter legacy tests or call the failed fixture snapshot product evidence.
+- Print the explicit POST_ACCEPTED_OUTCOME_PENDING host result. A successful
+  dispatch command is not a completed collection or a finalized receipt.
+
+
+## 2026-10-29 — Explicit unused-allocation replacement must remain one attempt
+
+- Preserve the unpublished V3 grant,18Z expiry and closed independent P2. R2
+  comes from a new immutable OWNER allocation with the same names/date/caps;
+  consistently rebind task/profile/body/nonce/Journal/receipt/archive, rather
+  than changing only expiry or presenting the old grant as new authority.
+- Reconcile both old local reservations/unknown writer and remote old nonce
+  before the new slot. Any actual predecessor attempt or unknown outcome stops
+  R2; no counter reset, refund, hidden retry or family renewal is allowed.
+- Existing daily-maintenance calendar evaluation at16:15Z returns stale for
+  Oct27; at21:45Z it selects Oct28 but is inside its settlement buffer. Neither
+  synthetic ready flags nor a later allocation expiry prove an actual gate is
+  ready. Report this distinction and require the actual authorized backfill
+  calendar/endpoint evidence; do not silently widen max-age or force a session.
+
+
+## 2026-10-29 — Calendar truth and deployable dependencies are separate edges
+
+- V3/V4 bound an OWNER calendar dictionary but did not recompute the existing
+  calendar at runtime. Record this additional cross-edge finding separately
+  from the closed receipt-parser P2. An OWNER READY flag is not calendar proof.
+- Use the unchanged NYSE helper for close/holiday/DST truth and preserve normal
+  daily stale/buffer false results. A narrowly authorized historical collection
+  may be ARCHIVAL_COLLECTION_ONLY after actual close+120 and UTC-end delay;
+  that result does not change current-price/Source/PIT/ER/A5 eligibility.
+- The original sparse SIP jobs omitted that helper and installed no calendar
+  packages. Merely importing it in the adapter would fail on the deployed runner.
+  Wire the existing helper and minimal declared dependencies in the same workflow,
+  test the actual sparse layout and missing-dependency failure, and count all
+  setup/validation time inside the original900second allocation. Do not copy a
+  calendar engine, weaken daily freshness or hide dependency failures with skips.
+- Initial V5 focused35 ran33pass/1failure/1error: the new sparse-layout fixture
+  omitted its local regex import, and expiry now correctly refused at the new
+  archival guard before the older worker deadline check. Preserve those logs,
+  fix the fixture and assert the exact earlier expiry reason with meter0; do
+  not broaden the accepted exception or change production time limits.
+- R2 elapsed includes queue/setup/validation. Starting only at run_started_at and
+  settling only summed job time can omit queue intervals. Use canonical created_at
+  for the existing840second collection deadline and retain both active job time
+  and full canonical elapsed;901seconds blocks completion without a refund.
+- V5 full registered514 produced507pass/2fail/5Windows skips in both modes.
+  The two inherited current-workflow layout checks correctly saw the new helper
+  outside the frozen price174 set. Do not add it globally: that list participates
+  in actual historical tree/transition digests, so a green regenerated fixture
+  could hide a broken old receipt. Preserve the exact old19-key module and all
+  subsequent tree/blob/hash/origin assertions. Explicitly separate the current
+  workflow's one required R2 helper from that frozen set, and prove its exact
+  mandatory R2 pin rejects missing/foreign/tampered helpers. No skip or arbitrary
+  path exception is introduced; A0 clarification6474990100 supersedes the proposed
+  seventh-file change, which was never applied.
+- Committed72fb Native516 normal/-O produced509pass/1failure/1error/5Windows
+  skips: two new fake GitHub responses encoded native CRLF bytes although the
+  control pins used canonical Git LF. The unchanged production drift guard
+  correctly rejected the first unchanged CRLF helper, so the targeted calendar
+  tamper test did not reach its intended object. Preserve those exact-head logs;
+  make only the new remote fixtures represent actual Git LF and exercise all
+  local pins with CRLF through the real bounded reader. Do not normalize or
+  weaken remote hash verification, change the byte cap, or relabel isolated LF
+  snapshot results as a passed current-head Windows check.
+- f212 current-head Native516 passed511+5Windows skips in both modes, but a
+  separate privacy audit found R2's schema-less control fell through the shared
+  job-env path, which excluded only old native/price174 schemas. Collector stdout
+  filtering does not protect runner env/CLI logging. No actual R2 dispatch or
+  leak occurred. Reuse the existing bounded GITHUB_EVENT_PATH primitive: hide
+  recognizable R2 control/private fields, including malformed profiles/nonces,
+  reject in that private route, create the temp control under umask077, and
+  reconstruct only internal arguments. Prove empty private env/CLI, event/control
+  equality and unchanged legacy projection with public sentinels; never print
+  real private references or treat the earlier review as privacy completion.
+- Initial privacy45 ran44pass/1failure per Native mode because Windows umask
+  returns0 rather than applying POSIX022. Compare restoration with the platform's
+  measured effective mask; retain the strict0600 assertion on POSIX. The actual
+  runner-script test still executes in both modes without an optional skip.
+- Independent review of0d694 found the public fixed-R2 nonce hint was still
+  inside the nonempty-control guard. Empty/missing control plus that nonce could
+  select default env expressions. Actual GitHub input reachability or a leak was
+  not demonstrated. Move the nonce classification outside that guard and add
+  empty/missing-control sentinel cases; retain private rejection and legacy scope.
