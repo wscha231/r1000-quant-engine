@@ -8797,3 +8797,56 @@ the real capture/verifier with injected responses, including valid weekends.
   select default env expressions. Actual GitHub input reachability or a leak was
   not demonstrated. Move the nonce classification outside that guard and add
   empty/missing-control sentinel cases; retain private rejection and legacy scope.
+
+
+## 2026-10-29 — Stored history and final consumer completion have distinct clocks
+
+- Three actual history jobs exceeded the existing 120-minute limit. Original g29
+  commit creation preceded cancellation by183.599seconds; neither that clock nor
+  PACK_VERIFIED proves remote commit ACK, post-commit verification or execution
+  receipt completion. The exact slow subcall remains unobserved.
+- Add fixed-name phase BEGIN/END/ERROR, monotonic elapsed and bounded safe counts
+  around existing calls before proposing a performance change. Never log raw
+  exception text, credentials, provider URLs or private object references.
+  A last BEGIN without END is UNKNOWN, not success; diagnostics do not certify
+  an execution receipt. Keep every restore/hash/deletion/corruption refusal,
+  unchanged timeout and original failed run. Do not blindly rerun or fabricate
+  origin-matching completion. Prepare any exact-generation consumer recovery
+  separately with actual finite authority/budget and recovery provenance.
+
+
+V1 prospective QA found that logger BEGIN/END failure could stop the original
+operation and ERROR logger ValueError could replace its original exception.
+Preserve V1 and its actual counterexample receipts. V2 disables progress for
+that phase after an exact ordinary diagnostic build/serialization/output error;
+no missing END is interpreted as success. Progress is never an authorization
+gate. BaseException cancellation, TimeoutError/InterruptedError and custom
+subclasses such as the existing Refused deadline propagate unchanged. Unknown
+non-allowlisted logger failures also propagate; no generic deadline suppression
+or continuation past cancellation is introduced. Existing operation/hash/receipt
+logic and every actual read/write remain unchanged. The synthetic commit-END
+broken-pipe counterexample now completes original post-commit verification.
+Actual POSIX signal delivery and product CI remain future deployment checks.
+
+- The existing Source host entrypoint is `python -m tools.alpaca_sip_campaign`.
+  Direct script invocation failed at module import before controller I/O or
+  reservation. Preserve that pre-import failure separately from the one actual
+  successful R2 run; no code or budget relaxation was needed to use the module.
+- Product validation adds an actual POSIX timer inside the fake log sink. It
+  must preserve the genuine Refused deadline, prevent body entry and restore
+  the timer/handler. Native Windows skips only this platform-specific case;
+  injected cancellation identity and ordinary logger-failure tests still run.
+- The current-head focused run reached two historical-fixture setup errors
+  because their child Git processes did not inherit a parent command's `-c
+  safe.directory`. Preserve those logs and pass the same exact directory through
+  process-scoped Git config to descendants; never alter global Git trust or the
+  fixture/catalog oracle to obtain a pass.
+- Codex P1 on ccac found a wider cancellation boundary: the helper rethrew
+  Refused/TimeoutError/InterruptedError, but main's ordinary study-error handler
+  caught their ValueError/OSError bases and published reports/execution evidence.
+  Native main probes reproduced return2 plus both writes for all three kinds.
+  Preserve that RED and explicitly rethrow cancellation before the partial-study
+  handler. Test real main through STUDY/LOCAL_STUDY_REPORTS BEGIN/END, including
+  actual POSIX sink timers in Linux, same exception and no later durable writes.
+  Ordinary study failures must retain partial status and normal publication;
+  ordinary logger failures must retain the identical normal business I/O.

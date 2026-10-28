@@ -31,6 +31,348 @@ class HistoryTest(unittest.TestCase):
         lake.dataset('sec/0000000001',[b'original'],[dict(end='2016-12-31',filed='2017-02-01',value=value,concept='Revenue',unit='USD')],
             dict(evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rows=1))
 
+
+    def test_phase_progress_is_paired_bounded_and_uses_monotonic_elapsed(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        stream=io.StringIO()
+        with patch('tools.long_history_lake.time.monotonic_ns',side_effect=[1000000000,1025000000]), redirect_stdout(stream):
+            with _history_phase('COMMIT_INVENTORY') as counts:
+                counts['commits']=3
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()]
+        self.assertEqual([e['state'] for e in events],['BEGIN','END'])
+        self.assertEqual(events[0]['phase_id'],events[1]['phase_id'])
+        self.assertEqual(events[1]['elapsed_ms'],25)
+        self.assertEqual(events[1]['commits'],3)
+
+    def test_phase_refuses_unknown_fields_and_never_prints_secret_exception(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        secret='https://private.invalid/object?token=PUBLIC_SENTINEL_SECRET'
+        stream=io.StringIO()
+        failure=KeyboardInterrupt(secret)
+        with redirect_stdout(stream):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                with _history_phase('STUDY'):
+                    raise failure
+            self.assertIs(caught.exception,failure)
+            for kwargs in ({'stage':secret},{'stage':'STUDY','remote':secret},
+                           {'stage':'STUDY','rows':True},{'stage':'STUDY','commit_sha256':secret}):
+                entered=False
+                with _history_phase(**kwargs):
+                    entered=True
+                self.assertTrue(entered, 'telemetry is not an authorization gate')
+        self.assertNotIn(secret,stream.getvalue())
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()]
+        self.assertEqual([e['state'] for e in events],['BEGIN','ERROR'])
+
+    def test_phase_after_commit_write_is_not_postcommit_or_execution_success(self):
+        import io
+        from contextlib import redirect_stdout
+        stream=io.StringIO()
+        self.put()
+        real_write=self.t.write
+        def write(path,raw):
+            real_write(path,raw)
+            if '/commits/' in path:
+                self.t.read=lambda name: (_ for _ in ()).throw(OSError('PUBLIC_SENTINEL_SECRET'))
+        with patch.object(self.t,'write',side_effect=write),redirect_stdout(stream):
+            with self.assertRaisesRegex(OSError,'PUBLIC_SENTINEL_SECRET'):
+                self.lake.publish('interrupted',{})
+        events=[json.loads(line.split(' ',1)[1]) for line in stream.getvalue().splitlines()
+                if line.startswith('LONG_HISTORY_PHASE ')]
+        pairs=[(e['stage'],e['state']) for e in events]
+        self.assertIn(('COMMIT_WRITE','END'),pairs)
+        self.assertIn(('POST_COMMIT_RESTORE','ERROR'),pairs)
+        self.assertNotIn(('POST_COMMIT_RESTORE','END'),pairs)
+        self.assertEqual(len(self.t.names(PREFIX+'/commits')),1)
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertNotIn('PUBLIC_SENTINEL_SECRET',stream.getvalue())
+
+    def test_phase_failure_to_emit_error_keeps_original_operation_failure(self):
+        from tools.long_history_lake import _history_phase
+        failure=ValueError('original_failure')
+        with patch('builtins.print',side_effect=[None,OSError('PUBLIC_SENTINEL_SECRET')]):
+            with self.assertRaises(ValueError) as caught:
+                with _history_phase('STUDY'):
+                    raise failure
+        self.assertIs(caught.exception,failure)
+
+
+    def test_phase_sink_failures_preserve_body_result_and_original_failure(self):
+        from tools.long_history_lake import _history_phase
+        for state in ('BEGIN','END','ERROR'):
+            for error in (ValueError,TypeError,RuntimeError,BrokenPipeError):
+                with self.subTest(state=state,error=error):
+                    entered=[]
+                    original=ValueError('operation_failure')
+                    def sink(line,*args,**kwargs):
+                        if line.startswith('LONG_HISTORY_PHASE ') and json.loads(line.split(' ',1)[1])['state']==state:
+                            raise error('PUBLIC_SENTINEL_SECRET')
+                    with patch('builtins.print',side_effect=sink):
+                        if state=='ERROR':
+                            with self.assertRaises(ValueError) as caught:
+                                with _history_phase('STUDY'):
+                                    entered.append(1)
+                                    raise original
+                            self.assertIs(caught.exception,original)
+                        else:
+                            with _history_phase('STUDY'):
+                                entered.append(1)
+                    self.assertEqual(entered,[1])
+
+    def test_phase_build_and_serialization_failure_remain_nonblocking(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools.long_history_lake import _history_phase
+        for target in ('json.dumps','time.monotonic_ns'):
+            stream=io.StringIO()
+            with self.subTest(target=target),redirect_stdout(stream), \
+                 patch('tools.long_history_lake.'+target,side_effect=ValueError('PUBLIC_SENTINEL_SECRET')):
+                entered=False
+                with _history_phase('STUDY'):
+                    entered=True
+                self.assertTrue(entered)
+            self.assertNotIn('PUBLIC_SENTINEL_SECRET',stream.getvalue())
+
+    def test_phase_cancellation_and_deadline_during_emit_propagate(self):
+        from tools.long_history_lake import _history_phase
+        from tools.twelve_private_capture import Refused
+        for state in ('BEGIN','END','ERROR'):
+            for kind in (KeyboardInterrupt,SystemExit,GeneratorExit,TimeoutError,InterruptedError,Refused):
+                with self.subTest(state=state,kind=kind):
+                    failure=kind('CAMPAIGN_DEADLINE' if kind is Refused else 'PUBLIC_CANCEL_SENTINEL')
+                    original=ValueError('operation_failure')
+                    entered=[]
+                    def sink(line,*args,**kwargs):
+                        if line.startswith('LONG_HISTORY_PHASE ') and json.loads(line.split(' ',1)[1])['state']==state:
+                            raise failure
+                    with patch('builtins.print',side_effect=sink):
+                        with self.assertRaises(BaseException) as caught:
+                            with _history_phase('STUDY'):
+                                entered.append(1)
+                                if state=='ERROR':
+                                    raise original
+                    self.assertIs(caught.exception,failure)
+                    self.assertEqual(entered,[] if state=='BEGIN' else [1])
+                    if state=='ERROR':
+                        self.assertIs(failure.__context__,original)
+
+    def test_phase_commit_end_sink_failure_still_runs_postcommit_verification(self):
+        import io
+        from contextlib import redirect_stdout
+        self.put()
+        output=io.StringIO()
+        real_print=print
+        def sink(line,*args,**kwargs):
+            if isinstance(line,str) and line.startswith('LONG_HISTORY_PHASE '):
+                event=json.loads(line.split(' ',1)[1])
+                if event['stage']=='COMMIT_WRITE' and event['state']=='END':
+                    raise BrokenPipeError('PUBLIC_SENTINEL_SECRET')
+            real_print(line,*args,**kwargs)
+        with redirect_stdout(output),patch('builtins.print',side_effect=sink), \
+             patch.object(self.lake,'restore_catalog',wraps=self.lake.restore_catalog) as restored:
+            result=self.lake.publish('one',{})
+        self.assertEqual(restored.call_count,3)
+        self.assertEqual(result['commit_sha256'],self.lake.restore_catalog()[0])
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertNotIn('PUBLIC_SENTINEL_SECRET',output.getvalue())
+        events=[json.loads(line.split(' ',1)[1]) for line in output.getvalue().splitlines()
+                if line.startswith('LONG_HISTORY_PHASE ')]
+        self.assertIn(('POST_COMMIT_RESTORE','END'),[(e['stage'],e['state']) for e in events])
+
+    @unittest.skipUnless(hasattr(__import__('signal'),'setitimer'),'POSIX timer required')
+    def test_phase_real_posix_deadline_interrupts_logger_before_body(self):
+        import signal
+        import time
+        from tools.long_history_lake import _history_phase
+        from tools.twelve_private_capture import Refused
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        previous=signal.getsignal(signal.SIGALRM)
+        failure=Refused('CAMPAIGN_DEADLINE')
+        entered=[]
+        sink_entered=[]
+        def deadline(*unused):
+            raise failure
+        def sink(line,*args,**kwargs):
+            sink_entered.append(True)
+            signal.setitimer(signal.ITIMER_REAL,0.01)
+            time.sleep(1)
+            self.fail('actual POSIX deadline did not interrupt the sink')
+        try:
+            signal.signal(signal.SIGALRM,deadline)
+            with patch('builtins.print',side_effect=sink):
+                with self.assertRaises(Refused) as caught:
+                    with _history_phase('STUDY'):
+                        entered.append(True)
+            self.assertIs(caught.exception,failure)
+            self.assertEqual(entered,[])
+            self.assertEqual(sink_entered,[True])
+        finally:
+            signal.setitimer(signal.ITIMER_REAL,0)
+            signal.signal(signal.SIGALRM,previous)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        self.assertEqual(signal.getsignal(signal.SIGALRM),previous)
+
+    def phase_main_probe(self,stage=None,state='BEGIN',failure=None,study_failure=None,
+                         real_signal=False):
+        """Run real main/publication against synthetic local bytes only."""
+        import io
+        import signal
+        import time
+        from contextlib import redirect_stdout
+        from datetime import date as RealDate
+        from tools import long_history_lake as history
+        local=tempfile.TemporaryDirectory(dir=self.root)
+        self.addCleanup(local.cleanup)
+        root=Path(local.name)
+        class TraceTransport(LocalTransport):
+            def __init__(self,path):
+                super().__init__(path)
+                self.trace=[]
+            def path(self,suffix):
+                return suffix
+            def call(self,verb,path):
+                if verb!='mkdir':
+                    raise AssertionError('unexpected synthetic transport verb')
+                (self.root/path).mkdir(parents=True,exist_ok=True)
+            def read(self,path):
+                raw=super().read(path)
+                self.trace.append(('READ',path,len(raw),digest(raw)))
+                return raw
+            def write(self,path,raw):
+                super().write(path,raw)
+                self.trace.append(('WRITE',path,len(raw),digest(raw)))
+        transport=TraceTransport(root/'remote')
+        class FixedDate(RealDate):
+            @classmethod
+            def today(cls):
+                return cls(2026,10,28)
+        def collect(lake,*unused):
+            lake.dataset('current/SYNTHETIC',[b'local fixture'],
+                [dict(observation_date='2026-10-27',value=1,series='SYNTHETIC')],
+                dict(evidence='SYNTHETIC_RESEARCH_NOT_PIT',rows=1))
+        def study(*unused):
+            if study_failure is not None:
+                raise study_failure
+            return dict(tests_declared=1),dict(eligible_for_selector=False)
+        output=io.StringIO()
+        real_print=print
+        triggered=[]
+        def sink(line,*args,**kwargs):
+            if isinstance(line,str) and line.startswith('LONG_HISTORY_PHASE '):
+                event=json.loads(line.split(' ',1)[1])
+                if event['stage']==stage and event['state']==state and not triggered:
+                    triggered.append(True)
+                    if real_signal:
+                        signal.setitimer(signal.ITIMER_REAL,0.01)
+                        time.sleep(1)
+                        raise AssertionError('real POSIX signal did not reach main')
+                    raise failure
+            real_print(line,*args,**kwargs)
+        previous=None
+        if real_signal:
+            self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+            previous=signal.getsignal(signal.SIGALRM)
+            def interrupt(*unused):
+                raise failure
+            signal.signal(signal.SIGALRM,interrupt)
+        result=None; error=None
+        argv=['long_history_lake','--remote','SYNTHETIC_LOCAL_ONLY','--workspace',str(root/'work'),
+              '--cohort',str(root/'unused-cohort'),'--run-id','synthetic-main',
+              '--report-dir',str(root/'reports')]
+        try:
+            with redirect_stdout(output),patch('builtins.print',side_effect=sink), \
+                 patch.object(history,'RcloneTransport',return_value=transport), \
+                 patch.object(history,'collect_macros',side_effect=collect), \
+                 patch.object(history,'collect_financials',return_value=None), \
+                 patch.object(history,'registry',return_value={'series':[]}), \
+                 patch.object(history,'analyze_restored',side_effect=study), \
+                 patch.object(history,'utc_now',return_value='2026-10-28T20:00:00+00:00'), \
+                 patch.object(history,'date',FixedDate), \
+                 patch.dict('os.environ',{'GITHUB_SHA':'1'*40}),patch.object(sys,'argv',argv):
+                try:
+                    result=history.main()
+                except BaseException as exc:
+                    error=exc
+        finally:
+            if real_signal:
+                signal.setitimer(signal.ITIMER_REAL,0)
+                signal.signal(signal.SIGALRM,previous)
+                self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0],0)
+                self.assertEqual(signal.getsignal(signal.SIGALRM),previous)
+        executions=transport.names(PREFIX+'/executions')
+        return dict(result=result,error=error,triggered=triggered,trace=transport.trace,
+            commits=len(transport.names(PREFIX+'/commits')),
+            report_writes=sum(e[0]=='WRITE' and '/reports/' in e[1] for e in transport.trace),
+            execution_writes=len(executions),output=output.getvalue(),
+            receipt=json.loads(transport.read(PREFIX+'/executions/'+executions[0])) if executions else None)
+
+    def test_main_phase_cancellation_never_publishes_reports_or_execution(self):
+        from tools.twelve_private_capture import Refused
+        for stage in ('STUDY','LOCAL_STUDY_REPORTS'):
+            for state in ('BEGIN','END'):
+                for kind in (Refused,TimeoutError,InterruptedError):
+                    with self.subTest(stage=stage,state=state,kind=kind):
+                        failure=kind('CAMPAIGN_DEADLINE')
+                        result=self.phase_main_probe(stage,state,failure)
+                        self.assertIs(result['error'],failure)
+                        self.assertEqual(result['triggered'],[True])
+                        self.assertEqual(result['commits'],1)
+                        self.assertEqual(result['report_writes'],0)
+                        self.assertEqual(result['execution_writes'],0)
+
+    def test_main_study_body_deadline_also_preserves_original_exception(self):
+        from tools.twelve_private_capture import Refused
+        for kind in (Refused,TimeoutError,InterruptedError):
+            with self.subTest(kind=kind):
+                failure=kind('CAMPAIGN_DEADLINE')
+                result=self.phase_main_probe(study_failure=failure)
+                self.assertIs(result['error'],failure)
+                self.assertEqual(result['report_writes'],0)
+                self.assertEqual(result['execution_writes'],0)
+
+    def test_main_ordinary_study_failure_keeps_partial_receipt_behavior(self):
+        for kind in (ValueError,KeyError,TypeError,OSError):
+            with self.subTest(kind=kind):
+                result=self.phase_main_probe(study_failure=kind('synthetic_study_blocked'))
+                self.assertIsNone(result['error'])
+                self.assertEqual(result['result'],2)
+                self.assertEqual(result['report_writes'],1)
+                self.assertEqual(result['execution_writes'],1)
+                self.assertFalse(result['receipt']['study_recomputed_from_drive'])
+                self.assertFalse(result['receipt']['eligible_for_selector'])
+
+    def test_main_ordinary_logger_failure_preserves_normal_publication_io(self):
+        baseline=self.phase_main_probe()
+        self.assertIsNone(baseline['error'])
+        self.assertEqual(baseline['result'],0)
+        for stage in ('STUDY','LOCAL_STUDY_REPORTS'):
+            for state in ('BEGIN','END'):
+                for kind in (ValueError,BrokenPipeError):
+                    with self.subTest(stage=stage,state=state,kind=kind):
+                        result=self.phase_main_probe(stage,state,kind('PUBLIC_PRIVATE_SENTINEL'))
+                        self.assertIsNone(result['error'])
+                        self.assertEqual(result['result'],0)
+                        self.assertEqual(result['trace'],baseline['trace'])
+                        self.assertNotIn('PUBLIC_PRIVATE_SENTINEL',result['output'])
+
+    @unittest.skipUnless(hasattr(__import__('signal'),'setitimer'),'POSIX timer required')
+    def test_main_real_posix_phase_deadline_stops_before_report_publication(self):
+        from tools.twelve_private_capture import Refused
+        for stage in ('STUDY','LOCAL_STUDY_REPORTS'):
+            for kind in (Refused,TimeoutError,InterruptedError):
+                with self.subTest(stage=stage,kind=kind):
+                    failure=kind('CAMPAIGN_DEADLINE')
+                    result=self.phase_main_probe(stage,'BEGIN',failure,real_signal=True)
+                    self.assertIs(result['error'],failure)
+                    self.assertEqual(result['triggered'],[True])
+                    self.assertEqual(result['commits'],1)
+                    self.assertEqual(result['report_writes'],0)
+                    self.assertEqual(result['execution_writes'],0)
+
     def test_a4_missing_four_flow_through_existing_lake_without_alias_or_history_rewrite(self):
         from tools.long_history_lake import collect_macros, registry
         wanted = {'BAMLC0A0CM', 'DGS3MO', 'WDTGAL', 'RRPTSYD'}
