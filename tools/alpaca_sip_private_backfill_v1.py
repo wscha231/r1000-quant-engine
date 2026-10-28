@@ -970,9 +970,18 @@ def _collect(args, *, drive_factory, get=None, on_group=None, expected_examined=
         return result
 
 
-def _verify_campaign_group(c, drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False):
+def _verify_campaign_group(c, drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False, new3=False):
     from tools import alpaca_sip_private_backfill_v1 as cap
     start, end, genesis = "2016-01-04", "2026-10-14", None
+    if new3:
+        c.require(not reused_source and not fixed_spy
+            and meter.identity.get("allocation_profile") == NEW3_PROFILE
+            and meter.identity.get("allocation_comment_id") == 6474160005
+            and meter.identity.get("cohort_scope") == _new3_scope()
+            and state.get("start") == MIN_START and state.get("end") == NEW3_END
+            and state.get("seed_sha256") == digest(NEW3_INPUT)
+            and state.get("source_sha") == c.os.environ.get("GITHUB_SHA"), "NEW3_GROUP_SCOPE")
+        start, end, genesis = MIN_START, NEW3_END, c.external_genesis(_new3_scope())
     if fixed_spy:
         c.require(not reused_source and meter.identity.get("fixed_profile") == cap.FIXED_SPY_PROFILE
                 and meter.identity.get("cohort_scope") == cap._fixed_spy_scope()
@@ -1597,6 +1606,416 @@ def _fixed_spy_host(c, auth, state_dir, budget_state_dir, grant_reference, max_b
             # Re-read finalized actual evidence before accounting; never retry.
     finally:
         family.close()
+
+
+# One separately allocated attempt; never a renewal of the legacy40-run family.
+NEW3_PROFILE = "owner-new3-20261029-r2"
+NEW3_TASK = "R1000-A0-NEW3-OHLCV-20261029-ONE-R2"
+NEW3_INPUT = b"ticker\nSYM\nCGNX\nNOVT\n"
+NEW3_END = "2026-10-28"
+NEW3_EXPIRY = "2026-10-28T22:00:00Z"
+NEW3_ALLOCATION = "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005"
+NEW3_ALLOCATION_BODY = "46830e6265226868f33f3412c9dddbc255adb76c745a12cac4f146a8d8515069"
+NEW3_CAPS = dict(provider_gets=8, drive_requests=256, drive_bytes=128*1024**2,
+                 storage_bytes=16*1024**2)
+NEW3_CALENDAR_PATH = "tools/run_daily_market_session_gate.py"
+NEW3_ARCHIVAL_POLICY = 6474415974
+NEW3_ARCHIVAL_POLICY_SHA = "a001000deb232f52615355151da1cc88c5af46e4e43cff5d0ff4cde9bd11f4b1"
+NEW3_SUPERSEDED_TASK = "R1000-A0-NEW3-OHLCV-20261028-ONE"
+NEW3_SUPERSEDED_ALLOCATION = "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6471394173"
+
+
+def _new3_scope():
+    return dict(task_key=NEW3_TASK, namespace="owner-new3-20261029-r2", input_sha256=digest(NEW3_INPUT))
+
+
+def _new3_hash(auth):
+    return digest(encoded({k: v for k, v in auth.items() if k != "working_copy_reference"}))
+
+
+def _new3_nonce(c):
+    # Grant identity, not mutable control/nonce bytes, fixes the one remote slot.
+    return c.PREFIX + digest((NEW3_TASK + NEW3_ALLOCATION).encode())[:24]
+
+
+def _new3_authorization(c, auth):
+    fields = {"schema", "task_key", "allocation_profile", "allocation_reference", "start", "end",
+        "input_csv", "scope", "limits", "wall_seconds", "start_before_utc", "expected_master",
+        "code_pins", "deployment", "private_root_folder_id", "private_data_folder_id",
+        "owner_permission_id", "credential_binding", "working_copy_reference", "rights_documents",
+        "opening", "market_gate", "asset_ids"}
+    require(isinstance(auth, dict) and set(auth) == fields
+        and auth.get("schema") == "a1-new3-one-capture-authorization-v1"
+        and auth.get("allocation_profile") == NEW3_PROFILE and auth.get("task_key") == NEW3_TASK
+        and auth.get("allocation_reference") == NEW3_ALLOCATION, "NEW_THREE_AUTHORIZATION")
+    require(auth["start"] == MIN_START and auth["end"] == NEW3_END
+        and auth["input_csv"] == NEW3_INPUT.decode() and auth["scope"] == _new3_scope()
+        and external_cohort(NEW3_INPUT) == ["SYM", "CGNX", "NOVT"], "NEW_THREE_SCOPE")
+    require(auth["limits"] == NEW3_CAPS and all(type(auth["limits"][k]) is int for k in NEW3_CAPS)
+        and type(auth["wall_seconds"]) is int and auth["wall_seconds"] == 900
+        and auth["start_before_utc"] == NEW3_EXPIRY, "NEW_THREE_LIMITS")
+    require(isinstance(auth["expected_master"], str) and c.re.fullmatch("[0-9a-f]{40}", auth["expected_master"])
+        and isinstance(auth["code_pins"], dict) and set(auth["code_pins"]) == set(c.PINS + (c.REVISION_MODULE, NEW3_CALENDAR_PATH))
+        and all(isinstance(x, str) and c.re.fullmatch("[0-9a-f]{64}", x) for x in auth["code_pins"].values()),
+        "NEW_THREE_CODE_PINS")
+    d = auth["deployment"]
+    require(isinstance(d, dict) and set(d) == {"pull_request", "reviewed_head"}
+        and type(d["pull_request"]) is int and d["pull_request"] > 0
+        and isinstance(d["reviewed_head"], str) and c.re.fullmatch("[0-9a-f]{40}", d["reviewed_head"]),
+        "NEW_THREE_DEPLOYMENT")
+    for key in ("private_root_folder_id", "private_data_folder_id"):
+        require(isinstance(auth[key], str) and c.re.fullmatch("[A-Za-z0-9_-]{10,100}", auth[key]), "NEW_THREE_PRIVATE_REF")
+    require(auth["private_root_folder_id"] != auth["private_data_folder_id"]
+        and isinstance(auth["owner_permission_id"], str)
+        and digest(auth["owner_permission_id"].encode()) == c.CONTINUATION["bindings"]["owner_sha256"]
+        and auth["credential_binding"] == c.CONTINUATION["bindings"]["credential_binding"], "NEW_THREE_ACCOUNT_BINDING")
+    docs = auth["rights_documents"]
+    require(isinstance(docs, list) and 1 <= len(docs) <= 8, "NEW_THREE_RIGHTS_REFERENCES")
+    for ref in docs:
+        require(isinstance(ref, dict) and set(ref) == {"folder_id", "file_id", "sha256", "bytes"}
+            and all(isinstance(ref[k], str) and c.re.fullmatch("[A-Za-z0-9_-]{10,100}", ref[k])
+                    for k in ("folder_id", "file_id"))
+            and isinstance(ref["sha256"], str) and c.re.fullmatch("[0-9a-f]{64}", ref["sha256"])
+            and type(ref["bytes"]) is int and 1 <= ref["bytes"] <= 262144, "NEW_THREE_RIGHTS_REFERENCES")
+    require(len({r["file_id"] for r in docs}) == len(docs), "NEW_THREE_RIGHTS_REFERENCES")
+    opening = auth["opening"]
+    require(isinstance(opening, dict) and set(opening) == {"family_prefix_first_sha256", "family_prefix_sha256",
+        "event_count", "dispatches", "usage", "source_history_sha256", "unresolved_costs_reserved"}
+        and type(opening["event_count"]) is int and 108 <= opening["event_count"] <= 1000
+        and type(opening["dispatches"]) is int and opening["dispatches"] == 40
+        and opening["unresolved_costs_reserved"] is True, "NEW_THREE_OPENING_ACCOUNTING")
+    for key in ("family_prefix_first_sha256", "family_prefix_sha256", "source_history_sha256"):
+        require(isinstance(opening[key], str) and c.re.fullmatch("[0-9a-f]{64}", opening[key]), "NEW_THREE_OPENING_ACCOUNTING")
+    floor = dict(provider_gets=1333, drive_requests=12651, drive_bytes=2146683011, storage_bytes=172244405)
+    require(isinstance(opening["usage"], dict) and set(opening["usage"]) == set(floor), "NEW_THREE_OPENING_ACCOUNTING")
+    for key, minimum in floor.items():
+        require(c.integer(opening["usage"][key], c.CONTINUED_LIMITS[key], "NEW_THREE_OPENING_ACCOUNTING") >= minimum,
+                "NEW_THREE_OPENING_ACCOUNTING")
+    gate = auth["market_gate"]
+    require(isinstance(gate, dict) and gate.get("schema_version") == "daily-market-session-gate-v1"
+        and gate.get("calendar") == "NYSE" and type(gate.get("ready")) is bool
+        and isinstance(gate.get("session_date"), str)
+        and isinstance(gate.get("market_close_utc"), str) and isinstance(gate.get("checked_at_utc"), str)
+        and c.utc(gate.get("market_close_utc")) <= c.utc(gate.get("checked_at_utc"))
+        and c.utc(gate.get("checked_at_utc")) >= c.utc("2026-10-28T00:15:00Z"), "NEW_THREE_MARKET_GATE")
+    require(isinstance(auth["asset_ids"], dict) and set(auth["asset_ids"]) == set(external_cohort(NEW3_INPUT))
+        and all(isinstance(v, str) and c.re.fullmatch("[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", v)
+                for v in auth["asset_ids"].values())
+        and len(set(auth["asset_ids"].values())) == 3, "NEW_THREE_ASSET_IDS")
+    require(isinstance(auth["working_copy_reference"], str)
+        and c.re.fullmatch(r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+",
+                          auth["working_copy_reference"]) and len(encoded(auth)) <= 12000, "NEW_THREE_ACCOUNT_REVIEW")
+    return _new3_hash(auth)
+
+
+def _new3_authority(c, auth, *, accounting=False):
+    allocation = c.gh_json(f"repos/{c.REPO}/issues/comments/6474160005")
+    require(allocation.get("id") == 6474160005 and allocation.get("author_association") == "OWNER"
+        and allocation.get("user", {}).get("type") == "User"
+        and isinstance(allocation.get("created_at"), str)
+        and allocation.get("issue_url") == f"https://api.github.com/repos/{c.REPO}/issues/448"
+        and allocation.get("created_at") == allocation.get("updated_at")
+        and isinstance(allocation.get("body"), str)
+        and digest(allocation["body"].encode()) == NEW3_ALLOCATION_BODY
+        and c.utc(allocation.get("created_at")) <= c.utc()
+        and (accounting or c.utc() < c.utc(NEW3_EXPIRY)), "NEW_THREE_ALLOCATION")
+    policy = c.gh_json(f"repos/{c.REPO}/issues/comments/{NEW3_ARCHIVAL_POLICY}")
+    require(policy.get("id") == NEW3_ARCHIVAL_POLICY and policy.get("author_association") == "OWNER"
+        and policy.get("user", {}).get("type") == "User"
+        and policy.get("issue_url") == f"https://api.github.com/repos/{c.REPO}/issues/448"
+        and isinstance(policy.get("created_at"), str)
+        and policy.get("created_at") == policy.get("updated_at")
+        and isinstance(policy.get("body"), str) and digest(policy["body"].encode()) == NEW3_ARCHIVAL_POLICY_SHA
+        and c.utc(allocation["created_at"]) <= c.utc(policy["created_at"]) <= c.utc(), "NEW_THREE_ARCHIVAL_POLICY")
+    record = _fixed_spy_owner_record(c, auth["working_copy_reference"], "A1_NEW3_PRIVATE_WORKING_COPY_REVIEW ",
+        window=(allocation["created_at"], NEW3_EXPIRY))
+    review_id = auth["working_copy_reference"].rsplit("-", 1)[-1]
+    reviewed_at = c.gh_json(f"repos/{c.REPO}/issues/comments/{review_id}").get("created_at")
+    deployed_at = c.gh_json(f"repos/{c.REPO}/pulls/{auth['deployment']['pull_request']}").get("merged_at")
+    require(isinstance(reviewed_at, str) and isinstance(deployed_at, str)
+        and c.utc(deployed_at) <= c.utc(reviewed_at), "NEW_THREE_REVIEW_BEFORE_DEPLOYMENT")
+    expected = dict(schema="a1-new3-private-working-copy-review-v1", control_sha256=_new3_hash(auth),
+        allocation_comment_id=6474160005, credential_binding=auth["credential_binding"],
+        owner_sha256=digest(auth["owner_permission_id"].encode()),
+        opening_sha256=digest(encoded(auth["opening"])), rights_manifest_sha256=digest(encoded(auth["rights_documents"])),
+        purpose="PRIVATE_NONCOMMERCIAL_RESEARCH_WORKING_COPY", historical_sip_reviewed=True,
+        current_account_reviewed=True, supplier_rights_verified=False, supplier_expiry=None,
+        permanent_retention_verified=False, redistribution_authorized=False, source_admission=False,
+        economic_authority=False)
+    require(record == expected and (accounting or
+        0 <= (c.utc() - c.utc(auth["market_gate"]["checked_at_utc"])).total_seconds() <= 900),
+        "NEW_THREE_ACCOUNT_REVIEW")
+    return digest(encoded(record))
+
+
+def _new3_source(c, auth, *, accounting=False):
+    if not accounting:
+        master = c.gh_json(f"repos/{c.REPO}/branches/master")
+        require(master.get("protected") is True and master.get("commit", {}).get("sha") == auth["expected_master"],
+            "NEW_THREE_MASTER_DRIFT")
+    pr = c.gh_json(f"repos/{c.REPO}/pulls/{auth['deployment']['pull_request']}")
+    require(pr.get("merged") is True and pr.get("draft") is False
+        and pr.get("number") == auth["deployment"]["pull_request"]
+        and pr.get("base", {}).get("ref") == "master"
+        and pr.get("head", {}).get("repo", {}).get("full_name") == c.REPO
+        and pr.get("base", {}).get("repo", {}).get("full_name") == c.REPO
+        and pr.get("head", {}).get("sha") == auth["deployment"]["reviewed_head"]
+        and pr.get("merge_commit_sha") == auth["expected_master"], "NEW_THREE_DEPLOYMENT")
+    c._revision_module().named_read_checks(c, auth)
+    for path, sha in auth["code_pins"].items():
+        value = c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={auth['expected_master']}")
+        require(value.get("encoding") == "base64" and digest(c.base64.b64decode(value["content"])) == sha
+            and (accounting or digest(c.bounded_bytes(c.ROOT/path, 262144).replace(b"\r\n", b"\n")) == sha),
+            "NEW_THREE_CODE_DRIFT")
+
+
+def _new3_history(c, auth, current=None):
+    rows = c.campaign_run_pages(c)
+    old_nonce = c.PREFIX + digest((NEW3_SUPERSEDED_TASK + NEW3_SUPERSEDED_ALLOCATION).encode())[:24]
+    require(not any(r.get("display_title") == "a1-sip " + old_nonce for r in rows),
+            "NEW_THREE_SUPERSEDED_ATTEMPT")
+    fields = ("id", "run_number", "run_attempt", "head_sha", "head_branch", "event", "status",
+              "conclusion", "display_title", "created_at", "updated_at")
+    matches = [r for r in rows if r.get("display_title") == "a1-sip " + _new3_nonce(c)]
+    require(len(matches) == (0 if current is None else 1), "NEW_THREE_ALREADY_ATTEMPTED_OR_UNKNOWN")
+    require(current is None or matches[0].get("id") == current and matches[0].get("run_attempt") == 1
+        and matches[0].get("event") == "workflow_dispatch" and matches[0].get("head_branch") == "master"
+        and matches[0].get("head_sha") == auth["expected_master"] and matches[0].get("status") == "in_progress",
+        "NEW_THREE_CURRENT_RUN")
+    previous = [r for r in rows if r.get("id") != current]
+    require(all(r.get("status") == "completed" for r in previous), "NEW_THREE_FOREIGN_ACTIVE_RUN")
+    snapshot = [{k: r.get(k) for k in fields} for r in sorted(previous, key=lambda x: x["id"])]
+    require(digest(encoded(snapshot)) == auth["opening"]["source_history_sha256"], "NEW_THREE_HISTORY_DRIFT")
+    return matches[0] if current is not None else None
+
+
+
+def _new3_archival_gate(c, auth, *, observed=None):
+    """Existing calendar truth; archival eligibility never changes daily readiness."""
+    try:
+        from tools.run_daily_market_session_gate import evaluate_market_session, mcal
+        from importlib.metadata import version
+    except ImportError:
+        raise c.Refused("NEW_THREE_CALENDAR_DEPENDENCY") from None
+    now = c.utc() if observed is None else observed
+    require(now < c.utc(NEW3_EXPIRY), "NEW_THREE_ARCHIVAL_EXPIRY")
+    require(auth.get("start") == MIN_START and auth.get("end") == NEW3_END, "NEW_THREE_ARCHIVAL_WINDOW")
+    checked = c.utc(auth["market_gate"]["checked_at_utc"])
+    require(0 <= (now-checked).total_seconds() <= 900, "NEW_THREE_CALENDAR_RECEIPT_AGE")
+    # No force, max-age override or caller READY flag can replace this result.
+    original = evaluate_market_session(now_utc=checked, min_close_age_minutes=120)
+    require(auth["market_gate"] == original, "NEW_THREE_CALENDAR_RECEIPT_CONFLICT")
+    daily = evaluate_market_session(now_utc=now, min_close_age_minutes=120)
+    target = (date.fromisoformat(NEW3_END)-timedelta(days=1)).isoformat()
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=target,
+        end_date=(now.date()+timedelta(days=1)).isoformat())
+    selected = [(label, row) for label, row in schedule.iterrows() if label.date().isoformat() == target]
+    require(len(selected) == 1, "NEW_THREE_ARCHIVAL_NOT_SESSION")
+    close = c.utc(selected[0][1]["market_close"].isoformat())
+    earliest_close = close+timedelta(minutes=120)
+    # Preserve the collector's inclusive UTC end and existing delayed-SIP boundary.
+    endpoint = c.utc(target+"T23:59:59Z")
+    earliest_endpoint = endpoint+timedelta(minutes=15)
+    require(close <= now and earliest_close <= now and earliest_endpoint <= now,
+        "NEW_THREE_ARCHIVAL_UNSETTLED")
+    eligible = [label.date().isoformat() for label, row in schedule.iterrows()
+        if c.utc(row["market_close"].isoformat())+timedelta(minutes=120) <= now
+        and c.utc(label.date().isoformat()+"T23:59:59Z")+timedelta(minutes=15) <= now]
+    require(eligible and eligible[-1] == target, "NEW_THREE_NEWER_ELIGIBLE_SESSION")
+    return dict(schema="a1-new3-archival-time-gate-v1", status="ARCHIVAL_COLLECTION_ONLY",
+        observed_at_utc=now.isoformat(), target_session=target, latest_settlement_eligible_session=eligible[-1],
+        actual_market_close_utc=close.isoformat(), earliest_close_ready_utc=earliest_close.isoformat(),
+        requested_inclusive_end_utc=endpoint.isoformat(), earliest_endpoint_ready_utc=earliest_endpoint.isoformat(),
+        min_close_age_minutes=120, provider_end_delay_minutes=15,
+        owner_gate_sha256=digest(encoded(original)), daily_market_gate=daily,
+        calendar_versions=dict(pandas=version("pandas"), pandas_market_calendars=version("pandas_market_calendars")),
+        source_admission=False, pit_verified=False, current_price_verified=False,
+        er_authority=False, a5_authority=False, economic_authority=False)
+
+
+def _new3_worker(c, args, control, journal):
+    require(isinstance(control, dict) and set(control) == {"authorization", "nonce"}, "NEW_THREE_CONTROL")
+    auth = control["authorization"]
+    h = _new3_authorization(c, auth)
+    require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
+        and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true"
+        and os.getenv("GITHUB_REPOSITORY") == c.REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
+        and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch" and os.getenv("GITHUB_RUN_ATTEMPT") == "1"
+        and os.getenv("GITHUB_SHA") == auth["expected_master"]
+        and control["nonce"] == os.getenv("INPUT_CAMPAIGN_NONCE") == _new3_nonce(c), "NEW_THREE_CONTEXT")
+    require(args.start == MIN_START and args.end == NEW3_END and args.max_new_symbols == 3
+        and args.resume_file_id == args.resume_sha256 == ""
+        and args.private_root_folder_id == auth["private_root_folder_id"]
+        and args.private_data_folder_id == auth["private_data_folder_id"], "NEW_THREE_ARGUMENTS")
+    _new3_source(c, auth)
+    reviewed = _new3_authority(c, auth)
+    archival = _new3_archival_gate(c, auth)
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    current = _new3_history(c, auth, run_id)
+    require(isinstance(current.get("run_started_at"), str) and isinstance(current.get("created_at"), str),
+        "NEW_THREE_RUN_START_CLOCK")
+    start = c.utc(current["created_at"])
+    require(start <= c.utc(current["run_started_at"]) <= c.utc() < c.utc(NEW3_EXPIRY)
+        and c.utc() < start + timedelta(seconds=840), "NEW_THREE_START_OR_DEADLINE")
+    require(c.gh_json(f"repos/{c.REPO}/branches/master").get("commit", {}).get("sha") == auth["expected_master"],
+        "NEW_THREE_MASTER_DRIFT")
+    key, secret = os.getenv("ALPACA_API_KEY", "").strip(), os.getenv("ALPACA_API_SECRET", "").strip()
+    require(key and secret and digest((key + "\0" + secret).encode()) == auth["credential_binding"], "NEW_THREE_CREDENTIAL_BINDING")
+    identity = dict(task_key=NEW3_TASK, auth_sha256=h, source_sha=auth["expected_master"], nonce=_new3_nonce(c),
+        run_id=run_id, run_attempt=1, preflight_only=False, allocation_profile=NEW3_PROFILE,
+        allocation_comment_id=6474160005, cohort_scope=_new3_scope(), parent_checkpoint_sha256=c.external_genesis(_new3_scope()),
+        examined_before=0, bindings=dict(c.CONTINUATION["bindings"]),
+        opening_accounting_sha256=digest(encoded(auth["opening"])),
+        account_permission_reference_sha256=digest(auth["working_copy_reference"].encode()),
+        account_permission_record_sha256=reviewed, archival_time_gate=archival,
+        archival_time_policy_sha256=NEW3_ARCHIVAL_POLICY_SHA, current_price_verified=False)
+    meter = c.RuntimeMeter(dict(NEW3_CAPS), journal, (start + timedelta(seconds=840)).isoformat(), identity,
+        asset_symbols=tuple(external_cohort(NEW3_INPUT)))
+    def factory(root, temp):
+        drive = OwnerDrive(root, temp, meter=meter)
+        require(drive.owner == auth["owner_permission_id"] and drive.free >= 2*1024**3, "NEW_THREE_OWNER_OR_SPACE")
+        for ref in auth["rights_documents"]:
+            drive.check(ref["folder_id"])
+            _private_object(drive, ref["folder_id"], ref, 262144)
+        return drive
+    def get(url, **kwargs):
+        raw = meter.perform(url, **kwargs)
+        if "/v2/assets/" in url:
+            symbol = url.rsplit("/", 1)[-1]
+            require(symbol in auth["asset_ids"] and asset_record(raw, symbol)["id"] == auth["asset_ids"][symbol],
+                "NEW_THREE_ASSET_IDENTITY_CHANGED")
+        return raw
+    try:
+        # Existing collector logging includes private object refs; keep that text
+        # off the public Actions log for this new route only.
+        from contextlib import redirect_stdout
+        with meter.process_deadline(), redirect_stdout(io.StringIO()):
+            result = _collect(args, drive_factory=factory, get=get, expected_examined=0,
+                external=dict(input_csv=NEW3_INPUT.decode(), scope=_new3_scope()),
+                on_group=lambda drive, state, ref: c.verify_new_group(drive, args.private_data_folder_id,
+                    state, ref, meter, new3=True))
+        require(meter.examined == 3 and meter.checkpoint_sha == result["checkpoint"]["sha256"], "NEW_THREE_BATCH_CLOSURE")
+        meter.finish("COMPLETE")
+        public = dict(status=result["status"], allocation_profile=NEW3_PROFILE, checkpoint_sha256=meter.checkpoint_sha,
+            examined=3, rows_verified=meter.rows, states=meter.states, price_coverage_certified=False,
+            time_gate_status=archival["status"], daily_market_status=archival["daily_market_gate"]["status"],
+            daily_market_ready=archival["daily_market_gate"]["ready"], current_price_verified=False,
+            source_admission=False, economic_authority=False)
+        print(c.json.dumps(public, sort_keys=True))
+        return public
+    except BaseException as exc:
+        meter.finish("BLOCKED", str(exc) if isinstance(exc, c.Refused) else "NEW_THREE_INTERNAL")
+        if isinstance(exc, (c.Refused, KeyboardInterrupt, SystemExit)):
+            raise
+        raise c.Refused("NEW_THREE_INTERNAL") from None
+
+
+def _new3_host(c, auth, state_dir, budget_state_dir, *, forbidden=False):
+    _new3_authorization(c, auth)
+    require(not forbidden and budget_state_dir is not None, "NEW_THREE_HOST_SCOPE")
+    budget = Path(budget_state_dir)
+    family_dir = budget.resolve().parent / ("external-budget-" + c.CONTINUATION["auth"][:16])
+    require(budget.is_dir() and not budget.is_symlink() and family_dir.is_dir() and not family_dir.is_symlink()
+        and not Path(state_dir).is_symlink() and Path(state_dir).resolve() == budget.resolve().parent / "new3-6474160005",
+        "NEW_THREE_JOURNAL_PATH")
+    family = c.WorkJournal(family_dir, c.external_family_genesis())
+    slot = None
+    try:
+        opening = auth["opening"]
+        require(len(family.entries) == opening["event_count"] and family.parent == opening["family_prefix_sha256"]
+            and digest(c.bounded_bytes(family_dir / "000001.json")) == opening["family_prefix_first_sha256"]
+            and family.entries[0].get("kind") == "EXTERNAL_FAMILY_BOUND"
+            and family.entries[0].get("budget_state_root") == os.path.normcase(str(budget.resolve())), "NEW_THREE_LEGACY_PREFIX_DRIFT")
+        # The predecessor is unused, not reset or retried under a new name.
+        prior_dir = budget.resolve().parent / "new3-6471394173"
+        require(not prior_dir.is_symlink(), "NEW_THREE_SUPERSEDED_STATE")
+        if prior_dir.exists():
+            prior = c.WorkJournal(prior_dir, digest(NEW3_SUPERSEDED_ALLOCATION.encode()))
+            try:
+                require(not prior.entries, "NEW_THREE_SUPERSEDED_RESERVATION")
+            finally:
+                prior.close()
+        slot = c.WorkJournal(state_dir, digest(NEW3_ALLOCATION.encode()))
+        if slot.entries:
+            return _new3_settle(c, auth, slot)
+        _new3_source(c, auth)
+        _new3_authority(c, auth)
+        _new3_history(c, auth)
+        # Source/authority/census are re-read directly before the single POST.
+        _new3_source(c, auth)
+        _new3_authority(c, auth)
+        _new3_archival_gate(c, auth)
+        control = dict(authorization=auth, nonce=_new3_nonce(c))
+        require(len(encoded(control)) <= 16384, "NEW_THREE_CONTROL_SIZE")
+        slot.append("NEW_THREE_RESERVED", nonce=_new3_nonce(c), control_sha256=_new3_hash(auth),
+            allowance=dict(NEW3_CAPS), elapsed_reservation=900, old_family_prefix_sha256=family.parent)
+        inputs = dict(private_root_folder_id=auth["private_root_folder_id"], private_data_folder_id=auth["private_data_folder_id"],
+            private_research_authorized="true", noncommercial_terms_acknowledged="true", end_date=NEW3_END,
+            max_new_symbols="3", resume_file_id="", resume_sha256="", campaign_control=encoded(control).decode(), campaign_nonce=_new3_nonce(c))
+        try:
+            sent = c.subprocess.run(["gh", "workflow", "run", c.WORKFLOW, "--repo", c.REPO, "--ref", "master", "--json"],
+                input=c.json.dumps(inputs).encode(), stdout=c.subprocess.DEVNULL, stderr=c.subprocess.DEVNULL, timeout=45)
+            require(sent.returncode == 0, "NEW_THREE_DISPATCH_UNCERTAIN")
+        except Exception:
+            raise c.Refused("NEW_THREE_DISPATCH_UNCERTAIN") from None
+        return dict(status="NEW_THREE_POST_ACCEPTED_OUTCOME_PENDING", nonce=_new3_nonce(c),
+            allocation_comment_id=6474160005, automatic_retry=False, source_admission=False)
+    finally:
+        try:
+            if slot is not None:
+                slot.close()
+        finally:
+            family.close()
+
+
+def _new3_settle(c, auth, slot):
+    """Read/account an existing attempt, including failure; never another POST."""
+    first = slot.entries[0]
+    require(first.get("kind") == "NEW_THREE_RESERVED" and first.get("nonce") == _new3_nonce(c)
+        and first.get("control_sha256") == _new3_hash(auth) and first.get("allowance") == NEW3_CAPS
+        and first.get("elapsed_reservation") == 900
+        and first.get("old_family_prefix_sha256") == auth["opening"]["family_prefix_sha256"], "NEW_THREE_RESERVATION_DRIFT")
+    require(len(slot.entries) <= 2, "NEW_THREE_RESERVATION_DRIFT")
+    _new3_source(c, auth, accounting=True)
+    _new3_authority(c, auth, accounting=True)
+    rows = [r for r in c.campaign_run_pages(c) if r.get("display_title") == "a1-sip " + _new3_nonce(c)]
+    require(len(rows) == 1, "NEW_THREE_DISPATCH_OUTCOME_UNKNOWN")
+    run = rows[0]
+    require(run.get("event") == "workflow_dispatch" and run.get("head_branch") == "master"
+        and run.get("head_sha") == auth["expected_master"] and run.get("run_attempt") == 1, "NEW_THREE_SETTLEMENT_IDENTITY")
+    if run.get("status") != "completed":
+        require(len(slot.entries) == 1, "NEW_THREE_SETTLEMENT_DRIFT")
+        return dict(status="NEW_THREE_OUTCOME_PENDING", run_id=run["id"], automatic_retry=False, source_admission=False)
+    receipt = c.receipt_for_run(run, _new3_hash(auth), auth["expected_master"], NEW3_CAPS,
+        allocation_profile=NEW3_PROFILE)
+    require(receipt.get("allocation_profile") == NEW3_PROFILE and receipt.get("allocation_comment_id") == 6474160005
+        and receipt.get("cohort_scope") == _new3_scope() and receipt.get("allowance") == NEW3_CAPS
+        and receipt.get("opening_accounting_sha256") == digest(encoded(auth["opening"]))
+        and receipt.get("parent_checkpoint_sha256") == c.external_genesis(_new3_scope())
+        and receipt.get("examined_before") == 0 and 0 <= receipt.get("examined_after", -1) <= 3,
+        "NEW_THREE_SETTLEMENT_IDENTITY")
+    gate = receipt.get("archival_time_gate")
+    require(isinstance(gate, dict) and isinstance(gate.get("observed_at_utc"), str)
+        and receipt.get("archival_time_policy_sha256") == NEW3_ARCHIVAL_POLICY_SHA
+        and receipt.get("current_price_verified") is False
+        and gate == _new3_archival_gate(c, auth, observed=c.utc(gate["observed_at_utc"])),
+        "NEW_THREE_ARCHIVAL_RECEIPT_CONFLICT")
+    seconds = c.job_seconds(run)
+    require(isinstance(run.get("created_at"), str) and isinstance(run.get("updated_at"), str),
+        "NEW_THREE_SETTLEMENT_CLOCK")
+    require(c.utc(run["created_at"]) <= c.utc(gate["observed_at_utc"]) <= c.utc(run["updated_at"]) <= c.utc(),
+        "NEW_THREE_SETTLEMENT_CLOCK")
+    elapsed = (c.utc(run["updated_at"])-c.utc(run["created_at"])).total_seconds()
+    status = "COMPLETE" if receipt["status"] == "COMPLETE" and run.get("conclusion") == "success" and seconds <= 900 and elapsed <= 900 else "BLOCKED"
+    record = dict(run_id=run["id"], receipt_sha256=digest(encoded(receipt)), usage=receipt["usage"],
+        measured_job_seconds=seconds, canonical_elapsed_seconds=elapsed,
+        status=status, checkpoint_sha256=receipt["checkpoint_sha256"])
+    if len(slot.entries) == 1:
+        slot.append("NEW_THREE_SETTLED", **record)
+    else:
+        last = slot.entries[1]
+        require(last.get("kind") == "NEW_THREE_SETTLED" and all(last.get(k) == v for k, v in record.items()), "NEW_THREE_SETTLEMENT_DRIFT")
+    return dict(record, status="NEW_THREE_" + status, source_admission=False, economic_authority=False)
 
 
 def run(args):

@@ -7427,7 +7427,10 @@ class Price174SourceTransitionTests(unittest.TestCase):
             if value.startswith("/tools/") or value.startswith("/tests/") or value.startswith("/data_static/") or value.startswith("/.github/"):
                 checkout.append(value[1:])
         self.assertTrue(checkout)
-        self.assertTrue(set(checkout)<=set(self.s.price174_execution_paths()))
+        frozen=set(self.s.price174_execution_paths())
+        self.assertEqual(cap.NEW3_CALENDAR_PATH,"tools/run_daily_market_session_gate.py")
+        self.assertEqual(set(checkout)-frozen,{cap.NEW3_CALENDAR_PATH})
+        self.assertTrue(set(checkout)-{cap.NEW3_CALENDAR_PATH}<=frozen)
         directories={"":[]};ids={"":"e"*40}
         for path,value in self.pins.items():
             if value is None:continue
@@ -8587,3 +8590,538 @@ class FixedSpy665Tests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+
+
+# Public allocation text only; all account and transport fixtures below are synthetic.
+NEW3_PUBLIC_ALLOCATION_BODY = '[A0_FINITE_SOURCE_ALLOCATION_V2][NEW3_ONE_CAPTURE_R2]\n기존 #448/V6.1→#670 및 같은 Source owner를 유지합니다. 실제 실행0·준비 코드 미배포인 기존6471394173의 짧은 시작 창을 대체하는 새 명시 유한 배정입니다. 원6471394173 댓글/해시/18Z 기록은 수정하지 않고 보존하며, 그 배정으로 새 실행을 시작하지 않습니다. 새 배정은 자동 연장이 아닙니다.\n\nTASK_KEY: R1000-A0-NEW3-OHLCV-20261029-ONE-R2\nALLOCATION_PROFILE: owner-new3-20261029-r2\nOWNER: 기존 WORK A A1 Source owner, 동일 기존 Source checkout, 단일 writer.\nINPUT: 정확히 SYM,CGNX,NOVT; CSV21B SHA256 f0b53ec441f7be0620de2f4dad0f09ed1fcc5225fe9e957dac26ffae4ee96306.\nWINDOW: 2016-01-04 inclusive부터2026-10-28 exclusive(대상완료세션2026-10-27). 실제 시작 시 기존 NYSE 완료/settlement 게이트와 일치해야 합니다. 다른 최신 적격세션이 생기면 과거자료를 최신으로 표시하지 않고 중단합니다. 상장/증권이력 이전 가격이나 결측값은 만들지 않습니다.\nSTART_BEFORE_UTC: 2026-10-28T22:00:00Z (2026-10-29 07:00 KST). 이 이후 시작·자동갱신은 금지합니다. 늦은 기존시도의 accounting-only 정산은 재수집 권한이 아닙니다.\nLIMITS: actual capture 최대1회; provider GET 최대8; elapsed 최대900초; private 신규storage16MiB; Drive요청256 및I/O128MiB. 같은기존계정1개, 계정/키교체·유료구매·한도초과재시도 없음. 숫자 한도는 기존6471394173과 동일합니다.\n\nSUPERSEDES_UNUSED_ALLOCATION: https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6471394173 . Root가 Source미수집/미배포/원branch4f clean과 준비 결과를 인수했습니다. 실제 실행 직전 기존시도/예약/unknown outcome 부재를 기존 Journal/lock으로 대사해야 하며, 하나라도 남아 있으면 새 배정으로 덮거나 우회하지 않고 중단합니다. 원40/40 family와 모든 과거계수·실패·기존nonce는 보존합니다. 같은3종목 baseline 목표에 대한 중복실행을 허용하지 않습니다.\n\n권한은 same5path 보호코드와 실제계정/권리/Code pins/OWNER working-copy reference를 현재 증거로 바인딩한 이후의 read/capture, 새 immutable private 원본/정규화/진단·최종meter 저장/readback까지입니다. exact-head A6/Codex/requiredCI/review_complete/expected-head 보호통합 전에는 실행하지 않습니다. 기존 Meter/Journal/OwnerDrive/asset/_collect/archive 검증을 재사용합니다. 새worker/worktree/collector/Registry/scheduler 및 기존scope/limit 완화는 없습니다.\n\nV1/V2/V3 준비자료와 독립 부정·정정 증거는 보존합니다. 새 profile/task/reference/body hash/nonce/정산·아카이브연결은 같은5경로의 최소 교정으로 일관되게 바인딩하고, 단일expiry상수만 바꾸거나구배정으로위장하지 않습니다. 이전준비영수증을 새HEAD/새권한의 실행증거로 재표시하지 않습니다.\n\nSource/PIT·현재가격인증·정식Reader admission·A3/ER/A5·포트/장부/주문·Fullrun·live 권한은 포함하지 않습니다. producer준비/실제수집/consumerACK를 구분하고 자료가 부족해도 후보는 pending으로 보존합니다. TER·ALGM·기존820재수집과993seed/managedroster 변경은 포함하지 않습니다.'
+
+
+NEW3_PUBLIC_ARCHIVAL_POLICY_BODY = '[A0_R2_ARCHIVAL_TIME_GATE_CLARIFICATION]\n6474160005は2016年からの一回限りのprivate research historical backfillです。日次maintenanceの新鮮な投資入力としては扱いません。実際の対象セッション完了・settlement検証とconsumer freshnessを分離します。\n\n기존 historical-backfill 시간 계약을 우선 재사용합니다. 실행 직전 신뢰된 현재 UTC와 기존 NYSE calendar로 (1) 승인된 끝세션2026-10-27이 실제 거래세션이고 (2) 그 close+최소120분이 경과했으며 (3) 승인된window가 미완료/미래세션을 포함하지 않는지 재계산합니다. 허용한 현재 창에서는 최신 settlement-적격세션과의 관계도 정확히 남깁니다. 기존calendar/DST/휴장/조기폐장 계산을 재사용하며 별도의 세션엔진을 만들지 않습니다.\n\n정상 daily evaluate_market_session의 SKIP_STALE_SESSION/readyfalse 또는 SKIP_CLOSE_SETTLEMENT_BUFFER 결과도 원값으로 기록합니다. max_close_age_hours를 늘리거나force/OWNER의READY주장을입력해정상daily gate를통과시켜서는안됩니다. 수집허용 결과는 ARCHIVAL_COLLECTION_ONLY이며 daily/current-price/Source/PIT/ER/A5 eligibility를올리지않습니다. 실제runtime calendar 재계산을생략한OWNER dict만으로실행하지않습니다.\n\n동일5경로에서현재unpublished typedR2 adapter에필요한최소연결/교차검증을준비할수있습니다. 실제기존historical guard와daily guard가코드상분리되지않았다면그차이와해당최소adapter를독립review에명시하십시오. actualcalendar결과위조·기간최신성재인증·구배정재활성화·숫자quota/위험gate완화는금지합니다.\n\nR2의3종목·8GET/900s·16MiB·Drive256/128MiB·시작만료22Z 및구기록보존은그대로입니다. Source성공은원본/정규화/receipt저장과readback만을뜻하며,현재투자입력준비완료와혼합하지않습니다.'
+
+
+class New3FiniteAllocationTests(unittest.TestCase):
+    """Synthetic account/transport fixtures; no real collection or rights proof."""
+    def setUp(self):
+        self.now = c.utc('2026-10-28T17:00:00Z')
+        real_utc = c.utc
+        self.enterContext(patch.object(c, 'utc', side_effect=lambda v=None: self.now if v is None else real_utc(v)))
+        self.bindings = dict(credential_binding=c.digest(b'fixture-key\0fixture-secret'), owner_sha256=c.digest(b'fixture-owner'))
+        self.enterContext(patch.dict(c.CONTINUATION, {'bindings': self.bindings}))
+        self.tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.docs = {}
+        doc = b'OFFLINE_ONLY_NOT_SUPPLIER_RIGHTS'
+        self.docs['fixture-rights-001'] = doc
+        self.names = ['SYM', 'CGNX', 'NOVT']
+        self.ids = {s: f'00000000-0000-0000-0000-{i:012d}' for i, s in enumerate(self.names, 1)}
+        from tools.run_daily_market_session_gate import evaluate_market_session
+        self.evaluate_calendar=evaluate_market_session
+        self.a = dict(schema='a1-new3-one-capture-authorization-v1', task_key=cap.NEW3_TASK,
+            allocation_profile=cap.NEW3_PROFILE, allocation_reference=cap.NEW3_ALLOCATION,
+            start=cap.MIN_START, end=cap.NEW3_END, input_csv=cap.NEW3_INPUT.decode(), scope=cap._new3_scope(),
+            limits=dict(cap.NEW3_CAPS), wall_seconds=900, start_before_utc=cap.NEW3_EXPIRY,
+            expected_master='1'*40, code_pins={p: c.digest((c.ROOT/p).read_bytes().replace(b'\r\n', b'\n')) for p in c.PINS+(c.REVISION_MODULE,cap.NEW3_CALENDAR_PATH)},
+            deployment=dict(pull_request=999, reviewed_head='2'*40),
+            private_root_folder_id='fixture-root-123', private_data_folder_id='fixture-data-123',
+            owner_permission_id='fixture-owner', credential_binding=self.bindings['credential_binding'],
+            working_copy_reference=c.REPO and 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-777',
+            rights_documents=[dict(folder_id='fixture-rights-folder', file_id='fixture-rights-001', bytes=len(doc), sha256=c.digest(doc))],
+            opening=dict(family_prefix_first_sha256='a'*64, family_prefix_sha256='b'*64, event_count=108, dispatches=40,
+                usage=dict(provider_gets=1333, drive_requests=12651, drive_bytes=2146683011, storage_bytes=172244405),
+                source_history_sha256=c.digest(c.encoded([])), unresolved_costs_reserved=True),
+            market_gate=dict(schema_version='daily-market-session-gate-v1', calendar='NYSE', ready=True,
+                session_date='2026-10-27', market_close_utc='2026-10-27T20:00:00Z', checked_at_utc='2026-10-28T16:59:00Z'),
+            asset_ids=self.ids)
+        self.a['market_gate']=self.evaluate_calendar(now_utc='2026-10-28T16:59:00Z',min_close_age_minutes=120)
+
+    def review(self):
+        a = self.a
+        return dict(schema='a1-new3-private-working-copy-review-v1', control_sha256=cap._new3_hash(a),
+            allocation_comment_id=6474160005, credential_binding=a['credential_binding'],
+            owner_sha256=c.digest(a['owner_permission_id'].encode()), opening_sha256=c.digest(c.encoded(a['opening'])),
+            rights_manifest_sha256=c.digest(c.encoded(a['rights_documents'])),
+            purpose='PRIVATE_NONCOMMERCIAL_RESEARCH_WORKING_COPY', historical_sip_reviewed=True,
+            current_account_reviewed=True, supplier_rights_verified=False, supplier_expiry=None,
+            permanent_retention_verified=False, redistribution_authorized=False, source_admission=False, economic_authority=False)
+
+    def comments(self, path):
+        if '/pulls/' in path:
+            return dict(merged_at='2026-10-28T16:58:00Z')
+        base = dict(issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
+            user=dict(id=1, type='User'), author_association='OWNER')
+        if path.endswith('/6474415974'):
+            return dict(base,id=6474415974,created_at='2026-10-28T16:19:31Z',updated_at='2026-10-28T16:19:31Z',body=NEW3_PUBLIC_ARCHIVAL_POLICY_BODY)
+        if path.endswith('/6474160005'):
+            return dict(base, id=6474160005, created_at='2026-10-28T16:08:47Z', updated_at='2026-10-28T16:08:47Z', body=NEW3_PUBLIC_ALLOCATION_BODY)
+        return dict(base, id=777, created_at='2026-10-28T16:59:30Z', updated_at='2026-10-28T16:59:30Z',
+            body='A1_NEW3_PRIVATE_WORKING_COPY_REVIEW '+c.encoded(self.review()).decode())
+
+    def test_strict_new_schema_does_not_renew_legacy(self):
+        self.assertEqual(c.validate_authorization(self.a), cap._new3_hash(self.a))
+        self.assertEqual(c.validate_authorization(auth()), c.digest(c.encoded(auth())))
+        for key, value in [('task_key', c.TASK), ('end', '2026-10-29'), ('input_csv', 'ticker\nTER\nCGNX\nNOVT\n'),
+                ('wall_seconds', 901), ('start_before_utc', '2026-10-29T18:00:00Z')]:
+            changed = copy.deepcopy(self.a); changed[key] = value
+            with self.subTest(key=key), self.assertRaises(c.Refused): c.validate_authorization(changed)
+
+    def test_caps_and_account_cannot_change(self):
+        for key in cap.NEW3_CAPS:
+            changed = copy.deepcopy(self.a); changed['limits'][key] += 1
+            with self.subTest(cap=key), self.assertRaisesRegex(c.Refused, 'NEW_THREE_LIMITS'): c.validate_authorization(changed)
+        for key in ['credential_binding', 'owner_permission_id']:
+            changed = copy.deepcopy(self.a); changed[key] = 'foreign-account'
+            with self.subTest(key=key), self.assertRaises(c.Refused): c.validate_authorization(changed)
+        changed=copy.deepcopy(self.a); changed['asset_ids']['SYM']=changed['asset_ids']['CGNX']
+        with self.assertRaises(c.Refused): c.validate_authorization(changed)
+
+    def test_owner_record_is_actual_immutable_and_unknown_rights_stay_unknown(self):
+        with patch.object(c, 'gh_json', side_effect=self.comments): self.assertRegex(cap._new3_authority(c, self.a), '[0-9a-f]{64}')
+        def edited(path):
+            result=self.comments(path); result['updated_at']='2026-10-28T16:59:59Z'; return result
+        with patch.object(c, 'gh_json', side_effect=edited), self.assertRaises(c.Refused): cap._new3_authority(c,self.a)
+        with patch.object(self, 'review', return_value=dict(self.review(), supplier_rights_verified=True)), patch.object(c, 'gh_json', side_effect=self.comments), self.assertRaises(c.Refused): cap._new3_authority(c,self.a)
+        self.now=c.utc(cap.NEW3_EXPIRY)
+        with patch.object(c,'gh_json',side_effect=self.comments), self.assertRaisesRegex(c.Refused,'NEW_THREE_ALLOCATION'):cap._new3_authority(c,self.a)
+
+    def test_missing_calendar_clocks_refuse_without_now_substitution(self):
+        for key in ['checked_at_utc','market_close_utc']:
+            changed=copy.deepcopy(self.a);del changed['market_gate'][key]
+            with self.subTest(key=key),self.assertRaises(c.Refused):c.validate_authorization(changed)
+
+    def test_history_binds_whole_prefix_and_one_grant_nonce(self):
+        row=dict(id=101,run_number=1,run_attempt=1,head_sha='3'*40,head_branch='master',event='workflow_dispatch',
+            status='completed',conclusion='success',display_title='a1-sip old',created_at='2026-10-25T00:00:00Z',updated_at='2026-10-25T00:01:00Z')
+        self.a['opening']['source_history_sha256']=c.digest(c.encoded([row]))
+        with patch.object(c,'campaign_run_pages',return_value=[row]):self.assertIsNone(cap._new3_history(c,self.a))
+        replay=dict(row,id=102,display_title='a1-sip '+cap._new3_nonce(c))
+        with patch.object(c,'campaign_run_pages',return_value=[row,replay]),self.assertRaises(c.Refused):cap._new3_history(c,self.a)
+        changed=dict(row,run_attempt=2)
+        with patch.object(c,'campaign_run_pages',return_value=[changed]),self.assertRaisesRegex(c.Refused,'NEW_THREE_HISTORY_DRIFT'):cap._new3_history(c,self.a)
+
+    def test_ninth_get_refuses_before_opener(self):
+        opener=Opener(b'{}')
+        m=c.RuntimeMeter(dict(cap.NEW3_CAPS),Path(self.tmp)/'meter.json',(self.now+timedelta(seconds=900)).isoformat(),identity(),opener=opener,clock=c.utc,asset_symbols=tuple(self.names))
+        url=cap.URL+'?symbols=SYM&timeframe=1Day&feed=sip&adjustment=raw&limit=10000&sort=asc&start=2016-01-04T00%3A00%3A00Z&end=2026-10-27T23%3A59%3A59Z'
+        for _ in range(8):m.perform(url,limit=100)
+        with self.assertRaises(c.Refused):m.perform(url,limit=100)
+        self.assertEqual(opener.calls,8);self.assertEqual(m.used['provider_gets'],8)
+
+    def test_partial_body_keeps_charge_and_storage_overcap_refuses(self):
+        class Broken:
+            def open(self,*a,**k):return Reply(b'abc',fail=True)
+        m=c.RuntimeMeter(dict(cap.NEW3_CAPS),Path(self.tmp)/'meter.json',(self.now+timedelta(seconds=900)).isoformat(),identity(),opener=Broken(),clock=c.utc,asset_symbols=tuple(self.names))
+        with self.assertRaises(c.Refused):m.perform('https://paper-api.alpaca.markets/v2/assets/SYM',limit=100)
+        self.assertEqual(m.used['provider_gets'],1)
+        with self.assertRaises(c.Refused):m.reserve_storage(16*1024**2+1)
+        self.assertEqual(m.used['provider_gets'],1)
+
+    def worker_context(self, *, seconds=0):
+        self.enterContext(patch.dict(os.environ,dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
+            GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=self.a['expected_master'],GITHUB_EVENT_NAME='workflow_dispatch',
+            GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID='123',INPUT_CAMPAIGN_NONCE=cap._new3_nonce(c),ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')))
+        self.enterContext(patch.object(cap,'_new3_source'))
+        self.enterContext(patch.object(cap,'_new3_authority',return_value='a'*64))
+        self.enterContext(patch.object(cap,'_new3_history',return_value=dict(created_at=(self.now-timedelta(seconds=seconds)).isoformat(),run_started_at=(self.now-timedelta(seconds=seconds)).isoformat())))
+        self.enterContext(patch.object(c,'gh_json',return_value=dict(protected=True,commit=dict(sha=self.a['expected_master']))))
+        return SimpleNamespace(start=cap.MIN_START,end=cap.NEW3_END,max_new_symbols=3,resume_file_id='',resume_sha256='',
+            private_root_folder_id=self.a['private_root_folder_id'],private_data_folder_id=self.a['private_data_folder_id'])
+
+    def test_901_seconds_refuses_before_meter_or_credentials_io(self):
+        args=self.worker_context(seconds=901)
+        with patch.object(c,'RuntimeMeter') as factory,self.assertRaisesRegex(c.Refused,'NEW_THREE_START_OR_DEADLINE'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        factory.assert_not_called()
+
+    def run_capture(self, *, fail_write=0, foreign_asset=False, run_start_seconds=0):
+        outer=self
+        class Provider:
+            calls=0
+            def open(self,request,**kwargs):
+                self.calls+=1;url=request.full_url
+                if '/v2/assets/' in url:
+                    symbol=url.rsplit('/',1)[-1]
+                    body=dict(id=('ffffffff-ffff-ffff-ffff-ffffffffffff' if foreign_asset else outer.ids[symbol]),symbol=symbol,
+                        exchange='NASDAQ',status='active',tradable=True,**{'class':'us_equity'})
+                else:
+                    body=dict(bars={s:[dict(t='2026-10-27T04:00:00Z',o=10,h=11,l=9,c=10,v=100)] for s in outer.names},next_page_token=None)
+                return Reply(c.encoded(body))
+        provider=Provider()
+        class Store:
+            owner='fixture-owner';free=3*1024**3;root_id='fixture-root-123';token='fixture-token'
+            def __init__(self):self.values=dict(outer.docs);self.writes=0
+            def check(self,*a,**k):return {}
+            def request(self,*a,**k):return c.encoded(dict(files=[],incompleteSearch=False))
+            def read(self,id,limit=16000000):return self.values[id]
+            def write(self,folder,raw,ext):
+                self.writes+=1
+                if self.writes==fail_write:raise c.Refused('SYNTHETIC_DRIVE_CREATE_UNCERTAIN')
+                key='fixture-object-'+str(self.writes);self.values[key]=raw
+                return dict(file_id=key,bytes=len(raw),sha256=c.digest(raw))
+        store=Store();original_meter=c.RuntimeMeter
+        class OfflineMeter(original_meter):
+            def __init__(self,*a,**k):super().__init__(*a,**dict(k,opener=provider,clock=c.utc))
+        args=self.worker_context(seconds=run_start_seconds)
+        self.enterContext(patch.object(cap,'OwnerDrive',return_value=store))
+        self.enterContext(patch.object(c,'RuntimeMeter',OfflineMeter))
+        self.enterContext(patch.object(cap.time,'sleep'))
+        log=io.StringIO()
+        try:
+            from contextlib import redirect_stdout
+            with redirect_stdout(log):result=cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+            return result,store,provider,log.getvalue()
+        finally:
+            self.store,self.provider,self.capture_log=store,provider,log.getvalue()
+
+    def test_real_collector_and_archive_verifier_roundtrip_three(self):
+        result,store,provider,log=self.run_capture()
+        self.assertEqual(provider.calls,5);self.assertEqual(result['states']['VALID_COLLECTED'],3)
+        self.assertEqual(result['rows_verified'],6);self.assertFalse(result['source_admission'])
+        self.assertNotIn('fixture-object-',log);self.assertNotIn('fixture-root-',log)
+        saved=json.loads((Path(self.tmp)/'meter.json').read_bytes())
+        self.assertTrue(saved['finalized']);self.assertEqual(saved['usage']['provider_gets'],5)
+
+    def test_partial_private_write_retained_without_retry_or_false_completion(self):
+        with self.assertRaises(c.Refused):self.run_capture(fail_write=2)
+        self.assertEqual(self.provider.calls,5);self.assertEqual(self.store.writes,2)
+        self.assertIn('fixture-object-1',self.store.values)
+        saved=json.loads((Path(self.tmp)/'meter.json').read_bytes())
+        self.assertEqual(saved['status'],'BLOCKED');self.assertEqual(saved['usage']['provider_gets'],5)
+        self.assertEqual(saved['examined_after'],0);self.assertNotIn('fixture-object-',self.capture_log)
+
+    def test_changed_provider_uuid_stops_before_bars(self):
+        with self.assertRaisesRegex(c.Refused,'NEW_THREE_ASSET_IDENTITY_CHANGED'):self.run_capture(foreign_asset=True)
+        self.assertEqual(self.provider.calls,1);self.assertEqual(self.store.writes,0)
+
+    def family(self):
+        base=Path(self.tmp);budget=base/'legacy-budget';budget.mkdir()
+        folder=base/('external-budget-'+c.CONTINUATION['auth'][:16])
+        journal=c.WorkJournal(folder,c.external_family_genesis())
+        journal.append('EXTERNAL_FAMILY_BOUND',budget_state_root=os.path.normcase(str(budget.resolve())),
+            proof_updated_utc='2026-10-28T16:30:00Z',expires_at_utc=cap.NEW3_EXPIRY)
+        for _ in range(107):journal.append('SYNTHETIC_HISTORICAL_SETTLED')
+        self.a['opening'].update(family_prefix_first_sha256=c.digest((folder/'000001.json').read_bytes()),family_prefix_sha256=journal.parent)
+        journal.close()
+        return budget,base/'new3-6474160005',{p.name:p.read_bytes() for p in folder.glob('*.json')}
+
+    def test_single_post_reservation_unknown_outcome_preserves_old_family(self):
+        budget,slot,old=self.family()
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_new3_authority'),patch.object(cap,'_new3_history'),patch.object(c.subprocess,'run',return_value=SimpleNamespace(returncode=0)) as post:
+            result=cap._new3_host(c,self.a,slot,budget)
+            self.assertEqual(result['status'],'NEW_THREE_POST_ACCEPTED_OUTCOME_PENDING');self.assertEqual(post.call_count,1)
+            with patch.object(c,'campaign_run_pages',return_value=[]),self.assertRaisesRegex(c.Refused,'NEW_THREE_DISPATCH_OUTCOME_UNKNOWN'):cap._new3_host(c,self.a,slot,budget)
+            self.assertEqual(post.call_count,1)
+        folder=budget.parent/('external-budget-'+c.CONTINUATION['auth'][:16])
+        self.assertEqual(old,{p.name:p.read_bytes() for p in folder.glob('*.json')})
+        self.assertEqual(json.loads((slot/'000001.json').read_bytes())['kind'],'NEW_THREE_RESERVED')
+
+    def test_fsync_failure_precedes_post(self):
+        budget,slot,old=self.family()
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_new3_authority'),patch.object(c.os,'fsync',side_effect=OSError('synthetic fsync failure')),patch.object(c.subprocess,'run') as post:
+            with self.assertRaises(OSError):cap._new3_host(c,self.a,slot,budget)
+            post.assert_not_called()
+
+    def test_public_host_route_prints_pending_instead_of_silent_success(self):
+        auth_path=Path(self.tmp)/'authorization.json';auth_path.write_bytes(c.encoded(self.a))
+        pending=dict(status='NEW_THREE_POST_ACCEPTED_OUTCOME_PENDING',automatic_retry=False,source_admission=False)
+        from contextlib import redirect_stdout
+        output=io.StringIO()
+        with patch.object(cap,'_new3_host',return_value=pending),redirect_stdout(output):
+            result=c.host(auth_path,Path(self.tmp)/'state',budget_state_dir=Path(self.tmp)/'budget')
+        self.assertEqual(result,pending);self.assertEqual(json.loads(output.getvalue()),pending)
+
+    def test_source_requires_protected_merged_exact_head_and_actual_pins(self):
+        def api(path):
+            if '/branches/master' in path:return dict(protected=True,commit=dict(sha=self.a['expected_master']))
+            if '/pulls/' in path:return dict(number=999,merged=True,draft=False,head=dict(sha='2'*40,repo=dict(full_name=c.REPO)),
+                base=dict(ref='master',repo=dict(full_name=c.REPO)),merge_commit_sha='1'*40)
+            name=path.split('/contents/',1)[1].split('?',1)[0]
+            return dict(encoding='base64',content=c.base64.b64encode((c.ROOT/name).read_bytes()).decode())
+        module=c._revision_module()
+        with patch.object(c,'gh_json',side_effect=api),patch.object(module,'named_read_checks') as checks:
+            cap._new3_source(c,self.a);checks.assert_called_once()
+        def foreign(path):
+            value=api(path)
+            if '/branches/master' in path:value['commit']['sha']='f'*40
+            return value
+        with patch.object(c,'gh_json',side_effect=foreign),self.assertRaisesRegex(c.Refused,'NEW_THREE_MASTER_DRIFT'):cap._new3_source(c,self.a)
+        def corrupt(path):
+            value=api(path)
+            if '/contents/' in path:value['content']=c.base64.b64encode(b'corrupt').decode()
+            return value
+        with patch.object(c,'gh_json',side_effect=corrupt),patch.object(module,'named_read_checks'),self.assertRaisesRegex(c.Refused,'NEW_THREE_CODE_DRIFT'):cap._new3_source(c,self.a)
+
+    def test_review_before_deployment_refuses(self):
+        def api(path):
+            if '/pulls/' in path:return dict(merged_at='2026-10-28T17:00:00Z')
+            return self.comments(path)
+        with patch.object(c,'gh_json',side_effect=api),self.assertRaisesRegex(c.Refused,'NEW_THREE_REVIEW_BEFORE_DEPLOYMENT'):cap._new3_authority(c,self.a)
+
+    def test_worker_arguments_and_late_master_drift_stop_before_provider(self):
+        args=self.worker_context();args.end='2026-10-29'
+        with patch.object(c,'RuntimeMeter') as m,self.assertRaisesRegex(c.Refused,'NEW_THREE_ARGUMENTS'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        m.assert_not_called();args.end=cap.NEW3_END
+        with patch.object(c,'gh_json',return_value=dict(commit=dict(sha='f'*40))),patch.object(c,'RuntimeMeter') as m,self.assertRaisesRegex(c.Refused,'NEW_THREE_MASTER_DRIFT'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        m.assert_not_called()
+
+    def test_nonscalar_identity_refuses_without_type_error(self):
+        self.a['asset_ids']['SYM']={}
+        with self.assertRaises(c.Refused):c.validate_authorization(self.a)
+
+    def test_finalized_failure_accounting_is_idempotent_after_expiry(self):
+        budget,slot,_=self.family()
+        journal=c.WorkJournal(slot,c.digest(cap.NEW3_ALLOCATION.encode()))
+        journal.append('NEW_THREE_RESERVED',nonce=cap._new3_nonce(c),control_sha256=cap._new3_hash(self.a),
+            allowance=dict(cap.NEW3_CAPS),elapsed_reservation=900,old_family_prefix_sha256=self.a['opening']['family_prefix_sha256'])
+        run=dict(id=123,event='workflow_dispatch',head_branch='master',head_sha='1'*40,run_attempt=1,status='completed',
+            display_title='a1-sip '+cap._new3_nonce(c),conclusion='failure',created_at='2026-10-28T17:00:00Z',updated_at='2026-10-28T17:00:42Z')
+        receipt=dict(allocation_profile=cap.NEW3_PROFILE,allocation_comment_id=6474160005,cohort_scope=cap._new3_scope(),
+            allowance=dict(cap.NEW3_CAPS),opening_accounting_sha256=c.digest(c.encoded(self.a['opening'])),
+            parent_checkpoint_sha256=c.external_genesis(cap._new3_scope()),examined_before=0,examined_after=0,
+            status='BLOCKED',checkpoint_sha256=c.external_genesis(cap._new3_scope()),usage=dict(provider_gets=1,drive_requests=3,drive_bytes=42,storage_bytes=0))
+        receipt.update(archival_time_gate=cap._new3_archival_gate(c,self.a),archival_time_policy_sha256=cap.NEW3_ARCHIVAL_POLICY_SHA,current_price_verified=False)
+        self.now=c.utc('2026-10-29T00:00:00Z')
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_new3_authority'),patch.object(c,'campaign_run_pages',return_value=[run]),patch.object(c,'receipt_for_run',return_value=receipt),patch.object(c,'job_seconds',return_value=42),patch.object(c.subprocess,'run') as post:
+            a=cap._new3_settle(c,self.a,journal);b=cap._new3_settle(c,self.a,journal)
+            self.assertEqual(a,b);self.assertEqual(a['status'],'NEW_THREE_BLOCKED');self.assertEqual(a['usage']['provider_gets'],1)
+            self.assertEqual(len(journal.entries),2);post.assert_not_called()
+        journal.close()
+
+    def real_receipt_roundtrip(self, failed=False, queued=False):
+        self.now=c.utc('2026-10-28T16:59:35Z')
+        budget,slot,_=self.family()
+        journal=c.WorkJournal(slot,c.digest(cap.NEW3_ALLOCATION.encode()))
+        journal.append('NEW_THREE_RESERVED',nonce=cap._new3_nonce(c),control_sha256=cap._new3_hash(self.a),
+            allowance=dict(cap.NEW3_CAPS),elapsed_reservation=900,old_family_prefix_sha256=self.a['opening']['family_prefix_sha256'])
+        self.addCleanup(journal.close)
+        self.now=c.utc('2026-10-28T17:00:00Z')
+        if failed:
+            with self.assertRaises(c.Refused):self.run_capture(fail_write=2,run_start_seconds=20)
+        else:
+            self.run_capture(run_start_seconds=20)
+        actual=json.loads((Path(self.tmp)/'meter.json').read_bytes())
+        body=c.encoded(actual)
+        self.now=c.utc('2026-10-28T17:01:00Z')
+        run=dict(id=123,event='workflow_dispatch',head_branch='master',head_sha='1'*40,run_attempt=1,
+            status='completed',display_title='a1-sip '+cap._new3_nonce(c),conclusion='failure' if failed else 'success',
+            created_at='2026-10-28T16:45:04Z' if queued else '2026-10-28T16:59:40Z',updated_at='2026-10-28T17:00:05Z')
+        def api(path):
+            if '/artifacts?' in path:
+                return dict(total_count=1,artifacts=[dict(name='a1-campaign-meter',expired=False,size_in_bytes=len(body))])
+            if '/jobs?' in path:
+                return dict(total_count=2,jobs=[dict(name='offline',status='completed',started_at='2026-10-28T16:59:40Z',completed_at='2026-10-28T16:59:45Z'),
+                    dict(name='capture',status='completed',started_at='2026-10-28T16:59:45Z',completed_at='2026-10-28T17:00:05Z')])
+            self.fail('Unexpected GitHub metadata read')
+        downloads=[]
+        def download(argv,**kwargs):
+            self.assertEqual(argv[:3],['gh','run','download'])
+            downloads.append(tuple(argv[:3]))
+            folder=Path(argv[argv.index('--dir')+1]);(folder/'campaign_meter.json').write_bytes(body)
+            return SimpleNamespace(returncode=0)
+        # Only the artifact transport is doubled. receipt_for_run, its cap/type/
+        # identity checks, job_seconds and the settlement append run unmodified.
+        with patch.object(c,'gh_json',side_effect=api),patch.object(c,'campaign_run_pages',return_value=[run]),patch.object(c.subprocess,'run',side_effect=download):
+            parsed=c.receipt_for_run(run,cap._new3_hash(self.a),self.a['expected_master'],dict(cap.NEW3_CAPS),allocation_profile=cap.NEW3_PROFILE)
+            self.assertEqual(parsed['usage']['provider_gets'],5)
+            first=cap._new3_settle(c,self.a,journal);second=cap._new3_settle(c,self.a,journal)
+            self.assertEqual(first,second);self.assertEqual(len(journal.entries),2)
+            self.assertEqual(first['status'],'NEW_THREE_BLOCKED' if failed or queued else 'NEW_THREE_COMPLETE')
+            self.assertEqual(first['canonical_elapsed_seconds'],901 if queued else 25)
+            self.assertEqual(first['usage']['provider_gets'],5);self.assertEqual(first['measured_job_seconds'],25)
+            self.assertEqual(len(downloads),3)
+            actual['usage']['provider_gets']=9;body=c.encoded(actual)
+            with self.assertRaises(c.Refused):c.receipt_for_run(run,cap._new3_hash(self.a),self.a['expected_master'],dict(cap.NEW3_CAPS),allocation_profile=cap.NEW3_PROFILE)
+            actual['usage']['provider_gets']=5;actual['allocation_comment_id']=1;body=c.encoded(actual)
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_RECEIPT_BINDING'):c.receipt_for_run(run,cap._new3_hash(self.a),self.a['expected_master'],dict(cap.NEW3_CAPS),allocation_profile=cap.NEW3_PROFILE)
+            actual['allocation_comment_id']=6474160005
+            actual['allocation_profile']='owner-new3-20261028-v1';body=c.encoded(actual)
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_RECEIPT_BINDING'):c.receipt_for_run(run,cap._new3_hash(self.a),self.a['expected_master'],dict(cap.NEW3_CAPS),allocation_profile=cap.NEW3_PROFILE)
+            actual['allocation_profile']=cap.NEW3_PROFILE
+            actual['nonce']=c.PREFIX+c.digest((cap.NEW3_SUPERSEDED_TASK+cap.NEW3_SUPERSEDED_ALLOCATION).encode())[:24];body=c.encoded(actual)
+            with self.assertRaisesRegex(c.Refused,'CAMPAIGN_RECEIPT_BINDING'):c.receipt_for_run(run,cap._new3_hash(self.a),self.a['expected_master'],dict(cap.NEW3_CAPS),allocation_profile=cap.NEW3_PROFILE)
+        self.assertTrue(all(x==('gh','run','download') for x in downloads))
+
+    def test_actual_receipt_reader_success_settlement_and_replay(self):
+        self.real_receipt_roundtrip()
+
+    def test_actual_receipt_reader_failure_settlement_and_replay(self):
+        self.real_receipt_roundtrip(failed=True)
+
+    def test_small_caps_require_exact_explicit_profile_not_legacy_disguise(self):
+        run=dict(status='completed',run_attempt=1,head_sha='1'*40,head_branch='master')
+        for limits,profile in [(dict(cap.NEW3_CAPS),None),(dict(c.LIMITS),cap.NEW3_PROFILE),
+                (dict(cap.NEW3_CAPS),'unknown-profile'),(dict(cap.NEW3_CAPS,provider_gets=9),cap.NEW3_PROFILE)]:
+            with patch.object(c,'gh_json') as api,self.subTest(profile=profile),self.assertRaisesRegex(c.Refused,'CAMPAIGN_LIMITS'):
+                c.receipt_for_run(run,'a'*64,'1'*40,limits,allocation_profile=profile)
+            api.assert_not_called()
+
+
+
+    def test_r2_rejects_old_control_profile_and_nonce_before_io(self):
+        old_ref=cap.NEW3_SUPERSEDED_ALLOCATION
+        for key,value in [('allocation_reference',old_ref),('task_key',cap.NEW3_SUPERSEDED_TASK),
+                ('allocation_profile','owner-new3-20261028-v1'),('start_before_utc','2026-10-28T18:00:00Z')]:
+            changed=copy.deepcopy(self.a);changed[key]=value
+            with self.subTest(key=key),patch.object(c,'gh_json') as remote,self.assertRaises(c.Refused):
+                c.validate_authorization(changed)
+            remote.assert_not_called()
+        old_nonce=c.PREFIX+c.digest((cap.NEW3_SUPERSEDED_TASK+old_ref).encode())[:24]
+        args=self.worker_context()
+        with patch.dict(os.environ,{'INPUT_CAMPAIGN_NONCE':old_nonce}),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_CONTEXT'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=old_nonce),Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+    def test_r2_old_remote_attempt_cannot_hide_in_a_matching_opening(self):
+        old_nonce=c.PREFIX+c.digest((cap.NEW3_SUPERSEDED_TASK+cap.NEW3_SUPERSEDED_ALLOCATION).encode())[:24]
+        for status in ['completed','in_progress','queued']:
+            row=dict(id=99,run_number=41,run_attempt=1,head_sha='3'*40,head_branch='master',event='workflow_dispatch',
+                status=status,conclusion='failure',display_title='a1-sip '+old_nonce,
+                created_at='2026-10-28T15:00:00Z',updated_at='2026-10-28T15:01:00Z')
+            self.a['opening']['source_history_sha256']=c.digest(c.encoded([row]))
+            with self.subTest(status=status),patch.object(c,'campaign_run_pages',return_value=[row]),patch.object(c.subprocess,'run') as post,self.assertRaisesRegex(c.Refused,'NEW_THREE_SUPERSEDED_ATTEMPT'):
+                cap._new3_history(c,self.a)
+            post.assert_not_called()
+
+    def test_r2_prior_reservation_is_preserved_and_prevents_new_slot(self):
+        budget,slot,old_family=self.family()
+        prior_dir=budget.parent/'new3-6471394173'
+        prior=c.WorkJournal(prior_dir,c.digest(cap.NEW3_SUPERSEDED_ALLOCATION.encode()))
+        prior.append('NEW_THREE_RESERVED',nonce=c.PREFIX+c.digest((cap.NEW3_SUPERSEDED_TASK+cap.NEW3_SUPERSEDED_ALLOCATION).encode())[:24],
+            control_sha256='e'*64,allowance=dict(cap.NEW3_CAPS),elapsed_reservation=900,
+            old_family_prefix_sha256=self.a['opening']['family_prefix_sha256'])
+        prior.close();preserved={p.name:p.read_bytes() for p in prior_dir.glob('*.json')}
+        with patch.object(cap,'_new3_source') as source,patch.object(c.subprocess,'run') as post,self.assertRaisesRegex(c.Refused,'NEW_THREE_SUPERSEDED_RESERVATION'):
+            cap._new3_host(c,self.a,slot,budget)
+        source.assert_not_called();post.assert_not_called();self.assertFalse(slot.exists())
+        self.assertEqual(preserved,{p.name:p.read_bytes() for p in prior_dir.glob('*.json')})
+        family_dir=budget.parent/('external-budget-'+c.CONTINUATION['auth'][:16])
+        self.assertEqual(old_family,{p.name:p.read_bytes() for p in family_dir.glob('*.json')})
+
+    def test_r2_unknown_predecessor_writer_is_not_bypassed(self):
+        budget,slot,_=self.family()
+        prior_dir=budget.parent/'new3-6471394173';prior_dir.mkdir()
+        lock=prior_dir/'writer.lock';lock.write_bytes(b'SYNTHETIC_FOREIGN_WRITER')
+        with patch.object(c.subprocess,'run') as post,self.assertRaises(c.Refused):
+            cap._new3_host(c,self.a,slot,budget)
+        post.assert_not_called();self.assertFalse(slot.exists())
+        self.assertEqual(lock.read_bytes(),b'SYNTHETIC_FOREIGN_WRITER')
+
+    def test_r2_expiry_boundary_stops_before_meter(self):
+        self.now=c.utc(cap.NEW3_EXPIRY)
+        args=self.worker_context()
+        with patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_ARCHIVAL_EXPIRY'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+    def test_r2_working_copy_cannot_reuse_old_allocation_record(self):
+        old=dict(self.review(),allocation_comment_id=6471394173)
+        with patch.object(self,'review',return_value=old),patch.object(c,'gh_json',side_effect=self.comments),self.assertRaisesRegex(c.Refused,'NEW_THREE_ACCOUNT_REVIEW'):
+            cap._new3_authority(c,self.a)
+
+
+    def test_v5_actual_stale_daily_gate_remains_false_for_archival_capture(self):
+        gate=cap._new3_archival_gate(c,self.a)
+        self.assertEqual(gate['status'],'ARCHIVAL_COLLECTION_ONLY')
+        self.assertEqual(gate['daily_market_gate']['status'],'SKIP_STALE_SESSION')
+        self.assertFalse(gate['daily_market_gate']['ready'])
+        self.assertEqual(gate['actual_market_close_utc'],'2026-10-27T20:00:00+00:00')
+        self.assertEqual(gate['earliest_close_ready_utc'],'2026-10-27T22:00:00+00:00')
+        self.assertEqual(gate['latest_settlement_eligible_session'],'2026-10-27')
+        for key in ['source_admission','pit_verified','current_price_verified','er_authority','a5_authority','economic_authority']:
+            self.assertIs(gate[key],False)
+
+    def test_v5_daily_buffer_result_is_not_overwritten_after_next_close(self):
+        self.now=c.utc('2026-10-28T21:45:00Z')
+        self.a['market_gate']=self.evaluate_calendar(now_utc=self.now,min_close_age_minutes=120)
+        gate=cap._new3_archival_gate(c,self.a)
+        self.assertEqual(gate['target_session'],'2026-10-27')
+        self.assertEqual(gate['daily_market_gate']['session_date'],'2026-10-28')
+        self.assertEqual(gate['daily_market_gate']['status'],'SKIP_CLOSE_SETTLEMENT_BUFFER')
+        self.assertFalse(gate['daily_market_gate']['ready'])
+
+    def test_v5_owner_ready_force_and_max_age_cannot_replace_calendar(self):
+        for change in [dict(ready=True),dict(forced=True),dict(max_close_age_hours=48),dict(market_close_utc='2026-10-27T19:00:00+00:00')]:
+            old=copy.deepcopy(self.a['market_gate']);self.a['market_gate'].update(change)
+            with self.subTest(change=change),self.assertRaisesRegex(c.Refused,'NEW_THREE_CALENDAR_RECEIPT_CONFLICT'):
+                cap._new3_archival_gate(c,self.a)
+            self.a['market_gate']=old
+
+    def test_v5_future_close_and_endpoint_settlement_are_recomputed(self):
+        for stamp in ['2026-10-27T19:59:00Z','2026-10-27T21:59:00Z','2026-10-27T22:30:00Z','2026-10-28T00:14:58Z']:
+            self.now=c.utc(stamp);self.a['market_gate']=self.evaluate_calendar(now_utc=self.now,min_close_age_minutes=120)
+            with self.subTest(stamp=stamp),self.assertRaisesRegex(c.Refused,'NEW_THREE_ARCHIVAL_UNSETTLED'):
+                cap._new3_archival_gate(c,self.a)
+        self.now=c.utc('2026-10-28T00:15:00Z');self.a['market_gate']=self.evaluate_calendar(now_utc=self.now,min_close_age_minutes=120)
+        self.assertEqual(cap._new3_archival_gate(c,self.a)['status'],'ARCHIVAL_COLLECTION_ONLY')
+
+    def test_v5_wrong_window_and_expiry_do_not_become_current_price(self):
+        self.a['end']='2026-10-29'
+        with self.assertRaisesRegex(c.Refused,'NEW_THREE_ARCHIVAL_WINDOW'):cap._new3_archival_gate(c,self.a)
+        self.a['end']=cap.NEW3_END;self.now=c.utc(cap.NEW3_EXPIRY)
+        with self.assertRaisesRegex(c.Refused,'NEW_THREE_ARCHIVAL_EXPIRY'):cap._new3_archival_gate(c,self.a)
+
+    def test_v5_actual_workflow_sparse_layout_imports_existing_helper(self):
+        import re,shutil,subprocess,sys
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        blocks=re.findall(r'sparse-checkout: \|\n((?: +/[^\n]+\n)+)',workflow)
+        self.assertEqual(len(blocks),2)
+        self.assertEqual(blocks[0],blocks[1])
+        self.assertEqual(workflow.count('Install existing NYSE calendar dependencies for validation'),2)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for line in blocks[0].splitlines():
+                name=line.strip().lstrip('/');target=root/name;target.parent.mkdir(parents=True,exist_ok=True)
+                shutil.copyfile(c.ROOT/name,target)
+            (root/'auth.json').write_bytes(c.encoded(self.a))
+            script="from tools import alpaca_sip_campaign as c,alpaca_sip_private_backfill_v1 as p;import json;g=p._new3_archival_gate(c,json.load(open('auth.json')),observed=c.utc('2026-10-28T17:00:00Z'));print(json.dumps(g))"
+            run=subprocess.run([sys.executable,'-B','-c',script],cwd=root,capture_output=True,text=True,timeout=30)
+            self.assertEqual(run.returncode,0,run.stderr)
+            value=json.loads(run.stdout);self.assertFalse(value['daily_market_gate']['ready'])
+            self.assertEqual(value['status'],'ARCHIVAL_COLLECTION_ONLY')
+            (root/cap.NEW3_CALENDAR_PATH).unlink()
+            missing=subprocess.run([sys.executable,'-B','-c',script],cwd=root,capture_output=True,text=True,timeout=30)
+            self.assertNotEqual(missing.returncode,0)
+            self.assertIn('NEW_THREE_CALENDAR_DEPENDENCY',missing.stderr)
+
+    def test_v5_missing_calendar_package_fails_before_meter(self):
+        import builtins
+        original=builtins.__import__
+        def unavailable(name,*args,**kwargs):
+            if name=='tools.run_daily_market_session_gate':raise ModuleNotFoundError('SYNTHETIC_MISSING_CALENDAR_PACKAGE')
+            return original(name,*args,**kwargs)
+        args=self.worker_context()
+        with patch.object(builtins,'__import__',side_effect=unavailable),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_CALENDAR_DEPENDENCY'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+
+    def test_v5_queue_time_is_not_excluded_from_worker_deadline(self):
+        args=self.worker_context()
+        current=dict(created_at=(self.now-timedelta(seconds=901)).isoformat(),run_started_at=self.now.isoformat())
+        with patch.object(cap,'_new3_history',return_value=current),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_START_OR_DEADLINE'):
+            cap._new3_worker(c,args,dict(authorization=self.a,nonce=cap._new3_nonce(c)),Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+    def test_v5_actual_reader_blocks_canonical_901_seconds_with_small_job_time(self):
+        self.real_receipt_roundtrip(queued=True)
+
+    def test_v6_calendar_is_mandatory_in_exact_r2_pin_set(self):
+        for replacement in [None,'tools/foreign_calendar.py']:
+            changed=copy.deepcopy(self.a);value=changed['code_pins'].pop(cap.NEW3_CALENDAR_PATH)
+            if replacement is not None:changed['code_pins'][replacement]=value
+            with self.subTest(replacement=replacement),patch.object(c,'gh_json') as remote,self.assertRaisesRegex(c.Refused,'NEW_THREE_CODE_PINS'):
+                c.validate_authorization(changed)
+            remote.assert_not_called()
+
+    def test_v6_actual_source_rejects_targeted_calendar_blob_tamper(self):
+        observed=[]
+        def api(path):
+            if '/branches/master' in path:return dict(protected=True,commit=dict(sha=self.a['expected_master']))
+            if '/pulls/' in path:return dict(number=999,merged=True,draft=False,head=dict(sha='2'*40,repo=dict(full_name=c.REPO)),
+                base=dict(ref='master',repo=dict(full_name=c.REPO)),merge_commit_sha='1'*40)
+            name=path.split('/contents/',1)[1].split('?',1)[0];observed.append(name)
+            body=b'foreign calendar' if name==cap.NEW3_CALENDAR_PATH else (c.ROOT/name).read_bytes()
+            return dict(encoding='base64',content=c.base64.b64encode(body).decode())
+        with patch.object(c,'gh_json',side_effect=api),patch.object(c._revision_module(),'named_read_checks'),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_CODE_DRIFT'):
+            cap._new3_source(c,self.a)
+        self.assertIn(cap.NEW3_CALENDAR_PATH,observed);meter.assert_not_called()
