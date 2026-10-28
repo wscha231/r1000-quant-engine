@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from datetime import datetime, timezone
 
@@ -175,7 +176,7 @@ def transfer(*args, timeout=480, allow_missing=False):
     return result.stdout.decode('utf-8')
 
 
-def publish(root, base):
+def publish(root, base, *, before_head=None):
     with tempfile.TemporaryDirectory(prefix='earnings-publish-') as temporary:
         stage = Path(temporary)
         generation = prepare(root, stage)
@@ -193,6 +194,8 @@ def publish(root, base):
         transfer('copyto', remote + 'generation.json', readback / 'generation.json', '--checksum')
         verify(readback, head)
         # Advance accepted authority only after complete generation readback.
+        if before_head is not None:
+            before_head()
         transfer('copyto', stage / 'head.json', base + HEAD, '--checksum')
         transfer('copyto', base + HEAD, readback / 'head.json', '--checksum')
         if (readback / 'head.json').read_bytes() != (stage / 'head.json').read_bytes():
@@ -516,15 +519,271 @@ def preflight_legacy_base(base, archive_path, output_root, expected_archive_fold
     return receipt
 
 
+FORWARD_SCHEMA = 'earnings-source-bounded-forward-contract-v1'
+FORWARD_INVENTORY = '997d8b2881ca3eeb495fa3a961d59507ac28022d8f801c5e630d686ca6bc5db5'
+FORWARD_CODE = ('.github/workflows/earnings_estimates_daily.yml',
+    'tools/earnings_estimate_drive_generation.py',
+    'tools/collect_earnings_estimates_finnhub.py',
+    'tools/build_earnings_estimate_archive_manifest.py')
+FORWARD_CEILINGS = dict(provider_gets=1, provider_response_bytes=2*1024*1024,
+    drive_processes=64, transfer_reservation_bytes=128*1024*1024, active_seconds=600)
+
+
+def forward_now():
+    return datetime.now(timezone.utc)
+
+
+def forward_contract(path, expected_sha256):
+    """Validate fixed execution information; a hash is not execution authority."""
+    path = Path(path)
+    if (not isinstance(expected_sha256, str) or HEX.fullmatch(expected_sha256) is None
+            or path.is_symlink() or not path.is_file() or path.stat().st_size > 32768):
+        raise ValueError('source_forward_execution_info_required')
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError('source_forward_contract_hash')
+    value = json.loads(raw)
+    fields = {'schema','task_key','repository','head_sha','issued_at','expires_at','tickers',
+        'provider','credential_name','account_reference','purpose','entitlement_reference',
+        'budget_reference','expected_archive_folder_id','expected_inventory_sha256',
+        'expected_head','code_pins','budget'}
+    if (not isinstance(value, dict) or set(value) != fields or value['schema'] != FORWARD_SCHEMA
+            or value['repository'] != 'wscha231/r1000-quant-engine' or value['tickers'] != ['MU']
+            or value['provider'] != 'fmp' or value['credential_name'] not in ('FMP_API_KEY','FMP_API_KEY2')
+            or value['purpose'] != 'PRIVATE_NONCOMMERCIAL_RESEARCH' or value['expected_head'] is not None
+            or value['expected_inventory_sha256'] != FORWARD_INVENTORY
+            or re.fullmatch(r'[A-Za-z0-9_-]{10,150}', str(value['expected_archive_folder_id'])) is None):
+        raise ValueError('source_forward_contract_scope')
+    for key in ('task_key','account_reference','entitlement_reference','budget_reference'):
+        if not isinstance(value[key], str) or not 1 <= len(value[key]) <= 300:
+            raise ValueError('source_forward_contract_reference')
+    try:
+        issued = datetime.fromisoformat(value['issued_at'].replace('Z','+00:00'))
+        expires = datetime.fromisoformat(value['expires_at'].replace('Z','+00:00'))
+        now = forward_now()
+        if (issued.utcoffset() != timezone.utc.utcoffset(None)
+                or expires.utcoffset() != timezone.utc.utcoffset(None)
+                or not issued <= now < expires or not 0 < (expires-issued).total_seconds() <= 86400):
+            raise ValueError('source_forward_contract_clock')
+    except (TypeError, AttributeError, OverflowError):
+        raise ValueError('source_forward_contract_clock') from None
+    budget = value['budget']
+    if (not isinstance(budget,dict) or set(budget) != set(FORWARD_CEILINGS)
+            or any(type(budget[k]) is not int or not 0 < budget[k] <= cap
+                   for k,cap in FORWARD_CEILINGS.items())):
+        raise ValueError('source_forward_explicit_budget_required')
+    context = {k:os.environ.get(k,'') for k in ('GITHUB_REPOSITORY','GITHUB_SHA','GITHUB_REF',
+        'GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT')}
+    if (context['GITHUB_REPOSITORY'] != value['repository'] or context['GITHUB_REF'] != 'refs/heads/master'
+            or re.fullmatch(r'[a-f0-9]{40}', str(value['head_sha'])) is None
+            or context['GITHUB_SHA'] != value['head_sha'] or not context['GITHUB_RUN_ID'].isdigit()
+            or context['GITHUB_RUN_ATTEMPT'] != '1'
+            or os.environ.get('FMP_KEY_NAME') != value['credential_name']):
+        raise ValueError('source_forward_execution_binding')
+    pins = value['code_pins']
+    if (not isinstance(pins,dict) or set(pins) != set(FORWARD_CODE)
+            or any(pins[p] != sha256_file(ROOT/p) for p in FORWARD_CODE)):
+        raise ValueError('source_forward_code_pins')
+    return value, context
+
+
+class ForwardBudget:
+    """Finite attempt reservations, not a claim to measure backend HTTP calls."""
+    def __init__(self, contract, output):
+        self.contract,self.output = contract,output
+        self.started = time.monotonic()
+        self.usage = dict(provider_gets=0, provider_response_bytes=0, drive_processes=0,
+            transfer_reservation_bytes=0, drive_http_requests=None, head_write_attempted=False)
+
+    def save(self):
+        target=self.output/'attempt_meter.json'
+        with target.open('wb') as stream:
+            stream.write(encoded(self.usage)); stream.flush(); os.fsync(stream.fileno())
+
+    def remaining(self):
+        value=min(self.contract['budget']['active_seconds']-(time.monotonic()-self.started),
+            (datetime.fromisoformat(self.contract['expires_at'].replace('Z','+00:00'))-forward_now()).total_seconds())
+        if value <= 0:
+            raise ValueError('source_forward_deadline')
+        return value
+
+    def check(self):
+        self.remaining()
+
+    def reserve(self, key, amount):
+        self.check()
+        if self.usage[key]+amount > self.contract['budget'][key]:
+            raise ValueError('source_forward_budget_'+key)
+        self.usage[key]+=amount; self.save()
+
+    def transfer(self, original, *args, **kwargs):
+        self.check()
+        verb=str(args[0]); remote_indexes={'copy':(1,2),'copyto':(1,2),'lsf':(1,), 'lsjson':(1,)}
+        if verb not in remote_indexes:
+            raise ValueError('source_forward_transfer_scope')
+        # Reserve the existing hard download cap; failed/uncertain transfers keep it.
+        bound=1024*1024
+        if verb in ('copy','copyto'):
+            source=Path(args[1])
+            if not str(args[1]).startswith('gdrive:'):
+                records=files(source) if source.is_dir() else {'file':{'size_bytes':source.stat().st_size}}
+                bound=sum(r['size_bytes'] for r in records.values())
+            elif '--max-transfer' in args:
+                cap=str(args[args.index('--max-transfer')+1])
+                if cap not in ('2MiB','16MiB'):
+                    raise ValueError('source_forward_transfer_cap')
+                bound=int(cap[:-3])*1024*1024
+            else:
+                # Publication readback is bounded by its already prepared payload.
+                bound=self.publication_bytes
+            if verb=='copyto' and str(args[2]).endswith(HEAD):
+                self.usage['head_write_attempted']=True
+        self.reserve('drive_processes',1)
+        self.reserve('transfer_reservation_bytes',max(1,bound))
+        kwargs['timeout']=min(kwargs.get('timeout',480),self.remaining())
+        if verb in ('copy','copyto'):
+            if '--max-transfer' not in args:
+                args=(*args,'--max-transfer',str(max(1,bound))+'B')
+            if '--cutoff-mode' not in args:
+                args=(*args,'--cutoff-mode','HARD')
+        result=original(*args,**kwargs)
+        self.check()
+        return result
+
+
+def bounded_forward_legacy(base, archive_path, output_root, contract_path, expected_sha256):
+    """One opt-in MU/FMP forward attempt through the unchanged collector."""
+    from tools import collect_earnings_estimates_finnhub as collector
+    from tools import build_earnings_estimate_archive_manifest as manifest
+    from urllib.parse import urlsplit, parse_qs
+    import contextlib
+    contract,context=forward_contract(contract_path,expected_sha256)
+    output=Path(output_root)
+    if output.exists() or output.is_symlink():
+        raise ValueError('source_forward_output_must_be_new')
+    if not os.environ.get(contract['credential_name']):
+        raise ValueError('source_forward_named_credential_missing')
+    output=output.resolve(); output.mkdir(parents=True)
+    meter=ForwardBudget(contract,output); meter.save()
+    receipt=dict(schema='earnings-source-bounded-forward-result-v1',status='BLOCKED',
+        contract_sha256=expected_sha256,execution=context,collection_executed=False,
+        publication_attempted=False,source_published=False,source_admitted=False,
+        pit_admitted=False,paper_consumer_executed=False,canonical_research_admission=False)
+    original_transfer,original_session,original_argv=transfer,collector.requests.Session,sys.argv
+
+    class BoundedSession(original_session):
+        def send(self, request, **kwargs):
+            parsed=urlsplit(request.url); query=parse_qs(parsed.query)
+            if (request.method!='GET' or parsed.scheme!='https' or parsed.netloc!='financialmodelingprep.com'
+                    or parsed.path!='/stable/analyst-estimates' or set(query) != {'symbol','period','page','limit','apikey'}
+                    or query['symbol'] != ['MU'] or query['period'] != ['annual']
+                    or query['page'] != ['0'] or query['limit'] != ['10']
+                    or query['apikey'] != [os.environ[contract['credential_name']]]):
+                raise ValueError('source_forward_provider_scope')
+            meter.reserve('provider_gets',1)
+            kwargs.update(allow_redirects=False,stream=True,timeout=min(20,meter.remaining()))
+            response=super().send(request,**kwargs)
+            try:
+                if not 200 <= response.status_code < 300:
+                    raise ValueError('source_forward_provider_http_failure')
+                body=bytearray()
+                for chunk in response.iter_content(chunk_size=65536):
+                    meter.reserve('provider_response_bytes',len(chunk)); body.extend(chunk)
+                response._content=bytes(body); response._content_consumed=True
+                meter.usage['provider_body_sha256']=hashlib.sha256(body).hexdigest(); meter.save()
+                # Kept in the private local attempt only, never in public diagnostics.
+                (output/'provider_response.private.json').write_bytes(body)
+                return response
+            finally:
+                response.close()
+
+    session=BoundedSession()
+    globals()['transfer']=lambda *a,**k:meter.transfer(original_transfer,*a,**k)
+    collector.requests.Session=lambda:session
+    try:
+        def parent_check(label):
+            meter.check()
+            result=preflight_legacy_base(base,archive_path,output/label,contract['expected_archive_folder_id'])
+            if (not result.get('legacy_bytes_verified')
+                    or result.get('source_inventory_sha256') != contract['expected_inventory_sha256']):
+                raise ValueError('source_forward_parent_changed_or_unverified')
+            return result
+        parent_check('initial_parent')
+        prepared=output/'initial_parent/expected'; payload=prepared/'payload'
+        sys.argv=['collector','--tickers','MU','--vendor-order','fmp',
+            '--fmp-key-name',contract['credential_name'],'--api-key','','--alphavantage-api-key','',
+            '--fetch-date',forward_now().date().isoformat(),'--sleep-seconds','1.1','--max-errors','1',
+            '--snapshot-dir',str(payload/ARCHIVE),'--signals-output',str(payload/SIGNALS),
+            '--summary',str(payload/DAILY/'summary.json'),
+            '--collection-checkpoint',str(payload/ARCHIVE/'collection_checkpoint.json'),
+            '--collection-queue',str(payload/DAILY/'collection_queue.csv'),
+            '--collection-attempt-id',context['GITHUB_RUN_ID'],'--plan-manual-collection',
+            '--legacy-baseline-receipt',str(prepared/'prepared_handoff.json')]
+        with (output/'collector.private.log').open('w',encoding='utf-8') as log, contextlib.redirect_stdout(log):
+            receipt['collection_executed']=True
+            code=collector.main()
+        summary=json.loads((payload/DAILY/'summary.json').read_text())
+        if (code != 0 or summary.get('status') != 'completed' or summary.get('error_count') != 0
+                or summary.get('ticker_count_requested') != 1
+                or summary.get('request_has_forward_estimate_rows') != 1 or meter.usage['provider_gets'] != 1):
+            raise ValueError('source_forward_vendor_or_quality_failed')
+        publication=manifest.build_manifest(snapshot_dir=str(payload/ARCHIVE),signals=str(payload/SIGNALS),
+            summary=str(payload/DAILY/'summary.json'),collector_log=str(output/'collector.private.log'),
+            manifest=str(payload/DAILY/'archive_manifest.json'),index=str(payload/DAILY/'archive_index.jsonl'),
+            run_id=context['GITHUB_RUN_ID'],run_attempt='1',head_sha=context['GITHUB_SHA'],
+            ref='refs/heads/master',workflow='Earnings Estimates Daily Archive',
+            artifact_name='earnings-source-forward-'+context['GITHUB_RUN_ID'],
+            queue_checkpoint=str(payload/ARCHIVE/'collection_checkpoint.json'),
+            queue_csv=str(payload/DAILY/'collection_queue.csv'),
+            queue_summary=str(payload/DAILY/'manual_plan_summary.json'),
+            queue_report=str(payload/DAILY/'manual_plan_report.md'),
+            queue_universe=str(payload/ARCHIVE/'collection_universe.csv'),collection_required=True)
+        if publication.get('publishable') is not True:
+            raise ValueError('source_forward_manifest_blocked')
+        validate_payload(payload)
+        meter.publication_bytes=sum(r['size_bytes'] for r in files(payload).values())+65536
+        parent_check('before_publication')
+        meter.check();receipt['publication_attempted']=True
+        generation=publish(payload,base,before_head=lambda:parent_check('before_head'))
+        receipt.update(status='SOURCE_PERSISTED_READBACK_VERIFIED_RESEARCH_ONLY',source_published=True,
+            generation_id=generation,legacy_original_preserved=True)
+    except Exception as exc:
+        reason=str(exc)
+        receipt['reason']=reason if re.fullmatch(r'[A-Za-z0-9_:.-]{1,160}',reason) else type(exc).__name__
+        if meter.usage['head_write_attempted']:
+            receipt['status']='PUBLICATION_OUTCOME_UNCERTAIN_STOP'
+    finally:
+        globals()['transfer']=original_transfer;collector.requests.Session=original_session;sys.argv=original_argv
+        session.close();meter.save()
+        receipt['meter']=dict(meter.usage);receipt['completed_at']=forward_now().isoformat()
+        (output/'forward_result.json').write_bytes(encoded(receipt))
+    return receipt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('publish', 'restore', 'prepare-legacy', 'preflight-legacy'))
+    parser.add_argument('operation', choices=('publish', 'restore', 'prepare-legacy', 'preflight-legacy', 'check-forward-contract', 'forward-legacy'))
     parser.add_argument('--base')
     parser.add_argument('--workspace', default=str(ROOT))
     parser.add_argument('--legacy-archive')
     parser.add_argument('--output-dir')
     parser.add_argument('--expected-archive-folder-id')
+    parser.add_argument('--recovery-contract')
+    parser.add_argument('--contract-sha256')
     args = parser.parse_args()
+    if args.operation in ('check-forward-contract', 'forward-legacy'):
+        if not args.recovery_contract or not args.contract_sha256:
+            parser.error('forward operations require fixed recovery contract and byte SHA256')
+        if args.operation == 'check-forward-contract':
+            forward_contract(args.recovery_contract, args.contract_sha256)
+            print('SOURCE_FORWARD_CONTRACT_VERIFIED_NOT_EXECUTED')
+            return 0
+        if not all((args.base, args.legacy_archive, args.output_dir)):
+            parser.error('forward-legacy requires base, pinned archive and new output')
+        result = bounded_forward_legacy(args.base, args.legacy_archive, args.output_dir,
+            args.recovery_contract, args.contract_sha256)
+        print(json.dumps({key:result.get(key) for key in ('status','reason','source_published')}))
+        return 0 if result['source_published'] else 2
     if args.operation == 'preflight-legacy':
         if not all((args.base, args.legacy_archive, args.output_dir, args.expected_archive_folder_id)):
             parser.error('preflight-legacy requires base, pinned archive, new output and independently known folder ID')

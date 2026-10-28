@@ -8672,3 +8672,29 @@ the real capture/verifier with injected responses, including valid weekends.
 - Independent A6 on initial4f324e05 found two P2 boundaries: explicit correction with CHECKED_NO_NEW could return current success without a filing, and rehashed Source receipt clocks could diverge from corrected-event clocks on readback. Preserve the initial findings/receipts. Correction now requires a current filing and exact per-event Source scope; the derived A2 clocks and full pending A3 reference are independently reconstructed/read back too. No general legacy-reader policy or authority was expanded.
 
 - Initial new NO_NEW dispatch regression used an invalid synthetic legacy receipt (null latest acceptance), so existing SOURCE_CLOCK_ORDER correctly stopped it before the intended branch. Both49-test failure logs are preserved; correct only the fixture clock and rerun unchanged product guards. Actual current-generation empty receipts retain their separate verified-manifest contract.
+
+
+## 2026-10-28 — Keep a bounded earnings forward attempt separate from the daily Paper job
+
+- Reuse the pinned legacy preparation and real collector transition. A read-only
+ 70-file namespace match does not renew Oct3 estimates or manufacture a current
+ transaction marker. Explicit MU Source-only mode skips the whole daily/Paper
+ job while retaining global serialization and ordinary schedule behavior.
+- Collector exit0 can mean vendor entitlement/partial diagnostics. Require the
+ actual current request's complete quality, zero errors and genuine transaction
+ before the existing manifest/publication path. Recheck original Source before
+ publication/head; a failed head readback is uncertain, not proof of no write.
+- Fixed execution information and its byte SHA are not a new approval system or
+ rights proof. Keep real account/purpose/remaining budget/window NOT_RUN until
+ grounded under existing owner authority. A finite rclone reservation is not a
+ measured backend API count; retain uncertain costs and reject blind reruns.
+- Synthetic transport/provider doubles exercise unchanged collector/publication
+ code, not actual market-data access. Initial local editing encountered template
+ interpolation/indentation errors before tests; they changed no remote state.
+ Preserve failed test logs and correct the code before claiming verification.
+
+- Native unittest harnesses must import canonical tests.* modules and select
+  classes defined in the named suites. A first harness also collected imported
+  TestCase aliases, producing542 cases per mode and one class-identity failure;
+  both original logs remain. Correct the harness instead of changing product
+  registration or weakening the identity assertion.

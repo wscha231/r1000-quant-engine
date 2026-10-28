@@ -438,3 +438,79 @@ current provider entitlement/freshness, Source/PIT admission or recovery grant.
 Actual provider rights, budget, current parent and named forward attempt remain
 separate prerequisites and must be reconciled again before mutation. Existing
 collector/publication/consumer checks are unchanged.
+
+
+### Bounded MU Source-only forward mode (2026-10-28)
+
+The existing workflow has an explicit source_only_forward option, default false.
+It excludes the entire archive job, including Paper, cache restore/save, legacy
+flat sync and market/session processing. The original schedule and ordinary
+manual mode are unchanged, as is the global durable-writer concurrency group.
+The read-only option remains read-only; selecting both special modes fails
+before credentials or Source I/O. No new collector, scheduler, approval Registry
+or repository enablement variable is introduced.
+
+The existing helper's check-forward-contract checks fixed single-execution
+information and its exact --contract-sha256. This byte hash is an integrity pin,
+not an approval mechanism or a supplier-rights certificate. Actual execution
+remains the existing A0/owner decision under the named recovery scope. No live
+execution information, account evidence, budget grant or validity window is
+issued by this code change.
+
+The closed earnings-source-bounded-forward-contract-v1 information names MU
+only, FMP only, one explicit FMP_API_KEY or FMP_API_KEY2 selection, the existing
+repository/master SHA, all four workflow/helper/collector/manifest code pins,
+the original archive folder and full legacy inventory SHA, absent current head,
+private noncommercial purpose, original account/entitlement/budget references,
+and explicit UTC issued/expires times (at most24h). References must be grounded
+by the execution owner; their presence is not account binding or licensing proof.
+Missing/wrong code pins, null/ambiguous budget, another symbol/provider/key,
+expired information, non-master context or a GitHub rerun attempt stops before
+provider/Drive access. The workflow also checks the selected key name; there is
+no automatic account fallback. The real account, entitlement, remaining quota
+and approved window are currently NOT_RUN/UNCONFIRMED prerequisites.
+
+The budget fields are provider_gets, provider_response_bytes, drive_processes,
+transfer_reservation_bytes and active_seconds. Their code ceilings are1 GET,
+2MiB response,64 rclone attempt reservations,128MiB transfer reservation and600s;
+the enclosing job stays15min. These are refusal ceilings, not newly granted
+allowances. A smaller approved value wins. Failed/uncertain transfer bounds are
+retained rather than reset. drive_processes counts conservative reserved process
+attempts, not backend HTTP requests; drive_http_requests stays null. Do not claim
+actual Drive API-cost reconciliation from this meter. Unresolved actual account
+or campaign cost scope must be settled before dispatch, not inferred from caps.
+
+forward-legacy freshly reuses preflight-legacy to check the namespace, head
+absence and all70 original files. Its existing prepared candidate is handed to
+the unchanged collector with --legacy-baseline-receipt and manual MU planning.
+Only the selected FMP estimate endpoint can be called, once; optional Finnhub,
+Alpha Vantage, redirects, paging, automatic retries and other ticker/provider
+paths are excluded in this finite wrapper. The existing parser, positive archive
+validation, genuine pending-to-committed transaction, queue acknowledgement,
+quality and archive-manifest checks remain authoritative. Vendor failure,
+missing estimates, errors or incomplete quality cannot publish, even where the
+ordinary collector's diagnostic exit code is0. Old63 snapshots and the original
+Oct3 partial status/clocks are preserved; no historical marker is invented.
+
+The exact old Source is checked again before payload publication and immediately
+before head publication through the existing publisher. This is not an atomic
+remote snapshot or a new CAS protocol: global single-writer operation remains
+required, and any foreign writer or changed Source/head stops execution. New
+payloads and generation markers still require complete fresh readback before
+head advancement. Partial payload writes are unaccepted. Failure at/after the
+head write reports PUBLICATION_OUTCOME_UNCERTAIN_STOP rather than pretending the
+old head is necessarily unchanged. Diagnose it; never blindly rerun the job.
+
+Every local attempt directory must be new. A consumed candidate cannot reenter
+legacy preparation, and workflow run_attempt must be1. A separately authorized
+new attempt must reconcile the actual prior outcome, head, source and cumulative
+cost first; this code does not create a cross-dispatch authorization ledger or
+allow a failed grant to reset costs. Successful publication means a complete
+research Source generation only; Source/PIT admission, current A3/ER, economics,
+Paper and portfolio authority remain false/separate.
+
+Only forward_result.json and attempt_meter.json enter the diagnostic artifact.
+Provider response bytes and collector logs remain private local attempt material;
+original data, credentials and account references are excluded from that upload.
+This change is T2 implementation/synthetic verification only. Actual provider,
+Drive write, collector dispatch, Source publication and Paper remain NOT_RUN.
