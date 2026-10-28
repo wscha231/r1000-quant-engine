@@ -131,7 +131,11 @@ def prepare_candidate_queue(files, request, request_raw, cutoff):
     its underlying filings/prices. Neither scores nor a new observation clock
     can establish source freshness, an investment conclusion or data admission.
     """
-    need(set(request) == {'schema', 'identities', 'sources'}, 'CANDIDATE_REQUEST_FIELDS')
+    fields = {'schema', 'identities', 'sources'}
+    need(set(request) in (fields, fields | {'retain_missing_candidates'}),
+         'CANDIDATE_REQUEST_FIELDS')
+    retain_missing = request.get('retain_missing_candidates', False)
+    need(type(retain_missing) is bool, 'CANDIDATE_RETENTION_POLICY')
     sources = request['sources']
     need(type(sources) is list and 0 < len(sources) <= 10, 'CANDIDATE_SOURCE_COUNT')
     identities_raw = files.read(request['identities'], 'identities')
@@ -187,9 +191,11 @@ def prepare_candidate_queue(files, request, request_raw, cutoff):
                         data_row=ordinal, row_sha256=intake.digest(intake.canonical(row))))
         except (UnicodeError, csv.Error):
             raise intake.IntakeError('CANDIDATE_CSV_ENCODING_OR_SYNTAX') from None
-        need(set(selected) == selection, 'CANDIDATE_SELECTED_TICKER_MISSING')
+        missing = sorted(selection - set(selected))
+        need(retain_missing or not missing, 'CANDIDATE_SELECTED_TICKER_MISSING')
         source_bindings = []
-        for ticker, rows in sorted(selected.items()):
+        for ticker in sorted(selection):
+            rows = selected.get(ticker, [])
             matches = by_ticker.get(ticker, [])
             need(len(matches) == 1, 'CANDIDATE_EXACT_SECURITY_MAPPING')
             sid, issuer = matches[0]
@@ -204,18 +210,28 @@ def prepare_candidate_queue(files, request, request_raw, cutoff):
                 item['first_seen_at'] = observed
             evidence = dict(kind=kind, source_sha256=sha, security_id=sid,
                             ticker=ticker, polarity=source['polarity'], rows=rows)
-            reason_id = 'CANDIDATE_REVIEW:' + intake.digest(intake.canonical(evidence))
+            reason_id = ('CANDIDATE_REVIEW:' if rows else 'CANDIDATE_DATA_PENDING:') + intake.digest(intake.canonical(evidence))
             item['membership_reasons'].append(dict(security_id=sid, ticker=ticker,
-                reason_type='PRODUCER_OUTPUT_REVIEW', source_kind=kind, polarity=source['polarity'],
+                reason_type='PRODUCER_OUTPUT_REVIEW' if rows else 'REQUESTED_CANDIDATE_DATA_PENDING',
+                source_kind=kind, polarity=source['polarity'],
                 status='ACTIVE', first_seen_at=observed, last_observed_at=observed, valid_until='',
-                source_event_id=reason_id, source_hash=sha, source_quality='UNVERIFIED_PRODUCER_OUTPUT',
-                security_type='EQUITY', notes='Review trigger only; source publication, expiry, rights, '
-                'PIT and economic value remain unverified. Native scores confer no direct score.'))
+                source_event_id=reason_id, source_hash=sha,
+                source_quality='UNVERIFIED_PRODUCER_OUTPUT' if rows else 'MISSING_PRODUCER_ROW',
+                security_type='EQUITY', notes=(
+                    'Review trigger only; source publication, expiry, rights, '
+                    'PIT and economic value remain unverified. Native scores confer no direct score.'
+                    if rows else
+                    'Retained by the explicit hash-bound request despite an absent producer row. '
+                    'This is a data lookup request, not an observed financial, price or technical signal. '
+                    'Missing values are unknown, not zero. Reuse existing inputs before collection.')))
             source_bindings.append(dict(**evidence, reason_id=reason_id))
         bindings.append(dict(kind=kind, file=source['file'], total_rows=row_count,
             selected_rows=sum(len(r) for r in selected.values()), selected_tickers=len(selected),
             observed_at=observed, observation_is_publication=False,
             source_publication_at=None, source_expiry_at=None, bindings=source_bindings))
+        if retain_missing:
+            bindings[-1].update(requested_tickers=len(selection),
+                                missing_selected_tickers=missing)
     for item in items.values():
         item['membership_reasons'].sort(key=lambda r: r['source_event_id'])
     queue = dict(schema_version='candidate-data-queue-v1', as_of=cutoff, research_only=True,
@@ -225,13 +241,23 @@ def prepare_candidate_queue(files, request, request_raw, cutoff):
     schema_raw = Files(ROOT).read({'path': 'research/control_plane/' + name, 'sha256': sha}, 'schema')
     proposal = intake.validate_queue(intake.canonical(queue), cutoff=cutoff,
         artifact_resolver=intake.MemoryArtifacts({'SCHEMA:' + name: schema_raw}), identities=identities_raw)
-    return dict(schema='a2-candidate-queue-result-v1', status='READ_ONLY_RESEARCH_PROPOSAL',
+    result = dict(schema='a2-candidate-queue-result-v1', status='READ_ONLY_RESEARCH_PROPOSAL',
         cutoff=cutoff, request_sha256=intake.digest(request_raw), read_set=files.read_set,
         code_identity=dict(adapter_sha256=intake.digest(Path(__file__).read_bytes()),
                            intake_sha256=intake.digest(Path(intake.__file__).read_bytes()), schema_sha256=sha),
         producer_bindings=bindings, queue=queue, proposal=proposal,
         source_authenticity='NOT_VERIFIED', source_freshness='NOT_VERIFIED', source_independence='NOT_VERIFIED',
         recurring_pipeline_connected=False, authority=intake.closed())
+    if retain_missing:
+        result['candidate_retention'] = dict(
+            policy='KEEP_EXPLICIT_REQUESTED_CANDIDATES_DATA_PENDING',
+            request_sha256=intake.digest(request_raw),
+            missing_producer_row_securities=sorted({e['security_id'] for p in bindings
+                for e in p['bindings'] if not e['rows']}),
+            current_roster_authority='CALLER_SUPPLIED_EXACT_IDENTITIES_AND_REQUEST_NOT_RANKED_CSV',
+            absence_is_rejection=False, missing_values_imputed=False,
+            collection_dispatched=False, membership_or_investment_admitted=False)
+    return result
 
 
 def write_result(path, result):
