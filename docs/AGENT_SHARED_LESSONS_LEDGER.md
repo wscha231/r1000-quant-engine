@@ -8769,3 +8769,12 @@ the real capture/verifier with injected responses, including valid weekends.
   mandatory R2 pin rejects missing/foreign/tampered helpers. No skip or arbitrary
   path exception is introduced; A0 clarification6474990100 supersedes the proposed
   seventh-file change, which was never applied.
+- Committed72fb Native516 normal/-O produced509pass/1failure/1error/5Windows
+  skips: two new fake GitHub responses encoded native CRLF bytes although the
+  control pins used canonical Git LF. The unchanged production drift guard
+  correctly rejected the first unchanged CRLF helper, so the targeted calendar
+  tamper test did not reach its intended object. Preserve those exact-head logs;
+  make only the new remote fixtures represent actual Git LF and exercise all
+  local pins with CRLF through the real bounded reader. Do not normalize or
+  weaken remote hash verification, change the byte cap, or relabel isolated LF
+  snapshot results as a passed current-head Windows check.

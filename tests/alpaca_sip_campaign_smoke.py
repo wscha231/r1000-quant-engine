@@ -8834,10 +8834,18 @@ class New3FiniteAllocationTests(unittest.TestCase):
             if '/pulls/' in path:return dict(number=999,merged=True,draft=False,head=dict(sha='2'*40,repo=dict(full_name=c.REPO)),
                 base=dict(ref='master',repo=dict(full_name=c.REPO)),merge_commit_sha='1'*40)
             name=path.split('/contents/',1)[1].split('?',1)[0]
-            return dict(encoding='base64',content=c.base64.b64encode((c.ROOT/name).read_bytes()).decode())
+            return dict(encoding='base64',content=c.base64.b64encode((c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
         module=c._revision_module()
         with patch.object(c,'gh_json',side_effect=api),patch.object(module,'named_read_checks') as checks:
             cap._new3_source(c,self.a);checks.assert_called_once()
+        original_bounded=c.bounded_bytes;windows_reads=[]
+        def windows_bytes(path,*args,**kwargs):
+            raw=original_bounded(path,*args,**kwargs).replace(b'\r\n',b'\n').replace(b'\n',b'\r\n')
+            windows_reads.append(Path(path).relative_to(c.ROOT).as_posix())
+            return raw
+        with patch.object(c,'gh_json',side_effect=api),patch.object(module,'named_read_checks'),patch.object(c,'bounded_bytes',side_effect=windows_bytes):
+            cap._new3_source(c,self.a)
+        self.assertEqual(set(windows_reads),set(self.a['code_pins']))
         def foreign(path):
             value=api(path)
             if '/branches/master' in path:value['commit']['sha']='f'*40
@@ -9120,7 +9128,7 @@ class New3FiniteAllocationTests(unittest.TestCase):
             if '/pulls/' in path:return dict(number=999,merged=True,draft=False,head=dict(sha='2'*40,repo=dict(full_name=c.REPO)),
                 base=dict(ref='master',repo=dict(full_name=c.REPO)),merge_commit_sha='1'*40)
             name=path.split('/contents/',1)[1].split('?',1)[0];observed.append(name)
-            body=b'foreign calendar' if name==cap.NEW3_CALENDAR_PATH else (c.ROOT/name).read_bytes()
+            body=b'foreign calendar' if name==cap.NEW3_CALENDAR_PATH else (c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')
             return dict(encoding='base64',content=c.base64.b64encode(body).decode())
         with patch.object(c,'gh_json',side_effect=api),patch.object(c._revision_module(),'named_read_checks'),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_CODE_DRIFT'):
             cap._new3_source(c,self.a)
