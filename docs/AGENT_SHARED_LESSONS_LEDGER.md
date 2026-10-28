@@ -8778,3 +8778,17 @@ the real capture/verifier with injected responses, including valid weekends.
   local pins with CRLF through the real bounded reader. Do not normalize or
   weaken remote hash verification, change the byte cap, or relabel isolated LF
   snapshot results as a passed current-head Windows check.
+- f212 current-head Native516 passed511+5Windows skips in both modes, but a
+  separate privacy audit found R2's schema-less control fell through the shared
+  job-env path, which excluded only old native/price174 schemas. Collector stdout
+  filtering does not protect runner env/CLI logging. No actual R2 dispatch or
+  leak occurred. Reuse the existing bounded GITHUB_EVENT_PATH primitive: hide
+  recognizable R2 control/private fields, including malformed profiles/nonces,
+  reject in that private route, create the temp control under umask077, and
+  reconstruct only internal arguments. Prove empty private env/CLI, event/control
+  equality and unchanged legacy projection with public sentinels; never print
+  real private references or treat the earlier review as privacy completion.
+- Initial privacy45 ran44pass/1failure per Native mode because Windows umask
+  returns0 rather than applying POSIX022. Compare restoration with the platform's
+  measured effective mask; retain the strict0600 assertion on POSIX. The actual
+  runner-script test still executes in both modes without an optional skip.

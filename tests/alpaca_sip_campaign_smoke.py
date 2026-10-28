@@ -8715,15 +8715,22 @@ class New3FiniteAllocationTests(unittest.TestCase):
         self.assertEqual(m.used['provider_gets'],1)
 
     def worker_context(self, *, seconds=0):
+        control=dict(authorization=self.a,nonce=cap._new3_nonce(c))
+        inputs=dict(private_root_folder_id=self.a['private_root_folder_id'],private_data_folder_id=self.a['private_data_folder_id'],
+            private_research_authorized=True,noncommercial_terms_acknowledged=True,end_date=cap.NEW3_END,
+            max_new_symbols='3',resume_file_id='',resume_sha256='',campaign_control=c.encoded(control).decode(),campaign_nonce=control['nonce'])
+        self.event_path=Path(self.tmp)/'event.json';self.event_path.write_bytes(c.encoded(dict(inputs=inputs)))
         self.enterContext(patch.dict(os.environ,dict(A1_PRIVATE_RESEARCH_AUTHORIZED='true',ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',
             GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',GITHUB_SHA=self.a['expected_master'],GITHUB_EVENT_NAME='workflow_dispatch',
-            GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID='123',INPUT_CAMPAIGN_NONCE=cap._new3_nonce(c),ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')))
+            GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_ID='123',INPUT_CAMPAIGN_NONCE=cap._new3_nonce(c),ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret',
+            GITHUB_EVENT_PATH=str(self.event_path),INPUT_PRIVATE_NEW3_R2='true',INPUT_CAMPAIGN_CONTROL='',INPUT_PRIVATE_ROOT_FOLDER_ID='',
+            INPUT_PRIVATE_DATA_FOLDER_ID='',INPUT_RESUME_FILE_ID='')))
         self.enterContext(patch.object(cap,'_new3_source'))
         self.enterContext(patch.object(cap,'_new3_authority',return_value='a'*64))
         self.enterContext(patch.object(cap,'_new3_history',return_value=dict(created_at=(self.now-timedelta(seconds=seconds)).isoformat(),run_started_at=(self.now-timedelta(seconds=seconds)).isoformat())))
         self.enterContext(patch.object(c,'gh_json',return_value=dict(protected=True,commit=dict(sha=self.a['expected_master']))))
         return SimpleNamespace(start=cap.MIN_START,end=cap.NEW3_END,max_new_symbols=3,resume_file_id='',resume_sha256='',
-            private_root_folder_id=self.a['private_root_folder_id'],private_data_folder_id=self.a['private_data_folder_id'])
+            private_root_folder_id='',private_data_folder_id='')
 
     def test_901_seconds_refuses_before_meter_or_credentials_io(self):
         args=self.worker_context(seconds=901)
@@ -9133,3 +9140,114 @@ class New3FiniteAllocationTests(unittest.TestCase):
         with patch.object(c,'gh_json',side_effect=api),patch.object(c._revision_module(),'named_read_checks'),patch.object(c,'RuntimeMeter') as meter,self.assertRaisesRegex(c.Refused,'NEW_THREE_CODE_DRIFT'):
             cap._new3_source(c,self.a)
         self.assertIn(cap.NEW3_CALENDAR_PATH,observed);meter.assert_not_called()
+
+    def rendered_private_environment(self, inputs):
+        """Evaluate the workflow's small expression subset against public fixtures."""
+        import re
+        class Object:
+            def __init__(self,value):self.value=value
+            def __bool__(self):return bool(self.value)
+            def __getattr__(self,key):
+                value=self.value.get(key) if isinstance(self.value,dict) else None
+                return Object(value) if value is None or isinstance(value,dict) else value
+        def unwrap(value):return value.value if isinstance(value,Object) else value
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        names=['INPUT_PRIVATE_ROOT_FOLDER_ID','INPUT_PRIVATE_DATA_FOLDER_ID','INPUT_RESUME_FILE_ID','INPUT_CAMPAIGN_CONTROL','INPUT_PRIVATE_NEW3_R2']
+        rendered={}
+        for name in names:
+            line=next(x.strip() for x in workflow.splitlines() if x.strip().startswith(name+':'))
+            expression=line.split('${{',1)[1].rsplit('}}',1)[0].strip()
+            expression=re.sub(r'!(?!=)','not ',expression).replace('&&',' and ').replace('||',' or ')
+            rendered[name]=eval(expression,{'__builtins__':{}},dict(inputs=Object(inputs),
+                fromJSON=lambda raw:Object(json.loads(raw)),toJSON=lambda value:json.dumps(unwrap(value)),
+                contains=lambda value,part:str(part).lower() in str(unwrap(value)).lower(),
+                startsWith=lambda value,prefix:str(value or '').lower().startswith(prefix.lower())))
+        return rendered
+
+    def test_private_event_and_cli_are_bound_without_private_job_env(self):
+        args=self.worker_context();event=c.bounded_json(self.event_path)
+        rendered=self.rendered_private_environment(event['inputs'])
+        self.assertEqual(rendered['INPUT_PRIVATE_NEW3_R2'],'true')
+        self.assertTrue(all(rendered[k]=='' for k in rendered if k!='INPUT_PRIVATE_NEW3_R2'))
+        control=cap._new3_event_control(c)
+        self.assertEqual(control['authorization'],self.a)
+        self.assertEqual(args.private_root_folder_id,args.private_data_folder_id)
+        self.assertEqual(args.private_root_folder_id,'')
+        with patch.object(c,'RuntimeMeter') as meter:
+            args.private_root_folder_id='PUBLIC_TEST_PRIVATE_SENTINEL'
+            with self.assertRaisesRegex(c.Refused,'NEW_THREE_PRIVATE_CLI'):
+                cap._new3_worker(c,args,control,Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+    def test_private_environment_sentinels_refuse_before_meter_and_no_echo(self):
+        from contextlib import redirect_stdout,redirect_stderr
+        args=self.worker_context();control=cap._new3_event_control(c)
+        for key in ['INPUT_CAMPAIGN_CONTROL','INPUT_PRIVATE_ROOT_FOLDER_ID','INPUT_PRIVATE_DATA_FOLDER_ID','INPUT_RESUME_FILE_ID']:
+            output=io.StringIO();errors=io.StringIO()
+            with self.subTest(key=key),patch.dict(os.environ,{key:'PUBLIC_TEST_PRIVATE_SENTINEL'}),patch.object(c,'RuntimeMeter') as meter,redirect_stdout(output),redirect_stderr(errors):
+                with self.assertRaisesRegex(c.Refused,'NEW_THREE_PRIVATE_ENV') as refused:
+                    cap._new3_worker(c,args,control,Path(self.tmp)/'meter.json')
+                self.assertNotIn('PUBLIC_TEST_PRIVATE_SENTINEL',str(refused.exception)+output.getvalue()+errors.getvalue())
+            meter.assert_not_called()
+
+    def test_malformed_r2_stays_hidden_then_rejects_in_private_event_route(self):
+        self.worker_context();base=c.bounded_json(self.event_path)
+        cases=[]
+        for key,value in [('allocation_profile','wrong-profile'),('allocation_profile',''),('task_key','wrong-task')]:
+            item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);control['authorization'][key]=value
+            item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        for key in ['allocation_profile','task_key']:
+            item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);del control['authorization'][key]
+            item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);control['nonce']=c.PREFIX+'0'*24
+        item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        item=copy.deepcopy(base);item['inputs']['campaign_nonce']=c.PREFIX+'0'*24;cases.append(item)
+        item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);del control['authorization']
+        item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);control['authorization']=None
+        item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);del control['nonce']
+        item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        for item in cases:
+            rendered=self.rendered_private_environment(item['inputs'])
+            self.assertEqual(rendered['INPUT_PRIVATE_NEW3_R2'],'true')
+            self.assertTrue(all(rendered[k]=='' for k in rendered if k!='INPUT_PRIVATE_NEW3_R2'))
+            self.event_path.write_bytes(c.encoded(item))
+            with self.assertRaises(c.Refused):cap._new3_event_control(c)
+
+    def test_private_event_folder_and_supplied_control_mismatch_refuse(self):
+        self.worker_context();base=c.bounded_json(self.event_path)
+        for key in ['private_root_folder_id','private_data_folder_id','end_date','max_new_symbols','resume_file_id']:
+            item=copy.deepcopy(base);item['inputs'][key]='PUBLIC_TEST_PRIVATE_SENTINEL';self.event_path.write_bytes(c.encoded(item))
+            with self.subTest(key=key),self.assertRaises(c.Refused):cap._new3_event_control(c)
+        self.event_path.write_bytes(c.encoded(base));different=c.decode(base['inputs']['campaign_control']);different['nonce']='wrong'
+        with self.assertRaises(c.Refused):cap._new3_event_control(c,different)
+
+    def test_actual_private_prepare_script_writes_only_runner_file_and_preserves_umask(self):
+        import textwrap
+        from contextlib import redirect_stdout,redirect_stderr
+        self.worker_context();expected=cap._new3_event_control(c)
+        workflow=(c.ROOT/'.github/workflows/alpaca_sip_private_backfill_v1.yml').read_text(encoding='utf-8')
+        block=workflow.split('- name: Prepare bounded control metadata before credentials',1)[1].split('- name: Reconcile exact failed Drive POST',1)[0]
+        script=textwrap.dedent(block.split("python - <<'PY'\n",1)[1].split('          PY',1)[0])
+        output=io.StringIO();errors=io.StringIO();before=os.umask(0o022);expected_mask=os.umask(0o022)
+        try:
+            with patch.dict(os.environ,{'RUNNER_TEMP':self.tmp,'INPUT_NATIVE_READ_ONLY':'false','INPUT_PRIVATE_PRICE174':'false'}),redirect_stdout(output),redirect_stderr(errors):
+                exec(compile(script,'actual-workflow-private-prepare','exec'),{'__name__':'__main__'})
+            observed=os.umask(0o022)
+        finally:os.umask(before)
+        self.assertEqual(observed,expected_mask)
+        saved=Path(self.tmp)/'campaign_control.json';self.assertEqual(c.bounded_json(saved),expected)
+        if os.name!='nt':self.assertEqual(saved.stat().st_mode & 0o077,0)
+        for private in [self.a['private_root_folder_id'],self.a['private_data_folder_id'],self.a['owner_permission_id']]:
+            self.assertNotIn(private,output.getvalue()+errors.getvalue())
+
+    def test_legacy_environment_projection_is_unchanged(self):
+        control=dict(authorization=auth(),nonce=c.PREFIX+'a'*24)
+        inputs=dict(private_root_folder_id='PUBLIC_LEGACY_ROOT',private_data_folder_id='PUBLIC_LEGACY_DATA',
+            resume_file_id='PUBLIC_LEGACY_RESUME',campaign_control=c.encoded(control).decode())
+        rendered=self.rendered_private_environment(inputs)
+        self.assertEqual(rendered['INPUT_PRIVATE_NEW3_R2'],'false')
+        self.assertEqual(rendered['INPUT_PRIVATE_ROOT_FOLDER_ID'],inputs['private_root_folder_id'])
+        self.assertEqual(rendered['INPUT_PRIVATE_DATA_FOLDER_ID'],inputs['private_data_folder_id'])
+        self.assertEqual(rendered['INPUT_CAMPAIGN_CONTROL'],inputs['campaign_control'])

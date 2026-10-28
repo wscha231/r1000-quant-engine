@@ -1746,3 +1746,16 @@ are byte-for-byte unchanged; no past grant/pin digest is regenerated. R2 require
 the helper in its own exact eight-pin source set and rejects missing/foreign/
 tampered helper bytes before collection. A0 clarification6474990100 withdraws
 the earlier proposed seventh-file addition; the final change remains six paths.
+
+R2 private fields use the existing runner event-file primitive. The workflow
+recognizes an allocation-profile key, its authorization schema/task family or
+allocation reference, so malformed R2 input remains hidden and is rejected
+without falling back to public job env/CLI. Private root/data/control/resume
+fields are empty in job env; the existing CLI receives empty private arguments.
+The bounded event reader validates the exact R2 control and input equality before
+credentials. The worker rechecks event/control/empty private env and restores
+only an internal argument copy. The runner control is created under umask077;
+no private input is written to GITHUB_ENV. Legacy/non-R2 projection, source/hash/
+budget/clock/history contracts and the original payload remain unchanged. Public
+sentinels cover valid/malformed input, wrong nonce, event/control mismatch and
+actual prepare-script output; no actual account values or capture are involved.

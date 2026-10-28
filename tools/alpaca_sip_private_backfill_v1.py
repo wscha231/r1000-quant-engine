@@ -1833,6 +1833,37 @@ def _new3_archival_gate(c, auth, *, observed=None):
         er_authority=False, a5_authority=False, economic_authority=False)
 
 
+def _new3_event_control(c, expected=None):
+    """Read R2 private references only from the runner event, never job env/CLI."""
+    require(os.getenv("INPUT_PRIVATE_NEW3_R2") == "true"
+        and not any(os.getenv(k) for k in ("INPUT_CAMPAIGN_CONTROL", "INPUT_PRIVATE_ROOT_FOLDER_ID",
+            "INPUT_PRIVATE_DATA_FOLDER_ID", "INPUT_RESUME_FILE_ID")), "NEW_THREE_PRIVATE_ENV")
+    path = os.getenv("GITHUB_EVENT_PATH")
+    require(isinstance(path, str) and path, "NEW_THREE_PRIVATE_EVENT")
+    event = c.bounded_json(path, 65536)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+        require(Path(path).stat().st_mode & 0o077 == 0, "NEW_THREE_PRIVATE_EVENT_MODE")
+    inputs = event.get("inputs") if isinstance(event, dict) else None
+    require(isinstance(inputs, dict) and isinstance(inputs.get("campaign_control"), str)
+        and 0 < len(inputs["campaign_control"].encode()) <= 16384, "NEW_THREE_PRIVATE_EVENT")
+    control = c.decode(inputs["campaign_control"])
+    require(isinstance(control, dict) and set(control) == {"authorization", "nonce"}, "NEW_THREE_PRIVATE_EVENT")
+    auth = control["authorization"]
+    _new3_authorization(c, auth)
+    require(control["nonce"] == inputs.get("campaign_nonce") == _new3_nonce(c)
+        and inputs.get("private_root_folder_id") == auth["private_root_folder_id"]
+        and inputs.get("private_data_folder_id") == auth["private_data_folder_id"]
+        and inputs.get("resume_file_id", "") == inputs.get("resume_sha256", "") == ""
+        and inputs.get("end_date") == NEW3_END
+        and (type(inputs.get("max_new_symbols")) is int and inputs["max_new_symbols"] == 3
+             or inputs.get("max_new_symbols") == "3")
+        and all(inputs.get(k) is True or inputs.get(k) == "true" for k in
+            ("private_research_authorized", "noncommercial_terms_acknowledged"))
+        and (expected is None or encoded(expected) == encoded(control)), "NEW_THREE_PRIVATE_EVENT")
+    return control
+
+
 def _new3_worker(c, args, control, journal):
     require(isinstance(control, dict) and set(control) == {"authorization", "nonce"}, "NEW_THREE_CONTROL")
     auth = control["authorization"]
@@ -1843,6 +1874,11 @@ def _new3_worker(c, args, control, journal):
         and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch" and os.getenv("GITHUB_RUN_ATTEMPT") == "1"
         and os.getenv("GITHUB_SHA") == auth["expected_master"]
         and control["nonce"] == os.getenv("INPUT_CAMPAIGN_NONCE") == _new3_nonce(c), "NEW_THREE_CONTEXT")
+    _new3_event_control(c, control)
+    require(args.private_root_folder_id == args.private_data_folder_id == "", "NEW_THREE_PRIVATE_CLI")
+    args = argparse.Namespace(**vars(args))
+    args.private_root_folder_id = auth["private_root_folder_id"]
+    args.private_data_folder_id = auth["private_data_folder_id"]
     require(args.start == MIN_START and args.end == NEW3_END and args.max_new_symbols == 3
         and args.resume_file_id == args.resume_sha256 == ""
         and args.private_root_folder_id == auth["private_root_folder_id"]
