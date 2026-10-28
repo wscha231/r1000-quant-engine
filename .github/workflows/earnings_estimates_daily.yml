@@ -1,8 +1,17 @@
 name: Earnings Estimates Daily Archive
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight && 'Earnings Source preflight (read only)' || 'Earnings estimate archive' }}
 
 on:
   workflow_dispatch:
     inputs:
+      read_only_source_preflight:
+        description: 'Inspect only the configured Source namespace and pinned legacy bytes; skips collection, publication and paper.'
+        type: boolean
+        default: false
+      expected_archive_folder_id:
+        description: 'Independently verified Drive earnings archive folder ID; required only for read-only preflight.'
+        type: string
+        default: ''
       tickers:
         description: 'Comma-separated tickers to archive. Leave default for bounded smoke-size daily archive.'
         type: string
@@ -67,6 +76,11 @@ on:
         description: 'Comma-separated vendor order. Default pauses Alpha Vantage until key rotation is confirmed.'
         type: string
         default: 'fmp,finnhub'
+      fmp_key_name:
+        description: 'Explicit FMP account selection; no automatic fallback or rotation.'
+        type: choice
+        options: [FMP_API_KEY, FMP_API_KEY2]
+        default: FMP_API_KEY
   schedule:
     # 09:35 KST Tue-Sat, after most US after-close earnings data is visible.
     - cron: '35 0 * * 2-6'
@@ -83,6 +97,7 @@ concurrency:
 
 jobs:
   archive:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.read_only_source_preflight }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -392,7 +407,9 @@ jobs:
         env:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          FMP_API_KEY: ${{ (github.event.inputs.fmp_key_name || 'FMP_API_KEY') == 'FMP_API_KEY' && secrets.FMP_API_KEY || '' }}
+          FMP_API_KEY2: ${{ (github.event.inputs.fmp_key_name || 'FMP_API_KEY') == 'FMP_API_KEY2' && secrets.FMP_API_KEY2 || '' }}
+          FMP_KEY_NAME: ${{ github.event.inputs.fmp_key_name || 'FMP_API_KEY' }}
           ESTIMATE_VENDOR_ORDER: ${{ github.event.inputs.vendor_order || 'fmp,finnhub' }}
           FETCH_DATE: ${{ github.event.inputs.fetch_date || '' }}
         run: |
@@ -419,6 +436,7 @@ jobs:
             --collection-queue outputs/earnings_estimates_daily/collection_queue.csv \
             --collection-attempt-id "${GITHUB_RUN_ID}" \
             --vendor-order "$ESTIMATE_VENDOR_ORDER" \
+            --fmp-key-name "$FMP_KEY_NAME" \
             --sleep-seconds 1.1 \
             --max-errors "${RESOLVED_MAX_ERRORS:-100}" \
             --entitlement-circuit-threshold 3 \
@@ -569,3 +587,88 @@ jobs:
               "$BASE""research_state/free_data_forward_paper_price_cache/" \
               --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
           fi
+
+  source_preflight:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed Source implementation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: tools
+
+      - name: Initialize read-only diagnostic context
+        run: |
+          mkdir -p outputs/earnings_source_preflight
+          printf '%s\n' '{"status":"NOT_RUN","collection_executed":false,"source_published":false,"paper_consumer_executed":false,"paper_state_restored_or_mutated":false}' > outputs/earnings_source_preflight/context.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: requirements_github.txt
+
+      - name: Install existing dependencies
+        run: pip install -r requirements_github.txt
+
+      - name: Configure existing Source read connection
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo '::error::Source read credentials are not configured'
+            exit 2
+          fi
+          curl -fsSLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+
+      - name: Read pinned original and inspect Source only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          EXPECTED_ARCHIVE_FOLDER_ID: ${{ inputs.expected_archive_folder_id }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPECTED_ARCHIVE_FOLDER_ID"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/11266510471/zip" > "$RUNNER_TEMP/earnings-legacy-original.zip"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+            BASE="gdrive:"
+          else
+            BASE="gdrive:r1000_top30_institutional/"
+          fi
+          python tools/earnings_estimate_drive_generation.py preflight-legacy \
+            --base "$BASE" \
+            --legacy-archive "$RUNNER_TEMP/earnings-legacy-original.zip" \
+            --expected-archive-folder-id "$EXPECTED_ARCHIVE_FOLDER_ID" \
+            --output-dir outputs/earnings_source_preflight/inspection
+
+      - name: Preserve read-only Source diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earnings-source-preflight-${{ github.run_id }}
+          path: |
+            outputs/earnings_source_preflight/context.json
+            outputs/earnings_source_preflight/inspection/source_preflight.json
+          if-no-files-found: warn
+          retention-days: 14

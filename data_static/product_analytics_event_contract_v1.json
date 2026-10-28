@@ -1,0 +1,108 @@
+{
+  "schema_version": "b5-product-analytics-contract-v1",
+  "status": "PREPARED_NOT_TRANSMITTING",
+  "event_schema_version": "b5-product-analytics-event-v1",
+  "event_version": 1,
+  "collector_endpoint": null,
+  "transmission_enabled": false,
+  "consent": {
+    "required": true,
+    "required_status": "ACTIVE",
+    "consent_version": "b6-analytics-consent-v1"
+  },
+  "identity": {
+    "persistent_anonymous_id_allowed": false,
+    "preauth_session_id_only": true,
+    "session_timeout_seconds": 1800,
+    "user_id_allowed": false
+  },
+  "retention": {
+    "raw_event_days_max": 90,
+    "identifier_free_aggregate_months_max": 13
+  },
+  "allowed_event_names": [
+    "site_viewed",
+    "research_search_succeeded",
+    "research_source_opened",
+    "trade_ledger_opened"
+  ],
+  "required_fields": [
+    "schema_version",
+    "event_name",
+    "event_version",
+    "event_id",
+    "occurred_at_utc",
+    "received_at_utc",
+    "session_id",
+    "consent_status",
+    "consent_version",
+    "page",
+    "surface",
+    "data_state",
+    "public_artifact_version",
+    "is_internal",
+    "is_bot"
+  ],
+  "optional_fields": [
+    "entity_type",
+    "entity_id",
+    "market"
+  ],
+  "forbidden_fields": [
+    "anonymous_id",
+    "user_id",
+    "email",
+    "phone",
+    "name",
+    "ip",
+    "ip_address",
+    "user_agent",
+    "referrer",
+    "referrer_url",
+    "search_query",
+    "free_text",
+    "broker_id",
+    "account_id",
+    "account_value",
+    "position_quantity",
+    "pnl",
+    "clipboard",
+    "keystrokes",
+    "mouse_path",
+    "session_replay"
+  ],
+  "allowed_pages": ["home"],
+  "allowed_surfaces": [
+    "site",
+    "research_results",
+    "research_source",
+    "trade_ledger"
+  ],
+  "allowed_entity_types": ["ticker", "source", "portfolio"],
+  "allowed_markets": ["US", "KR", "MULTI"],
+  "allowed_data_states": [
+    "USABLE",
+    "STALE_PORTFOLIO",
+    "RESEARCH_DEGRADED",
+    "DATA_INCOMPLETE",
+    "BLOCKED"
+  ],
+  "qualified_value_session": {
+    "required_data_state": "USABLE",
+    "requires_all": ["research_search_succeeded"],
+    "requires_any": ["research_source_opened", "trade_ledger_opened"]
+  },
+  "primary_kpi": {
+    "name": "activated_user_d7_qualified_retention",
+    "status": "NOT_AVAILABLE",
+    "reason": "NO_PERSISTENT_USER_ID_OR_SIGNUP_IN_V1"
+  },
+  "privacy": {
+    "autocapture": false,
+    "session_replay": false,
+    "ad_tracking": false,
+    "cross_site_tracking": false,
+    "raw_ip_storage": false,
+    "public_github_raw_events": false
+  }
+}

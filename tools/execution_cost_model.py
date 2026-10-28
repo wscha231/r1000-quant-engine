@@ -17,6 +17,7 @@ impact from being double counted while remaining conservative.
 from __future__ import annotations
 
 import math
+import json
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -273,15 +274,87 @@ def liquidity_snapshot(
     )
 
 
-def load_paper_slippage(path: Path | None) -> pd.DataFrame:
+def load_paper_slippage(path: Path | None, *, strict_io: bool = False) -> pd.DataFrame:
     """Load optional same-trade implementation-shortfall evidence."""
 
     columns = ["date", "ticker", "side", "observed_slippage_bps"]
-    if path is None or not Path(path).exists():
+    if path is None or (not strict_io and not Path(path).exists()):
         return pd.DataFrame(columns=columns)
     try:
-        raw = pd.read_parquet(path) if Path(path).suffix.lower() == ".parquet" else pd.read_csv(path)
+        if strict_io:
+            Path(path).stat()  # A declared source is required in opt-in measurement.
+        if strict_io:
+            if Path(path).suffix.lower() == ".parquet":
+                from pyarrow import ArrowInvalid
+                try:
+                    raw = pd.read_parquet(path)
+                except (ArrowInvalid, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "PARQUET"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+                except (TypeError, ValueError) as exc:
+                    # Only native PANDAS_ATTRS conversion, never an arbitrary backend error.
+                    from pandas.io.parquet import PyArrowImpl
+                    from pandas.core.generic import NDFrame
+                    from pyarrow import Table
+                    cursor = exc.__traceback__
+                    tail = []
+                    count = 0
+                    recognized = False
+                    read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                    try:
+                        while cursor is not None and count < 32:
+                            tail = (tail + [cursor])[-3:]
+                            cursor = cursor.tb_next
+                            count += 1
+                        if cursor is None and len(tail) == 3:
+                            read_frame, set_frame, attrs_frame = (point.tb_frame for point in tail)
+                            if (read_frame.f_code is getattr(PyArrowImpl.read, "__code__", None)
+                                    and set_frame.f_code is getattr(NDFrame.__setattr__, "__code__", None)
+                                    and attrs_frame.f_code is getattr(getattr(NDFrame.attrs, "fset", None), "__code__", None)):
+                                read_locals, set_locals, attrs_locals = read_frame.f_locals, set_frame.f_locals, attrs_frame.f_locals
+                                table, metadata, value = read_locals.get("pa_table"), read_locals.get("df_metadata"), attrs_locals.get("value")
+                                recognized = (
+                                    all(name in read_locals for name in ("self", "result", "pa_table", "df_metadata"))
+                                    and all(name in set_locals for name in ("self", "name", "value"))
+                                    and all(name in attrs_locals for name in ("self", "value"))
+                                    and type(read_locals["self"]) is PyArrowImpl
+                                    and type(read_locals["result"]) is pd.DataFrame
+                                    and read_locals["result"] is set_locals["self"] is attrs_locals["self"]
+                                    and read_locals["self"] is not attrs_locals["self"]
+                                    and set_locals["name"] == "attrs"
+                                    and set_locals["value"] is value
+                                    and type(table) is Table and type(metadata) is bytes
+                                    and table.schema.metadata is not None
+                                    and table.schema.metadata.get(b"PANDAS_ATTRS") == metadata
+                                    and type(value) in (type(None), bool, int, float, str, list, dict)
+                                )
+                    finally:
+                        tail.clear()
+                        cursor = read_frame = set_frame = attrs_frame = read_locals = set_locals = attrs_locals = table = metadata = value = None
+                    if not recognized:
+                        raise
+                    failure = OSError("SELECTED_INPUT_PARQUET_ATTRS")
+                    failure.selected_input_format = "PARQUET"
+                    failure.selected_input_cause = "PandasAttrsShape"
+                    failure.selected_input_reason = "SELECTED_INPUT_PARQUET_ATTRS"
+                    raise failure from exc
+            else:
+                try:
+                    raw = pd.read_csv(path)
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+                    failure = OSError("SELECTED_INPUT_DECODE")
+                    failure.selected_input_format = "CSV"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DECODE"
+                    raise failure from exc
+        else:
+            raw = pd.read_parquet(path) if Path(path).suffix.lower() == ".parquet" else pd.read_csv(path)
     except Exception:
+        if strict_io:
+            raise
         return pd.DataFrame(columns=columns)
     if raw.empty:
         return pd.DataFrame(columns=columns)
@@ -304,11 +377,27 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
         or "side" not in raw.columns
         or not value_col
     ):
+        if strict_io:
+            failure = OSError("SELECTED_INPUT_SLIPPAGE_SCHEMA")
+            failure.selected_input_format = "PARQUET" if Path(path).suffix.lower() == ".parquet" else "CSV"
+            failure.selected_input_cause = "SlippageRequiredColumns"
+            failure.selected_input_reason = "SELECTED_INPUT_SLIPPAGE_SCHEMA"
+            raise failure
         return pd.DataFrame(columns=columns)
 
     def normalize_trade_date(value: Any) -> pd.Timestamp:
         text = str(value).strip()
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            if strict_io:
+                from pandas._libs.tslibs.parsing import DateParseError
+                try:
+                    return pd.Timestamp(text).normalize()
+                except DateParseError as exc:
+                    failure = OSError("SELECTED_INPUT_DATE")
+                    failure.selected_input_format = "PARQUET" if Path(path).suffix.lower() == ".parquet" else "CSV"
+                    failure.selected_input_cause = type(exc).__name__
+                    failure.selected_input_reason = "SELECTED_INPUT_DATE"
+                    raise failure from exc
             return pd.Timestamp(text).normalize()
         parsed = pd.to_datetime(value, errors="coerce")
         if pd.isna(parsed):
@@ -345,10 +434,10 @@ def load_paper_slippage(path: Path | None) -> pd.DataFrame:
 class ExecutionCostModel:
     """Quote conservative per-order costs from PIT OHLCV and paper evidence."""
 
-    def __init__(self, prices: dict[str, pd.DataFrame], config: ExecutionCostConfig):
+    def __init__(self, prices: dict[str, pd.DataFrame], config: ExecutionCostConfig, *, strict_io: bool = False):
         self.prices = prices
         self.config = config
-        self.paper_slippage = load_paper_slippage(config.paper_slippage_path)
+        self.paper_slippage = load_paper_slippage(config.paper_slippage_path, strict_io=strict_io)
         self._snapshot_cache: dict[tuple[str, str], LiquiditySnapshot] = {}
 
     def snapshot(self, ticker: str, fill_date: Any) -> LiquiditySnapshot:

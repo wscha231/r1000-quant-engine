@@ -10,6 +10,7 @@ import warnings
 import zipfile
 from argparse import Namespace
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -1095,6 +1096,197 @@ def test_canonical_u0_workflow_is_research_only() -> None:
     assert not any(token in source for token in forbidden)
 
 
+
+
+def _er_v2_h1_fixture():
+    cfg = MOD.read_json(ROOT / "docs" / "run287_expected_return_v2_contract.json")
+    decision = "2026-10-19T15:00:00Z"
+    entry_day = pd.Timestamp("2025-09-15")
+    end = MOD.expected_nyse_label_ends(pd.Series([entry_day]), 252).iloc[0]
+    close = MOD.NYSE.schedule(start_date=end, end_date=end)["market_close"].iloc[0]
+    row = {
+        "asset_id": "US:EXAMPLE-SECURITY", "issuer_id": "CIK:0000000001",
+        "feature_date": entry_day, "benchmark_identity": "SPY",
+        "benchmark_source": "YF:SPY", "security_lifecycle_status": "ACTIVE",
+        "stock_return_basis": "TOTAL_RETURN", "benchmark_return_basis": "TOTAL_RETURN",
+        "r_12m": 0.12, "bench_r_12m": 0.06,
+        "r_12m_label_end_date": end, "bench_r_12m_label_end_date": end,
+        "label_12m_available_at": (close + pd.Timedelta(seconds=1)).isoformat(),
+    }
+    return cfg, row, decision
+
+
+@patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp("2026-12-01T00:00:00Z"))
+def test_er_v2_h1_252_contract_and_labels(_clock) -> None:
+    """V2 H1 is label-only: no model, ER, A5, or historical PIT authority."""
+    def check(value, name):
+        # Still executable under python -O; no assert-based safety guards.
+        if not value:
+            raise AssertionError(name)
+    cfg = MOD.read_json(ROOT / "docs" / "run287_expected_return_v2_contract.json")
+    check(MOD.validate_v2_h1_252_contract(cfg) is cfg, "V2 contract acceptance")
+    check(MOD.HORIZONS == (21, 63, 126), "V1 horizon preservation")
+    check(cfg["purge_and_windows"]["embargo_nyse_sessions"] == 252, "252 embargo")
+    check(cfg["safety"]["model_fit_allowed"] is False, "V2 model fit disabled")
+    check(cfg["safety"]["validated_er_allowed"] is False, "V2 validated ER disabled")
+
+    for key, value in (("version", "IMPROPER"),
+                       ("purge_and_windows", {"embargo_nyse_sessions": 126})):
+        changed = json.loads(json.dumps(cfg))
+        changed[key] = value
+        try:
+            MOD.validate_v2_h1_252_contract(changed)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a modified V2 H1 contract passed")
+
+    _, row, decision = _er_v2_h1_fixture()
+    entry_day = row["feature_date"]
+    end = row["r_12m_label_end_date"]
+    close = MOD.NYSE.schedule(start_date=end, end_date=end)["market_close"].iloc[0]
+    ok = MOD.audit_v2_h1_252_labels(pd.DataFrame([row]), cfg, decision_at=decision)
+    check(ok["cohort_denominator"] == 1, "positive denominator")
+    check(ok["precheck_consistent_rows"] == 1, "positive precheck")
+    check(ok["records"][0]["observed_excess_return"] == 0.06, "excess arithmetic")
+    check(ok["records"][0]["net_expected_return_12m"] is None, "net ER null")
+    check(ok["model_fit_allowed"] is False and ok["A5_eligible_input"] is False, "no economic authority")
+
+    cases = (
+        ({"bench_r_12m_label_end_date": end + pd.Timedelta(days=1)}, "BENCHMARK_LABEL_END_NOT_EXACT_252"),
+        ({"r_12m_label_end_date": None}, "STOCK_LABEL_END_MISSING"),
+        ({"r_12m": None}, "STOCK_RETURN_INVALID_OR_MISSING"),
+        ({"bench_r_12m": float("nan")}, "BENCHMARK_RETURN_INVALID_OR_MISSING"),
+        ({"r_12m": True}, "STOCK_RETURN_INVALID_OR_MISSING"),
+        ({"r_12m": -1.1}, "STOCK_RETURN_INVALID_OR_MISSING"),
+        ({"r_12m": "0.14"}, "STOCK_RETURN_INVALID_OR_MISSING"),
+        ({"benchmark_identity": "QQQ"}, "BENCHMARK_IDENTITY_MISMATCH"),
+        ({"benchmark_source": "INDEX:SP500"}, "BENCHMARK_SOURCE_MISMATCH"),
+        ({"benchmark_return_basis": "PROVIDER_ADJUSTED_CLOSE_PROXY"}, "RETURN_BASIS_MISMATCH_OR_UNKNOWN"),
+        ({"security_lifecycle_status": "DELISTED"}, "TERMINAL_PROCEEDS_A1_ADMISSION_REQUIRED"),
+        ({"security_lifecycle_status": []}, "LIFECYCLE_UNKNOWN"),
+        ({"security_lifecycle_status": {"ACTIVE": True}}, "LIFECYCLE_UNKNOWN"),
+        ({"label_12m_available_at": "2026-10-19"}, "LABEL_AVAILABILITY_MISSING_OR_UNVERIFIED_CLOCK"),
+        ({"label_12m_available_at": decision}, "LABEL_NOT_MATURE_STRICTLY_BEFORE_DECISION"),
+        ({"label_12m_available_at": (close - pd.Timedelta(seconds=1)).isoformat()},
+         "LABEL_AVAILABLE_BEFORE_ACTUAL_NYSE_CLOSE"),
+        ({"feature_date": pd.Timestamp("2026-04-01")}, "FEATURE_WITHIN_252_SESSION_EMBARGO"),
+    )
+    for mutation, expected_blocker in cases:
+        candidate = row.copy(); candidate.update(mutation)
+        result = MOD.audit_v2_h1_252_labels(pd.DataFrame([candidate]), cfg, decision_at=decision)
+        check(result["cohort_denominator"] == 1, "negative case denominator")
+        check(result["precheck_consistent_rows"] == 0, "negative case refused")
+        check(expected_blocker in result["records"][0]["blockers"], repr((mutation, result)))
+        check(result["records"][0]["net_expected_return_12m"] is None, "blocked net ER null")
+
+    both = pd.DataFrame([row,row.copy()])
+    try:
+        MOD.audit_v2_h1_252_labels(both,cfg,decision_at=decision)
+    except ValueError as exc:
+        check("duplicate_asset_decision" in str(exc), "duplicate refusal")
+    else:
+        raise AssertionError("duplicate security/decision accepted")
+
+    # Exact NYSE calendar includes U.S. holidays, early closures and leap years.
+    for date in ("2025-04-17", "2025-11-28", "2025-10-20"):
+        expected = MOD.expected_nyse_label_ends(pd.Series([pd.Timestamp(date)]),252).iloc[0]
+        sessions = MOD.NYSE.valid_days(
+            start_date=date, end_date=pd.Timestamp(date)+pd.Timedelta(days=770)
+        ).tz_localize(None).normalize()
+        future = sessions[sessions > pd.Timestamp(date)]
+        check(expected == future[252], "exact NYSE 252 price interval")
+    check(MOD.nyse_embargo_cutoffs([pd.Timestamp("2026-10-19")],252)[pd.Timestamp("2026-10-19")] < pd.Timestamp("2026-10-19"), "embargo cutoff")
+
+    # UTC midnight must never advance a U.S. NYSE embargo clock.
+    for when, session in (
+        ("2026-10-19T23:30:00Z", "2026-10-19"),
+        ("2026-10-20T00:30:00Z", "2026-10-19"),
+        ("2026-10-20T13:00:00Z", "2026-10-19"),
+        ("2026-10-20T21:00:00Z", "2026-10-20"),
+        ("2026-10-18T17:00:00Z", "2026-10-16"),
+        ("2026-11-29T17:00:00Z", "2026-11-27"),
+    ):
+        boundary = MOD.audit_v2_h1_252_labels(pd.DataFrame([row]), cfg, decision_at=when)
+        check(boundary["decision_completed_nyse_session"] == session,
+              "NY-clock session mismatch: " + when)
+    for before, after in (
+        ("2026-10-19T23:30:00Z", "2026-10-20T00:30:00Z"),
+        ("2026-10-20T13:00:00Z", "2026-10-20T21:00:00Z"),
+    ):
+        first = MOD.audit_v2_h1_252_labels(pd.DataFrame([row]), cfg, decision_at=before)
+        second = MOD.audit_v2_h1_252_labels(pd.DataFrame([row]), cfg, decision_at=after)
+        if first["decision_completed_nyse_session"] == second["decision_completed_nyse_session"]:
+            check(first["embargo_cutoff_nyse_session"] == second["embargo_cutoff_nyse_session"],
+                  "same U.S. session changed 252 embargo")
+
+
+def _er_v2_h1_check(value, reason):
+    if not value:
+        raise AssertionError(reason)
+
+
+def test_er_v2_h1_benchmark_cohort_conflicts() -> None:
+    cfg, row, decision = _er_v2_h1_fixture()
+    second = dict(row, asset_id="US:OTHER-SECURITY", issuer_id="CIK:0000000002")
+    with patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp("2026-10-20T18:00:00Z")):
+        equal = MOD.audit_v2_h1_252_labels(pd.DataFrame([row, second]), cfg, decision_at=decision)
+        _er_v2_h1_check(equal["precheck_consistent_rows"] == 2, "consistent cohort accepted")
+        conflicting = dict(second, bench_r_12m=0.07)
+        for supplied in ([row, conflicting], [conflicting, row],
+                         [row, dict(conflicting, security_lifecycle_status="DELISTED")]):
+            result = MOD.audit_v2_h1_252_labels(pd.DataFrame(supplied), cfg, decision_at=decision)
+            _er_v2_h1_check(result["cohort_denominator"] == 2, "conflicting cohort rows retained")
+            _er_v2_h1_check(result["precheck_consistent_rows"] == 0, "conflicting cohort rejected")
+            for record in result["records"]:
+                _er_v2_h1_check("BENCHMARK_RETURN_CONFLICT_FOR_FEATURE_DATE" in record["blockers"], "SPY conflict recorded on every affected row")
+                _er_v2_h1_check(record["observed_spy_return"] is None, "conflicted SPY value remains null")
+                _er_v2_h1_check(record["observed_excess_return"] is None, "conflicted excess return remains null")
+        other_date = dict(second, feature_date=pd.Timestamp("2025-09-12"), bench_r_12m=0.07)
+        other_end = MOD.expected_nyse_label_ends(pd.Series([other_date["feature_date"]]), 252).iloc[0]
+        other_date.update(r_12m_label_end_date=other_end, bench_r_12m_label_end_date=other_end,
+                         label_12m_available_at=row["label_12m_available_at"])
+        independent = MOD.audit_v2_h1_252_labels(pd.DataFrame([row, other_date]), cfg, decision_at=decision)
+        _er_v2_h1_check(independent["precheck_consistent_rows"] == 2, "different feature dates remain independent")
+
+
+def test_er_v2_h1_noncanonical_identities() -> None:
+    cfg, row, decision = _er_v2_h1_fixture()
+    for field in ("asset_id", "issuer_id"):
+        for value in (row[field] + " ", " " + row[field], row[field] + "\n",
+                      row[field] + "\t", "US:bad identity", "US:\u200bID", "/ID", "a" * 201,
+                      "", None, [], {}):
+            try:
+                MOD.audit_v2_h1_252_labels(pd.DataFrame([row, dict(row, **{field: value})]),
+                                           cfg, decision_at=decision)
+            except ValueError as exc:
+                _er_v2_h1_check("noncanonical_security_identity" in str(exc), "identity rejected before deduplication")
+            else:
+                raise AssertionError("noncanonical " + field + " accepted: " + repr(value))
+
+
+def test_er_v2_h1_decision_bounded_by_observed_clock() -> None:
+    cfg, row, _ = _er_v2_h1_fixture()
+    observed = pd.Timestamp("2026-10-20T18:00:00Z")
+    with patch.object(MOD, "_v2_h1_observed_at", return_value=observed) as clock:
+        result = MOD.audit_v2_h1_252_labels(pd.DataFrame([row]), cfg,
+                                           decision_at="2026-10-21T03:00:00+09:00")
+        _er_v2_h1_check(result["precheck_consistent_rows"] == 1, "decision equal to observation accepted")
+        _er_v2_h1_check(result["observed_at"] == observed.isoformat(), "receipt uses runtime UTC snapshot")
+        _er_v2_h1_check(clock.call_count == 1, "runtime clock sampled once")
+    for future in ("2026-10-20T18:00:00.000001Z", "2030-10-20T18:00:00Z"):
+        with patch.object(MOD, "_v2_h1_observed_at", return_value=observed):
+            try:
+                # A claimed availability before a fake future decision is still future evidence.
+                MOD.audit_v2_h1_252_labels(pd.DataFrame([dict(row,
+                    label_12m_available_at="2026-10-20T18:00:00.000001Z")]),
+                    cfg, decision_at=future)
+            except ValueError as exc:
+                _er_v2_h1_check(str(exc) == "v2_h1_future_decision", "future decision rejected before labels")
+            else:
+                raise AssertionError("caller-supplied future decision accepted")
+
+
 def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
@@ -1112,6 +1304,10 @@ def main() -> int:
     test_source_contains_no_broker_or_promotion_execution()
     test_feature_store_builder_materializes_spy_provenance()
     test_canonical_u0_workflow_is_research_only()
+    test_er_v2_h1_252_contract_and_labels()
+    test_er_v2_h1_benchmark_cohort_conflicts()
+    test_er_v2_h1_noncanonical_identities()
+    test_er_v2_h1_decision_bounded_by_observed_clock()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 

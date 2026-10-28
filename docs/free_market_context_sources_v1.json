@@ -1,0 +1,80 @@
+{
+  "schema": "free-market-source-register-v1",
+  "task_key": "R1000-H1-FREE-MARKET-CONTEXT-V1-20261004",
+  "scope": "INTERNAL_RESEARCH_ONLY_NOT_ACTIVE",
+  "default_network_budget": 0,
+  "sources": [
+    {
+      "id": "existing_macro_breadth",
+      "mode": "REUSE_PR388_HELPER",
+      "path": "tools/build_run287_chameleon_macro_inputs.py",
+      "new_paid_fee_usd": 0,
+      "live_current_coverage_verified": false
+    },
+    {
+      "id": "cot_tff",
+      "mode": "OPT_IN_BOUNDED_GET_OR_AUTHORIZED_CSV",
+      "endpoint": "https://publicreporting.cftc.gov/resource/gpe5-46if.json",
+      "max_http_per_invocation": 1,
+      "recent_calendar_days": 21,
+      "max_rows_exclusive": 5000,
+      "runtime_schema_verified": false,
+      "official_reference": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/HistoricalViewable/cotvariablestfm.html"
+    },
+    {
+      "id": "cot_disagg",
+      "mode": "OPT_IN_BOUNDED_GET_OR_AUTHORIZED_CSV",
+      "endpoint": "https://publicreporting.cftc.gov/resource/72hh-3qpy.json",
+      "max_http_per_invocation": 1,
+      "recent_calendar_days": 21,
+      "max_rows_exclusive": 5000,
+      "runtime_schema_verified": false,
+      "official_reference": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/HistoricalViewable/cotvariabledisagg.html"
+    },
+    {
+      "id": "finra",
+      "mode": "OPT_IN_CNMS_BOUNDED_GET_OR_FILE",
+      "endpoint_template": "https://cdn.finra.org/equity/regsho/daily/CNMSshvolYYYYMMDD.txt",
+      "max_http_per_invocation": 1,
+      "runtime_schema_verified": false,
+      "official_reference": "https://www.finra.org/sites/default/files/2021-07/DailyShortSaleVolumeFileLayout.pdf",
+      "scope": "FINRA_TRF_ADF_NOT_ALL_US_VOLUME",
+      "short_exempt_already_included": true
+    },
+    {
+      "id": "cboe",
+      "mode": "AUTHORIZED_LEGACY_CSV_IMPORT_ONLY",
+      "automatic_scraping": false,
+      "official_reference": "https://www.cboe.com/markets/us/options/market-statistics/daily",
+      "current_data_access_verified": false,
+      "warning": "Legacy CSV may be stale. Equity/index/total must remain separate."
+    },
+    {
+      "id": "aaii",
+      "mode": "AUTHORIZED_STANDARDIZED_CSV_IMPORT_ONLY",
+      "automatic_scraping": false,
+      "official_reference": "https://www.aaii.com/sentimentsurvey",
+      "data_access_verified": false,
+      "warning": "Survey respondents are not actual portfolio positions."
+    },
+    {
+      "id": "eodhd_calendar_context",
+      "mode": "EXISTING_C1_IN_MEMORY_OR_LICENSED_LOCAL_RAW_ONLY",
+      "task_dependency": "R1000-H1-EODHD-CALENDAR-TRENDS-V1-20261004",
+      "upstream_zip_sha256": "a7f728c180f4b39bcd1d82fc97e04f2921fdadc49277ee476a5f939dc6e8ec51",
+      "new_network_requests": 0,
+      "h2_eligible": false,
+      "warning": "Current C1 diagnostic report does not retain consensus values. This bridge cannot reconstruct those values from counts."
+    }
+  ],
+  "not_implemented": [
+    "individual_option_chain_or_greeks_feed",
+    "FINRA_short_interest_feed",
+    "NAAIM_feed",
+    "new_regime_classifier",
+    "portfolio_rules",
+    "automatic_scheduler",
+    "durable_raw_source_archive"
+  ],
+  "licenses": "Public visibility does not establish redistribution/commercial rights. User rights acknowledgment is not provider certification."
+}

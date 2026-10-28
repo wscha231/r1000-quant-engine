@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.run_weekly_evaluation import load_price_series  # noqa: E402
-from tools.run287_crisis_policy import adapt_crisis_state, canonical_state  # noqa: E402
+from tools.run287_crisis_policy import CANONICAL_STATES, adapt_crisis_state, canonical_state  # noqa: E402
 
 
 CASH_TICKERS = {"CASH", "__CASH__"}
@@ -290,22 +290,32 @@ def watchlist_candidates(latest_run: Path, max_candidates: int) -> pd.DataFrame:
 def crisis_context(latest_run: Path) -> dict[str, Any]:
     integrated_states = read_csv(latest_run / "integrated_theme_leader_crisis_replay" / "daily_crisis_state.csv")
     daily = read_json(latest_run / "daily_crisis_monitor" / "summary.json")
-    state = str(daily.get("state") or daily.get("raw_state") or "")
-    if not state and not integrated_states.empty and "crisis_state" in integrated_states.columns:
-        state = str(integrated_states["crisis_state"].iloc[-1])
-    reentry_stage = ""
-    reentry_trigger = ""
-    if not integrated_states.empty:
-        for col in ("reentry_stage", "stage"):
-            if col in integrated_states.columns:
-                reentry_stage = str(integrated_states[col].iloc[-1])
-                break
-        for col in ("reentry_trigger", "trigger", "action_reason"):
-            if col in integrated_states.columns:
-                reentry_trigger = str(integrated_states[col].iloc[-1])
-                break
-    state = adapt_crisis_state(state, reentry_stage)
-    raw_state = adapt_crisis_state(daily.get("raw_state"), reentry_stage)
+    try:
+        from tools import daily_crisis_report_clock as clock
+        clock.need(daily.get("schema_version") == "daily-crisis-monitor-v2"
+                   and daily.get("current_report_status") == "CURRENT_LEGACY_DIAGNOSTIC"
+                   and daily.get("data_health") == "DATE_CURRENT_DIAGNOSTIC", "CURRENT_MONITOR_UNVERIFIED")
+        clock.need(all(type(daily.get(key)) is str and daily[key] in CANONICAL_STATES
+                       for key in ("state", "raw_state")), "CURRENT_MONITOR_STATE_INVALID")
+        now = clock.trusted_now().isoformat()
+        expected = clock.completed_session_clock(now)
+        observed = clock.stamp(now)
+        generated = clock.stamp(daily.get("generated_at_utc"))
+        session = expected["expected_session"]
+        clock.need(daily.get("risk_as_of_session") == session and daily.get("expected_session") == session
+                   and observed.astimezone(clock.NY).date().isoformat() == session
+                   and generated.astimezone(clock.NY).date().isoformat() == session
+                   and clock.stamp(expected["decision_cutoff_utc"]) <= generated <= observed,
+                   "CURRENT_MONITOR_UNVERIFIED")
+    except Exception:
+        return dict(daily_monitor_state=None, daily_monitor_raw_state=None,
+                    integrated_daily_state_available=False, daily_crisis_state_latest=None,
+                    reentry_stage="", reentry_trigger="", current_report_status="BLOCKED",
+                    data_health="DATA_BLOCKED")
+    state, raw_state = daily["state"], daily["raw_state"]
+    reentry_stage = state if state.startswith("REENTRY_STAGE_") else ""
+    history = daily.get("hysteresis")
+    reentry_trigger = str(history.get("transition_reason") or "") if isinstance(history, dict) else ""
     latest_integrated_state = (
         adapt_crisis_state(
             integrated_states["crisis_state"].iloc[-1], reentry_stage
@@ -544,6 +554,31 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     latest_run = repo_path(args.latest_run)
     price_cache = repo_path(args.price_cache)
     output_dir = repo_path(args.output_dir)
+    crisis = crisis_context(latest_run)
+    if crisis.get("current_report_status") == "BLOCKED":
+        # The existing wrapper may continue after failure. Invalidate every
+        # known prior cadence output before returning, never reuse old decisions.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        names = ("daily_holdings_review.csv", "weekly_watchlist_refresh.csv", "monthly_event_rerank_plan.json",
+                 "decision_cadence_summary.json", "abcd_cadence_preregistration.json", "decision_cadence_report.md")
+        for name in names:
+            (output_dir/name).unlink(missing_ok=True)
+        blocked = dict(status="BLOCKED", current_report_status="BLOCKED", data_health="DATA_BLOCKED",
+                       available=False, blockers=["CURRENT_CRISIS_REPORT_BLOCKED"], crisis_state=None,
+                       reentry_stage="", reentry_trigger="", event_triggers_active=[],
+                       mid_month_reentry_allowed=False, new_buy_allowed=False,
+                       automatic_promotion_allowed=False, daily_full_universe_rerank=False,
+                       weekly_full_universe_rerank=False, daily_exit_review_count=0,
+                       daily_warning_or_no_add_count=0, weekly_add_candidate_count=0)
+        for name in names:
+            if name.endswith(".json"):
+                write_json(output_dir/name, blocked)
+        pd.DataFrame(columns=["ticker", "new_buy_allowed", "daily_review_action", "daily_review_reason", "crisis_state"]).to_csv(
+            output_dir/"daily_holdings_review.csv", index=False)
+        pd.DataFrame(columns=["ticker", "weekly_review_action", "weekly_review_reason"]).to_csv(
+            output_dir/"weekly_watchlist_refresh.csv", index=False)
+        (output_dir/"decision_cadence_report.md").write_text("# Decision Cadence Review\n\nBLOCKED: CURRENT_CRISIS_REPORT_BLOCKED\n", encoding="utf-8")
+        raise ValueError("CURRENT_CRISIS_REPORT_BLOCKED")
     output_dir.mkdir(parents=True, exist_ok=True)
     current = current_holdings(latest_run)
     targets = latest_targets(latest_run)
@@ -552,7 +587,6 @@ def build_review(args: argparse.Namespace) -> dict[str, Any]:
     tickers = set(current.get("ticker", pd.Series(dtype=str)).astype(str)) | set(targets.get("ticker", pd.Series(dtype=str)).astype(str)) | set(candidates.get("ticker", pd.Series(dtype=str)).astype(str))
     tickers = {clean_ticker(t) for t in tickers if clean_ticker(t)}
     prices = price_metrics(price_cache, tickers)
-    crisis = crisis_context(latest_run)
     daily = build_daily_review(current, values, prices, crisis)
     weekly = build_weekly_watchlist(current, targets, candidates, values, prices, crisis)
     summary = monthly_event_plan(daily, weekly, crisis, latest_run)

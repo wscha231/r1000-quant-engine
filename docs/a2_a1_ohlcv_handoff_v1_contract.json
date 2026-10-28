@@ -1,0 +1,50 @@
+{
+  "schema": "a2-a1-ohlcv-handoff-v1-contract",
+  "stage": 3,
+  "mode": "DRY_RUN",
+  "carrier": "Existing A1 task packet identity.parameters.a2_a1_ohlcv inside agent_task_queue.json",
+  "trusted_boundary": "Existing build_tasks canonical source readback remains required. Derived parameters bind the complete plan into the existing task key and V2 completion identity. Caller-supplied reserved parameters are rejected.",
+  "input_schema": "a2-a1-ohlcv-source-inventory-v1",
+  "input_fields": [
+    "schema",
+    "events_id",
+    "context_id",
+    "catalog_id",
+    "targets",
+    "prior_requests_id",
+    "artifacts"
+  ],
+  "artifacts": "ID -> existing task-packet artifact descriptor; hash/time/path and per-file/total byte bounds are reverified before sealed MemoryArtifacts creation",
+  "events": "Replay Stage2 from original supplied event/context bytes, never trust a selection boolean",
+  "catalog": "a1-ohlcv-catalog-snapshot-v1; as_of; securities with security_id, state AVAILABLE/NOT_STORED/UNKNOWN, receipt_ids. NOT_STORED remains a supplied catalog assertion, not globally proven absence.",
+  "targets": "One per security: security_id, start nullable (default10 calendar years), end_exclusive, calendar_id, policy_id nullable; clamp start to declared listing identity; end is the day after the declared last completed session and cannot exceed cutoff date+1day",
+  "calendar": "a1-ohlcv-session-calendar-v1; country, covered_start, covered_end_exclusive, as_of, source_url, ordered unique sessions(date, aware close_at). This does not authenticate exchange calendar completeness.",
+  "policy": "a1-ohlcv-request-policy-v1; campaign_key, provider, feed, authorization_sha256 nullable, usage_evidence_sha256 nullable, scope_start, scope_end_exclusive, remaining_provider_gets. All are supplied declarations, never numeric approval or spent-budget mutation.",
+  "price_verifier": "Reuse deployed Alpaca verify_archived_group over original raw ZIP, normalized gzip and receipt hashes. Missing Open cannot be replaced. Receipt as-of/end must stay within the decision cutoff; divergent code/seed lineage, conflicting rows or no-bars windows that contradict retained rows fail closed. KR normalized cache cannot pass this US raw/split verifier.",
+  "classifications": [
+    "REUSE_EXISTING",
+    "INCREMENTAL_ONLY",
+    "BACKFILL_REQUIRED",
+    "NO_DATA",
+    "BLOCKED"
+  ],
+  "incremental": "Only a complete price prefix of requested declared sessions qualifies; internal price gaps are BACKFILL_REQUIRED. Collection missing_ranges exclude both covered prices and verified empty sessions. Missing price sessions are never zero-filled or promoted to coverage.",
+  "coverage_diagnostics": "missing_sessions/missing_price_ranges describe absent prices; verified_empty_sessions describe checked no-bars evidence; collection_missing_sessions/missing_ranges and the provider lower bound describe only unchecked collection work. A fully examined mixed price/no-bars window is BLOCKED for price review, with no collection proposal and zero provider estimate. All-empty requested windows retain NO_DATA; neither state grants consumer eligibility.",
+  "request_schema": "A2_TO_A1_OHLCV_REQUEST",
+  "result_schema": "A1_OHLCV_COVERAGE_RESULT",
+  "idempotency": "Request ID binds security/issuer/ticker/market/MIC/currency/window/raw+split/provider/feed/campaign/immutable authorization reference, excluding mutable usage counts and event aliases. Prior PENDING/RUNNING/COMPLETE/FAILED/UNKNOWN suppress duplicate proposals but never authenticate completion or trigger retry.",
+  "authority": "Proposals only, ready_for_collection=false, consumer_eligible=false, dispatch0, source/identity/calendar authentication NOT_VERIFIED",
+  "unchanged": [
+    "task-packet schema",
+    "agent DAG",
+    "global dispatch=false",
+    "collector/controller/workflow",
+    "campaign budgets/dates/checkpoints",
+    "canonical Registry",
+    "KR repository",
+    "news schedules",
+    "economic state"
+  ],
+  "actual_3_security_E2E": "NOT_RUN; fixture classifications do not prove live-source readiness",
+  "next_gate": "Authenticate actual event/identity/calendar/CA/PIT/rights and named bounded capture scope before a separately approved actual Source invocation"
+}

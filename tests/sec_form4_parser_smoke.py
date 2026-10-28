@@ -111,4 +111,16 @@ if __name__ == "__main__":
     test_form4_xml_parser_extracts_open_market_purchase()
     test_form4_signal_is_shadow_only_and_uses_available_from_filter()
     test_xsl_form4_primary_document_uses_raw_xml_and_safe_cache_name()
+    # Reuse this already registered entry; the protected registry stays fixed.
+    import importlib.util
+    import unittest
+    spec = importlib.util.spec_from_file_location("sec_form4_current_source_smoke", ROOT / "tests" / "sec_form4_current_source_smoke.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+    if suite.countTestCases() < 26:
+        raise RuntimeError("SEC current-source regressions are missing")
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    if not result.wasSuccessful():
+        raise SystemExit(1)
     print("sec_form4_parser_smoke passed")

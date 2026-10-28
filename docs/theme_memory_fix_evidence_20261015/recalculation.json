@@ -1,0 +1,101 @@
+{
+  "status": "EXACT_ARCHIVED_METRICS_RECLASSIFICATION_RESEARCH_ONLY",
+  "source_base": "40b68f0757e161888642decf10c6697950f331a3",
+  "records": [
+    {
+      "date": "20260510",
+      "input_ticker_sha256": "b70f658a1552ee684072846a59e68fb70868f556f12bfe9445b6097ac70eb0e8",
+      "input_git_blob": "c4ff29090539a1adf838dd9d10ca3c015d6f6e4b",
+      "rows": 731,
+      "archived_aggregate_max_abs_numeric_error": 1.52587890625e-05,
+      "archived_vs_current_old_classification_mismatch_count": 0,
+      "classification_changes": [
+        {
+          "ticker": "PSA",
+          "Name": "PUBLIC STORAGE REIT",
+          "industry": "REIT - Industrial",
+          "sector": "Real Estate",
+          "leadership_theme": "memory_semiconductors",
+          "before_current_master": "memory_semiconductors",
+          "after": "real_estate"
+        },
+        {
+          "ticker": "EXR",
+          "Name": "EXTRA SPACE STORAGE REIT INC",
+          "industry": "REIT - Industrial",
+          "sector": "Real Estate",
+          "leadership_theme": "memory_semiconductors",
+          "before_current_master": "memory_semiconductors",
+          "after": "real_estate"
+        }
+      ],
+      "memory_comparison": [
+        {
+          "leadership_theme": "memory_semiconductors",
+          "score_before": 2.866686983648562,
+          "count_before": 6.0,
+          "before_rank": 1.0,
+          "score_after": 3.7631891712172254,
+          "count_after": 4,
+          "after_rank": 1,
+          "score_delta": 0.8965021875686636
+        }
+      ],
+      "monthly_individual_scores_unchanged": true,
+      "score_max_abs_reproduction_error": 2.6645352591003757e-15,
+      "numeric_reproduction_tolerance": {
+        "rtol": 1e-12,
+        "atol": 1e-10
+      }
+    },
+    {
+      "date": "20260512",
+      "input_ticker_sha256": "6e39d0bbf018afb2e3e2a2c5f75de87d7b8f567a0bd650824dd518d9dde0691a",
+      "input_git_blob": "987039da6153acd950c366a5f0bd57fbb1d14a1a",
+      "rows": 730,
+      "archived_aggregate_max_abs_numeric_error": 7.62939453125e-06,
+      "archived_vs_current_old_classification_mismatch_count": 0,
+      "classification_changes": [
+        {
+          "ticker": "PSA",
+          "Name": "PUBLIC STORAGE REIT",
+          "industry": "REIT - Industrial",
+          "sector": "Real Estate",
+          "leadership_theme": "memory_semiconductors",
+          "before_current_master": "memory_semiconductors",
+          "after": "real_estate"
+        },
+        {
+          "ticker": "EXR",
+          "Name": "EXTRA SPACE STORAGE REIT INC",
+          "industry": "REIT - Industrial",
+          "sector": "Real Estate",
+          "leadership_theme": "memory_semiconductors",
+          "before_current_master": "memory_semiconductors",
+          "after": "real_estate"
+        }
+      ],
+      "memory_comparison": [
+        {
+          "leadership_theme": "memory_semiconductors",
+          "score_before": 2.6692313936594276,
+          "count_before": 6.0,
+          "before_rank": 1.0,
+          "score_after": 2.819684686030108,
+          "count_after": 4,
+          "after_rank": 1,
+          "score_delta": 0.15045329237068028
+        }
+      ],
+      "monthly_individual_scores_unchanged": true,
+      "score_max_abs_reproduction_error": 3.9968028886505635e-15,
+      "numeric_reproduction_tolerance": {
+        "rtol": 1e-12,
+        "atol": 1e-10
+      }
+    }
+  ],
+  "no_price_refresh": true,
+  "not_historical_pit_or_investment_approval": true,
+  "classification_code_git_blob": "0903e1d1c6201d734d036dc9ad0a474f34940350"
+}

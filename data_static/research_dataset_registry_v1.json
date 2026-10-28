@@ -1,0 +1,19 @@
+{
+  "schema": "research-dataset-registry-v1",
+  "mode": "RESEARCH_ONLY",
+  "eligible_for_selector": false,
+  "admitted_frozen_generations": [],
+  "source_manifest_complete": false,
+  "datasets": {
+    "ds.us.prices.daily": {
+      "schema": "price-daily-v1",
+      "existing_catalog_key": "price_cache_manifest",
+      "existing_producer": "tools/build_replay_price_cache.py"
+    }
+  },
+  "existing_inventory": "tools/build_data_catalog.py",
+  "existing_freshness_contract": "tools/run_data_freshness_contract.py",
+  "existing_immutable_lake": "tools/long_history_lake.py",
+  "generation_identity": "SHA256 of exact research-data-generation-v1 manifest bytes",
+  "cache_prices_role": "non-authoritative legacy acceleration cache"
+}

@@ -8,11 +8,13 @@ available_from so downstream evidence features can avoid lookahead.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import sys
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,6 +33,53 @@ DEFAULT_RAW_DIR = "data_raw/sec"
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
 SUBMISSIONS_ARCHIVE_URL = "https://data.sec.gov/submissions/{name}"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def exact_utc(value: Any) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+    if pd.isna(ts) or ts.tzinfo is None:
+        raise ValueError("an aware decision/source timestamp is required")
+    return ts.tz_convert("UTC")
+
+
+def content_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def atomic_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True, allow_nan=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def validate_submissions(payload: Any, expected_cik: str) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("SEC submissions payload is not an object")
+    if "cik" in payload and cik10(payload["cik"]) != cik10(expected_cik):
+        raise ValueError("SEC submissions CIK mismatch")
+    recent = (payload.get("filings") or {}).get("recent")
+    keys = ("form", "accessionNumber", "acceptanceDateTime", "filingDate", "primaryDocument")
+    if not isinstance(recent, dict) or any(not isinstance(recent.get(k), list) for k in keys):
+        raise ValueError("SEC submissions recent columns are missing")
+    if len({len(recent[k]) for k in keys}) != 1:
+        raise ValueError("SEC submissions columns have conflicting lengths")
 
 
 def cik10(value: Any) -> str:
@@ -79,12 +128,20 @@ def parse_sec_datetime(value: Any) -> pd.Timestamp:
     return pd.to_datetime(text, errors="coerce", utc=True)
 
 
+def validated_safety_delay(value: Any) -> float:
+    delay = float(value)
+    if isinstance(value, bool) or not math.isfinite(delay) or delay < 0:
+        raise ValueError("safety_delay_hours must be finite and nonnegative")
+    return delay
+
+
 def available_from(value: Any, *, safety_delay_hours: float = 0.0) -> str:
+    delay = validated_safety_delay(safety_delay_hours)
     ts = parse_sec_datetime(value)
     if pd.isna(ts):
         return ""
-    if safety_delay_hours:
-        ts = ts + timedelta(hours=float(safety_delay_hours))
+    if delay:
+        ts = ts + timedelta(hours=delay)
     return ts.isoformat()
 
 
@@ -159,12 +216,13 @@ def fetch_submissions(
     cache = out_dir / f"CIK{norm}.json"
     if refresh or not cache.exists():
         payload = sec_get_json(SUBMISSIONS_URL.format(cik10=norm), user_agent=user_agent, sleep_s=sleep_s)
-        cache.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        validate_submissions(payload, norm)
+        atomic_json(cache, payload)
         return payload
     try:
         return json.loads(cache.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    except (OSError, ValueError) as exc:
+        raise ValueError("invalid cached SEC submissions; a current source check is required") from exc
 
 
 def fetch_submission_archive(
@@ -245,6 +303,7 @@ def filings_from_submissions(
     history_start: str = "",
     history_end: str = "",
 ) -> pd.DataFrame:
+    safety_delay_hours = validated_safety_delay(safety_delay_hours)
     wanted = {str(f).upper().strip() for f in forms or [] if str(f).strip()}
     recent = (payload.get("filings") or {}).get("recent") or {}
     form_values = recent.get("form") or []
@@ -315,8 +374,10 @@ def collect_filings_index(
     history_start: str = "",
     history_end: str = "",
     max_submission_files: int = 0,
+    collection_checks: list[dict[str, Any]] | None = None,
 ) -> pd.DataFrame:
-    ticker_map = load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh)
+    safety_delay_hours = validated_safety_delay(safety_delay_hours)
+    ticker_map = pd.DataFrame(columns=["ticker", "cik10", "name"]) if not tickers and cik_rows is not None and not cik_rows.empty else load_company_tickers(raw_dir, user_agent=user_agent, refresh=refresh or refresh_recent_submissions)
     if tickers:
         ticker_map = ticker_map[ticker_map["ticker"].isin(set(tickers))].copy()
     elif cik_rows is not None and not cik_rows.empty:
@@ -330,16 +391,45 @@ def collect_filings_index(
         ticker_map = ticker_map.head(int(max_tickers)).copy()
 
     frames: list[pd.DataFrame] = []
+    fetched_payloads: dict[str, dict[str, Any]] = {}
+    fetched_checks: dict[str, dict[str, Any]] = {}
+    checks = collection_checks if collection_checks is not None else []
+    requested = sorted(set(tickers) | set(cik_rows["ticker"] if cik_rows is not None and not cik_rows.empty else []))
+    resolved = set(ticker_map["ticker"])
+    for missing in sorted(set(requested) - resolved):
+        checks.append({"ticker": missing, "cik10": None, "status": "IDENTITY_UNRESOLVED", "checked_at": None})
     for _, row in ticker_map.iterrows():
+        norm = cik10(row["cik10"])
+        old_path = raw_dir / "submissions" / f"CIK{norm}.json"
+        prior_accessions: set[str] = set()
+        if old_path.exists():
+            try:
+                old = json.loads(old_path.read_text(encoding="utf-8"))
+                prior_accessions = set((old.get("filings") or {}).get("recent", {}).get("accessionNumber", []))
+            except (OSError, ValueError):
+                pass
+        source_requested = bool(refresh or refresh_recent_submissions or not old_path.exists())
         try:
-            payload = fetch_submissions(
+            payload = fetched_payloads.get(norm) or fetch_submissions(
                 str(row["cik10"]),
                 raw_dir,
                 user_agent=user_agent,
                 refresh=refresh or refresh_recent_submissions,
                 sleep_s=sleep_s,
             )
+            if source_requested:
+                validate_submissions(payload, norm)
+            accessions = set((payload.get("filings") or {}).get("recent", {}).get("accessionNumber", []))
+            check = {"ticker": str(row["ticker"]), "cik10": norm,
+                "status": ("CHECKED_NEW_FILINGS" if accessions - prior_accessions else "CHECKED_NO_NEW_FILINGS") if source_requested else "CACHED_NOT_CHECKED",
+                "checked_at": utc_now() if source_requested else None,
+                "payload_sha256": content_hash(payload), "new_accession_count": len(accessions - prior_accessions) if source_requested else None}
+            if norm in fetched_checks:
+                check = {**fetched_checks[norm], "ticker": str(row["ticker"])}
+            checks.append(check)
+            fetched_payloads[norm], fetched_checks[norm] = payload, check
         except Exception as exc:
+            checks.append({"ticker": str(row["ticker"]), "cik10": norm, "status": "SOURCE_UNAVAILABLE", "checked_at": None, "error_type": type(exc).__name__})
             if refresh_recent_submissions:
                 raise RuntimeError(
                     "current SEC submissions refresh failed for "
@@ -460,7 +550,17 @@ def write_outputs(
     csv_path = output_dir / "sec_filings_index.csv"
     frame.to_parquet(parquet_path, index=False)
     frame.to_csv(csv_path, index=False)
+    metadata = dict(collection_metadata or {})
+    checks = metadata.get("source_checks", [])
+    current_checks = [c for c in checks if c.get("status", "").startswith("CHECKED_")]
     summary = {
+        "schema_version": "sec-submissions-source-check-v2",
+        "status": "CHECKED" if checks and len(current_checks) == len(checks) else "SOURCE_CHECK_INCOMPLETE",
+        "generated_at": utc_now(),
+        "last_successful_source_check": min((c["checked_at"] for c in current_checks), default=None) if checks and len(current_checks) == len(checks) else None,
+        "source_coverage": {"requested": len(checks), "checked": len(current_checks), "checked_ciks": len({c.get("cik10") for c in current_checks}), "complete": bool(checks) and len(current_checks) == len(checks)},
+        "source_checks": checks,
+        "output_sha256": {"parquet": file_hash(parquet_path), "csv": file_hash(csv_path)},
         "row_count": int(len(frame)),
         "ticker_count": int(frame["ticker"].nunique()) if "ticker" in frame else 0,
         "form_counts": frame["form_type"].value_counts().to_dict() if "form_type" in frame else {},
@@ -469,10 +569,10 @@ def write_outputs(
         "max_available_from": str(frame["available_from"].replace("", pd.NA).dropna().max()) if "available_from" in frame and frame["available_from"].replace("", pd.NA).notna().any() else "",
         "parquet": str(parquet_path),
         "csv": str(csv_path),
-        "collection": dict(collection_metadata or {}),
+        "collection": metadata,
     }
     summary_path = output_dir / "sec_filings_index_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
+    atomic_json(summary_path, summary)
     return {"parquet": str(parquet_path), "csv": str(csv_path), "summary": str(summary_path)}
 
 
@@ -498,27 +598,51 @@ def main() -> int:
     parser.add_argument("--history-start", default="")
     parser.add_argument("--history-end", default="")
     parser.add_argument("--max-submission-files", type=int, default=0)
+    parser.add_argument("--invalidate-current-pit-root", default="")
+    parser.add_argument("--invalidate-current-output-dir", default="")
     args = parser.parse_args()
+
+    checks: list[dict[str, Any]] = []
+    output_dir = repo_path(args.output_dir)
+    atomic_json(output_dir / "sec_filings_index_summary.json", {"status": "CHECKING", "generated_at": utc_now(), "last_successful_source_check": None})
+    checking = {"status": "CHECKING", "generated_at": utc_now(), "last_successful_source_check": None,
+                "current_eligible": False, "signal_rows": None, "source_coverage": None}
+    if args.invalidate_current_pit_root:
+        atomic_json(repo_path(args.invalidate_current_pit_root) / "sec_form4_merge_manifest.json", checking)
+    if args.invalidate_current_output_dir:
+        atomic_json(repo_path(args.invalidate_current_output_dir) / "ownership_signal_summary.json", checking)
 
     forms = [x.strip().upper() for x in args.forms.split(",") if x.strip()]
     tickers = tickers_from_inputs(args.tickers, args.universe_file)
     cik_rows = cik_rows_from_inputs(args.ciks)
-    frame = collect_filings_index(
-        tickers=tickers,
-        cik_rows=cik_rows,
-        raw_dir=repo_path(args.raw_dir),
-        forms=forms,
-        user_agent=args.user_agent,
-        refresh=bool(args.refresh),
-        refresh_recent_submissions=bool(args.refresh_recent_submissions),
-        sleep_s=float(args.sleep),
-        safety_delay_hours=float(args.safety_delay_hours),
-        max_tickers=int(args.max_tickers),
-        include_older_submissions=bool(args.include_older_submissions),
-        history_start=str(args.history_start or ""),
-        history_end=str(args.history_end or ""),
-        max_submission_files=int(args.max_submission_files),
-    )
+    try:
+        frame = collect_filings_index(
+            tickers=tickers,
+            cik_rows=cik_rows,
+            raw_dir=repo_path(args.raw_dir),
+            forms=forms,
+            user_agent=args.user_agent,
+            refresh=bool(args.refresh),
+            refresh_recent_submissions=bool(args.refresh_recent_submissions),
+            sleep_s=float(args.sleep),
+            safety_delay_hours=float(args.safety_delay_hours),
+            max_tickers=int(args.max_tickers),
+            include_older_submissions=bool(args.include_older_submissions),
+            history_start=str(args.history_start or ""),
+            history_end=str(args.history_end or ""),
+            max_submission_files=int(args.max_submission_files),
+            collection_checks=checks,
+        )
+    except Exception as exc:
+        failed = {"status": "SOURCE_UNAVAILABLE", "generated_at": utc_now(), "last_successful_source_check": None,
+                  "current_eligible": False, "signal_rows": None, "source_checks": checks, "error_type": type(exc).__name__}
+        atomic_json(output_dir / "sec_filings_index_summary.json", failed)
+        if args.invalidate_current_pit_root:
+            atomic_json(repo_path(args.invalidate_current_pit_root) / "sec_form4_merge_manifest.json", failed)
+        if args.invalidate_current_output_dir:
+            atomic_json(repo_path(args.invalidate_current_output_dir) / "ownership_signal_summary.json", failed)
+        print(json.dumps(failed, sort_keys=True))
+        return 2
     paths = write_outputs(
         frame,
         repo_path(args.output_dir),
@@ -526,6 +650,7 @@ def main() -> int:
             "full_refresh": bool(args.refresh),
             "recent_submissions_refresh": bool(args.refresh or args.refresh_recent_submissions),
             "historical_archives_refresh": bool(args.refresh),
+            "source_checks": checks,
         },
     )
     print(json.dumps({"status": "ok", "rows": int(len(frame)), **paths}, indent=2, sort_keys=True))

@@ -89,6 +89,9 @@ def bind_weighted_evidence(
     form4_path: str | Path | None = None,
     etf_path: str | Path | None = None,
     required: bool = False,
+    form4_receipt_path: str | Path | None = None,
+    require_current_form4_receipt: bool = False,
+    decision_at: str = "",
 ) -> dict[str, Any]:
     result = dict(payload)
     blockers = list(result.get("blockers") or [])
@@ -107,6 +110,30 @@ def bind_weighted_evidence(
     result["weighted_evidence_required"] = bool(required)
     result["weighted_evidence_paths"] = observed_paths
     result["weighted_evidence_sha256"] = hashes
+    if require_current_form4_receipt:
+        from tools.run_sec_submissions_collector import exact_utc
+        try:
+            if not form4_receipt_path:
+                raise ValueError("missing Form4 current receipt")
+            receipt = json.loads(repo_path(form4_receipt_path).read_text())
+            now = exact_utc(decision_at)
+            checked = exact_utc(receipt.get("last_successful_source_check"))
+            source_decision = exact_utc(receipt.get("decision_at"))
+            if receipt.get("current_eligible") is not True or not (checked <= source_decision <= now):
+                raise ValueError("Form4 current source is not eligible")
+            if (now - checked).total_seconds() > 36 * 3600:
+                raise ValueError("Form4 source check is stale")
+            expected = receipt.get("output_sha256", {}).get(str(paths["form4"]))
+            # Absolute paths differ across hosts; the basename is unique in this
+            # producer manifest and the exact file bytes must still match.
+            matches = [v for k,v in receipt.get("output_sha256", {}).items() if Path(k).name == "form4_latest.csv"]
+            if not expected and len(matches) == 1:
+                expected = matches[0]
+            if hashes["form4"] != expected:
+                raise ValueError("Form4 generation hash mismatch")
+            result["form4_current_receipt_sha256"] = sha256_file(form4_receipt_path)
+        except (OSError, ValueError, TypeError, KeyError):
+            blockers.append("form4_current_receipt_missing_stale_or_conflicting")
     result["blockers"] = blockers
     if blockers:
         result["status"] = "blocked"
@@ -427,6 +454,8 @@ def main() -> int:
     parser.add_argument("--holdings", default="")
     parser.add_argument("--require-parsed-holdings", action="store_true")
     parser.add_argument("--form4-evidence", default="")
+    parser.add_argument("--form4-current-receipt", default="")
+    parser.add_argument("--require-current-form4-receipt", action="store_true")
     parser.add_argument("--etf-evidence", default="")
     parser.add_argument("--require-weighted-evidence", action="store_true")
     parser.add_argument("--minimum-manager-coverage", type=float, default=0.80)
@@ -474,6 +503,9 @@ def main() -> int:
         form4_path=args.form4_evidence or None,
         etf_path=args.etf_evidence or None,
         required=bool(args.require_weighted_evidence),
+        form4_receipt_path=args.form4_current_receipt or None,
+        require_current_form4_receipt=bool(args.require_current_form4_receipt),
+        decision_at=str(args.as_of_timestamp or ""),
     )
     payload["source_identity"] = {
         "workflow_run_id": str(args.source_workflow_run_id or ""),

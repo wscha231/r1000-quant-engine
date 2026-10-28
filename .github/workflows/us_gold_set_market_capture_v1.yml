@@ -37,9 +37,13 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install bounded test dependencies
-        run: python -m pip install --disable-pip-version-check pandas
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pandas numpy requests pandas-market-calendars exchange-calendars
       - name: Strict U.S. snapshot smoke
         run: python tests/us_strict_market_snapshot_v1_smoke.py
+      - name: Actual capture CLI import regression (no network)
+        run: python -m tools.capture_gold_set_us_market_v1 --help > /dev/null
 
   capture:
     name: live_capture
@@ -60,14 +64,50 @@ jobs:
         run: >-
           python -m pip install --disable-pip-version-check
           pandas numpy requests pandas-market-calendars exchange-calendars
-      - name: Capture reviewed research proxy
+      - name: Capture reviewed research proxy (ephemeral)
         run: |
-          python tools/capture_gold_set_us_market_v1.py             --output-dir _artifacts/us_gold_set_market_v1             --attempt-id "run${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"             --session "$SESSION"
-      - name: Upload immutable capture artifact
+          python -m tools.capture_gold_set_us_market_v1 \
+            --output-dir _artifacts/us_gold_set_market_v1 \
+            --attempt-id "run${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --session "$SESSION"
+      # This is a public repository. Provider-origin response bytes and the
+      # bundled research artifact cannot be uploaded as public Actions artifacts.
+      # The probe is ephemeral until separate private retention/rights admission.
+      - name: Report sanitized, non-retaining result
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: us-gold-set-market-capture-${{ github.run_id }}-${{ github.run_attempt }}
-          path: _artifacts/us_gold_set_market_v1
-          if-no-files-found: error
-          retention-days: 30
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          receipt = Path('_artifacts/us_gold_set_market_v1/latest_attempt.json')
+          status, session = 'NO_RECEIPT', None
+          if receipt.is_file():
+              try:
+                  payload = json.loads(receipt.read_text(encoding='utf-8'))
+                  if isinstance(payload, dict):
+                      status = payload.get('status')
+                      session = payload.get('session_date')
+              except (ValueError, OSError, UnicodeError, RecursionError):
+                  status = 'INVALID_RECEIPT'
+          if status not in ('COMPLETE_REVIEWED_RESEARCH_PROXY', 'BLOCKED'):
+              status = 'INVALID_RECEIPT' if status != 'NO_RECEIPT' else status
+          if not isinstance(session, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', session):
+              session = None
+          result = {
+              'scope': 'US_GOLD_SET_EPHEMERAL_PROBE',
+              'collector_status': status,
+              'session_date': session,
+              'raw_provider_bytes_published': False,
+              'durable_source_retained': False,
+              'official_source_admission': False,
+              'portfolio_or_order_authority': False,
+          }
+          print(json.dumps(result, sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
+              out.write('## Gold Set A1 ephemeral capture\n\n')
+              out.write(f'Collector: `{status}`; session: `{session or "UNKNOWN"}`.\n\n')
+              out.write('No provider bytes published or durably admitted. No portfolio/order authority.\n')
+          PY

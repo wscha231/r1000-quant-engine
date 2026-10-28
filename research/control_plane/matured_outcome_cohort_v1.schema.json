@@ -1,0 +1,505 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "const": false,
+          "type": "boolean"
+        },
+        "broker": {
+          "const": false,
+          "type": "boolean"
+        },
+        "canonical_write": {
+          "const": false,
+          "type": "boolean"
+        },
+        "dispatch": {
+          "const": false,
+          "type": "boolean"
+        },
+        "er": {
+          "const": false,
+          "type": "boolean"
+        },
+        "execute": {
+          "const": false,
+          "type": "boolean"
+        },
+        "learning": {
+          "const": false,
+          "type": "boolean"
+        },
+        "ledger": {
+          "const": false,
+          "type": "boolean"
+        },
+        "orders": {
+          "const": false,
+          "type": "boolean"
+        },
+        "paper": {
+          "const": false,
+          "type": "boolean"
+        },
+        "portfolio": {
+          "const": false,
+          "type": "boolean"
+        },
+        "production": {
+          "const": false,
+          "type": "boolean"
+        },
+        "promotion": {
+          "const": false,
+          "type": "boolean"
+        },
+        "selector": {
+          "const": false,
+          "type": "boolean"
+        },
+        "target": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "selector",
+        "er",
+        "target",
+        "portfolio",
+        "paper",
+        "broker",
+        "orders",
+        "promotion",
+        "execute",
+        "production",
+        "dispatch",
+        "admission",
+        "ledger",
+        "canonical_write",
+        "learning"
+      ],
+      "type": "object"
+    },
+    "calendar_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+          "type": "string"
+        },
+        "available_at": {
+          "format": "date-time",
+          "maxLength": 40,
+          "type": "string"
+        },
+        "collected_at": {
+          "format": "date-time",
+          "maxLength": 40,
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "sha256",
+        "available_at",
+        "collected_at",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "coverage_status": {
+      "enum": [
+        "INCOMPLETE",
+        "COMPLETE_EXACT"
+      ]
+    },
+    "generated_at": {
+      "format": "date-time",
+      "maxLength": 40,
+      "type": "string"
+    },
+    "learning_eligible": {
+      "const": false,
+      "type": "boolean"
+    },
+    "outcome_ref": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact_id": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+              "type": "string"
+            },
+            "available_at": {
+              "format": "date-time",
+              "maxLength": 40,
+              "type": "string"
+            },
+            "collected_at": {
+              "format": "date-time",
+              "maxLength": 40,
+              "type": "string"
+            },
+            "expires_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "maxLength": 40,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "sha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifact_id",
+            "sha256",
+            "available_at",
+            "collected_at",
+            "expires_at"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "research_only": {
+      "const": true,
+      "type": "boolean"
+    },
+    "rows": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "asset_return": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": -1,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authority": {
+            "additionalProperties": false,
+            "properties": {
+              "admission": {
+                "const": false,
+                "type": "boolean"
+              },
+              "broker": {
+                "const": false,
+                "type": "boolean"
+              },
+              "canonical_write": {
+                "const": false,
+                "type": "boolean"
+              },
+              "dispatch": {
+                "const": false,
+                "type": "boolean"
+              },
+              "er": {
+                "const": false,
+                "type": "boolean"
+              },
+              "execute": {
+                "const": false,
+                "type": "boolean"
+              },
+              "learning": {
+                "const": false,
+                "type": "boolean"
+              },
+              "ledger": {
+                "const": false,
+                "type": "boolean"
+              },
+              "orders": {
+                "const": false,
+                "type": "boolean"
+              },
+              "paper": {
+                "const": false,
+                "type": "boolean"
+              },
+              "portfolio": {
+                "const": false,
+                "type": "boolean"
+              },
+              "production": {
+                "const": false,
+                "type": "boolean"
+              },
+              "promotion": {
+                "const": false,
+                "type": "boolean"
+              },
+              "selector": {
+                "const": false,
+                "type": "boolean"
+              },
+              "target": {
+                "const": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "selector",
+              "er",
+              "target",
+              "portfolio",
+              "paper",
+              "broker",
+              "orders",
+              "promotion",
+              "execute",
+              "production",
+              "dispatch",
+              "admission",
+              "ledger",
+              "canonical_write",
+              "learning"
+            ],
+            "type": "object"
+          },
+          "benchmark_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "benchmark_return": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": -1,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "cohort_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "config_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "data_manifest_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "decision_at": {
+            "format": "date-time",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "decision_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "event_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "excess_return": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "horizon": {
+            "enum": [
+              "1D",
+              "1W",
+              "2W",
+              "1M",
+              "3M",
+              "6M",
+              "12M"
+            ]
+          },
+          "include_in_denominator": {
+            "const": true,
+            "type": "boolean"
+          },
+          "issuer_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "model_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "model_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "outcome_available_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "security_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,199}$",
+            "type": "string"
+          },
+          "selection_status": {
+            "enum": [
+              "WATCH",
+              "REJECT",
+              "BLOCKED",
+              "NOT_SELECTED",
+              "SELECTED",
+              "DELISTED",
+              "EXITED"
+            ]
+          },
+          "session_clock": {
+            "const": "NYSE_CLOSE"
+          },
+          "source_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "MATURED",
+              "UNRESOLVED",
+              "DELISTED_OR_EXITED_PENDING"
+            ]
+          },
+          "target_calendar_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "target_session": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "session_clock",
+          "target_calendar_sha256",
+          "data_manifest_sha256",
+          "config_sha256",
+          "model_sha256",
+          "model_id",
+          "code_sha256",
+          "issuer_id",
+          "security_id",
+          "asset_id",
+          "decision_id",
+          "cohort_id",
+          "benchmark_id",
+          "decision_at",
+          "horizon",
+          "target_session",
+          "status",
+          "selection_status",
+          "asset_return",
+          "benchmark_return",
+          "excess_return",
+          "source_sha256",
+          "outcome_session",
+          "outcome_available_at",
+          "include_in_denominator",
+          "authority"
+        ],
+        "type": "object"
+      },
+      "maxItems": 1000,
+      "minItems": 0,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "schema_version": {
+      "const": "matured-outcome-cohort-v1"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_at",
+    "rows",
+    "coverage_status",
+    "learning_eligible",
+    "research_only",
+    "authority",
+    "calendar_ref",
+    "outcome_ref"
+  ],
+  "type": "object"
+}

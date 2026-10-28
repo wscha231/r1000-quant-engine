@@ -320,3 +320,121 @@ unknown vintage blocks an older exact consensus. Known-ticker unresolved or
 conflicting identities remain conservative blockers. Older superseded vintages,
 post-event collection, another provider and unrelated identities on a new ticker
 do not invalidate the requested consensus; exact renamed observations still work.
+
+## Explicit legacy baseline preparation (2026-10-28)
+
+Run37100587799 at30915e05c1ffe3cecd2c46b229af20844e514f3d predates the
+collector transaction marker. Its successful Actions conclusion is not a
+current transaction receipt. Artifact11266510471 is4478824 bytes with SHA256
+314f3560b512bd5f8762d049a3781251d1ecb5099df155a3422dd3e201503a91.
+The independently retained Drive comparison matched seven key files, but did
+not establish the current live Source head or authorize an overwrite.
+
+The existing generation helper offers an explicit local preparation operation:
+
+```text
+python tools/earnings_estimate_drive_generation.py prepare-legacy --legacy-archive <held-original.zip> --output-dir <new-local-directory>
+```
+
+Only that pinned artifact is supported. The operation validates all63 snapshot
+files and checkpoint/queue consistency, preserves the993-row queue and70 Source
+files byte for byte, and excludes unrelated paper/price outputs. It requires a
+new directory and refuses arbitrary ZIPs, unsafe paths, duplicate members,
+transaction markers, damaged snapshots and split acknowledgements. Its receipt
+is a prepared handoff, not a Source publication. Failed preparation has no valid
+receipt; preserve diagnostic files and use a new output directory on retry.
+
+No collector marker is manufactured, and no original Source clocks, checkpoint
+counters, manifest or summary are rewritten. The original partial coverage
+(10 of60 attempted tickers with forward estimates) and historical admission
+limits remain. The normal current-state guard continues to return
+missing_collector_transaction_marker; publish/restore and daily planning do not
+consume this preparation as an accepted generation. No network or provider call
+is performed by preparation.
+
+The next Source owner must separately verify the live accepted generation/flat
+base, full archive inventory and retained queue, plus provider purpose/rights,
+cohort and budget. A bounded genuine forward collector transaction under that
+explicit recovery contract may then establish new current transaction evidence
+through the existing writer. Publication requires the unchanged manifest and
+immutable-generation readback gates. This preparation neither dispatches that
+collection nor closes the automatic-recovery, current-data or A3/A8 admission
+requirements. Never blindly rerun the failed daily workflow against this copy.
+
+### Opt-in forward transition through the existing collector
+
+Native preflight confirmed that ordinary manual planning also returns
+missing_collector_transaction_marker on the preserved legacy baseline. No
+existing manual flag bypasses that refusal. The collector therefore accepts
+an explicit --legacy-baseline-receipt only together with manual planning,
+nonempty attempt identity, current UTC date and1-5 retained queue tickers.
+Fixture-directory collection is forbidden in this entry. Scheduled workflow
+inputs and the default planner are unchanged; they do not opt in automatically.
+
+The receipt must bind the exact prepared directory/component paths and current
+helper code. The verifier revalidates the pinned original ZIP, all63 snapshots,
+and the candidate's entire70-file inventory before any planning write. Changed,
+relocated, already consumed, extra-member or forged candidates fail before
+provider calls. The local plan preserves original checkpoint counters/clocks
+and selects only the explicit cohort; it is not a current accepted transaction.
+
+After a real forward response the existing collector stages the new snapshot,
+signals, checkpoint, queue and summary. Only its normal pending-to-committed
+transaction creates a new collector marker. The new summary retains the old
+artifact, inventory/checkpoint/queue/summary hashes and blocked legacy status
+under legacy_baseline_handoff. Older snapshot bytes and clocks are unchanged.
+Existing data quality, PIT, immutable-publication and consumer gates still
+apply; scoped source completion is not full-universe coverage or ER admission.
+
+The explicit receipt is single-use for entry: after planning/collection its
+bytes no longer match that pristine baseline. A failure leaves an unpublished,
+unaccepted candidate and must be diagnosed before another bounded attempt.
+Pending/rolled-back markers retain the existing repair requirement. A completed
+new transaction uses ordinary current-state verification/publication, never the
+legacy entry again. The old ZIP remains the immutable original in every case.
+
+This code path has isolated provider-double transaction tests; actual provider
+collection and publication remain NOT_RUN until the live-base, rights, cohort,
+budget and writer authorization in the recovery contract have been verified.
+
+### Read-only inspection with the actual Actions connection
+
+PR691's protected integration does not prove that a Native Drive connection
+and the configured Actions connection address the same Source. Native provider
+keys are absent; replaying the whole daily workflow would also involve paper
+paths. Do not use an intentionally invalid collection date to probe that job.
+
+The existing daily workflow has an explicit manual read_only_source_preflight
+input, default false. True runs only source_preflight; the entire archive job
+is skipped. Normal scheduled/manual defaults retain their previous archive
+behavior and global writer concurrency. The preflight job loads only the
+existing Drive read credentials, never provider keys, and downloads the exact
+retained Actions artifact11266510471. Its download blocks if the artifact is
+expired/missing; preparation rejects changed bytes. There is no alternative
+artifact/cache fallback in this diagnostic job.
+
+The operator supplies expected_archive_folder_id from an independently grounded
+connected Drive read. preflight-legacy compares it with the actual folder ID
+resolved through the Actions Source connection. It refuses a current generation
+head rather than falling back to flat history. With confirmed head absence
+in that configured view, it checks the exact flat archive inventory and bounded
+component sizes, reads Source bytes only into a new absolute local directory,
+and compares all70 Source files to the pinned original. Archive metadata and
+head absence are checked again after the read. No cache, consumer restore,
+collection, marker creation, publication or Paper consumer/restore/mutation is
+performed. Whole-ZIP CRC validation may visit unrelated archived members; only
+Source files are extracted, and archived Paper bytes are not consumed as state.
+
+The job uses at most15 minutes, remote-to-local copies with existing checksums,
+one transfer/checker, a16MiB archive read cap and2MiB component caps. These are
+diagnostic I/O bounds, not a provider collection budget. The diagnostic receipt
+retains the actual repository/code/run/attempt, folder binding, Source hashes
+and original clocks/status. Failure diagnostics are preserved with always();
+only small JSON receipts are uploaded, not another raw Source/Paper archive.
+
+LEGACY_SOURCE_BYTES_VERIFIED_READ_ONLY means that this configured connection
+observed matching legacy bytes. It is not an atomic snapshot, publication lock,
+current provider entitlement/freshness, Source/PIT admission or recovery grant.
+Actual provider rights, budget, current parent and named forward attempt remain
+separate prerequisites and must be reconciled again before mutation. Existing
+collector/publication/consumer checks are unchanged.

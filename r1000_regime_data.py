@@ -35,15 +35,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
 from dataclasses import dataclass, field, asdict
+from datetime import date, datetime, timezone
+from numbers import Real
 from pathlib import Path
 from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+
+# Collection/cache clocks bound transport age, never source-session freshness.
+_SOURCE_COLLECTION_MAX_AGE_SECONDS = 3600
+_CACHE_COLLECTION_SKEW_SECONDS = 180
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +68,14 @@ class RegimeSnapshot:
     vix_source: str  # 'yfinance' | 'fred' | 'fallback'
     spy_source: str
     warnings: list[str] = field(default_factory=list)
+    spy_session_date: Optional[str] = None
+    vix_observation_date: Optional[str] = None
+    collected_at_utc: Optional[str] = None
 
     @property
     def regime_label(self) -> str:
+        if not _snapshot_usable(self):
+            return "unavailable"
         if self.vix_level >= 30:
             return "fear" if self.spy_above_200ma else "panic"
         if not self.spy_above_200ma:
@@ -77,7 +89,98 @@ class RegimeSnapshot:
 # Fetchers
 # ---------------------------------------------------------------------------
 
-def fetch_spy_with_ma200() -> Tuple[float, float, str, list[str]]:
+def _positive_price(value) -> bool:
+    # Check raw values before float conversion or pandas' skip-NaN mean.
+    return (isinstance(value, Real) and not isinstance(value, bool)
+            and math.isfinite(float(value)) and float(value) > 0.0)
+
+
+def _source_date(value) -> Optional[date]:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == value else None
+
+
+def _last_completed_us_session(now: datetime) -> date:
+    """Reuse the current-input gate's exact NYSE holiday/early-close schedule.
+
+    A session completes at its scheduled market close, including a half-day.
+    A late provider must fail closed after that boundary, not extend the prior
+    session's eligibility with a collection/cache timestamp or grace period.
+    """
+    from r1000_legacy_input_guard import latest_completed_close
+
+    session, _, _ = latest_completed_close(now)
+    completed = _source_date(session)
+    if completed is None:
+        raise ValueError("completed NYSE session unavailable")
+    return completed
+
+
+def _fresh_observations(snap: RegimeSnapshot, now: Optional[datetime] = None) -> bool:
+    """Require original source observation dates plus independently bounded collection."""
+    try:
+        now = now or datetime.now(timezone.utc)
+        if now.tzinfo is None or not isinstance(snap.collected_at_utc, str):
+            return False
+        collected = datetime.fromisoformat(snap.collected_at_utc.replace('Z', '+00:00'))
+        if collected.tzinfo is None:
+            return False
+        age = (now - collected).total_seconds()
+        if not 0 <= age <= _SOURCE_COLLECTION_MAX_AGE_SECONDS:
+            return False
+        spy = _source_date(snap.spy_session_date)
+        vix = _source_date(snap.vix_observation_date)
+        if spy is None or vix is None:
+            return False
+        completed = _last_completed_us_session(now)
+        completed_at_collection = _last_completed_us_session(collected)
+        return spy == vix == completed == completed_at_collection
+    except Exception:
+        # Calendar import/schedule failures are unavailable data, not a weekday
+        # fallback. Both action generation and executable preflight refuse it.
+        return False
+
+
+def _vix_index_date(index) -> Optional[str]:
+    """yfinance must supply a dated observation, never a RangeIndex position."""
+    try:
+        observed = index[-1]
+        if isinstance(observed, datetime):
+            return observed.date().isoformat()
+        if isinstance(observed, date):
+            return observed.isoformat()
+    except (IndexError, TypeError, AttributeError, ValueError):
+        pass
+    return None
+
+
+def _snapshot_usable(snap: RegimeSnapshot) -> bool:
+    return (_fresh_observations(snap)
+            and snap.spy_source == "alpaca"
+            and snap.vix_source in ("yfinance", "fred")
+            and all(_positive_price(v) for v in
+                    (snap.spy_close, snap.spy_ma200, snap.vix_level))
+            and 5.0 <= snap.vix_level <= 100.0
+            and type(snap.spy_above_200ma) is bool
+            and snap.spy_above_200ma == (snap.spy_close > snap.spy_ma200))
+
+
+def _vix_observation(value) -> Optional[float]:
+    if isinstance(value, bool) or type(value).__name__ == "bool_":
+        return None
+    try:
+        level = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return level if math.isfinite(level) and 5.0 <= level <= 100.0 else None
+
+
+def fetch_spy_with_ma200(*, include_session: bool = False) -> Tuple[float, float, str, list[str]]:
     """Fetch SPY current close + 200-day MA. Returns (close, ma200, source, warnings)."""
     warnings: list[str] = []
     try:
@@ -95,16 +198,42 @@ def fetch_spy_with_ma200() -> Tuple[float, float, str, list[str]]:
     if df is None or df.empty:
         warnings.append("SPY bars empty")
         return 0.0, 0.0, "alpaca_empty", warnings
+    if "close" not in df.columns:
+        warnings.append("SPY close column missing")
+        return 0.0, 0.0, "alpaca_invalid", warnings
     if len(df) < 200:
         warnings.append(f"SPY history too short ({len(df)} < 200 bars)")
-        return float(df["close"].iloc[-1]), 0.0, "alpaca_short", warnings
+        value = df["close"].iloc[-1]
+        return (float(value) if _positive_price(value) else 0.0), 0.0, "alpaca_short", warnings
 
-    close = float(df["close"].iloc[-1])
-    ma200 = float(df["close"].tail(200).mean())
-    return close, ma200, "alpaca", warnings
+    window = df["close"].tail(200)
+    if not all(_positive_price(value) for value in window):
+        warnings.append("SPY 200MA requires 200 finite positive non-boolean closes")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    # The native provider contract is a UTC-aware daily DatetimeIndex.
+    # Duplicate timestamps on one date cannot count as distinct sessions.
+    import pandas as pd
+    index = window.index
+    if not isinstance(index, pd.DatetimeIndex) or index.tz is None or index.hasnans:
+        warnings.append("SPY daily timestamps missing or invalid")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    index = index.tz_convert("UTC")
+    sessions = index.normalize()
+    if (not sessions.is_unique or not sessions.is_monotonic_increasing
+            or (sessions.dayofweek >= 5).any()
+            or (index > datetime.now(timezone.utc)).any()):
+        warnings.append("SPY daily timestamps duplicate, unordered, non-trading or future")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    close = float(window.iloc[-1])
+    ma200 = float(window.mean())
+    if not _positive_price(ma200):
+        warnings.append("SPY 200MA is not finite and positive")
+        return 0.0, 0.0, "alpaca_invalid", warnings
+    result = (close, ma200, "alpaca", warnings)
+    return (*result, index[-1].date().isoformat()) if include_session else result
 
 
-def fetch_vix() -> Tuple[float, str, list[str]]:
+def fetch_vix(*, include_observation: bool = False) -> Tuple[float, str, list[str]]:
     """Fetch current VIX level. Returns (level, source, warnings).
 
     Tries yfinance first (no API key), then FRED, then 20.0 fallback.
@@ -117,10 +246,16 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
         t = yf.Ticker("^VIX")
         hist = t.history(period="5d", auto_adjust=False)
         if hist is not None and not hist.empty and "Close" in hist.columns:
-            level = float(hist["Close"].iloc[-1])
-            if 5 <= level <= 100:
-                return level, "yfinance", warnings
-            warnings.append(f"yfinance VIX out of plausible range: {level}")
+            level = _vix_observation(hist["Close"].iloc[-1])
+            if level is not None:
+                if not include_observation:
+                    return level, "yfinance", warnings
+                observed = _vix_index_date(hist.index)
+                if observed is not None:
+                    return level, "yfinance", warnings, observed
+                warnings.append("yfinance VIX observation date unavailable")
+            else:
+                warnings.append(f"yfinance VIX out of plausible range: {level}")
     except ImportError:
         warnings.append("yfinance not installed")
     except Exception as e:
@@ -141,7 +276,14 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
             for obs in data.get("observations", []):
                 v = obs.get("value", "")
                 if v and v != ".":
-                    return float(v), "fred", warnings
+                    level = _vix_observation(v)
+                    if level is not None:
+                        if not include_observation:
+                            return level, "fred", warnings
+                        observed = _source_date(obs.get("date"))
+                        if observed is not None:
+                            return level, "fred", warnings, observed.isoformat()
+                        warnings.append("FRED VIX observation date unavailable")
             warnings.append("FRED VIXCLS returned no recent obs")
         except Exception as e:
             warnings.append(f"FRED VIXCLS failed: {type(e).__name__}: {e}")
@@ -158,6 +300,7 @@ def fetch_vix() -> Tuple[float, str, list[str]]:
 
 _CACHE_PATH = ROOT / "outputs" / "regime_snapshot_cache.json"
 _CACHE_TTL_SEC = 3600
+_SOURCE_VALIDATION_VERSION = 1
 
 
 def _load_cached_snapshot() -> Optional[RegimeSnapshot]:
@@ -165,20 +308,33 @@ def _load_cached_snapshot() -> Optional[RegimeSnapshot]:
         return None
     try:
         data = json.loads(_CACHE_PATH.read_text())
-        ts = data.get("_cached_at", 0)
-        if time.time() - ts > _CACHE_TTL_SEC:
+        version = data.pop("_source_validation_version", None)
+        if type(version) is not int or version != _SOURCE_VALIDATION_VERSION:
             return None
-        data.pop("_cached_at", None)
-        return RegimeSnapshot(**data)
+        ts = data.pop("_cached_at", None)
+        now = time.time()
+        if not _positive_price(ts) or not 0 <= now - ts <= _CACHE_TTL_SEC:
+            return None
+        snap = RegimeSnapshot(**data)
+        observed = datetime.fromisoformat(snap.timestamp).timestamp()
+        if not 0 <= now - observed <= _CACHE_TTL_SEC or observed > ts:
+            return None
+        collected = datetime.fromisoformat(snap.collected_at_utc.replace('Z', '+00:00'))
+        if collected.tzinfo is None or not 0 <= ts - collected.timestamp() <= _CACHE_COLLECTION_SKEW_SECONDS:
+            return None
+        return snap if _snapshot_usable(snap) else None
     except Exception:
         return None
 
 
 def _save_cached_snapshot(snap: RegimeSnapshot) -> None:
     try:
+        if not _snapshot_usable(snap):
+            return
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         d = asdict(snap)
         d["_cached_at"] = time.time()
+        d["_source_validation_version"] = _SOURCE_VALIDATION_VERSION
         _CACHE_PATH.write_text(json.dumps(d, indent=2))
     except Exception:
         pass  # cache write is best-effort
@@ -195,19 +351,26 @@ def current_regime(use_cache: bool = True) -> RegimeSnapshot:
         if cached is not None:
             return cached
 
-    from datetime import datetime
-    spy_close, ma200, spy_src, spy_warns = fetch_spy_with_ma200()
-    vix_level, vix_src, vix_warns = fetch_vix()
+    # Backwards-compatible default fetch tuples remain unchanged for older callers.
+    # Execute requires a dated source observation; absent metadata is never inferred.
+    spy_data = fetch_spy_with_ma200(include_session=True)
+    vix_data = fetch_vix(include_observation=True)
+    spy_close, ma200, spy_src, spy_warns = spy_data[:4]
+    vix_level, vix_src, vix_warns = vix_data[:3]
 
     snap = RegimeSnapshot(
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         spy_close=spy_close,
         spy_ma200=ma200,
-        spy_above_200ma=(spy_close > ma200) if (spy_close > 0 and ma200 > 0) else True,
+        spy_above_200ma=(_positive_price(spy_close) and _positive_price(ma200)
+                         and spy_close > ma200),
         vix_level=vix_level,
         vix_source=vix_src,
         spy_source=spy_src,
         warnings=spy_warns + vix_warns,
+        spy_session_date=spy_data[4] if len(spy_data) > 4 else None,
+        vix_observation_date=vix_data[3] if len(vix_data) > 3 else None,
+        collected_at_utc=datetime.now(timezone.utc).isoformat(),
     )
     _save_cached_snapshot(snap)
     return snap
@@ -218,6 +381,8 @@ def layer3_actions_for_snapshot(snap: RegimeSnapshot) -> list[dict]:
 
     Returns plain dicts so callers don't need to import the dataclass.
     """
+    if not _snapshot_usable(snap):
+        return [{"error": "regime source unavailable or invalid"}]
     try:
         from r1000_risk_sensing import (
             PortfolioState, RiskConfig, evaluate_layer3_regime,

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -92,7 +93,9 @@ THEME_TAXONOMY: dict[str, dict[str, tuple[str, ...]]] = {
             "nand",
             "flash",
             "hbm",
-            "storage",
+            "data storage device",
+            "computer storage",
+            "hard disk",
             "disk drive",
             "solid state",
             "ssd",
@@ -373,8 +376,67 @@ def build_etf_lookthrough_watchlist(ticker_tape: pd.DataFrame, etf_attention_fra
     return out.sort_values(["combined_watch_score", "etf_attention_score"], ascending=False, na_position="last").reset_index(drop=True)
 
 
+_BUSINESS_FIELDS = ("Name", "name", "industry", "yf_industry", "sector", "yf_sector")
+_BUSINESS_NORMALIZE = re.compile(r"[^a-z0-9]+")
+_MISSING_BUSINESS = frozenset({"nan", "none", "null", "unknown", "n a", "na"})
+_THEME_TICKERS = {label: frozenset(spec.get("tickers", ()))
+                  for label, spec in THEME_TAXONOMY.items()}
+_CURATED_TICKERS = frozenset().union(*_THEME_TICKERS.values())
+
+
+def _business_text(value: Any) -> str:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return ""
+    text = _BUSINESS_NORMALIZE.sub(" ", str(value).lower()).strip()
+    return "" if text in _MISSING_BUSINESS else text
+
+
+def _business_pattern(terms: tuple[str, ...]) -> re.Pattern[str]:
+    return re.compile(r"\b(?:" + "|".join(re.escape(_business_text(t)) for t in terms) + r")\b")
+
+
+_MEMORY_EXCLUDED = _business_pattern((
+    "real estate", "reit", "reits", "self storage", "warehouse", "warehousing", "cold storage",
+    "energy storage", "battery storage", "oil storage", "gas storage", "logistics",
+))
+_MEMORY_HARDWARE = _business_pattern((
+    "semiconductor", "semiconductors", "computer hardware", "electronic components",
+    "electronic equipment parts", "electronic storage", "data storage devices",
+))
+_MEMORY_PRECISE = _business_pattern((
+    "flash memory", "memory chip", "memory chips", "memory semiconductor",
+    "memory semiconductors", "dynamic random access memory", "static random access memory",
+    "high bandwidth memory", "non volatile memory", "disk drive", "disk drives", "hard disk",
+    "solid state drive", "solid state drives", "data storage device", "data storage devices",
+    "computer storage",
+))
+_MEMORY_HINT = _business_pattern((*THEME_TAXONOMY["memory_semiconductors"]["keywords"], "storage"))
+_STORAGE = re.compile(r"\bstorage\b")
+_REAL_ESTATE = re.compile(r"\b(?:reits?|real estate)\b")
+
+
+def _memory_business_match(fields: tuple[str, ...]) -> bool:
+    """Direct business evidence only; include memory chips and digital hardware."""
+    if _MEMORY_EXCLUDED.search(" ".join(fields)):
+        return False
+    industry_fields = fields[2:4]
+    hardware = any(_MEMORY_HARDWARE.search(field) for field in industry_fields)
+    if any(industry_fields) and not hardware:
+        return False
+    if any(_MEMORY_PRECISE.search(field) for field in fields):
+        return True
+    return hardware and any(_MEMORY_HINT.search(field) for field in fields)
+
+
 def infer_theme(row: pd.Series) -> str:
-    ticker = str(row.get("ticker") or "").upper()
+    ticker_value = row.get("ticker")
+    ticker = "" if pd.isna(ticker_value) else str(ticker_value).upper().strip()
+    # Self-storage REIT business metadata outranks ambiguous storage/space names.
+    # Keep every curated issuer mapping intact, including digital-storage makers.
+    fields = tuple(_business_text(row.get(key)) for key in _BUSINESS_FIELDS)
+    business = " ".join(fields)
+    if ticker not in _CURATED_TICKERS and _STORAGE.search(business) and _REAL_ESTATE.search(business):
+        return "real_estate"
     text_fields = [
         row.get("Name"),
         row.get("name"),
@@ -387,14 +449,18 @@ def infer_theme(row: pd.Series) -> str:
         row.get("theme_holding_profile_primary"),
         row.get("portfolio_sleeve_label"),
     ]
-    text = " ".join(str(x).lower() for x in text_fields if x not in (None, "nan"))
+    text = " ".join(str(x).lower() for x in text_fields if x is not None and not pd.isna(x) and str(x).lower() != "nan")
     for label, spec in THEME_TAXONOMY.items():
-        if ticker in {x.upper() for x in spec.get("tickers", ())}:
+        if ticker in _THEME_TICKERS[label]:
             return label
-        if any(keyword.lower() in text for keyword in spec.get("keywords", ())):
+        if label == "memory_semiconductors":
+            if _memory_business_match(fields):
+                return label
+        elif any(keyword.lower() in text for keyword in spec.get("keywords", ())):
             return label
     for fallback in ("sage_sector", "yf_industry", "industry", "sector"):
-        value = str(row.get(fallback) or "").strip()
+        raw_value = row.get(fallback)
+        value = "" if pd.isna(raw_value) else str(raw_value).strip()
         if value and value.lower() not in {"nan", "unknown"}:
             return value.lower().replace(" ", "_")
     return "unclassified"

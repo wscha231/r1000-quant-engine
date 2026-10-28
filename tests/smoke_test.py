@@ -1659,6 +1659,23 @@ def test_paper_executor_layer3_preflight() -> None:
     assert "allow-legacy-execute" in pe_src, (
         "paper_executor missing --allow-legacy-execute lock for old Alpaca executor"
     )
+    _run_g6_native_regressions()
+
+
+def _run_g6_native_regressions() -> None:
+    """Keep native source/history/cache refusals active in normal and -O CI."""
+    env = dict(os.environ)
+    env.pop("PYTHONOPTIMIZE", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    for name in ("g6_h1_regime_data_native_smoke", "g6_h1_executor_main_mock_smoke"):
+        for flags in ([], ["-O"]):
+            result = subprocess.run(
+                [sys.executable, "-B", *flags, str(ROOT / "tests" / (name + ".py"))],
+                cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", timeout=90, check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError("G6 native regression failed: " + result.stdout[-8000:])
 
 
 @_test("logic.tactical_empty_trade_plan_schema")
@@ -1698,6 +1715,18 @@ def test_paper_executor_workflow() -> None:
         "smoke_test pre-flight missing — workflow could ship code that fails guards"
     )
     assert "r1000_paper_executor.py" in wf, "paper_executor not actually invoked"
+    for required in (
+        "contents: read",
+        "outputs/after_close_daily/publication_status.json",
+        '"after_close_canonical_publication": "NOT_PUBLISHED"',
+        '"delivery_mode": "ACTIONS_ARTIFACT_DIAGNOSTIC_ONLY"',
+        "if-no-files-found: error",
+    ):
+        if required not in wf:
+            raise AssertionError("missing A7 protected publication marker: " + required)
+    for prohibited in ("git push", "git commit"):
+        if prohibited in wf:
+            raise AssertionError("unreviewed protected master write: " + prohibited)
     for token in (
         "tests/audit_features.py --no-runtime",
         "aggressive/scanner.py",
@@ -1714,6 +1743,56 @@ def test_paper_executor_workflow() -> None:
     assert "yfinance" in (ROOT / "requirements_github.txt").read_text(encoding="utf-8"), (
         "yfinance missing from requirements_github.txt — Layer 3 VIX fetch will fall back"
     )
+
+
+@_test("structural.after_close_publication_disposition")
+def test_after_close_publication_disposition() -> None:
+    """A7 GH013: execute the actual workflow receipt without publishing state."""
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github/workflows/after_close_daily.yml").read_text(encoding="utf-8"))
+    steps = wf["jobs"]["after_close"]["steps"]
+    disposition = next(step for step in steps if step["name"] == "Record After-Close publication disposition")
+    upload = next(step for step in steps if step["name"] == "Upload daily artifacts")
+    paper = next(step for step in steps if step.get("id") == "paper")
+    if wf["permissions"] != {"contents": "read"} or disposition["if"] != "always()":
+        raise AssertionError("diagnostic receipt must always run with read-only contents permission")
+    if 'exit "$STATUS"' not in paper["run"] or any("git push" in step.get("run", "") for step in steps):
+        raise AssertionError("paper failures must propagate without a protected-master push")
+    receipt_path = "outputs/after_close_daily/publication_status.json"
+    if receipt_path not in upload["with"]["path"] or upload["with"]["if-no-files-found"] != "error":
+        raise AssertionError("publication disposition must be retained as a diagnostic artifact")
+    program = disposition["run"].split("<<'PY_DISPOSITION'\n", 1)[1].rsplit("\nPY_DISPOSITION", 1)[0]
+    for outcome in ("success", "FAILURE", "skipped", "cancelled", "not_run", ""):
+        _check_after_close_publication_receipt(program, outcome, receipt_path)
+
+
+def _check_after_close_publication_receipt(program: str, outcome: str, receipt_path: str) -> None:
+    import tempfile
+    from datetime import datetime
+
+    env = dict(os.environ, PAPER_OUTCOME=outcome, GITHUB_SHA="1" * 40, GITHUB_RUN_ID="424242")
+    with tempfile.TemporaryDirectory(prefix="after-close-disposition-") as directory:
+        proc = subprocess.run([sys.executable, "-B", *(["-O"] if sys.flags.optimize else []), "-c", program],
+                              cwd=directory, env=env, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=30)
+        if proc.returncode:
+            raise AssertionError(proc.stdout + proc.stderr)
+        payload = json.loads((Path(directory) / receipt_path).read_text(encoding="utf-8"),
+                             parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    expected = {
+        "schema_version": "r1000-a7-after-close-publication-v1",
+        "after_close_canonical_publication": "NOT_PUBLISHED",
+        "reason_code": "PAPER_STEP_FAILED" if outcome.lower() == "failure" else "PROTECTED_MASTER_PR_REQUIRED",
+        "paper_step_outcome": outcome.lower(), "delivery_mode": "ACTIONS_ARTIFACT_DIAGNOSTIC_ONLY",
+        "source_head_sha": env["GITHUB_SHA"], "workflow_run_id": env["GITHUB_RUN_ID"],
+        "github_master_push_attempted": False, "current_portfolio_approved": False,
+        "latest_data_verified": False, "orders_or_paper_mutation_approved_by_this_receipt": False,
+    }
+    if any(payload.get(key) != value or type(payload.get(key)) is not type(value) for key, value in expected.items()):
+        raise AssertionError(f"incorrect publication disposition for {outcome!r}: {payload}")
+    if datetime.fromisoformat(payload["checked_at_utc"]).utcoffset() is None:
+        raise AssertionError("publication receipt must have an aware UTC timestamp")
 
 
 @_test("regression.after_close_daily_schedule")
@@ -4053,6 +4132,20 @@ def test_moat_quality_v2_contract() -> None:
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
+@_test("structural.product_analytics_v1_contract")
+def test_product_analytics_v1_contract() -> None:
+    """Run the focused B5 privacy/aggregation contract through registered Tier-1 smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "product_analytics_v1_smoke.py")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
 @_test("structural.investment_methodology_v1_contract")
 def test_investment_methodology_v1_contract() -> None:
     """Run the cross-method equal-pillar research contract."""
@@ -4120,6 +4213,16 @@ def test_security_basis_registry_contract() -> None:
         encoding="utf-8",
         errors="replace",
         check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+@_test("theme.theme_classification_contract")
+def test_theme_classification_contract() -> None:
+    """Run memory/storage classification regressions through registered smoke."""
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "tests" / "theme_classification_smoke.py")],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
 

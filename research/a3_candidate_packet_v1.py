@@ -360,6 +360,28 @@ def _load_ref(
     return value, digest
 
 
+def filing_review_reference(event: dict, *, security_id: str, issuer_id: str,
+                            raw: bytes, source_receipt_sha256: str) -> dict:
+    """Bind actual disclosure bytes to pending A3 work, without an assessment."""
+    _identifier(security_id, "filing_security_id")
+    _identifier(issuer_id, "filing_issuer_id")
+    _hash(source_receipt_sha256, "filing_receipt_hash")
+    _require(isinstance(raw, bytes) and 0 < len(raw) <= MAX_ARTIFACT_BYTES, "filing_raw_bytes")
+    raw_hash = hashlib.sha256(raw).hexdigest()
+    _require(raw_hash == event["document_sha256"], "filing_raw_hash")
+    _require(event["source_type"] == "SEC_FILING", "filing_source_type")
+    return dict(schema="a3-filing-review-reference-v1", asset_id=security_id, issuer_id=issuer_id,
+        event_id=event["event_id"], accession=event["accession"], raw_sha256=raw_hash,
+        source_type="SEC_FILING", source_receipt_sha256=source_receipt_sha256,
+        accepted_at=event["accepted_at"], available_at=event["available_at"],
+        publication_clock_basis="SEC_ACCEPTANCE_PROXY_NOT_ORIGINAL_PUBLICATION",
+        source_row=event["source_row"], status="FILING_CONTENT_REVIEW_PENDING",
+        affected_pillars=["earnings_revision_operating_acceleration", "valuation_margin_of_safety"],
+        used_for_assessment=False, investment_score_contribution_allowed=False,
+        validated_er_ref=None, selector_eligible=False, orders_allowed=False,
+        research_only=True, production_authority=False)
+
+
 def _validate_methodology(value: dict[str, Any]) -> None:
     _require(value.get("schema") == "investment-methodology-v1-result", "methodology_schema")
     _require(value.get("status") == "COMPLETE_RESEARCH_REVIEW", "methodology_status")

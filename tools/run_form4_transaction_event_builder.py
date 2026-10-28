@@ -316,6 +316,45 @@ def build_form4_events(form4: pd.DataFrame, metadata: pd.DataFrame | None = None
     return events[EVENT_COLUMNS].sort_values(["available_from", "ticker", "event_id"]).reset_index(drop=True)
 
 
+def build_ownership_research_events(form4: pd.DataFrame) -> list[dict[str, Any]]:
+    """Lossless disclosure events for intake; legacy alpha study outputs are separate."""
+    import hashlib
+    rows, seen = [], {}
+    for record in form4.to_dict("records"):
+        row = {k: (None if pd.isna(v) else v) for k, v in record.items() if k != "_source_file"}
+        accession, local_id = row.get("accession_number"), row.get("transaction_id")
+        form = str(row.get("form_type") or "")
+        issuer, document = cik10(row.get("issuer_cik10")), row.get("document_sha256")
+        if not accession or not local_id or not issuer or form not in {"3", "3/A", "4", "4/A", "5", "5/A"}:
+            raise ValueError("OWNERSHIP_FILING_IDENTITY_REQUIRED")
+        if not isinstance(document, str) or len(document) != 64:
+            raise ValueError("OWNERSHIP_DOCUMENT_IDENTITY_REQUIRED")
+        # The local ID is scoped to its document, never to the batch row index.
+        identity = [issuer, accession, form, document, local_id]
+        event_id = "SEC:" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+        code = str(row.get("transaction_code") or "")
+        event = dict(event_id=event_id, source_type="SEC_FILING", family="OWNERSHIP",
+            accession=accession, issuer_cik10=issuer, ticker=row.get("issuer_ticker"),
+            accepted_at=row.get("accepted_at"), available_at=row.get("available_from"),
+            document_sha256=document, form_type=form,
+            event_type={"3": "INITIAL_OWNERSHIP", "4": "REPORTED_TRANSACTION",
+                        "5": "DELAYED_OR_SUPPLEMENTAL_REPORT"}[form.split("/")[0]],
+            row_kind=row.get("row_kind"),
+            is_amendment=form.endswith("/A"), original_submission_date=row.get("original_submission_date"),
+            is_open_market_buy=code == "P" and row.get("market_execution_verified") is True,
+            purchase_code=code == "P", trade_inferred=False,
+            source_row=row, research_only=True, score_contribution=0,
+            production_activation_allowed=False)
+        if form.split("/")[0] == "4" and row.get("row_kind") == "HOLDING":
+            event["event_type"] = "REPORTED_HOLDING"
+        if event_id in seen and seen[event_id] != event:
+            raise ValueError("OWNERSHIP_CONFLICTING_ROW_IDENTITY")
+        if event_id not in seen:
+            rows.append(event)
+            seen[event_id] = event
+    return sorted(rows, key=lambda r: (r["accepted_at"], r["event_id"]))
+
+
 def render_report(summary: dict[str, Any], events: pd.DataFrame) -> str:
     lines = [
         "# Form 4 Transaction Events",

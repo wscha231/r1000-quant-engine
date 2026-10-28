@@ -31,6 +31,37 @@ class HistoryTest(unittest.TestCase):
         lake.dataset('sec/0000000001',[b'original'],[dict(end='2016-12-31',filed='2017-02-01',value=value,concept='Revenue',unit='USD')],
             dict(evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rows=1))
 
+    def test_a4_missing_four_flow_through_existing_lake_without_alias_or_history_rewrite(self):
+        from tools.long_history_lake import collect_macros, registry
+        wanted = {'BAMLC0A0CM', 'DGS3MO', 'WDTGAL', 'RRPTSYD'}
+        specs = [row for row in registry()['series'] if row['id'] in wanted]
+        self.assertEqual(len(specs), 4)
+        self.put(); first = self.lake.publish('before-four', {})
+        next_lake = Lake(self.t, self.root/'with-four')
+        calls = []
+        def held(sid, start, through, mode):
+            calls.append((sid, mode))
+            return ([('observation_date,'+sid+'\n2026-10-21,1.25\n').encode()],
+                    '2026-10-27T07:00:00+00:00')
+        with patch('tools.long_history_lake.registry', return_value={'series': specs}), \
+             patch('tools.long_history_lake.WB_INDICATORS', ()), \
+             patch('tools.long_history_lake.fetch_fred_retry', side_effect=held):
+            collect_macros(next_lake, '2026-10-01', '2026-10-26')
+        self.assertEqual(set(calls), {(sid, 'current') for sid in wanted})
+        for spec in specs:
+            entry = next_lake.catalog['datasets']['current/'+spec['id']]
+            self.assertEqual(entry['unit'], spec['unit'])
+            self.assertEqual(entry['frequency'], spec['frequency'])
+            self.assertEqual(entry['evidence'], 'current_only')
+            self.assertEqual(entry['first_available_at'], '2026-10-27T07:00:00+00:00')
+        next_lake.publish('after-four', {})
+        restored = Lake(self.t, self.root/'read-four')
+        for sid in wanted:
+            self.assertEqual(restored.get_records('current/'+sid)[0]['value'], 1.25)
+        original = json.loads(restored.read_hash('catalogs', first['catalog_sha256']))
+        self.assertEqual(set(original['datasets']), {'sec/0000000001'})
+        self.assertEqual(restored.get_records('sec/0000000001')[0]['value'], 100)
+
     def test_roundtrip_and_version_preservation(self):
         self.put(); first=self.lake.publish('one',{})
         next_lake=Lake(self.t,self.root/'second'); self.put(next_lake,90)
@@ -468,6 +499,35 @@ class HistoryTest(unittest.TestCase):
         self.assertIn("&& github.ref == 'refs/heads/master'",workflow)
         self.assertNotIn('codex/durable-long-history-20260912',workflow)
 
+    def test_code_push_does_not_launch_history_producer(self):
+        import re
+        workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
+        guards=re.findall(r'^    if: (.+)$',workflow,re.MULTILINE)
+        self.assertEqual(guards,[
+            "github.repository == 'wscha231/r1000-quant-engine' && "
+            "github.ref == 'refs/heads/master' && github.event_name != 'push'"])
+        self.assertIn('  workflow_dispatch:',workflow)
+        self.assertIn('  schedule:',workflow)
+        self.assertIn('    - cron: \'37 6 * * 2-6\'',workflow)
+        self.assertIn('  group: durable-long-history-single-writer',workflow)
+        self.assertIn('  cancel-in-progress: false',workflow)
+
+    def test_skipped_code_push_never_joins_history_writer_queue(self):
+        import yaml
+        workflow=yaml.load((ROOT/'.github/workflows/long_history_research.yml').read_text(),Loader=yaml.BaseLoader)
+        self.assertNotIn('concurrency',workflow)
+        self.assertEqual(set(workflow['jobs']),{'history'})
+        producer=workflow['jobs']['history']
+        self.assertEqual(producer['concurrency'],{
+            'group':'durable-long-history-single-writer','cancel-in-progress':'false'})
+        self.assertEqual(producer['if'],
+            "github.repository == 'wscha231/r1000-quant-engine' && "
+            "github.ref == 'refs/heads/master' && github.event_name != 'push'")
+        self.assertEqual(workflow['on']['push']['branches'],['master'])
+        self.assertEqual(workflow['on']['schedule'],[{'cron':'37 6 * * 2-6'}])
+        self.assertIn('workflow_dispatch',workflow['on'])
+        self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read'})
+
     def test_transient_fred_retry_and_secret_safe_failure(self):
         from urllib.error import URLError,HTTPError
         from tools.long_history_lake import fetch_fred_retry,safe_error
@@ -811,6 +871,139 @@ class HistoryTest(unittest.TestCase):
         self.assertFalse(checkout-paths,'Unchecked dependency changes: '+repr(sorted(checkout-paths)))
         self.assertIn('raw,_,_=verified_cohort_source(lake)',workflow)
         self.assertNotIn("old['raw_objects'][0]",workflow)
+
+
+    def test_sparse_registered_suites_have_complete_isolated_imports(self):
+        import os
+        import re
+        import shutil
+        import subprocess
+        import textwrap
+        workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
+        paths=re.findall(r'^            /(.+)$',workflow,re.MULTILINE)
+        self.assertTrue(paths)
+        self.assertEqual(len(paths),len(set(paths)))
+        child=textwrap.dedent('''
+            import importlib,json,pathlib,sys,unittest
+            root=pathlib.Path(sys.argv[1]).resolve()
+            sys.path[:0]=[str(root/'tests'),str(root)]
+            def leaves(suite):
+                for test in suite:
+                    if isinstance(test,unittest.TestSuite): yield from leaves(test)
+                    else: yield test
+            counts={}
+            for name in ('long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'):
+                module=importlib.import_module(name)
+                cases=list(leaves(unittest.defaultTestLoader.loadTestsFromModule(module)))
+                errors=[str(test._exception) for test in cases if isinstance(test,unittest.loader._FailedTest)]
+                if errors: raise RuntimeError('sparse_suite_load_failed:'+repr(errors))
+                counts[name]=len(cases)
+                if name=='long_history_lake_smoke':
+                    classes={type(test).__module__+'.'+type(test).__name__ for test in cases}
+                    required={'research_data_access_smoke.ReaderTest','a1_reader_generation_binding_smoke.BindingTest'}
+                    if not required<=classes: raise RuntimeError('registered_reader_binding_missing')
+            for name,module in tuple(sys.modules.items()):
+                if name.startswith('tools.') or name.endswith('_smoke'):
+                    origin=getattr(module,'__file__',None)
+                    if origin and not pathlib.Path(origin).resolve().is_relative_to(root):
+                        raise RuntimeError('full_checkout_fallback:'+name)
+            print(json.dumps(counts,sort_keys=True))
+        ''')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            baseline=root/'complete';baseline.mkdir()
+            for name in paths:
+                self.assertRegex(name,r'^[A-Za-z0-9_./-]+$')
+                self.assertNotIn('..',Path(name).parts)
+                source_path=ROOT/name
+                self.assertTrue(source_path.is_file(),name)
+                target=baseline/name;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes(source_path.read_bytes())
+            guard=root/'guard';guard.mkdir()
+            (guard/'sitecustomize.py').write_text(
+                'import socket\nfrom pathlib import Path\n'
+                'def denied(*args,**kwargs):\n'
+                '    Path(__file__).with_name("network-attempt.log").write_text("blocked\\n")\n'
+                '    raise RuntimeError("SPARSE_LOAD_NETWORK_FORBIDDEN")\n'
+                'socket.socket.connect=denied\nsocket.socket.connect_ex=denied\n'
+                'socket.create_connection=denied\n')
+            env=os.environ.copy()
+            for name in tuple(env):
+                if re.search(r'TOKEN|SECRET|PASSWORD|CREDENTIAL|API_KEY|ACCESS_KEY|SERVICE_ACCOUNT|RCLONE|DRIVE|ALPACA|FRED',name,re.I):
+                    env.pop(name)
+            env.update(PYTHONPATH=str(guard),PYTHONDONTWRITEBYTECODE='1',
+                OPENBLAS_NUM_THREADS='1',OMP_NUM_THREADS='1',MKL_NUM_THREADS='1',NUMEXPR_NUM_THREADS='1')
+            flags=['-O'] if sys.flags.optimize else []
+            def load(where):
+                result=subprocess.run([sys.executable,*flags,'-B','-c',child,str(where)],
+                    cwd=where,env=env,capture_output=True,text=True,timeout=60)
+                self.assertLessEqual(len(result.stdout)+len(result.stderr),32768)
+                self.assertFalse((guard/'network-attempt.log').exists())
+                return result
+            positive=load(baseline)
+            self.assertEqual(positive.returncode,0,positive.stderr)
+            self.assertEqual(set(json.loads(positive.stdout)),
+                {'long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'})
+            # Module import alone cannot prove deferred runtime file reads.
+            # Execute the actual portable macro suite in the declared checkout.
+            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py']
+            macro=subprocess.run(macro_command,cwd=baseline,env=env,
+                                 capture_output=True,text=True,timeout=60)
+            self.assertLessEqual(len(macro.stdout)+len(macro.stderr),32768)
+            self.assertFalse((guard/'network-attempt.log').exists())
+            self.assertEqual(macro.returncode,0,macro.stdout+macro.stderr)
+            self.assertEqual([int(n) for n in re.findall(r'Ran (\d+) tests?',macro.stderr)],
+                             [json.loads(positive.stdout)['macro_technical_evidence_smoke']])
+            missing_contract=root/'missing-a4-contract';shutil.copytree(baseline,missing_contract)
+            (missing_contract/'docs/run287_chameleon_macro_inputs_contract.json').unlink()
+            refused=subprocess.run(macro_command,cwd=missing_contract,env=env,
+                                   capture_output=True,text=True,timeout=60)
+            self.assertNotEqual(refused.returncode,0)
+            self.assertIn('run287_chameleon_macro_inputs_contract.json',refused.stderr)
+            self.assertFalse((guard/'network-attempt.log').exists())
+            if os.name=='posix':
+                import atexit
+                completed=subprocess.run([sys.executable,*flags,'-B','tests/macro_research_cycle_smoke.py'],
+                    cwd=baseline,env=env,capture_output=True,text=True,timeout=60)
+                self.assertLessEqual(len(completed.stdout)+len(completed.stderr),32768)
+                self.assertFalse((guard/'network-attempt.log').exists())
+                self.assertEqual(completed.returncode,0,completed.stdout+completed.stderr)
+                expected=json.loads(positive.stdout)['macro_research_cycle_smoke']
+                ran=re.findall(r'Ran (\d+) tests?',completed.stderr)
+                self.assertEqual([int(value) for value in ran],[expected])
+                self.assertNotIn('skipped=',completed.stderr)
+                # The existing CI runner retains each smoke's last stdout line.
+                atexit.register(print,'LONG_HISTORY_ISOLATED_POSIX_MACRO_CYCLE_PASS tests='+str(expected)+
+                    ' optimize='+str(sys.flags.optimize)+' sparse_paths='+str(len(paths))+
+                    ' network_attempts=0',flush=True)
+            for omitted,module in (
+                ('tests/a1_reader_generation_binding_smoke.py','a1_reader_generation_binding_smoke'),
+                ('tools/twelve_private_capture.py','twelve_private_capture'),
+            ):
+                with self.subTest(omitted=omitted):
+                    case=root/module;shutil.copytree(baseline,case)
+                    (case/omitted).unlink()
+                    failure=load(case)
+                    self.assertNotEqual(failure.returncode,0)
+                    self.assertIn(module,failure.stderr)
+            trigger=root/'missing-push-path';shutil.copytree(baseline,trigger)
+            config=trigger/'.github/workflows/long_history_research.yml'
+            needle="      - 'tools/twelve_private_capture.py'\n"
+            self.assertEqual(workflow.count(needle),1)
+            config.write_text(workflow.replace(needle,''))
+            with patch(__name__+'.ROOT',trigger):
+                with self.assertRaisesRegex(AssertionError,'Unchecked dependency changes'):
+                    self.test_push_filters_cover_all_consumed_source_paths()
+
+
+
+def load_tests(loader, tests, pattern):
+    # Keep the existing registered Tier-1 entry; avoid the shared runner/P0 lane.
+    from research_data_access_smoke import ReaderTest
+    tests.addTests(loader.loadTestsFromTestCase(ReaderTest))
+    from a1_reader_generation_binding_smoke import BindingTest
+    tests.addTests(loader.loadTestsFromTestCase(BindingTest))
+    return tests
 
 
 if __name__=='__main__': unittest.main()

@@ -1,0 +1,68 @@
+{
+  "schema": "theme-memory-reclassification-evidence-v1",
+  "mode": "RESEARCH_ONLY_FROZEN_ARCHIVED_METRICS",
+  "source_base": "40b68f0757e161888642decf10c6697950f331a3",
+  "inputs": [
+    {
+      "path": "cloud_results/full_rebuild/20260510_global_alpha_universe/theme_leadership_tape/ticker_leadership.csv",
+      "sha256": "b70f658a1552ee684072846a59e68fb70868f556f12bfe9445b6097ac70eb0e8"
+    },
+    {
+      "path": "cloud_results/full_rebuild/20260512_global_alpha_universe/theme_leadership_tape/ticker_leadership.csv",
+      "sha256": "6e39d0bbf018afb2e3e2a2c5f75de87d7b8f567a0bd650824dd518d9dde0691a"
+    }
+  ],
+  "files": [
+    {
+      "path": "20260510_membership_changes.csv",
+      "size_bytes": 302,
+      "sha256": "a4e61d213a13311ea8ed48341eae174a5ae6ba22a4ce4bc0d2823a00e49ee53b"
+    },
+    {
+      "path": "20260510_score_comparison.csv",
+      "size_bytes": 1507,
+      "sha256": "201c8bf8dcacd0a203bfa20cd87069d9a50359550fd7d95eafae1711f9c1a7ea"
+    },
+    {
+      "path": "20260510_themes_after.csv",
+      "size_bytes": 3953,
+      "sha256": "2bbd37dc8c97bb5da4500080576cff291fa6b81a9e12b9d43fcec41439c20001"
+    },
+    {
+      "path": "20260510_themes_before.csv",
+      "size_bytes": 3770,
+      "sha256": "a4e869e06525e73fcf9a82ce351243ae8d9f2cf7fd599ce5502a61e548dd52d3"
+    },
+    {
+      "path": "20260512_membership_changes.csv",
+      "size_bytes": 302,
+      "sha256": "a4e61d213a13311ea8ed48341eae174a5ae6ba22a4ce4bc0d2823a00e49ee53b"
+    },
+    {
+      "path": "20260512_score_comparison.csv",
+      "size_bytes": 1513,
+      "sha256": "37cbdc59436d3052c86a17252b233a8e89903be0aa206393c3c05b27f5cea735"
+    },
+    {
+      "path": "20260512_themes_after.csv",
+      "size_bytes": 3958,
+      "sha256": "5753e7efd4d0ef5d0b7d8d2a041b69f2b1bf5a0fa19134c4e97fe4ecad401d45"
+    },
+    {
+      "path": "20260512_themes_before.csv",
+      "size_bytes": 3778,
+      "sha256": "67e2df48e2a5493f514c9742c917acfce6d788e8cf0f24849054230b8d6a588f"
+    },
+    {
+      "path": "performance_correction.json",
+      "size_bytes": 627,
+      "sha256": "90598ce92c82c37d085a3f293ac284b99dab344d0227ea163339a4890aba6ebd"
+    },
+    {
+      "path": "recalculation.json",
+      "size_bytes": 3540,
+      "sha256": "84ce70c84a44a1be9f02de3bbb5e0c35da41d2dcb61553504950382720c5e235"
+    }
+  ],
+  "classification_code_git_blob": "0903e1d1c6201d734d036dc9ad0a474f34940350"
+}

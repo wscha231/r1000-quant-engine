@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research byte generation (not source/economic admission)",
+  "type": "object",
+  "required": [
+    "schema",
+    "eligible_for_selector",
+    "created_at",
+    "source_run_id",
+    "datasets"
+  ],
+  "properties": {
+    "schema": {
+      "const": "research-data-generation-v1"
+    },
+    "eligible_for_selector": {
+      "const": false
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "datasets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "schema",
+          "source",
+          "files"
+        ],
+        "properties": {
+          "dataset_id": {
+            "const": "ds.us.prices.daily"
+          },
+          "schema": {
+            "const": "price-daily-v1"
+          },
+          "source": {
+            "type": "object",
+            "required": [
+              "provider",
+              "license",
+              "access_policy",
+              "classification",
+              "admission_state",
+              "eligible_purposes",
+              "pit_status",
+              "corporate_action_status",
+              "lifecycle_status",
+              "producer_code_sha",
+              "producer_config_sha256",
+              "source_receipt_sha256",
+              "raw_source_sha256",
+              "available_from",
+              "collected_at",
+              "expires_at"
+            ],
+            "properties": {
+              "provider": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "license": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "access_policy": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "classification": {
+                "enum": [
+                  "REAL_SOURCE",
+                  "CONTRACT_FIXTURE"
+                ]
+              },
+              "admission_state": {
+                "const": "RESEARCH_BYTES_ONLY"
+              },
+              "eligible_purposes": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "discovery",
+                    "research",
+                    "training",
+                    "backtest"
+                  ]
+                }
+              },
+              "pit_status": {
+                "enum": [
+                  "VERIFIED",
+                  "PIT_PROXY"
+                ]
+              },
+              "corporate_action_status": {
+                "const": "VERIFIED"
+              },
+              "lifecycle_status": {
+                "const": "VERIFIED"
+              },
+              "producer_code_sha": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              "producer_config_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "source_receipt_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "raw_source_sha256": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "available_from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "collected_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "required": [
+                "storage",
+                "format",
+                "sha256",
+                "bytes",
+                "rows",
+                "start",
+                "end",
+                "columns",
+                "instrument"
+              ],
+              "properties": {
+                "storage": {
+                  "enum": [
+                    "archive",
+                    "lake"
+                  ]
+                },
+                "format": {
+                  "enum": [
+                    "jsonl",
+                    "gzip_jsonl",
+                    "parquet"
+                  ]
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 18874368
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "columns": {
+                  "const": {
+                    "instrument_id": "string",
+                    "ticker": "string",
+                    "session_date": "date",
+                    "available_from": "timestamp",
+                    "open": "positive_number",
+                    "high": "positive_number",
+                    "low": "positive_number",
+                    "close": "positive_number",
+                    "volume": "nonnegative_number"
+                  }
+                },
+                "instrument": {
+                  "type": "object",
+                  "required": [
+                    "instrument_id",
+                    "ticker",
+                    "market",
+                    "mic",
+                    "timezone",
+                    "calendar",
+                    "currency",
+                    "adjustment_basis"
+                  ],
+                  "properties": {
+                    "instrument_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "ticker": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "market": {
+                      "const": "US"
+                    },
+                    "mic": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "calendar": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "currency": {
+                      "const": "USD"
+                    },
+                    "adjustment_basis": {
+                      "enum": [
+                        "RAW",
+                        "SPLIT_ADJUSTED",
+                        "TOTAL_RETURN"
+                      ]
+                    }
+                  }
+                },
+                "lake_key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          },
+          "lake_binding": {
+            "type": "object",
+            "required": [
+              "commit_sha256",
+              "catalog_sha256",
+              "execution_receipt_sha256"
+            ],
+            "properties": {
+              "commit_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "catalog_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "execution_receipt_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "Runtime additionally checks original aware clocks, cross-field order, file hashes/bytes/types/identity/date/count/duplicate/session constraints and explicit query coverage. Large/raw vendor data is never checked in."
+}

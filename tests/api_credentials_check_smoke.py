@@ -1,6 +1,7 @@
 """Offline checks of credential diagnostics and non-disclosure boundaries."""
 import contextlib
 import io
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -117,6 +118,18 @@ class CredentialCheckTests(unittest.TestCase):
         self.assertTrue(all(r['result'] == 'PASS' for r in json.loads(out.getvalue())['results']))
         self.assertNotIn('alternate-canary', out.getvalue())
         self.assertNotIn('primary-canary', out.getvalue())
+
+
+def load_tests(loader, standard_tests, pattern):
+    # Preserve the frozen validator; extend its existing Tier-1 entrypoint.
+    for filename in ('twelve_data_credential_preflight_smoke.py', 'twelve_private_capture_smoke.py',
+                     'alpaca_sip_private_backfill_v1_smoke.py'):
+        path = ROOT / 'tests' / filename
+        spec = importlib.util.spec_from_file_location(filename.removesuffix('.py') + '_registered', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        standard_tests.addTests(loader.loadTestsFromModule(module))
+    return standard_tests
 
 
 if __name__ == '__main__':

@@ -947,12 +947,23 @@ def acknowledge_collection_attempts(
 def plan_manual_collection(
     snapshot_dir: Path, summary_path: Path, signals_path: Path,
     checkpoint_path: Path, queue_path: Path, tickers: list[str],
-) -> None:
+    *, legacy_baseline_receipt: Path | None = None,
+) -> dict[str, Any] | None:
     """Bind a manual request to a queue without expanding its requested scope."""
     require_complete_collector_transaction(checkpoint_path.parent)
-    state = require_verified_collector_state(snapshot_dir, summary_path=summary_path,
-        checkpoint_path=checkpoint_path, queue_path=queue_path,
-        signals_path=signals_path, allow_missing_queue=True)
+    legacy_parent = None
+    if legacy_baseline_receipt is not None:
+        from tools.earnings_estimate_drive_generation import verify_legacy_handoff
+        if not 1 <= len(tickers) <= 5:
+            raise ValueError('legacy_forward_scope_requires_one_to_five_tickers')
+        legacy_parent = verify_legacy_handoff(legacy_baseline_receipt, snapshot_dir=snapshot_dir,
+            summary_path=summary_path, signals_path=signals_path,
+            checkpoint_path=checkpoint_path, queue_path=queue_path)
+        state = {'state': 'verified_legacy_baseline_not_current'}
+    else:
+        state = require_verified_collector_state(snapshot_dir, summary_path=summary_path,
+            checkpoint_path=checkpoint_path, queue_path=queue_path,
+            signals_path=signals_path, allow_missing_queue=True)
     previous = json.loads(checkpoint_path.read_text(encoding="utf-8")) if checkpoint_path.is_file() else {}
     rows = previous.get("ticker_states", [])
     if not isinstance(rows, list):
@@ -967,6 +978,8 @@ def plan_manual_collection(
                 or row["selection_count"] < 0 or not isinstance(row.get("last_selected_at_utc"), str)):
             raise ValueError("invalid_manual_checkpoint_states")
         states[ticker] = {**row, "ticker": ticker}
+    if legacy_parent is not None and not set(requested) <= set(states):
+        raise ValueError('legacy_forward_tickers_outside_retained_queue')
     if (state["state"] == "accepted" and queue_path.is_file()
             and {ticker for ticker, row in states.items() if _truthy(row.get("selected"))} == set(requested)):
         with queue_path.open(newline="", encoding="utf-8") as handle:
@@ -1001,6 +1014,10 @@ def plan_manual_collection(
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     queue_path.write_bytes(queue_bytes)
     checkpoint_path.write_bytes(_json_bytes(plan))
+    if legacy_parent is not None:
+        return {**legacy_parent, 'planned_checkpoint_sha256': _sha256_file(checkpoint_path),
+                'planned_queue_sha256': _sha256_file(queue_path)}
+    return None
 
 
 def merge_same_day_snapshot(existing_path: Path, current: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
@@ -1592,7 +1609,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ticker-limit", type=int, default=0)
     parser.add_argument("--api-key", default=os.environ.get("FINNHUB_API_KEY", ""))
     parser.add_argument("--alphavantage-api-key", default=os.environ.get("ALPHAVANTAGE_API_KEY", ""))
-    parser.add_argument("--fmp-api-key", default=os.environ.get("FMP_API_KEY", ""))
+    parser.add_argument("--fmp-key-name", choices=("FMP_API_KEY", "FMP_API_KEY2"), default="FMP_API_KEY",
+                        help="Explicit credential selection; never rotates or falls back to another account.")
+    parser.add_argument("--fmp-api-key", default=None)
     parser.add_argument("--vendor-order", default=os.environ.get("ESTIMATE_VENDOR_ORDER", DEFAULT_VENDOR_ORDER))
     parser.add_argument("--snapshot-dir", default=DEFAULT_SNAPSHOT_DIR)
     parser.add_argument("--signals-output", default=DEFAULT_SIGNALS)
@@ -1611,8 +1630,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--collection-queue", default="")
     parser.add_argument("--plan-manual-collection", action="store_true",
                         help="Prepare a bound queue selecting only the resolved request tickers.")
+    parser.add_argument("--legacy-baseline-receipt", default="",
+                        help="Opt-in pinned prepared local baseline; at most5 queued tickers, never scheduled recovery.")
     parser.add_argument("--collection-attempt-id", default=os.environ.get("GITHUB_RUN_ID", ""))
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.fmp_api_key is None:
+        args.fmp_api_key = os.environ.get(args.fmp_key_name, "")
+    return args
 
 
 def main() -> int:
@@ -1627,20 +1651,33 @@ def main() -> int:
     queue_path = repo_path(args.collection_queue) if args.collection_queue else Path()
     require_complete_collector_transaction(snapshot_dir)
     tickers = parse_tickers(args.tickers, args.universe_file or None, args.ticker_limit)
+    legacy_parent = None
+    if args.legacy_baseline_receipt and (
+        not args.plan_manual_collection or not args.collection_attempt_id.strip() or args.fixture_dir
+        or not args.collection_checkpoint or not args.collection_queue or not 1 <= len(tickers) <= 5
+    ):
+        raise ValueError('legacy_forward_requires_explicit_bounded_manual_attempt')
     if args.plan_manual_collection:
         if not args.collection_checkpoint or not args.collection_queue or not tickers:
             raise ValueError("manual_collection_requires_queue_paths_and_tickers")
-        plan_manual_collection(snapshot_dir, summary_path, signals_output,
-                               checkpoint_path, queue_path, tickers)
+        legacy_parent = plan_manual_collection(snapshot_dir, summary_path, signals_output,
+            checkpoint_path, queue_path, tickers,
+            legacy_baseline_receipt=repo_path(args.legacy_baseline_receipt) if args.legacy_baseline_receipt else None)
     if args.collection_checkpoint:
-        transaction_state = require_verified_collector_state(
-            snapshot_dir,
-            summary_path=summary_path,
-            checkpoint_path=checkpoint_path,
-            queue_path=queue_path,
-            signals_path=signals_output,
-            allow_missing_queue=False,
-        )
+        if legacy_parent is not None:
+            if (_sha256_file(checkpoint_path) != legacy_parent['planned_checkpoint_sha256']
+                    or _sha256_file(queue_path) != legacy_parent['planned_queue_sha256']):
+                raise ValueError('legacy_forward_plan_changed')
+            transaction_state = {'state': 'verified_legacy_baseline_not_current'}
+        else:
+            transaction_state = require_verified_collector_state(
+                snapshot_dir,
+                summary_path=summary_path,
+                checkpoint_path=checkpoint_path,
+                queue_path=queue_path,
+                signals_path=signals_output,
+                allow_missing_queue=False,
+            )
         require_consistent_collection_acknowledgement(
             checkpoint_path,
             queue_path,
@@ -1929,6 +1966,9 @@ def main() -> int:
         "entitlement_error_probe_count": error_budget["entitlement_error_probe_count"],
         "errors": errors[:10],
     }
+
+    if legacy_parent is not None:
+        payload['legacy_baseline_handoff'] = legacy_parent
 
     if status == "blocked_data_integrity":
         blocked_staged: list[tuple[Path, Path]] = []

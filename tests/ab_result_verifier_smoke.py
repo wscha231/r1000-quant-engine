@@ -394,4 +394,7 @@ if __name__ == "__main__":
     test_verifier_carries_dispatch_context_for_queue_closure()
     test_verifier_blocks_missing_baseline_broker_metrics()
     test_verifier_rejects_stale_old_target_pass_true()
+    from evaluation_v2_admission_smoke import main as comparison_admission_smoke
+    if comparison_admission_smoke():
+        raise SystemExit(1)
     print("ab_result_verifier_smoke: PASS")

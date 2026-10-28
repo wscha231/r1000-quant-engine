@@ -137,4 +137,8 @@ def test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks() -
 
 if __name__ == "__main__":
     test_mutable_runtime_inputs_change_composite_identity_and_missing_blocks()
+    subprocess.run(
+        [sys.executable, *(["-O"] if sys.flags.optimize else []),
+         str(ROOT / "tests/frozen_stage_ab_fairness_smoke.py")], check=True,
+    )
     print("fullrun_runtime_source_manifest_smoke: PASS")

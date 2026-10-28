@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +20,8 @@ from typing import Any
 REPO = Path(__file__).resolve().parent.parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
+
+from tools import run_ab_result_verifier as result_verifier
 
 QUEUE_STATUSES = [
     "queued",
@@ -76,11 +80,65 @@ def load_verifier_summaries(summary_paths: list[str], verifier_dirs: list[str]) 
         if key in seen:
             continue
         seen.add(key)
-        payload = read_json(path)
+        payload = read_verifier_summary(path)
         if payload:
             payload["_summary_path"] = str(path)
             summaries.append(payload)
     return summaries
+
+
+def completion_witness_present(path: Path) -> bool:
+    """Probe the directory entry without following a dangling witness link."""
+    try:
+        os.lstat(path.parent / result_verifier.COMPLETION_LEAF)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def read_verifier_summary(path: Path) -> dict[str, Any]:
+    """Size-bounded historical summaries retain semantics; new receipts need a witness."""
+    descriptor = None
+    try:
+        # A changed special file cannot block before protocol classification.
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NONBLOCK', 0) | getattr(os, 'O_BINARY', 0))
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode): return {}
+        if before.st_size > result_verifier.MAX_REPORT_BYTES: return {}
+        parent_before = os.stat(path.parent)
+        if not stat.S_ISDIR(parent_before.st_mode): return {}
+        witness_seen = completion_witness_present(path)
+        remaining = before.st_size; parts = []
+        while remaining:
+            raw = os.read(descriptor, min(65536, remaining))
+            if not raw or len(raw) > remaining: return {}
+            parts.append(raw); remaining -= len(raw)
+        after = os.fstat(descriptor)
+        if result_verifier.comparison_admission._file_identity(before) != result_verifier.comparison_admission._file_identity(after):
+            return {}
+        raw = b''.join(parts)
+        payload = json.loads(raw)
+        if type(payload) is not dict: return {}
+        # Only observed absence in the same parent can select historical behavior.
+        # Any probe error is handled as ineligible by the bounded exception path.
+        witness_seen = completion_witness_present(path) or witness_seen
+        parent_after = os.stat(path.parent)
+        if (parent_before.st_dev, parent_before.st_ino) != (parent_after.st_dev, parent_after.st_ino): return {}
+        if result_verifier.comparison_admission._file_identity(before) != result_verifier.comparison_admission._file_identity(os.stat(path)):
+            return {}
+        indicators = ('comparison_publication', 'comparison_admission', 'current_receipt')
+        if (witness_seen or payload.get('schema_version') not in (None, 'ab-result-verifier-v1')
+                or any(name in payload for name in indicators)):
+            if path.name != 'summary.json': return {}
+            # Validation returns parsed candidates from this exact raw snapshot.
+            payload = result_verifier.completed_comparison_summary(path, raw)
+        return payload
+    except (OSError, ValueError, TypeError, RuntimeError, result_verifier.comparison_admission.AdmissionError):
+        return {}
+    finally:
+        if descriptor is not None:
+            try: os.close(descriptor)
+            except OSError: pass
 
 
 def verifier_candidates(summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:

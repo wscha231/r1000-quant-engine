@@ -111,6 +111,459 @@
   reviewed remote head during the authorized integration-only verification;
   no additional implementation or second review was performed in this pass.
 
+## 2026-10-26 - Version enablement independently from a finite maintenance grant
+
+- Archive exact revision1 policy bytes and bind revision2 to that actual parent
+  hash. A policy-only enablement retains the roster, watch history, close buffer
+  and null execution authorization; repository variable/private control/OWNER
+  grant and every runtime gate remain separate. Preserve old revision1 test
+  oracles as an immutable fixture, and independently validate actual revision2
+  transition and missing-contract refusal before any remote I/O.
+- Reuse actual selected private evidence rather than collecting rights or prices
+  again. The MU preparation read back existing originals and six immutable
+  evidence objects with provider0/dispatch0. Preserve the original108-record,
+  40of40 spent family plus both full preparation reservations. A prior Windows
+  venv redirector refusal preceded product imports/credentials/I/O; the corrected
+  direct-base child required real-process timeout QA as well as static guards.
+  Evidence preparation does not grant Source/PIT, portfolio or live authority.
+
+## 2026-10-25 — Keep a fixed SPY capture in the existing spent family
+
+- Hosted review found that real native-read runs retain typed title suffixes.
+  Reconstructing every closed-parent title as a capture title made a fully
+  settled family unusable. Pin each full historical display_title separately
+  from its strict nonce, validate only the existing typed suffixes, and compare
+  canonical metadata exactly. Preserve failed native-read costs in the parent;
+  never omit those runs or turn them into successful price captures. Cover the
+  actual three metadata shapes plus missing/unknown/changed title refusals.
+- A new data genesis does not grant a new budget. The one-symbol 2024-03-01
+  through 2026-10-23 profile must authenticate the closed historical run vector,
+  unchanged shared journal prefix, owner/account binding and fresh finite grant.
+  Unknown dispatches, missing accounting or pending outcomes stop execution;
+  test fixtures and a local approved flag cannot close the real parent.
+- Independent review caught two pre-I/O accounting gaps: count the current
+  completed offline job against the scope's active-time allowance, and compare
+  the complete workflow census with the nonce-filtered campaign history. Bind
+  each final meter to both data genesis and shared prefix, and recheck settled
+  checkpoint references against canonical run output on replay.
+- The existing 262144-byte source guard also tests projected Windows CRLF.
+  LF normalization alone passed the byte read but failed that unchanged oracle.
+  Move the one shared group verifier mechanically into the existing collector,
+  retain its public controller wrapper and controller globals, and rerun old
+  recovery/174 and new scope tests; do not raise the cap or duplicate verifiers.
+- Distinguish workflow POST acceptance from worker success in fixtures and
+  operation. Fsync failure must precede POST; an uncertain POST keeps its one
+  reservation; a failed worker still spends its measured costs. Correcting a
+  synthetic response queue or an end-exclusive query expectation is not actual
+  provider evidence. Owner-authorized manual dispatch remains within the same
+  finite worker caps; the local fsync protocol is guaranteed by the host path.
+- This is code/synthetic preparation only. Actual SPY coverage, provider rights,
+  Source admission, Reader consumption and economic validation need their own
+  current receipts. Preserve the old MU657 and frozen174 records unchanged.
+
+## 2026-10-24 — Separate Source archives from Reader generation acceptance
+
+- A capture checkpoint proves retained original/normalized bytes, not the Reader's
+  identity, CA/lifecycle, rights and availability bindings. Reuse the existing
+  archive verifier and preserve the raw/split distinction; do not relabel an
+  update COMPLETE receipt as a consumed generation.
+- First-observed complete readback can bound PIT_PROXY current research, but is
+  not historical publication. Keep unknown clocks and supplier expiry unknown;
+  bind derivation evidence before the manifest to avoid receipt/hash cycles.
+- A real preparation branch needs an independently supplied Source trust anchor
+  plus exact existing proof bytes; an evidence packet must not approve itself.
+  Bind its original meter/checkpoint/account/capture window and code/config before
+  typing rows. Real acceptance, storage publication, consumer ACK and economics
+  remain NOT_RUN; VERIFIED strings and green synthetic tests grant none of them.
+- Model reused transport defaults exactly: OwnerDrive.check defaults to folders,
+  so file reads must explicitly pass folder=False. Fix Decimal precision,
+  exponent, rounding and trap context together; precision alone inherits hidden
+  caller state. Independent counterexamples caught both fixture blind spots.
+- After #627 is protected and integrated, validate the same prepared fixture
+  through its component API as well as read(): optional absent SPY may be
+  reported locally, while a required missing benchmark must refuse the batch.
+  That compatibility does not authenticate actual Source evidence. The strict
+  real branch can be tested with injected synthetic trust; report that separately
+  from an actual prepared/published generation or account-rights approval.
+- Preserve the distinct supplier and research clocks, but constrain the Reader's
+  effective expiry by both; a provenance-only rights expiry does not guard later
+  reads. Untrusted DEFLATE corruption can raise zlib.error before evidence checks,
+  so translate decoder errors into finite refusal at both verification layers.
+## 2026-10-23 — Preserve typed SEC completion, reparse replacement and issuer clocks
+
+- Successful checked ownership generations do not require a legacy Form4 signal.
+  Form3/5, holdings and derivatives can have typed rows with zero legacy signals;
+  preserve successful empty checks and CSV headers as well as source failures.
+- Merge only hash/index/count-proved successful whole-accession replacements,
+  including empty parses. Keeping an old v2 transaction absent from a shorter
+  replacement corrupts scope counts. Failed/unproved reparses cannot delete it.
+  A6 reproduced older inactive shards resurrecting a corrected/empty accession
+  during a later unrelated batch. Carry hash-bound canonical scope/tombstones
+  across generations; only the selected proved active reparse may replace them.
+  Revoke current pointers before rejecting corrupt/missing prior scope proof.
+  Apply the same version protection to the filing index: inactive cache clocks
+  must not overwrite a corrected accession while transaction rows stay corrected.
+- Keep the earliest issuer check for conservative expiry, but bind each filing
+  acceptance and event clock to its corresponding checked issuer. Missing issuer
+  proof blocks new intake. Immutable old MU requests retain their original
+  conservative proof for historical readback only; no old manifest is rewritten
+  or promoted to a new current-generation receipt.
+- Unknown/missing/mixed 13F amendment types remain incomplete review and cannot
+  replace a complete boundary or synthesize removals. Only explicit RESTATEMENT
+  and NEW HOLDINGS types have replacement/additive semantics after lineage checks.
+
+- Hosted followup reproduced pandas nullable numeric promotion rejecting real
+  XML semantics. Compare exact finite numeric values while keeping booleans,
+  nulls, strings and structure distinct; replay preserves original stored bytes.
+- Exercise amendment consumption through the actual CLI with explicit parent
+  accession; API-only positives miss absent command inputs. Retain the original
+  13F accession separately from its latest revision across successive amendments.
+
+## 2026-10-22 — Bind SEC research storage to current raw scope and preserve Native semantics
+
+- Existing Main needs its original reader object alternate; missing Git parents
+  are an object-access configuration failure, not absent H: access. Use the
+  incumbent exclusive integration lease and preserve its original branch/sparse
+  state. Do not create another checkout to hide that failure.
+- A new MU submissions check changed accession0001568238-26-000003's accepted
+  clock from historical2026-10-20T23:03:21Z to current2026-10-21T03:03:21Z.
+  Preserve both source generations. Reparse retained original XML when filing
+  metadata or parser identity changes; replace every old row of an attempted
+  accession, including fewer-row/empty results. Accession-only resume can block
+  permanently on old clocks. Bare legacy completion flags do not prove reuse.
+- Bind each persisted event to its checked issuer/accession/form/document scope
+  and reparse raw XML. Stable row IDs are document-local, never DataFrame-index
+  based. Keep nulls, joint owners, codes, holdings, options and notes. P alone
+  does not establish an open-market trade. One accession/security request must
+  survive source-generation replay without another candidate or alert intent.
+- Independent A6 caught an additive13F amendment branch overwriting failed
+  parent-lineage eligibility, Form4 holdings labeled as transactions, unbound
+  source membership, mismatched thesis references, and null report formatting.
+  Keep incomplete snapshots from replacing complete boundaries. Pending A3
+  filing references and locally stored Registry requests are not accepted full
+  A3 assessments, canonical current pointers or investment authority.
+- Exact-head A6 also reproduced a CLI prerequisite failure leaving an old
+  current-success summary when identities were missing. Revoke current success
+  before all prerequisite reads, including selected-accession and raw/identity
+  reads, and persist a distinct consumer-prerequisite failure. A valid historic
+  Registry is not evidence that the current attempted read succeeded.
+- Windows write_text changes LF to CRLF. Frozen JSON replay must compare the
+  same exact bytes: publish JSON bytes explicitly rather than weakening equality.
+  Directory reads raise different OS exception subclasses; classify directory
+  inputs before I/O. Native PowerShell seven-digit fractional clocks fail the
+  existing six-digit exact bridge contract; supply actual Python-compatible
+  clocks rather than relax it. One author future decision probe was discarded
+  and rerun with the actual clock; it is not current-source evidence.
+- Independent A6 found a verified amendment of pending intake still labeled as
+  another discovery. Route it as FILING_CORRECTION_REASSESSMENT / A2 WATCH with
+  its original request reference; do not fabricate an existing full thesis.
+  Reject caller-supplied amendment parents on plain filings, including replay.
+  Preserve the original and prove correction replay creates no extra intent.
+- Product pages are not acquired fund returns. HFR/With/WhaleWisdom yielded
+  documentation, PSH one fund's NAV and HedgeFollow a20-manager holdings-proxy
+  screen. Observed access restrictions and missing comparable/cutoff-bound
+  performance prevent admitting an automated ranking. Missing NAV must not
+  globally block an independently eligible SEC filing research request.
+- Full CI found four ManualFoundation errors after current A3/Registry extension:
+  historical catalog positives were copying new HEAD bytes. Preserve the catalog
+  hashes and production changed-byte refusal; use a separate bounded immutable
+  two-file fixture only in temporary historical positive roots. Test current
+  bytes/tamper and mandatory A6 pins; never refresh old catalog pins to green CI.
+- The shared Drive read verified commit c5a1a025's catalog chain/packs (1153
+  datasets), but its exact execution lookup refused
+  execution_receipt_missing_or_ambiguous. This is storage evidence only, not a
+  completed consumer cycle. Consume no macro/financial rows; do not replay a collector.
+
+## 2026-10-18 — Isolate native readback after an unknown Drive CREATE
+
+- SIP run39085031884 stopped at checkpoint76 after a Drive POST502 while
+  opening response headers. Its302,101B unconfirmed storage remains charged.
+  A connected search omitted even the directly readable known checkpoint;
+  an empty result therefore cannot establish absence of the failed object.
+- The dedicated native mode reuses RuntimeMeter and OwnerDrive, excludes
+  provider calls and Drive writes, and requires a successful exact-file list
+  positive control before one small parent/time-window list. OAuth refresh
+  is separately metered credential maintenance, not a Drive CREATE.
+- Unknown connector request/transfer costs cannot be treated as zero. Native
+  execution requires a referenced OWNER transport-accounting record and keeps
+  its own meter, dispatch and active-time reservation separate from capture.
+  Its marked run stays visible to later capture history, which must stop until
+  a separately reviewed exact recovery settles that read. No retry/admission,
+  budget reset, protected deployment or market-data collection is authorized
+  by a successful diagnostic.
+
+## 2026-10-13 — Bound EODHD/FMP source-probe checkout (#605)
+
+- Earnings Estimate Source Probe runs `38267566200` and `37183899304`
+  were cancelled during full `actions/checkout@v4` under the 5-minute
+  job limit. The first run's exact-master guard passed, but neither run
+  reached provider GET; no controlled probe report/artifact was produced.
+  Do not classify these as EODHD/FMP authentication or entitlement failures.
+- Use a depth-one `blob:none` non-cone sparse checkout limited to `/tools/`
+  and `/r1000_config.py`, with a 15-minute job limit. The original
+  exact-head guard, selected-secret isolation, request/unit budget,
+  concurrency group, read-only permissions and no durable source admission
+  remain unchanged. Regression tests pin this exact checkout contract.
+- Do not rerun cancelled run IDs as proof of the correction: old attempts
+  use their original source revision. After a reviewed merge, dispatch a
+  *new* exact-master, single-provider, bounded sample only with confirmed
+  API-unit authorization. No full-universe, Drive, paper or broker mutation.
+
+## 2026-10-12 — Close default CSV and reuse proof inputs (#593)
+
+- Pin the repository defaults consumed by lifecycle and candidate-metadata
+  proof cases even when most tests supply synthetic files. Pin every reusable
+  catalog dependency hashed by the registered manual proof, including reference
+  documents and test programs; an empty packet reuse selection does not omit
+  those proof inputs. Fixed names survive deletion and complete hash rebinding.
+- Fresh hashes still prepare work only: proofs NOT_RUN, no worker/completion
+  or economic authority, and no accepted lifecycle or metadata byte mutation.
+
+## 2026-10-12 — Preserve catalog and rejected-research history (#593)
+
+- Pin broker audit data consumed by the registered challenger proof. When master
+  adds a dynamically loaded cohort proof, include that actual test in A6 pins.
+- Validate catalog header verification time and historical master SHA as well
+  as row provenance. Rehashing cannot erase accepted do-not-repeat identities
+  or their normalized matching descriptors; evidence updates and new rows remain
+  possible, along with existing explicit coverage/semantic-change exceptions.
+- Preparation remains NOT_RUN with no economic or execution authority.
+
+## 2026-10-12 — Preserve ETF proof and manual provenance (#593)
+
+- Pin the ETF universe whose existence the registered smoke proof consumes;
+  stale packets and fully rebound omissions must refuse preparation.
+- Issue declarations must equal their metadata references while source heads
+  stay empty. Validate manifest verification clocks and historical master SHA
+  before trusting any playbook, including fully rebound packets.
+- These integrity checks permit preparation only, with proofs NOT_RUN and no
+  worker completion, source admission, portfolio, broker or live authority.
+
+## 2026-10-12 — Bind promotion proof evidence and declared PR groups (#593)
+
+- Pin the canonical promotion evidence hashed by the registered accepted-publication
+  proof; stale bytes and completely rebound omitted dependencies must fail closed.
+- A grouped PR declaration must match both exact-head and metadata mapping keys.
+  Removing a source from both mappings cannot silently shorten the declared group;
+  retain the separate ISSUE contract with no fabricated source heads.
+- These are preparation-only integrity guards. They grant no proof completion,
+  source admission, promotion, portfolio, paper, broker or live authority.
+
+## 2026-10-12 — Keep SEC proof schedules and accepted catalog identities pinned (#593)
+
+- A registered SEC 13F test consumes the actual filing schedule JSON; hash-bind the
+  schedule along with proof code, rejecting stale bytes and fully rebound omissions.
+- A rehashed or empty reuse catalog cannot erase the independently reviewed 22
+  historical entry identities. Keep the accepted baseline fixed while permitting
+  independently reviewed metadata updates and additive new entries.
+- These guards validate offline preparation only; they do not grant A6 completion,
+  provider/source admission, portfolio execution, target, broker, or merge authority.
+
+## 2026-10-11 — Bind proof modules and reuse implementation closure (#593)
+
+- A registered test route can delegate to another test which imports research
+  modules. Pin the actual candidate packet and registry implementations as
+  mandatory A6 sources, retaining names after source deletion or hash rebinding.
+- A reusable replay entrypoint also consumes NAV, weekly-price, execution-cost
+  and reserve implementations. Bind their actual byte hashes in the existing
+  catalog row and require the bounded local closure for both replay and its
+  risk-grid subprocess wrapper, including unselected and renamed rows.
+- Refresh source verification metadata from the checked snapshot without
+  certifying economic results. Fresh hashes permit preparation only. Final
+  Codex findings stop the merge gate even after scoped independent A6 CLEAN.
+
+## 2026-10-11 — Keep proof packages and preflight boundaries fail closed (#593)
+
+- Bind the complete local AutoLearning package consumed by registered proofs,
+  including package initialization and sibling imports. Mandatory paths remain
+  required after deletion or fully rebound dependency omission. Fresh hashes
+  allow preparation only, never proof approval or economic execution.
+- JSON decoding can exhaust recursion before schema validation. Return the
+  existing structured input refusal at the CLI/API entrypoint, without raising
+  recursion limits or exposing a traceback.
+- An explicit output leaf needs directory ancestors. Refuse existing regular
+  file ancestors while retaining valid existing files and prospective directories.
+
+## 2026-10-11 — Reconstruct tracked test inputs in sparse CI (#593)
+
+- Native proof pinning can include canonical tracked inputs outside CI's sparse
+  checkout. A copy-only test fixture then fails before any assertion executes.
+- Capture one checked-out Git commit and reconstruct absent tracked regular
+  blobs only into temporary test fixtures. Preserve existing working-tree bytes;
+  unavailable, untracked, symlink and non-blob inputs must fail, never skip.
+- Production dependency existence and byte checks remain mandatory. Exercise
+  stale-byte and fully rebound missing-pin refusal with the reconstructed input.
+  A Native scoped CLEAN does not replace fresh required CI on the successor.
+
+## 2026-10-11 — Bind non-Python subprocess proof entrypoints (#593)
+
+- Python imports and repository read traces miss local programs passed to a
+  subprocess and files read by embedded non-Python programs. The registered
+  dashboard chain executes a Node child and inline Node reads of app.js and
+  project-results.js; its Python consumer also reads the canonical promotion
+  state. Bind every actual procedure and input, preserving canonical state bytes.
+- Retain mandatory names after deletion and reject their omission even after
+  every packet/catalog/playbook hash is rebound. Fresh binding permits offline
+  preparation only; it does not invoke or approve the altered proof program.
+- A scoped independent CLEAN is one gate. A later actual Codex finding stops
+  the merge gate and requires fresh tests and reviews on the corrected HEAD.
+
+## 2026-10-11 — Pin consumed proof inputs and reject future verification (#593)
+
+- A proof entrypoint/import inventory also needs non-Python read inputs: workflow
+  glob members, contract JSON, schemas and tracked fixture/evidence files. Retain
+  mandatory paths when files are removed; bind newly consumed workflow members.
+- Verify stale-byte and fully rebound omitted-pin refusal with actual API/CLI
+  controls; a fresh byte binding prepares work and does not attest proof success.
+- Parse verification clocks and compare them to one current UTC snapshot. Valid
+  syntax is insufficient evidence of past verification; retain equal/past clocks
+  and future expiry controls across selected and unselected catalog rows.
+
+## 2026-10-11 — Resolved schema cycles need structured runtime refusal (#593)
+
+- A valid metaschema and resolvable local pointer can still loop on one instance.
+  Normalize RecursionError only at schema evaluation to the existing contract
+  refusal; keep terminating recursion valid and do not raise recursion limits.
+- Rebind canonical/dependency/packet hashes and exercise actual API/CLI in both
+  optimization modes. A CI pass does not supersede an independent failing case.
+- Preserve both sides of accepted lesson changes during master reconciliation;
+  pin new proof helpers and embedded workflows consumed by registered tests.
+- Pin the parent workflow read/compiled by a registered test as well as a new
+  helper's workflow. A pinned entrypoint alone cannot bind its embedded source;
+  verify old-byte and fully rebound omission refusal with fresh-binding controls.
+
+## 2026-10-10 — Board lazy consumers and catalog/schema refusal boundaries (#593)
+
+- Trace mandatory lazy imports as well as top-level imports. The Board's
+  materializer executes during verification, so every Board consumer must pin
+  it even when a successor Toolbox omits it. Refuse changed bytes with old pins;
+  a freshly authorized dependency binding is preparation, not inherited proof.
+- Validate verification timestamps and exact master identities for every
+  canonical catalog row, including unselected rows. Complete hash rebinding
+  cannot replace missing provenance. Preserve historical master evidence and
+  timezone-aware clocks; normalize UTC conversion overflow and never claim
+  current live review from syntax.
+- Check both local canonical schemas and normalize SchemaError to structured
+  BLOCKED_INPUT for API/CLI callers; invalid schema JSON is different from an
+  invalid packet. Test the actual refusal under normal/-O with child optimization
+  inherited. Preserve separate author/A6/Codex evidence and all authority gates.
+- Metaschema checks do not resolve instance-time references. Catch the public
+  Unresolvable family at iter_errors and use a Registry with no retrieval;
+  missing pointers/anchors must refuse without traceback or external reads.
+  Hash-rebound packet/scope negatives and valid local-reference positives
+  need actual API/CLI coverage before a new exact-head review can be CLEAN.
+- Reconcile current master in the existing released Main checkout. Keep both
+  accepted shared-lesson blocks when resolving an append conflict; an older
+  green CI or scoped CLEAN does not approve the reconciled source HEAD.
+
+## 2026-10-11 — Bind conditional private retention to actual account and storage
+
+- Owner consent and provider terms are distinct evidence. Twelve's current
+  Individual Basic pricing includes internal non-display use; its US equities
+  guide explicitly includes EOD/history from Basic without an additional license.
+  Terms2.2/16 still restrict retention by subscription/provider conditions and
+  require deletion on termination/expiry. Do not demand perpetual rights for a
+  conditional research capture, or claim that conditional rights are perpetual.
+- A live api_usage result must identify the selected individual plan and actual
+  quota. Unknown plans/limits, auth/quota failures or an absent selected Secret
+  stop capture; no account fallback. Do not retain the usage response body.
+  Official SDK JSON fields are plan_category and plan_daily_limit. Strictly
+  bound the known Basic quota signature; invented plan/daily_limit fixtures
+  do not verify the real endpoint. Reject unexpected price-response fields.
+- Reuse reviewed rclone OAuth validation/refresh without exposing configuration;
+  verify the actual Drive user/sole owner, parent folders, sharing, contract hash,
+  capacity and upload/readback before price capture. Service-account sharing is
+  not equivalent to the requested sole-owner destination.
+- A bounded four-symbol raw/splits history pack and its clean Drive restore can
+  prove research-byte persistence. It cannot prove Russell membership, complete
+  NYSE sessions, historical identity/PIT, Alpaca IEX concordance, an Immutable
+  Reader generation, source admission or economics. Whole-cohort batches remain
+  disabled until this pilot and the exact versioned cohort are independently
+  verified. Vendor raw must never enter public Actions artifacts or output.
+
+## 2026-10-11 — Use the provider instrument's segment MIC in strict probes
+
+- Current Twelve AAPL/MSFT catalog and daily EOD sample use `XNGS`; generic
+  older examples use operating MIC `XNAS`. Verify the instrument-specific MIC
+  before filtering. Keep exact response MIC validation; do not accept aliases.
+- Model a catalog that refuses the wrong MIC. A response echoing any requested
+  MIC misses the failure. Current catalog identity does not certify historical
+  identity, PIT, account entitlement or retained-data rights.
+
+## 2026-10-11 — Model provider date boundaries in access probes
+
+- Twelve's daily historical example excludes the date-only `end_date`; equal
+  start/end dates can produce an empty query. Use the next date as the upper
+  bound while still requiring the exact requested session in the response.
+- A mock that returns a valid bar for any query misses this failure. Exercise
+  the documented half-open range behavior. Keep runtime 400 causes, account
+  entitlement, retained data rights and historical admission unverified.
+
+## 2026-10-11 — Separate provider availability probes from historical admission
+
+- Use the owner's exact GitHub Secret name (`TWELVE_API_KEY` here); an empty
+  Native environment does not prove repository Secrets are missing.
+- Validate a fixed one-bar response and earliest-date metadata without retaining
+  prices or vendor error text. Stop on authentication, quota or redirect refusal;
+  use one account and no retry to multiply access attempts.
+- An advertised or reported ten-year span does not certify account-bound private
+  retention, complete sessions, raw/split concordance, historical identity or PIT.
+  A Draft workflow cannot replace reviewed-master execution or independent A6.
+
+## 2026-10-10 — Frozen Stage A/B receipt capacity and consumer evidence (#595)
+
+- A valid source contract can produce an oversized phase receipt. Reserve the
+  consumer's unchanged byte/node limits before callbacks or evidence writes,
+  including maximum legal sink ID lengths and JSON-escaped caller identities.
+  An outer partition cap alone cannot guarantee verifiable output capacity.
+- Budget immutable retained evidence per phase, as the producer snapshots do.
+  Fresh IDs per save are valid without content deduplication. Recheck every
+  prior physical snapshot at the end so later reads cannot mask its mutation;
+  report the bounded retained-memory allowance separately from archive size.
+- Equal price/source hashes and Git HEAD cannot authenticate all native reads.
+  ConsumerView is a trusted API, not an OS/network sandbox; undeclared external
+  reads and executed module bytes remain unverified. Byte PASS never grants
+  fairness, G0, economic readiness or A1 source admission.
+- Normalize timezone conversion overflow to a finite clock refusal. Keep author
+  regressions separate from independent exact-head A6 and final PR review;
+  later reproducible findings supersede a prior scoped CLEAN result.
+
+## 2026-10-10 — Manual review anchors and proof pins need complete scope (#593)
+
+- A packet/manifest rehash proves consistency, not adoption. Preserve immutable
+  semantic content for every accepted retained playbook version, including
+  successors; deleting history cannot reset the reviewed baseline. Capture a
+  separately reviewed anchor before adoption. Explicit successor preparation
+  covers only the selected playbook and never approves an unselected proposal.
+- Validate canonical JSON object roots before field access. Malformed roots
+  must return structured BLOCKED_INPUT, including under Python optimization.
+- Pin actual mandatory consumers, not only their entrypoint: Board mission,
+  configuration/requirements/schema inputs; A1 Reader imports/default registry;
+  A6 fixed registered test programs and their local program helpers. Keep fixed
+  pins even when mutable Toolbox/manifest declarations remove them. A changed
+  proof program invalidates its old packet just as a changed operating contract
+  does. Review consumed-input inventory changes with the proof procedure.
+- Independent QA must derive attacks from every claimed validation target and
+  actual consumer path. Large test counts and normal/-O PASS do not close a
+  missing boundary; exercise fully rebound hashes, selected/unselected rows,
+  omitted pins and actual CLI behavior. Record reusable lessons in this ledger,
+  not only PR comments. Review receipts remain NOT_RUN/RESEARCH_ONLY preparation;
+  no source admission, economic, Fullrun or trading authority follows.
+
+## 2026-10-09 — Manual pinning is preparation, not execution authority
+
+- Bind the recurring playbook version/hash, actual dependency bytes, base,
+  owner, files and proof in one task envelope. A new model/computer does not
+  change domain authority. Matching supplied JSON/hash alone neither verifies
+  human approval nor creates an A0 completed-task receipt.
+- The canonical reuse catalog records PR heads separately from Issue
+  requirements: #505/#510/#516/#526/#531 are Issues, not PRs. Reuse only the
+  named current capability; a merged guard or reference index is not complete
+  source admission, calibrated economics or actual execution.
+- Resolve failed-research IDs in the existing do-not-repeat registry. Keep
+  superseded/manual/catalog records historical; version and recheck only the
+  affected Process/Toolbox/Proof dependency. See MANUAL_FOUNDATION_V1.md.
+
 ## 2026-10-03 — Workflow paths need complete admission evidence (#556)
 
 - Authenticated review of `9de5aede` found four defects despite Linux232/232
@@ -6085,6 +6538,77 @@ Expected contract:
   pre-event clock guards. Owner registered old-head regression fails four rename
   cases; unrelated identity/provider and older/post-event positives remain valid.
 
+### 2026-10-03 - Common bytes require a separate pin and leave semantics unverified
+
+- The prepared 13-role comparison prototype omitted three requested identities.
+  Native v2 requires all 16 roles and a caller context pin independent of either
+  arm; partial options must block before legacy metric reads.
+- Bound actual flat-file reads, descriptor identity, links and byte budgets.
+  Windows cross-descriptor timestamps require explicit birth time, not deprecated
+  ctime. Matching supplied bytes cannot certify provider/PIT or executed policy,
+  fix a conflicting legacy window claim, or grant economic/fullrun/book authority.
+
+### 2026-10-03 - Immutable admission includes output geometry and cached tails (#571 P2)
+
+- Reject report/input physical overlap before admission or legacy reads, even
+  when options or pins already block. A blocked report must never overwrite
+  pinned input bytes. Include symlink/junction and multiply linked report aliases.
+- Cache hits retain snapshot obligations. Revalidate the native root and every
+  returned leaf after the final read, including an entirely cached second arm.
+  Native receipts count actual unique-ID reads including preloaded arm files;
+  in-memory callable APIs count only their actual reads. Byte identity still
+  grants no provider/PIT, economic, fullrun or book authority.
+
+### 2026-10-03 - Resource and geometry guards must preserve their API contract (#571 P2)
+
+- A final unsafe-output guard must return a bounded blocked result to direct
+  callers as well as CLI users, without retrying publication or retaining rows.
+- Cap actual reads by observed size and both remaining byte allowances; charge
+  each return even before a later error. Final identity checks detect growth.
+- Bind physical endpoint/ancestor identities when path spelling can alias.
+  Preserve disjoint missing outputs; label POSIX spelling simulations separately
+  from actual Windows fixtures and do not claim macOS execution.
+
+### 2026-10-03 - Report publication needs native anchors and held inode ownership (#571 P2)
+
+- A final path check does not secure later mkdir/open/write. Anchor components
+  and write only new inodes; return bounded direct API failures as well as CLI2.
+- Test reached phases, native Windows locks, CREATE_NEW gaps and held-handle
+  deletion. Never retry cleanup against a raced new occupant after releasing
+  the old handle. POSIX cannot conditionally unlink an inode; retain incomplete
+  names on error. Install summary last and distinguish prior receipts on retry.
+- Do not claim three-file atomic publication or substitute old QA for new races.
+
+- Final installed names need inode and expected serialized-byte checks,
+  including the summary. Unverified retained names are not current receipts.
+  Stdout failure is telemetry only; never retry a failed publication to hide it.
+
+### 2026-10-04 - Residual witness entries forbid legacy downgrade (#571 P2)
+
+- Formal review of a622 found that stripping every publication indicator and
+  changing/removing the version let plain summaries bypass a remaining witness.
+  Twelve actual reader/queue counterexamples per mode still promoted those rows.
+- Probe the witness directory entry without following dangling links; any entry,
+  denied probe or observed path inconsistency must disable historical fallback.
+  Keep strict generation/hash validation on the same capped raw summary bytes.
+- Preserve true no-witness legacy and current witnessed positives. Assert actual
+  race reach and queue outcomes; native POSIX parent/FIFO cases need Linux, and
+  snapshot observations do not guarantee permanent absence or an OS sandbox.
+
+### 2026-10-05 - Keep rejected-root reports separate from admitted root anchors (#571 P2)
+
+- Formal review found that anchoring a rejected file/link root replaced the
+  original admission error and prevented a safe separate blocked receipt.
+- Anchor only the native resolver identity, including later blocked arm/byte
+  failures. Keep declared geometry checks for pre-root failures and publish
+  their original bounded reason with empty candidates and closed authority.
+- Completed blocked-report acknowledgement is not comparison admission. Test
+  actual four-file witness/consumer parity, API/CLI2, aliases and root moves.
+- A native counterexample moved the declared input directory after a pre-root
+  pin/options rejection. Retain observed endpoint/ancestor geometry apart
+  from admission and reject it before output mkdir/leaf adoption. Verify
+  phase reach and the entire moved input census, including witness leaves.
+
 ## 2026-10-03 — Close SQLite handles after blocked materialization
 
 - A SQLite connection context manages commit/rollback and does not close the
@@ -6093,3 +6617,2169 @@ Expected contract:
 - Keep real connection objects alive in tests, then verify closed API behavior,
   same-process reopen/rename, rollback on later failures and clean positive
   materialization. Do not rely on GC or weaken source/PIT/cutoff gates.
+
+## 2026-10-04 — Registered provider secrets require explicit source wiring
+
+- FMP_API_KEY2 and EODHD_API_KEY registration did not change the existing
+  collector. The latest October 3 workflow requested 60 securities and returned
+  estimate-positive rows for 10; green workflow status did not prove coverage.
+- The collector now permits explicit secondary FMP selection; the bounded probe
+  reuses accepted H1 normalization and selects one secret without fallback or
+  pooling. It reserves failed HTTP attempts and EODHD's 10-call Fundamentals
+  cost, and reports unknown identity separately. No raw account response,
+  forecast value, key, or key fingerprint leaves the probe process.
+- Offline regression caught a wrong H1 builder argument and a test that ignored
+  the API_KEY2 suffix. Test the exact builder and registered H1 wrapper. A parsed
+  sample or secret registration is not durable collection, usable coverage or
+  consumer admission. Merge/dispatch and real credential validation remain pending.
+- See docs/EARNINGS_ESTIMATE_SOURCE_PROBE.md for scope, budgets and limitations.
+
+## 2026-10-04 — Source-only diagnostic output must isolate file inodes
+
+- Independent A6 reproduced an output-isolation breach at initial source-key
+  head 19b348bc: a permitted report.json hardlink caused direct write_text to
+  overwrite another operational inode, even when missing keys made HTTP zero.
+- Resolve/path admission alone does not protect hardlinks. Write a new file in
+  the admitted directory and atomically replace its directory entry; never
+  truncate an existing report inode. Preserve unrelated user/agent ledger bytes.
+- The regression preserves an operational fixture byte-for-byte, separates its
+  inode from the new diagnostic, checks cleanup, and runs under normal and -O.
+
+## 2026-10-04 — Provider quota schemas need documented string fixtures
+
+- Formal Codex review of b55cc61c found a P1: EODHD documents apiRequests and
+  dailyRateLimit as optional strings; integer-only fixtures incorrectly blocked
+  valid account usage before any estimate request. Registration alone is not a
+  real-schema access test, and an earlier CLEAN A6 cannot replace formal review.
+- Normalize bounded ASCII digit strings and integer counters before existing
+  quota checks. Continue rejecting booleans, signs, decimals, whitespace,
+  non-ASCII digits, missing or oversized counters, and uncertain dates.
+- Documented string/mixed counters now reach the fixture estimate endpoint;
+  malformed counters spend no data units. Existing bonus exclusion, last-active
+  counter subtraction and pre-send budget reservations are unchanged.
+- See https://eodhd.com/financial-apis/api-limits. This second source correction
+  changes the exact head; prior-head formal review is not current-head evidence.
+
+## 2026-10-04 — Preserve terminal probe access failures and provider identity
+
+- After formal review 5403673788 and independent normal/-O counterexamples,
+  the user explicitly authorized fixing the two defects first. This narrow
+  third correction supersedes the earlier stopped-cycle state; conditional
+  merge and the single bounded EODHD sample still require all review gates.
+- A successful FMP sample followed by 401/403 now retains its earlier data
+  while ending with PROVIDER_AUTHORIZATION_REJECTED/nonzero CLI status. It
+  stops later requests, keeps one chosen key, and preserves partial 402 success.
+- EODHD security_id is preserved only from response metadata. Its absence stays
+  null/UNKNOWN even when other identity fields are present; supplied identifiers
+  are not overwritten. Never manufacture ticker-to-security identity for counts.
+- Four new fixture cases cover both FMP aliases and 401/403 through real CLI,
+  missing identity with otherwise complete metadata and explicit identity across
+  annual/quarterly EPS/revenue. The registered H1 wrapper passes 107 normal/-O
+  tests. Fixture success does not prove real entitlement or usable data growth.
+
+## 2026-10-04 — Propagate bounded probe failures and register the actual CI entry point
+
+- Formal review 5403789017 on PR575 head 05d7dc0 found that the accepted
+  collector's catch-all swallowed local ProbeBlocked failures and could retain
+  SAMPLE_PROBED after partial data. Offline real-CLI counterexamples reproduced
+  request/unit exhaustion, redirect, oversize and wrong-symbol failures in both
+  aliases and normal/-O modes; malformed schemas and network errors also need
+  a terminal outcome. Only security-specific FMP 402 may continue.
+- The user explicitly authorized one narrow fourth correction and one new-head
+  formal review. The bounded adapter reuses the accepted low-level JSON fetch
+  and FMP parser without catch-all recovery; earlier observations remain in the
+  diagnostic, later tickers stop, and the CLI exits nonzero for fatal failures.
+- Importing a suite into a wrapper does not register it in required validation.
+  The earlier 'registered H1' wording was inaccurate: DEFAULT_TESTS omitted
+  both wrapper and probe suite. Register the H1 wrapper explicitly and verify
+  selection through the real Tier-1 runner, not only unittest module execution.
+  Required-runner H1 and optimized H1 pass 113 tests including 38 probe tests.
+- These fixtures certify code behavior, not account entitlement or data growth.
+  Existing exact-head review/merge gates and the one bounded EODHD approval
+  remain in force; no real provider request or operational write has occurred.
+
+## 2026-10-04 — Review the protected runner ancestor before advancing its verifier pin
+
+- PR575 head e77f434 passed independent A6 and formal Codex review, but required
+  CI run 37169189570 passed only 232/233 files: the P0-4 verifier rejected the
+  newly registered H1 wrapper as a later protected runner delta. Repeating CI
+  or removing the critical registration would not repair the publication gate.
+- After explicit human approval, this follow-up advances only the two executable
+  FROZEN_PROTECTED_PUBLICATION_COMMIT constants to that reviewed causal ancestor.
+  The generator algorithm, protected paths, frozen artifacts and registration
+  remain unchanged. Existing dirty-generator, protected-delta and pin-only
+  fixture regressions pass locally. Full live-HEAD P0 validation remains a CI
+  gate because the shared native checkout belongs to a separate owner branch.
+- The new final head still requires independent A6, a fresh formal Codex review,
+  green required checks and the exact-head review-complete gate before the
+  already authorized expected-head merge and bounded EODHD source-only sample.
+  This verifier repair makes no entitlement or coverage-growth claim.
+
+## 2026-10-04 — Execute explicit head preflight and inject only the selected probe key
+
+- Formal review5403970938 on PR575 head6353c040 found that job-level exact-head
+  filtering could produce a skipped/Success result and that one selected-provider
+  process received all three provider credentials. Green CI233/233 and the
+  pin-only A6 review did not close these two workflow findings.
+- The human accepted the root plan including exactly these two corrections and
+  one fresh final-head review. The existing source writer applied the prepared
+  two-file patch: repository/master/SHA assertions now run first and fail before
+  checkout or credential injection; only the selected provider secret is nonempty.
+- Current-head offline workflow counterexamples failed and the prepared fix
+  passed. The actual registered H1 wrapper now passes115 cases, including40
+  source tests, in normal and optimized child processes with real HTTP blocked.
+  These tests cover wrong repo/ref/SHA/empty or hostile expected-head strings and
+  all provider selections without any credential value or real provider request.
+- Protected runner registration, verifier pins, data/consumer contracts, budget,
+  concurrency and operating workflows remain unchanged. Fresh exact-head A6,
+  formal review, green CI and unresolved0/review-complete still precede the
+  previously approved expected-head merge and single bounded EODHD sample.
+
+## 2026-10-04 — Isolate the selected FMP account in the existing daily collector
+
+- PR575 final3deadc4 passed independent A6 and required CI37174383317
+  (233/233 files), but formal review5404140253 found one further P2:
+  both FMP credentials were injected while the CLI selected a single account.
+- After direct human approval, this sixth narrow correction conditions both
+  FMP secret expressions on the same effective fmp_key_name as the existing
+  CLI. Schedule/default still selects primary; manual secondary stays explicit.
+  Missing or unknown selection exposes no unrelated FMP account. Vendor order,
+  mode, quota, schedule, CI registration and protected pins are unchanged.
+- The prepared offline25-scenario regression reproduced17 old failures and
+  passed after repair. Its first actual-H1 harness caught a missing method-local
+  re import hidden by a standalone harness; the proposal fixed it before source
+  application. Actual registered H1 now passes116 cases including41 source cases
+  in normal and optimized children, with real provider HTTP forbidden.
+- The first full wrapper run exposed an old workflow-wiring assertion that
+  required the formerly unconditional secondary secret. Update that expectation
+  to the new conditional expression; retain the behavioral isolation cases and
+  CLI/default/no-fallback checks instead of weakening or skipping the test.
+- Candidate publication compares normalized Git bytes: Windows fixture CRLF
+  must be normalized before exact proposal matching; raw owner bytes stay intact.
+- Reuse the accepted source/provider research and existing READ_ONLY A6. One
+  fresh final-head formal review and current CI remain required; previous-head
+  CLEAN/green evidence cannot authorize this changed head. The already approved
+  single EODHD sample remains bounded to3HTTP/20daily units/no bonus/no retry.
+  No operational daily dispatch, purchase, durable data or consumer activation.
+
+## 2026-10-05 — Adopt pure source libraries without their activation surface
+
+- Preserve the original core124/all eight producer cases and 203 unchanged
+  library cases in durable native units; name all 53 unadopted CLI/provider cases
+  separately. Reuse the registered H1 wrapper and full native #388/H1, not fixtures.
+- Status/expiry branches must not hide backward source clocks. Numeric string
+  validation must return copied normalized rows; public input domains must match
+  their actual parser/register, including signed and null conventions.
+- Numeric canonicalization can change digest bytes. Parser compatibility and
+  local tests do not authenticate producers, certify PIT, activate Calendar,
+  complete SEC actual extraction or authorize economic/ER/A5 consumption.
+- Nonempty SEC isolation must prove content/extraction review and selected-source
+  repair without optional Calendar modules, keys, HTTP or optimized-away assertions.
+
+## 2026-10-05 - Keep context completion and reuse bound to consumed evidence
+
+- An observed market row is not usable breadth without valid returns or an
+  eligible non-null metric. FINRA venue activity cannot replace CFTC positioning.
+- Keep a consumed security map's canonical hash and availability clock in both
+  the final context and its semantic reuse identity, even if paired values match.
+- Generic contract/index identity changes do not prove a narrow affected scope;
+  revoke every current candidate's thesis slices while keeping review authority closed.
+- SEC accession prefixes identify submitters, including filing agents. Preserve
+  raw/issuer/membership checks; do not impose an incorrect issuer-prefix gate.
+- Optional documentation can be SHA-pinned by accepted U0 inventory: restore
+  only owned conflicting bytes, without repinning or weakening its audit. Verify
+  approved wrapper AST and exact scoped deltas rather than stale byte expectations.
+
+## 2026-10-05 - R3 review ordering and represented observation reuse
+
+- Initial filing-content/extraction review belongs to A3 after A1; metadata is
+  not leadership, extracted actuals or a reason to wait for those later ER inputs.
+- Equal source clocks with changed semantics must fail before status/expiry
+  repair. Correct the two inconsistent clock-positive inputs, retaining their
+  assertions, unchanged/advanced positives and backward/conflict negatives.
+- Omit only known transport-hash aliases from reuse; retain consumed map hash
+  and clock. Mixed requests keep the existing agent-wide dependency union.
+
+## 2026-10-05 - Preserve each consumed mapping through context compaction
+
+- Calendar symbol-to-theme provenance is distinct from vendor-to-native identity.
+  Retain each map hash and UTC clock even for empty, unmatched or stale pairs;
+  transport-only churn cannot replace a changed consumed mapping.
+- Validate supplied mapping identity before compaction; canonical UTC/key-order
+  controls reuse context. Format/clock checks do not authenticate a producer or PIT.
+
+## 2026-10-05 - Distinguish proven review-only history from publisher attempts
+
+- A failed push can contain only nonrunner review checks. Preserve the history
+  and classify it separately only with complete strict attempts, exact owner/run/
+  repository/job identities, zero artifacts and the historical workflow bytes
+  fetched at that immutable head. Current YAML or empty jobs alone is no proof.
+- Bind the returned source ref/path and actual Git blob hash; unknown/manual,
+  partial or ambiguous histories remain blocked. This source fix neither clears
+  active-writer conflicts nor grants fresh publication/cache/durable authority.
+- A stale run can remain active/queued in canonical API reads while cancel
+  returns HTTP 409. Failed cancellation is not clearance; retain the conflicting
+  writer gate and report the service-status contradiction as an external blocker.
+- API workflow_name is normally a historical display name, while a failed
+  legacy compile may return the exact verified path. Bind every job to the
+  authoritative run name and immutable source; do not rewrite real metadata
+  or let per-job aliases hide mixed evidence. Synthetic API-shaped fixtures
+  must cover both observed fallback and documented normal contracts.
+  Preserve the existing registered TestCase/main; new boundary methods must
+  actually enter that suite rather than remain an unregistered sibling class.
+
+## 2026-10-05 - Execute the prepared NAV contract through an owned child
+
+- Prepared E2 math stayed unimplemented without an execution child and sole
+  caller/lesson lease. Bind the child to current source and fresh native tests;
+  archived oracle passes do not prove caller integration.
+- Admit untouched rows against independent closes, prefill/predecessor NAV,
+  actual interval RF and zero-flow evidence. A valuation receipt cannot replace
+  an observed clock; generated weekly unit capital is not net account evidence.
+- Research status alone cannot protect orphan curves: separate every output
+  name, reject input/cache aliases before cleanup, and clear partial exports.
+  Preserve genuine cost-failure redaction without redacting valid execution.
+- Runner registration must retain the reviewed protected-publication boundary;
+  advance only the two pins after the real causal ancestor is reviewed.
+- First-freeze review exposed three finite boundaries: enforce resource budgets
+  before file/JSON/frame allocation; bound every research OS-error stage and
+  disclose incomplete cleanup; protect the actual selected input cone before
+  export invalidation, including default rates and reverse cache aliases.
+  Preserve legacy/programming-error behavior and actual cost-failure redaction.
+  Local Windows alias/FIFO injections do not prove POSIX or privileged symlinks;
+  keep supported Python3.12 fallback and platform coverage limits explicit.
+- Suppressed path predicates are not absence evidence: only FileNotFound may
+  clear a leaf; denied lstat must return blocked/incomplete cleanup telemetry.
+- Eight exact-head findings exposed caller admission gaps despite local passes:
+  selected read/stat errors must not become empty/inferred inputs; refusals must
+  disclose retained generations without overwriting protected input bytes.
+  Project/bound only consumed frame cells before copying; every valuation point
+  must precede receipt availability/cutoff before slicing, and OOS needs a real
+  predecessor. Reject undeclared weekly evidence keys; scope trade counts and
+  preserve fixed NAV mode separately from genuine execution-cost redaction.
+- The first hosted-fix freeze exposed remaining target/rate/slippage IO
+  suppression: make selected reads strict at the actual helper, preserving
+  default constructor/cost normalization. Rejected weekly package shapes have
+  no eval date; only four own freshness expectations change to unknown, with
+  all blocked/null/no-curve assertions retained. Record failed freezes honestly.
+- Zero-flow absence receipts must cover the scope end, including empty/zero
+  events. RF aggregate availability must cover actual row clocks, while valid
+  early RF rows and independent anchor/grid remain eligible. Preserve cutoff
+  bounds and supplied clocks; never restamp receipts to clear admission.
+- Full valuation provenance must bind the original rows, reference identity/clock
+  and cutoff before slicing; a rows-only hash loses consumed evidence. Use the
+  exact offline NYSE schedule for historical closes, not modern hour/weekdays.
+  Predecode JSON budgets must count actual values/containers like encoded,
+  excluding object keys from nodes while preserving byte/depth limits.
+- Caller review exposed four opt-in boundary failures: blocked broker windows
+  must replace full/sibling performance, empty weekly portfolios need blocked/null
+  schema, selected context reads belong before cleanup authorization, and every
+  research diagnostic export must be finite without zero-cost substitution.
+  Preserve independent weekly diagnostics and genuine E1 DO_NOT_USE redaction.
+  Bind additive upstream lessons and original assertion bodies; use scoped index
+  entries rather than a slow global stat scan. An interrupted own verifier lock
+  is removable only after exact identity and a no-live-Git census are recorded.
+- IS starts at caller row zero even with a non-null upper-only range. Bind
+  PREFILL kind and actual initial capital to the admitted first selected session,
+  not tuple syntax or labels; interior slices keep their actual predecessor.
+  Rehash changed NAV/kind counterexamples so stale hashes do not mask this guard.
+- Selected raw decoders can fail outside OSError: normalize only proven format
+  errors at strict readers, retaining finite cause codes and cleanup disclosure.
+  Validate consumed JSON objects and exact invalid-date conversion explicitly;
+  keep programming errors, default absence and cost/date formulas unchanged.
+  Match helper arity and frozen import namespaces in negative harnesses; separate
+  harness failures from real input failures and bind corrected evidence explicitly.
+- Parquet metadata can decode as valid JSON yet fail in native attrs conversion.
+  Bind the exact read/__setattr__/setter code chain, distinct engine and paired
+  DataFrame/value/consumed metadata before normalizing; native successful coercions
+  remain valid. Re-raise unmatched programming/backend errors, inspect transiently
+  without a second source read, and record dependency/platform limits explicitly.
+- Frame-locals proxies need fixed-key membership across Python versions;
+  bind negative link expectations to actual input preservation and caller rules.
+- Public path-loader flags must activate both the caller research namespace and
+  its IO guard before selected reads, cleanup or output. CLI dummy objects can
+  conceal direct-API fallback; test both real call signatures, selected-file
+  precedence and None-path refusal while preserving unselected legacy defaults.
+- A healthy CLI fixture must supply evidence for every requested default window
+  or use its documented opt-out; fix the fixture, never relax admission.
+
+## E2 atomic publication and native path recursion (2026-10-06)
+
+- A refused aggregate must not retain completed sibling/window performance in any published metric view; keep labels, reasons, null metrics and separate finite execution diagnostics.
+- Normalize recursion only from the actual installed pathlib code/receiver/handled OS context; message-like programmer errors remain visible. Windows missing-leaf ancestor parity and genuine self/two loops are different evidence.
+- Check helper signatures and healthy optional metadata before attributing author failures; exception chaining may break a context cycle when the original OS error is rethrown. Preserve those author diagnostics separately.
+- Fresh redaction must retain a failed child's precise reason when top admission succeeded, and the causal top reason when it did not. Restore only the three fixed safe weekly proxy diagnostics; the old sibling-COMPLETE expectation required an explicitly authorized one-leaf contract correction.
+- Stop owned validation at a failed phase boundary and preserve failed-source evidence. Separate product reason/diagnostic regressions and fixture conflicts from author signature/census/CRLF errors or C3 V1's wrong-alias mechanical check; the latter is a verifier diagnostic, not a product defect.
+
+## 2026-10-06 — Native-origin fixtures must preserve actual call frames
+
+- A selected real symlink loop must reach unpatched pathlib directly. A test-local
+  delegated resolver adds a forbidden traceback frame; retain wrappers only for
+  controlled output/cleanup OSError injection and keep wrong-origin negatives.
+  Local 3.14 or nav-only 3.12 coverage does not replace broker/weekly 3.12 CI.
+
+- A runpy audit launcher must preserve the native script-directory import path;
+  missing helper aliases are harness failures, not candidate failures.
+
+## 2026-10-06 — Validate selected holdings headers before normalization
+
+- A readable nonempty selected CSV can omit required date/ticker/weight headers.
+  Check both raw books before normalization or cleanup, then disclose retained
+  publication as incomplete without fake weights or catching programmer errors.
+  Preserve genuine empty inputs and ordinary normalization behavior.
+
+## 2026-10-06 — Windows inventory fixture byte boundaries
+
+- The Windows full 37-test inventory run stopped at README because seven tracked text fixtures are CRLF while the unchanged generator emits LF. All eight generated outputs matched HEAD Git bytes; Parquet bytes matched exactly.
+- Preserve fixtures and gates. Record full normal as failed and full -O as NOT_RUN; report focused pin controls and their plain-assert limits separately. Require exact-head Linux full inventory and all required CI before acceptance.
+
+## 2026-10-06 - Bind weekly evidence before annualization
+
+- Generated weekly NAV needs zero missing holding prices and exact native weekly
+  cadence. A terminal endpoint cannot grant its own partial week; use cutoff.
+  Validate selected nonempty slippage header groups before silent normalization.
+- Two old weekly-positive subcases used daily or sparse fixtures. Preserve the
+  broker branches/assertions and bind separate genuine weekly fixtures. A new
+  diagnostic-field assertion can fail on old output; retain that test-side error
+  separately from product tracebacks and completed new-head validation.
+- Author positive controls must include every intervening week and actual caller
+  valuation binding; incomplete controls are test diagnostics, not product defects.
+
+## 2026-10-06 - Preserve execution refusal while binding actual weekly sessions
+
+- Zero missing-price count does not make mixed constituent price sessions current.
+  Research marks must bind each actual holding session to the admitted aggregate;
+  coherent native partial, Saturday, holiday and early-close controls stay valid.
+- Canonical non-execution refusal and genuine E1 failure are distinct. Keep E1
+  audit/DO_NOT_USE/redaction and add a separate null measurement admission;
+  only exact empty OOS2 end means None, never other falsey types.
+- Compare raw and trimmed evidence hashes by their declared convention. New
+  test controls must use date-only clock inputs, the actual package key shape
+  and existing refusal reason location; retain failed author diagnostics.
+
+### 2026-10-06 E2 broker held-price session admission
+
+- An aggregate NAV clock cannot certify constituent prices. Opt-in replay refuses a
+  nonzero held mark from another session or an unavailable price; keep legacy
+  valuation/cost math and genuine E1 redaction unchanged. New-test import and late
+  E1-envelope assumptions are author diagnostics, not reasons to widen E1 output.
+- Check pin claims at the exact reviewed head: aa67's canonical 4f17 ancestor
+  check passed with no protected-path delta, so retain the pin rather than refresh
+  it from a review assertion that contradicts the actual source evidence.
+
+### 2026-10-07 E2 selected Parquet CLI native-abort diagnostics
+
+- A Windows blocked-return control does not diagnose a Linux child signal. Keep
+  return code 2 and all admission/preservation assertions; capture exact argv,
+  stdout/stderr, completion phase and child faulthandler output before changing
+  a reader, backend or policy. Separate fixture setup calls from the single CLI.
+
+## 2026-10-07 — Product analytics must start with a non-transmitting privacy contract
+
+- A static public Pages surface does not by itself provide an approved private analytics collector. Keep collector_endpoint null and transmission disabled until hosting/provider, privacy-policy, consent and retention requirements are separately approved.
+- Pre-auth product-value measurement can be deterministic without persistent identity: use consented ephemeral sessions, strict event/property allowlists, usable-data qualification, dedupe and fixed timezone/session rules. Do not convert missing signup/user identity into zero D1/D7/D30 retention.
+- Keep raw behavioral events out of the public repository, reject free text and account/broker fields, and leave autocapture/session replay/ad tracking off. Browser instrumentation is a later B-side task, separate from investment logic and publication authority.
+- Qualification and denominator state must use the same whole-session rule: one degraded/stale/incomplete/blocked event makes the segment non-usable and non-qualified. Never filter bad-state rows away only for the numerator.
+- A selectable contract file is input, not authority. Pin every frozen privacy-critical v1 invariant in code so a same-schema custom contract cannot enable user IDs or forbidden fields.
+- Bound offline analytics input bytes, event count, JSON depth and node count before expensive aggregation; normalize recursion/oversize failures to finite contract errors, and keep these regressions in Tier-1 validation.
+- Resource budgets apply to the whole export, not independently to each JSONL row; revalidate the assembled row set so individually valid rows cannot bypass the cumulative node cap.
+- UTC syntax validity is not enough for calendar aggregation. Normalize timezone conversion overflow at the KPI-day boundary to a finite ContractError instead of crashing the batch.
+- Validate KPI-timezone convertibility for every admitted event clock, not only the first row later chosen as a session-day anchor; a later row can overflow while remaining inside the inactivity window.
+- Bound JSON integer token length explicitly at decode time so interpreter-specific oversized-integer ValueError cannot bypass ContractError handling.
+- Identifier-free analytics output must not publish a stable digest over raw event/session identifiers. Hash the redacted aggregate payload, not identifier-bearing source rows.
+
+## 2026-10-08 — G6 regime execution requires validated producer inputs
+
+- A 200-row frame is not 200 usable closes: check raw non-boolean finite positive
+  prices before conversion/mean and distinct ordered dated observations before
+  publishing an alpaca source label. A skip-NaN mean or duplicate dates must not
+  authorize legacy paper execution. Weekend/future/date-shape checks do not
+  certify full NYSE-calendar coverage, source freshness or historical PIT.
+- Reject future/nonfinite/boolean cache clocks and old producer cache versions.
+  Otherwise a previously computed positive aggregate can bypass the new raw
+  checks. Preserve the one-hour TTL and valid-source regime thresholds.
+- An invalid source is unavailable, with an error action; it cannot become a
+  benign regime or an execute override. Preserve dry-run visibility and the
+  existing valid HALT_NEW override; execute+skip and pre-flight errors refuse
+  before target loading, broker construction, orders, alerts or audit writes.
+- Reuse the verified PREP executor patch on exact master. Native tests must use
+  actual pandas/producer/history/cache code, with all network and broker/order
+  boundaries mocked; register normal/-O through the existing smoke wrapper.
+  Frozen master AST checks preserve target normalization and the execution tail.
+- A local partial clone can lack an unrelated blob even when checkout returns
+  success. Require a clean diff before applying code; restore only exact bytes
+  verified against the missing Git object SHA. Preserve the source worktree.
+
+## 2026-10-09 — frozen Reader formal-review corrections (#591)
+
+- Charge retained Python objects as well as expanded JSONL bytes across the
+  whole generation. Bound a line before decoding so malformed nested input
+  cannot allocate an unbounded intermediate row; normalize allocation failure.
+- A same-date availability clock cannot certify a daily close. Reuse the
+  existing offline NYSE holiday/half-day schedule, compare original row time
+  to that session's actual close and preserve delayed publication. Unsupported
+  calendars fail closed for training/backtest; this grants no source admission.
+- Dependency minimums are executable contracts: test actual PyArrow 15, 20
+  and 23 and omit unsupported optional keywords. A small batch does not bound
+  native pre-yield allocation; retain the isolated 512 MiB process guard.
+- Verify immutable Lake inventories once per restore/publication boundary,
+  rather than once per partition. Keep chain/hash/report validators unchanged.
+- Bind test counts and independent verdicts to the reviewed revision. The
+  original A6 PIT matrix missed a licensed REAL_SOURCE pre-close branch;
+  supersede its CLEAN verdict when a later independent counterexample appears.
+- Registering a suite through an existing entrypoint also changes every narrow
+  workflow using that entrypoint. Reproduce its exact sparse file inventory and
+  offline scripts; preserve collector triggers, credentials and execution steps.
+- An optional restore destination cannot become mandatory for pinned Lake
+  reads. Use a temporary cache with refusal-path cleanup, expose verified
+  commit/catalog/execution/quality/report evidence and require completed study.
+- Normalize US symbols for collision comparison while preserving original
+  immutable bytes. Freeze returned row/receipt mappings recursively and expose
+  canonical JSON bytes; a frozen dataclass alone does not protect nested values.
+
+## 2026-10-11 — Secondary Twelve Secret registration needs explicit selection
+
+- Add a bounded master-only choice between TWELVE_API_KEY and TWELVE_API_KEY2;
+  inject only the selected credential and refuse missing/unknown selections
+  before any provider request. Secret names may be reported, never key values.
+- Registration does not establish an independent account quota or permission to
+  combine accounts. Twelve terms2.3(h)/(i) prohibit exceeding rate limits and
+  circumventing technical limitations; quota/auth stop remains terminal with
+  no fallback or retry while account-scoped permission is unverified.
+- An existing private Drive storage contract and recovery canary do not bind a
+  production collector. Keep retained history, Receipt, Immutable Generation
+  and Shared Reader E2E separate from this non-retaining credential preflight.
+- Offline loaded-workflow tests cover second-key selection, absent selected
+  key with another key present, unknown selection and quota/auth refusal in
+  both directions; fixtures do not authenticate either live account.
+
+## 2026-10-11 — Private Twelve capture must verify decoded credentials and the whole restore
+
+- User permission to store research data does not establish vendor rights.
+  Bind the current account's documented Basic quota/category and conditional
+  internal noncommercial terms before capture. Subscription/third-party
+  restrictions and termination deletion still apply; perpetual retention is
+  not asserted. Unknown account/quota or Drive ownership/capacity stops capture.
+- Initial upload readback does not prove a subsequent archive restore. A6
+  reproduced a valid ZIP with changed capture.json rights metadata passing
+  CRC, price-member hashes and normalization. Verify the complete restored
+  ZIP hash and length plus all original members before publishing success.
+- Literal credential bytes can be absent while a JSON string contains the
+  key through Unicode escapes. A6 reproduced this inside an allowed metadata
+  field. Inspect decoded JSON keys and values before any provider raw upload.
+- A restored four-symbol history pilot is not Russell cohort coverage,
+  historical security identity, certified session completeness, PIT, source
+  admission, Alpaca raw/split concordance or Immutable Reader E2E. Preserve
+  these separate gates and keep bulk capture disabled until its cohort binds.
+- Final Codex review requires documented lowercase Twelve order values and
+  Drive files.create ignoreDefaultVisibility=true. Post-upload owner checks
+  detect unwanted domain-default sharing too late to prevent exposure; bypass
+  that default at creation and keep private-parent and readback gates.
+
+# Bind every advertised reuse capability, not only a specialist playbook (#593)
+
+- A1 Reader pins do not protect an L0 packet selecting the same Reader from the
+  reuse catalog. Verify the consumed imports and default registry at that second
+  boundary as well, including unselected rows after complete hash rebinding.
+- Inspect every currently advertised Python capability together. Preserve an
+  independently reviewed local-input recipe for each entrypoint, including
+  stdlib-only leaves, and refuse unreviewed Python recipes supplied by a row.
+- Refresh only exact hash/time/master metadata for unchanged source. A fresh
+  PREPARE_ONLY packet still means NOT_RUN proofs and no worker/economic action.
+- When an ephemeral Native resource disappears, recover only the same approved
+  path and reviewed Git tree, verify one worktree/clean status/actual inputs, and
+  rerun successor validation. Record the incident and exact dependency versions.
+- When a stronger outer contract rejects an old negative fixture first, retain
+  that early-refusal case and supply a valid reviewed closure to reach the
+  intended inner refusal. A different error is not proof of the inner guard;
+  test its actual API/CLI rejection and a permitted control before full reruns.
+
+## 2026-10-11 — Bind actual subprocess targets as well as Python imports (#593)
+
+- A static import inventory missed the risk-grid's subprocess entrypoint.
+  Follow the actual command target and its mandatory local import closure:
+  broker position-risk replay, position-aware replay and historical replay
+  library, in addition to the existing ledger/evaluation dependencies.
+- Use literal independent path witnesses to reproduce stale acceptance and
+  reject fully rebound missing pins, including renamed and grid-only rows and
+  unselected catalog entries. A freshly hash-bound PREPARE_ONLY control keeps
+  NOT_RUN proofs and grants no worker or economic authority.
+
+## 2026-10-12 — Bind canonical contract reads in the A6 proof procedure (#593)
+
+- Pinning every registered script and Python helper still omits JSON contracts
+  read through defaults or fingerprints. Inspect actual registered consumers
+  together and retain those canonical paths independently of caller declarations.
+- Literal stale-byte and fully rebound omission/deletion controls must reach
+  both API and CLI. Fresh complete pins permit PREPARE_ONLY with NOT_RUN proof
+  and no worker/economic authority; they do not certify a completed review.
+- Recover a lost checkout only at its approved path and exact published Git
+  tree. Verify consumed bytes and preserve prior posted evidence as historical;
+  do not invent replacement execution logs or a cause for resource loss.
+## 2026-10-12 — Separate private capture expansion from historical source admission
+
+- Pin the owner-only target scope and current vendor-reported symbol/MIC/FIGI
+  mapping before extending a four-symbol collector. Nasdaq snapshot, SPY
+  holdings proxy and an undated IWB seed are distinct source roles; their union
+  is a research queue, not certified current or historical Russell membership.
+- Current vendor metadata can conflict with issuer labels. Preserve reported
+  identities and unresolved targets; do not turn this mapping into verified
+  historical lifecycle, corporate-action, PIT or Reader admission evidence.
+- Resume only an exact scope/checkpoint hash. Restore each completed receipt's
+  whole raw pack, bounded members and normalized bytes once per resume; a
+  completed-symbol list or restored_from_drive flag alone is insufficient.
+- Persist progress after each bounded group and keep auth/quota errors
+  terminal. Reserve daily credits and never rotate to another account. A new
+  batch is raw collection, not engine fullrun or source pointer promotion.
+- Compare canonical decompressed normalized bytes across runtimes rather than
+  regenerated gzip headers. Charge successful private uploads against the
+  verified remaining capacity. The CLI and worker must share one refusal type.
+- Independent A6 reproduced three resume defects: replacing the initial pilot
+  with a newly scoped receipt, requiring uninstalled PyYAML in the sparse live
+  runner, and accepting fully hash-rebound none/splits histories with different
+  sessions. Require the original pilot file/hash on every resume, keep the
+  pre-credential runner stdlib-only, and recheck basis session equality after
+  restoring bytes. The corrected independent counterexamples pass normal/-O.
+- Reject duplicate JSON keys before decoded credential scanning: otherwise an
+  overwritten value containing a Unicode-escaped key disappears from the parsed
+  object while its original bytes are still archived. The capture-boundary
+  counterexample must refuse before any raw upload.
+- The protected P0-4 publication pins the Tier-1 runner bytes. Keep that
+  runner unchanged when adding capture-only checks; execute cohort guards in
+  the sparse pre-credential capture workflow and independently under normal/-O.
+
+## 2026-10-12 — Bind canonical bundle references and executable A6 instructions (#593)
+
+- A filename-family inventory missed two required absorbed scorecard CSVs even
+  after all eleven canonical JSON contracts were pinned. The real canonical
+  bundle changed VERIFIED to INTEGRITY_ERROR while stale/rebound A6 packets
+  still prepared. Bind every required registry/manifest-referenced input, and
+  test the complete reference set independently of extensions and validator lists.
+- Execute documented command blocks against both normal and optimized CLI.
+  A6 requires an independently supplied implementation review HEAD; generic
+  handoff commands alone must not be advertised as the complete A6 procedure.
+- Reconcile executable proof inputs when accepted master adds a local helper:
+  #602's capture CLI imported twelve_private_cohort before its mocked provider
+  call, so a frozen A6 program inventory missed code that changed a registered
+  proof. Independently check the consumer's local tool imports and run its real
+  offline proof on canonical, tampered, and restored bytes, alongside stale,
+  fully rebound omitted-pin, and absent-file packet controls. Sparse checkout
+  omissions are environment failures; restore exact Git bytes and keep those
+  failed attempts separate from the demonstrated unpinned-code bypass.
+- Preserve both reviewed lesson histories when a concurrent master append
+  conflicts. Record the exact new base and publish one reconciled, frozen HEAD
+  before parallel author/independent A6/CI; correctable P2 pauses approval gates
+  while bounded repairs continue under existing authority. Preparation remains
+  NOT_RUN/no worker/completion/economic authority, never review-complete proof.
+
+## 2026-10-12 — Numeric refusals must not discard a private capture queue
+
+- Run 38218494591 retained 36 new instruments before BAR_VALUE stopped the
+  next four-symbol group. Its checkpoint union is 200 instruments; neither the
+  failed group nor a subset checkpoint counter is additional completed history.
+- Validate bars unchanged before storage. Persist an exact-scope v2 checkpoint
+  holding the entire unretained group with unknown individual culprit, then
+  continue within the same bounded batch. Resume excludes completed and held
+  instruments; held groups remain incomplete, with no raw body or admission.
+- Catch only the fresh capture's constant BAR_VALUE. Authentication, quota,
+  credential, identity, storage, checkpoint and prior-receipt restore failures
+  stay terminal. Preserve the daily reserve and selected account; no key switch.
+- Both the Tier-1 runner and PR validation workflow are protected by P0-4.
+  Extend the already registered api_credentials_check_smoke -> private capture
+  suite with unittest load_tests for cohort coverage; preserve both frozen
+  files. An explicit CI --include workflow delta also violates that boundary.
+- A pruned Native checkout can be recovered at its exact original path from
+  authenticated Git tree/blob metadata. Require native blob/tree/commit parity,
+  preserve unrelated paths and publish only the validated explicit-path diff.
+  This is code recovery, not recovery or admission of vendor source bytes.
+
+
+## 2026-10-14 — Keep archived valuation diagnostics closed and reuse A3 test routing
+
+- A legacy CSV may contain PEG or provider P/E without fiscal/accounting/PIT
+  proof. Keep current comparison and ranking authority false; preserve the
+  observed value and its uncertainty rather than manufacturing a current input.
+- Reuse the existing A3 unittest load_tests hook and retain RegistryTests. The
+  current smoke_test CLI has no --only option; scoped PR-runner filtering uses
+  tools/run_pr_validation.py --only smoke_test. Preserve runner/workflow pins.
+- CSV parsing can fail while DictReader obtains headers, before row iteration.
+  Apply the same structured refusal to headers and rows; probe API and CLI in
+  normal and optimized Python with a valid control.
+- Local Native tests do not replace new-head CI and independent A6 review;
+  source-snapshot results alone remain preparation evidence.
+
+## 2026-10-14 — Final-review refusals must preserve provenance and bound reads
+
+- Missing-value source tokens are not provider names. Normalize them before
+  assigning P/E provenance; positive-growth estimates still need usable P/E
+  before reporting that all forward-PEG numeric inputs are present.
+- Validate supplied observation dates even without a cutoff. Use distinct
+  stable reasons for malformed observations and malformed cutoff arguments;
+  missing dates remain missing rather than becoming current or inferred dates.
+- A byte-budget check after read_bytes does not bound CLI allocation. Check the
+  opened file size, then limit the read to budget + 1 to detect concurrent growth.
+- Structured OS read refusals must not serialize private paths or raw errors.
+  Probe real CLI failures and bounded-reader controls, retaining valid controls.
+- An earlier A6 CLEAN is bounded evidence, not authority for later review fixes.
+  Revalidate the changed head and address actionable final-review threads before
+  the review-complete signal or expected-head merge.
+
+## 2026-10-14 — CSV budgets and diagnostics must cover the complete input
+
+- Apply row budgets to all parsed rows before exclusions; CASH rows still cost
+  parsing work. Test leading, interspersed and all-CASH overflow plus boundaries.
+- Read the producer behind legacy source labels. This repository's finnhub P/E
+  label denotes a TTM fallback and must be counted as trailing contamination.
+- Preserve FCF amount and yield independently. A missing amount must not erase
+  an observed zero, negative or positive yield; keep both metrics unverified.
+
+## 2026-10-14 — Keep historical reuse positives separate from current-code refusals
+
+- A valid code change may deliberately invalidate a historical reuse catalog.
+  Preserve that refusal; do not silently rehash/re-certify the historical row.
+- Positive preflight tests use exact reviewed dependency bytes only in isolated
+  fixtures. Independently check current/changed bytes through API and CLI,
+  including a freshly rebound task that retains the old catalog pins.
+- Bind any new archived fixture in A6 proof inputs. Canonical Git LF hashes
+  and Native CRLF hashes are different contexts, never interchangeable proof.
+
+## 2026-10-14 — Executable proof closure and untrusted CSV inputs need hard bounds
+
+- A load_tests hook adds transitive executable files and fixtures to A6 proof
+  inputs. Bind all consumed paths; test real changed proof execution, stale
+  packet refusal and omitted-pin refusal even after packet/scope rehashing.
+- Bound logical CSV records before cell materialization, including multiline
+  headers/data. A byte budget alone does not bound the number of cell objects.
+- Open nonblocking and check the opened descriptor's regular-file type before
+  reading; FIFOs without writers must refuse promptly and descriptors must close.
+- Source-category fields must emit only bounded known labels. Redact unknown
+  values rather than persisting arbitrary credential-like input strings.
+
+## 2026-10-14 — Bound archived Manual Foundation fixtures before allocation (#609 P2)
+
+- A post-read byte budget does not bound allocation, including generic setUp
+  dependency copies. Route every read of the archive through one bounded helper.
+- Open worktree files nonblocking, require a stable regular-file descriptor,
+  cap the read at 64 KiB+1, and refuse growth or replacement. For sparse inputs,
+  inspect the immutable Git blob size before reading the same OID with a cap.
+- Keep the historical decompression/hash pin, catalog classification and actual
+  current-source API/CLI refusals. Register regression methods in ManualTests,
+  which the existing proof entrypoint actually loads.
+- Reusing a clean, already merged Main worktree does not require creating a new
+  worktree; record the explicit lane handoff and scoped local lock separately
+  from any unobserved global or Windows lease. Linux QA is not Windows QA.
+
+## 2026-10-15 — Distinguish digital storage from physical storage in theme research
+
+- A generic storage substring placed PSA/EXR self-storage REITs in the archived
+  memory theme. Require direct business metadata and qualified digital-hardware
+  evidence; inherited theme/portfolio labels cannot certify business membership.
+- Preserve the existing curated memory/storage issuer set and the shared infer_theme
+  consumer boundary. Use token/phrase boundaries and physical/energy exclusions.
+- Frozen report composition can prove contamination, but aggregate scores alone
+  cannot reconstruct corrected ranks. Recompute from exact row-level metrics into
+  separately labeled outputs; preserve original reports and distinguish preparation
+  QA from Native/exact-head A6, CI, final review and completed merge.
+
+- Final review: precompile static business matchers rather than rebuilding regex
+  alternatives per replay row. Normalize punctuation once for both storage/REIT
+  routing and memory evidence; pin inspectable diagnostic files by manifest hashes.
+- Singular/plural business labels (REIT/REITs) must resolve to the same canonical
+  theme; verify missing-sector industry-only inputs as well as full metadata rows.
+
+## 2026-10-15 - Classify refused Native directory inputs without weakening reads
+
+- Windows may refuse os.open on a directory before fstat can classify it.
+  After an open failure, only a successful directory stat may map the refusal
+  to INPUT_NOT_REGULAR_FILE. Preserve original non-directory/probe errors,
+  successful-open fstat, bounded reads, descriptor cleanup and path redaction.
+
+## 2026-10-15 — Bound finite Source campaigns before side effects
+
+- Successful page/receipt totals omit failed attempts, partial responses,
+  orphan uploads, repeated restores and OAuth bootstrap. Reserve before I/O;
+  retain uncertain charges and report confirmed data separately.
+- A correct local hash-chain prefix can still be an old rollback. Reconcile
+  canonical run/nonce history and require a complete exact-run meter before
+  releasing a cross-job reservation. Never replay a transactional job blindly.
+- An expired built-in OAuth token is not a metered bootstrap. Refuse instead
+  of bypassing the meter with rclone or inventing another account/client.
+- Explicit LF fixtures may test the Linux seed contract on Native Windows;
+  never relabel Native CRLF hashes as deployed Git-LF proof.
+- Exercise real HTTPResponse framing over an in-memory transport: read1 EOF
+  can leave Content-Length unsatisfied, while a complete response can close
+  its socket before another timeout update. Retain partial-response budgets.
+- Account permission must cover the whole worker deadline and bind the exact
+  verified comment contents/author identity, not just its mutable URL. A
+  future workflow floor cannot hide an existing campaign; its first dispatch
+  must start at that floor. Normalize short recovery batches to full-batch
+  byte/time equivalents before forecasting the remaining campaign.
+- Source test registration extends executable proof closure. Keep protected
+  Main code unchanged here and hand any missing mandatory Main pins to its
+  owner; Source-only A6 is not a whole-Main approval. See
+  `docs/ALPACA_SIP_CAMPAIGN_CONTROL_V1.md` for scope and remaining gates.
+
+## 2026-10-15 — Separate report clocks, session counting and delivery authority
+
+- Observation/latest-date is not a publication timestamp. Restore pinned source
+  and state history; date-only vintages, unknown clocks and old successful
+  artifacts cannot authorize a current report. Missing data is not market risk.
+- Intraday and after-close are distinct report slots, but only one completed
+  session may advance history. Keep delivery recipient/session/slot keys separate
+  from source/code analysis keys. Candidate receipts do not establish delivery or
+  canonical history acceptance; scheduled cutover needs a real-input gate.
+- Validate actual Chameleon output fixtures through its canonical contract and
+  preserve the 8-of-10 plus breadth/volatility/credit gate and 2/5 hysteresis.
+  Report-only authority never substitutes for book/ER/downside/cost evidence.
+- Native dependencies must satisfy repository constraints: bundled pandas 3 is
+  outside pandas<3 and can change datetime equality. Validate with scoped pandas
+  2.3, without changing the operating model to accommodate an unsupported runtime.
+- A claimed-ready axis must have a finite 0..100 score matching the pinned
+  snapshot. pandas sums skip NaN and can otherwise turn absent scores into zero
+  risk. Validate missingness before the existing summary reducer.
+- Hash agreement is insufficient when all outputs can be rebound together.
+  Verify full derivation from inputs and preserve the accepted source-history
+  prefix. Cache pure calculations, never admission decisions. Recheck clocks,
+  complete safety flags and separately pinned component/context unit expectations.
+- Caller timestamps cannot establish current ACTUAL execution. Use host time,
+  require evaluation before expiry, and never complete a suppressed duplicate.
+- Preserve consumed clock provenance in accepted prefixes and reject gaps in
+  completed NYSE sessions. Check upstream readiness as well as hashes/safety;
+  enforce immutable input-root separation even on missing-input diagnostics.
+- Chronology also applies before the first completion. A zero-count anchor can
+  retain partial slot keys; only the current session's provisional key may
+  precede genesis. Earlier or opaque unresolved slots require explicit A0
+  recovery, never silent skipping, key deletion or a fabricated first completion.
+
+## 2026-10-15 - Keep report-history production within its restore bound
+
+- Producer and loader share the completed-session limit. Refuse a new ready
+  completion before emitting an out-of-range history candidate; preserve
+  duplicate, intraday and partial reports that do not increment the count.
+- Check the last supported increment with an actual load_previous round trip.
+  A larger history range requires a separately reviewed migration, never a
+  silent counter reset or a weakened restore check.
+
+## 2026-10-15 - Reconcile proof composition without inventing upstream files
+
+- Preserve fixed workflow pins after deletion/rename; a dynamic glob alone
+  cannot prove closure. Keep current Main proof coverage separate from an
+  explicitly hashed Source-plus-Main composition. Never materialize absent
+  upstream programs as placeholders or reapply already-pinned path sets.
+
+## 2026-10-15 - Keep research intake and admitted evidence separate
+
+- Supplied identity, graph hash, REVIEWED labels and exact target calendars
+  establish internal research consistency, not independent review, historical
+  PIT/rights, canonical CURRENT or economic admission. Keep every authority
+  closed, missing ER null, and all unresolved outcomes in the denominator.
+- Bound strict JSON before tree allocation and accept only sealed in-memory
+  artifact bytes. Compare source families and immutable security identities;
+  first-event24h clustering must not chain or multiply ticker aliases.
+- Validate nested string/hash/pillar types before set operations; malformed
+  lists must yield bounded refusals. Expiry changes require review even when
+  both timestamps are future. Native Windows directory-open error categories
+  can differ before fstat; preserve baseline failures instead of claiming a
+  complete registered-suite pass or silently skipping the failing case.
+
+## 2026-10-15 - Enforce pending receipts and immutable outcome clocks
+
+- Known membership expiry never substitutes for a missing required consumer
+  receipt: preserve DATA_PENDING regardless of the supplied queue state.
+- A matched matured outcome cannot become available after its immutable source
+  artifact. Bind the row's availability to the reference's availability;
+  the existing reference check also orders availability, collection and cutoff.
+- Reproduce review claims before changing guards. ReferenceIndexError already
+  inherits ValueError, so the intake timestamp adapter translates it correctly.
+  Keep its refusal contract covered without adding a redundant exception arm.
+
+## 2026-10-15 - Bound numeric tokens and every research preview clock
+
+- Check integer JSON tokens against the finite numeric range before building
+  an arbitrary-precision integer; retain exact integers instead of rounding
+  them to float. Large ER/outcome inputs must refuse with IntakeError.
+- A null-reference reconciliation preview still needs a valid aware cutoff.
+  A containing queue check must be at or after every included reason's last
+  observation, even if both clocks separately precede the envelope cutoff.
+
+## 2026-10-17 - Code publication is not collection approval
+
+- A Reader or test merge can match a collector workflow's master-push paths.
+  Treat that deployment as source/Drive capable until the producer job explicitly
+  excludes code-push events; a research-only code review does not authorize capture.
+- Preserve the existing repository/master checks, schedule/manual entry points,
+  single-writer concurrency, non-cancellation and source admission contracts.
+  Keep the full consumed-path push filter: a skipped producer job does not prove
+  the workflow-level concurrency queue disappeared or a real collection ran.
+- Cover the guard in the existing registered Lake smoke entry. Parse workflow
+  syntax with a loader that preserves the `on` key and compare unchanged fields.
+  Validate offline rather than accessing providers or Drive to test a trigger.
+- Keep the isolated workflow change separate from the approved Source Reader
+  paths. Reuse unchanged exact-head evidence; protected deployment and account
+  rights remain separate from local tests and a Draft PR.
+
+## 2026-10-17 - Isolate producer queues and select actual history evidence
+
+- A skipped job alone cannot isolate workflow-level concurrency: a code push
+  can replace a pending real producer even with cancel-in-progress false. Bind
+  the unchanged writer group to the guarded producer job only; preserve its
+  master/repository checks and scheduled/manual entry points.
+- Public history evidence must exclude push and explicit skipped runs. Query
+  schedule/manual streams separately so no-op pushes cannot crowd out real
+  producers. Keep the newest real failure, cancellation or pending run visible;
+  workflow success still does not certify data or durable Drive completion.
+- Parse real YAML and retain the original regression/helper ASTs. Offline queue
+  and metadata fixtures do not prove live Actions skip/queue behavior or deploy.
+
+## 2026-10-17 — Separate capture consent and supplier-rights assertions
+
+- A direct request for finite private historical capture is execution consent; do not manufacture account eligibility or supplier retention certifications.
+- When the owner waives an internal evidence-document procedure, represent that consent explicitly with supplier_rights_verified=false rather than require unsupported perpetual or post-termination claims.
+- Preserve actual owner/key bindings, comment identity and body hash, authorization, seed/checkpoint, cumulative reservations and all existing deadlines; provider entitlement failures remain terminal.
+- Finalize deployed code before the first immutable activation/preflight, so a later source change cannot strand an already-started campaign on incompatible pins.
+- An approval URL alone is not approval provenance: resolve the real owner comment, validate its finite scope and bind its author and entire body hash into every consuming execution record.
+- Approval chronology includes last-update time; an old comment edited to add approval after a directive cannot establish earlier consent. Bind both creation/update clocks and refuse retroactive edits.
+- Preserve failed Native QA logs; use the actual repository for relative seed fixtures and a controlled local temporary folder. Temporary-file access errors do not justify relaxing atomic journal writes or recertifying Linux/runtime readiness.
+
+
+## 2026-10-17 — Bind CLI transport and pre-dispatch recovery to original evidence
+
+- gh2.91 workflow run --json parses map[string]string before dispatch POST. YAML boolean/number inputs still need outer string values; retain the nested authorization's actual JSON types. Test the real CLI on loopback and the registered host boundary rather than treating every mocked subprocess as successful.
+- Preserve discarded-original-stderr uncertainty separately from independently reproduced pre-POST rejection. No observed remote run alone is not a generic zero-use refund.
+- Close only the named, hash-pinned local rejection after actual bounded-history and OWNER proof checks. Append a typed old-to-new authorization/pin event to the same journal; preserve original auth/reservation/progress snapshot and never fabricate a run, meter or SETTLED.
+- Idempotent receipt recovery must conserve scope, limits, counters and original checkpoint. A late original run, proof drift or any prior canonical use stops instead of starting a fresh budget/clock.
+
+- Review recovery at transitions as well as initial proof: recheck full canonical history before dispatch, while discovering the replacement and before settlement. Exclude typed closures from outstanding-reservation reports.
+- Keep recovery receipts outside the append-only journal namespace and disjoint from inputs before writing any closure. Bind original authorization raw bytes, and reject unrelated network-recovery IDs instead of persisting invented relationships.
+- Put the final canonical-history guard in the common settlement boundary after receipt/checkpoint reads; a watch-only guard misses interrupted-host resume and delayed visibility during those reads.
+- An immutable snapshot cannot alias mutable progress. Guard closure after remote pin reads, bind the stored event's actual bytes, and distinguish initial proof acceptance expiry from later reconciliation of an already accepted event; campaign clocks still govern new dispatch.
+- On Windows, set TMPDIR as well as TEMP/TMP for controlled Native fixtures; an inherited application-managed temp path can deny atomic replacement. Preserve that failed log and rerun unchanged bytes in the controlled folder rather than weakening exclusive/fsync writes.
+
+## 2026-10-17 — Extend a finite campaign without reinterpreting spent receipts
+
+- Provider rate limits and a project's cumulative transfer/active-time budget
+  are separate. A second account cannot replenish the same campaign or erase
+  its first canonical48h clock; keep actual owner/key binding unchanged.
+- Retain old authorization/source/caps for old meter allowances and journal
+  bytes. Apply a narrowly approved cumulative extension only through one typed,
+  hash-bound bridge, carrying all earlier usage, time, dispatch and checkpoint.
+- Keep the original workflow history floor; raising it to the next dispatch
+  hides prior costs. A portable prior authorization lets Linux workers verify
+  the same prefix as the Windows host without local-only evidence paths.
+- Bind the single new consent-record transition explicitly. Freeze a combined
+  budget/capture comment before deriving hashes; embedding a body-derived hash
+  inside that same body would create an unsatisfiable cycle.
+- Keep failed fixture logs. Metadata preflight leaves authorization bindings
+  null while receipts establish real binding hashes; synthetic continuation
+  fixtures must model that distinction and actually mutate the prior floor.
+- A proof fetch added after a canonical-history guard reopens the same race.
+  After all meter/job/proof/pin reads, reconcile fresh canonical runs immediately
+  before bridge, reservation and settlement appends; stale observed.runs is
+  insufficient even when its five receipts and old ledger hashes are valid.
+- Exercise the documented host command through the real serialization
+  boundary. When prior authorization bindings intentionally stay null, select
+  the verified embedded continuation URL by default; reject a conflicting
+  optional CLI reference before locking or appending any campaign event.
+
+## 2026-10-17 — External discovery progress cannot reset finite capture costs
+
+When a verified discovery CSV is outside the fixed IWB seed, keep its input
+SHA/task/namespace and checkpoint chain separate, including local zero genesis.
+Keep the original workflow nonce family, history floor, first48h, global writer
+lock and **all** actual spent counters shared. A new prefix or per-cohort-only
+lock can hide earlier spending or permit overlapping reservations. A logical
+empty genesis is not a physical Drive checkpoint: the first resume ID/SHA must
+both be empty. Read-only validation must refuse a missing original recovery
+receipt rather than recreate it. Current asset metadata/404 can support a
+sanitized held state only on the narrow metered asset endpoint; auth/quota/network
+failures cannot be converted into no-data or eligible history. Freeze a dated
+market-cap input and reconcile actual source receipts before its later dispatch.
+
+Independent A6 found three pre-deployment counterexamples: expiry must be
+checked against the binding event's actual recorded clock before appending it;
+a known completed run must still be imported/settled after expiry (while new
+dispatch remains forbidden); and UUID syntax needs exact8-4-4-4-12 hexadecimal
+positions rather than a permissive36-character hex/hyphen class. Keep expired
+read-only accounting separate from renewed execution authorization.
+
+A6 also reproduced a cross-namespace unknown-POST hole: releasing the original
+global lock does not expose a pending cohort reservation to the next namespace
+before Actions visibility. Keep a deterministic family reservation journal
+under that same lock, outside the immutable17-event prefix. Write shared
+RESERVED first, cohort RESERVED second, then POST. Reconcile all family nonces;
+missing/orphan/partial or rolled-back registration cannot prove zero POST.
+Settle cohort first, shared second, and close an interrupted shared settlement
+only with the exact canonical receipt and already settled cohort record.
+
+Hosted review also caught a terminal/recovery mismatch: generic HTTP_ERROR can
+include a price404, and NETWORK can occur during asset identity precheck. The
+minimal external path stops its entire epoch on every runtime failure and
+accepts no legacy recovery flag. Known failed receipts still settle/account;
+another attempt requires a separately reviewed A0 recovery contract. Do not
+inherit legacy retry authority merely because it shares the same meter.
+
+A6's next frozen-head check also removed the whole family registry while
+preserving an uncertain cohort, then tried a different namespace. First registry
+creation must check every deterministic `external-cohort-*` sibling under the
+original budget parent, not only the incoming namespace. Any existing path is
+a conservative blocker; loss of one prefix cannot authorize a fresh budget.
+
+Hosted review found a first-registration proof race too: fetch one consent
+snapshot for both the first family binding and its cohort binding. If an OWNER
+comment changes between reads, the next canonical proof comparison must stop
+before reserving, never combine an old family proof with a newer cohort proof.
+
+The post-Ready hosted review found a relocation race: deterministic names alone
+do not bind a registry to the original resolved budget root. Copying or renaming
+the complete settled tree can create independent lock files while Actions history
+is still unchanged. Persist and verify the normalized resolved original budget
+and first cohort roots in the family binding; verify each current namespace path
+too. An unchanged original tree remains resumable; relocated copies fail before
+another reservation or POST. Preserve the pre-fix two-case failing fixture log.
+
+For later epochs, canonical receipts and a shared journal cannot substitute for
+the prior cohort's own complete binding/RESERVED/SETTLED chain. Verify every
+earlier fixed-root journal without regenerating missing or truncated prefixes.
+For a bounded invocation, count newly durable shared settlements from its entry
+baseline. A resumed pending completion or cohort-to-family repair consumes one
+batch; a watch and subsequent import must not count twice or trigger an extra POST.
+
+Check a review finding against the called helper before changing policy: a
+terminal receipt whose checkpoint hash equals its parent already returns that
+parent before any log lookup. Independent AUTH/NETWORK worker-to-host closure
+and duplicate-resume probes confirmed this unchanged-parent behavior; preserve
+the disposition and avoid inventing a new checkpoint or recovery permission.
+
+### 2026-10-17 — Preserve a partial cohort across a named Source revision
+
+Actual external run39023083535 stopped at120/169 after24 newly verified names,
+with a generic HTTP_ERROR and no status/request-phase detail. The120 names and
+503006 raw+split rows remain valid private source bytes; the entire failed meter
+is charged and settled. Do not infer an entitlement, quota, provider/Drive or
+transient cause from the generic label, and do not blindly rerun the workflow.
+
+The separately authorized correction uses one same-namespace auth revision:
+reconstruct/hash-check the exact old auth, freeze both13-event raw prefixes,
+append one typed recovery binding, retain the registry's original proof/root,
+and verify one old→new canonical transition. The first new attempt is explicitly
+bound to failed run/meter/CP120 and exactly8/max1; unknown POST consumes the
+reservation and every new failure remains terminal. All spent costs and the
+first48h survive source-pin changes. A later cohort must verify the revision
+journal too. Deduplicate immutable fields rather than raising control-size caps.
+
+Record only allowlisted HTTP status/category/phase/method/debit ordinal at the
+transport boundary; never serialize URL/query/header/body/exception text. Legacy
+receipt hashes stay untouched. Code/CI/A6 success and Draft preparation do not
+authorize protected deployment or actual capture.
+
+Independent A6 counterexamples tightened the portable worker boundary too: a
+missing named failure must refuse before the meter, and first COMPLETE means
+exactly120→128, not merely a delta of at most8. If diagnostic persistence fails,
+raise only a fixed refusal with suppressed exception context; an active HTTPError
+may otherwise leak a sensitive URL/reason through an unrelated journal error.
+Codex also required max1 across restarts until the first recovery is fully
+settled in both journals: importing or repairing that settlement consumes the
+one batch, rather than allowing a second ordinary POST in the same invocation.
+
+### 2026-10-17 — A Drive CREATE502 does not prove zero storage side effects
+
+Actual run39032304843 failed at160/169 during DRIVE_CREATE/POST/HEADER_OPEN502.
+Keep CP160 and all160/682614 accepted rows; settle its Provider11/Drive332 and
+all transfer/storage/time, including the unconfirmed upload reservation.
+Do not call it an Alpaca entitlement error or refund unknown storage.
+
+A separately reviewed named9 revision must retain the old120→128 transition,
+both old23/22 prefixes, all costs and original48h. Before provider or storage
+writes, find both exact existing raw and normalized objects in only the failed
+run's bounded owner-only window and verify complete semantics. Missing or
+ambiguous normalized storage remains blocked, even after a long wait. Reuse
+the original4 symbols' bytes/clocks and separately record new derivation code,
+proof, run and time; do not relabel historical bytes as newly collected. Only
+after CP164 readback may the original collector request the remaining5 names.
+Ordinary source guards, no second retry, max1 and private/PIT limits remain.
+
+Independent A6 reproduced a v3 prior-epoch guard race in normal/-O: reopening
+the old-v2 journal fetched its proof again after the final canonical run read.
+Pass the already verified epoch-proof snapshot into that last local guard;
+missing old-v2 proof must refuse rather than fall back to remote I/O. Keep
+the initial remote proof reads before later complete canonical reconciliation.
+
+Hosted Codex then reproduced the missing active-proof selection at settlement:
+the preserved v2 revision cannot serve as the new v3 frozen consent. Prefer
+the active Drive revision in postwatch/import settlement and test the complete
+host169 closure, restart without POST and interrupted family repair in both
+modes, alongside the worker/collector boundary.
+
+### 2026-10-18 — Diagnose object roles before interpreting an orphan failure
+
+Run39058081878 charged no provider GET and preserved CP160, but its fixed
+`EXTERNAL_ORPHAN_MISSING_OR_AMBIGUOUS` reason did not prove a missing gzip:
+the same refusal covered count, role and size. Record a bounded, allowlisted
+inventory before those checks. A private folder/time query may also contain
+unrelated content-addressed JSONs; those are diagnostic context, not raw bars.
+Keep IDs, arbitrary names/responses and credentials out of the public meter.
+
+Gzip object identity and normalized-row identity are separate. Python's gzip
+header can vary while rebuilt rows match. Reuse actual bytes only after full
+ZIP, asset, normalized and parent-chain checks. Exact-name absence never proves
+that an uncertain earlier POST had no side effect. A separately authorized,
+normalized-only derivation must retain that uncertainty and all old costs,
+record its own actual source/codec/hash/time and use one existing CREATE path.
+Do not invent old collection/publication clocks or retry unknown writes.
+
+Every named transition needs the active proof at common settlement and every
+older proof in later cohort guards. Test whole-host closure, restart/import,
+family repair, malformed/duplicate/paginated metadata, gzip-header drift,
+unknown CREATE and CP164 readback failure. No last5 provider request is allowed
+until independent CP164 closure. All fixtures remain synthetic and confer no
+supplier rights, market-data coverage or Source/PIT eligibility.
+
+The post-Ready639 review found three further boundaries: indexed normalized
+objects may be older than the failed window, while original ZIPs may not;
+existing/new mode and codec must agree in both directions; canonical reuse
+reconciliation must reapply successful inventory closure and object hashes,
+not accept a merely well-shaped diagnostic. Preserve actual older server times
+without inventing collection/PIT clocks. No runtime or budget policy changes.
+
+Independent A6 also reproduced null canonical evidence clocks being accepted
+through `utc(None)`'s runtime-now default. Require actual timestamp strings at
+inventory observation, reuse derivation and normalized creation/lookup before
+parsing. Preserve the runtime clock helper and incomplete diagnostic-row schema;
+never fill missing provenance with the verifier's current time.
+The exact-head hosted review also required mode/clock binding to any normalized
+inventory row: existing bytes cannot become a new derivation or acquire a
+different server-created time during canonical reconciliation.
+Canonical reconciliation must preserve live observation order too: inventory
+observation precedes lookup in both existing and derived modes, and lookup
+precedes derivation. An older object's creation clock is not an exemption for
+chronologically conflicting new lookup evidence.
+Exact-name fallback is not an escape from a complete inclusive-window inventory:
+an existing object created in that window must appear in it. Anchor new inventory
+observations to the actual canonical recovery run, rather than accepting a
+self-consistent set of receipt clocks that all predate execution. Keep old object
+creation separate; synthetic successful fixtures must model the same distinction.
+
+### 2026-10-21 — Preserve gate-log bytes without exposing PR credentials
+
+Source diagnostic39544804083 stopped with NAMED_READ_GATE_LOG before Drive
+configuration and RuntimeMeter construction. Preserve its actual215 active job
+seconds and one dispatch; an absent meter does not prove zero I/O or authorize
+a rerun. The exact deployed call order and positive failure log establish the
+pre-meter boundary. Original suppressed stderr remains unobserved. A later
+Linux reproduction identified GitHub CLI2.102.0's terminal-escape output guard.
+
+Feature-detect the escape flag and enable it only for a helper-owned private
+temporary file. Keep original ANSI/BOM/UTF8 bytes and hashes for the genuine
+gate parser, reject oversized output and use static safe errors. A process
+timeout and bounded prefix reads are not a hard download or disk byte cap.
+
+Do not pass repository read tokens to contributor-controlled PR code or make
+future PR checks depend on expiring historical job logs. Retain one-time
+observations separately and keep recurring PR checks mock-only. Complete
+campaign history must remain in always-authenticated source code, including
+legacy controls; revision-only changes must trigger the specialized checks.
+
+PR660 records the transport correction and exact source/test evidence. Its
+code/CI success does not settle the failed run, renew an execution window,
+authorize another diagnostic, or establish174 new prices or PIT eligibility.
+
+The follow-up accounting verifier must authenticate historical deployment bytes
+separately from current local code. Keep raw BOM-inclusive failure-log hashes
+distinct from decoded convenience copies. Compare fresh API security fields
+with the retained job proof without depending on avatar or URL serialization.
+The failed step's whole-second completion clock includes its final fractional
+log second; use only that explicit precision bucket within the job bounds.
+Record the observed215 seconds and one dispatch with a distinct idempotent cost
+event, never a fabricated RuntimeMeter or permission to retry the failed read.
+
+For a disjoint new cohort, prove the failed source's execution footprint from
+the actual last verified checkpoint, meter and synchronous group/readback order.
+Keep an uncertain POST charged/quarantined even when its possible symbols do not
+overlap the new frozen input; disjointness is not proof of storage absence or
+payload identity. A separate cohort needs its own actual authority/window and
+checkpoint namespace while carrying all old costs and unresolved outcomes.
+
+Legacy collector callbacks print private checkpoint references. Capture that
+output privately and let the next metered worker resolve a content-addressed
+checkpoint under the owner-only folder, rather than publishing the reference or
+doing unmetered host reads. Preserve semantic readback and count no-data/held
+separately from valid prices. Test full sequential batches and interrupted
+settlement repair without dispatching an already completed batch again.
+Keep adapter error names compatible with the existing meter's strict reason
+schema; do not loosen that schema to fit a new route. Unknown exception text
+must not reach a public meter, even when it contains only uppercase characters.
+
+An independently reproduced expiry race remained after a successful remote
+authority check: the final branch request could finish at expiry, then reserve
+and dispatch a run outside its authorized window. Recheck the local clock after
+that response and again immediately before POST, including after journal fsync.
+Keep any already durable reservation visible when expiry stops the POST.
+Do not combine an original account-evidence hash with a later execution grant's
+reference. Preserve those lineages separately and keep supplier rights explicitly
+unverified; an OWNER execution instruction is not a supplier rights certificate.
+
+
+## 2026-10-21 RF-optional raw measurements
+
+Explicit RF absence may permit a versioned raw research measurement while RF excess stays null. Partial status must not bypass caller capital/anchor checks or lose bound valuation provenance. Preserve OOS predecessor checks and COMPLETE-only package/publication admission; never turn absent RF into zero or a malformed RF object into absence.
+
+### 2026-10-21 — Refresh current reuse bindings when NAV callers change
+
+Actual E2 PR654 validation39474051977 passed234/235 registered programs; the
+agent-board/manual fixture failed with catalog_dependency_changed for the
+broker replay caller. The NAV, broker and weekly suites themselves passed.
+Current-equivalent catalog bindings must track the exact changed broker/NAV/
+weekly bytes as well as the new consumed contract. Reconcile only the six
+affected entries, record the actual verification clock and current master
+baseline, and retain original PR heads, historical classifications, constraints
+and do-not-repeat references. This is byte consistency, not a new economic
+approval or promotion of historical/SELECTIVE_PORT entries. Keep stale and
+omitted-hash refusal tests, the valid real CLI control and strict verifier
+functions; never bypass the dependency check to obtain green CI.
+
+### 2026-10-21 — Keep Source identity separate from unrelated Main integration
+
+Source662 collected96 frozen proxy-gap names in three actual successful runs,
+then its whole-master guard correctly stopped on Main654's unrelated merge.
+Preserve those prices, originalauth47db, Source662 proof, family86/cohort10,
+CP96, exact spent resources and original24-hour expiry. Replacing the old auth,
+replaying a completed workflow or silently pinning a new master is not recovery.
+
+A separately reviewed Source adapter and immutable OWNER source-transition
+grant can authenticate the historical Source separately from current local
+code, then bind the new genuine protected publication and compatible runtime.
+Freeze every file actually checked out by the credential-bearing workflow,
+including preflight tests and seed, plus review guards and Git attributes.
+Runtime7 hashes alone miss changes to executed pre-credential fixtures. Require
+complete Git-tree evidence, protected descendant ancestry and actual GITHUB_SHA;
+keep the original grant/account evidence and new Source proof in distinct fields.
+Append no extra event into an existing reserved batch-index protocol. Bind the
+transition in subsequent reservations/meters and keep the first96 byte prefix.
+The actual repository recursive Git-tree response is over4MiB. Query only
+non-recursive parent trees for the required paths, cache those directories
+within the verification and reject truncated/duplicate/symlink entries. Do not
+raise metadata limits or scan unrelated artifact trees to prove19 source pins.
+Independent A6 found that pinning only root .gitattributes misses ancestor
+attributes used from the Git index during sparse checkout. Freeze all six
+root/ancestor attribute presence/content records, including absent files. The
+same six cached parent trees close this gap without additional API calls.
+
+## 2026-10-21 ER252 supplied-label H1 boundary
+
+Rebase a prepared additive change only after verifying its consumed base blobs; a stale global master pin is not permission to overwrite current Main. The V2 252-session helper checks supplied realized labels with the actual NYSE calendar and the last completed U.S. session. It does not authenticate source/PIT, fit a model, produce expected returns, or authorize A5. Preserve V1 defaults and keep every valid-identity cohort row, including blocked lifecycle rows. A contract newly read by a registered proof must also enter the fixed A6 dependency inventory and its stale-byte/rebound-omission regression.
+
+### 2026-10-21 — Supplied labels need cohort consistency and a real observation bound
+
+PR653's trusted exact-head Codex review found three H1 gaps: conflicting SPY
+returns passed independently within one feature date, untrimmed identifiers
+escaped duplicate detection, and a caller's future decision time made future
+labels appear mature. Validate the existing Candidate Registry identifier
+grammar before deduplication, gather all benchmark values before admitting any
+row, and bound the decision by one runtime UTC observation snapshot. Retain all
+conflicting rows as blocked; historical as-of decisions remain supported.
+Calendar tests freeze the runtime clock only as fixtures. No caller-supplied
+observation clock, source/PIT authentication, model fit, ER or A5 authority is
+introduced. Re-review the new exact head; the superseded review is not approval.
+
+## 2026-10-20 - Keep invalid macro inputs out of portfolio inspection
+
+- Validate every consumed price in MA/z-score windows: one earlier value in an
+  incompatible unit can corrupt a finite final reducer and invent market risk.
+- Replace the current blocked snapshot atomically before its independent dated
+  archive; archive errors must not preserve an old GREEN current pointer.
+- Missing/blocked/stale/future macro data never justify cached bull or neutral.
+  Share the producer's numeric/session contract and stop before weight loading,
+  composition and output. An explicit manual override remains unverified research.
+- Keep Native validation HEAD fixed during each identity-bound build. A commit
+  during B1 fixtures correctly raises code_identity_mutated_during_build; preserve
+  that failed run and rerun frozen bytes rather than relaxing the identity guard.
+
+## 2026-10-20 - Reuse registered smoke programs within frozen validation contracts
+
+- Adding a runner entry changes the fixed Manual proof inventory and the P0-4
+  protected publication bytes. A focused test passing alone does not verify
+  those registration consumers. Inspect the actual terminal CI failures first.
+- Run related consumer regressions through the existing registered macro smoke,
+  retain every case and its standalone compatibility entry, and keep the runner
+  byte-identical to the reviewed parent. Do not advance frozen verifier pins or
+  weaken inventory checks to admit an incidental test-registration change.
+- The new consumer runtime still needs its own separately reviewed fixed A6
+  dependency pin. Registry count and a passing fixture do not bind an imported
+  module that is absent from that inventory; keep proof acceptance pending.
+
+## 2026-10-21 - Install the dependencies consumed by sparse history preflight
+
+- The scheduled history workflow failed before Source/Drive access because its
+  native offline regression imports PyYAML but the minimal install omitted it.
+  Declare the actual tested PyYAML version in that existing install step; keep
+  offline-before-credentials ordering, source gates, schedules and all policies.
+- A green daily workflow can skip data work. Record actual executed steps and
+  input/receipt/consumer evidence separately from run success. Do not fabricate
+  a coverage receipt or silently fall back to old successful inputs.
+- Preserve Native environment failures: Windows symlink privileges and POSIX
+  mode checks need Linux evidence, not relaxed security assertions. Restore
+  absent tracked sparse fixtures from their exact Git blob before revalidation.
+
+### 2026-10-21 — Read the actual transport diagnostic and preserve partial capture
+
+Price174 run39611877699 failed with zero new admitted rows but36 provider calls,
+277 Drive calls and1024964B confirmed storage. Its meter explicitly records
+DRIVE_METADATA GET/HEADER_OPEN HTTP500; a short public HTTP_ERROR line does not
+justify reporting the status/category as unknown when the raw meter has them.
+It also does not identify the exact object or establish Google's root cause.
+Keep all567 actual job seconds, dispatch and costs in the original journals.
+
+A failed metadata GET after storage is not permission to replay provider prices
+or assume the saved object is a complete raw pack. Account for a bounded exact
+window inventory and validate raw bytes, original clocks, normalized rows and
+prior checkpoint before deriving a new receipt. Missing or ambiguous originals
+remain blocked. Keep capture Source and current derivation Source distinct.
+The old hardcoded orphan exception belongs to its original incident; add a
+separate named proof rather than changing that exception's historical meaning.
+Any retry must be limited to explicit idempotent metadata5xx GETs, debit every
+attempt and retain the original deadline; never turn unknown POST into retry.
+
+When rebasing a Source PR onto an unrelated protected Main merge, supply the
+native committer identity on the rebase itself. Never publish after a failed
+Git command: a stopped rebase can leave HEAD at the base with staged Source
+changes. Verify successful completion, the expected attached branch, clean
+status and exact scoped diff before pushing with an explicit remote-head lease.
+Publishing the base can close the PR as empty; preserve/reapply its original
+commits and reopen that same PR rather than replacing its review history.
+
+### 2026-10-22 — Missing meter needs positive failure evidence and typed costs
+
+Source665 recovery39659548948 failed in genuine GitHub log retrieval before
+RuntimeMeter, with original stderr/HTTP cause unobserved. Preserve its missing
+meter. Exact deployed code/import closures plus the original positive failure
+log prove only Source-controlled provider/Drive I/O zero; artifact absence is
+not zero-cost proof. Retain actual261 job seconds and one dispatch separately
+from five existing meter receipts, immutable reservations, CP128 and old costs.
+
+Authenticate an old protected Source independently of new local bytes. Close
+the exact refusal once through typed journal counterparts; a partial durable
+write must repair idempotently. A current protected publication and fresh
+immutable OWNER rebind must separately authorize continuation, binding actual
+closure hashes without resetting the original expiry or resource ceilings.
+
+For bounded CLI log retrieval, include feature detection, file-open latency,
+backoff and every subprocess in one monotonic deadline. Recompute immediately
+before spawn; prefer explicit auth/encoding/size failures over unknown-exit
+retry. Emit only safe reason/count/hash diagnostics, and preserve the original
+Refused code if even the diagnostic sink fails. Successful mock retries do not
+identify the actual old transport cause or prove operational capture readiness.
+
+### 2026-10-24 — Reuse Main H1 against the integrated component Reader
+
+An old clean checkout alone does not transfer ownership. Canonical owner release
+comments plus fresh checkpoint/status/lease and remote-head checks supported
+A0's explicit sequential reassignment. Preserve the original c0146 checkout,
+49 test ASTs and oracle; reconstruct its causal delta on current master and
+reuse the pinned remaining patch, rather than merging an old branch stack.
+Deduplicate instrument IDs before component requests while retaining each
+subject/benchmark role check. An absent optional benchmark must reach the
+Reader's local refusal; hash/clock/identity/resource/Lake errors remain global.
+Explicit component windows must preserve the retained consecutive-suffix OBV
+anchor; reducing to481 rows silently changes a level metric. Synthetic Native
+parity and optional refusal prove integration code, not actual Source generation,
+research-reference ACK, economic admission or portfolio authority.
+
+The first Main H1 preflight hit a sparse-checkout dependency omission before
+arithmetic: aggressive/signals_technical.py was not materialized. Preserve the
+failed log and expose the unchanged existing helper through sparse settings;
+do not replace the shared arithmetic or alter assertions to fix the environment.
+
+An independent exact83 audit found that Reader-global price guards did not
+cover a later consumer identity-proof read: the optional benchmark catch
+swallowed proof HASH_MISMATCH and FEATURE_IDENTITY_CLOCK into partial features.
+The same defect affected a RAW proof read. Preserve the old passing logs as
+limited evidence, add failing-before regressions, and carry proof integrity and
+original clock failures through the global refusal marker. Keep verified
+optional role/price/coverage refusals local; do not globalize every exception.
+
+The first correction d9b13be1 failed the unchanged original QQQ/Composite test:
+putting source-field comparisons inside the global proof guard erased valid SPY
+RS. Preserve that failed64-case Native log, move only proof object/schema/hash
+and original effective/aware clocks across the global boundary, and keep the
+original source-field/role compatibility checks local. Do not alter original
+assertions or treat a focused counterexample PASS as the full regression PASS.
+
+An unchanged helper's1MiB SHA read raised MemoryError during d9 independent
+optimized QA and268 direct optimized Native. Preserve both failures separately
+from product assertions. A same26864-case retry passed with unchanged gates;
+external sampling saw minimum free commit2.51GB and peak process private111MB.
+Post-failure host commit was about95%; the failed instant was not sampled, so
+the transient cause remains unconfirmed. Keep heavy Native and independent QA
+sequential, record runtime/head and memory evidence, and revalidate the final
+head; neither retry success nor high host commit alone diagnoses the cause.
+
+### 2026-10-24 - Bind a selected archive to its own original run, not a later root
+
+A cumulative capture index identifies retained coverage but does not locate a
+selected raw/normalized/receipt group. Exact-ref metadata reuse established MU
+and NVDA as5/7-link ancestors of their original finalized32-name run. A later
+campaign root and its last group were the wrong anchors. Keep actual group
+mapping separate from price recomputation, supplier rights and consumer ACK.
+
+Reuse the existing capture membership rules and pure external logical-genesis
+helper inside the reviewed preparation adapter. Trace exact hash/size/ID links
+only to the selected group, check own-run parent/count boundaries and all
+examined/completed/held/no-data transitions, and read no sibling price payloads.
+The existing32-proof/4MiB-each/16MiB-total ceilings include path/parent metadata.
+Rehashed counterexamples must still reject omitted nodes and shortcuts; a test
+that changes a node but leaves stale parent hashes proves only hash refusal.
+
+An initial external cohort has a logical genesis and a null first previous link,
+not a stored empty Drive object. A legacy initial16 capture needs its own actual
+execution evidence; a later preflight or a newer code pin cannot supply it.
+Rights/identity/CA/clocks remain independent of this lineage correction, and
+synthetic trust tests do not create an actual authenticated Source generation.
+
+Independent static A6 found the original parent ID was not compared with visited
+final/path IDs. Hash/count checks alone did not reject one immutable ID claiming
+two bodies when the selected group followed an earlier unvisited group. Keep
+parent-ID alias checks separate from path-cycle checks so a legitimate exact
+selected-previous==parent boundary is still accepted; cover all three alias forms.
+
+The first registered203 run correctly blocked an older orphan fixture earlier at
+the new parent-ID guard. Preserve that failed receipt and give the orphan its own
+distinct ID to test the intended missing-link boundary, rather than accepting
+multiple rejection codes or weakening either production guard.
+
+### 2026-10-24 - Preserve transport integrity across optional Reader boundaries
+
+Post-Ready Hosted review found exact owner readback corruption was raised as
+BindingError(ValueError), then translated by the Reader into ARCHIVE_UNAVAILABLE.
+An optional sibling could therefore be dropped while other components succeeded.
+The failing-before five-method integration run retained16 failed subcases;
+plain transport already rejected the same-size corrupt bytes as HASH_MISMATCH.
+
+Use the existing Reader ContractError for exact readback size/type and hash
+failures, and preserve it before the broad OSError/ValueError availability catch.
+Changing only the transport exception is insufficient because ContractError is
+also a ValueError. Keep ordinary unavailable-storage refusals local for optional
+components and fatal for required ones. Do not remove standalone byte checks,
+globalize all availability errors, or bypass the Reader with a custom exception.
+
+The first corrected focused run retained two new reference-size fixture failures:
+lowering the declared read limit truncated fake bytes to that size, correctly
+reaching HASH_MISMATCH. Declare one extra byte instead to isolate size refusal
+without truncation; keep the exact OBJECT_SIZE assertion and production checks.
+### 2026-10-24 — 13F storage must bind comparison operands and failed attempts
+
+A parser's `raw_sha256` can identify universal-newline text rather than physical
+XML bytes. Preserve both hashes and reparse the originals before trusting a
+resealed table/checkpoint. An empty report needs explicit parse proof; an absent
+holdings group is not an empty report. Additive amendments and removals need
+both current and retained/prior constituent originals, including denominator
+evidence. Incremental input must preserve its full verified prefix; missing
+history or a changed map/code context must refuse rather than silently reset.
+
+Independent A6 found that a type-only amendment cover could belong to another
+manager or period, and that a CLI missing argument could leave old current
+success intact. Bind cover filer/period/form/flag plus physical hash; invalidate
+only an explicitly named owned store under its own lock. Preserve unowned paths
+and another writer's lock. Regressions seed prior success before refusal, and
+exercise real serialization/readback in both normal and optimized Python modes.
+Fixture check times must precede source generation and decision times; the
+first no-new fixture violated this order and was corrected without weakening
+the clock guard. Current selected-source storage remains separate from
+due-quarter coverage, mapping completeness, fund NAV ranking and system intake.
+
+Native concurrent CLI checks can exhaust OpenBLAS allocation before reaching
+application code. Preserve the failed child stderr and rerun the same complete
+matrix with explicit BLAS/OpenMP thread ceilings; do not weaken assertions or
+report the first attempt as passing. A partial-clone push can also fail with
+lazy fetch disabled despite a clean local tree. Allow the existing Git promisor
+to retrieve missing objects for that same ordinary fast-forward push; verify
+the exact remote head afterwards without substituting a new checkout.
+
+Preserving the last complete snapshot alone is insufficient after a known
+incomplete revision. Independent A6 reproduced A10 original, A20 plus an unmapped
+constituent in a restatement, then A15 next quarter incorrectly becoming +5.
+It also reproduced a later additive report dropping an unresolved earlier
+addition yet restoring a complete denominator. Retain the original for audit,
+track unresolved revisions separately, and block comparison/additive recovery
+until a full verified restatement replaces the period. Bind blocker accessions
+as evidence; fixtures must test both refusal and full-restatement recovery.
+The existing 33-method consumer suite also caught an overbroad first barrier
+that let wrong-parent revisions invalidate an accepted root. Preserve that
+negative-case assertion: only lineage-verified incomplete revisions establish
+barriers; unlinked review evidence cannot poison accepted comparison state.
+
+Hosted review of SEC PR669 at `42581341` found two additional timeline defects,
+independently reproduced in normal and optimized Python with genuine offline
+Source serializers and stored readback. Latest-filing presence plus paired-table
+parity cannot detect a middle amendment omitted from both tables before the
+first commit. Require every observed 13F inside the selected acceptance interval;
+retain the separate committed-prefix guard. Also keep verified original identity
+apart from complete comparison snapshots: a full same-root RESTATEMENT can
+recover an unmapped original, while additive, unknown and wrong-parent reports
+cannot. Regressions must distinguish correct -5 after full recovery from the
+former null delta and must reject the omitted-amendment false +5. Follow-up
+validation uses synthetic stores and immutable prior actual receipts; no fresh
+provider calls or actual-store publications are implied by this code repair.
+
+### 2026-10-24 - Reconcile SEC causal scope on the integrated Main base
+
+Whole SEC PR35 and its latest six-path correction are different reuse scopes.
+Carry the validated causal implementation without dropping its prerequisite
+Form345/intake helpers. Preserve current historical Reader/CRLF positives and
+SEC/A3 immutable historical positives together; textual union alone can leave
+an empty duplicate helper header. Keep all original test ASTs and hash pins,
+and defer current-head execution claims until the final base and GO.
+
+### 2026-10-24 - Verify the existing Native runtime before SEC regression runs
+
+The system Python3.12 launcher lacked pandas and stopped before any SEC test.
+Preserve that import failure separately from product assertions. Reuse the
+existing Windows research venv after verifying pandas and pyarrow imports;
+record its exact executable and versions, then run the full sequential matrix.
+A missing Git author identity is likewise a local preparation failure: reuse
+the existing Codex identity per command without changing global configuration.
+
+### 2026-10-24 - Preserve SEC source receipts and reject false current success
+
+Hosted review of SEC669 at `9cc35518` found three P2 defects, independently
+reproduced in normal and optimized Python before repair. The index glob
+`sec_filings_index.*` omits `sec_filings_index_summary.json`; explicitly retain
+that source-check receipt in both raw/diagnostic persistence and Actions artifacts,
+without changing the separate success-gated accepted-analysis publication.
+An empty checked Source bundle can still become stale: CLI success must follow
+current eligibility, not only the no-new-filings label. Amendment parents must
+match underlying Form3/4/5 as well as issuer/security and original submission
+date, including stored lineage on replay. Wrong-family refusal must preserve
+the committed Registry manifest while invalidating current-attempt success.
+Filesystem restoration, frozen-clock CLI and cross-form controls are synthetic
+regressions; they do not imply a fresh actual Source check or data admission.
+
+### 2026-10-24 - Current SEC intake must age Source checks against execution UTC
+
+Hosted review of SEC669 at `fc6852b9` found that a backdated decision revived
+four-day-expired empty and nonempty ownership generations. Independent A6
+reproduced CLI/API creation and replay in normal and optimized Python before
+repair. Retain decision-relative provenance/PIT validation and also evaluate
+the same immutable receipt against the captured actual execution UTC before
+any current request or replay. Reuse the existing exact 36-hour boundary:
+the check is stale at 36 hours, not only after it. Do not refresh original
+Source clocks or grant current storage through a historical caller switch.
+Historical hash readback remains separate and cannot promote a failed attempt.
+Fixed-date synthetic positives must declare an execution-clock fixture; preserve
+their original assertions and add counterexamples with actual time later than
+both Source and decision. This clock fixture is test-only and grants no actual
+data admission. Legacy custody pins must be read from their owning receipt,
+rather than assuming every later acquisition receipt copied all older fields.
+
+### 2026-10-22 — Discovery selection is not source authentication or dispatch
+
+Reuse the A2 schema/parser and raw source-graph validator for a bounded
+US/KR supplied-byte selection proposal. Bind the original publication and URL
+to the selected primary source; retain leading-zero KR tickers, issuer/security
+life intervals, exact evidence hashes and existing active caps. A V1/V2 label,
+coherent identity bytes or materiality rationale is not authenticated admission.
+All candidates keep identity/source authentication NOT_VERIFIED, A1 requests0,
+dispatch0 and economic/consumer authority closed until the separate A0 adapter.
+
+Deduplicate by security, issuer, family, primary raw hash and normalized public
+clock. Reordering input can preserve the same candidate/dedup result while its
+exact input-byte SHA changes; never change the source digest to fit an equality
+test. Prior request keys and Registry rows are supplied context, not durable
+completion. Register these regressions through the existing Control Plane
+caller, preserving every old case and the frozen runner program inventory.
+
+The sparse Source Python environment initially lacked the repository-required
+jsonschema/referencing dependencies. Install the existing requirements range
+before Native checks; an import failure is not a failed event-validation case.
+Keep named price174/993 seed, dates, meter and checkpoints outside this adapter.
+
+Independent A6's negative witnesses found that empty URL userinfo passes a
+truthiness test and that a valid/unknown mixed pillar list passes a mere
+intersection check. Reject userinfo by presence (including empty values),
+reject backslashes and preserve the existing canonical-pillar subset rule.
+Keep the prior finding head distinct from the corrected frozen-head evidence.
+
+### 2026-10-23 — Route price-gap preparation through the existing A0 identity
+
+Derive OHLCV proposals only from the hash/time-checked A1 source_inventory and
+its bounded child references; replay original Stage2 inputs instead of trusting
+a worker's candidate/coverage booleans. Put the derived payload in the existing
+A1 task identity parameters so its contents change the existing task key and
+V2 completion binding. Reserve that parameter against caller injection, keep
+the A1/A2 DAG and global dispatch=false, and make this path dispatch-ineligible.
+
+Rebuild retained prices using the unchanged Source raw/split archive verifier.
+Missing Open stays missing. A complete covered prefix supports incremental-only;
+internal holes require backfill. Verified no-bars remains NO_DATA without a new
+request. UNKNOWN is not absent; a KR close proxy is not US raw/split coverage.
+Catalog/calendar/policy assertions and matching hashes are not authenticated
+rights, PIT, corporate actions, membership or capture permission. Keep all
+consumer/collection authority closed and old campaign budgets/journals intact.
+
+An invalid source_inventory produces the existing BLOCKED diagnostic A1 packet,
+not necessarily an empty queue. Verify that the previous derived requests are
+revoked and dispatch stays false; do not change the existing failure semantics
+to satisfy an empty-list fixture assertion.
+
+Independent A6's Stage3 witnesses also require a receipt's as-of/end to stay
+inside the decision cutoff even when raw/normalized reconstruction succeeds.
+Reject no-bars windows that contradict any retained price row in the same
+lineage. Cap child bytes before hashing or reading the entire file; consume the
+same capped snapshot whose hash and descriptor clocks were checked.
+
+### 2026-10-23 — Connect observed research state without inventing registration
+
+The incumbent SEC Main already stores pending MU filing requests. Reuse its
+manifest/artifacts read-only instead of building another Registry. A stored
+pending/V0 record is not an accepted current candidate or a V1/V2 material event.
+Match explicit issuer/security keys when supplied; a ticker-only match stays
+unverified. Price-inventory/checkpoint presence is not row coverage (completed
+can mean no bars), and absence is only within the inspected scope. Keep those
+observations distinct from DATA_READY, collection need and Source/PIT admission.
+Preserve original clocks when refreshing transport. Bind lookup/actual event
+inputs to the existing A0 task identity, revoke old proposals on failed refresh,
+and leave missing news-export input BLOCKED rather than claiming an automated
+ChatGPT report connection. Never overwrite another pending A1 request to connect.
+Preserve the A3 reference's declared status (missing stays UNKNOWN), rather than
+hardcoding pending from record presence. A supplied issuer conflict must fail
+even when the security ID is null; ticker-only lookup never repairs that conflict.
+Independent A6 also requires the lookup's sealed MemoryArtifacts guard before
+any resolver call. Check every explicit input, including subjects and canonical
+intake, against output aliases before revoking old output files; fail-closed
+revocation must never delete or overwrite an aliased source input.
+An existing cache file can be a hard link without being a symlink. Never open
+content-addressed cache objects for truncation: reuse only byte-identical files
+or create exclusively; a conflicting object stays blocked and original-safe.
+Shared ChatGPT report text is an unadmitted handoff, not publisher raw bytes or
+an authenticated V2 event. Keep excerpt/export hashes and claimed timestamps
+separate, bind references in the existing A0 transport and mark future automatic
+delivery NOT_CONNECTED until a real producer/export path has been verified.
+The optional Stage3 transport importer must verify the bounded captured bytes
+and descriptor clocks directly; calling the generic file-hash verifier after a
+capped read reopens the file without that cap and loses same-snapshot binding.
+
+### 2026-10-23 — Validate referenced paths before revocation; preserve A6 closure
+
+A Stage3 inventory outside a scratch output can still name an original child
+inside it. Check its complete bounded path set before unlinking reports, then
+reuse that captured inventory. For relocated canonical A6 intake, copy immutable
+bundle bytes and the known nested bundle closure at original relative paths;
+content-addressing only top-level inputs loses descriptor consistency. Use an
+input-identity scratch namespace, bounded hash/clock reads and path/prefix/metadata
+collision refusal. Stage evidence only after the full closure passes. A valid A6
+READY proposal is not an executed job or newly enabled specialist dispatch.
+Independent A6 also found post-read count/byte checks could consume a129th
+descriptor or oversized final read before refusal. Reserve counts before I/O
+and pass the remaining byte budget into the bounded read itself; test actual
+read calls rather than checking only the final refusal/status.
+Fresh Hosted review also found acquisition/parse failures could precede current
+proposal revocation. Unknown inventory children make catch-and-unlink unsafe.
+An exclusively created scratch failure marker blocks connect while preserving
+all prior/source bytes; only a complete, validated refresh clears a recognized,
+unchanged marker. Treat this marker as invalidation, never Source admission.
+Invalidate independently of old proposal publication safety: a hardlinked prior
+output must not prevent creation of the blocking marker. Preserve the supplied
+root symlink check and marker link guards; check other output paths only after
+the marker is held, leaving aliased bytes intact on failure.
+An unused marker.tmp is another publication path, not part of exclusive marker
+creation: its hardlink must not prevent invalidation either.
+
+### 2026-10-23 — Scope no-data to the target; honor artifact-specific entry caps
+
+Unrelated archived bars before/after a fully verified empty requested window
+must not create a redundant backfill proposal. Use the already validated target
+session coverage; keep identity/basis/cutoff and contradictory no-data guards.
+The shared decoder's1,000-entry default can reject an otherwise supported
+1,001-row inventory/checkpoint before its own declared limits run. Pass only
+the existing artifact-specific10,000/1,500 entry bounds, preserving global byte,
+token/depth/count budgets. Ten-field10,000-row data still exceeds50,000 tokens;
+do not raise that budget to make a logical entry ceiling practically reachable.
+For synthetic archive tests, derive asof via the existing Source mapping_asof
+contract when changing end-exclusive; a mismatched fixture clock proves archive
+refusal, not the target-window defect. Preserve that initial fixture failure
+separately from the corrected old-code reproduction and final passes.
+Fresh review also exposed that requiring one full-window empty receipt loses
+equivalent proof split across archives. Check the union of verified empty
+intervals against every requested session; adjacent/overlapping/reordered proof
+must agree, while a requested-session gap remains incomplete. Preserve the
+old71 split-window failure independently and never mark it A6 clean.
+
+### 2026-10-24 — Preserve protected SEC freshness when reconnecting Source proposals
+
+Reconstruct the existing13-path Source capability on protected b18, keeping the
+current ledger rather than copying its older whole-file version. Check actual
+upstream overlaps; in this integration only the shared ledger overlapped. Use
+protected Main factories/parser with temporary synthetic stores to prove pending
+FILING/V0, hash/identity/clock refusal, replay identity and amendment family/parent
+lineage. Historical readback never grants current freshness or OHLCV eligibility.
+The first coupled fixture retained an orphan old origin and was correctly refused;
+remove only that synthetic origin, retain the failing log and original assertions.
+Do not promote historical MU proof or supplier rights from these offline tests.
+
+### 2026-10-25 — Separate examined empty prices from fetch work; retain completions
+
+Hosted1bb review exposed two missing boundaries despite scoped passing QA.
+Verified empty sessions remain missing prices, but must not generate new ranges
+or provider estimates, including mixed archives and empties between real gaps.
+Fully examined mixed windows stay BLOCKED, with no fabricated complete coverage.
+
+Relocating requests also requires their valid standalone completion outputs.
+Use the incumbent full V2 schema and public completion planner on a disposable,
+bounded captured-byte view before publication. A receipt's claimed key/status
+is not enough. Preserve output clocks/paths/hashes and the planner's existing
+old-key/unrequested-history behavior without fetching irrelevant outputs. Reject
+invalid applicable proof and aliases; reserve count/remaining bytes before reads.
+Preflight every existing destination before writing any evidence child; preserve
+conflicting originals. A scratch validation view is not a canonical store.
+
+The old two real assertion failures were retained. A first code-byte provenance
+comparison encountered Windows CRLF versus Git LF, so the discriminators were
+also executed against immutable canonical1bb modules outside Source. No private
+evidence normalization or production overwrite was used for that reproduction.
+
+
+## 2026-10-25 — Validate registered long-history tests in their actual sparse tree
+
+The original786 workflow offline command fails at load_tests before Source or
+Drive access: the registered BindingTest module and its helper/runtime imports
+are outside the18-file checkout. Add the existing dependency closure to both
+sparse paths and push filters; importing a helper does not register its unrelated
+campaign tests. Preserve all original registered methods, package pins, the
+event_name!=push producer guard, single-writer scope and schedules.
+
+The new regression copies only declared paths into an isolated tree, loads all
+three existing suites without executing itself recursively, and rejects direct
+Binding, transitive capture-module and push-filter omissions. A complete local
+checkout or inherited repository PYTHONPATH cannot certify this workflow. Run
+the unchanged three commands there under normal/-O with network denied. Package
+bootstrap, when explicitly authorized, is separate test-only setup with its own
+request/byte/wheel hashes; it is never a provider/Drive collection or data receipt.
+This H1 repair cannot establish g29 execution completion, original source clocks,
+rights, PIT, consumer admission or automatic operation.
+
+Windows Native must retain the existing macro-cycle0600-vs0666 failure; it is
+not a pass or a new skip. Under A0's explicit substitute proof, the new regression
+also runs that unchanged17-case command in its isolated tree only on POSIX,
+with network denial and an exit diagnostic. Linux current-HEAD CI must witness
+this actual branch before closing the POSIX proof; the three original commands
+and their permission assertion remain unchanged.
+
+## 2026-10-25 — Preserve the original envelope while declaring a bounded private view
+
+An exact factor mismatch outside a declared view must remain a full-span
+refusal, not trigger a tolerance or automatic shortening. Verify the complete
+original archive before selecting every member's identical NYSE grid. Retain
+original/selected/excluded hashes, counts and an explicit new anchor; no old
+lifetime or economic result follows from a smaller compatible window.
+
+The Feature consumer pairs RAW/SPLIT by real original receipt/run/raw references.
+Keep the verified capture receipt as an explicitly documented common origin only
+for the opt-in view, and preserve both distinct basis derivations independently.
+Typed identity plus halt/volume proof must retain actual source bytes, effective
+windows and aware clocks. Missing status never becomes an empty halt list.
+A point asset response may contain a real provider ID without proving historical
+identity, halts, volume semantics, supplier retention or current admission.
+
+The first new regression exposed an import-boundary mistake: the legacy guard
+imports its calendar locally. Import the same existing calendar package in the
+new helper; keep unavailable calendars fail closed. A subsequent new assertion
+expected a list from the unchanged immutable Reader receipt; retain its actual
+tuple contract instead. Preserve both failed logs and every original assertion.
+Use external pinned consumer execution for cross-edge proof rather than adding
+heavy Main imports to Source's sparse workflow.
+
+Root static review of E0 found that its new path still required excluded-period
+identity/lifecycle/factors. Keep complete original-byte/schema/date/membership
+verification, while requiring technical eligibility only for the explicit consumed
+grid. Never fill unknown old factors or extend a truthful identity window to make
+a private view pass. Preserve E0 results separately and revalidate the new HEAD.
+
+## 2026-10-25 — Keep provider-close research separate from physical halt status
+
+A nonzero provider daily bar can support a limited archival price policy without
+proving no physical halt. Do not put that witness into legacy COMPLETE/list
+fields: they control suspension refusal and whole-date/suffix exclusion. Use a
+distinct reviewed type, external trust plus independent expected pin, exact
+source/basis/window/clock bindings and physical UNKNOWN. Keep supplied positive
+physical facts and their effects in both routes. Hash or consumer name alone
+is not reviewer authentication; false output flags are not universal authority.
+
+Use small synthetic Source-to-actual-Reader/Feature cases under normal and -O.
+Code acceptance is separate from real generation/MU/store execution and actual
+Registry/A3 context. Keep Source's registered tests free of heavy Main imports;
+the finite external cross-edge runs the existing calculator without new engines
+or a657-session replay. Preserve original methods and assertions.
+
+Native setup failures precede product validation: this Main's partial clone
+needed a bounded current-master fetch after ordinary fetch hit missing objects,
+and sparse checkout omitted existing source-revision and calculator helpers.
+Preserve failed receipts, materialize unchanged dependencies, and verify exact
+base/tree/clean scope. Windows subprocess audit supplies a command-line string;
+allow only the intended read-only git metadata command rather than treating it
+as an arbitrary child or disabling the synthetic network/store guard.
+
+Final self-review reproduced a forged qualified TOTAL_RETURN basis escaping as
+KeyError before useful output. Check membership in the qualification's existing
+RAW/SPLIT basis map before indexing; preserve unrestricted legacy basis support
+and assert the finite scoped refusal through the actual Reader, including -O.
+
+## 2026-10-25 — Batch authoritative close checks within one research invocation
+
+Repeated NYSE schedule construction is a static performance candidate, not a
+measured fraction of a real run. Reuse Source's authoritative range pattern
+with its bounded calendar envelope inside each Reader call and Feature snapshot.
+Keep row checks in their original order, including optional components' global
+schema/identity/clock failures. Missing dates, unsupported/oversized ranges and
+batch failures must reach the original finite lookup; no alternate calendar,
+global cache, smaller history or new eligibility policy follows from batching.
+
+Compare exact Reader rows/files/receipt bytes under both lookup strategies at
+the same loaded code pin. Across code revisions, reader_code_sha256 and dependent
+receipt/Feature hashes must change honestly. Preserve fixed calculator/Decimal
+AST and existing assertions. Small synthetic normal/-O parity and schedule counts
+do not establish actual runtime speedup, source admission or economic benefit.
+The completed 534.031301-second actual MU baseline and its outputs are historical
+evidence only; this implementation does not replay it or call Source.prepare.
+
+Initial new test expectations incorrectly called 2026-07-02 an early close and
+omitted the unchanged fixed calculator's grid schedule. Both old/new strategies
+agreed: the authoritative close is 20 UTC; November 27 supplies the actual early
+close case. Preserve the failed log, correct these new expectations, and count
+the existing calculator schedule in the full snapshot observation.
+
+## 2026-10-25 — Preserve the original calendar authority before research batching
+
+PR676 at0232 passed focused parity tests but failed the unchanged registered
+Reader backtest calendar-unavailable oracle in CI40158081232 attempt1. Direct
+range lookup had bypassed latest_completed_close. This is a deterministic
+product regression: preserving original test AST without executing the full
+registered Reader/Source family did not establish compatibility. The same
+original test was reproduced failing locally before the repair; do not weaken
+that oracle or relabel the failure as environment/flakiness/review paperwork.
+
+Restrict the optimization to explicit research. Training/backtest/discovery
+retain the original per-date authority, including a failure on a later date.
+The research range is lazy: the first actual session must pass _session_close
+at the existing row boundary, and its close must agree with the range before
+reuse. An anchor mismatch or range failure retains original finite lookups.
+Include-time metadata does no calendar work. Keep schema/identity/clock failures
+ahead of that first anchor, with no persistent cache or altered public API.
+
+The necessary authority anchors increase the new synthetic schedule counts:
+Reader3→2 and Feature conservative21→8, including existing calculator work.
+These corrected new expectations preserve every protected original assertion.
+Re-run the unchanged failed case, the full registered family and focused normal/-O
+parity on the new exact HEAD. Actual Source preparation, MU/Feature execution,
+collection, current tail repair and economic/portfolio work remain separate.
+
+The first complete Windows run preserved that repaired original oracle but
+failed sparse import because the Source runtime lacks SciPy. Preserve its239-case
+failure receipt. Reuse already installed pinned test packages in an isolated
+validation environment, without overwriting either owner environment, downloading
+packages or adding skips. Retain PyArrow and the existing six Linux-only skips;
+Linux native resource coverage still requires the new GitHub CI head.
+
+
+### 2026-10-25 — Fixed SPY canonical census includes a historical validation stub
+
+The actual pre-capture gate stopped with SPY665_UNKNOWN_DISPATCH before any WorkJournal, provider/Drive I/O or dispatch. The complete historical census includes push39388523155/#98 at284abcb6, outside the39 capture/native dispatches. Its immutable workflow blob93a38491a0180e0ba2b99e3a6086fc79c741c76e (SHA256464ef675a92be21267f8d4663c45ca76c0cc80a4e76e8178241e8626dc83ae68) has invalid YAML and a capture condition restricted to workflow_dispatch on master. Canonical jobs are exactly two runnerless, step-free review checks118514193309/118514203527, not collection jobs. Recognize only that exact immutable run and recheck both exact job identities, clocks and absent execution resources on every observation. Unknown push/dispatch, replay, changed metadata, added steps/jobs or a runner still fail closed. Preserve the original39-row parent,104 journal prefix,40-dispatch limit, charged costs and unknown platform costs; absence of artifacts or logs is not zero-spend evidence.
+
+Separately, the Windows read-only owner lookup initially failed DNS because a minimal rclone child environment omitted SystemRoot/WINDIR. Restore only those OS fields in the local T0 helper; do not modify worker authentication or Source gates. Current original-owner hash matched after the fix. Old nullable owner authorization and new explicit-owner input are distinct contracts. No collection success follows from prepared input or a posted but unexecuted grant.
+
+### 2026-10-25 — Actual SPY Arca identity and completed research sessions
+
+Actual SPY665 capture40183239445 on protectede5de29de returned provider exchange ARCA. Preserve its MIC ARCX rather than relabel it XNYS. The existing Source identity scope excluded ARCX, and standalone Reader research treated that venue as unscheduled. Accept ARCX in Source preparation and apply the existing NYSE completed-session checks to research/discovery with the exact New York timezone/calendar. Preserve the original training/backtest venue support, PIT_PROXY restrictions, rights, physical-halt unknowns and false economic/selector authority. Test original-byte reconstruction separately from Source preparation and consumer ACK; no new collection or dividend/total-return claim follows from this H1.
+
+Exact02d2 general CI40184822034 passed234/235 but exposed one stale Feature test oracle: an ARCX benchmark row available before close now reaches Reader's PRE_CLOSE_AVAILABLE_FROM before Feature's older local check. Clock provenance errors remain global even for optional benchmarks; only ordinary optional absence/data refusal is local. Strengthen the existing cross-edge test to require the global refusal, preserving product guards and the separate valid/absent optional-benchmark tests. Source/Reader-only Native coverage did not cover this Main oracle; include the existing68-case Feature suite in this causal validation. Preserve the original failing CI and require fresh exact-head review/checks after the test correction.
+
+### 2026-10-24 — Locate retained prices before refreshing a separate cache
+
+The existing820-key owner inventory (Alpaca776/Twelve312/overlap268) is a
+retained-price locator, not current freshness, identity or rights admission.
+A separate scheduled80-symbol yfinance cache can be green while most private
+Source histories are not updated. Publish sanitized source/receipt references,
+reuse exact original raw/split bytes, and preserve original clocks and budgets.
+Drive search can return0 for existing objects; inspect the grounded folder
+before claiming absence. Never turn historical counts into a new current audit.
+
+The human revised removal handling to FOCUS -> WATCH -> FOCUS: retain price
+tracking and history on removal, and reuse it on re-entry. Bind revisions to
+exact previous config bytes, stable events and A0 references; reject watch
+drops, duplicate targets and silent ticker remaps. A calendar-based preparation
+artifact and GitHub schedule are not an active price collector, authenticated
+A0 acceptance or supplier-retention proof. Keep these states explicit.
+
+Keep the private Source offline regression job standard-library-only: it uses
+a sparse checkout without the calendar dependencies. Register the managed
+roster/calendar cases through the existing full A0 contract test entry instead
+of introducing an import dependency into that isolated Source job. Initial
+concurrent broad Native attempts ended with explicit OpenBLAS allocation errors;
+they are not PASS. Retain those logs, bound local BLAS threads and validate
+serially without suppressing any assertions. The bounded20-second diagnostic
+interrupted calendar initialization; focused20 cases had independently passed
+normal/-O before that diagnostic, so it is not proof of a provider timeout.
+
+The first full A0 run found47 missing-schema setup errors in the existing
+sparse Source checkout, not failing roster assertions. Materialize only its
+known tracked control-plane contracts from the exact base and retain their
+hashes/original sparse flags; remove those owned temporary copies after QA.
+
+A0 tests also invoke nested git commands; pass safe.directory only in the test
+process environment rather than changing global trust. Preflight every exact
+reuse_candidates path in its existing contract: a sparse absent decisions.py
+is not a functional A0 failure. Preserve those setup failures separately from
+the final materialized, process-scoped validation.
+
+A public inventory bound by its exact byte hash must survive checkout line
+conversion. Pin LF for the new inventory/current policy and disable text
+conversion for archived policies; test actual git attributes so Windows CRLF
+cannot make an unchanged managed policy refuse its inventory/parent proof.
+
+### 2026-10-24 - Separate an implemented refresh adapter from actual activation
+
+The human asked to continue automatic updates while explicitly confirming no
+new account-rights evidence. Implement the guarded runtime in the existing daily
+workflow, but keep policy/variable/control disabled and WAIT_OWNER_EVIDENCE.
+Reuse the existing capture, immutable writes and RuntimeMeter; do not reset old
+budgets, invent a standing numeric grant or claim fixture capture as actual data.
+Reserve every finite execution slot including setup/publication time and unknown
+attempts. Require original private source bytes, immutable owner scope, protected
+deployment, a linked durable reservation and final meter before continuation.
+FOCUS and WATCH both track; a last-day bar cannot hide earlier session gaps.
+
+Hosted review found an archived-parent overwrite when malformed inventory failed
+before parent-path registration. Protect the entire policy-history namespace
+before either success or failure output; also reject runtime meter/input aliases
+before meter construction. The first new Native fixture failed only on Windows
+cp949 decoding of a UTF-8 workflow; specify UTF-8 explicitly, retain the failure,
+and rerun without relaxing assertions. The separate Source offline suite and
+original campaign/controller files remain unchanged.
+
+Exact-head review then found ordinary holiday successes lacked resumable
+no-capture proof, and already-current bootstrap names could starve an unvisited
+tail. Write a typed pre-credential calendar outcome and authenticate it on the
+next run; persist reused cutoffs alongside new coverage. Independent A6 also
+proved shared concurrency alone cannot account for intervening legacy Source
+costs. Fence the complete bounded run/attempt prefix, including older reruns;
+any change requires cost reconciliation. None of these fixture corrections
+establish supplier rights or approve activation.
+
+### 2026-10-26 - Reconcile managed refresh on the deployed research path
+
+Retained 820-ticker history and PR671 already implement managed incremental
+refresh; reuse those exact capabilities instead of adding another collector.
+The selected MU657 generation is not the complete retained-price inventory.
+Current-master integration must preserve the newly registered SEC/A2 tests
+alongside both managed suites. Past rights observations, CI and finite Source
+grants do not certify the new head or authorize standing managed maintenance.
+
+Host commit exhaustion made threaded Git and PowerShell fail despite free
+physical RAM. A one-thread Git configuration and small sequential cmd/Python
+operations recovered local inspection; do not count resource-failed checks
+as passes or change user processes/OS settings. A shallow no-merge-base result
+was resolved by a bounded history fetch: it was not unrelated ancestry.
+
+After reboot, fresh registered validation completed169 cases with165 passing
+and4 import errors because the existing Source environment lacked requests,
+already declared in requirements_github.txt. Preserve that exact failure and
+reconcile the declared test environment before a new-head PASS claim; do not
+remove the newly integrated SEC/A2 compatibility tests to make Source green.
+The declared requests dependency was then installed in the same existing test
+environment; all4 original failed compatibility methods passed unchanged.
+
+Hosted699 review found that original-to-normalized membership and matching
+raw/split date sets do not certify a retained archive's requested session grid.
+Before advancing a bootstrap cutoff, reuse the existing complete_grid check
+against the receipt's original start/end window. Refuse a required leading or
+interior gap before provider calls; do not certify or block an unrequested
+sibling merely because it shares the original pack. Regression fixtures use
+the real capture/verifier with injected responses, including valid weekends.
+- A managed-list size cap is not a requested-symbol selector: the first unvisited alphabetical name wins even when the desired MU data already has exact retained originals. Use an optional immutable control-hash-bound execution subset for a small witness; preserve all820 policy names, the full policy authorization check and original costs. Reject invalid/untracked subsets and foreign restored cutoffs/holds before reservation. Changing scope cannot reuse a populated old-control journal. Older deployed code ignored extra control keys, so a hash-bound field alone is insufficient without new reviewed deployment pins.
+- The initial new subset regression had3PASS/1FAIL because its oracle assumed civil-date wire values; a second normal/-O run exposed the same new fixture's incorrect end-bound expectation. Read the existing query serializer: start is UTC00:00:00 and the exclusive civil end is encoded as the prior day23:59:59Z. Preserve these negatives, correct only the new oracle and retain all original116 methods; do not change the collector or weaken the missing-range boundary to fit a fixture.
+- Review the whole workflow before dispatching a bounded managed witness: its prior manual managed_refresh flag also started the unrelated legacy daily job. Exclude that legacy job only for an explicit managed-only manual request; preserve the existing scheduled/manual-default behavior and single-writer lock. A clean runtime-only subset review did not certify this cross-job isolation.
+
+### 2026-10-26 — Preserve retained history across managed research derivations
+
+- Managed maintenance produces a different checkpoint/meter chain from the
+  original capture campaign. Validate its actual control, deployed head, OWNER
+  grant, protected master, job/worker clocks and terminal publication costs;
+  never forge a legacy receipt to reuse a parser. A run-created timestamp is
+  not the worker start or a replacement for its deadline.
+- A refreshed qualification cannot silently extend a supplier's expiry.
+  Independent early QA found that nested composition initially dropped the
+  inherited supplier expiry and did not authenticate SPLIT provenance bytes.
+  Preserve the inherited minimum across generations and bind/bound every
+  basis derivation, including its actual derived-file hashes. Keep historical
+  review cutoffs and row availability clocks unchanged.
+- Matching an overlap close does not establish all historical revisions,
+  split-chain completeness or absence of halts. Require fresh external common
+  basis review, exact RAW/SPLIT OHLCV overlap and full requested session grid;
+  preserve UNKNOWN/null and known positive halt facts. External review is an
+  input authority, not an auto-generated trust anchor or economic admission.
+- New synthetic regression preparation exposed an incorrect expected clock
+  spelling (Z versus +00:00) and a sparse checkout missing aggressive helpers.
+  Retain those negative logs; correct only the new oracle and materialize exact
+  immutable test dependencies. A local synthetic pass is not actual collection,
+  current MU coverage, durable publication, A3 acceptance or ER/A5 validation.
+- Subsequent QA rejected detached hash-valid blobs outside a parent's declared
+  files/source hashes; byte integrity alone is not lineage membership. Bind
+  managed asset precheck clocks to the actual reservation/collection window.
+  The first broad Native attempt passed109 Source methods, then was stopped
+  during Reader tests for these two final changes; retain its logs without
+  calling that a final-byte or current-head validation pass.
+- Managed reference evidence also needs the stable provider UUID to match the
+  captured asset response, not just matching newly supplied identity/status
+  documents. Preserve the second interrupted Native attempt while completing
+  this review finding; freeze all repairs before the final broad run.
+- Hosted PR685 at606b passed234/235 files but agent_board/manual-foundation
+  correctly refused the edited docs/RESEARCH_DATA_ACCESS.md: an existing
+  historical catalog pins that file. Local Source/Reader/control/Feature
+ 454+454 and independent QA did not cover this manual catalog dependency.
+  Restore the guide's exact base bytes, keep new API guidance in the existing
+  plan/PR/lesson, and validate the affected registered entrypoint. Do not
+  regenerate a historical catalog, normalize away a real edit, weaken the
+  guard or call the failed whole CI successful. The repaired head needs its
+  own Codex/A6/CI/review-complete evidence; unchanged runtime bytes and the
+  earlier454+454 remain explicitly scoped historical evidence.
+
+### 2026-10-27 — completed NYSE close and available provider endpoint are separate
+
+- Actual managed run40419688628 failed at ALPACA_BARS403; successful run40436288597
+  collected the missing MU tail after UTC midnight. The old403 body was not
+  retained, so endpoint timing is a verified request defect, not a proven
+  exclusive explanation for that403 or an account-wide entitlement conclusion.
+- The retained collector sends the inclusive last civil day through23:59:59Z.
+  A23:30 UTC schedule can pass close+120 minutes while requesting a future end.
+  Gate this exact endpoint plus the conservative15-minute historical-feed delay
+  before credentials/Drive, and replay its immutable no-capture proof separately
+  from a calendar skip. Rescheduling the shared event needs the existing00:15
+  readiness/01:15 selection dependency review; do not move it independently.
+  Holidays, stale sessions, DST and early closes still use the actual NYSE gate.
+- A green code test or a no-capture marker is not a completed Source refresh,
+  new execution budget, rights renewal, PIT admission or Paper publication.
+  Preserve all42 spent Source slots and existing actual MU666 receipts; do not
+  run a collector or transactional workflow to validate this code-only fix.
+- Official API documentation was obtained with the web tool after the connected
+  Firecrawl scraper reported exhausted credits. Do not retry paid retrieval
+  with altered parameters or infer provider rights from public API docs.
+- Source's existing sparse checkout omits research/, so the first whole-control
+  script imports failed before tests. Preserve those diagnostics and materialize
+  only the required existing tracked subtree; changing PYTHONPATH cannot restore
+  absent files. The focused41 managed methods passed before this environment fix.
+- The next186-case attempt reached the tests but99 cases failed on Git's Windows
+  ownership check. Use process-scoped GIT_CONFIG safe.directory for this existing
+  checkout; do not change product code or global trust to conceal the fixture
+  environment. Only the subsequent current-byte pass is validation evidence.
+- Independent A6 reproduced a whole-day backward-clock counterexample at the
+  first3ff head: both recomputed gates could be READY for a different prior
+  session and reach the synthetic provider canary. Keep that negative result.
+  The execution API now requires the original preflight explicitly, rejects
+  clock regression and session replacement, and records RESERVED/BLOCKED with
+  zero provider GETs. Revalidate the repaired head; the prior186+186 pass and
+  any earlier Codex/CI evidence do not cover this repair.
+
+## 2026-10-27 — Actual news and archive macro consumer edges
+
+- A news-monitor chat's V2 label is not a typed accepted event. Retain the
+  original bytes/hash and actual publication/collection clocks, then call the
+  existing A2 API. Oracle's modified timestamp could not replace unknown
+  publication time. A retained Amkor original passed only V0 WATCH discovery;
+  missing-time and duplicate cases were refused. The initial harness guessed
+  DUPLICATE_EVENT, but exact duplicates first fail schema uniqueItems; preserve
+  that failed harness and test the actual validation boundary without loosening
+  either guard.
+- The bounded file caller reuses validate_events and closed authority. It
+  checks a pinned request and every selected source hash, requires per-event
+  source bindings, bounds local reads and creates a new output only. File/hash
+  consistency does not authenticate article claims, rights, identity or PIT;
+  this local entrypoint does not establish recurring delivery or A3/ER/A5.
+- Resolve a lake object through catalog.locations and its immutable pack;
+  searching Drive for the inner object hash can return zero for existing data.
+  The retained HY object had786 observations ending2026-10-21, unknown published
+  timestamps and no matching g29 completion in the observed execution list.
+  Its literal date/value serialization reached the existing A4 parser once,
+  but is derived data, not an original FRED graph HTTP response or current PIT
+  admission. Do not run the full graph-labelled builder on that serialization.
+- Actual crisis run40433254637/artifact12703058297 requires2026-10-26 yet reads
+  risk_as_of2026-03-20 and correctly remains DATA_BLOCKED. Artifact upload/Drive
+  sync success does not repair stale inputs. Exact FRED membership9/13 also
+  leaves4missing, and a similarly named series cannot be silently aliased.
+- The first validation command used --include (additive) instead of --only
+  (restrictive). Its unintended238-file local run was explicitly stopped during
+  the first registered offline credential smoke and is not a validation pass.
+  Keep direct focused A2/A3 results separate; use --only with --include when a
+  selected file is nested under another registered entrypoint. Include the new
+  caller in the existing independent A6 fixed proof dependency set, rather than
+  leaving an import needed by those tests outside the copied proof closure.
+- Independent A6 found that a direct final-file write could leave success JSON
+  after fsync failed. Retain that pre-repair finding. Stage/flush/fsync/close
+  before create-only final-name publication; cover fsync, final-link and
+  post-publication cleanup failures explicitly. The first finite Native wrapper
+  passed215+215 A3 methods but its registered AgentBoard route found a missing
+  sparse-checkout test dependency before running; it is not a final validation
+  pass. Restore exact current-code dependencies, not a synthetic success.
+- A special file must be refused by lstat before opening it: a POSIX FIFO can
+  block before fstat. The final caller adds that pre-open regular-file guard.
+  The repaired full registered AgentBoard local attempt exceeded its600-second
+  bound and its verified orphan test process tree was stopped. Preserve its
+ 216+216 A3 passes as pre-final-guard evidence; the whole broad run did not pass.
+  Use focused final A2/A3 and affected fixed-proof membership tests locally;
+  current-head hosted CI remains a separate required completion gate.
+- The final focused wrapper preserved217+217 A3 passes but the unchanged broad
+  Control Plane normal route reached its180-second bound before completion;
+  its optimized route was not run. Do not report that wrapper as all green.
+  The affected manual fixed-proof membership/replacement tests and explicit new
+  caller omitted-pin/stale-byte attacks passed separately. Keep local scoped
+  validation, unrelated broad timeout and hosted required-check status distinct.
+
+- Protected Source PR686 merged at29104d50 while news PR687 was in review.
+  Both appended the shared lesson ledger; preserve both exact suffixes when
+  synchronizing the protected base. New commit needs fresh exact-head checks;
+  earlier59bb reviews are historical, not current-head approval.
+- Git emitted pack-index-unavailable warnings during that local merge. The
+  named pack/index were absent on fresh inspection; selected required commit
+  reads and exact protected/news file comparisons succeeded. Corrupt objects
+  were not established. Preserve the warning and scoped readback; no pack or
+  object deletion/cleanup was performed as a workaround.
+
+## 2026-10-27 — Match A4's exact macro inputs without replacing history
+
+- A4 requests BAMLC0A0CM, DGS3MO, WDTGAL and RRPTSYD, but the existing Source
+  registry omitted all four. Extend that registry and reuse its collector/Lake;
+  do not introduce another collector or require a whole-cohort rerun. WDTGAL
+  is the Wednesday Treasury balance in millions of dollars, not WTREGEN's
+  weekly average. RRPTSYD is distinct from overnight-only RRPONTSYD and uses
+  billions. Keep both existing series; never silently alias their values.
+- FRED's ICE corporate OAS notes limit the currently available series to three
+  years from April2026. Preserve already-held originals, actual returned dates
+  and provider terms; a requested six-year window is not six years of data.
+  Official metadata: https://fred.stlouisfed.org/series/BAMLC0A0CM,
+  https://fred.stlouisfed.org/series/DGS3MO,
+  https://fred.stlouisfed.org/series/WDTGAL,
+  https://fred.stlouisfed.org/series/RRPTSYD.
+- Seal the registry bytes once before collection and retain their hash object.
+  An explicit original registry permits historical bundle byte readback; the
+  default analysis guard still refuses a changed current registry. Old Lake
+  catalogs/objects remain immutable and incompatible analysis stays blocked.
+  Update only affected dependency pins in the existing reuse catalog; preserve
+  its historical source identities, no-dispatch constraints and strict checks.
+- Main currently has another active market-analysis writer. Preserve its lease
+  and edits; this change uses only the existing free Source lane. Code and local
+  held-byte replay do not certify a new Drive generation, current Regime,
+  economic validation, portfolio authority or three normal automated cycles.
+- Pin Git-LF code bytes in the reuse catalog, not Windows checkout CRLF hashes.
+  The first extra Native manual-proof run found six unrelated CRLF mismatches
+  in historical fixtures; preserve those failures and use only hash-verified
+  Git-LF fixture bytes for a scoped replay, without weakening runtime guards.
+  The separate unchanged macro-cycle suite also fails its POSIX0600 assertion
+  on Windows (mode0666). Its last successful lesson command does not turn that
+  multi-command session into an aggregate pass; Linux CI must verify the mode.
+- The first2898 review did not establish the scheduled checkout's deferred
+  A4-contract read. Its isolated regression loaded all modules but executed
+  only the macro-cycle suite. Add the exact A4 JSON to both existing push
+  filters and sparse paths, execute the real portable macro-evidence suite
+  inside that checkout, and prove omission fails without network access.
+  Preserve2898's clean scoped review; the repaired head needs fresh gates.
+
+### 2026-10-27 - Unify market context through the incumbent model and consumer
+
+- VIX, NFCI and participant/survey data measure different things. Reuse the
+  existing risk contract and source parsers instead of adding a second set of
+  thresholds or summing overlapping observations as independent alpha votes.
+  Exact WDTGAL/WTREGEN and RRPTSYD/RRPONTSYD identities remain separate.
+- An engine and daily consumer connection do not establish a recurring Source
+  publication. Require the actual original bundle, immutable request pin,
+  per-source collection clocks and current session; never freshen historical
+  observations by changing a request timestamp or fall back to an older success.
+- The optional NY Fed SCE standardized export preserves mean stock probability,
+  not AAII bullish share. Native XLSX acquisition failed DNS again (one attempt,
+  no retry); original/conversion verification remains false. No paid fallback.
+- The initial repository-inspection script hit Windows cp949 encoding on a
+  Unicode doc. Use process-local PYTHONIOENCODING=utf-8; no product-data changes.
+- The first engine run completed26 methods with one failed new oracle and two
+  sandbox TEMP-cleanup errors. The incumbent risk validator deliberately slices
+  to an explicit earlier as-of; the unified request already rejects an earlier
+  current session. Correct only the new direct-call oracle to request a session
+  beyond the data. Use a process-scoped writable TEMP; preserve the first log.
+- Keep the new engine, active umbrella test and runtime-read contract in the
+  existing independent A6 fixed proof closure; the unchanged fixed registry
+  entry must not import a helper omitted from its isolated verification pack.
+- Explicit staging initially refused the two new docs outside Main's sparse
+  definition. Keep the existing sparse configuration and use git add --sparse
+  for only this task's named paths; no broad staging or new worktree.
+- Main had no Git author configured, so the first commit was refused. Use
+  per-command Codex author identity, preserving user/global Git configuration.
+- Independent A6 reproduced exact22028 non-object price-array elements escaping
+  load_report as AttributeError in normal/-O. Retain those original fixtures and
+  RED receipt. Require each price row to be an object before use, and move current
+  calendar/session resolution inside the same structured-refusal boundary. Cover
+  both through actual pinned-file reads; a last report must not survive as a new
+  successful assessment. Actual stale Drive propagation was not observed.
+- Connect parsed market rows to the existing candidate-reassessment snapshot
+  API, preserving source-authentication, dispatch, ER/ranking and canonical-write
+  flags false. This is a typed research consumer, not Registry admission.
+- The exact22028 whole daily umbrella passed its32 currentness and22 regime
+  tests but exceeded a300-second bound during unchanged clock tests. The new
+  engine suite was after that boundary and was not reached in this attempt.
+  Preserve the timeout and do not relabel it a whole-suite pass. Final repair
+  validation uses affected native subsets; hosted whole CI is a separate gate.
+- The first added reassessment regression correctly found that native observation
+  snapshots do not emit the review-plan CLOSED flags. The wrapper now seals
+  those explicit false flags around the unchanged native typed rows; no existing
+  bridge schema/dispatch policy was changed. Preserve the31-case failed log.
+- Hosted exactb74 Codex found two additional P2 integration failures despite
+  the scoped Native/A6 passes. Preserve the reproduced SNAPSHOT_CONTRACT and
+  invalid_context_numeric errors. Generic snapshot hash verification did not
+  exercise plan_reassessment's exact schema reconstruction. Keep the native
+  snapshot unchanged and put review CLOSED flags on the enclosing report;
+  test an actual plan_reassessment handoff. Reuse clock.context_table's bounded
+  CSV plus incumbent pandas null parsing for blank optional numeric/boolean
+  warmup cells. Do not weaken native snapshot or missing-value validators.
+- Adopting the byte-identical publication commit refreshed sparse flags and
+  omitted the two new out-of-pattern docs. The first repair doc read refused.
+  Restore only those exact tracked Git blobs before the focused edit/validation;
+  preserve the existing sparse configuration and source files.
+- Check input bounds against the actual incumbent producer's full history,
+  not only a260-session fixture. The retained partial panel is900221B/2961rows;
+  at the same serialized scale42 components x1500 sessions projects19.2MB
+  (an estimate, not acquired full data). Use the existing native reader's32MiB
+  bound specifically for the metric panel and64MiB total, preserving8MiB for
+  ordinary sources, exact hashes and all native semantic/risk validators.
+  Reader boundary regressions cover above8MiB, above32MiB and ordinary sources.
+
+
+### 2026-10-27 — A0 current market-context reuse pin repair
+
+- PR689 exact6d5 fullCI40495168133/job122158677659 passed234/235 programs, then the registered ManualTests correctly refused catalog_dependency_changed:tools/chameleon_market_context_v2.py. Preserve that hosted negative and exact6d5 Native Git-LF two-method RED (errors2); the earlier engine36/mode and fixed-proof3 scopes did not certify the full reuse catalog.
+- Update only group_577 dependency hash for the reviewed context Git-LF bytes2127c43f... to dc607900.... Preserve all historical catalog identities, frozen577 SEC witnesses, current guards and test bodies. SEC2 differs from current production bytes intentionally; do not repin frozen historical sources as an incidental fix.
+- Source4f and Main6d5 retained evidence already consumes the same four actual originals and original collection clocks. Verified9 runtime Git blobs, ZIP CRC and45 indexed members; replay remains current-vintage/DATA_BLOCKED with empty unadmitted candidate exposure, not accepted Source/PIT or recurring publication. ZIP member paths are not necessarily the flat local proof paths.
+
+### 2026-10-27 — Existing discovery producers are not admitted candidates
+
+- Form4-named parser and daily source workflow already handle Form3/4/5 plus amendments. Reuse the existing ownership events, local filing-request store and A3 pending-reference path; do not implement a second collector or infer verified venue from purchase code P. The authenticated 13F Main consumer remains separately blocked.
+- Latest observed Form345 run40436717028 succeeded. 13F run40270200680 persisted Source before combined weighted analysis refused incomplete mapping/parsing/amendment evidence; earnings40455721621 failed before collection with missing_collector_transaction_marker. A successful producer stage, a whole workflow conclusion and accepted consumer eligibility are distinct facts. Do not blindly rerun these workflows or label an old scored table fresh.
+- Reuse the existing A2 file caller and candidate-data-queue validator for explicit native CSV selections. Bind full-file and selected-row hashes, retain both candidate/risk-watch reasons and exact security aliases, and leave missing receipts/expiry/currentness pending. Observing an output now is not its underlying source publication clock; native scores confer no direct ER or selection authority.
+- The incumbent scored table is7.48MB/705columns, larger than the4MiB JSON-object bound. Give only CSV an explicit16MiB cap within the unchanged32MiB total and keep the original JSON cap/error precedence. The first local58-method run exposed an overbroad cap validation changing FILE_TOTAL_BUDGET to FILE_BYTE_BUDGET; restore shared-total precedence and rerun normal/-O. No production/source guard was relaxed.
+
+### 2026-10-28 — Preserve markerless earnings history without inventing a transaction
+
+- Failed earnings40455721621 stopped before collection because the successful legacy37100587799 archive has an acknowledged checkpoint but predates collector_transaction.json. The retained4478824-byte Actions ZIP matches artifact SHA314f3560..., seven independently compared Drive components and all63 positively validated snapshot files. This proves a legacy baseline, not the current live accepted head or a missing transaction's contents.
+- Prepare only a new unpublished local copy through the existing generation helper; preserve70 Source files and the993-row queue byte for byte, exclude unrelated paper outputs and keep the current missing-marker refusal. Do not create a synthetic current collector marker, refresh Source clocks or loosen planner/publication guards. A genuine scoped forward collection and live-base reconciliation remain separate work.
+- Original coverage is blocked_partial_coverage (10/60 forward estimates). A successful ZIP/readback or code merge does not admit consensus, ER, A3/A8, historical PIT or A5. Record preparation separately from current Source recovery and consumer acknowledgement.
+- A native no-write preflight also proved ordinary --plan-manual-collection refuses the same missing marker before provider calls. Add only an explicit current-code/pinned-byte prepared-baseline entry to the existing collector, with1-5 retained queue tickers and a named current-day attempt. Its local plan is not accepted Source; only the unchanged real collector transaction creates the next marker. Modified/consumed preparations cannot replay this entry. Default planning and publication guards stay intact; actual recovery remains NOT_RUN pending live-base/rights/budget evidence.
+- Rebind only group_556's changed-current contract/collector hashes and its newly consumed generation helper in the existing reuse catalog. Preserve original PR identities, historical lessons and all catalog rejection checks; a code pin is not current Source readiness.
+
+### 2026-10-28 — Inspect the actual Source connection without replaying paper work
+
+- PR691 merged661e016f after exact6012 fullCI40587827746/job122483902353 passed235/235,2599.50s, zero threads, Codex/A6 and review_complete122488791908. Integration does not refresh Oct3 Source or grant a provider transaction. Native has no Finnhub/FMP credentials; the existing daily workflow also copies/persists paper state. Do not dispatch it with an invalid date as a diagnostic shortcut.
+- Reuse the existing workflow/helper for an opt-in read-only preflight job that skips the entire archive job, uses only existing Source read credentials, binds an independently observed archive folder ID and checks all pinned legacy bytes/head absence in fresh local storage. Never infer the Actions namespace from Native folder names alone or from a successful old archive.
+- Preserve actual failure/partial-copy/head-change evidence, upload only diagnostic receipts, keep default schedule/global concurrency and all collector/publication guards. A green read-only preflight is neither current collection nor Source/ER/A5 approval. Its observation is not an atomic snapshot or authorization for a later write.
+
+
+### 2026-10-28 — Retained submissions can bind current issuer proof without recollection
+
+- MU retained current HTTP JSON physical SHAb50ed951 differs from the Source issuer payload hash6e657411 because the latter is sorted compact JSON content_hash. Recomputing the existing collector canonicalization on those original bytes exactly matches6e657411. Preserve both identities; do not mistake a content/serialization difference for missing source material or recollect the same data.
+- Same logical accession/security may retain identical document/event IDs while accepted/available clocks differ by4h. Ordinary same_semantics must still refuse. An explicit narrow immutable clock derivation can preserve the original requests entry, both raw submissions and safety delay while binding current issuer proof and rebuilding pending A2/Registry/A3 refs. This is not an SEC amendment, blanket DST repair or full A3/PIT admission.
+
+- Independent A6 on initial4f324e05 found two P2 boundaries: explicit correction with CHECKED_NO_NEW could return current success without a filing, and rehashed Source receipt clocks could diverge from corrected-event clocks on readback. Preserve the initial findings/receipts. Correction now requires a current filing and exact per-event Source scope; the derived A2 clocks and full pending A3 reference are independently reconstructed/read back too. No general legacy-reader policy or authority was expanded.
+
+- Initial new NO_NEW dispatch regression used an invalid synthetic legacy receipt (null latest acceptance), so existing SOURCE_CLOCK_ORDER correctly stopped it before the intended branch. Both49-test failure logs are preserved; correct only the fixture clock and rerun unchanged product guards. Actual current-generation empty receipts retain their separate verified-manifest contract.
