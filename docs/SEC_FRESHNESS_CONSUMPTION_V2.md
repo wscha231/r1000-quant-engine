@@ -151,3 +151,16 @@ in `ACTUAL_SOURCE_PREPARATION.json` / `ACTUAL_STANDALONE_STORAGE.json` of the
 2026-10-24 task receipt directory. These are local research observations, not a
 frozen shared-reader generation, complete manager universe, due-quarter
 certification, admitted performance cohort or A2/Registry/A3 consumption.
+
+
+## Main clock reconciliation boundary (2026-10-28)
+
+Source generation verification and a committed Main request can disagree on
+acceptance/availability clocks even when document and event IDs are identical.
+The explicit immutable correction in SEC_MAIN_CONSUMPTION_V1 preserves the
+original request and both submissions, binds the current canonical JSON
+content hash to source_checks, and reuses the existing A2/Registry/A3 adapters.
+A physical raw SHA256 is not the collector content hash. Current source-check
+expiry and all nonclock semantic guards remain; old artifact readback cannot
+renew freshness. The derived view stays pending research, with no official
+assessment, ER, economic or trading admission.

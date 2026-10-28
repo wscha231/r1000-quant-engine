@@ -217,3 +217,49 @@ receipt, not another generic development permission or a paid purchase.
 
 No fullrun, score-weight activation, target, portfolio, paper/broker/order,
 promotion, Ready, review-complete attestation or merge is authorized here.
+
+
+## Explicit immutable clock correction (2026-10-28)
+
+The actual retained MU request has three events for accession
+0001568238-26-000003 at2026-10-21T03:03:21Z, while the verified newer
+Source reports2026-10-20T23:03:21Z. This is a source-clock conflict,
+not an SEC Form4 amendment and not proof of the upstream causal error.
+Ordinary conflicting ingestion still refuses. No global DST shift is applied.
+
+The incumbent consumer accepts an explicit clock_correction proof for exactly
+one existing accession/security. The caller pins the original request SHA256
+and provides both unchanged original submissions byte strings. The current
+submissions JSON content hash must match the full Source manifest issuer check;
+its physical byte hash is stored separately. The original payload must match
+the stored acceptance. Issuer, accession, form, filing date, document identity,
+event IDs and every nonclock event field must agree. Only accepted_at and
+available_at plus their two source-row counterparts may change, preserving the
+nonnegative safety delay. Amendments and unexplained semantic changes refuse.
+The normal current generation, full event scope and actual36-hour freshness
+guards remain prerequisites.
+
+The original requests entry and every original artifact stay unchanged. The
+same manifest atomically adds clock_corrections[request_id], a content-addressed
+record binding the original request hash, both physical submissions, the exact
+clock deltas and the derived request. The derived request calls the existing
+A2 intake, Registry filing-request builder, A3 pending filing-reference builder
+and reassessment bridge. readback rechecks both the original and derived graph
+and the source-clock proof. Call effective_request(root, verified_state, id)
+after readback to select the explicit derived research view. It does not set
+the A0 current selection or an A3 assessment pointer.
+
+Replay of the corrected events preserves the manifest and stable request /
+notification identity, emits zero new intents and sends no notifications. A
+failed attempt revokes current success without changing the committed request
+manifest. Interrupted uncommitted artifacts are never accepted evidence. A
+second conflicting correction is unsupported and refuses; it needs a separate
+reviewed lineage contract.
+
+CLI adds --clock-correction with all three mandatory arguments:
+--clock-correction-old-submissions, --clock-correction-current-submissions and
+--clock-correction-expected-parent-sha256. All ordinary CLI arguments remain.
+Each submissions input is bounded to2MiB. The operator must recheck sole Main
+custody, exact store/source pins and actual execution time. No data collection,
+accepted Drive publication, historical PIT certification, full A3/ER/A5/A8,
+portfolio, target or order authority is created.
