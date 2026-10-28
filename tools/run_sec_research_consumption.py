@@ -101,6 +101,40 @@ def verify_store(root, state):
         if record["existing_thesis_ref"]:
             read_ref(root, record["existing_thesis_ref"])
         read_ref(root, request["bridge_ref"])
+    corrections = state.get("clock_corrections", {})
+    need(type(corrections) is dict and corrections.keys() <= state["requests"].keys(), "CLOCK_CORRECTION_INDEX")
+    for request_id, ref in corrections.items():
+        correction = json.loads(read_ref(root, ref))
+        need(correction.get("schema") == "sec-research-clock-correction-v1"
+             and correction.get("request_id") == request_id, "CLOCK_CORRECTION_SCHEMA")
+        original = state["requests"][request_id]
+        need(correction["original_request_sha256"] == digest(encoded(original)), "CLOCK_CORRECTION_PARENT")
+        corrected = correction["corrected_request"]
+        need(corrected["request_id"] == request_id and corrected["notification_intent_id"] == original["notification_intent_id"]
+             and corrected["original_accession"] == original["original_accession"], "CLOCK_CORRECTION_REQUEST_IDENTITY")
+        verify_store(root, dict(schema="sec-research-request-store-v1", requests={request_id: corrected}))
+        before_record = json.loads(read_ref(root, original["registry_ref"]))
+        after_record = json.loads(read_ref(root, corrected["registry_ref"]))
+        need(before_record["asset_id"] == after_record["asset_id"]
+             and before_record["issuer_id"] == after_record["issuer_id"]
+             and before_record["existing_thesis_ref"] == after_record["existing_thesis_ref"], "CLOCK_CORRECTION_SUBJECT")
+        before = [json.loads(read_ref(root, r)) for r in before_record["event_refs"]]
+        after = [json.loads(read_ref(root, r)) for r in after_record["event_refs"]]
+        receipt = json.loads(read_ref(root, corrected["source_receipt_ref"]))
+        proof = verify_clock_change(before, after, receipt,
+            read_ref(root, correction["old_submissions_ref"]), read_ref(root, correction["current_submissions_ref"]))
+        need(correction["proof"] == proof and correction["reason"] == "SOURCE_ACCEPTANCE_CLOCK_RECONCILIATION",
+             "CLOCK_CORRECTION_PROOF")
+        a2_input = json.loads(read_ref(root, after_record["a2_intake_ref"]))["input"]
+        need(a2_input["as_of"] == corrected["decision_at"], "CLOCK_CORRECTION_A2_DECISION")
+        for event, row, a3_ref, raw_ref in zip(after, a2_input["events"],
+                after_record["a3_filing_review_refs"], corrected["raw_refs"]):
+            need(row["published_at"] == event["accepted_at"] and row["available_at"] == event["available_at"]
+                 and row["collected_at"] == row["observed_at"] == receipt["generated_at"], "CLOCK_CORRECTION_A2_CLOCK_EDGE")
+            expected_a3 = a3.filing_review_reference(event, security_id=after_record["asset_id"],
+                issuer_id=after_record["issuer_id"], raw=read_ref(root, raw_ref),
+                source_receipt_sha256=corrected["source_receipt_ref"]["sha256"])
+            need(same_semantics(json.loads(read_ref(root, a3_ref)), expected_a3), "CLOCK_CORRECTION_A3_EDGE")
     return state
 
 
@@ -266,6 +300,83 @@ def same_semantics(left, right):
     return type(left) is type(right) and left == right
 
 
+def verify_clock_change(before, after, receipt, old_raw, current_raw):
+    """Only explicit, source-bound acceptance/availability clock derivation.
+
+    Raw physical hashes and the collector's canonical JSON content hash are
+    deliberately different identities. No fixed DST offset is inferred.
+    """
+    need(bool(before) and len(before) == len(after), "CLOCK_CORRECTION_EVENT_COUNT")
+    before = sorted(before, key=lambda e: e["event_id"])
+    after = sorted(after, key=lambda e: e["event_id"])
+    need(len({e["event_id"] for e in before}) == len(before)
+         and [e["event_id"] for e in before] == [e["event_id"] for e in after], "CLOCK_CORRECTION_EVENT_SET")
+    need(all(e["family"] == "OWNERSHIP" and not e["is_amendment"] for e in before + after),
+         "CLOCK_CORRECTION_NON_AMENDMENT_ONLY")
+    accession, issuer, ticker = before[0]["accession"], before[0]["issuer_cik10"], before[0]["ticker"]
+    need(all((e["accession"], e["issuer_cik10"], e["ticker"]) == (accession, issuer, ticker)
+             for e in before + after), "CLOCK_CORRECTION_ONE_FILING")
+    from tools.run_sec_submissions_collector import validate_submissions
+    payloads, entries = [], []
+    for raw in (old_raw, current_raw):
+        need(type(raw) is bytes and len(raw) <= 2 * 1024 * 1024, "CLOCK_CORRECTION_SUBMISSIONS_BUDGET")
+        value = json.loads(raw)
+        validate_submissions(value, issuer)
+        need(str(value.get("cik", "")).zfill(10) == issuer, "CLOCK_CORRECTION_SUBMISSIONS_ISSUER")
+        recent = value["filings"]["recent"]
+        matches = [i for i, a in enumerate(recent["accessionNumber"]) if a == accession]
+        need(len(matches) == 1, "CLOCK_CORRECTION_SUBMISSIONS_ACCESSION")
+        i = matches[0]
+        entries.append({k: recent[k][i] for k in
+            ("accessionNumber", "form", "filingDate", "primaryDocument", "acceptanceDateTime")})
+        payloads.append(value)
+    need({k: v for k, v in entries[0].items() if k != "acceptanceDateTime"}
+         == {k: v for k, v in entries[1].items() if k != "acceptanceDateTime"}, "CLOCK_CORRECTION_FILING_IDENTITY")
+    manifest = json.loads(receipt.get("original_manifest_utf8", "{}"))
+    checks = [c for c in manifest.get("source_checks", []) if c.get("cik10") == issuer and c.get("ticker") == ticker]
+    need(len(checks) == 1 and checks[0].get("payload_sha256") == digest(encoded(payloads[1])),
+         "CLOCK_CORRECTION_CURRENT_PAYLOAD_BINDING")
+    changed = False
+    deltas = []
+    for old, new in zip(before, after):
+        for event, entry in ((old, entries[0]), (new, entries[1])):
+            need(event["form_type"] == entry["form"] and event["source_row"]["filing_date"] == entry["filingDate"],
+                 "CLOCK_CORRECTION_EVENT_FILING")
+            need(bridge.stamp(event["accepted_at"]) == bridge.stamp(entry["acceptanceDateTime"])
+                 == bridge.stamp(event["source_row"]["accepted_at"]), "CLOCK_CORRECTION_ACCEPTANCE_BINDING")
+            need(bridge.stamp(event["available_at"]) == bridge.stamp(event["source_row"]["available_from"]),
+                 "CLOCK_CORRECTION_AVAILABILITY_BINDING")
+        old_delay = bridge.stamp(old["available_at"]) - bridge.stamp(old["accepted_at"])
+        new_delay = bridge.stamp(new["available_at"]) - bridge.stamp(new["accepted_at"])
+        need(old_delay == new_delay and old_delay >= timedelta(0), "CLOCK_CORRECTION_SAFETY_DELAY")
+        def without_clocks(e):
+            value = json.loads(encoded(e))
+            for field in ("accepted_at", "available_at"):
+                del value[field]
+            for field in ("accepted_at", "available_from"):
+                del value["source_row"][field]
+            return value
+        need(same_semantics(without_clocks(old), without_clocks(new)), "CLOCK_CORRECTION_NONCLOCK_CONFLICT")
+        need(receipt.get("event_scope", {}).get(new["event_id"]) == {k: new[k] for k in
+             ("document_sha256", "issuer_cik10", "accession", "form_type", "ticker", "accepted_at", "available_at")},
+             "CLOCK_CORRECTION_EVENT_SOURCE_SCOPE")
+        delta = (bridge.stamp(new["accepted_at"]) - bridge.stamp(old["accepted_at"])).total_seconds()
+        changed |= delta != 0
+        deltas.append(dict(event_id=old["event_id"], before_accepted_at=old["accepted_at"],
+            after_accepted_at=new["accepted_at"], before_available_at=old["available_at"],
+            after_available_at=new["available_at"], delta_seconds=delta))
+    need(changed, "CLOCK_CORRECTION_NO_CHANGE")
+    return dict(old_physical_sha256=digest(old_raw), current_physical_sha256=digest(current_raw),
+        current_collector_content_sha256=digest(encoded(payloads[1])), events=deltas,
+        upstream_cause="UNKNOWN", historical_pit_certified=False, automatic_investment_authority=False)
+
+
+def effective_request(root, state, request_id):
+    """Derived view of a state returned by readback; original bytes stay intact."""
+    ref = state.get("clock_corrections", {}).get(request_id)
+    return (json.loads(read_ref(root, ref))["corrected_request"] if ref else state["requests"].get(request_id))
+
+
 def verify_ownership_event(event, raw):
     row = event["source_row"]
     need(digest(raw) == event["document_sha256"], "RAW_DOCUMENT_HASH")
@@ -283,7 +394,7 @@ def verify_ownership_event(event, raw):
 
 
 def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_at,
-            existing_theses=None, amendment_parents=None):
+            existing_theses=None, amendment_parents=None, clock_correction=None):
     """One serial local research transaction; manifest commits last after readback.
 
     A request is one accession/security, even with multiple transaction rows.
@@ -313,7 +424,7 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             last_successful_source_check=receipt.get("last_successful_source_check"),
             latest_accepted_at=receipt.get("latest_accepted_at"), source_coverage=receipt.get("source_coverage"),
             current_eligible=status in {"CHECKED_NEW_OR_EXISTING", "CHECKED_NO_NEW"},
-            created_requests=[], replayed_requests=[], notification_intents_created=0,
+            created_requests=[], replayed_requests=[], corrected_requests=[], notification_intents_created=0,
             notifications_sent=0, selector_eligible=False, orders_allowed=False, research_only=True)
         if status in {"STALE", "SOURCE_UNAVAILABLE", "PREREQUISITE_FAILED"}:
             attempt["reason"] = {"STALE": "SOURCE_CHECK_EXPIRED", "SOURCE_UNAVAILABLE": "SOURCE_CHECK_OR_COVERAGE_FAILED",
@@ -321,6 +432,7 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             atomic(current_path, encoded(attempt))
             return attempt
         if status == "CHECKED_NO_NEW":
+            need(clock_correction is None, "CLOCK_CORRECTION_REQUIRES_CURRENT_FILING")
             need(not events, "NO_NEW_STATUS_WITH_EVENTS")
             attempt["stored_requests"] = len(state["requests"])
             atomic(current_path, encoded(attempt))
@@ -342,6 +454,9 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             subject = matches[0]
             grouped.setdefault((event["accession"], subject["security_id"]), []).append(event)
         receipt_ref = put(root, receipt)
+        if clock_correction is not None:
+            need(len(grouped) == 1 and set(clock_correction) ==
+                 {"expected_original_request_sha256", "old_submissions", "current_submissions"}, "CLOCK_CORRECTION_EXPLICIT_SCOPE")
         memory = schema_inventory()
         for (accession, sid), rows in sorted(grouped.items()):
             rows.sort(key=lambda r: r["event_id"])
@@ -351,12 +466,25 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             immutable = digest(encoded(rows))
             is_amendment = any(r["is_amendment"] for r in rows)
             need(accession not in parents or is_amendment, "PARENT_FOR_NON_AMENDMENT")
-            old = state["requests"].get(request_id)
+            original_request = state["requests"].get(request_id)
+            old = effective_request(root, state, request_id)
+            correction_proof = None
+            correcting = False
+            if clock_correction is not None:
+                need(original_request is not None and clock_correction["expected_original_request_sha256"] ==
+                     digest(encoded(original_request)), "CLOCK_CORRECTION_EXPECTED_PARENT")
+                original_record = json.loads(read_ref(root, original_request["registry_ref"]))
+                original_events = [json.loads(read_ref(root, ref)) for ref in original_record["event_refs"]]
+                correction_proof = verify_clock_change(original_events, rows, receipt,
+                    clock_correction["old_submissions"], clock_correction["current_submissions"])
             if old:
                 if old["events_sha256"] != immutable:
                     old_record = json.loads(read_ref(root, old["registry_ref"]))
                     old_events = [json.loads(read_ref(root, ref)) for ref in old_record["event_refs"]]
-                    need(same_semantics(old_events, rows), "CONFLICTING_ACCESSION_SECURITY_EVENTS")
+                    if not same_semantics(old_events, rows):
+                        need(correction_proof is not None and request_id not in state.get("clock_corrections", {}),
+                             "CONFLICTING_ACCESSION_SECURITY_EVENTS")
+                        correcting = True
                 need(not is_amendment or parents.get(accession) in (None, old["original_accession"]),
                      "AMENDMENT_REPLAY_LINEAGE_CONFLICT")
             original = old["original_accession"] if old and is_amendment else parents.get(accession)
@@ -369,9 +497,16 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
                          for r in rows), "AMENDMENT_ORIGINAL_DATE_CONFLICT")
                 need(all(r["form_type"].removesuffix("/A") == parent_event["form_type"].removesuffix("/A")
                          for r in rows), "AMENDMENT_ORIGINAL_FORM_CONFLICT")
-            if old:
+            if old and not correcting:
                 attempt["replayed_requests"].append(request_id)
                 continue
+            if correcting:
+                # Preserve the supplied, previously verified thesis relationship.
+                prior_thesis = json.loads(read_ref(root, original_request["registry_ref"]))["existing_thesis_ref"]
+                need(sid not in thesis or thesis[sid] == prior_thesis, "CLOCK_CORRECTION_THESIS_CONFLICT")
+                if prior_thesis:
+                    thesis = dict(thesis)
+                    thesis[sid] = prior_thesis
             if sid in thesis:
                 linked = json.loads(read_ref(root, thesis[sid]))
                 need(linked.get("schema") in {"a3-candidate-packet-v1", "candidate-registry-filing-request-v1"}
@@ -425,11 +560,21 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
             record = registry.filing_request_record(request_id=request_id, asset_id=sid, issuer_id=subject["issuer_id"],
                 event_refs=event_refs, intake_ref=a2_ref, a3_filing_refs=a3_refs,
                 existing_thesis_ref=thesis.get(sid), supersedes_request_id=parent_id)
-            state["requests"][request_id] = dict(request_id=request_id, events_sha256=immutable,
+            built_request = dict(request_id=request_id, events_sha256=immutable,
                 registry_ref=put(root, record), bridge_ref=put(root, plan), raw_refs=raw_refs,
                 source_receipt_ref=receipt_ref, notification_intent_id=request_id,
                 original_accession=original, decision_at=decision_at, created_at=actual_utc_now())
-            attempt["created_requests"].append(request_id)
+            if correcting:
+                correction = dict(schema="sec-research-clock-correction-v1", request_id=request_id,
+                    reason="SOURCE_ACCEPTANCE_CLOCK_RECONCILIATION",
+                    original_request_sha256=digest(encoded(original_request)), corrected_request=built_request,
+                    old_submissions_ref=put(root, clock_correction["old_submissions"], raw=True),
+                    current_submissions_ref=put(root, clock_correction["current_submissions"], raw=True), proof=correction_proof)
+                state.setdefault("clock_corrections", {})[request_id] = put(root, correction)
+                attempt["corrected_requests"].append(request_id)
+            else:
+                state["requests"][request_id] = built_request
+                attempt["created_requests"].append(request_id)
         # Verify every pending artifact before the single manifest commit.
         verify_store(root, state)
         atomic(root / "control_plane/candidate_registry/filing_requests.json", encoded(state))
@@ -459,6 +604,10 @@ def main():
     parser.add_argument("--amendment-parent-accession", default="", help="Explicit original accession for the selected Form3/4/5 amendment")
     parser.add_argument("--output-dir", default="outputs/agent_board")
     parser.add_argument("--decision-at", required=True)
+    parser.add_argument("--clock-correction", action="store_true", help="Explicit immutable clock-only derivation; never an SEC amendment")
+    parser.add_argument("--clock-correction-old-submissions", default="")
+    parser.add_argument("--clock-correction-current-submissions", default="")
+    parser.add_argument("--clock-correction-expected-parent-sha256", default="")
     args = parser.parse_args()
     # Revoke prior current success before *any* source, identity or raw-file read.
     # A hash-valid old Registry remains historical after a failed CLI attempt.
@@ -466,6 +615,24 @@ def main():
         return consume([], receipt=dict(schema="sec-research-consumption-source-v1", status=status),
             raw_by_hash={}, identities=b"{}", output_root=Path(args.output_dir), decision_at=args.decision_at)
     refused("PREREQUISITE_FAILED")
+    correction = None
+    try:
+        supplied = [args.clock_correction_old_submissions, args.clock_correction_current_submissions,
+                    args.clock_correction_expected_parent_sha256]
+        need((args.clock_correction and all(supplied)) or (not args.clock_correction and not any(supplied)),
+             "CLOCK_CORRECTION_EXPLICIT_ARGUMENTS")
+        if args.clock_correction:
+            import re
+            need(re.fullmatch(r"[0-9a-f]{64}", args.clock_correction_expected_parent_sha256) is not None,
+                 "CLOCK_CORRECTION_PARENT_HASH")
+            paths = [Path(p) for p in supplied[:2]]
+            need(all(p.is_file() and p.stat().st_size <= 2 * 1024 * 1024 for p in paths),
+                 "CLOCK_CORRECTION_SUBMISSIONS_BUDGET")
+            correction = dict(expected_original_request_sha256=supplied[2], old_submissions=paths[0].read_bytes(),
+                              current_submissions=paths[1].read_bytes())
+    except (OSError, ValueError, KeyError, TypeError):
+        print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
+        return 2
     try:
         receipt, frame = verify_ownership_generation(args.pit_root, decision_at=args.decision_at)
     except (OSError, ValueError, KeyError, TypeError):
@@ -473,6 +640,9 @@ def main():
         print(json.dumps(result, sort_keys=True))
         return 2
     if receipt["status"] == "CHECKED_NO_NEW":
+        if correction is not None:
+            print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
+            return 2
         result = consume([], receipt=receipt, raw_by_hash={}, identities=b"{}",
             output_root=Path(args.output_dir), decision_at=args.decision_at)
         print(json.dumps(result, sort_keys=True))
@@ -504,7 +674,7 @@ def main():
         return 2
     result = consume(events, receipt=receipt, raw_by_hash=raw_by_hash,
         identities=identity_bytes, output_root=Path(args.output_dir), decision_at=args.decision_at,
-        amendment_parents=parents)
+        amendment_parents=parents, clock_correction=correction)
     print(json.dumps(result, sort_keys=True))
     return 0 if result["current_eligible"] else 2
 

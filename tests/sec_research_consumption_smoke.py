@@ -94,6 +94,212 @@ def cli_attempt(pit, store, raw_dir, identities, accession, *, actual_at, decisi
     return code,json.loads((store/"control_plane/candidate_registry/consumption_attempt.json").read_bytes())
 
 
+class ClockCorrectionTests(unittest.TestCase):
+    def setUp(self):
+        clock = patch.object(c, "actual_utc_now", return_value=NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.acc = "0000000001-26-000001"
+        self.current_payload = dict(cik=1, filings=dict(recent=dict(accessionNumber=[self.acc],
+            form=["4"], filingDate=["2026-10-21"], primaryDocument=["fixture.xml"], acceptanceDateTime=[ACCEPTED])))
+        self.old_payload = copy.deepcopy(self.current_payload)
+        self.old_time = (pd.Timestamp(ACCEPTED) + timedelta(hours=4)).isoformat()
+        self.old_payload["filings"]["recent"]["acceptanceDateTime"] = [self.old_time]
+        _, self.raws = filing()
+        checks = [dict(ticker="TEST", cik10="0000000001", status="CHECKED_NEW_FILINGS", checked_at=CHECK,
+                       payload_sha256=c.digest(c.encoded(self.current_payload)))]
+        pit, _, _ = checked_generation(self.root, pd.DataFrame([fixture_index()]),
+            {self.acc: next(iter(self.raws.values()))}, checks)
+        self.receipt, frame = c.verify_ownership_generation(pit, decision_at=NOW)
+        self.pit = pit
+        self.events = build_ownership_research_events(frame)
+        self.old_events = copy.deepcopy(self.events)
+        for event in self.old_events:
+            event["accepted_at"] = event["available_at"] = self.old_time
+            event["source_row"]["accepted_at"] = event["source_row"]["available_from"] = self.old_time
+        old_receipt = source()
+        old_receipt.update(latest_accepted_at=self.old_time, event_scope=scope(self.old_events))
+        self.store = self.root / "store"
+        c.consume(self.old_events, receipt=old_receipt, raw_by_hash=self.raws, identities=SUBJECTS,
+                  output_root=self.store, decision_at=NOW)
+        self.manifest = self.store / "control_plane/candidate_registry/filing_requests.json"
+        self.before_bytes = self.manifest.read_bytes()
+        self.before = c.readback(self.store)
+        self.request_id = next(iter(self.before["requests"]))
+        self.proof = dict(expected_original_request_sha256=c.digest(c.encoded(self.before["requests"][self.request_id])),
+                          old_submissions=c.encoded(self.old_payload), current_submissions=c.encoded(self.current_payload))
+
+    def correct(self, **kw):
+        args = dict(receipt=self.receipt, raw_by_hash=self.raws, identities=SUBJECTS,
+                    output_root=self.store, decision_at=NOW, clock_correction=self.proof)
+        args.update(kw)
+        return c.consume(self.events, **args)
+
+    def test_actual_adapters_immutable_original_and_replay(self):
+        with self.assertRaisesRegex(ValueError, "CONFLICTING_ACCESSION_SECURITY_EVENTS"):
+            self.correct(clock_correction=None)
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+        result = self.correct()
+        self.assertEqual(result["corrected_requests"], [self.request_id])
+        self.assertEqual(result["created_requests"], [])
+        self.assertEqual(result["notification_intents_created"], 0)
+        state = c.readback(self.store)
+        self.assertEqual(state["requests"], self.before["requests"])
+        effective = c.effective_request(self.store, state, self.request_id)
+        record = json.loads(c.read_ref(self.store, effective["registry_ref"]))
+        a3 = json.loads(c.read_ref(self.store, record["a3_filing_review_refs"][0]))
+        self.assertEqual(a3["status"], "FILING_CONTENT_REVIEW_PENDING")
+        self.assertFalse(a3["used_for_assessment"])
+        self.assertEqual(json.loads(c.read_ref(self.store, record["event_refs"][0]))["accepted_at"], self.events[0]["accepted_at"])
+        committed = self.manifest.read_bytes()
+        replay = self.correct()
+        self.assertEqual(replay["corrected_requests"], [])
+        self.assertEqual(replay["notification_intents_created"], 0)
+        self.assertEqual(committed, self.manifest.read_bytes())
+        ordinary = self.correct(clock_correction=None)
+        self.assertEqual(ordinary["replayed_requests"], [self.request_id])
+        self.assertEqual(committed, self.manifest.read_bytes())
+
+    def test_wrong_parent_raw_issuer_accession_and_payload_binding_refuse(self):
+        cases = []
+        wrong = dict(self.proof, expected_original_request_sha256="0" * 64)
+        cases.append((wrong, "EXPECTED_PARENT"))
+        for field, mutate, reason in [
+            ("current_submissions", lambda p: p.update(cik=2), "CIK mismatch"),
+            ("old_submissions", lambda p: p["filings"]["recent"]["accessionNumber"].append(self.acc), "conflicting lengths"),
+            ("current_submissions", lambda p: p.update(extra="unbound"), "PAYLOAD_BINDING"),
+            ("old_submissions", lambda p: p["filings"]["recent"]["acceptanceDateTime"].__setitem__(0, ACCEPTED), "ACCEPTANCE_BINDING"),
+            ("current_submissions", lambda p: p["filings"]["recent"]["primaryDocument"].__setitem__(0, "other.xml"), "FILING_IDENTITY")]:
+            raw = json.loads(self.proof[field]); mutate(raw)
+            cases.append((dict(self.proof, **{field: c.encoded(raw)}), reason))
+        for proof, reason in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                self.correct(clock_correction=proof)
+            self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+
+    def test_nonclock_delta_and_safety_delay_cannot_use_clock_exception(self):
+        changed = copy.deepcopy(self.events)
+        changed[0]["source_row"]["transaction_shares"] = 99.0
+        with self.assertRaisesRegex(ValueError, "NONCLOCK_CONFLICT"):
+            c.verify_clock_change(self.old_events, changed, self.receipt,
+                                 self.proof["old_submissions"], self.proof["current_submissions"])
+        changed = copy.deepcopy(self.events)
+        changed[0]["available_at"] = changed[0]["source_row"]["available_from"] = NOW
+        with self.assertRaisesRegex(ValueError, "SAFETY_DELAY"):
+            c.verify_clock_change(self.old_events, changed, self.receipt,
+                                 self.proof["old_submissions"], self.proof["current_submissions"])
+        with self.assertRaisesRegex(ValueError, "EVENT_COUNT"):
+            c.verify_clock_change(self.old_events, [], self.receipt,
+                                 self.proof["old_submissions"], self.proof["current_submissions"])
+
+    def test_stale_actual_clock_does_not_write_correction(self):
+        with patch.object(c, "actual_utc_now", return_value="2026-10-25T00:00:00Z"):
+            result = self.correct()
+        self.assertEqual(result["status"], "STALE")
+        self.assertFalse(result["current_eligible"])
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+
+    def test_failed_manifest_commit_keeps_original_and_can_resume(self):
+        real_atomic = c.atomic
+        def fail(path, raw):
+            if path == self.manifest and "clock_corrections" in json.loads(raw):
+                raise OSError("fixture commit interruption")
+            return real_atomic(path, raw)
+        with patch.object(c, "atomic", side_effect=fail), self.assertRaises(OSError):
+            self.correct()
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+        self.assertNotIn("clock_corrections", c.readback(self.store))
+        self.assertEqual(self.correct()["corrected_requests"], [self.request_id])
+
+    def test_readback_checks_original_and_both_physical_submissions(self):
+        self.correct()
+        state = c.readback(self.store)
+        correction = json.loads(c.read_ref(self.store, state["clock_corrections"][self.request_id]))
+        raw_path = self.store / correction["current_submissions_ref"]["path"]
+        raw_path.write_bytes(b"{}")
+        with self.assertRaisesRegex(ValueError, "STORED_HASH_CONFLICT"):
+            c.readback(self.store)
+
+    def test_explicit_cli_and_incomplete_proof_arguments(self):
+        raw_dir = self.root / "raw-cli"
+        raw_dir.mkdir()
+        (raw_dir / (self.acc.replace("-", "") + "_fixture.xml")).write_bytes(next(iter(self.raws.values())))
+        identities = self.root / "identities.json"; identities.write_bytes(SUBJECTS)
+        old_path, new_path = self.root / "old.json", self.root / "current.json"
+        old_path.write_bytes(self.proof["old_submissions"]); new_path.write_bytes(self.proof["current_submissions"])
+        args = ["consumer", "--pit-root", str(self.pit), "--raw-dir", str(raw_dir), "--identities", str(identities),
+                "--accession", self.acc, "--decision-at", NOW, "--output-dir", str(self.store), "--clock-correction"]
+        with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()):
+            self.assertEqual(c.main(), 2)
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+        args += ["--clock-correction-old-submissions", str(old_path), "--clock-correction-current-submissions", str(new_path),
+                 "--clock-correction-expected-parent-sha256", self.proof["expected_original_request_sha256"]]
+        empty = source("CHECKED_NO_NEW"); empty.update(event_scope={})
+        with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()), \
+                patch.object(c, "verify_ownership_generation", return_value=(empty, pd.DataFrame())):
+            self.assertEqual(c.main(), 2)
+        self.assertEqual(self.manifest.read_bytes(), self.before_bytes)
+        with self.assertRaisesRegex(ValueError, "REQUIRES_CURRENT_FILING"):
+            c.consume([], receipt=empty, raw_by_hash={}, identities=b"{}", output_root=self.store,
+                      decision_at=NOW, clock_correction=self.proof)
+        with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()):
+            self.assertEqual(c.main(), 0)
+        self.assertIn(self.request_id, c.readback(self.store)["clock_corrections"])
+
+    def test_rehashed_correction_cannot_change_parent_or_declared_proof(self):
+        self.correct()
+        state = c.readback(self.store)
+        correction = json.loads(c.read_ref(self.store, state["clock_corrections"][self.request_id]))
+        for field, value, reason in [("original_request_sha256", "0" * 64, "PARENT"),
+                                     ("proof", dict(correction["proof"], upstream_cause="invented_DST_cause"), "PROOF")]:
+            changed = dict(correction, **{field: value})
+            edited = copy.deepcopy(state)
+            edited["clock_corrections"][self.request_id] = c.put(self.store, changed)
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, reason):
+                c.verify_store(self.store, edited)
+
+    def test_current_payload_and_event_scope_clocks_must_match(self):
+        forged = copy.deepcopy(self.receipt)
+        manifest = json.loads(forged["original_manifest_utf8"])
+        shifted = (pd.Timestamp(ACCEPTED) + timedelta(hours=1)).isoformat()
+        for row in manifest["source_filings"]:
+            row["accepted_at"] = row["available_at"] = shifted
+        for row in forged["event_scope"].values():
+            row["accepted_at"] = row["available_at"] = shifted
+        manifest["latest_accepted_at"] = forged["latest_accepted_at"] = shifted
+        forged["original_manifest_utf8"] = json.dumps(manifest, sort_keys=True)
+        forged["original_manifest_sha256"] = c.digest(forged["original_manifest_utf8"].encode())
+        self.assertEqual(c.source_state(forged, NOW), "CHECKED_NEW_OR_EXISTING")
+        with self.assertRaisesRegex(ValueError, "EVENT_SOURCE_SCOPE"):
+            c.verify_clock_change(self.old_events, self.events, forged,
+                self.proof["old_submissions"], self.proof["current_submissions"])
+
+    def test_rehashed_corrected_a2_a3_clock_edges_refuse(self):
+        self.correct()
+        state = c.readback(self.store)
+        saved = json.loads(c.read_ref(self.store, state["clock_corrections"][self.request_id]))
+        for edge in ("A2", "A3"):
+            correction = copy.deepcopy(saved)
+            request = correction["corrected_request"]
+            record = json.loads(c.read_ref(self.store, request["registry_ref"]))
+            if edge == "A2":
+                value = json.loads(c.read_ref(self.store, record["a2_intake_ref"]))
+                value["input"]["events"][0]["published_at"] = self.old_time
+                record["a2_intake_ref"] = c.put(self.store, value)
+            else:
+                value = json.loads(c.read_ref(self.store, record["a3_filing_review_refs"][0]))
+                value["accepted_at"] = self.old_time
+                record["a3_filing_review_refs"][0] = c.put(self.store, value)
+            request["registry_ref"] = c.put(self.store, record)
+            edited = copy.deepcopy(state)
+            edited["clock_corrections"][self.request_id] = c.put(self.store, correction)
+            with self.subTest(edge=edge), self.assertRaisesRegex(ValueError, "CLOCK_CORRECTION_" + edge):
+                c.verify_store(self.store, edited)
+
+
 class ConsumptionTests(unittest.TestCase):
     def setUp(self):
         # Existing fixed-date synthetic fixtures need an explicit execution clock.
