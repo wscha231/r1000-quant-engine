@@ -8792,3 +8792,8 @@ the real capture/verifier with injected responses, including valid weekends.
   returns0 rather than applying POSIX022. Compare restoration with the platform's
   measured effective mask; retain the strict0600 assertion on POSIX. The actual
   runner-script test still executes in both modes without an optional skip.
+- Independent review of0d694 found the public fixed-R2 nonce hint was still
+  inside the nonempty-control guard. Empty/missing control plus that nonce could
+  select default env expressions. Actual GitHub input reachability or a leak was
+  not demonstrated. Move the nonce classification outside that guard and add
+  empty/missing-control sentinel cases; retain private rejection and legacy scope.

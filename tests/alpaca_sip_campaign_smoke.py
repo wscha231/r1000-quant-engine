@@ -9208,6 +9208,8 @@ class New3FiniteAllocationTests(unittest.TestCase):
         item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
         item=copy.deepcopy(base);control=c.decode(item['inputs']['campaign_control']);del control['nonce']
         item['inputs']['campaign_control']=c.encoded(control).decode();cases.append(item)
+        item=copy.deepcopy(base);item['inputs']['campaign_control']='';cases.append(item)
+        item=copy.deepcopy(base);del item['inputs']['campaign_control'];cases.append(item)
         for item in cases:
             rendered=self.rendered_private_environment(item['inputs'])
             self.assertEqual(rendered['INPUT_PRIVATE_NEW3_R2'],'true')
