@@ -1,5 +1,29 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-04 — Finite metrics and a source hash do not finish A8 admission (#573)
+
+- Approved corrections of the five findings on head6d2fe16a passed focused
+  normal/-O and new-head CI232/232. One independent review5402992983 of
+  frozen headb4e359981b50229ef913604859e88e028c52437a nevertheless found five
+  further P2 issues. Keep Draft and all five new threads unresolved.
+- Scratch-only probes on normal and optimized Python reproduce contradictory
+  excess returns, positive maximum drawdown and a return below -1 accepted as
+  diagnostics; a true signal threshold-tuning flag beneath a false summary;
+  and absent or conflicting native current outcome-chain metadata.
+- Replacing intake run123 with run124 during result readback still commits the
+  old run. Replacing a scratch registry between parsing and hashing binds new
+  rejecting bytes to old ALLOWED_NEW_COMBINATION evaluation, then reuses it.
+  The canonical repository registry and all economic authority stay unchanged.
+- Validate native metric relationships/ranges and signal safety fields; bind
+  append-only chain/current log/prefix metadata. Recheck intake under the same
+  aggregate allowance. Parse and hash one immutable registry snapshot and
+  revoke/revalidate if its canonical bytes change before acceptance.
+- The current correction authorizes one final independent review only. Record
+  these verified residuals and propose a bounded follow-up rather than silently
+  issuing repeated Codex reviews or treating green CI as clean approval.
+- This entry is prepared locally, uncommitted, for that follow-up. Preserve
+  reviewed remote headb4e35998; no second review or additional fix was dispatched.
+
 ## 2026-10-04 — Correct native admission before accepting bounded A8 scratch output (#573)
 
 - The user approved correction of review5400633185 on head6d2fe16a. Reuse
