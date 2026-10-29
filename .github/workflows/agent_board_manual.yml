@@ -19,6 +19,21 @@ on:
         description: 'Optional GitHub Actions run URL to include in packets'
         type: string
         required: false
+      bounded_research_intake:
+        description: 'Optional offline A8 intake under latest_run; empty keeps the research adapter disabled'
+        type: string
+        required: false
+        default: ''
+      canonical_inputs:
+        description: 'Optional separately refreshed canonical A0 intake path'
+        type: string
+        required: false
+        default: ''
+      evidence_root:
+        description: 'Optional read-only materialization root for canonical A0 evidence'
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -52,6 +67,9 @@ jobs:
           SOURCE_RUN_ID: ${{ github.event.inputs.source_run_id || '' }}
           LATEST_RUN_INPUT: ${{ github.event.inputs.latest_run || 'cloud_results/full_rebuild/latest_global_alpha_universe' }}
           RUN_URL_INPUT: ${{ github.event.inputs.run_url || '' }}
+          BOUNDED_RESEARCH_INTAKE: ${{ github.event.inputs.bounded_research_intake || '' }}
+          CANONICAL_INPUTS: ${{ github.event.inputs.canonical_inputs || '' }}
+          EVIDENCE_ROOT: ${{ github.event.inputs.evidence_root || '' }}
         run: |
           set -e
           mkdir -p outputs/full_rebuild_logs
@@ -73,7 +91,18 @@ jobs:
             fi
           fi
           echo "[agent-board] latest_run=$LATEST_RUN"
-          python tools/run_agent_board.py --latest-run "$LATEST_RUN" --output-dir outputs/agent_board --run-url "$RUN_URL" 2>&1 | tee outputs/full_rebuild_logs/agent_board.log
+          RESEARCH_ARGS=()
+          if [ -n "$BOUNDED_RESEARCH_INTAKE" ]; then
+            set -o pipefail
+            RESEARCH_ARGS=(--bounded-research-intake "$BOUNDED_RESEARCH_INTAKE")
+          fi
+          if [ -n "$CANONICAL_INPUTS" ]; then
+            RESEARCH_ARGS+=(--canonical-inputs "$CANONICAL_INPUTS")
+          fi
+          if [ -n "$EVIDENCE_ROOT" ]; then
+            RESEARCH_ARGS+=(--evidence-root "$EVIDENCE_ROOT")
+          fi
+          python tools/run_agent_board.py --latest-run "$LATEST_RUN" --output-dir outputs/agent_board --run-url "$RUN_URL" "${RESEARCH_ARGS[@]}" 2>&1 | tee outputs/full_rebuild_logs/agent_board.log
 
       - name: Upload Agent Board artifact
         if: always()
