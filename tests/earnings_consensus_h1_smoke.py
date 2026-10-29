@@ -395,14 +395,297 @@ class AdmissionTests(unittest.TestCase):
                     if damage in ('namespace','current_head','duplicate','missing','wrong_zip'):
                         self.assertNotIn('copy',calls)
 
+
+    def forward_fixture(self,root):
+        from tools import earnings_estimate_drive_generation as drive
+        archive,preset,members=self.legacy_handoff_archive(root)
+        frame=pd.read_parquet(io.BytesIO(members[drive.ARCHIVE+'/estimates_20260401.parquet']))
+        frame['ticker']='MU'; buffer=io.BytesIO();frame.to_parquet(buffer)
+        members[drive.ARCHIVE+'/estimates_20260401.parquet']=buffer.getvalue()
+        checkpoint=json.loads(members[drive.ARCHIVE+'/collection_checkpoint.json'])
+        checkpoint['ticker_states'][0]['ticker']='MU'
+        members[drive.ARCHIVE+'/collection_checkpoint.json']=json.dumps(checkpoint).encode()
+        members[drive.DAILY+'/collection_queue.csv']=members[drive.DAILY+'/collection_queue.csv'].replace(b'LEG',b'MU')
+        with zipfile.ZipFile(archive,'w') as output:
+            for name,raw in members.items():output.writestr(name,raw)
+        raw=archive.read_bytes();preset.update(zip_bytes=len(raw),zip_sha256=hashlib.sha256(raw).hexdigest())
+        remote=root/'remote';records={}
+        for name,raw in members.items():
+            if name.startswith(drive.ARCHIVE+'/') or name in (drive.SIGNALS,
+                    drive.DAILY+'/summary.json',drive.DAILY+'/collection_queue.csv',drive.DAILY+'/archive_manifest.json'):
+                target=remote/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+                records[name]=dict(size_bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest())
+        inventory=hashlib.sha256(drive.encoded(records)).hexdigest()
+        contract=dict(schema=drive.FORWARD_SCHEMA,task_key='SYNTHETIC_ONLY',repository='wscha231/r1000-quant-engine',
+            head_sha='a'*40,issued_at='2026-07-01T17:00:00Z',expires_at='2026-07-01T19:00:00Z',tickers=['MU'],
+            provider='fmp',credential_name='FMP_API_KEY',account_reference='SYNTHETIC_ACCOUNT',
+            purpose='PRIVATE_NONCOMMERCIAL_RESEARCH',entitlement_reference='SYNTHETIC_REFERENCE_NOT_RIGHTS',
+            budget_reference='SYNTHETIC_BUDGET',expected_archive_folder_id='SOURCE_FOLDER_12345',
+            expected_inventory_sha256=inventory,expected_head=None,
+            code_pins={p:drive.sha256_file(ROOT/p) for p in drive.FORWARD_CODE},budget=dict(drive.FORWARD_CEILINGS))
+        path=root/'execution.json';path.write_bytes(drive.encoded(contract))
+        environment=dict(GITHUB_REPOSITORY=contract['repository'],GITHUB_SHA=contract['head_sha'],
+            GITHUB_REF='refs/heads/master',GITHUB_RUN_ID='123456789',GITHUB_RUN_ATTEMPT='1',
+            FMP_KEY_NAME='FMP_API_KEY',FMP_API_KEY='synthetic-key-no-network')
+        return archive,preset,remote,records,inventory,contract,path,environment
+
+    def forward_doubles(self,remote,damage,calls):
+        from tools import earnings_estimate_drive_generation as drive
+        def transfer(command,left,right=None,*options,**kwargs):
+            calls.append((command,str(left),str(right)))
+            def local(p):
+                return remote/str(p).removeprefix('gdrive:fixture/') if str(p).startswith('gdrive:fixture/') else Path(p)
+            source=local(left)
+            if command=='lsf':return '\n'.join(p.name for p in source.iterdir() if p.is_file()) if source.exists() else ''
+            def stat(p):
+                return dict(Name=p.name,Path=p.name,IsDir=p.is_dir(),Size=-1 if p.is_dir() else p.stat().st_size,
+                    ID='SOURCE_FOLDER_12345' if p.is_dir() else 'file_'+p.name)
+            if command=='lsjson':return json.dumps(stat(source) if '--stat' in options else [stat(p) for p in source.iterdir()])
+            self.assertIn('--max-transfer',options);self.assertIn('--cutoff-mode',options)
+            target=local(right)
+            upload=str(right).startswith('gdrive:fixture/')
+            if damage=='partial_upload' and upload and str(right).endswith('/payload'):
+                target.mkdir(parents=True);(target/'partial').write_bytes(b'not accepted')
+                raise RuntimeError('generation_transfer_failed:copy:exit9')
+            if damage=='head_readback' and str(left).endswith(drive.HEAD):
+                raise RuntimeError('generation_transfer_failed:copyto:exit9')
+            target.parent.mkdir(parents=True,exist_ok=True)
+            if command=='copy':shutil.copytree(source,target,dirs_exist_ok=True)
+            else:shutil.copy2(source,target)
+            return ''
+        import time
+        real_monotonic=time.monotonic
+        body_clock={'started':None}
+        def send(session,request,**kwargs):
+            self.assertTrue(kwargs['stream']);self.assertLessEqual(kwargs['timeout'],20)
+            calls.append(('PROVIDER',request.method,'MU'))
+            response=c.requests.Response();response.status_code=403 if damage=='vendor' else 302 if damage=='redirect' else 200
+            response.url=request.url;response.request=request
+            payload=[] if damage=='empty' else [dict(date='2027-12-31',estimatedEpsAvg=2,
+                estimatedRevenueAvg=100,numberAnalystsEstimatedEps=5,numberAnalystsEstimatedRevenue=5)]
+            if damage=='wrong_symbol':payload[0]['symbol']='AAPL'
+            if damage=='wrong_ticker':payload[0]['ticker']='AAPL'
+            response._content=json.dumps(payload).encode();response._content_consumed=True
+            if damage in ('redirect','drip'):
+                class Raw:
+                    closed=False
+                    bytes_read=0
+                    def stream(raw,amount,decode_content=True):
+                        if damage=='drip':
+                            body_clock['started']=real_monotonic()
+                            calls.append(('ALARM_PRESENT',str(signal.getitimer(signal.ITIMER_REAL)[0]>0),''))
+                            time.sleep(3)  # No chunk arrives before the independent deadline.
+                        raw.bytes_read+=3*1024*1024
+                        calls.append(('BODY_READ',str(raw.bytes_read),'unexpected'))
+                        yield b'x'*(3*1024*1024)
+                    def close(raw):raw.closed=True;calls.append(('RAW_CLOSED','yes',''))
+                    def release_conn(raw):pass
+                response._content=False;response._content_consumed=False;response.raw=Raw()
+                if damage=='redirect':response.headers['Location']='https://financialmodelingprep.com/other'
+            if damage=='parent_changed':(remote/drive.SIGNALS).write_bytes(b'changed')
+            return response
+        send.body_clock=body_clock
+        send.real_monotonic=real_monotonic
+        return transfer,send
+
+    def test_bounded_source_forward_real_collector_and_publication_double(self):
+        self.run_bounded_forward_case('valid')
+
+    def run_bounded_forward_case(self,damage):
+        from tools import earnings_estimate_drive_generation as drive
+        from datetime import datetime,timezone
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            archive,preset,remote,records,inventory,contract,path,environment=self.forward_fixture(root)
+            if damage=='drip':
+                contract['budget']['active_seconds']=1;path.write_bytes(drive.encoded(contract))
+            if damage=='response_cap':
+                contract['budget']['provider_response_bytes']=64;path.write_bytes(drive.encoded(contract))
+            original=archive.read_bytes();calls=[];transfer,send=self.forward_doubles(remote,damage,calls)
+            guard=(contextlib.nullcontext() if os.name=='posix' else patch.object(
+                drive,'provider_deadline',side_effect=lambda seconds:contextlib.nullcontext()))
+            clock=(patch.object(drive.time,'monotonic',side_effect=lambda:0.0 if send.body_clock['started'] is None
+                else send.real_monotonic()-send.body_clock['started']) if damage=='drip' else contextlib.nullcontext())
+            with clock,guard,patch.object(drive,'LEGACY_20261003',preset),patch.object(drive,'FORWARD_INVENTORY',inventory), \
+                 patch.object(drive,'forward_now',return_value=datetime(2026,7,1,18,tzinfo=timezone.utc)), \
+                 patch.dict(os.environ,environment),patch.object(drive,'transfer',side_effect=transfer), \
+                 patch.object(c.requests.adapters.HTTPAdapter,'send',send):
+                result=drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,drive.sha256_file(path))
+                if damage=='valid':
+                    self.assertTrue(result['source_published'],result)
+                    self.assertEqual(result['status'],'SOURCE_PERSISTED_READBACK_VERIFIED_RESEARCH_ONLY')
+                    with self.assertRaisesRegex(ValueError,'output_must_be_new'):
+                        drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,drive.sha256_file(path))
+                else:
+                    self.assertFalse(result['source_published'],result)
+                    self.assertEqual(result['status'],'PUBLICATION_OUTCOME_UNCERTAIN_STOP' if damage=='head_readback' else 'BLOCKED',result)
+                self.assertEqual(result['meter']['provider_gets'],1)
+                self.assertEqual(sum(row[0]=='PROVIDER' for row in calls),1)
+                self.assertIsNone(result['meter']['drive_http_requests'])
+                self.assertFalse(result['source_admitted']);self.assertFalse(result['paper_consumer_executed'])
+                self.assertEqual((remote/drive.HEAD).exists(),damage in ('valid','head_readback'))
+                if damage in ('vendor','empty','parent_changed','redirect','drip','response_cap','wrong_symbol','wrong_ticker'):
+                    self.assertFalse(result['publication_attempted'])
+            if damage=='drip':
+                self.assertTrue(any(row[:2]==('ALARM_PRESENT','True') for row in calls),result)
+                self.assertLess(result['meter']['active_elapsed_seconds'],2.8)
+            if damage in ('redirect','drip'):
+                self.assertFalse(any(row[0]=='BODY_READ' for row in calls),result)
+                self.assertTrue(any(row[0]=='RAW_CLOSED' for row in calls),result)
+            self.assertEqual(archive.read_bytes(),original)
+            if damage!='parent_changed':
+                for name,record in records.items():self.assertEqual(drive.sha256_file(remote/name),record['sha256'])
+            self.assertTrue((root/'attempt/forward_result.json').is_file())
+            return result
+
+    def test_bounded_source_forward_vendor_and_quality_failures_do_not_publish(self):
+        for damage in ('vendor','empty','parent_changed'):
+            with self.subTest(damage=damage):self.run_bounded_forward_case(damage)
+
+    def test_bounded_source_forward_partial_upload_and_post_head_failure(self):
+        for damage in ('partial_upload','head_readback'):
+            with self.subTest(damage=damage):self.run_bounded_forward_case(damage)
+
+    def test_bounded_source_forward_invalid_contracts_precede_all_io(self):
+        from tools import earnings_estimate_drive_generation as drive
+        from datetime import datetime,timezone
+        changes=[dict(tickers=['MU','AAPL']),dict(provider='finnhub'),dict(credential_name='OTHER'),
+            dict(expires_at='2026-07-01T18:00:00Z'),dict(expected_head='already-committed'),
+            dict(account_reference=''),dict(budget={**drive.FORWARD_CEILINGS,'provider_gets':0}),
+            dict(budget={**drive.FORWARD_CEILINGS,'provider_gets':True}),dict(code_pins={})]
+        for change in changes:
+            with self.subTest(change=change),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);archive,preset,remote,records,inventory,contract,path,environment=self.forward_fixture(root)
+                path.write_bytes(drive.encoded({**contract,**change}))
+                with patch.object(drive,'FORWARD_INVENTORY',inventory),patch.dict(os.environ,environment), \
+                     patch.object(drive,'forward_now',return_value=datetime(2026,7,1,18,tzinfo=timezone.utc)), \
+                     patch.object(drive,'transfer') as transport,patch.object(c,'main') as collector:
+                    with self.assertRaises(ValueError):
+                        drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,drive.sha256_file(path))
+                    transport.assert_not_called();collector.assert_not_called()
+                    self.assertFalse((root/'attempt').exists())
+
+    def test_bounded_source_forward_rejects_rerun_wrong_key_hash_and_missing_key(self):
+        from tools import earnings_estimate_drive_generation as drive
+        from datetime import datetime,timezone
+        for damage in ('rerun','wrong_key','wrong_hash','missing_key'):
+            with self.subTest(damage=damage),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);archive,preset,remote,records,inventory,contract,path,environment=self.forward_fixture(root)
+                if damage=='rerun':environment['GITHUB_RUN_ATTEMPT']='2'
+                if damage=='wrong_key':environment['FMP_KEY_NAME']='FMP_API_KEY2'
+                if damage=='missing_key':environment['FMP_API_KEY']=''
+                with patch.object(drive,'FORWARD_INVENTORY',inventory),patch.dict(os.environ,environment), \
+                     patch.object(drive,'forward_now',return_value=datetime(2026,7,1,18,tzinfo=timezone.utc)), \
+                     patch.object(drive,'transfer') as transport,patch.object(c,'main') as collector:
+                    with self.assertRaises(ValueError):
+                        drive.bounded_forward_legacy('gdrive:fixture/',archive,root/'attempt',path,
+                            '0'*64 if damage=='wrong_hash' else drive.sha256_file(path))
+                    transport.assert_not_called();collector.assert_not_called()
+
+
+    def test_bounded_source_forward_redirect_rejected_before_requests_reads_body(self):
+        # Actual Session.send/response hooks/redirect processing; adapter only is doubled.
+        self.run_bounded_forward_case('redirect')
+
+    def test_bounded_source_forward_posix_interrupts_inflight_body_and_restores_alarm(self):
+        from tools import earnings_estimate_drive_generation as drive
+        import time
+        if os.name!='posix':
+            with self.assertRaisesRegex(ValueError,'posix_deadline_required'):
+                with drive.provider_deadline(.05):self.fail('unsupported actual host must refuse')
+            return  # Native provider doubles do not claim actual POSIX execution.
+        before=signal.getsignal(signal.SIGALRM)
+        self.run_bounded_forward_case('drip')
+        self.assertEqual(signal.getsignal(signal.SIGALRM),before)
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL),(0.0,0.0))
+        signal.setitimer(signal.ITIMER_REAL,1)
+        try:
+            with self.assertRaisesRegex(ValueError,'existing_alarm'):
+                with drive.provider_deadline(.05):self.fail('must not replace a foreign timer')
+            self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0],0)
+        finally:signal.setitimer(signal.ITIMER_REAL,0)
+        # The same real primitive must also work in an independently optimized child.
+        script=("import signal,time;from tools.earnings_estimate_drive_generation import provider_deadline;"
+            "h=signal.getsignal(signal.SIGALRM)\n"
+            "try:\n with provider_deadline(.05): time.sleep(1)\n"
+            "except TimeoutError: pass\nelse: raise RuntimeError('deadline did not interrupt')\n"
+            "if signal.getsignal(signal.SIGALRM)!=h: raise RuntimeError('handler not restored')\n"
+            "if signal.getitimer(signal.ITIMER_REAL)!=(0.0,0.0): raise RuntimeError('timer not cleared')\n"
+            "print('EARNINGS_FORWARD_POSIX_DEADLINE_OPTIMIZED_PASS')")
+        child=subprocess.run([sys.executable,'-B','-O','-c',script],cwd=ROOT,
+            capture_output=True,text=True,timeout=10)
+        self.assertEqual(child.returncode,0,child.stdout+child.stderr)
+        self.assertIn('EARNINGS_FORWARD_POSIX_DEADLINE_OPTIMIZED_PASS',child.stdout)
+        print('EARNINGS_FORWARD_POSIX_PROVIDER_DEADLINE_PASS optimized_child=1 provider_network=0')
+
+
+    def test_bounded_source_forward_oversized_chunk_keeps_actual_observed_cost(self):
+        result=self.run_bounded_forward_case('response_cap')
+        self.assertEqual(result['meter']['provider_response_budget_reserved_bytes'],64)
+        self.assertEqual(result['meter']['provider_response_bytes'],65)
+        self.assertTrue(result['meter']['provider_response_limit_exceeded'])
+        self.assertFalse(result['meter']['provider_response_complete'])
+        self.assertFalse(result['source_published'])
+
+
+    def test_bounded_source_forward_response_identity_conflict_and_missingness(self):
+        from tools import earnings_estimate_drive_generation as drive
+        for damage in ('wrong_symbol','wrong_ticker'):
+            with self.subTest(damage=damage):
+                result=self.run_bounded_forward_case(damage)
+                self.assertFalse(result['source_published'])
+                self.assertFalse(result['provider_response_security_identity_verified'])
+                self.assertEqual(result['meter']['provider_response_identity_refusal'],
+                    'EXPLICIT_TICKER_CONFLICT_OR_INVALID_RESPONSE')
+        result=self.run_bounded_forward_case('valid')
+        self.assertEqual(result['meter']['provider_response_ticker_evidence'],'REQUEST_TICKER_ONLY_UNVERIFIED')
+        self.assertFalse(result['provider_response_security_identity_verified'])
+        self.assertEqual(drive.forward_response_ticker_evidence(b'[{"symbol":"MU"}]'),
+            'EXPLICIT_TICKER_MATCH_ONLY_NOT_SECURITY_VERIFIED')
+
+    def test_bounded_source_forward_budget_reservations_fail_before_next_operation(self):
+        from tools import earnings_estimate_drive_generation as drive
+        from datetime import datetime,timezone
+        with tempfile.TemporaryDirectory() as temp, \
+             patch.object(drive,'forward_now',return_value=datetime(2026,7,1,18,tzinfo=timezone.utc)):
+            root=Path(temp);contract=dict(expires_at='2026-07-01T19:00:00Z',budget=dict(drive.FORWARD_CEILINGS))
+            meter=drive.ForwardBudget(contract,root);meter.reserve('provider_gets',1)
+            with self.assertRaisesRegex(ValueError,'budget_provider_gets'):meter.reserve('provider_gets',1)
+            meter.reserve('provider_response_bytes',contract['budget']['provider_response_bytes'])
+            with self.assertRaisesRegex(ValueError,'budget_provider_response_bytes'):meter.reserve('provider_response_bytes',1)
+            meter.usage['drive_processes']=contract['budget']['drive_processes']
+            with self.assertRaisesRegex(ValueError,'budget_drive_processes'):
+                meter.transfer(lambda *a,**k:self.fail('must precede operation'),'lsf','gdrive:fixture/')
+            with patch.object(drive,'forward_now',return_value=datetime(2026,7,1,19,tzinfo=timezone.utc)):
+                with self.assertRaisesRegex(ValueError,'deadline'):meter.check()
+
+    def test_bounded_source_forward_workflow_preserves_defaults_and_excludes_paper(self):
+        import yaml
+        workflow=yaml.load((ROOT/'.github/workflows/earnings_estimates_daily.yml').read_text(),Loader=yaml.BaseLoader)
+        inputs=workflow['on']['workflow_dispatch']['inputs'];job=workflow['jobs']['source_forward']
+        self.assertEqual(inputs['source_only_forward']['default'],'false')
+        self.assertEqual(job['if'],"${{ github.event_name == 'workflow_dispatch' && inputs.source_only_forward }}")
+        self.assertEqual(workflow['concurrency'],dict(group='earnings-estimates-daily-durable-archive',**{'cancel-in-progress':'false'}))
+        scripts='\n'.join(step.get('run','') for step in job['steps'])
+        for forbidden in ('free_data_forward_paper','free_data_selection_overlay','actions/cache','rclone sync'):
+            self.assertNotIn(forbidden,scripts)
+        self.assertIn('forward-legacy',scripts);self.assertIn('SOURCE_MODE_CONFLICT',scripts)
+        self.assertNotIn('vars.EARNINGS_SOURCE_FORWARD',json.dumps(job))
+        self.assertEqual(job['timeout-minutes'],'15')
+        self.assertNotIn('FINNHUB_API_KEY',json.dumps(job));self.assertNotIn('ALPHAVANTAGE_API_KEY',json.dumps(job))
+        artifact=next(s for s in job['steps'] if s.get('uses')=='actions/upload-artifact@v4')
+        self.assertNotIn('private',artifact['with']['path']);self.assertNotIn('payload',artifact['with']['path'])
+        self.assertEqual(artifact['if'],'always()')
+
+
     def test_source_preflight_workflow_excludes_daily_paper_and_provider_paths(self):
         import yaml
         workflow=yaml.load((ROOT/'.github/workflows/earnings_estimates_daily.yml').read_text(),Loader=yaml.BaseLoader)
         inputs=workflow['on']['workflow_dispatch']['inputs']
         self.assertEqual(inputs['read_only_source_preflight']['default'],'false')
-        self.assertEqual(workflow['jobs']['archive']['if'],"${{ github.event_name != 'workflow_dispatch' || !inputs.read_only_source_preflight }}")
+        self.assertEqual(workflow['jobs']['archive']['if'],"${{ github.event_name != 'workflow_dispatch' || (!inputs.read_only_source_preflight && !inputs.source_only_forward) }}")
         job=workflow['jobs']['source_preflight']
-        self.assertEqual(job['if'],"${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight }}")
+        self.assertEqual(job['if'],"${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight && !inputs.source_only_forward }}")
         self.assertEqual(job['timeout-minutes'],'15')
         self.assertNotIn('needs',job)
         steps=job['steps']; scripts='\n'.join(step.get('run','') for step in steps)

@@ -1,9 +1,21 @@
 name: Earnings Estimates Daily Archive
-run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight && 'Earnings Source preflight (read only)' || 'Earnings estimate archive' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.source_only_forward && format('Earnings Source forward {0}', inputs.source_forward_contract_sha256) || github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight && 'Earnings Source preflight (read only)' || 'Earnings estimate archive' }}
 
 on:
   workflow_dispatch:
     inputs:
+      source_only_forward:
+        description: 'Explicit bounded MU Source recovery only; requires fixed execution information and skips the entire daily/Paper job.'
+        type: boolean
+        default: false
+      source_forward_contract:
+        description: 'Non-secret fixed single-execution information; actual dispatch remains under the existing owner recovery authority.'
+        type: string
+        default: ''
+      source_forward_contract_sha256:
+        description: 'Exact execution-information SHA256; an integrity pin, not a new approval mechanism.'
+        type: string
+        default: ''
       read_only_source_preflight:
         description: 'Inspect only the configured Source namespace and pinned legacy bytes; skips collection, publication and paper.'
         type: boolean
@@ -97,7 +109,7 @@ concurrency:
 
 jobs:
   archive:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.read_only_source_preflight }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.read_only_source_preflight && !inputs.source_only_forward) }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -589,7 +601,7 @@ jobs:
           fi
 
   source_preflight:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.read_only_source_preflight && !inputs.source_only_forward }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -672,3 +684,100 @@ jobs:
             outputs/earnings_source_preflight/inspection/source_preflight.json
           if-no-files-found: warn
           retention-days: 14
+
+  source_forward:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_only_forward }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed Source implementation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            .github/workflows
+            tools
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate named execution information before credentials or I/O
+        env:
+          CONTRACT_JSON: ${{ inputs.source_forward_contract }}
+          CONTRACT_SHA256: ${{ inputs.source_forward_contract_sha256 }}
+          PREFLIGHT_CONFLICT: ${{ inputs.read_only_source_preflight }}
+          FMP_KEY_NAME: ${{ inputs.fmp_key_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p outputs/earnings_source_forward
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          if os.environ['PREFLIGHT_CONFLICT'] == 'true':
+              raise SystemExit('SOURCE_MODE_CONFLICT')
+          raw=os.environ['CONTRACT_JSON'].encode('utf-8')
+          if len(raw)>32768: raise SystemExit('SOURCE_FORWARD_CONTRACT_SIZE')
+          Path(os.environ['RUNNER_TEMP']+'/earnings-forward-contract.json').write_bytes(raw)
+          PY
+          python tools/earnings_estimate_drive_generation.py check-forward-contract \
+            --recovery-contract "$RUNNER_TEMP/earnings-forward-contract.json" \
+            --contract-sha256 "$CONTRACT_SHA256"
+      - name: Install existing dependencies
+        run: pip install -r requirements_github.txt
+      - name: Configure existing Source connection
+        env:
+          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
+            echo '::error::Source read credentials are not configured'
+            exit 2
+          fi
+          curl -fsSLo /tmp/rclone.zip https://downloads.rclone.org/rclone-current-linux-amd64.zip
+          unzip -q /tmp/rclone.zip -d /tmp/
+          sudo mv /tmp/rclone-*/rclone /usr/local/bin/rclone
+          chmod +x /usr/local/bin/rclone
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_GDRIVE:-}" ]; then
+            echo "$RCLONE_CONFIG_GDRIVE" > ~/.config/rclone/rclone.conf
+          else
+            echo "$GOOGLE_SERVICE_ACCOUNT_KEY" > /tmp/sa.json
+            {
+              printf '%s\n' '[gdrive]' 'type = drive' 'scope = drive' 'service_account_file = /tmp/sa.json'
+              if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then
+                printf 'root_folder_id = %s\n' "$GDRIVE_ROOT_FOLDER_ID"
+              fi
+            } > ~/.config/rclone/rclone.conf
+          fi
+      - name: Execute only the named bounded Source transition
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          CONTRACT_SHA256: ${{ inputs.source_forward_contract_sha256 }}
+          FMP_KEY_NAME: ${{ inputs.fmp_key_name }}
+          FMP_API_KEY: ${{ inputs.fmp_key_name == 'FMP_API_KEY' && secrets.FMP_API_KEY || '' }}
+          FMP_API_KEY2: ${{ inputs.fmp_key_name == 'FMP_API_KEY2' && secrets.FMP_API_KEY2 || '' }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/11266510471/zip" > "$RUNNER_TEMP/earnings-legacy-original.zip"
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE="gdrive:"; else BASE="gdrive:r1000_top30_institutional/"; fi
+          python tools/earnings_estimate_drive_generation.py forward-legacy \
+            --base "$BASE" --legacy-archive "$RUNNER_TEMP/earnings-legacy-original.zip" \
+            --recovery-contract "$RUNNER_TEMP/earnings-forward-contract.json" \
+            --contract-sha256 "$CONTRACT_SHA256" \
+            --output-dir outputs/earnings_source_forward/attempt
+      - name: Preserve bounded Source diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: earnings-source-forward-${{ github.run_id }}
+          path: |
+            outputs/earnings_source_forward/attempt/forward_result.json
+            outputs/earnings_source_forward/attempt/attempt_meter.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove temporary Source credentials
+        if: always()
+        run: rm -f ~/.config/rclone/rclone.conf /tmp/sa.json

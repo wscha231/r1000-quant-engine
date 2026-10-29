@@ -8850,3 +8850,51 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   actual POSIX sink timers in Linux, same exception and no later durable writes.
   Ordinary study failures must retain partial status and normal publication;
   ordinary logger failures must retain the identical normal business I/O.
+
+
+## 2026-10-28 — Keep a bounded earnings forward attempt separate from the daily Paper job
+
+- Reuse the pinned legacy preparation and real collector transition. A read-only
+ 70-file namespace match does not renew Oct3 estimates or manufacture a current
+ transaction marker. Explicit MU Source-only mode skips the whole daily/Paper
+ job while retaining global serialization and ordinary schedule behavior.
+- Collector exit0 can mean vendor entitlement/partial diagnostics. Require the
+ actual current request's complete quality, zero errors and genuine transaction
+ before the existing manifest/publication path. Recheck original Source before
+ publication/head; a failed head readback is uncertain, not proof of no write.
+- Fixed execution information and its byte SHA are not a new approval system or
+ rights proof. Keep real account/purpose/remaining budget/window NOT_RUN until
+ grounded under existing owner authority. A finite rclone reservation is not a
+ measured backend API count; retain uncertain costs and reject blind reruns.
+- Synthetic transport/provider doubles exercise unchanged collector/publication
+ code, not actual market-data access. Initial local editing encountered template
+ interpolation/indentation errors before tests; they changed no remote state.
+ Preserve failed test logs and correct the code before claiming verification.
+
+- Native unittest harnesses must import canonical tests.* modules and select
+  classes defined in the named suites. A first harness also collected imported
+  TestCase aliases, producing542 cases per mode and one class-identity failure;
+  both original logs remain. Correct the harness instead of changing product
+  registration or weakening the identity assertion.
+
+
+- PR694 exact706ebca Codex found two finite-provider-bound gaps: inactivity
+  timeout does not interrupt a slowly delivered chunk, and Requests prepares
+  redirect _next by consuming its body even when allow_redirects=false. Use a
+  real POSIX wall deadline through body completion and an early status hook;
+  preserve foreign timers and close rejected responses before body iteration.
+  Reuse actual Session.send with an adapter double, not a Session.send double
+  that skips the failing library machinery. Separate controlled preparation
+  clocks from the real blocked-body timer; Windows refusal/doubles are not
+  POSIX proof. Linux/-O checks must use explicit raises, never removable assert.
+
+- Independent A6 static review highlighted cost loss after an oversized chunk:
+  recording only after reservation can report0 for65 observed bytes at cap64.
+  Persist observed yielded bytes before refusing, preserve the cap reservation
+  and incomplete/exceeded state; wire cost remains unknown. No new budget is
+  created, and failed collection/publication remains blocked.
+
+- A6 also identified request/response ticker confusion: a MU query alone does
+  not bind an explicit AAPL response to MU. Check every declared symbol/ticker
+  before the unchanged normalizer, retain missing identity as unverified, and
+  never turn a ticker match into security/issuer certification.
