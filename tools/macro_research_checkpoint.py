@@ -28,29 +28,54 @@ MAX_FILES = 10000
 NAMESPACE = "research/macro_technical_evidence/v1/"
 
 
+_TRANSPORT_FAILURE_TERMS = {
+    # Provider reason takes precedence over wrapper text such as
+    # "couldn't find root: ... userRateLimitExceeded".
+    "RATE_LIMIT": ("ratelimit", "rate limit", "too many requests", "error 429"),
+    "DOWNLOAD_QUOTA": ("downloadquotaexceeded", "download quota"),
+    "STORAGE_QUOTA": ("storagequotaexceeded", "storage quota"),
+    "AUTHENTICATION_INVALID_GRANT": ("invalid_grant",),
+    "AUTHENTICATION_INVALID_CLIENT": ("invalid_client",),
+    "AUTHENTICATION_UNAUTHORIZED_CLIENT": ("unauthorized_client",),
+    "AUTHENTICATION_INVALID_SCOPE": ("invalid_scope",),
+    "AUTHENTICATION": ("invalid credentials", "unauthorized", "invalid authentication", "error 401"),
+    "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
+    "QUOTA": ("quota",),
+    "DOWNLOAD_RESTRICTED": ("abusive", "malware", "virus"),
+    "NOT_DOWNLOADABLE": ("not downloadable", "only files with binary content", "not a file", "is a directory"),
+    "TIMEOUT": ("timeout", "timed out", "deadline exceeded"),
+    "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
+}
+_TRANSPORT_FAILURE_VERBS = frozenset({"mkdir", "cat", "lsjson", "copy", "copyto"})
+_TRANSPORT_FAILURE_UNKNOWN = "UNCLASSIFIED"
+_TRANSPORT_FAILURE_CODE = re.compile(
+    r"research_transport_failed:([a-z]+):exit_(-?(?:0|[1-9][0-9]{0,9})):([A-Z_]+)")
+
+
+def is_safe_transport_failure(text):
+    """Recognize only the fixed formatter grammar, never arbitrary stderr.
+
+    Canonical signed/unsigned32-bit process exit statuses fit the existing
+    diagnostic length bound. This is format validation, not event authority.
+    """
+    if type(text) is not str or len(text) > 90:
+        return False
+    match = _TRANSPORT_FAILURE_CODE.fullmatch(text)
+    if match is None:
+        return False
+    verb, status, category = match.groups()
+    value = int(status)
+    return (verb in _TRANSPORT_FAILURE_VERBS or verb == "command") and (
+        category in _TRANSPORT_FAILURE_TERMS or category == _TRANSPORT_FAILURE_UNKNOWN
+    ) and str(value) == status and -(2**31) <= value <= 2**32 - 1
+
+
 def transport_failure(stderr, command, returncode):
     """Fixed diagnostic categories, never provider bodies, tokens or paths."""
     body = stderr.decode("utf-8", errors="replace").lower()
-    categories = {
-        # Provider reason takes precedence over wrapper text such as
-        # "couldn't find root: ... userRateLimitExceeded".
-        "RATE_LIMIT": ("ratelimit", "rate limit", "too many requests", "error 429"),
-        "DOWNLOAD_QUOTA": ("downloadquotaexceeded", "download quota"),
-        "STORAGE_QUOTA": ("storagequotaexceeded", "storage quota"),
-        "AUTHENTICATION_INVALID_GRANT": ("invalid_grant",),
-        "AUTHENTICATION_INVALID_CLIENT": ("invalid_client",),
-        "AUTHENTICATION_UNAUTHORIZED_CLIENT": ("unauthorized_client",),
-        "AUTHENTICATION_INVALID_SCOPE": ("invalid_scope",),
-        "AUTHENTICATION": ("invalid credentials", "unauthorized", "invalid authentication", "error 401"),
-        "PERMISSION": ("permission", "forbidden", "access denied", "cannotdownloadfile"),
-        "QUOTA": ("quota",),
-        "DOWNLOAD_RESTRICTED": ("abusive", "malware", "virus"),
-        "NOT_DOWNLOADABLE": ("not downloadable", "only files with binary content", "not a file", "is a directory"),
-        "TIMEOUT": ("timeout", "timed out", "deadline exceeded"),
-        "NOT_FOUND": ("not found", "couldn't find", "doesn't exist", "does not exist"),
-    }
-    category = next((name for name, terms in categories.items() if any(t in body for t in terms)), "UNCLASSIFIED")
-    verb = command if command in {"mkdir", "cat", "lsjson", "copy", "copyto"} else "command"
+    category = next((name for name, terms in _TRANSPORT_FAILURE_TERMS.items()
+                     if any(t in body for t in terms)), _TRANSPORT_FAILURE_UNKNOWN)
+    verb = command if command in _TRANSPORT_FAILURE_VERBS else "command"
     return f"research_transport_failed:{verb}:exit_{int(returncode)}:{category}"
 
 

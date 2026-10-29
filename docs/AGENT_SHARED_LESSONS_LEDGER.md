@@ -8898,3 +8898,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   not bind an explicit AAPL response to MU. Check every declared symbol/ticker
   before the unchanged normalizer, retain missing identity as unverified, and
   never turn a ticker match into security/issuer certification.
+
+- H1 transport diagnostics crossed two sanitizers: the checkpoint formatter
+  emitted fixed colon-delimited categories, but history safe_error accepted only
+  alphanumeric contract codes and erased every category. Preserve the failing
+  producer-to-consumer counterexample. Reuse the ordered category/verb definitions
+  in a strict bounded formatter validator; never broadly allow colons or raw
+  stderr. Keep the legacy alphanumeric branch and typed HTTP/timeout handling
+  distinct, and preserve all transport/retry/hash policy. Earlier restore success
+  and a later process failure are not evidence of permanent object loss or a
+  confirmed quota cause. Synthetic non-disclosure tests grant no Source recovery.

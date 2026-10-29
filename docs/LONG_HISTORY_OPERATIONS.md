@@ -179,6 +179,24 @@ Storage commit is established; inspect execution receipts for consumer completio
 Transient FRED transport/429/5xx failures now retry at most3times; contract failures
 do not retry. Fixed HTTP/transport codes never include credential-bearing URLs.
 
+### Fixed transport error visibility (2026-10-30)
+
+History error sanitization preserves the existing
+`research_transport_failed:<verb>:exit_<status>:<category>` formatter output only
+after strict validation against the formatter's shared verb/category definitions,
+canonical signed/unsigned32-bit process status and the existing90-character bound.
+Arbitrary colon-bearing messages, prefix/suffix lookalikes, paths, headers and
+unbounded text still become `SOURCE_OR_CONTRACT_ERROR`. Existing HTTPError,
+TimeoutError/OSError handling and the legacy alphanumeric contract-code fallback
+are unchanged; that legacy fallback is not a general secret detector.
+
+This corrects diagnostic category loss, not transport execution or recovery.
+Classification precedence, calls, retry/backoff, timeouts and hash/readback checks
+are unchanged. Run40883804681's earlier successful dependency restore and its
+later separate-process restore failure are distinct observations. A later
+generic failure does not prove permanent deletion/corruption, quota exhaustion
+or the actual transport category. No new remote read or retry is authorized here.
+
 ## Proposed restore integrity hardening — 2026-09-12
 
 Prepared as an offline review patch against PR420 cdc7be2ea5d4120d7c2c231d1b938560ebe1622c.
