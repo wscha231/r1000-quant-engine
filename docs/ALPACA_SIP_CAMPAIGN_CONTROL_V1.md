@@ -1616,3 +1616,146 @@ No raw stdout/stderr/body/headers/URLs or credentials enter the diagnostic:
 only enums, counts, hashes, HTTP/return status, attempt count and public job ID.
 Preserve original BOM/ANSI/UTF-8 bytes and genuine gate parsing. This adds no
 provider/Drive/POST/OAuth/media retry and cannot establish the old unknown cause.
+
+
+## Separately allocated NEW3 single attempt — 2026-10-28
+
+A0 comment6474160005 grants exactly SYM/CGNX/NOVT, input21B
+SHA256 f0b53ec441f7be0620de2f4dad0f09ed1fcc5225fe9e957dac26ffae4ee96306.
+The typed `a1-new3-one-capture-authorization-v1` branch reuses this controller,
+Journal/lock, RuntimeMeter, OwnerDrive, external collector and archive verifier.
+It preserves the original40/40 family and opens one separately allocated slot;
+it does not restore a spent slot, change the seed or alter the managed roster.
+No other task, name, date, grant or automatic retry is accepted.
+
+The fixed window is2016-01-04 <= session <2026-10-28. An authenticated existing
+NYSE gate receipt must identify the completedOct27 session and20:00Z close,
+with the full provider endpoint delay elapsed. The actual OWNER working-copy
+review binds the complete control hash, this gate, the same account/credential
+binding, retained provider UUIDs, exact private source-document references and
+the existing opening accounting/history hashes. Unknown supplier expiry,
+permanent retention and redistribution remain unknown/unapproved. This narrow
+review does not create a supplier licence or certify Source/PIT/economics.
+The account review must follow the actual protected deployment.
+
+The new allowance is providerGET8, Drive256requests/128MiB and newstorage16MiB.
+Each slot reserves900seconds; worker collection stops by canonical workflow
+start+840seconds, leaving60seconds for finalization. The completed actual job
+time is separately accounted: more than900seconds is BLOCKED, never refunded.
+The unmodified meter refuses request9 before opening I/O and retains partial
+body/create reservations. The same account, owner-only folders and at least
+2GiB free capacity must verify. New listing/coverage gaps are preserved; no
+prelisting price, Open substitution, full-grid certificate or admission is
+inferred from a successful vendor response. Actual provider IDs must match.
+
+Control fields are strict: schema/task/profile/allocation reference, fixed CSV
+and scope/window/caps, expected protected master, seven runtime code pins and
+actual reviewed deployment, private account/folder references, rights documents,
+opening accounting, market gate, asset UUID map and working_copy_reference.
+`_new3_hash` excludes only working_copy_reference so the actual comment ID can
+be supplied after publication. The OWNER record has exactly one line:
+`A1_NEW3_PRIVATE_WORKING_COPY_REVIEW <JSON>`. It binds control/opening/rights
+hashes and states the narrow private working-copy review and unknown rights
+limits. A local boolean or a caller-supplied comment is insufficient.
+
+Use the existing `--authorization` controller entrypoint, existing budget
+state root and its fixed sibling `new3-6474160005`. The shared original family
+lock remains held while the unchanged historical prefix is checked. A distinct
+existing Journal instance fsyncs NEW_THREE_RESERVED before the only POST. Its
+nonce derives solely from the immutable allocation identity, so a changed
+control or local rollback cannot create another canonical attempt. The worker
+reconciles the complete original workflow census with the reviewed opening
+fingerprint and rejects attempt2, foreign activity, missing pages or drift.
+
+The host returns POST_ACCEPTED_OUTCOME_PENDING, never collection success.
+A later call only reads/settles that reservation and its exact finalized meter;
+unknown/missing/failed outcomes never dispatch again. Terminal accounting can
+complete after the start expiry without another capture or a budget refund.
+All new-branch collector output is filtered to counts/hash/status so private
+object IDs and vendor bytes do not enter public logs. Existing legacy log and
+verification behavior is preserved.
+
+Execution must begin before2026-10-28T22:00:00Z. Code/CI completion after that
+clock cannot renew it. Protected exact-head review, required checks and real
+account/opening evidence remain prerequisites; synthetic fixtures are not
+execution, supplier-rights evidence or an accepted Reader generation.
+
+The shared receipt reader accepts the small caps only with the explicit
+allocation_profile=owner-new3-20261029-r2 and exactly NEW3_CAPS. Legacy callers
+still accept only LIMITS/CONTINUED_LIMITS. The actual downloaded meter must
+identify the same allocation/profile/allowance. Never substitute legacy caps
+to get a small-scope receipt through accounting. Success and failure settlement
+are tested through the real receipt reader/artifact parser and job timer, with
+only the authenticated artifact download represented by synthetic bytes.
+
+
+R2 is the explicit immutable OWNER allocation6474160005, task
+R1000-A0-NEW3-OHLCV-20261029-ONE-R2/profile owner-new3-20261029-r2.
+It supersedes only unused, unpublished allocation6471394173; all V1/V2/V3
+snapshots, the old18:00Z expiry and independent negative evidence stay frozen.
+The tickers/date/endpoint and every numeric cap are unchanged. A different
+latest eligible session or a failed actual calendar/endpoint gate stops capture;
+the owner-bound synthetic test dictionary does not certify that real gate.
+
+Under the unchanged historical family lock, the host checks any predecessor
+Journal through its original lock/genesis before creating the R2 slot. A prior
+reservation, corrupt journal or foreign writer stops it without overwriting or
+refunding anything. The complete remote census also rejects the predecessor's
+deterministic nonce even if a caller put it in a matching opening fingerprint.
+The original40-run family is not rearmed. Only R2's profile/task/grant body,
+scope/nonce/Journal and typed receipt/archive identifiers can bind this attempt.
+An accepted POST is pending, and later accounting never posts another attempt.
+
+
+V5 archival runtime clarification6474415974 is separately authenticated; deployment
+wiring GO6474541811 adds only the existing workflow as a sixth changed path.
+Runtime uses the unchanged existing NYSE helper/calendar, pinned with the other
+code, to recompute the target's actual close+120minutes and the existing UTC-end
+plus15minute historical-SIP boundary. The approved end and latest settlement-
+eligible session must agree. Future/incomplete/holiday or a newer eligible end
+cannot be invented. The original normal daily result is recomputed and retained:
+SKIP_STALE_SESSION/readyfalse or SKIP_CLOSE_SETTLEMENT_BUFFER stays unchanged.
+No force or max-age override is used. ARCHIVAL_COLLECTION_ONLY conveys private
+historical collection, never current-price/Source/PIT/ER/A5 eligibility.
+
+The OWNER's supplied calendar dictionary is checked against the real helper;
+it cannot certify READY. The resulting runtime gate and package versions are
+bound to the actual meter; accounting checks it at its recorded collection time
+without opening a new capture after expiry. This closes a cross-edge finding
+outside the earlier V3 prospective review, which checked only the typed receipt
+and OWNER-bound dictionary. Prior successful tests do not prove calendar wiring.
+
+The original two sparse checkouts now include the unchanged helper. Each original
+job installs only pandas2.3.3/calendar5.5.0, already used in the existing Source
+environment and permitted by existing requirements. Installation applies to both
+jobs because the unchanged registered entrypoint executes R2 calendar tests even
+on other invocations; skipping those tests to avoid dependencies is not allowed.
+No new job/schedule or shared environment change is introduced. Install/validation/
+queue/execution time remains within the same900second allocation; no timeout or
+budget is raised. Public logs retain only count/hash/status, never private inputs.
+
+Canonical created_at starts the unchanged840second collection clock, including
+queue and setup. Final accounting retains both summed job seconds and elapsed
+through canonical updated_at; either above900seconds is BLOCKED, never refunded.
+
+The current shared workflow contains the single exact R2 calendar helper in
+addition to frozen historical price174 paths. Its layout oracle checks that
+explicit difference while retaining every following old19-key tree/blob/hash/
+origin assertion. The historical revision module and its execution-path function
+are byte-for-byte unchanged; no past grant/pin digest is regenerated. R2 requires
+the helper in its own exact eight-pin source set and rejects missing/foreign/
+tampered helper bytes before collection. A0 clarification6474990100 withdraws
+the earlier proposed seventh-file addition; the final change remains six paths.
+
+R2 private fields use the existing runner event-file primitive. The workflow
+recognizes an allocation-profile key, its authorization schema/task family or
+allocation reference, so malformed R2 input remains hidden and is rejected
+without falling back to public job env/CLI. Private root/data/control/resume
+fields are empty in job env; the existing CLI receives empty private arguments.
+The bounded event reader validates the exact R2 control and input equality before
+credentials. The worker rechecks event/control/empty private env and restores
+only an internal argument copy. The runner control is created under umask077;
+no private input is written to GITHUB_ENV. Legacy/non-R2 projection, source/hash/
+budget/clock/history contracts and the original payload remain unchanged. Public
+sentinels cover valid/malformed input, wrong nonce, event/control mismatch and
+actual prepare-script output; no actual account values or capture are involved.

@@ -236,6 +236,9 @@ def atomic_json(path, value, *, unique_temporary=False):
 
 
 def validate_authorization(auth):
+    if isinstance(auth, dict) and "allocation_profile" in auth:
+        from tools import alpaca_sip_private_backfill_v1 as cap
+        return cap._new3_authorization(_module(), auth)
     if isinstance(auth, dict) and "fixed_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
         return cap._fixed_spy_authorization(_module(), auth)
@@ -641,9 +644,14 @@ def campaign_runs(floor=None):
     return sorted(runs, key=lambda r: (r["created_at"], r["id"]))
 
 
-def receipt_for_run(run, auth_hash, expected_master, limits=None):
+def receipt_for_run(run, auth_hash, expected_master, limits=None, *, allocation_profile=None):
     caps = LIMITS if limits is None else limits
-    require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
+    if allocation_profile is None:
+        require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
+    else:
+        from tools import alpaca_sip_private_backfill_v1 as cap
+        require(allocation_profile == cap.NEW3_PROFILE and caps == cap.NEW3_CAPS
+                and all(type(caps[k]) is int for k in cap.NEW3_CAPS), "CAMPAIGN_LIMITS")
     require(run.get("status") == "completed" and run.get("run_attempt") == 1
             and run.get("head_sha") == expected_master and run.get("head_branch") == "master",
             "CAMPAIGN_RUN_UNRESOLVED")
@@ -673,6 +681,12 @@ def receipt_for_run(run, auth_hash, expected_master, limits=None):
             and value.get("transfer_definition") == METRIC
             and value.get("source_admission") is False and value.get("pit_verified") is False
             and value.get("economic_authority") is False, "CAMPAIGN_RECEIPT_BINDING")
+    if allocation_profile is not None:
+        require(value.get("allocation_profile") == allocation_profile
+                and value.get("allocation_comment_id") == 6474160005
+                and value.get("allowance") == caps
+                and value.get("archival_time_policy_sha256") == cap.NEW3_ARCHIVAL_POLICY_SHA
+                and value.get("current_price_verified") is False, "CAMPAIGN_RECEIPT_BINDING")
     require(set(value.get("usage", {})) == set(LIMITS)
             and set(value.get("allowance", {})) == set(LIMITS), "CAMPAIGN_RECEIPT_COUNTERS")
     for name in LIMITS:
@@ -1362,10 +1376,10 @@ def verify_drive_reuse(reuse,identity):
     return _revision_module().verify_drive_reuse(_module(),reuse,identity)
 
 
-def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False):
+def verify_new_group(drive, folder, state, checkpoint, meter, *, reused_source=False, fixed_spy=False, new3=False):
     from tools import alpaca_sip_private_backfill_v1 as cap
     return cap._verify_campaign_group(_module(), drive, folder, state, checkpoint, meter,
-                                      reused_source=reused_source, fixed_spy=fixed_spy)
+                                      reused_source=reused_source, fixed_spy=fixed_spy, new3=new3)
 
 
 def worker_deadline(run_id, first, expiry=None):
@@ -1496,6 +1510,8 @@ def worker(args, control, journal):
     require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
+    if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "allocation_profile" in control["authorization"]:
+        return cap._new3_worker(_module(), args, control, journal)
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "fixed_profile" in control["authorization"]:
         return cap._fixed_spy_worker(_module(), args, control, journal)
     if isinstance(control,dict) and control.get("schema")=="a1-sp500-gap174-capture-v1":
@@ -1699,6 +1715,13 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     """One finite, serial Work process; never invoked by PR checks."""
     auth = bounded_json(auth_path)
     auth_hash = validate_authorization(auth)
+    if "allocation_profile" in auth:
+        from tools import alpaca_sip_private_backfill_v1 as cap
+        result = cap._new3_host(_module(), auth, state_dir, budget_state_dir,
+            forbidden=any(x is not None for x in (recovery_run, permission_reference, predispatch_recovery,
+                continuation_receipt, cohort_input, max_batches)))
+        print(json.dumps(result, sort_keys=True))
+        return result
     if "fixed_profile" in auth:
         require(recovery_run is None and predispatch_recovery is None
                 and continuation_receipt is None and cohort_input is None, "SPY665_CONTROL")

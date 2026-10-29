@@ -152,8 +152,8 @@ Use the same CLI below with the actual request hash and cutoff. Supported kinds
 are SEC_OWNERSHIP, SEC_13F, POST_DISCLOSURE, FUNDAMENTAL_EARNINGS,
 RELATIVE_STRENGTH, ESTIMATE_REVISION and FUSION_REVIEW. Kinds and CANDIDATE or
 RISK_WATCH polarity are caller assertions, not inferred favorable signals.
-The exact selected tickers must exist in the held CSV and map unambiguously
-through the existing supplied US/USD identity contract. No new ranking,
+By default the exact selected tickers must exist in the held CSV and map
+unambiguously through the existing supplied US/USD identity contract. No new ranking,
 threshold, CUSIP inference or automatic universe/Registry membership is added.
 
 The adapter hashes every complete source file and selected data row, records
@@ -171,6 +171,34 @@ old output without certifying it as current. There is no collector, persistent
 watch, recurring producer delivery, consumer ACK, dispatch or current pointer.
 Authenticated Form345 consumption and the blocked 13F admission path remain
 unchanged. A pending queue does not substitute for either.
+
+### Preserve candidates when financial or technical outputs are missing
+
+Set `"retain_missing_candidates": true` on the same file request when its
+explicit ticker list is the tracked research roster, including names without
+financial, price or technical outputs. The roster must come from the existing
+tracked universe and discovery evidence, rather than only the rows that earned
+a score. Select the complete intended roster on every such request; this is
+not a persistent store or an automatic merge with an earlier output.
+
+With this option, an absent CSV row stays in the existing queue as DATA_PENDING
+with REQUESTED_CANDIDATE_DATA_PENDING / MISSING_PRODUCER_ROW evidence. The exact
+request hash binds the user's requested scope. An empty selected-row list
+records the absence; it never fabricates a producer event or metric. The
+producer binding distinguishes requested tickers from observed selected rows
+and names every missing ticker. A valid header-only CSV can retain a roster
+when no observations were produced. Missing files, hash/CSV failures and
+unknown or ambiguous identities still refuse the invocation; the create-only
+output path does not replace an earlier result on failure.
+
+Blank financial/price/RS cells, a negative profit/FCF, or no producer row do not
+remove a candidate. Existing quality and emerging research lanes remain
+separate. Missing inputs remain unknown, not zero or an optimistic runway;
+the next action remains LOOKUP_EXISTING_INPUTS_BEFORE_COLLECTION. Candidate
+retention grants no current price, accepted Source/PIT, completed A3, ER, A5,
+collection dispatch, order or portfolio authority. Keep any rejected company
+assessment and identity/lifecycle findings separately evidenced; this option
+does not authenticate or overturn them.
 
 CSV input is capped at16MiB/file,10000 data rows and2048 distinct columns to
 accommodate the incumbent7.48MB scored table. JSON retains4MiB/object; total

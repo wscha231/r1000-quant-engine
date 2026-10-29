@@ -675,4 +675,119 @@ class IntakeTests(unittest.TestCase):
             with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_BYTE_BUDGET'):
                 self.file_intake_prepare(root,caller,request)
 
+    def retention_fixture(self, root, raw=b'ticker,price,technical,fundamentals\nS0,,,\n'):
+        caller,request=self.candidate_queue_fixture(root)
+        id_raw=identities(2); (root/'identities.json').write_bytes(id_raw)
+        request['identities']['sha256']=h.digest(id_raw)
+        (root/'native.csv').write_bytes(raw)
+        request['sources'][0].update(file=dict(path='native.csv',sha256=h.digest(raw)),
+                                    tickers=['S0','S1'])
+        request['retain_missing_candidates']=True
+        return caller,request
+
+    def test_retention_keeps_exact_requested_security_without_a_producer_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root)
+            result=self.file_intake_prepare(root,caller,request)
+            items=result['queue']['items']
+            self.assertEqual([i['ticker'] for i in items],['S0','S1'])
+            self.assertTrue(all(i['state']=='DATA_PENDING' for i in items))
+            missing=items[1]['membership_reasons'][0]
+            self.assertEqual(missing['source_quality'],'MISSING_PRODUCER_ROW')
+            self.assertEqual(missing['reason_type'],'REQUESTED_CANDIDATE_DATA_PENDING')
+            self.assertTrue(missing['source_event_id'].startswith('CANDIDATE_DATA_PENDING:'))
+            binding=result['producer_bindings'][0]
+            self.assertEqual((binding['total_rows'],binding['selected_rows'],binding['selected_tickers']), (1,1,1))
+            self.assertEqual(binding['requested_tickers'],2)
+            self.assertEqual(binding['missing_selected_tickers'],['S1'])
+            self.assertEqual(binding['bindings'][1]['rows'],[])
+            self.assertFalse(result['candidate_retention']['absence_is_rejection'])
+            self.assertFalse(result['candidate_retention']['missing_values_imputed'])
+            self.assertEqual(result['queue']['direct_score_contribution'],0)
+            self.assertTrue(all(not any(i['authority'].values()) for i in items))
+            self.assertFalse(result['proposal']['reuse_authorized'])
+            self.assertIsNone(binding['source_publication_at'])
+            self.assertFalse(result['recurring_pipeline_connected'])
+
+    def test_retention_accepts_header_only_without_inventing_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root,b'ticker\n')
+            result=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(len(result['queue']['items']),2)
+            binding=result['producer_bindings'][0]
+            self.assertEqual((binding['total_rows'],binding['selected_rows'],binding['selected_tickers']),(0,0,0))
+            self.assertEqual(binding['missing_selected_tickers'],['S0','S1'])
+            self.assertTrue(all(not r['rows'] for r in binding['bindings']))
+            self.assertTrue(all(i['next_action']=='LOOKUP_EXISTING_INPUTS_BEFORE_COLLECTION' for i in result['queue']['items']))
+            self.assertFalse(result['candidate_retention']['collection_dispatched'])
+
+    def test_retention_does_not_filter_negative_or_blank_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);raw=b'ticker,net_income,FCF,price,RS\nS0,-999,-999,,\nS1,,,,\n'
+            caller,request=self.retention_fixture(root,raw)
+            result=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(len(result['queue']['items']),2)
+            self.assertEqual(result['producer_bindings'][0]['missing_selected_tickers'],[])
+            self.assertTrue(all(i['membership_reasons'][0]['source_quality']=='UNVERIFIED_PRODUCER_OUTPUT' for i in result['queue']['items']))
+            self.assertEqual((root/'native.csv').read_bytes(),raw)
+            self.assertNotIn('net_income',str(result['queue']))
+
+    def test_retention_is_explicit_strict_and_backwards_compatible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root)
+            for policy in (None,0,1,'true',[],{}):
+                changed=copy.deepcopy(request);changed['retain_missing_candidates']=policy
+                with self.subTest(policy=policy),self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_RETENTION_POLICY'):
+                    self.file_intake_prepare(root,caller,changed)
+            for policy in (False,'omit'):
+                changed=copy.deepcopy(request)
+                if policy=='omit':del changed['retain_missing_candidates']
+                else:changed['retain_missing_candidates']=False
+                with self.subTest(policy=policy),self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_SELECTED_TICKER_MISSING'):
+                    self.file_intake_prepare(root,caller,changed)
+
+    def test_retention_never_invents_or_merges_ambiguous_security_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root)
+            changed=copy.deepcopy(request);changed['sources'][0]['tickers']=['UNKNOWN']
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_EXACT_SECURITY_MAPPING'):
+                self.file_intake_prepare(root,caller,changed)
+            ids=json.loads(identities(2));ids['rows'][0]['tickers'].append('S1')
+            raw=h.canonical(ids);(root/'identities.json').write_bytes(raw);request['identities']['sha256']=h.digest(raw)
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_EXACT_SECURITY_MAPPING'):
+                self.file_intake_prepare(root,caller,request)
+
+    def test_retention_preserves_alias_and_cross_producer_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root)
+            request['sources'][0]['tickers']=['S0','OLD0','S1']
+            second=copy.deepcopy(request['sources'][0]);second['kind']='FUNDAMENTAL_EARNINGS'
+            request['sources'].append(second)
+            result=self.file_intake_prepare(root,caller,request)
+            self.assertEqual(len(result['queue']['items']),2)
+            first=result['queue']['items'][0]
+            self.assertEqual(len(first['membership_reasons']),4)
+            self.assertEqual({r['ticker'] for r in first['membership_reasons']},{'S0','OLD0'})
+            self.assertEqual({r['source_quality'] for r in first['membership_reasons']},{'UNVERIFIED_PRODUCER_OUTPUT','MISSING_PRODUCER_ROW'})
+            self.assertEqual(len([r for r in result['read_set'] if r['role']=='candidate_csv']),1)
+
+    def test_retention_keeps_hash_clock_csv_and_scope_guards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);caller,request=self.retention_fixture(root)
+            changed=copy.deepcopy(request);changed['sources'][0]['observed_at']='2099-01-01T00:00:00Z'
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_OBSERVATION_CLOCK'):
+                self.file_intake_prepare(root,caller,changed)
+            changed=copy.deepcopy(request);changed['sources'][0]['tickers']=['S0']*1001
+            with self.assertRaisesRegex(caller.intake.IntakeError,'ENTRY_BUDGET|CANDIDATE_SELECTION_COUNT'):
+                self.file_intake_prepare(root,caller,changed)
+            changed=copy.deepcopy(request);changed['auto_collect']=True
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_REQUEST_FIELDS'):
+                self.file_intake_prepare(root,caller,changed)
+            (root/'native.csv').write_bytes(b'ticker,missing\nS0\n')
+            with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_HASH_MISMATCH'):
+                self.file_intake_prepare(root,caller,request)
+            request['sources'][0]['file']['sha256']=h.digest((root/'native.csv').read_bytes())
+            with self.assertRaisesRegex(caller.intake.IntakeError,'CANDIDATE_CSV_ROWS'):
+                self.file_intake_prepare(root,caller,request)
+
 if __name__=='__main__': unittest.main()

@@ -10,6 +10,8 @@ SEC companyfacts or revised macro histories as historical point-in-time truth.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import itertools
 from concurrent.futures import ThreadPoolExecutor
 import copy
 from datetime import date, datetime, timedelta, timezone
@@ -36,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
     fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
 from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes
+from tools.twelve_private_capture import Refused
 
 SCHEMA = 'long-history-catalog-v1'
 PREFIX = 'long-history-v1'
@@ -59,6 +62,72 @@ LEGACY_SEC_MAPPING_PRODUCERS = frozenset({
 })
 _LOCK = threading.Lock()
 _LAST = 0.0
+
+
+
+_PHASE_STAGES = frozenset({
+    'COMMIT_INVENTORY', 'REMOTE_HASH_READ', 'PACK_DEPENDENCIES',
+    'PUBLICATION_PRECHECK', 'NEW_PACK_WRITE_READBACK', 'CATALOG_WRITE_READBACK',
+    'PUBLICATION_RECHECK', 'COMMIT_WRITE', 'POST_COMMIT_RESTORE',
+    'INITIAL_RESTORE', 'MACRO_COLLECTION', 'FINANCIAL_COLLECTION', 'QUALITY_LOCAL',
+    'PUBLICATION', 'CLEAN_CONSUMER_RESTORE', 'SQL_MATERIALIZATION', 'STUDY',
+    'LOCAL_STUDY_REPORTS', 'REPORT_PUBLICATION', 'EXECUTION_RECEIPT_WRITE',
+    'LOCAL_PUBLICATION_WRITE',
+})
+_PHASE_COUNTS = frozenset({'commits', 'packs', 'objects', 'index', 'total',
+                           'application_bytes', 'datasets', 'rows', 'reports'})
+_PHASE_IDS = itertools.count(1)
+
+
+_PHASE_LOG_ERRORS = frozenset({
+    ValueError, TypeError, OverflowError, RuntimeError, OSError, BrokenPipeError,
+    BlockingIOError, PermissionError, FileNotFoundError, FileExistsError,
+    IsADirectoryError, NotADirectoryError, UnicodeError, UnicodeEncodeError,
+    UnicodeDecodeError, UnicodeTranslateError,
+})
+
+
+@contextmanager
+def _history_phase(stage, *, commit_sha256=None, catalog_sha256=None, **counts):
+    """Best-effort progress; never alter operation acceptance or cancellation."""
+    phase_id, started, disabled = None, None, False
+
+    def emit(state):
+        nonlocal phase_id, started, disabled
+        if disabled:
+            return False
+        try:
+            require(stage in _PHASE_STAGES, 'history_phase_stage')
+            require(set(counts) <= _PHASE_COUNTS and all(type(v) is int and 0 <= v < 2**63
+                    for v in counts.values()), 'history_phase_counts')
+            hashes = {}
+            for name, value in (('commit_sha256', commit_sha256), ('catalog_sha256', catalog_sha256)):
+                if value is not None:
+                    require(isinstance(value, str) and re.fullmatch('[a-f0-9]{64}', value),
+                            'history_phase_hash')
+                    hashes[name] = value
+            if phase_id is None:
+                phase_id, started = next(_PHASE_IDS), time.monotonic_ns()
+            elapsed = 0 if state == 'BEGIN' else max(0, (time.monotonic_ns()-started)//1000000)
+            print('LONG_HISTORY_PHASE '+json.dumps(dict(stage=stage, state=state,
+                phase_id=phase_id, elapsed_ms=elapsed, **hashes, **counts), sort_keys=True), flush=True)
+        except Exception as exc:
+            # Exact ordinary logger errors only. Preserve cancellation subclasses,
+            # TimeoutError/InterruptedError and the existing Refused deadline.
+            if type(exc) not in _PHASE_LOG_ERRORS:
+                raise
+            disabled = True
+            return False
+        return True
+
+    emit('BEGIN')
+    try:
+        yield counts
+    except BaseException:
+        emit('ERROR')
+        raise
+    else:
+        emit('END')
 
 
 class SourceHTTPError(ValueError):
@@ -449,12 +518,16 @@ class Lake:
 
     def read_hash(self, folder, sha):
         require(re.fullmatch(r'[a-f0-9]{64}',sha),'hash_identity')
-        raw=self.transport.read(f'{PREFIX}/{folder}/{sha}')
-        require(digest(raw)==sha,'remote_hash')
+        with _history_phase('REMOTE_HASH_READ') as phase_counts:
+            raw=self.transport.read(f'{PREFIX}/{folder}/{sha}')
+            require(digest(raw)==sha,'remote_hash')
+            phase_counts['application_bytes']=len(raw)
         return raw
 
     def restore_catalog(self):
-        names=self.transport.names(f'{PREFIX}/commits')
+        with _history_phase('COMMIT_INVENTORY') as phase_counts:
+            names=self.transport.names(f'{PREFIX}/commits')
+            phase_counts['commits']=len(names)
         require(len(names)==len(set(names)) and len(names)<=20000,'commit_inventory')
         entries={n:json.loads(self.read_hash('commits',n)) for n in names}
         parent=None; generation=0; last=None
@@ -490,17 +563,18 @@ class Lake:
         recovery. Recheck remote bytes at publication boundaries as well, since
         a pack can disappear after this Lake was constructed.
         """
-        for pack_id,objects in sorted(dependencies.items()):
-            raw=self.read_hash('packs',pack_id)
-            require(len(raw)<20*1024*1024,'pack_size')
-            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                names=archive.namelist()
-                require(len(names)==len(set(names)),'pack_inventory')
-                require(objects.issubset(set(names)),'pack_dependency')
-                for obj in sorted(objects):
-                    info=archive.getinfo(obj)
-                    require(0<info.file_size<=MAX_OBJECT,'pack_member_size')
-                    require(digest(archive.read(info))==obj,'pack_object_hash')
+        with _history_phase('PACK_DEPENDENCIES', packs=len(dependencies), objects=sum(map(len, dependencies.values()))):
+            for pack_id,objects in sorted(dependencies.items()):
+                raw=self.read_hash('packs',pack_id)
+                require(len(raw)<20*1024*1024,'pack_size')
+                with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                    names=archive.namelist()
+                    require(len(names)==len(set(names)),'pack_inventory')
+                    require(objects.issubset(set(names)),'pack_dependency')
+                    for obj in sorted(objects):
+                        info=archive.getinfo(obj)
+                        require(0<info.file_size<=MAX_OBJECT,'pack_member_size')
+                        require(digest(archive.read(info))==obj,'pack_object_hash')
 
     def object(self, raw):
         require(0<len(raw)<=MAX_OBJECT,'object_size')
@@ -600,7 +674,8 @@ class Lake:
 
     def publish(self,run_id,config):
         require(re.fullmatch('[A-Za-z0-9_-]{1,100}',run_id),'run_id')
-        require(self.restore_catalog()[0]==self.parent,'stale_writer')
+        with _history_phase('PUBLICATION_PRECHECK'):
+            require(self.restore_catalog()[0]==self.parent,'stale_writer')
         groups=[]; current=[]; size=0
         for sha,path in sorted(self.pending.items()):
             n=path.stat().st_size
@@ -618,13 +693,14 @@ class Lake:
             raw=output.getvalue()
             require(len(raw)<20*1024*1024,'pack_size')
             pack_sha=digest(raw)
-            self.transport.write(f'{PREFIX}/packs/{pack_sha}',raw)
-            restored=self.read_hash('packs',pack_sha)
-            with zipfile.ZipFile(io.BytesIO(restored)) as z:
-                require(set(z.namelist())=={sha for sha,_ in group},'pack_inventory')
-                for sha,_ in group:
-                    require(digest(z.read(sha))==sha,'pack_object_hash')
-                    self.catalog['locations'][sha]=pack_sha
+            with _history_phase('NEW_PACK_WRITE_READBACK', index=i+1, total=len(groups)):
+                self.transport.write(f'{PREFIX}/packs/{pack_sha}',raw)
+                restored=self.read_hash('packs',pack_sha)
+                with zipfile.ZipFile(io.BytesIO(restored)) as z:
+                    require(set(z.namelist())=={sha for sha,_ in group},'pack_inventory')
+                    for sha,_ in group:
+                        require(digest(z.read(sha))==sha,'pack_object_hash')
+                        self.catalog['locations'][sha]=pack_sha
             verified_bytes+=len(raw)
             print(json.dumps(dict(phase='PACK_VERIFIED',pack=i+1,total=len(groups))),flush=True)
         self.catalog.update(generation=self.catalog['generation']+1,run_id=run_id,created_at=utc_now(),
@@ -632,14 +708,18 @@ class Lake:
             eligible_for_selector=False,fullrun_executed=False)
         raw=encoded(self.catalog); catalog_sha=digest(raw)
         require(len(raw)<=MAX_OBJECT,'catalog_size')
-        self.transport.write(f'{PREFIX}/catalogs/{catalog_sha}',raw)
-        require(self.read_hash('catalogs',catalog_sha)==raw,'catalog_roundtrip')
-        require(self.restore_catalog()[0]==self.parent,'stale_writer')
+        with _history_phase('CATALOG_WRITE_READBACK', catalog_sha256=catalog_sha, application_bytes=len(raw)):
+            self.transport.write(f'{PREFIX}/catalogs/{catalog_sha}',raw)
+            require(self.read_hash('catalogs',catalog_sha)==raw,'catalog_roundtrip')
+        with _history_phase('PUBLICATION_RECHECK', catalog_sha256=catalog_sha):
+            require(self.restore_catalog()[0]==self.parent,'stale_writer')
         commit=dict(schema='long-history-commit-v1',parent=self.parent,catalog=catalog_sha,
             generation=self.catalog['generation'],run_id=run_id,created_at=utc_now())
         commit_raw=encoded(commit); commit_sha=digest(commit_raw)
-        self.transport.write(f'{PREFIX}/commits/{commit_sha}',commit_raw)
-        require(self.restore_catalog()[0]==commit_sha,'publication_conflict')
+        with _history_phase('COMMIT_WRITE', commit_sha256=commit_sha, catalog_sha256=catalog_sha, application_bytes=len(commit_raw)):
+            self.transport.write(f'{PREFIX}/commits/{commit_sha}',commit_raw)
+        with _history_phase('POST_COMMIT_RESTORE', commit_sha256=commit_sha, catalog_sha256=catalog_sha):
+            require(self.restore_catalog()[0]==commit_sha,'publication_conflict')
         return dict(commit_sha256=commit_sha,catalog_sha256=catalog_sha,
             new_packs=len(groups),verified_new_bytes=verified_bytes,
             remote_verified=self.transport.remote_verified,eligible_for_selector=False)
@@ -904,46 +984,63 @@ def main():
     # verified source bundle. Network destination is the configured research lane.
     transport=RcloneTransport(args.remote)
     transport.call('mkdir',transport.path(f'{PREFIX}/commits'))
-    lake=Lake(transport,args.workspace)
+    with _history_phase('INITIAL_RESTORE'):
+        lake=Lake(transport,args.workspace)
     through=date.today().isoformat()
     config=dict(macro_start=args.macro_start,financial_start=args.financial_start,through=through,
         cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),countries=list(COUNTRIES),
         worldbank_indicators=list(WB_INDICATORS),registry_sha256=digest(encoded(registry())))
-    collect_macros(lake,args.macro_start,through)
-    collect_financials(lake,args.cohort,args.financial_start,through)
-    report=diagnostics(lake)
-    (reports/'quality.json').write_bytes(encoded(report))
-    result=lake.publish(args.run_id,config)
+    with _history_phase('MACRO_COLLECTION'):
+        collect_macros(lake,args.macro_start,through)
+    with _history_phase('FINANCIAL_COLLECTION'):
+        collect_financials(lake,args.cohort,args.financial_start,through)
+    with _history_phase('QUALITY_LOCAL'):
+        report=diagnostics(lake)
+        (reports/'quality.json').write_bytes(encoded(report))
+    with _history_phase('PUBLICATION'):
+        result=lake.publish(args.run_id,config)
     # Exercise the consumer with every macro dataset that passed. Full financial
     # SQL materialization is available on demand. Restore separately verifies
     # all retained pack dependencies, including financial and historical data.
     keys=[k for k,d in lake.catalog['datasets'].items() if k.startswith(('current/','alfred/','worldbank/')) and d['status'] in ('COLLECTED','UNCHANGED')]
-    consumer=Lake(transport,Path(args.workspace)/'clean-consumer')
-    consumer_rows=materialize(consumer,Path(args.workspace)/'macro.sqlite',keys,through)
+    with _history_phase('CLEAN_CONSUMER_RESTORE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256']):
+        consumer=Lake(transport,Path(args.workspace)/'clean-consumer')
+    with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
+        consumer_rows=materialize(consumer,Path(args.workspace)/'macro.sqlite',keys,through)
+        phase_counts['rows']=consumer_rows
     try:
-        study_result,context=analyze_restored(consumer,Path(args.workspace)/'study',args.macro_start,through)
+        with _history_phase('STUDY'):
+            study_result,context=analyze_restored(consumer,Path(args.workspace)/'study',args.macro_start,through)
         context['catalog_sha256']=result['catalog_sha256']
-        (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
-        (reports/'engine-context.json').write_bytes(encoded(context))
+        with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
+            (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
+            (reports/'engine-context.json').write_bytes(encoded(context))
         result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+    except (Refused,TimeoutError,InterruptedError):
+        # Cancellation is not a partial study result and must not publish a receipt.
+        raise
     except (ValueError,KeyError,TypeError,OSError) as exc:
         result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
     result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
     durable_reports={}
-    for path in sorted(reports.glob('*.json')):
-        raw=path.read_bytes(); sha=digest(raw)
-        require(len(raw)<=MAX_OBJECT,'report_size')
-        transport.write(f'{PREFIX}/reports/{sha}',raw)
-        durable_reports[path.name]=sha
+    with _history_phase('REPORT_PUBLICATION') as phase_counts:
+        for path in sorted(reports.glob('*.json')):
+            raw=path.read_bytes(); sha=digest(raw)
+            require(len(raw)<=MAX_OBJECT,'report_size')
+            transport.write(f'{PREFIX}/reports/{sha}',raw)
+            durable_reports[path.name]=sha
+        phase_counts['reports']=len(durable_reports)
     receipt=dict(schema='long-history-execution-v1',run_id=args.run_id,created_at=utc_now(),
         catalog_sha256=result['catalog_sha256'],commit_sha256=result['commit_sha256'],
         reports=durable_reports,consumer_rows=consumer_rows,
         study_recomputed_from_drive=result['study_recomputed_from_drive'],
         quality_status=report['status'],eligible_for_selector=False)
     raw=encoded(receipt); receipt_sha=digest(raw)
-    transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
+    with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
+        transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
     result['execution_receipt_sha256']=receipt_sha
-    (reports/'publication.json').write_bytes(encoded(result))
+    with _history_phase('LOCAL_PUBLICATION_WRITE'):
+        (reports/'publication.json').write_bytes(encoded(result))
     print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
     if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
     return 0

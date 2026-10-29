@@ -87,12 +87,18 @@ jobs:
             /tools/twelve_private_capture.py
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
+            /tools/run_daily_market_session_gate.py
             /tests/alpaca_sip_private_backfill_v1_smoke.py
             /tests/api_credentials_check_smoke.py
             /.github/workflows/alpaca_sip_private_backfill_v1.yml
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The registered regression includes R2 calendar cases for every invocation.
+      # Install only its two existing declared dependencies; no shared venv changes.
+      - name: Install existing NYSE calendar dependencies for validation
+        timeout-minutes: 2
+        run: python -m pip install --disable-pip-version-check --no-input --quiet 'pandas==2.3.3' 'pandas_market_calendars==5.5.0'
       - name: Offline parser, request and privacy regression
         run: |
           python -m unittest discover -s tests -p alpaca_sip_private_backfill_v1_smoke.py -v
@@ -108,14 +114,15 @@ jobs:
     env:
       A1_PRIVATE_RESEARCH_AUTHORIZED: ${{ inputs.private_research_authorized }}
       ALPACA_NONCOMMERCIAL_ACKNOWLEDGED: ${{ inputs.noncommercial_terms_acknowledged }}
-      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.private_root_folder_id || '' }}
-      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.private_data_folder_id || '' }}
+      INPUT_PRIVATE_ROOT_FOLDER_ID: ${{ !((inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' || (contains(toJSON(fromJSON(inputs.campaign_control).authorization), '"allocation_profile"') || fromJSON(inputs.campaign_control).authorization.schema == 'a1-new3-one-capture-authorization-v1' || startsWith(fromJSON(inputs.campaign_control).authorization.task_key, 'R1000-A0-NEW3-') || fromJSON(inputs.campaign_control).authorization.allocation_reference == 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005' || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || fromJSON(inputs.campaign_control).nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5')))) || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5') && inputs.private_root_folder_id || '' }}
+      INPUT_PRIVATE_DATA_FOLDER_ID: ${{ !((inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' || (contains(toJSON(fromJSON(inputs.campaign_control).authorization), '"allocation_profile"') || fromJSON(inputs.campaign_control).authorization.schema == 'a1-new3-one-capture-authorization-v1' || startsWith(fromJSON(inputs.campaign_control).authorization.task_key, 'R1000-A0-NEW3-') || fromJSON(inputs.campaign_control).authorization.allocation_reference == 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005' || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || fromJSON(inputs.campaign_control).nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5')))) || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5') && inputs.private_data_folder_id || '' }}
       INPUT_END_DATE: ${{ inputs.end_date }}
       INPUT_MAX_NEW_SYMBOLS: ${{ inputs.max_new_symbols }}
-      INPUT_RESUME_FILE_ID: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.resume_file_id || '' }}
+      INPUT_RESUME_FILE_ID: ${{ !((inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' || (contains(toJSON(fromJSON(inputs.campaign_control).authorization), '"allocation_profile"') || fromJSON(inputs.campaign_control).authorization.schema == 'a1-new3-one-capture-authorization-v1' || startsWith(fromJSON(inputs.campaign_control).authorization.task_key, 'R1000-A0-NEW3-') || fromJSON(inputs.campaign_control).authorization.allocation_reference == 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005' || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || fromJSON(inputs.campaign_control).nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5')))) || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5') && inputs.resume_file_id || '' }}
       INPUT_RESUME_SHA256: ${{ inputs.resume_sha256 }}
-      INPUT_CAMPAIGN_CONTROL: ${{ !(inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1'))) && inputs.campaign_control || '' }}
+      INPUT_CAMPAIGN_CONTROL: ${{ !((inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3' || fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' || (contains(toJSON(fromJSON(inputs.campaign_control).authorization), '"allocation_profile"') || fromJSON(inputs.campaign_control).authorization.schema == 'a1-new3-one-capture-authorization-v1' || startsWith(fromJSON(inputs.campaign_control).authorization.task_key, 'R1000-A0-NEW3-') || fromJSON(inputs.campaign_control).authorization.allocation_reference == 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005' || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || fromJSON(inputs.campaign_control).nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5')))) || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5') && inputs.campaign_control || '' }}
       INPUT_CAMPAIGN_NONCE: ${{ inputs.campaign_nonce }}
+      INPUT_PRIVATE_NEW3_R2: ${{ (inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || (inputs.campaign_control && (contains(toJSON(fromJSON(inputs.campaign_control).authorization), '"allocation_profile"') || fromJSON(inputs.campaign_control).authorization.schema == 'a1-new3-one-capture-authorization-v1' || startsWith(fromJSON(inputs.campaign_control).authorization.task_key, 'R1000-A0-NEW3-') || fromJSON(inputs.campaign_control).authorization.allocation_reference == 'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6474160005' || inputs.campaign_nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5' || fromJSON(inputs.campaign_control).nonce == 'r1000-993-20261015-2bf95515202a2eca5a2100d5'))) && 'true' || 'false' }}
       INPUT_PRIVATE_PRICE174: ${{ inputs.campaign_control && fromJSON(inputs.campaign_control).schema == 'a1-sp500-gap174-capture-v1' && 'true' || 'false' }}
       INPUT_NATIVE_READ_ONLY: ${{ inputs.campaign_control && (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39085031884-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v1' || (fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v2' || fromJSON(inputs.campaign_control).schema == 'a1-native-drive-read-39235028468-v3'))) && 'true' || 'false' }}
     steps:
@@ -132,12 +139,18 @@ jobs:
             /tools/twelve_private_capture.py
             /tools/configure_macro_research_drive.py
             /tools/macro_history_sources.py
+            /tools/run_daily_market_session_gate.py
             /tests/alpaca_sip_private_backfill_v1_smoke.py
             /tests/api_credentials_check_smoke.py
             /.github/workflows/alpaca_sip_private_backfill_v1.yml
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The registered regression includes R2 calendar cases for every invocation.
+      # Install only its two existing declared dependencies; no shared venv changes.
+      - name: Install existing NYSE calendar dependencies for validation
+        timeout-minutes: 2
+        run: python -m pip install --disable-pip-version-check --no-input --quiet 'pandas==2.3.3' 'pandas_market_calendars==5.5.0'
       - name: Validate bounded collector before data capture
         run: python -m unittest discover -s tests -p alpaca_sip_private_backfill_v1_smoke.py -v
       - name: Prepare bounded control metadata before credentials
@@ -148,7 +161,10 @@ jobs:
           from tools.twelve_private_capture import decode, require
           from tools.alpaca_sip_campaign import atomic_json
           raw = os.environ['INPUT_CAMPAIGN_CONTROL'].encode()
-          if not raw and os.environ.get('INPUT_PRIVATE_PRICE174') == 'true':
+          if not raw and os.environ.get('INPUT_PRIVATE_NEW3_R2') == 'true':
+              from tools import alpaca_sip_campaign as controller, alpaca_sip_private_backfill_v1 as capture
+              value = capture._new3_event_control(controller)
+          elif not raw and os.environ.get('INPUT_PRIVATE_PRICE174') == 'true':
               from tools import alpaca_sip_campaign as controller
               value = controller._revision_module().price174_event_control(controller)
           elif not raw and os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
@@ -162,7 +178,12 @@ jobs:
               'a1-native-drive-read-39235028468-v2', 'a1-native-drive-read-39235028468-v3',
               'a1-sp500-gap174-capture-v1')),
               'CAMPAIGN_CONTROL_SCHEMA')
-          atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', value)
+          old_mask = os.umask(0o077) if os.environ.get('INPUT_PRIVATE_NEW3_R2') == 'true' else None
+          try:
+              atomic_json(Path(os.environ['RUNNER_TEMP']) / 'campaign_control.json', value)
+          finally:
+              if old_mask is not None:
+                  os.umask(old_mask)
           if os.environ['INPUT_NATIVE_READ_ONLY'] == 'true':
               from tools.alpaca_sip_campaign import native_read_route_control
               native_read_route_control(value)
