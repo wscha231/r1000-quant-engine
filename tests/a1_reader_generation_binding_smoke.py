@@ -5,6 +5,9 @@ No real Source/Drive/provider calls, publication or consumer ACK occur.
 """
 from dataclasses import FrozenInstanceError, replace
 from datetime import timedelta
+from functools import lru_cache
+import copy
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -27,6 +30,17 @@ OBSERVED = '2026-10-24T08:00:00Z'
 DECISION = '2026-10-24T09:00:00Z'
 
 
+def fixture_capture_group(*args, **kwargs):
+    """Fake provider/storage only: do not sleep for a real provider RPM quota."""
+    if not callable(kwargs.get('get')):
+        raise AssertionError('EXPLICIT_SYNTHETIC_PROVIDER_REQUIRED')
+    original = capture.request_pages
+    def pages(*a, **k):
+        return original(*a, **k, pause=lambda _: None)
+    with patch.object(capture, 'request_pages', side_effect=pages):
+        return capture.capture_one_group(*args, **kwargs)
+
+
 def fixture(*, split_volume_override=None, missing_open=False):
     drive = FakePrivateDrive()
     calls = []
@@ -46,7 +60,7 @@ def fixture(*, split_volume_override=None, missing_open=False):
         return encoded(dict(bars={'AAPL': rows}, next_page_token=None))
     # Every source call is injected fake bytes. The existing archival primitive
     # and verifier, not a new parallel parser/collector, generate the fixture.
-    refs, _, _, _ = capture.capture_one_group(
+    refs, _, _, _ = fixture_capture_group(
         drive, drive.folder, ['AAPL'], '2016-01-04', '2016-01-06',
         'fixture-key', 'fixture-secret', digest(b'CONTRACT_FIXTURE_SEED'),
         hashlib.sha1(b'CONTRACT_FIXTURE_SOURCE_CODE').hexdigest(), get=get)
@@ -214,16 +228,21 @@ def rewrite_ancestor(state, transform, *, relink=True):
 def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
                          view_start='2016-01-05', view_end='2016-01-06', selected_only=True,
                          capture_scope=None, capture_start='2016-01-04',
-                         price_offset=0, first_factor='2',asset_clock=OBSERVED):
+                         price_offset=0, first_factor='2',asset_clock=OBSERVED,
+                         clocks=None, volumes=None, provider_ids=None, run_id=987654321):
     """Local fake capture + injected synthetic trust, never actual original4 bytes."""
     sessions = list(sessions or ['2016-01-04', '2016-01-05', '2016-01-06'])
+    clocks = clocks or dict(observed=OBSERVED,created='2026-10-24T08:30:00Z',
+        expires='2026-10-25T09:00:00Z',decision=DECISION)
+    observed = clocks['observed']
     drive = FakePrivateDrive()
     def get(url, **kwargs):
         bars = {}
         for ticker in names:
             bars[ticker] = [dict(t=s + 'T05:00:00Z', o=10 + (i+price_offset) % 17,
                 h=12 + (i+price_offset) % 17, l=9 + (i+price_offset) % 17,
-                c=11 + (i+price_offset) % 17, v=100 + (i+price_offset) % 7)
+                c=11 + (i+price_offset) % 17,
+                v=(volumes or {}).get(s,100 + (i+price_offset) % 7))
                 for i, s in enumerate(sessions) if (ticker, s) != omit]
         return encoded(dict(bars=bars, next_page_token=None))
     source_sha = hashlib.sha1(b'CONTRACT_FIXTURE_SOURCE_CODE').hexdigest()
@@ -237,7 +256,7 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
                 exchange='NASDAQ',status='active'))
             assets.append(dict(symbol=name,url='https://paper-api.alpaca.markets/v2/assets/'+name,
                 collected_at_utc=asset_clock,http_status=200,response_utf8=body.decode(),sha256=digest(body)))
-    refs, _, _, _ = capture.capture_one_group(drive, drive.folder, list(names),
+    refs, _, _, _ = fixture_capture_group(drive, drive.folder, list(names),
         capture_start, end, 'fixture-key', 'fixture-secret',
         digest(b'CONTRACT_FIXTURE_SEED'), source_sha, get=get, scope=capture_scope,
         asset_evidence=assets)
@@ -258,27 +277,27 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
         start=receipt['start'], end=receipt['end'], last_status='VERIFIED_RAW_SPLIT',
         last_objects=[receipt['raw_object'], receipt['normalized_object'],
                       dict(file_id='synthetic_receipt', sha256=digest(rec), bytes=len(rec))]))
-    meter = add(dict(schema='a1-sip-campaign-meter-v1', run_id=987654321,
+    meter = add(dict(schema='a1-sip-campaign-meter-v1', run_id=run_id,
         run_attempt=1, source_sha=source_sha, bindings=dict(credential_binding=credential),
         status='COMPLETE', finalized=True, preflight_only=False,
         checkpoint_sha256=checkpoint['sha256']))
     identity_doc = add(b'SYNTHETIC_TEST_IDENTITY_DOCUMENT')
     ca_doc = add(b'SYNTHETIC_TEST_SPLIT_DOCUMENT')
     lifecycle_doc = add(b'SYNTHETIC_TEST_LIFECYCLE_DOCUMENT')
-    event = dict(kind='FIRST_OBSERVED_COMPLETE_READBACK', at=OBSERVED,
+    event = dict(kind='FIRST_OBSERVED_COMPLETE_READBACK', at=observed,
         objects=dict(raw_sha256=digest(raw), normalized_sha256=digest(norm),
                      capture_receipt_sha256=digest(rec)))
     event['evidence_ref'] = add(encoded(event))
     evidence = dict(schema='a1-reader-real-evidence-v1', fixture_only=False,
         owner_rights=rights, original_execution=meter, original_checkpoint=checkpoint,
-        original_run_id='987654321', derivation_run_id='synthetic-test-derivation',
+        original_run_id=str(run_id), derivation_run_id='synthetic-test-derivation',
         derivation_code_sha=hashlib.sha1(b'CONTRACT_FIXTURE_DERIVATION_CODE').hexdigest(),
         identity_evidence=identity_doc, corporate_actions=ca_doc, lifecycle=lifecycle_doc,
         identity_status='VERIFIED', corporate_action_status='VERIFIED', lifecycle_status='VERIFIED',
         rights_capture_scope=dict(capture_receipt_sha256=digest(rec), start=receipt['start'],
-            end_exclusive=receipt['end'], credential_binding=credential, original_run_id=987654321),
-        first_observed_readback=event, created_at='2026-10-24T08:30:00Z',
-        research_fresh_until='2026-10-25T09:00:00Z', original_public_available_at=None,
+            end_exclusive=receipt['end'], credential_binding=credential, original_run_id=run_id),
+        first_observed_readback=event, created_at=clocks['created'],
+        research_fresh_until=clocks['expires'], original_public_available_at=None,
         original_provider_collected_at=None, identity={}, split_factors={},
         private_view=dict(start=view_start, end=view_end, selection_reason='SOURCE_EXACT_COMPATIBILITY'),
         technical_metadata={})
@@ -293,9 +312,9 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
             for s in sessions if (ticker, s) != omit
             and (not selected_only or view_start <= s <= view_end)}
         common = dict(provider=capture.SOURCE, capture_receipt_sha256=digest(rec),
-            available_from=OBSERVED, collected_at=OBSERVED, expires_at='2026-10-25T09:00:00Z')
+            available_from=observed, collected_at=observed, expires_at=clocks['expires'])
         typed = dict(ident, **common, schema='ohlcv-security-identity-evidence-v1',
-            provider_security_id='synthetic-test-asset-' + str(index + 1),
+            provider_security_id=(provider_ids or {}).get(ticker,'synthetic-test-asset-' + str(index + 1)),
             asset_class='EQUITY', source_documents=[identity_doc])
         status = dict(common, schema='a1-ohlcv-status-volume-evidence-v1',
             instrument_id=ident['instrument_id'], ticker=ticker,
@@ -310,7 +329,7 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
     trusted = binding.TrustedSourceBinding(
         review_reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1',
         review_receipt_sha256=review['sha256'], evidence_sha256=digest(encoded(evidence)),
-        proof_sha256=tuple(sorted(objects)), original_run_id=987654321, original_run_attempt=1,
+        proof_sha256=tuple(sorted(objects)), original_run_id=run_id, original_run_attempt=1,
         original_source_sha=source_sha, credential_binding=credential,
         derivation_run_id=evidence['derivation_run_id'], derivation_code_sha=evidence['derivation_code_sha'],
         adapter_file_sha256=digest(Path(binding.__file__).read_bytes()))
@@ -319,16 +338,20 @@ def private_view_fixture(*, names=('AAPL',), sessions=None, omit=None,
 
 def provider_close_fixture(*, names=('AAPL',), known=None, sessions=None,
                            view_start=None, price_offset=0, first_factor='2',
-                           capture_start='2016-01-04'):
+                           capture_start='2016-01-04',clocks=None,volumes=None,
+                           provider_ids=None,run_id=987654321,capture_scope=None,asset_clock=OBSERVED):
     """Small, externally injected SYNTHETIC qualification; no real admission."""
     sessions = sessions or ['2016-01-04', '2016-01-05', '2016-01-06', '2016-01-07',
                            '2016-01-08', '2016-01-11', '2016-01-12']
     view_start = view_start or sessions[1]
     state = list(private_view_fixture(names=names, sessions=sessions,
         view_start=view_start, view_end=sessions[-1],price_offset=price_offset,
-        first_factor=first_factor,capture_start=capture_start))
+        first_factor=first_factor,capture_start=capture_start,clocks=clocks,volumes=volumes,
+        provider_ids=provider_ids,run_id=run_id,capture_scope=capture_scope,asset_clock=asset_clock))
     raw, norm, rec, e, trust, objects = state
-    baseline = binding.prepare(raw, norm, rec, encoded(e), decision_time=DECISION,
+    decision = clocks['decision'] if clocks else DECISION
+    observed = e['first_observed_readback']['at']
+    baseline = binding.prepare(raw, norm, rec, encoded(e), decision_time=decision,
         trusted_source=trust, proof_objects=tuple(sorted(objects.items())))
     if baseline.status != 'REAL_SOURCE_PREPARED_UNADMITTED':
         raise RuntimeError('SYNTHETIC_QUALIFICATION_BASELINE_FAILED')
@@ -347,8 +370,8 @@ def provider_close_fixture(*, names=('AAPL',), known=None, sessions=None,
                               capture_receipt_sha256=digest(rec)),
         window=dict(start=view_start, end=sessions[-1],
                     sessions_sha256=digest(encoded([s for s in sessions if s >= view_start]))),
-        observed_at=OBSERVED, available_from=OBSERVED, collected_at=OBSERVED,
-        created_at=e['created_at'], review_decision_at=DECISION,
+        observed_at=observed, available_from=observed, collected_at=observed,
+        created_at=e['created_at'], review_decision_at=decision,
         expires_at=e['research_fresh_until'], original_public_available_at=None,
         original_provider_collected_at=None, physical_halt_coverage='UNKNOWN',
         instruments={}, source_documents=[policy])
@@ -396,22 +419,28 @@ def rewrite_provider_qualification(state, transform):
 def composition_fixture(*, tail_offset=6, tail_start='2016-01-12',old_input=None,
                         tail_days=None,rights_expiry=None,observed='2026-10-26T01:00:00Z',
                         created='2026-10-26T01:30:00Z',decision='2026-10-26T02:00:00Z',
-                        old_known=None):
+                        old_known=None,states=None,decisions=None,revision_factory=None,
+                        fresh_until='2026-10-27T02:00:00Z'):
     """Synthetic two-parent review only; no actual rights or current data."""
-    old = provider_close_fixture(known=old_known)
     tail_days = tail_days or [tail_start,'2016-01-13','2016-01-14','2016-01-15']
-    tail = provider_close_fixture(sessions=tail_days,view_start=tail_start,
-        capture_start=tail_start,price_offset=tail_offset,first_factor='1')
-    states = (old,tail)
-    parents = tuple(binding.prepare(*s[:3],encoded(s[3]),decision_time=DECISION,
-        trusted_source=s[4],proof_objects=tuple(sorted(s[5].items()))).bases for s in states)
+    if states is None:
+        states = (provider_close_fixture(known=old_known),
+            provider_close_fixture(sessions=tail_days,view_start=tail_start,
+                capture_start=tail_start,price_offset=tail_offset,first_factor='1'))
+    old,tail=states
+    decisions=decisions or (DECISION,DECISION)
+    parents = tuple(binding.prepare(*s[:3],encoded(s[3]),decision_time=dt,
+        trusted_source=s[4],proof_objects=tuple(sorted(s[5].items()))).bases for s,dt in zip(states,decisions))
     if any(len(p) != 2 for p in parents):
         raise RuntimeError('SYNTHETIC_PARENT_FAILED')
     bindings=tuple(s[4] for s in states)
-    parent_decisions=(DECISION,DECISION)
+    parent_decisions=decisions
     if old_input is not None:
         parents=(old_input[0],parents[1]);bindings=(old_input[1],bindings[1])
         parent_decisions=(old_input[2],DECISION)
+    revision,extra = None,{}
+    if revision_factory is not None:
+        parents,revision,extra = revision_factory(parents,states,decisions)
     pairs = tuple(tuple(b.generation_id for b in p) for p in parents)
     trust = binding.TrustedCompositionBinding(
         review_reference=old[4].review_reference,review_receipt_sha256='0'*64,
@@ -419,11 +448,15 @@ def composition_fixture(*, tail_offset=6, tail_start='2016-01-12',old_input=None
         derivation_run_id='synthetic-two-parent-research',derivation_code_sha='e'*40,
         adapter_file_sha256=digest(Path(binding.__file__).read_bytes()),
         parent_generation_pairs=pairs,parent_decisions=parent_decisions,
-        parent_bindings=bindings)
+        parent_bindings=bindings,observed_revision_sha256=digest(encoded(revision)) if revision else None)
     # A negative anchor fixture needs no candidate review: the same actual
     # read/anchor predicate must refuse before a new qualification is issued.
-    data = binding._composition_material(parents,trust,'US.TEST.AAPL')
-    objects = {}
+    ticker = next(iter(old[3]['identity']));iid = old[3]['identity'][ticker]['instrument_id']
+    data = binding._composition_material(parents,trust,iid,
+        revision_bytes=encoded(revision) if revision else None,
+        revision_context='synthetic-two-parent-context',decision=access.clock(decision),
+        proof=lambda r,limit=65536:extra[r['sha256']])
+    objects = dict(extra)
     def add(value):
         raw = value if type(value) is bytes else encoded(value)
         objects[digest(raw)] = raw
@@ -435,17 +468,18 @@ def composition_fixture(*, tail_offset=6, tail_start='2016-01-12',old_input=None
         historical_sip_allowed=True,private_retention_allowed=True,
         source_documents=[doc],supplier_expiry=rights_expiry))
     clocks = dict(available_from=observed,collected_at=observed,
-                  expires_at='2026-10-27T02:00:00Z')
+                  expires_at=fresh_until)
     common = dict(composition_context_id='synthetic-two-parent-context',
         parent_generation_pairs=[list(p) for p in pairs],**clocks)
     ident = {k:data['identity'][k] for k in ('instrument_id','provider_security_id','ticker',
              'asset_class','market','mic','calendar','timezone','currency')}
+    start=data['rows']['RAW'][0]['session_date']
     identity = add(dict(ident,**common,schema='ohlcv-security-identity-evidence-v1',
-        provider=capture.SOURCE,valid_from='2016-01-05',valid_through=tail_days[-1],
+        provider=capture.SOURCE,valid_from=start,valid_through=tail_days[-1],
         source_documents=[doc]))
     status = add(dict(common,schema='a1-ohlcv-status-volume-evidence-v1',provider=capture.SOURCE,
         instrument_id=ident['instrument_id'],provider_security_id=ident['provider_security_id'],
-        ticker='AAPL',valid_from='2016-01-05',valid_through=tail_days[-1],halt_coverage='UNKNOWN',
+        ticker=ticker,valid_from=start,valid_through=tail_days[-1],halt_coverage='UNKNOWN',
         halted_sessions=None,known_halted_sessions=data['known_halted_sessions'],
         known_halt_source_documents=[doc] if data['known_halted_sessions'] else [],
         volume_basis=dict(raw='RAW',split='SPLIT_ADJUSTED'),volume_source_documents=[doc]))
@@ -469,22 +503,30 @@ def composition_fixture(*, tail_offset=6, tail_start='2016-01-12',old_input=None
         feed='SIP',timeframe='1Day',volume_scope='PROVIDER_NEW_YORK_DAY_TRADE_CONDITIONS',
         source_run_id=trust.derivation_run_id,parents=data['parents'],
         context_id='synthetic-two-parent-context',common_basis=basis,owner_rights=rights,
-        window=dict(start='2016-01-05',end=tail_days[-1],
+        window=dict(start=start,end=tail_days[-1],
             sessions_sha256=digest(encoded([r['session_date'] for r in data['rows']['RAW']]))),
         observed_at=clocks['available_from'],**clocks,created_at=created,
         review_decision_at=decision,original_public_available_at=None,
         original_provider_collected_at=None,physical_halt_coverage='UNKNOWN',
-        source_documents=[review,identity,status,doc],instruments={'US.TEST.AAPL':dict(
-            ticker='AAPL',provider_security_id=ident['provider_security_id'],
+        source_documents=[review,identity,status,doc],instruments={iid:dict(
+            ticker=ticker,provider_security_id=ident['provider_security_id'],
             identity_evidence_sha256=identity['sha256'],known_halted_sessions=data['known_halted_sessions'],
             known_halt_source_documents=[doc] if data['known_halted_sessions'] else [],
             basis_sha256={b:digest(b''.join(encoded(r) for r in rows))
                                                        for b,rows in data['rows'].items()})})
     e = dict(schema='a1-reader-composition-evidence-v1',fixture_only=False,
         derivation_run_id=trust.derivation_run_id,derivation_code_sha=trust.derivation_code_sha,
-        created_at=q['created_at'],research_fresh_until=q['expires_at'],security_id='US.TEST.AAPL',
+        created_at=q['created_at'],research_fresh_until=q['expires_at'],security_id=iid,
         context_id=q['context_id'],qualification=add(q),common_basis=basis,owner_rights=rights,
         identity_evidence=identity,status_evidence=status)
+    if revision is not None:
+        revision_ref=add(revision)
+        q['observed_revision_selection']=revision_ref
+        q['source_documents'] += [dict(sha256=h,bytes=len(raw)) for h,raw in sorted(extra.items())]
+        q['source_documents'].append(revision_ref)
+        objects.pop(e['qualification']['sha256'])
+        e['qualification']=add(q)
+        e['observed_revision_selection']=revision_ref
     trust=replace(trust,review_receipt_sha256=review['sha256'],evidence_sha256=digest(encoded(e)),
                   proof_sha256=tuple(sorted(objects)))
     return parents,e,trust,objects
@@ -507,6 +549,120 @@ def rewrite_composition_doc(state,key,transform):
     raw=encoded(q);objects[digest(raw)]=raw;e['qualification']=dict(sha256=digest(raw),bytes=len(raw))
     return parents,e,replace(trust,evidence_sha256=digest(encoded(e)),
                             proof_sha256=tuple(sorted(objects))),objects
+
+
+@lru_cache(maxsize=2)
+def _observed_volume_fixture(new_price_offset=1):
+    """Synthetic numbers/identity only; mirrors the bounded actual observation shape."""
+    old_clocks=dict(observed='2026-10-27T02:00:00Z',created='2026-10-27T02:10:00Z',
+        decision='2026-10-27T02:20:00Z',expires='2026-10-27T14:00:00Z')
+    new_clocks=dict(observed='2026-10-30T06:40:00Z',created='2026-10-30T06:45:00Z',
+        decision='2026-10-30T06:50:00Z',expires='2026-10-30T14:00:00Z')
+    dates=(['2026-10-23','2026-10-26'],
+           ['2026-10-26','2026-10-27','2026-10-28','2026-10-29'])
+    scope=dict(task_key='R1000-SYNTHETIC-OBSERVED-VOLUME-NOT-ACTUAL-CAPTURE',
+        namespace='managed-refresh-v1',input_sha256=digest(b'CONTRACT_FIXTURE_SEED'))
+    states=tuple(provider_close_fixture(names=('MU',),sessions=days,view_start=days[0],
+        capture_start=days[0],price_offset=0 if index==0 else new_price_offset,first_factor='1',clocks=clocks,
+        volumes=({'2026-10-23':10000,'2026-10-26':10001} if index==0 else {'2026-10-26':6831}),
+        provider_ids={'MU':'00000000-0000-0000-0000-000000000001'},capture_scope=scope,
+        run_id=987654321 if index==0 else 41014284082)
+        for index,(days,clocks) in enumerate(zip(dates,(old_clocks,new_clocks))))
+    def factory(parents,states,decisions):
+        extra={};captures=[];updated=[]
+        def add(value):
+            raw=value if type(value) is bytes else encoded(value)
+            extra[digest(raw)]=raw;return dict(sha256=digest(raw),bytes=len(raw))
+        for index,(pair,state,clocks) in enumerate(zip(parents,states,(old_clocks,new_clocks))):
+            raw,norm,rb=state[:3];receipt=json.loads(rb)
+            refs={k:add(v) for k,v in zip(('raw','normalized','receipt'),(raw,norm,rb))}
+            at=access.clock(clocks['observed'])
+            start=(at-timedelta(minutes=2)).isoformat();finish=(at-timedelta(minutes=1)).isoformat()
+            leg=dict(objects=[receipt['raw_object'],receipt['normalized_object'],
+                dict(file_id='synthetic_receipt_123',**refs['receipt'])],
+                collection_started_at=start,collection_finished_at=finish,public_available_at=None)
+            cp=dict(schema='a1-managed-run-checkpoint-v1',state='COMPLETE',
+                run_id=state[4].original_run_id,source_sha=receipt['source_sha'],
+                control_sha256=digest(b'SYNTHETIC_CONTROL'),session=dates[index][-1],
+                coverage_updates={'MU':dates[index][-1]},held={},receipts=[leg],
+                completed_at=(at-timedelta(seconds=30)).isoformat())
+            refs['checkpoint']=add(cp)
+            lineage=dict(kind='MANAGED_MAINTENANCE',managed_control_sha256=cp['control_sha256'],
+                final_checkpoint_sha256=refs['checkpoint']['sha256'],
+                selected_capture_receipt_sha256=refs['receipt']['sha256'],
+                collection_started_at=start,collection_finished_at=finish)
+            old_provenances={digest(b.provenance) for b in pair};provenances={}
+            for b in pair:
+                v=json.loads(b.provenance);v['original_checkpoint_lineage']=lineage
+                provenances[b.basis]=encoded(v)
+            new_provenances={digest(b):b for b in provenances.values()}
+            changed=[]
+            for b in pair:
+                manifest=json.loads(b.manifest);source=manifest['datasets'][0]['source']
+                source['basis_derivation_receipt_sha256']=digest(provenances[b.basis])
+                source['raw_source_sha256']=sorted((set(source['raw_source_sha256'])-old_provenances)
+                    |set(new_provenances)|{refs['checkpoint']['sha256']})
+                blobs={h:raw for h,raw in b.objects if h not in old_provenances}
+                blobs.update(new_provenances);blobs[refs['checkpoint']['sha256']]=extra[refs['checkpoint']['sha256']]
+                changed.append(replace(b,manifest=encoded(manifest),provenance=provenances[b.basis],
+                    objects=tuple(sorted(blobs.items()))))
+            updated.append(tuple(changed))
+            refs.update(derivations={b.basis:add(b.provenance) for b in changed},
+                run_id=cp['run_id'],collection_started_at=start,collection_finished_at=finish,
+                public_available_at=None)
+            captures.append(refs)
+        pairs=[[b.generation_id for b in pair] for pair in updated]
+        manifests=[json.loads(pair[0].manifest) for pair in updated]
+        parent_clocks=[]
+        for manifest,decision in zip(manifests,decisions):
+            src=manifest['datasets'][0]['source']
+            parent_clocks.append(dict(source_available_from=src['available_from'],
+                source_collected_at=src['collected_at'],source_expires_at=src['expires_at'],
+                review_decision_at=decision))
+        anchors={};differences=[]
+        for basis in ('RAW','SPLIT_ADJUSTED'):
+            rows=[]
+            for pair in updated:
+                b=next(b for b in pair if b.basis==basis);f=json.loads(b.manifest)['datasets'][0]['files'][0]
+                records=[json.loads(x) for x in dict(b.objects)[f['sha256']].splitlines()]
+                rows.append(next(r for r in records if r['session_date']=='2026-10-26'))
+            anchors[basis]=dict(old_row_sha256=digest(encoded(rows[0])),new_row_sha256=digest(encoded(rows[1])))
+            differences.append(dict(basis=basis,field='volume',old=rows[0]['volume'],
+                new=rows[1]['volume'],delta=-3170))
+        identity=manifests[0]['datasets'][0]['files'][0]['instrument']
+        revision=dict(schema=access.OBSERVED_VOLUME_SCHEMA,profile='MU_20261026_VOLUME_ONLY',
+            context_id='synthetic-two-parent-context',
+            **{k:identity[k] for k in ('instrument_id','ticker','provider_security_id','market','mic','currency')},
+            anchor_session='2026-10-26',parent_generation_pairs=pairs,parent_clocks=parent_clocks,
+            captures=captures,anchors=anchors,differences=differences,
+            comparison_report=add(b'SYNTHETIC_INDEPENDENT_20_FIELD_CONTEXT_NOT_ACTUAL_DATA'),
+            selection=dict(old_start='2026-10-23',old_end='2026-10-23',
+                           new_start='2026-10-26',new_end='2026-10-29'),supplier_correction_at=None)
+        return tuple(updated),revision,extra
+    return composition_fixture(states=states,decisions=(old_clocks['decision'],new_clocks['decision']),
+        tail_start=dates[1][0],tail_days=dates[1],revision_factory=factory,
+        observed='2026-10-30T07:00:00Z',created='2026-10-30T07:10:00Z',
+        decision='2026-10-30T07:20:00Z',fresh_until='2026-10-30T14:00:00Z')
+
+
+def observed_volume_fixture(new_price_offset=1):
+    # Cache only synthetic fixture construction, never a Source/Reader operation.
+    return copy.deepcopy(_observed_volume_fixture(new_price_offset))
+
+
+def rewrite_observed_revision(state, transform, *, repin=True):
+    parents,e,trust,objects=copy.deepcopy(state)
+    old=e['observed_revision_selection'];revision=json.loads(objects.pop(old['sha256']))
+    transform(revision)
+    raw=encoded(revision);new=dict(sha256=digest(raw),bytes=len(raw));objects[new['sha256']]=raw
+    q=json.loads(objects.pop(e['qualification']['sha256']))
+    q['observed_revision_selection']=new
+    q['source_documents']=[new if r==old else r for r in q['source_documents']]
+    raw=encoded(q);objects[digest(raw)]=raw
+    e.update(qualification=dict(sha256=digest(raw),bytes=len(raw)),observed_revision_selection=new)
+    trust=replace(trust,evidence_sha256=digest(encoded(e)),proof_sha256=tuple(sorted(objects)),
+                  observed_revision_sha256=new['sha256'] if repin else trust.observed_revision_sha256)
+    return parents,e,trust,objects
 
 
 def managed_fixture(*,asset_clock='2016-01-06T23:30:01Z',technical_security_id=None):
@@ -601,6 +757,139 @@ def managed_fixture(*,asset_clock='2016-01-06T23:30:01Z',technical_security_id=N
 class BindingTest(unittest.TestCase):
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
+
+    def test_observed_volume_revision_selects_new_row_without_mutating_parents(self):
+        parents,e,trust,objects=observed_volume_fixture()
+        original=tuple((b.manifest,b.provenance,b.objects) for pair in parents for b in pair)
+        result=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-30T07:20:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(result.status,'REAL_SOURCE_COMPOSED_UNADMITTED',result.blockers)
+        for b in result.bases:
+            transport,_,_=fixture_transport(b)
+            out=ResearchDataReader(transport).read_components('ds.us.prices.daily',b.generation_id,
+                decision_time='2026-10-30T07:20:00Z',purpose='research',
+                components=[dict(component_id='mu',instrument_id='US.TEST.MU',
+                    required_start='2026-10-23',required_end='2026-10-29',minimum_rows=5)],
+                consumer_id=access.PROVIDER_CLOSE_CONSUMER)
+            rows=out.results['mu'].rows
+            self.assertEqual([r['volume'] for r in rows[:2]],[10000,6831])
+            self.assertEqual(rows[0]['available_from'],'2026-10-27T02:00:00Z')
+            self.assertEqual(rows[1]['available_from'],'2026-10-30T06:40:00Z')
+            self.assertEqual(out.receipt['observed_revision_selection_sha256'],trust.observed_revision_sha256)
+            self.assertFalse(out.receipt['eligible_for_economics'])
+            self.assertFalse(out.receipt['eligible_for_selector'])
+        self.assertEqual(original,tuple((b.manifest,b.provenance,b.objects) for pair in parents for b in pair))
+
+    def compose_observed(self,state,**kwargs):
+        parents,e,trust,objects=state
+        return binding.compose_prepared(parents,encoded(e),
+            decision_time=kwargs.get('decision','2026-10-30T07:20:00Z'),
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+
+    def test_observed_volume_requires_external_exact_pin_and_legacy_stays_strict(self):
+        parents,e,trust,objects=observed_volume_fixture()
+        for h in (None,'0'*64):
+            result=self.compose_observed((parents,e,replace(trust,observed_revision_sha256=h),objects))
+            self.assertEqual(result.status,'BLOCKED')
+        e.pop('observed_revision_selection')
+        trust=replace(trust,observed_revision_sha256=None,evidence_sha256=digest(encoded(e)))
+        result=self.compose_observed((parents,e,trust,objects))
+        self.assertEqual(result.blockers,('COMPOSITION_ANCHOR_CONFLICT',))
+        state=rewrite_observed_revision(observed_volume_fixture(),
+            lambda d:d.update(supplier_correction_at='2026-10-30T00:00:00Z'),repin=False)
+        self.assertEqual(self.compose_observed(state).blockers,('REVISION_EXTERNAL_PIN_REQUIRED',))
+
+    def test_observed_volume_nested_proofs_must_be_qualification_bound(self):
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        targets=[('comparison_report',revision['comparison_report'])]
+        for index,capture_record in enumerate(revision['captures']):
+            for key in ('raw','normalized','receipt','checkpoint'):
+                targets.append((f'capture{index}_{key}',capture_record[key]))
+            for basis,ref in capture_record['derivations'].items():
+                targets.append((f'capture{index}_{basis}_derivation',ref))
+        for name,ref in targets:
+            with self.subTest(proof=name):
+                def omit(q):
+                    q['source_documents']=[r for r in q['source_documents'] if r!=ref]
+                changed=rewrite_composition_doc(copy.deepcopy(state),'qualification',omit)
+                result=self.compose_observed(changed)
+                self.assertEqual(result.status,'BLOCKED')
+                self.assertEqual(result.blockers,('REVISION_NOT_SOURCE_BOUND',))
+                self.assertEqual(result.bases,())
+
+    def test_observed_volume_nested_proof_size_must_match_qualification(self):
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        ref=revision['comparison_report']
+        def wrong_size(q):
+            q['source_documents']=[dict(r,bytes=r['bytes']+1) if r==ref else r
+                                   for r in q['source_documents']]
+        result=self.compose_observed(rewrite_composition_doc(state,'qualification',wrong_size))
+        self.assertEqual(result.status,'BLOCKED')
+        self.assertEqual(result.blockers,('REVISION_NOT_SOURCE_BOUND',))
+        self.assertEqual(result.bases,())
+
+    def test_observed_volume_rejects_unreviewed_shape_extra_changes_and_clocks(self):
+        cases=[
+            (lambda d:d.update(REVIEWED=True),'REVISION_SCHEMA'),
+            (lambda d:d.update(ticker='AAPL'),'REVISION_IDENTITY'),
+            (lambda d:d.update(supplier_correction_at='2026-10-30T00:00:00Z'),'REVISION_UNKNOWN_PUBLICATION'),
+            (lambda d:d['selection'].update(old_end='2026-10-26'),'REVISION_SELECTION_WINDOW'),
+            (lambda d:d['selection'].update(new_start='2026-10-27'),'REVISION_SELECTION_WINDOW'),
+            (lambda d:d['parent_clocks'][0].update(source_expires_at='2030-01-01T00:00:00Z'),
+                'REVISION_ORIGINAL_CLOCKS'),
+            (lambda d:d['captures'][1].update(collection_finished_at='2026-10-31T00:00:00Z'),
+                'REVISION_CAPTURE_CLOCKS'),
+            (lambda d:d['captures'][1].update(run_id=41014284083),'REVISION_CAPTURE_SCOPE'),
+            (lambda d:d['differences'][0].update(field='close'),'REVISION_CHANGE_SET'),
+            (lambda d:d['differences'][0].update(old=10002,new=6832),'REVISION_CHANGE_SET'),
+            (lambda d:d['anchors']['RAW'].update(old_row_sha256='0'*64),'REVISION_ANCHOR_BINDING'),
+        ]
+        for change,code in cases:
+            with self.subTest(code=code):
+                state=rewrite_observed_revision(observed_volume_fixture(),change)
+                self.assertEqual(self.compose_observed(state).blockers,(code,))
+        self.assertEqual(self.compose_observed(observed_volume_fixture(),
+            decision='2026-10-30T14:00:01Z').blockers,('COMPOSITION_FRESH_REVIEW',))
+
+    def test_observed_volume_cannot_authorize_changed_price_or_bad_original_bytes(self):
+        with self.assertRaisesRegex(binding.BindingError,'REVISION_CHANGE_SET'):
+            observed_volume_fixture(new_price_offset=2)
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        state[3][revision['captures'][1]['raw']['sha256']]=b'not original'
+        self.assertEqual(self.compose_observed(state).blockers,('COMPOSITION_PROOF_HASH',))
+
+    def test_observed_volume_rejects_foreign_checkpoint_and_ancestor(self):
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        ref=revision['captures'][1]['checkpoint']
+        checkpoint=json.loads(state[3][ref['sha256']]);checkpoint['source_sha']='0'*40
+        raw=encoded(checkpoint);changed=dict(sha256=digest(raw),bytes=len(raw))
+        state[3][changed['sha256']]=raw
+        rebound=rewrite_observed_revision(state,lambda d:d['captures'][1].update(checkpoint=changed))
+        self.assertEqual(self.compose_observed(rebound).blockers,('REVISION_CHECKPOINT',))
+        state=rewrite_observed_revision(observed_volume_fixture(),
+            lambda d:d['captures'][1]['derivations'].update(RAW=d['captures'][0]['derivations']['RAW']))
+        self.assertEqual(self.compose_observed(state).blockers,('REVISION_ORIGINAL_LINEAGE',))
+
+    def test_registered_lake_loads_reader_and_source_suites_without_duplicate_entries(self):
+        tree=ast.parse((ROOT/'tests/long_history_lake_smoke.py').read_bytes())
+        loader=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='load_tests')
+        loaded=[n.args[0].id for n in ast.walk(loader) if isinstance(n,ast.Call)
+            and isinstance(n.func,ast.Attribute) and n.func.attr=='loadTestsFromTestCase'
+            and n.args and isinstance(n.args[0],ast.Name)]
+        self.assertEqual(loaded.count('ReaderTest'),1)
+        self.assertEqual(loaded.count('BindingTest'),1)
+        tree=ast.parse((ROOT/'tools/run_pr_validation.py').read_bytes())
+        paths=ast.literal_eval(next(n.value for n in tree.body
+            if isinstance(n,ast.AnnAssign) and isinstance(n.target,ast.Name)
+            and n.target.id=='DEFAULT_TESTS'))
+        names=[name for name,_ in paths]
+        self.assertEqual(names.count('tests/long_history_lake_smoke.py'),1)
+        self.assertNotIn('tests/a1_reader_generation_binding_smoke.py',names)
+        self.assertNotIn('tests/research_data_access_smoke.py',names)
 
     def test_composition_preserves_parent_bytes_clocks_and_expiry(self):
         parents,e,trust,objects=composition_fixture()
