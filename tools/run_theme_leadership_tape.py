@@ -9,6 +9,8 @@ production selection.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import math
 import re
@@ -151,6 +153,17 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def format_percent(value: Any) -> str:
+    """Missing observations must not render as an observed zero return."""
+    number = safe_float(value, np.nan)
+    return f"{number:.2%}" if math.isfinite(number) else "UNKNOWN"
+
+
+def format_number(value: Any) -> str:
+    number = safe_float(value, np.nan)
+    return f"{number:.2f}" if math.isfinite(number) else "UNKNOWN"
+
+
 def robust_z(values: pd.Series) -> pd.Series:
     x = pd.to_numeric(values, errors="coerce").replace([np.inf, -np.inf], np.nan)
     med = float(x.median(skipna=True)) if x.notna().any() else 0.0
@@ -206,8 +219,10 @@ def trailing_return(close: pd.Series, days: int) -> float:
     return last / base - 1.0
 
 
-def price_metrics(price_cache: Path, ticker: str) -> dict[str, Any]:
+def price_metrics(price_cache: Path, ticker: str, *, session: str | None = None) -> dict[str, Any]:
     px = load_price_cache(price_cache, ticker)
+    if session is not None and not px.empty:
+        px = px.loc[px.index <= pd.Timestamp(session)]
     if px.empty or len(px) < 6:
         return {"ticker": ticker, "price_status": "missing_or_short"}
     close = pd.to_numeric(px["close"], errors="coerce").dropna()
@@ -279,16 +294,17 @@ def fetch_yfinance_history(ticker: str, days: int = 260) -> pd.DataFrame:
 
 
 def etf_price_frame(price_cache: Path, ticker: str) -> pd.DataFrame:
-    cached = load_price_cache(price_cache, ticker)
-    if not cached.empty and len(cached) >= 22:
-        return cached
-    return fetch_yfinance_history(ticker)
+    # Research observation is held-input only; a cache miss is not permission
+    # to contact a provider. The existing collector owns any separate refresh.
+    return load_price_cache(price_cache, ticker)
 
 
-def etf_attention(price_cache: Path) -> pd.DataFrame:
+def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for ticker, spec in ETF_LOOKTHROUGH.items():
         px = etf_price_frame(price_cache, ticker)
+        if session is not None and not px.empty:
+            px = px.loc[px.index <= pd.Timestamp(session)]
         if px.empty or len(px) < 22:
             rows.append(
                 {
@@ -475,7 +491,8 @@ def read_scored(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def build_ticker_tape(scored: pd.DataFrame, price_cache: Path, min_mcap: float, min_dollar_vol: float) -> pd.DataFrame:
+def build_ticker_tape(scored: pd.DataFrame, price_cache: Path, min_mcap: float, min_dollar_vol: float,
+                      *, comparison_session: str | None = None) -> pd.DataFrame:
     if scored.empty or "ticker" not in scored.columns:
         return pd.DataFrame()
     d = scored.copy()
@@ -485,17 +502,20 @@ def build_ticker_tape(scored: pd.DataFrame, price_cache: Path, min_mcap: float, 
     for row in d.itertuples(index=False):
         ticker = str(getattr(row, "ticker", "")).upper()
         rec = d.loc[d["ticker"].eq(ticker)].iloc[-1].to_dict()
-        rec.update(price_metrics(price_cache, ticker))
+        rec.update(price_metrics(price_cache, ticker) if comparison_session is None else
+                   price_metrics(price_cache, ticker, session=comparison_session))
         rows.append(rec)
     out = pd.DataFrame(rows)
     if out.empty:
         return out
     out["leadership_theme"] = out.apply(infer_theme, axis=1)
-    market_cap_source = out["market_cap_live"] if "market_cap_live" in out.columns else out.get("mktcap", pd.Series(0.0, index=out.index))
-    out["market_cap"] = pd.to_numeric(market_cap_source, errors="coerce").fillna(0.0)
-    out["dollar_volume_20d"] = pd.to_numeric(out.get("dollar_volume_20d"), errors="coerce").fillna(0.0)
+    missing = pd.Series(np.nan, index=out.index)
+    market_cap_source = out["market_cap_live"] if "market_cap_live" in out.columns else out.get("mktcap", missing)
+    out["market_cap"] = pd.to_numeric(market_cap_source, errors="coerce")
+    out["dollar_volume_20d"] = pd.to_numeric(out.get("dollar_volume_20d", missing), errors="coerce")
+    out["price_date"] = out.get("price_date", pd.Series(None, index=out.index, dtype=object))
     for col in ("ret_1d", "ret_5d", "ret_21d", "ret_63d", "ret_126d", "volume_z_20d"):
-        out[col] = pd.to_numeric(out.get(col), errors="coerce")
+        out[col] = pd.to_numeric(out.get(col, missing), errors="coerce")
     liquid = (out["market_cap"] >= min_mcap) & (out["dollar_volume_20d"] >= min_dollar_vol)
     out["liquidity_pass"] = liquid
     out["ret_5d_z"] = robust_z(out["ret_5d"])
@@ -545,13 +565,24 @@ def aggregate_leadership(tape: pd.DataFrame, group_col: str) -> pd.DataFrame:
         if liquid.empty:
             continue
         top = liquid.sort_values("participation_score", ascending=False).head(8)
+        ret21 = pd.to_numeric(liquid["ret_21d"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        observed = int(ret21.notna().sum())
+        positive = int(ret21.gt(0).sum())
         rows.append(
             {
                 group_col: label,
                 "member_count": int(len(liquid)),
+                "input_member_count": int(len(g)),
+                "liquidity_excluded_count": int(len(g) - len(liquid)),
+                "observed_count_21d": observed,
+                "missing_count_21d": int(len(liquid) - observed),
+                "positive_count_21d": positive,
+                "coverage_21d": observed / len(liquid),
                 "active_count_1d_gt_8pct": int((liquid["ret_1d"] >= 0.08).sum()),
                 "active_count_5d_gt_20pct": int((liquid["ret_5d"] >= 0.20).sum()),
-                "breadth_21d_positive": float((liquid["ret_21d"] > 0).mean()),
+                "breadth_21d_positive": positive / observed if observed else np.nan,
+                "breadth_21d_denominator": "OBSERVED_LIQUID_MEMBERS",
+                "positive_share_all_liquid_members": positive / len(liquid),
                 "median_ret_5d": float(liquid["ret_5d"].median(skipna=True)),
                 "median_ret_21d": float(liquid["ret_21d"].median(skipna=True)),
                 "median_ret_63d": float(liquid["ret_63d"].median(skipna=True)),
@@ -573,10 +604,19 @@ def aggregate_leadership(tape: pd.DataFrame, group_col: str) -> pd.DataFrame:
         + 0.15 * out["breadth_21d_positive"].fillna(0.0)
         + 0.15 * robust_z(np.log1p(out["dollar_volume_20d_sum"]))
     )
+    out.loc[out["leadership_state"].eq("data_pending"), "leadership_score"] = np.nan
     return out.sort_values("leadership_score", ascending=False).reset_index(drop=True)
 
 
 def classify_group(liquid: pd.DataFrame, top: pd.DataFrame) -> str:
+    # No new minimum-coverage threshold: only complete required observations
+    # may receive the existing judgment. Partial facts remain visible above.
+    if 'price_as_of_status' in liquid and liquid['price_as_of_status'].isin(['MISSING','STALE']).any():
+        return 'data_pending'
+    for column in ("ret_5d", "ret_21d"):
+        values = pd.to_numeric(liquid[column], errors="coerce")
+        if values.empty or values.isna().any() or not np.isfinite(values).all():
+            return "data_pending"
     ret5 = safe_float(liquid["ret_5d"].median(skipna=True), 0.0)
     ret21 = safe_float(liquid["ret_21d"].median(skipna=True), 0.0)
     clim = safe_float(top["bubble_climax_score"].mean(), 0.0)
@@ -601,12 +641,16 @@ def render_report(
     lines = [
         "# Theme Leadership Tape",
         "",
-        "Report-only daily sidecar. It detects current market leadership concentration and does not alter production portfolios.",
+        "Report-only observed subset. Computation completion does not certify current market coverage.",
         "",
         "## Freshness",
         "",
         f"- Scored source: `{summary.get('scored_source')}`",
-        f"- Latest price date: `{summary.get('latest_price_date')}`",
+        f"- Maximum row date (watermark only): `{summary.get('latest_price_date')}`",
+        f"- Minimum row date: `{summary.get('earliest_price_date')}`",
+        f"- Observation status: `{summary.get('observation_status')}`; freshness: `{summary.get('freshness_status')}`",
+        f"- Comparison session: `{summary.get('comparison_session')}`; row dates: `{summary.get('price_date_counts')}`",
+        f"- Missing price rows: {summary.get('missing_price_rows')}; currentness verified: False",
         f"- Tickers scored: {summary.get('tickers_scored')}",
         f"- Liquid tickers: {summary.get('liquid_tickers')}",
         "",
@@ -615,9 +659,11 @@ def render_report(
     ]
     for row in (themes.head(10).to_dict("records") if not themes.empty else []):
         lines.append(
-            f"- `{row.get('leadership_theme')}`: score {safe_float(row.get('leadership_score')):.2f}, "
-            f"state `{row.get('leadership_state')}`, 5d {safe_float(row.get('median_ret_5d')):.2%}, "
-            f"21d {safe_float(row.get('median_ret_21d')):.2%}, top `{row.get('top_tickers')}`"
+            f"- `{row.get('leadership_theme')}`: score {format_number(row.get('leadership_score'))}, "
+            f"state `{row.get('leadership_state')}`, 5d {format_percent(row.get('median_ret_5d'))}, "
+            f"21d {format_percent(row.get('median_ret_21d'))}, "
+            f"total/observed/missing `{row.get('member_count')}/{row.get('observed_count_21d')}/{row.get('missing_count_21d')}`, "
+            f"top `{row.get('top_tickers')}`"
         )
     lines.extend(["", "## Top Tickers", ""])
     keep = [
@@ -634,14 +680,14 @@ def render_report(
     for row in (tickers.head(20)[[c for c in keep if c in tickers.columns]].to_dict("records") if not tickers.empty else []):
         lines.append(
             f"- `{row.get('ticker')}` {str(row.get('Name') or '')[:32]}: theme `{row.get('leadership_theme')}`, "
-            f"1d {safe_float(row.get('ret_1d')):.2%}, 5d {safe_float(row.get('ret_5d')):.2%}, "
-            f"21d {safe_float(row.get('ret_21d')):.2%}, score {safe_float(row.get('participation_score')):.2f}"
+            f"1d {format_percent(row.get('ret_1d'))}, 5d {format_percent(row.get('ret_5d'))}, "
+            f"21d {format_percent(row.get('ret_21d'))}, score {safe_float(row.get('participation_score')):.2f}"
         )
     lines.extend(["", "## ETF Attention", ""])
     for row in (etfs.head(10).to_dict("records") if not etfs.empty else []):
         lines.append(
             f"- `{row.get('etf')}` {row.get('label')}: theme `{row.get('theme')}`, "
-            f"5d {safe_float(row.get('ret_5d')):.2%}, 21d {safe_float(row.get('ret_21d')):.2%}, "
+            f"5d {format_percent(row.get('ret_5d'))}, 21d {format_percent(row.get('ret_21d'))}, "
             f"attention {safe_float(row.get('attention_score')):.2f}, holdings `{row.get('holdings')}`"
         )
     lines.extend(["", "## ETF Look-Through Watchlist", ""])
@@ -650,7 +696,7 @@ def render_report(
             f"- `{row.get('ticker')}` via `{row.get('source_etf')}`/{row.get('source_etf_theme')}: "
             f"ETF attention {safe_float(row.get('etf_attention_score')):.2f}, "
             f"ticker score {safe_float(row.get('ticker_participation_score')):.2f}, "
-            f"5d {safe_float(row.get('ticker_ret_5d')):.2%}, in universe `{row.get('ticker_in_scored_universe')}`"
+            f"5d {format_percent(row.get('ticker_ret_5d'))}, in universe `{row.get('ticker_in_scored_universe')}`"
         )
     lines.extend(
         [
@@ -660,7 +706,7 @@ def render_report(
             "- `climax_hot` means the theme is already moving violently; use it for tactical participation and tight exit rules, not blind long-term compounding.",
             "- `emerging_leader` is the better early-entry state; the next step is to A/B test staged sizing into these themes.",
             "- ETF attention is a proxy from ETF price/volume/dollar-volume behavior plus a curated look-through seed list; it is not a verified fund-flow feed.",
-            "- This report uses adjusted closes through the latest cached price date, so it can evaluate through the most recent close when cache data is fresh.",
+            "- Row dates and coverage describe the supplied subset; maximum date and completed computation do not authenticate freshness, Source/PIT, or whole-market breadth.",
             "",
         ]
     )
@@ -689,9 +735,126 @@ def write_outputs(
     )
 
 
-def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, min_dollar_vol: float) -> dict[str, Any]:
+def prepare_research_roster(reader, generations: dict[str, str], *, roster_raw: bytes,
+                            identities_raw: bytes, session: str, as_of: str,
+                            observed_at: str, intake_cutoff: str,
+                            out_dir: Path, source_kind: str,
+                            benchmark_ids=None, raw_generations=None,
+                            expected_qualification_sha256=None,
+                            trusted_qualification_source=None) -> dict[str, Any]:
+    """Explicit pre-ranking roster -> existing Feature -> existing A2 proposal.
+
+    Reads only caller-held generations through the existing Reader. A missing
+    generation retains the requested security as DATA_PENDING. A supplied but
+    refused generation stops the handoff, preserving global provenance failure.
+    New local output directory only; no canonical store or A3 admission.
+    Feature horizons remain 5/20/60/120/240 sessions, never relabeled 21/63 days.
+    """
+    from tools import run_a2_research_intake as caller
+    from tools.build_run287_ohlcv_location_timing_challenger import research_feature_snapshot
+    h = caller.intake
+    roster = h.decode(roster_raw)
+    h.need(type(roster) is dict and set(roster) == {'scope', 'rows'} and
+           roster['scope'] == 'PRE_RANKING_RESEARCH_ROSTER', 'OBSERVATION_ROSTER')
+    h.need(type(roster['rows']) is list and 0 < len(roster['rows']) <= 1000, 'OBSERVATION_ROSTER')
+    identities = h._identities(identities_raw)
+    aliases = {}
+    for sid, (issuer, tickers) in identities.items():
+        for ticker in tickers:
+            aliases.setdefault(ticker, []).append((sid, issuer))
+    h.need(h.stamp(as_of) <= h.stamp(observed_at) <= h.stamp(intake_cutoff),
+           'OBSERVATION_HANDOFF_CLOCK')
+    h.need(type(generations) is dict and (raw_generations is None or type(raw_generations) is dict),
+           'OBSERVATION_GENERATIONS')
+    raw_generations = raw_generations or {}
+    requested, subjects, rows, snapshots = [], set(), [], []
+    # Validate the entire requested roster before any source reads or outputs.
+    for row in roster['rows']:
+        h.need(type(row) is dict and 'ticker' in row and
+               set(row) <= {'ticker', 'Name', 'sector', 'industry'} and
+               all(value is None or type(value) is str for value in row.values()),
+               'OBSERVATION_ROSTER_ROW')
+        ticker = h.identifier(row['ticker'])
+        h.need(ticker not in requested and len(aliases.get(ticker, [])) == 1,
+               'OBSERVATION_EXACT_IDENTITY')
+        sid, issuer = aliases[ticker][0]
+        h.need(sid not in subjects, 'OBSERVATION_DUPLICATE_SECURITY')
+        subjects.add(sid); requested.append(ticker)
+        rows.append(dict(row, security_id=sid, issuer_id=issuer))
+    h.need(set(generations) <= subjects and set(raw_generations) <= set(generations),
+           'OBSERVATION_GENERATION_SUBJECT')
+    for row in rows:
+        sid = row['security_id']
+        row.update(observation_status='DATA_PENDING', snapshot_sha256=None,
+                   source_generation=generations.get(sid))
+        if sid in generations:
+            snapshot = research_feature_snapshot(reader, generations[sid], security_id=sid,
+                session=session, as_of=as_of, benchmark_ids=benchmark_ids,
+                raw_generation=raw_generations.get(sid),
+                expected_qualification_sha256=expected_qualification_sha256,
+                trusted_qualification_source=trusted_qualification_source)
+            # Do not turn a supplied corrupt/expired/unauthorized source into
+            # ordinary absence or continue other subjects after its refusal.
+            h.need(snapshot['feature_state'] != 'BLOCKED_RESEARCH_FEATURES',
+                   'OBSERVATION_SOURCE_REFUSED:' + ','.join(sorted(set(snapshot['blocker'].values()))))
+            h.need(snapshot['security_id'] == sid and
+                   snapshot['ticker'] in identities[sid][1], 'OBSERVATION_EXACT_IDENTITY')
+            row.update(observation_status=snapshot['feature_state'],
+                       snapshot_sha256=h.digest(h.canonical(snapshot)))
+            snapshots.append(snapshot)
+        else:
+            snapshot = None
+        # No rank, score, liquidity filter or missing-value substitution here.
+        for horizon in (5, 20, 60, 120, 240):
+            key = f'ret_{horizon}s'
+            row[key] = snapshot['features'][key] if snapshot is not None else None
+        row['leadership_theme'] = infer_theme(pd.Series(row))
+    observation = dict(schema='research-roster-observation-h1-v1',
+        scope='PRE_RANKING_RESEARCH_ROSTER', session=session, as_of=as_of,
+        observed_at=observed_at, intake_cutoff=intake_cutoff,
+        roster_sha256=h.digest(roster_raw), identities_sha256=h.digest(identities_raw),
+        requested_count=len(rows), source_observed_count=len(snapshots),
+        missing_source_count=len(rows)-len(snapshots), rows=rows, snapshots=snapshots,
+        source_authenticity='NOT_ADMITTED_BY_THIS_ADAPTER', identity_scope='SUPPLIED_US_IDENTITY_ASSERTIONS',
+        ranking_allowed=False, whole_market_coverage_verified=False,
+        authority=h.closed())
+    observation_raw = h.canonical(observation)
+    h.need(len(observation_raw) <= h.MAX_TOTAL_BYTES, 'OBSERVATION_BYTE_BUDGET')
+    columns = ['ticker', 'security_id', 'issuer_id', 'leadership_theme', 'observation_status',
+               'source_generation', 'snapshot_sha256'] + [f'ret_{n}s' for n in (5,20,60,120,240)]
+    stream = io.StringIO(newline='')
+    writer = csv.DictWriter(stream, columns, extrasaction='ignore'); writer.writeheader(); writer.writerows(rows)
+    csv_raw = stream.getvalue().encode('utf-8')
+    request = dict(schema='a2-candidate-queue-files-v1', retain_missing_candidates=True,
+        identities=dict(path='identities.json', sha256=h.digest(identities_raw)),
+        sources=[dict(kind=source_kind,
+            file=dict(path='observations.csv', sha256=h.digest(csv_raw)), ticker_column='ticker',
+            tickers=requested, polarity='CANDIDATE', observed_at=observed_at)])
+    request_raw = h.canonical(request)
+    # This caller-owned directory must be new. Partial output is not completion.
+    out_dir = Path(out_dir)
+    out_dir.mkdir()
+    for name, raw in [('roster.json', roster_raw), ('observations.json', observation_raw), ('observations.csv', csv_raw),
+                      ('identities.json', identities_raw), ('request.json', request_raw)]:
+        with (out_dir / name).open('xb') as target:
+            target.write(raw)
+    proposal = caller.prepare(input_root=out_dir, request_path='request.json',
+                              request_sha256=h.digest(request_raw), cutoff=intake_cutoff)
+    caller.write_result(out_dir / 'a2_result.json', proposal)
+    return dict(observation=observation, observation_sha256=h.digest(observation_raw),
+                a2_result=proposal, a2_result_sha256=h.digest(h.canonical(proposal)),
+                a3_consumer_ack=None, canonical_current_verified=False)
+
+
+def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, min_dollar_vol: float,
+        *, comparison_session: str | None = None) -> dict[str, Any]:
+    if comparison_session is not None:
+        from datetime import date
+        if date.fromisoformat(comparison_session).isoformat() != comparison_session:
+            raise ValueError("COMPARISON_SESSION")
     scored = read_scored(scored_path)
-    ticker_tape = build_ticker_tape(scored, price_cache, min_mcap=min_mcap, min_dollar_vol=min_dollar_vol)
+    ticker_tape = build_ticker_tape(scored, price_cache, min_mcap=min_mcap, min_dollar_vol=min_dollar_vol,
+                                    comparison_session=comparison_session)
     if ticker_tape.empty:
         summary = {
             "status": "blocked",
@@ -701,12 +864,24 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         }
         write_outputs(out_dir, ticker_tape, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), summary)
         return summary
+    latest_price = pd.to_datetime(ticker_tape.get("price_date"), errors="coerce").max()
+    dates = pd.to_datetime(ticker_tape["price_date"], errors="coerce")
+    date_counts = ticker_tape["price_date"].dropna().value_counts().sort_index().to_dict()
+    missing_count = int(dates.isna().sum())
+    stale_count = int((dates < pd.Timestamp(comparison_session)).sum()) if comparison_session else None
+    freshness = ("NOT_VERIFIED_WITHOUT_COMPARISON_SESSION" if comparison_session is None else
+                 "PARTIAL_AS_OF" if missing_count or stale_count else "ALIGNED_TO_SUPPLIED_SESSION")
+    if len(date_counts) > 1:
+        freshness = "MIXED_AS_OF"
+    ticker_tape["price_as_of_status"] = [
+        "MISSING" if pd.isna(d) else "NOT_VERIFIED" if comparison_session is None else
+        "STALE" if d < pd.Timestamp(comparison_session) else "ALIGNED_TO_SUPPLIED_SESSION" for d in dates]
     theme_leaders = aggregate_leadership(ticker_tape, "leadership_theme")
     sector_col = "sector" if "sector" in ticker_tape.columns else "leadership_theme"
     sector_leaders = aggregate_leadership(ticker_tape, sector_col)
-    etf_attention_frame = etf_attention(price_cache)
+    etf_attention_frame = etf_attention(price_cache, session=comparison_session)
     lookthrough = build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)
-    latest_price = pd.to_datetime(ticker_tape.get("price_date"), errors="coerce").max()
+    assessed_themes = theme_leaders.loc[theme_leaders.leadership_state.ne('data_pending')] if not theme_leaders.empty else theme_leaders
     summary = {
         "status": "completed",
         "research_only": True,
@@ -714,10 +889,22 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         "scored_source": str(scored_path),
         "price_cache": str(price_cache),
         "latest_price_date": latest_price.date().isoformat() if pd.notna(latest_price) else None,
+        "earliest_price_date": dates.min().date().isoformat() if dates.notna().any() else None,
+        "comparison_session": comparison_session,
+        "price_date_counts": {str(k): int(v) for k, v in date_counts.items()},
+        "missing_price_rows": missing_count,
+        "stale_price_rows": stale_count,
+        "freshness_status": freshness,
+        "currentness_verified": False,
+        "observation_status": "DATA_PENDING" if not dates.notna().any() else
+                              "PARTIAL" if missing_count or len(date_counts) > 1 or stale_count else "OBSERVED_SUBSET",
+        "input_scope": "SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE",
+        "denominator_scope": "SUPPLIED_ROWS; GROUP_BREADTH_IS_OBSERVED_LIQUID_MEMBERS_ONLY",
+        "whole_market_coverage_verified": False,
         "tickers_scored": int(len(ticker_tape)),
         "liquid_tickers": int(ticker_tape["liquidity_pass"].sum()),
-        "top_theme": None if theme_leaders.empty else str(theme_leaders.iloc[0]["leadership_theme"]),
-        "top_theme_state": None if theme_leaders.empty else str(theme_leaders.iloc[0]["leadership_state"]),
+        "top_theme": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_theme"]),
+        "top_theme_state": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_state"]),
         "top_etf_attention": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("etf")),
         "top_etf_attention_theme": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("theme")),
         "top_tickers": ticker_tape.head(20)["ticker"].astype(str).tolist(),
@@ -733,6 +920,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", "--out-dir", default=DEFAULT_OUT_DIR)
     parser.add_argument("--min-mcap", type=float, default=1_000_000_000)
     parser.add_argument("--min-dollar-vol", type=float, default=20_000_000)
+    parser.add_argument("--comparison-session", help="Explicit comparison date; not a Source freshness certificate")
     return parser.parse_args()
 
 
@@ -744,6 +932,7 @@ def main() -> int:
         out_dir=repo_path(args.output_dir),
         min_mcap=args.min_mcap,
         min_dollar_vol=args.min_dollar_vol,
+        comparison_session=args.comparison_session,
     )
     print(json.dumps(payload, indent=2, default=str))
     return 0 if payload.get("status") == "completed" else 2

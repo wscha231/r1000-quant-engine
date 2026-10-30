@@ -4,6 +4,8 @@ import csv
 import json
 import hashlib
 import unittest
+import socket
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -165,6 +167,174 @@ class ThemeTests(unittest.TestCase):
         row = tape.aggregate_leadership(scored, "leadership_theme").set_index("leadership_theme").loc["memory_semiconductors"]
         self.assertEqual(row["member_count"], 4)
         self.assertEqual(set(row["top_tickers"].split(",")), {"MU","SNDK","STX","WDC"})
+
+    def local_tape(self, root, specs, *, comparison_session=None):
+        cache = root / 'cache'; cache.mkdir()
+        roster = []
+        for ticker, count, end, rising in specs:
+            close = [100.0 + (i if rising else 0) for i in range(count)]
+            pd.DataFrame({'Close':close, 'Adj Close':close, 'Volume':[1_000_000]*count},
+                index=pd.bdate_range(end=end, periods=count)).to_parquet(cache/tape.px_cache_name(ticker))
+            roster.append(dict(ticker=ticker, Name='Fixture '+ticker, sector='Health Care',
+                               industry='Fixture Devices', mktcap=5e9))
+        scored = root/'roster.csv'; pd.DataFrame(roster).to_csv(scored,index=False)
+        with patch.object(tape,'fetch_yfinance_history',side_effect=AssertionError('implicit fetch')), \
+             patch.object(socket.socket,'connect',side_effect=AssertionError('network')):
+            summary = tape.run(scored,cache,root/'out',1e9,1e6,
+                               comparison_session=comparison_session)
+        return summary, pd.read_csv(root/'out/ticker_leadership.csv'), \
+            pd.read_csv(root/'out/theme_leadership.csv'), (root/'out/report.md').read_text(encoding='utf-8')
+
+    def test_native_all_missing_returns_are_pending_and_render_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, rows, groups, report = self.local_tape(Path(tmp),
+                [('AAA',6,'2026-10-29',True),('BBB',6,'2026-10-29',True)])
+        self.assertTrue(rows.ret_21d.isna().all())
+        self.assertEqual(groups.iloc[0].leadership_state,'data_pending')
+        self.assertEqual((groups.iloc[0].observed_count_21d,groups.iloc[0].missing_count_21d),(0,2))
+        self.assertTrue(pd.isna(groups.iloc[0].breadth_21d_positive))
+        self.assertTrue(pd.isna(groups.iloc[0].leadership_score))
+        self.assertIn('21d UNKNOWN',report)
+        self.assertNotIn('21d 0.00%',report)
+
+    def test_native_breadth_keeps_both_denominators(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, groups, _ = self.local_tape(Path(tmp),
+                [(t,n,'2026-10-29',True) for t,n in [('AAA',30),('BBB',30),('CCC',6),('DDD',6)]])
+        row=groups.iloc[0]
+        self.assertEqual((row.member_count,row.observed_count_21d,row.missing_count_21d,row.positive_count_21d),(4,2,2,2))
+        self.assertEqual(row.breadth_21d_positive,1.0)
+        self.assertEqual(row.positive_share_all_liquid_members,.5)
+        self.assertEqual(row.coverage_21d,.5)
+        self.assertEqual(row.breadth_21d_denominator,'OBSERVED_LIQUID_MEMBERS')
+        self.assertEqual(row.leadership_state,'data_pending')
+
+    def test_native_actual_zero_remains_zero_and_neutral(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, rows, groups, report=self.local_tape(Path(tmp),[('AAA',30,'2026-10-29',False)])
+        self.assertEqual(rows.iloc[0].ret_21d,0)
+        self.assertEqual(groups.iloc[0].leadership_state,'neutral')
+        self.assertIn('21d 0.00%',report)
+        for value in (None,float('nan'),float('inf'),'invalid'):
+            self.assertEqual(tape.format_percent(value),'UNKNOWN')
+
+    def test_native_missing_etf_never_fetches(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(tape,'fetch_yfinance_history',side_effect=AssertionError('implicit fetch')) as fetch, \
+             patch.object(socket.socket,'connect',side_effect=AssertionError('network')):
+            self.assertTrue(tape.etf_price_frame(Path(tmp),'FIXTURE_ETF').empty)
+            self.assertTrue(tape.etf_attention(Path(tmp)).price_status.eq('missing_or_short').all())
+        fetch.assert_not_called()
+
+    def test_native_mixed_age_is_partial_and_watermark_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary, rows, _, report=self.local_tape(Path(tmp),
+                [('AAA',160,'2020-01-02',True),('BBB',160,'2026-10-29',True)],
+                comparison_session='2026-10-29')
+        self.assertEqual(summary['status'],'completed')  # computation only
+        self.assertEqual(summary['observation_status'],'PARTIAL')
+        self.assertEqual(summary['freshness_status'],'MIXED_AS_OF')
+        self.assertEqual(summary['stale_price_rows'],1)
+        self.assertEqual(summary['price_date_counts'],{'2020-01-02':1,'2026-10-29':1})
+        self.assertIsNone(summary['top_theme'])
+        self.assertFalse(summary['currentness_verified'])
+        self.assertFalse(summary['whole_market_coverage_verified'])
+        self.assertEqual(set(rows.price_as_of_status),{'STALE','ALIGNED_TO_SUPPLIED_SESSION'})
+        self.assertIn('watermark only',report)
+
+    def test_native_missing_cache_row_is_retained_without_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'cache').mkdir()
+            source=root/'roster.csv';pd.DataFrame([dict(ticker='AAA',Name='Unknown')]).to_csv(source,index=False)
+            summary=tape.run(source,root/'cache',root/'out',1e9,1e6)
+            row=pd.read_csv(root/'out/ticker_leadership.csv').iloc[0]
+        self.assertEqual(summary['observation_status'],'DATA_PENDING')
+        self.assertEqual(summary['missing_price_rows'],1)
+        self.assertTrue(pd.isna(row.market_cap)); self.assertTrue(pd.isna(row.dollar_volume_20d))
+        self.assertTrue(pd.isna(row.ret_21d))
+
+    def research_fixture(self):
+        import technical_feature_h1_smoke as ft
+        from tools import run_a2_research_intake as caller
+        fixture=ft.FeatureTests();fixture.setUp()
+        identities=dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS',rows=[
+            dict(security_id=ft.IDS['TEST'],issuer_id='FIXTURE:ISSUER:TEST',tickers=['TEST'],country='US',currency='USD'),
+            dict(security_id='FIXTURE:US:MISSING',issuer_id='FIXTURE:ISSUER:MISSING',tickers=['MISSING'],country='US',currency='USD')])
+        roster=dict(scope='PRE_RANKING_RESEARCH_ROSTER',rows=[
+            dict(ticker='TEST',sector='Health Care'),dict(ticker='MISSING',sector='Financials')])
+        kwargs=dict(roster_raw=caller.intake.canonical(roster),
+            identities_raw=caller.intake.canonical(identities),session=ft.SESSION,as_of=ft.ASOF,
+            observed_at='2026-10-30T06:30:00Z',intake_cutoff='2026-10-30T06:31:00Z',
+            source_kind='FUSION_REVIEW')
+        return ft,fixture,caller,kwargs
+
+    def test_actual_reader_feature_to_a2_preserves_unranked_missing_roster(self):
+        ft,fixture,caller,kwargs=self.research_fixture()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(socket.socket,'connect',side_effect=AssertionError('network')):
+            result=tape.prepare_research_roster(fixture.reader,{ft.IDS['TEST']:fixture.generation()},
+                                               out_dir=Path(tmp)/'new',**kwargs)
+            observation=result['observation'];queue=result['a2_result']['queue']
+            self.assertEqual((observation['requested_count'],observation['source_observed_count'],observation['missing_source_count']),(2,1,1))
+            self.assertEqual({i['ticker'] for i in queue['items']},{'TEST','MISSING'})
+            self.assertTrue(all(i['state']=='DATA_PENDING' for i in queue['items']))
+            self.assertIsNone(observation['rows'][1]['ret_20s'])
+            snapshot=observation['snapshots'][0]
+            self.assertIsNone(snapshot['features']['rs_log_spy_20s'])
+            self.assertIsNotNone(observation['rows'][0]['ret_20s'])
+            self.assertNotIn('ret_21d',observation['rows'][0])
+            self.assertFalse(snapshot['ranking_allowed']);self.assertFalse(observation['ranking_allowed'])
+            self.assertEqual(snapshot['source_available_from'],'2026-10-13T21:05:00Z')
+            self.assertIsNone(result['a3_consumer_ack'])
+            self.assertTrue(all(v is False for v in observation['authority'].values()))
+            request_path=Path(tmp)/'new/request.json'
+            repeated=caller.prepare(input_root=Path(tmp)/'new',request_path='request.json',
+                request_sha256=hashlib.sha256(request_path.read_bytes()).hexdigest(),cutoff=kwargs['intake_cutoff'])
+            self.assertEqual(repeated,result['a2_result'])
+            # Real file-hash gate, not a replayed local predicate.
+            with (Path(tmp)/'new/observations.csv').open('ab') as stream:stream.write(b'changed')
+            with self.assertRaisesRegex(caller.intake.IntakeError,'FILE_HASH_MISMATCH'):
+                caller.prepare(input_root=Path(tmp)/'new',request_path='request.json',
+                    request_sha256=hashlib.sha256(request_path.read_bytes()).hexdigest(),cutoff=kwargs['intake_cutoff'])
+
+    def test_research_handoff_unknown_identity_and_source_refusal_stop_before_outputs(self):
+        ft,fixture,caller,kwargs=self.research_fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            unknown=dict(kwargs,roster_raw=caller.intake.canonical(dict(scope='PRE_RANKING_RESEARCH_ROSTER',rows=[dict(ticker='UNKNOWN')])))
+            with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_EXACT_IDENTITY'):
+                tape.prepare_research_roster(fixture.reader,{},out_dir=root/'unknown',**unknown)
+            self.assertFalse((root/'unknown').exists())
+            generation=fixture.generation()
+            source_path=next(k for k in fixture.transport.objects if '/objects/' in k)
+            fixture.transport.objects[source_path]+=b'corrupt'
+            with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_SOURCE_REFUSED:'):
+                tape.prepare_research_roster(fixture.reader,{ft.IDS['TEST']:generation},out_dir=root/'bad',**kwargs)
+            self.assertFalse((root/'bad').exists())
+
+    def test_research_handoff_keeps_future_expiry_and_rights_refusals(self):
+        for field,value in [('available_from','2099-01-01T00:00:00Z'),
+                            ('expires_at','2026-10-13T23:30:00Z'),
+                            ('eligible_purposes',[])]:
+            with self.subTest(field=field),tempfile.TemporaryDirectory() as tmp:
+                ft,fixture,caller,kwargs=self.research_fixture()
+                fixture.data_spec['source'][field]=value
+                with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_SOURCE_REFUSED:'):
+                    tape.prepare_research_roster(fixture.reader,{ft.IDS['TEST']:fixture.generation()},
+                        out_dir=Path(tmp)/'refused',**kwargs)
+                self.assertFalse((Path(tmp)/'refused').exists())
+
+    def test_research_handoff_never_backdates_new_output_or_overwrites_directory(self):
+        ft,fixture,caller,kwargs=self.research_fixture()
+        with tempfile.TemporaryDirectory() as tmp:
+            changed=dict(kwargs,observed_at='2026-10-13T00:00:00Z')
+            with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_HANDOFF_CLOCK'):
+                tape.prepare_research_roster(fixture.reader,{},out_dir=Path(tmp)/'bad',**changed)
+            self.assertFalse((Path(tmp)/'bad').exists())
+            destination=Path(tmp)/'existing';destination.mkdir();(destination/'owned').write_bytes(b'preserve')
+            with self.assertRaises(FileExistsError):
+                tape.prepare_research_roster(fixture.reader,{},out_dir=destination,**kwargs)
+            self.assertEqual((destination/'owned').read_bytes(),b'preserve')
 
 
 if __name__ == "__main__":
