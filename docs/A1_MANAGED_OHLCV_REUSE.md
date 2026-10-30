@@ -63,6 +63,24 @@ support that existing route; this is not another canonical job ledger.
 
 ## Calendar and existing daily job
 
+Revision3 adds **SPY as one shared Source benchmark tracking target** under
+[A0 event A0-SOURCE-SPY-START-UPDATE-20261030](https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6511494400).
+Source FOCUS/tracking therefore becomes821: the original820 retained ticker
+keys plus SPY. The static inventory and investment candidate cohort stay820;
+no original stock is removed and watch history is retained. Exact revision2
+bytes are archived as
+`data_static/a1_ohlcv_managed_history/4eedd6c91df42b9d54786f08d0b2a56000e528df577c749de302edfec16f41f6.json`.
+The revision keeps the existing automatic flag and null execution authorization;
+it supplies no Owner execution grant, budget, schedule change or activation.
+
+Reuse the existing SPY665 raw/split generation through2026-10-23 and its
+original receipt/asset evidence through the reviewed private Source contract.
+Resolve the actual missing window from those bytes and a fresh calendar; do
+not infer missing history from SPY being absent from the static820 index or
+automatically backfill to2016. An older820-only control must fail against the
+new policy before I/O. A small MU/SPY witness still needs an explicit subset,
+a policy-wide821 authorization and its separate deployed, bounded contract.
+
 Reuse `free_data_daily_update.yml` at **23:30 UTC Monday-Friday**, which is
 **08:30 KST Tuesday-Saturday**: normally2.5 hours after the winter US close or
 3.5 hours after the summer close. GitHub scheduling can be delayed. Early-close

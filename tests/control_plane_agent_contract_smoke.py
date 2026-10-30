@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 MANAGED_INITIAL_POLICY_SHA = '1ac3387de165a091bc99d20e218f7f3140f5f26d21ca6c0b0ea7dba73d66c420'
+MANAGED_ACTIVATION_POLICY_SHA = '4eedd6c91df42b9d54786f08d0b2a56000e528df577c749de302edfec16f41f6'
 sys.path.insert(0, str(ROOT))
 from tools import run_agent_board as board
 
@@ -731,7 +732,9 @@ class ManagedOHLCVTests(unittest.TestCase):
         self.assertFalse(report['collection_enabled'])
 
     def test_versioned_activation_preserves_roster_and_preparation_boundary(self):
-        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        policy, sha = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
+                                  (MANAGED_ACTIVATION_POLICY_SHA + '.json'))
+        self.assertEqual(sha, MANAGED_ACTIVATION_POLICY_SHA)
         self.assertEqual(policy['revision'], 2)
         self.assertEqual(policy['previous_policy_sha256'], self.policy_sha)
         self.assertTrue(policy['automatic_capture_enabled'])
@@ -746,6 +749,44 @@ class ManagedOHLCVTests(unittest.TestCase):
         self.assertEqual(report['status'], 'PREPARED_NO_CAPTURE')
         self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
         self.assertFalse(report['collection_enabled'])
+
+    def test_shared_spy_revision_preserves_original_820_and_preparation_boundary(self):
+        previous, previous_sha = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
+                                             (MANAGED_ACTIVATION_POLICY_SHA + '.json'))
+        policy, _ = self.m.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        before = self.m.encode(self.inventory)
+        self.assertEqual((previous['revision'], policy['revision']), (2, 3))
+        self.assertEqual(previous_sha, MANAGED_ACTIVATION_POLICY_SHA)
+        self.assertEqual(policy['previous_policy_sha256'], previous_sha)
+        self.assertEqual(set(policy['active_tickers']) - set(previous['active_tickers']), {'SPY'})
+        self.assertEqual(set(previous['active_tickers']) - set(policy['active_tickers']), set())
+        self.assertEqual(policy['watch_tickers'], previous['watch_tickers'])
+        self.assertEqual(policy['automatic_capture_enabled'], previous['automatic_capture_enabled'])
+        self.assertIsNone(policy['execution_authorization'])
+        self.assertEqual(policy['changes'], [dict(ticker='SPY', action='START_UPDATE',
+            event_id='A0-SOURCE-SPY-START-UPDATE-20261030',
+            a0_reference=self.m.A0 + '#issuecomment-6511494400')])
+        with patch('urllib.request.urlopen', side_effect=AssertionError('provider')) as get:
+            report = self.m.prepare(self.inventory, policy, self.sha, self.gate(),
+                                    previous=previous, previous_sha=previous_sha,
+                                    now_utc='2026-10-23T23:30:00Z')
+        get.assert_not_called()
+        self.assertEqual((report['active_count'], report['tracked_count'],
+                          report['retained_inventory_count']), (821, 821, 820))
+        self.assertEqual(report['added'], ['SPY'])
+        self.assertEqual((report['watch_count'], report['moved_to_watch'], report['updates_stopped']),
+                         (0, [], []))
+        self.assertEqual((report['provider_requests'], report['dispatches']), (0, 0))
+        self.assertFalse(report['collection_enabled'])
+        self.assertFalse(report['original_campaigns_changed'])
+        for key in ('source_admission', 'pit_verified', 'economic_authority'):
+            self.assertFalse(report[key])
+        self.assertEqual(self.m.encode(self.inventory), before)
+        self.assertNotIn('SPY', {r['ticker'] for r in self.inventory['securities']})
+        spy = next(r for r in report['requests'] if r['ticker'] == 'SPY')
+        self.assertEqual(spy['management_state'], 'FOCUS')
+        self.assertIsNone(spy['missing_interval'])  # Policy membership is not coverage proof.
+        self.assertFalse(spy['source_identity_verified'])
 
     def test_close_buffer_cannot_be_forced(self):
         now = '2026-10-23T21:00:00Z'
@@ -1552,6 +1593,34 @@ class ManagedExecutionTests(unittest.TestCase):
                 self.r.execute(self.control,'a'*64,dict(active_tickers=['AAPL'],watch_tickers=['MSFT']),
                     dict(groups=[]),history,drive,meter,ctx,'fixture-key','fixture-secret',lambda:self.now, market_preflight=self.preflight(self.now))
         self.assertEqual(opener.calls,0)
+
+    def test_actual_spy_policy_refuses_old_control_and_old_policy_before_io(self):
+        policy, policy_sha = self.r.managed.load(ROOT / 'data_static/a1_ohlcv_managed_v1.json')
+        previous, previous_sha = self.r.managed.load(ROOT / 'data_static/a1_ohlcv_managed_history' /
+                                                    (MANAGED_ACTIVATION_POLICY_SHA + '.json'))
+        _, inventory_sha = self.r.managed.load(ROOT / 'data_static/a1_ohlcv_inventory_v1.json')
+        self.control.update(inventory_sha256=inventory_sha, policy_sha256=previous_sha,
+                            authorized_tickers=previous['active_tickers'],
+                            max_symbols_per_run=2, execution_tickers=['MU', 'SPY'])
+        with self.assertRaisesRegex(self.r.Refused, '^MANAGED_SCOPE$'):
+            self.r.validate_control(self.control, inventory_sha, policy_sha, self.now)
+        drive, meter, opener = self.memory_capture()
+        before_usage, before_objects = dict(meter.used), dict(drive.objects)
+        history, ctx = [dict(id=1, head_sha='2'*40)], dict(run_id=1, head='2'*40)
+        with patch.object(self.r, 'journal_rows', side_effect=AssertionError('journal read')):
+            with self.assertRaisesRegex(self.r.Refused, '^MANAGED_POLICY_SCOPE_CHANGED$'):
+                self.r.execute(self.control, 'a'*64, policy, dict(groups=[]), history,
+                    drive, meter, ctx, 'fixture-key', 'fixture-secret', lambda:self.now,
+                    market_preflight=self.preflight(self.now))
+            self.control.update(authorized_tickers=policy['active_tickers'], policy_sha256=policy_sha)
+            self.r.validate_control(self.control, inventory_sha, policy_sha, self.now)
+            with self.assertRaisesRegex(self.r.Refused, '^MANAGED_EXECUTION_SCOPE$'):
+                self.r.execute(self.control, 'a'*64, previous, dict(groups=[]), history,
+                    drive, meter, ctx, 'fixture-key', 'fixture-secret', lambda:self.now,
+                    market_preflight=self.preflight(self.now))
+        self.assertEqual(opener.calls, 0)
+        self.assertEqual(meter.used, before_usage)
+        self.assertEqual(drive.objects, before_objects)
 
     def test_execution_subset_real_capture_skips_alphabetical_sibling_and_resumes(self):
         from urllib.parse import parse_qs, urlsplit
