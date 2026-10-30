@@ -8938,3 +8938,35 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   but the original cause remains unknown without its traceback. A later
   separately authorized wrapper should use numbered append-only step/meter
   receipts and preserve the primary error; never retry or refund implicitly.
+
+## 2026-10-30 — Keep observed provider versions distinct
+
+- A bounded readback wrapper incorrectly searched only ZIP `originals/`
+  members although the accepted rights document referenced the entire immutable
+  ZIP. Preserve the failed attempt/allocation; compare the actual reference
+  shape and exact whole-object hash/size before assuming missing rights.
+- Two retained MU captures had different integer volume at the same session
+  in both bases. Original response -> normalized -> stored comparisons were
+  exact; this was not a reason to add a rounding tolerance. The supplier's
+  correction reason/publication clock remained unknown. Keep the default
+  OHLCV anchor refusal and require an external exact pin for any separately
+  reviewed stored-version selection, retaining both originals and their clocks.
+- The registered Lake suite already loads ReaderTest and BindingTest once.
+  A missing direct DEFAULT_TESTS entry is not an unregistered suite; inspect
+  `load_tests` before duplicating the validation workload.
+- The first full related normal validation hit a360s harness timeout and lost
+  partial captured stdout; it was neither a test PASS nor a confirmed product
+  failure, and -O had not run. Persist per-method progress before waiting.
+  Inject a no-op pause only into explicitly fake-provider fixture calls; leave
+  production RPM/backoff/deadlines unchanged. The subsequent two-suite native
+  normal/-O runs each completed212 cases, with206 passing and6 platform skips,
+  network0. Linux-only resource checks still require hosted CI evidence.
+- Subsequent owner/A6 review found a malformed revision source-document list
+  could raise TypeError during membership before the list validator ran. Check
+  the list type before membership and retain a finite ContractError regression.
+  A targeted post-fix run and a213-method inventory are distinct from the prior
+  full212-method execution; unchanged paths do not need another whole-suite run.
+- Windows evidence helpers must specify UTF-8 for both file reads and stdout.
+  A sealing helper failed before writing the new packet; correct any premature
+  completion message and publish hashes only after successful seal/readback.
+  Preserve the failed attempt and earlier immutable review packets.

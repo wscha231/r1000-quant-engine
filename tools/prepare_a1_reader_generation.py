@@ -17,13 +17,15 @@ from pathlib import Path
 import re
 from types import MappingProxyType
 import zlib
+import zipfile
 
 from tools import alpaca_sip_private_backfill_v1 as capture
 from tools.alpaca_sip_source_revision import external_genesis
 from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import (ContractError, PRICE_COLUMNS, _session_close, clock, day,
     PROVIDER_CLOSE_CONSUMER, PROVIDER_COMPOSITION_SCHEMA,
-    _provider_close_references, _validate_provider_close_qualification)
+    _provider_close_references, _validate_provider_close_qualification,
+    _validate_observed_volume_selection)
 
 MAX_ROWS = 100_000
 MAX_DECODED = 32_000_000
@@ -155,6 +157,7 @@ class TrustedCompositionBinding:
     parent_generation_pairs: tuple[tuple[str, str], tuple[str, str]]
     parent_decisions: tuple[str, str]
     parent_bindings: tuple[object, object]
+    observed_revision_sha256: str | None = None
 
 
 def qualification_trust_matches(trust, manifest, source, qualification):
@@ -181,12 +184,121 @@ def qualification_trust_matches(trust, manifest, source, qualification):
                 and manifest.get('source_run_id') == str(trust.original_run_id))
     pairs = [[p['raw_manifest']['sha256'], p['split_manifest']['sha256']]
              for p in qualification.get('parents', [])]
+    revision = qualification.get('observed_revision_selection')
+    if ((trust.observed_revision_sha256 is None and (revision is not None
+            or 'observed_revision_selection_sha256' in source))
+            or (trust.observed_revision_sha256 is not None and
+                (type(revision) is not dict or revision.get('sha256') != trust.observed_revision_sha256
+                 or source.get('observed_revision_selection_sha256') != trust.observed_revision_sha256))):
+        return False
     return (qualification.get('schema') == PROVIDER_COMPOSITION_SCHEMA
             and manifest.get('source_run_id') == trust.derivation_run_id
             and pairs == [list(p) for p in trust.parent_generation_pairs])
 
 
-def _composition_material(parents, trusted, security_id):
+def _reviewed_volume_selection(legs, descriptors, identities, parents, memory,
+                              trusted, revision_bytes, context_id, decision, proof):
+    require(type(revision_bytes) is bytes
+            and digest(revision_bytes) == _hash(trusted.observed_revision_sha256)
+            and callable(proof), 'REVISION_EXTERNAL_PIN_REQUIRED')
+    revision = _decode(revision_bytes,64*1024)
+    _validate_observed_volume_selection(revision,descriptors,identities[0],context_id,decision)
+    proof(revision['comparison_report'],64*1024)
+    fields = ('open','high','low','close','volume')
+    for index, record in enumerate(revision['captures']):
+        raw, normalized, receipt_raw, checkpoint_raw = (
+            proof(record[k],64*1024) for k in ('raw','normalized','receipt','checkpoint'))
+        receipt, checkpoint = _decode(receipt_raw,64*1024), _decode(checkpoint_raw,64*1024)
+        require(receipt.get('source') == capture.SOURCE and receipt.get('symbols') == ['MU']
+                and receipt.get('source_admission') is False and receipt.get('pit_verified') is False
+                and all({k:receipt[name][k] for k in ('sha256','bytes')} == record[role]
+                    for role,name in (('raw','raw_object'),('normalized','normalized_object'))),
+                'REVISION_CAPTURE_BINDING')
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                require(sum(i.file_size for i in archive.infolist()) <= 64*1024,
+                        'REVISION_ARCHIVE_BOUND')
+            with gzip.GzipFile(fileobj=io.BytesIO(normalized)) as stream:
+                decoded = stream.read(64*1024+1)
+            require(len(decoded) <= 64*1024, 'REVISION_ARCHIVE_BOUND')
+            capture.verify_archived_group(raw,normalized,receipt)
+        except (capture.Refused,zipfile.BadZipFile,OSError,EOFError):
+            raise BindingError('REVISION_ORIGINAL_ARCHIVE') from None
+        normalized_rows = [_decode(line,64*1024) for line in decoded.splitlines() if line]
+        records = checkpoint.get('receipts')
+        require(checkpoint.get('schema') == 'a1-managed-run-checkpoint-v1'
+                and checkpoint.get('state') == 'COMPLETE'
+                and checkpoint.get('run_id') == record['run_id']
+                and checkpoint.get('source_sha') == receipt.get('source_sha')
+                and type(records) is list and 1 <= len(records) <= 2
+                and checkpoint.get('coverage_updates',{}).get('MU') == checkpoint.get('session')
+                and 'MU' not in checkpoint.get('held',{'MU':'UNKNOWN'}), 'REVISION_CHECKPOINT')
+        matches = [r for r in records if type(r) is dict and type(r.get('objects')) is list
+                   and len(r['objects']) == 3
+                   and r['objects'][2].get('sha256') == record['receipt']['sha256']
+                   and r['objects'][2].get('bytes') == record['receipt']['bytes']]
+        require(len(matches) == 1 and matches[0]['objects'][:2] ==
+                    [receipt['raw_object'],receipt['normalized_object']]
+                and matches[0].get('collection_started_at') == record['collection_started_at']
+                and matches[0].get('collection_finished_at') == record['collection_finished_at']
+                and matches[0].get('public_available_at') is None
+                and _clock(record['collection_finished_at']) <= _clock(checkpoint.get('completed_at'))
+                    <= _clock(descriptors[index]['source_collected_at'])
+                and receipt.get('end') == (day(checkpoint['session'])+timedelta(days=1)).isoformat(),
+                'REVISION_CHECKPOINT')
+        assets = receipt.get('asset_precheck')
+        require(type(assets) is list and len(assets) == 1, 'REVISION_ASSET')
+        asset = capture.asset_record(assets[0]['response_utf8'].encode(),'MU')
+        require(asset['id'] == identities[index]['provider_security_id']
+                and asset['exchange'] == 'NASDAQ'
+                and _clock(assets[0]['collected_at_utc']) <= _clock(record['collection_started_at']),
+                'REVISION_ASSET')
+        for basis, adjustment in (('RAW','raw'),('SPLIT_ADJUSTED','split')):
+            parent = parents[index][0 if basis == 'RAW' else 1]
+            spec = _decode(parent.manifest,1024*1024)['datasets'][0]
+            derivation_ref = record['derivations'][basis]
+            h = derivation_ref['sha256']
+            require(h in memory and (h == digest(parent.provenance)
+                    or h in spec['source']['raw_source_sha256'])
+                    and record['receipt']['sha256'] in spec['source']['raw_source_sha256'],
+                    'REVISION_ORIGINAL_LINEAGE')
+            derivation_raw = proof(derivation_ref,64*1024)
+            require(derivation_raw == memory[h], 'REVISION_ORIGINAL_LINEAGE')
+            derivation = _decode(derivation_raw,64*1024)
+            lineage = derivation.get('original_checkpoint_lineage',{})
+            require(derivation.get('schema') == 'a1-reader-derivation-v1'
+                    and derivation.get('basis') == basis
+                    and derivation.get('original_objects') == dict(
+                        raw_sha256=record['raw']['sha256'], normalized_sha256=record['normalized']['sha256'],
+                        capture_receipt_sha256=record['receipt']['sha256'])
+                    and str(record['run_id']) == derivation.get('original_run_id')
+                    and lineage.get('kind') == 'MANAGED_MAINTENANCE'
+                    and lineage.get('final_checkpoint_sha256') == record['checkpoint']['sha256']
+                    and lineage.get('selected_capture_receipt_sha256') == record['receipt']['sha256']
+                    and lineage.get('managed_control_sha256') == checkpoint.get('control_sha256')
+                    and all(lineage.get(k) == record[k] for k in
+                            ('collection_started_at','collection_finished_at')),
+                    'REVISION_ORIGINAL_LINEAGE')
+            row = legs[index][basis][-1 if index == 0 else 0]
+            selected = [r for r in normalized_rows if r['date'] == revision['anchor_session']
+                        and r['adjustment'] == adjustment and r['ticker'] == 'MU']
+            require(len(selected) == 1 and selected[0]['currency'] == 'USD'
+                    and all(Decimal(str(row[k])) == Decimal(str(selected[0][k])) for k in fields)
+                    and digest(encoded(row)) == revision['anchors'][basis][
+                        'old_row_sha256' if index == 0 else 'new_row_sha256'], 'REVISION_ANCHOR_BINDING')
+    for index,basis in enumerate(('RAW','SPLIT_ADJUSTED')):
+        old, new = legs[0][basis][-1], legs[1][basis][0]
+        change = revision['differences'][index]
+        require(all(Decimal(str(old[k])) == Decimal(str(new[k])) for k in fields[:-1])
+                and old['volume'] == change['old'] and new['volume'] == change['new'],
+                'REVISION_CHANGE_SET')
+    require(len(legs[0]['RAW']) >= 2 and legs[0]['RAW'][-2]['session_date'] ==
+            revision['selection']['old_end'], 'REVISION_SELECTION_WINDOW')
+    return {b:legs[0][b][:-1]+legs[1][b] for b in ('RAW','SPLIT_ADJUSTED')}
+
+
+def _composition_material(parents, trusted, security_id, *, revision_bytes=None,
+                          revision_context=None, decision=None, proof=None):
     """Read the selected immutable inputs at their original admitted cutoffs.
 
     A past qualification is historical provenance here. Fresh composition
@@ -316,11 +428,18 @@ def _composition_material(parents, trusted, security_id):
     require(legs[1]['RAW'][0]['session_date'] == anchor and len(legs[1]['RAW']) >= 2
             and legs[1]['RAW'][-1]['session_date'] > anchor, 'COMPOSITION_OVERLAP')
     fields = ('open','high','low','close','volume')
-    for basis in ('RAW','SPLIT_ADJUSTED'):
-        before, after = legs[0][basis][-1], legs[1][basis][0]
-        require(all(Decimal(str(before[k])) == Decimal(str(after[k])) for k in fields),
-                'COMPOSITION_ANCHOR_CONFLICT')
-    raw_anchor, split_anchor = legs[0]['RAW'][-1], legs[0]['SPLIT_ADJUSTED'][-1]
+    if revision_bytes is None:
+        require(trusted.observed_revision_sha256 is None, 'REVISION_EXTERNAL_PIN_REQUIRED')
+        for basis in ('RAW','SPLIT_ADJUSTED'):
+            before, after = legs[0][basis][-1], legs[1][basis][0]
+            require(all(Decimal(str(before[k])) == Decimal(str(after[k])) for k in fields),
+                    'COMPOSITION_ANCHOR_CONFLICT')
+        rows = {b: legs[0][b] + legs[1][b][1:] for b in ('RAW','SPLIT_ADJUSTED')}
+        raw_anchor, split_anchor = legs[0]['RAW'][-1], legs[0]['SPLIT_ADJUSTED'][-1]
+    else:
+        rows = _reviewed_volume_selection(legs,descriptors,identities,parents,memory,trusted,
+            revision_bytes,revision_context,decision,proof)
+        raw_anchor, split_anchor = legs[1]['RAW'][0], legs[1]['SPLIT_ADJUSTED'][0]
     with localcontext(Context(prec=200,rounding=ROUND_HALF_EVEN,
             Emin=-999999,Emax=999999,capitals=1,clamp=0,flags=[],
             traps=[InvalidOperation,DivisionByZero,Overflow])):
@@ -329,7 +448,6 @@ def _composition_material(parents, trusted, security_id):
                     for k in fields[:-1])
                 and Decimal(str(split_anchor['volume'])) == Decimal(str(raw_anchor['volume']))*factor,
                 'COMPOSITION_ANCHOR_FACTOR')
-    rows = {b: legs[0][b] + legs[1][b][1:] for b in ('RAW','SPLIT_ADJUSTED')}
     dates = [r['session_date'] for r in rows['RAW']]
     require(len(dates) <= MAX_ROWS and len(dates) == len(set(dates)), 'COMPOSITION_ROW_BOUND')
     import pandas_market_calendars as mcal
@@ -1350,13 +1468,21 @@ def _compose_prepared(parents, evidence_bytes, decision_time, trusted, proof_obj
             'COMPOSITION_EVIDENCE_SCHEMA')
     decision, created = _clock(decision_time), _clock(e.get('created_at'))
     require(created <= decision <= _clock(e.get('research_fresh_until')), 'COMPOSITION_FRESH_REVIEW')
-    data = _composition_material(parents,trusted,e.get('security_id'))
+    revision_ref = e.get('observed_revision_selection')
+    revision_bytes = None
+    if revision_ref is not None or trusted.observed_revision_sha256 is not None:
+        require(type(revision_ref) is dict and revision_ref.get('sha256') ==
+                _hash(trusted.observed_revision_sha256), 'REVISION_EXTERNAL_PIN_REQUIRED')
+        revision_bytes = proof(revision_ref,64*1024)
+    data = _composition_material(parents,trusted,e.get('security_id'),revision_bytes=revision_bytes,
+        revision_context=e.get('context_id'),decision=decision,proof=proof)
     iid = e['security_id']; dates = [r['session_date'] for r in data['rows']['RAW']]
     qraw = proof(e.get('qualification'),64*1024); q = _decode(qraw,64*1024); qsha = digest(qraw)
     require(q.get('schema') == PROVIDER_COMPOSITION_SCHEMA and q.get('parents') == data['parents']
             and q.get('context_id') == e.get('context_id')
             and q.get('source_run_id') == trusted.derivation_run_id,
             'COMPOSITION_QUALIFICATION_BINDING')
+    require(q.get('observed_revision_selection') == revision_ref, 'REVISION_QUALIFICATION_BINDING')
     refs = _provider_close_references(q)
     require(trusted.review_receipt_sha256 in refs, 'COMPOSITION_CURRENT_REVIEW_UNBOUND')
     for h, size in refs.items():
@@ -1457,6 +1583,8 @@ def _compose_prepared(parents, evidence_bytes, decision_time, trusted, proof_obj
         qualification_sha256=qsha,anchor_session=data['anchor'],parent_row_clocks_preserved=True,
         supplier_rights_expiry=supplier_expiry,source_admission=False,pit_verified=False,
         economics=False,orders=False)
+    if revision_ref is not None:
+        record['observed_revision_selection'] = revision_ref
     envelope = encoded(record); common = dict(data['objects']); common.update(proofs)
     common[digest(evidence_bytes)] = evidence_bytes;common[digest(envelope)] = envelope
     provenance = {}
@@ -1489,6 +1617,8 @@ def _compose_prepared(parents, evidence_bytes, decision_time, trusted, proof_obj
             composition_input_generations=pairs,provider_close_qualification_sha256=qsha,
             qualification_review_receipt_sha256=trusted.review_receipt_sha256,
             qualification_adapter_file_sha256=trusted.adapter_file_sha256)
+        if revision_ref is not None:
+            source['observed_revision_selection_sha256'] = revision_ref['sha256']
         manifest = dict(schema='research-data-generation-v1',eligible_for_selector=False,
             created_at=e['created_at'],source_run_id=trusted.derivation_run_id,
             datasets=[dict(dataset_id='ds.us.prices.daily',schema='price-daily-v1',source=source,files=[f])])

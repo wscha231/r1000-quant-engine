@@ -37,6 +37,7 @@ PROVIDER_CLOSE_SCHEMA = 'a1-provider-daily-close-qualification-v1'
 PROVIDER_COMPOSITION_SCHEMA = 'a1-provider-daily-close-composition-v1'
 PROVIDER_CLOSE_MEANING = 'PROVIDER_SIP_DAILY_CLOSE_ARCHIVAL_RESEARCH'
 PROVIDER_CLOSE_CONSUMER = 'ohlcv-technical-feature-h1'
+OBSERVED_VOLUME_SCHEMA = 'a1-observed-volume-version-selection-v1'
 SCHEMA = 'research-data-generation-v1'
 # Per-read ceilings across every file in the pinned generation.
 MAX_GENERATION_DECOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -517,6 +518,91 @@ def _validate_provider_close_qualification(q, manifest, spec, decision, *,
     _provider_close_references(q)
 
 
+def _observed_volume_references(value):
+    refs = [value['comparison_report']]
+    for item in value['captures']:
+        refs.extend(item[k] for k in ('raw','normalized','receipt','checkpoint'))
+        refs.extend(item['derivations'].values())
+    return refs
+
+
+def _validate_observed_volume_selection(value, parents, identity, context_id, decision):
+    """One reviewed stored MU observation; never supplier-correction authority."""
+    fields = {'schema', 'profile', 'context_id', 'instrument_id', 'ticker',
+        'provider_security_id', 'market', 'mic', 'currency', 'anchor_session',
+        'parent_generation_pairs', 'parent_clocks', 'captures', 'anchors',
+        'differences', 'selection', 'comparison_report', 'supplier_correction_at'}
+    check(type(value) is dict and set(value) == fields
+          and value['schema'] == OBSERVED_VOLUME_SCHEMA
+          and value['profile'] == 'MU_20261026_VOLUME_ONLY', 'REVISION_SCHEMA')
+    check(value['context_id'] == context_id
+          and value['ticker'] == identity['ticker'] == 'MU'
+          and value['anchor_session'] == '2026-10-26'
+          and value['market'] == identity['market'] == 'US'
+          and value['mic'] == identity['mic'] == 'XNAS'
+          and value['currency'] == identity['currency'] == 'USD'
+          and identity.get('asset_class') == 'EQUITY'
+          and all(value[k] == identity[k] for k in ('instrument_id','provider_security_id')),
+          'REVISION_IDENTITY')
+    check(value['supplier_correction_at'] is None, 'REVISION_UNKNOWN_PUBLICATION')
+    check(value['parent_generation_pairs'] == [[p['raw_manifest']['sha256'],
+          p['split_manifest']['sha256']] for p in parents], 'REVISION_PARENT_BINDING')
+    clocks = ('source_available_from','source_collected_at','source_expires_at','review_decision_at')
+    check(value['parent_clocks'] == [{k:p[k] for k in clocks} for p in parents],
+          'REVISION_ORIGINAL_CLOCKS')
+    anchor = value['anchor_session']; selection = value['selection']
+    check(type(selection) is dict and set(selection) == {'old_start','old_end','new_start','new_end'}
+          and selection['old_start'] == parents[0]['window']['start']
+          and selection['new_start'] == parents[0]['window']['end']
+              == parents[1]['window']['start'] == anchor
+          and selection['new_end'] == parents[1]['window']['end']
+          and day(selection['old_start']) <= day(selection['old_end']) < day(anchor)
+          < day(selection['new_end']) <= decision.date(), 'REVISION_SELECTION_WINDOW')
+    def reference(ref):
+        check(type(ref) is dict and set(ref) == {'sha256','bytes'}
+              and type(ref['bytes']) is int and 0 < ref['bytes'] <= 64*1024,
+              'REVISION_REFERENCE')
+        sha(ref['sha256'])
+    reference(value['comparison_report'])
+    check(type(value['captures']) is list and len(value['captures']) == 2, 'REVISION_CAPTURE')
+    for item, parent in zip(value['captures'], parents):
+        check(type(item) is dict and set(item) == {'raw','normalized','receipt','checkpoint',
+            'derivations','run_id','collection_started_at','collection_finished_at','public_available_at'},
+            'REVISION_CAPTURE')
+        for key in ('raw','normalized','receipt','checkpoint'): reference(item[key])
+        check(type(item['derivations']) is dict
+              and set(item['derivations']) == {'RAW','SPLIT_ADJUSTED'}, 'REVISION_CAPTURE')
+        for ref in item['derivations'].values(): reference(ref)
+        check(type(item['run_id']) is int and item['run_id'] > 0
+              and item['public_available_at'] is None
+              and clock(item['collection_started_at']) <= clock(item['collection_finished_at'])
+              <= clock(parent['source_collected_at']) <= decision, 'REVISION_CAPTURE_CLOCKS')
+    check(value['captures'][1]['run_id'] == 41014284082
+          and value['captures'][0]['run_id'] != value['captures'][1]['run_id'],
+          'REVISION_CAPTURE_SCOPE')
+    check(clock(value['captures'][0]['collection_finished_at']) <
+          clock(value['captures'][1]['collection_started_at']), 'REVISION_CAPTURE_CLOCKS')
+    check(type(value['anchors']) is dict and set(value['anchors']) == {'RAW','SPLIT_ADJUSTED'},
+          'REVISION_ANCHOR_BINDING')
+    expected = []
+    for basis in ('RAW','SPLIT_ADJUSTED'):
+        a = value['anchors'][basis]
+        check(type(a) is dict and set(a) == {'old_row_sha256','new_row_sha256'},
+              'REVISION_ANCHOR_BINDING')
+        sha(a['old_row_sha256']); sha(a['new_row_sha256'])
+        expected.append(basis)
+    differences = value['differences']
+    check(type(differences) is list and len(differences) == 2, 'REVISION_CHANGE_SET')
+    for row, basis in zip(differences, expected):
+        check(type(row) is dict and set(row) == {'basis','field','old','new','delta'}
+              and row['basis'] == basis and row['field'] == 'volume'
+              and row['delta'] == -3170
+              and type(row['old']) is int and type(row['new']) is int
+              and 0 <= row['new'] < row['old'] <= 2**53
+              and row['new'] - row['old'] == -3170, 'REVISION_CHANGE_SET')
+    return value
+
+
 def _validate_provider_close_composition(q, manifest, spec, decision, *,
                                          purpose, consumer_id, restore_to=None):
     """A new research derivation; its parents never become a new capture."""
@@ -525,9 +611,20 @@ def _validate_provider_close_composition(q, manifest, spec, decision, *,
         'available_from','collected_at','created_at','review_decision_at','expires_at',
         'original_public_available_at','original_provider_collected_at','physical_halt_coverage',
         'instruments','source_documents','parents','context_id','common_basis','owner_rights'}
+    if type(q) is dict and 'observed_revision_selection' in q:
+        fields.add('observed_revision_selection')
     check(type(q) is dict and set(q) == fields and q['schema'] == PROVIDER_COMPOSITION_SCHEMA
           and q['meaning'] == PROVIDER_CLOSE_MEANING, 'COMPOSITION_SCHEMA')
     source = spec['source']
+    if 'observed_revision_selection' in q:
+        ref = q['observed_revision_selection']
+        check(type(ref) is dict and set(ref) == {'sha256','bytes'}
+              and type(ref['bytes']) is int and 0 < ref['bytes'] <= 64*1024
+              and sha(ref['sha256']) == source.get('observed_revision_selection_sha256')
+              and type(q['source_documents']) is list
+              and ref in q['source_documents'], 'REVISION_NOT_SOURCE_BOUND')
+    else:
+        check('observed_revision_selection_sha256' not in source, 'REVISION_NOT_SOURCE_BOUND')
     check(purpose == q['purpose'] == 'research' and restore_to is None
           and consumer_id == q['consumer_id'] == PROVIDER_CLOSE_CONSUMER
           and q['admission_state'] == source['admission_state'] == 'RESEARCH_BYTES_ONLY'
@@ -878,18 +975,33 @@ class ResearchDataReader:
                     sha(binding.get(key))
                 text(item.get('lake_key'), 'LAKE_DATASET_BINDING')
             inventory.append((item, identity, scheduled, iid, file_sha))
-        qualification = None
+        qualification, observed_revision = None, None
+        check('observed_revision_selection_sha256' not in source or
+              'provider_close_qualification_sha256' in source, 'REVISION_NOT_SOURCE_BOUND')
         if 'provider_close_qualification_sha256' in source:
             qualification_sha = sha(source['provider_close_qualification_sha256'])
             check(qualification_sha in hashes, 'PROVIDER_CLOSE_NOT_SOURCE_BOUND')
             qualification = decode(read_object(self.transport,
                 f'{PREFIX_V1}/objects/{qualification_sha}', qualification_sha, 64 * 1024))
+            check('observed_revision_selection_sha256' not in source or
+                  qualification.get('schema') == PROVIDER_COMPOSITION_SCHEMA,
+                  'REVISION_NOT_SOURCE_BOUND')
             _validate_provider_close_qualification(qualification, manifest, spec, decision,
                 purpose=purpose, consumer_id=consumer_id, restore_to=restore_to)
             for h, size in _provider_close_references(qualification).items():
                 check(h in hashes, 'PROVIDER_CLOSE_NOT_SOURCE_BOUND')
                 raw_proof = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
                 check(len(raw_proof) == size, 'PROVIDER_CLOSE_PROOF_SIZE')
+                if h == source.get('observed_revision_selection_sha256'):
+                    observed_revision = _validate_observed_volume_selection(decode(raw_proof),
+                        qualification['parents'], files[0]['instrument'],
+                        qualification['context_id'], decision)
+            check('observed_revision_selection_sha256' not in source or observed_revision is not None,
+                  'REVISION_NOT_SOURCE_BOUND')
+            if observed_revision is not None:
+                declared = _provider_close_references(qualification)
+                check(all(declared.get(r['sha256']) == r['bytes'] for r in
+                          _observed_volume_references(observed_revision)), 'REVISION_NOT_SOURCE_BOUND')
         decompressed_total, row_total = component_request_bytes, 0
         lake, session_closes = None, _SessionCloseMap(allow_batch=purpose == 'research')
         request_by_iid = {r['instrument_id']: r for r in component_requests or []}
@@ -1011,6 +1123,12 @@ class ResearchDataReader:
                           qualification['window']['sessions_sha256'] and
                           set(qualification['instruments'][iid]['known_halted_sessions']) <=
                           {d.isoformat() for d in dates}, 'PROVIDER_CLOSE_SESSION_GRID')
+                if observed_revision is not None:
+                    anchor_rows = [r for r in parsed if r['session_date'] ==
+                                   observed_revision['anchor_session']]
+                    check(len(anchor_rows) == 1 and digest(encoded(anchor_rows[0])) ==
+                          observed_revision['anchors'][identity['adjustment_basis']]['new_row_sha256'],
+                          'REVISION_SELECTED_ROW')
                 rows.extend(parsed)  # publish rows only after the entire partition validates.
                 verified.append((file_sha, raw))
             except ContractError as exc:
@@ -1086,6 +1204,8 @@ class ResearchDataReader:
         if 'provider_close_qualification_sha256' in source:
             receipt.update(provider_close_qualification_sha256=source['provider_close_qualification_sha256'],
                 qualification_meaning=PROVIDER_CLOSE_MEANING, physical_halt_coverage='UNKNOWN')
+        if 'observed_revision_selection_sha256' in source:
+            receipt['observed_revision_selection_sha256'] = source['observed_revision_selection_sha256']
         receipt['receipt_sha256'] = digest(encoded(receipt))
         return ReadResult(tuple(MappingProxyType(row) for row in selected),
                           tuple(verified), _freeze(receipt), encoded(receipt))
@@ -1157,6 +1277,8 @@ class ResearchDataReader:
         if 'provider_close_qualification_sha256' in source:
             receipt.update(provider_close_qualification_sha256=source['provider_close_qualification_sha256'],
                 qualification_meaning=PROVIDER_CLOSE_MEANING, physical_halt_coverage='UNKNOWN')
+        if 'observed_revision_selection_sha256' in source:
+            receipt['observed_revision_selection_sha256'] = source['observed_revision_selection_sha256']
         receipt['receipt_sha256'] = digest(encoded(receipt))
         return ComponentReadResult(MappingProxyType(results), _freeze(refusals),
                                    _freeze(receipt), encoded(receipt))

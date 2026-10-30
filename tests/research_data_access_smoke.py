@@ -37,6 +37,78 @@ def prices(ticker='SPY'):
 
 
 class ReaderTest(unittest.TestCase):
+    def observed_revision_reader_fixture(self):
+        from a1_reader_generation_binding_smoke import observed_volume_fixture
+        from tools import prepare_a1_reader_generation as binding
+        parents,e,trust,objects=observed_volume_fixture()
+        prepared=binding.compose_prepared(parents,encoded(e),decision_time='2026-10-30T07:20:00Z',
+            trusted_source=trust,proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(prepared.status,'REAL_SOURCE_COMPOSED_UNADMITTED',prepared.blockers)
+        basis=prepared.bases[0]
+        blobs=dict(basis.objects)
+        def read(manifest):
+            raw=encoded(manifest);h=digest(raw)
+            class Transport:
+                def read(self,path):
+                    return raw if path==PREFIX_V1+'/generations/'+h else blobs[path.rsplit('/',1)[-1]]
+            return ResearchDataReader(Transport()).read_components('ds.us.prices.daily',h,
+                decision_time='2026-10-30T07:20:00Z',purpose='research',
+                components=[dict(component_id='mu',instrument_id='US.TEST.MU',
+                    required_start='2026-10-23',required_end='2026-10-29')],
+                consumer_id='ohlcv-technical-feature-h1')
+        return json.loads(basis.manifest),blobs,read
+
+    def test_observed_revision_is_global_and_cannot_be_self_declared(self):
+        manifest,blobs,read=self.observed_revision_reader_fixture()
+        source=manifest['datasets'][0]['source'];qh=source['provider_close_qualification_sha256']
+        q=json.loads(blobs[qh]);old=q['observed_revision_selection']
+        sidecar=json.loads(blobs.pop(old['sha256']));sidecar['ticker']='AAPL'
+        raw=encoded(sidecar);new=dict(sha256=digest(raw),bytes=len(raw));blobs[new['sha256']]=raw
+        q['observed_revision_selection']=new
+        q['source_documents']=[new if r==old else r for r in q['source_documents']]
+        raw=encoded(q);new_qh=digest(raw);blobs[new_qh]=raw
+        source['provider_close_qualification_sha256']=new_qh
+        source['observed_revision_selection_sha256']=new['sha256']
+        source['raw_source_sha256']=[new_qh if h==qh else new['sha256'] if h==old['sha256'] else h
+                                    for h in source['raw_source_sha256']]
+        manifest['datasets'][0]['files'][0]['instrument']['provider_close_qualification_sha256']=new_qh
+        with self.assertRaisesRegex(ContractError,'REVISION_IDENTITY'):read(manifest)
+
+    def test_observed_revision_label_without_composition_qualification_is_refused(self):
+        self.spec['source']['observed_revision_selection_sha256']='0'*64
+        self.blocked('REVISION_NOT_SOURCE_BOUND')
+
+    def test_observed_revision_source_document_list_type_has_finite_refusal(self):
+        import copy
+        manifest,blobs,read=self.observed_revision_reader_fixture()
+        source=manifest['datasets'][0]['source'];qh=source['provider_close_qualification_sha256']
+        original=json.loads(blobs[qh])
+        for malformed in (None,True,{},'documents',17):
+            with self.subTest(value=malformed):
+                changed=copy.deepcopy(manifest);q=copy.deepcopy(original)
+                q['source_documents']=malformed
+                raw=encoded(q);new_qh=digest(raw);blobs[new_qh]=raw
+                s=changed['datasets'][0]['source'];s['provider_close_qualification_sha256']=new_qh
+                s['raw_source_sha256']=[new_qh if h==qh else h for h in s['raw_source_sha256']]
+                changed['datasets'][0]['files'][0]['instrument']['provider_close_qualification_sha256']=new_qh
+                with self.assertRaisesRegex(ContractError,'^REVISION_NOT_SOURCE_BOUND$'):read(changed)
+
+    def test_observed_revision_reader_rejects_rebound_old_selected_row(self):
+        manifest,blobs,read=self.observed_revision_reader_fixture()
+        spec=manifest['datasets'][0];source=spec['source'];f=spec['files'][0]
+        rows=[json.loads(x) for x in blobs[f['sha256']].splitlines()]
+        anchor=next(r for r in rows if r['session_date']=='2026-10-26')
+        anchor.update(volume=10001,available_from='2026-10-27T02:00:00Z')
+        raw=b''.join(encoded(r) for r in rows);h=digest(raw);blobs[h]=raw
+        f.update(sha256=h,bytes=len(raw))
+        qh=source['provider_close_qualification_sha256'];q=json.loads(blobs[qh])
+        q['instruments']['US.TEST.MU']['basis_sha256']['RAW']=h
+        raw=encoded(q);new_qh=digest(raw);blobs[new_qh]=raw
+        source['provider_close_qualification_sha256']=new_qh
+        source['raw_source_sha256']=[new_qh if x==qh else x for x in source['raw_source_sha256']]
+        f['instrument']['provider_close_qualification_sha256']=new_qh
+        with self.assertRaisesRegex(ContractError,'REVISION_SELECTED_ROW'):read(manifest)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

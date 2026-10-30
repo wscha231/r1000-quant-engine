@@ -312,3 +312,54 @@ PR Validation runs the registered Reader suite; the current
 source/Drive steps, not a PR-only test job. Its Reader-path push trigger must be
 assessed by A0 before a future merge. This preparation does not dispatch that
 workflow or authorize its durable execution, and does not change its controls.
+
+## Explicit observed volume version selection (2026-10-30)
+
+The default `compose_prepared` path still requires exact open/high/low/close/
+volume equality at the shared anchor in both bases. A mismatch does not gain a
+tolerance, a missing value, or an automatic correction. `read_components` still
+validates the whole required OHLCV record; it is not a close-only bypass.
+
+One opt-in profile, `MU_20261026_VOLUME_ONLY`, permits a separately reviewed
+choice between two stored observations. It is limited to MU's 2026-10-26
+anchor, unchanged OHLC, and a volume difference of -3170 in each basis. The
+later capture is run41014284082. This identifies an observed version difference,
+not a supplier-certified correction or its publication time.
+
+The existing externally supplied `TrustedCompositionBinding` must contain
+`observed_revision_sha256`. Never obtain this expected pin from the incoming
+evidence or a `REVIEWED=true` assertion. The exact sidecar reference must also
+be bound by the reviewed composition evidence, qualification and source. An
+absent external pin leaves the default refusal intact. The strict sidecar
+binds both parent generation pairs, unchanged parent clocks, current identity/
+MIC/basis context, both original capture trios and managed checkpoints, their
+ancestor derivations, exact anchor-row hashes, two volume differences, selected
+windows and the independent comparison-report hash. The Source reuses the
+existing archive verifier and normalizer; it compares the actual MU anchors.
+The wider comparison report remains independently reviewed context, and SPY's
+separate composition retains the ordinary strict anchor check.
+
+Each original ZIP, normalized object, receipt, checkpoint, derivation and
+sidecar reference is bounded to64KiB for this profile; decoded ZIP members and
+normalized rows are bounded too. The later capture must follow the earlier
+capture. Receipt membership, original source SHA, run, lineage and collection
+clocks must agree. The provider asset's UUID/exchange are checked separately
+from normalized/controller USD: a provider asset response lacking currency is
+not evidence that the provider supplied a currency field.
+
+The derived research view selects the old parent strictly before the anchor
+and the later stored parent from the anchor onward, with one unique complete
+NYSE grid. It never edits the parents, their bytes, original availability or
+expiry. The selected anchor keeps the newer parent's row clock. Original
+public availability and supplier correction time remain unknown. A fresh
+purpose review remains mandatory and is independent of an I/O execution GO.
+
+The Reader rehashes the sidecar and all its declared proofs globally, validates
+its scope and original clocks, and checks the selected anchor row against its
+new-row hash. Missing or conflicting revision evidence is not an optional
+component refusal. Read receipts expose `observed_revision_selection_sha256`.
+The result remains `RESEARCH_BYTES_ONLY`/`PIT_PROXY`; economic, selector,
+portfolio and order authority remain false. Code/CI tests use synthetic data
+and grant no actual Source preparation, publication, consumer call or current
+qualification. Both affected suites already run once through the registered
+`long_history_lake_smoke.load_tests`; do not add duplicate default entries.
