@@ -8976,3 +8976,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   returning a generation, reuse the common reference helpers to compare every
   nested SHA and byte size. Retaining bytes in proof_objects alone is not a
   reviewed qualification binding. Preserve the old HEAD/CI evidence separately.
+
+## 2026-10-30 — Preserve real UTC dates when moving a shared Source slot
+
+- A completed NYSE session does not make its inclusive UTC23:59:59 endpoint
+  historical. Move the one shared slot after the unchanged endpoint+15-minute
+  boundary rather than weakening gates, sleeping inside the job or adding a
+  duplicate trigger. Keep the prior US session across the UTC weekday rollover.
+- A shared schedule also moves the legacy caller's real UTC date. Its existing
+  default price end advances one day and a D-2 cache can become stale at age3
+  under the unchanged age>2 rule. A0 accepted those effects explicitly; retain
+  real macro decision/archive clocks and distinguish requested end from actual
+  bars. Unchanged80-ticker/batch40 bounds do not prove unchanged request costs.
+- The workflow is an exact Source deployment pin. An old workflow hash must
+  refuse before deployment metadata or collection; a code-only clock fix is
+  not a new standing grant, capture activation, budget or purpose extension.
+  Readiness/selection cron offsets do not prove Source publication, consumer
+  acceptance or three normal runs plus a recovery.

@@ -24,8 +24,8 @@ on:
         type: string
         default: '3'
   schedule:
-    # 08:30 KST Tue-Sat, after the prior US regular-session close.
-    - cron: '30 23 * * 1-5'
+    # 09:30 KST Tue-Sat, after the prior session's UTC endpoint +15min gate.
+    - cron: '30 0 * * 2-6'
 
 permissions:
   contents: read

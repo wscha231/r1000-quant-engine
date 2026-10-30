@@ -81,10 +81,11 @@ automatically backfill to2016. An older820-only control must fail against the
 new policy before I/O. A small MU/SPY witness still needs an explicit subset,
 a policy-wide821 authorization and its separate deployed, bounded contract.
 
-Reuse `free_data_daily_update.yml` at **23:30 UTC Monday-Friday**, which is
-**08:30 KST Tuesday-Saturday**: normally2.5 hours after the winter US close or
-3.5 hours after the summer close. GitHub scheduling can be delayed. Early-close
-days use the same later scheduled slot; no duplicate scheduler is created.
+Reuse the one existing `free_data_daily_update.yml` schedule at **00:30 UTC
+Tuesday-Saturday**, which is **09:30 KST Tuesday-Saturday**: normally 3.5 hours
+after the winter US close or 4.5 hours after the summer close. GitHub scheduling
+can be delayed. Early-close days use the same later scheduled slot; no duplicate
+scheduler is created.
 
 The adapter reuses the existing NYSE calendar gate and independently requires
 at least **120 minutes after the actual close**. Weekends, holidays and stale
@@ -96,10 +97,10 @@ The managed collector separately gates its actual inclusive request end,
 Drive/meter/reservation work. The prior23:30 UTC slot could have a completed
 NYSE session while that UTC-day endpoint was still in the future. An on-time
 managed run at that slot must wait; a sufficiently delayed run or a separately
-authorized later manual request still needs both clock gates. The legacy job
-and its schedule are unchanged. Before rescheduling this shared workflow,
-reconcile its existing00:15 UTC readiness and01:15 UTC selection dependencies;
-this code fix does not certify recurring private refresh. No real-time
+authorized later manual request still needs both clock gates. The revised
+00:30 slot is after the unchanged00:14:59 UTC provider boundary; it moves both
+jobs in this shared workflow. This clock fix does not certify recurring private
+refresh or downstream completion. No real-time
 entitlement is assumed.
 [Alpaca's historical bars API](https://docs.alpaca.markets/us/reference/stockbars)
 defines an inclusive end and a15-minute delay without real-time feed access.
@@ -112,6 +113,37 @@ Replay recomputes both gates at the original observed clock, while the prior
 `SKIP_MARKET_WINDOW` marker remains verifiable under its original contract.
 Execution rechecks the endpoint after its durable reservation; if the session
 changes or the clock regresses, it records BLOCKED before any provider GET.
+
+### Shared legacy UTC date effects
+
+A0 accepted the later real UTC clock for the existing legacy `daily_update`
+job as well as the optional private job. For completed NYSE session D, moving
+from D23:30 to D+1 00:30 retains session D but changes the civil collection and
+decision date. The legacy job still runs on scheduled events when the private
+job is disabled; managed-only manual requests continue to skip the legacy job.
+
+The existing bootstrap supplies price start 2016-01-01, max 80 target-book/scored
+tickers and batch 40, without passing an end or refresh-through date. Its price
+child's UTC-relative default requested end therefore moves from D+2 to D+3.
+The unchanged stale rule is age greater than 2 calendar days: a cache ending
+D-2 changes from age 2 to age 3 and can enter the download set. Actual request
+counts and costs can increase even though the existing bounds stay unchanged.
+Requested end is not actual coverage; manifest end and common end still come
+from retained bars. No required same-session coverage is created by this clock
+change.
+
+Macro decision/asof and dated archive keys follow the real later clock, while
+the report's exchange session remains D when its calendar gate permits it.
+Keep actual collection/publication metadata and never backdate it to preserve
+the prior date. Legacy research caches and proxy replay outputs remain separate
+from private A1 originals and accepted Paper/account state.
+
+The existing readiness 00:15 UTC slot now precedes Source 00:30. Selection 01:15
+can also precede a Source job using its full 90 minutes, before any queue delay.
+The full 5400-second Source reservation is unchanged and does not bound queue
+delay. There is no Source-to-readiness receipt/event dependency in this change;
+fixed cron order does not certify publication, consumer ACK or operational
+three-normal-plus-one-recovery acceptance. Those remain separate work.
 
 The existing daily job prepares `outputs/a1_managed_ohlcv/refresh_plan.json`,
 shows focus/watch/add/re-entry counts in its GitHub run summary, and copies the
@@ -150,8 +182,8 @@ is implied by reuse, tracking or successful collection.
 `tools/alpaca_sip_managed_refresh.py` is the execution adapter in the existing
 daily workflow. It uses `capture_one_group`, original ZIP/raw/split verification,
 content-addressed private writes, `OwnerDrive` and `RuntimeMeter`. It introduces
-no separate cron, downloader or canonical ledger. The existing schedule remains
-23:30 UTC weekdays; the shared NYSE calendar independently requires close+120
+no separate cron, downloader or canonical ledger. The one existing schedule is
+00:30 UTC Tuesday-Saturday; the shared NYSE calendar independently requires close+120
 minutes and a fresh completed session. Holidays/weekends skip. Manual force in
 the older daily job cannot bypass the private adapter's calendar or rights gate.
 
@@ -179,6 +211,13 @@ acceptances must be matched to this distinct standing-maintenance binding;
 a spent or expired one-session grant cannot activate this adapter. The existing
 registered tests pin the original revision1 oracles separately from actual
 revision2 transition and missing-contract tests.
+
+The shared workflow itself is an exact managed Source code pin. After this
+schedule change is protected and deployed, actual execution still needs the
+existing control and OWNER grant bound to that deployed commit and workflow
+SHA, with reviewed rights, original journal, cumulative limits and a valid
+execution window. A cron-only change does not renew a grant, increase budgets,
+enable private capture or extend a consumed/expired offline research purpose.
 
 On2026-10-26 Root's separate finite T2 preparation reused the existing account
 review, three original rights documents,108 original accounting records and
