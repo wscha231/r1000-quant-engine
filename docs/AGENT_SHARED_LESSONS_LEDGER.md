@@ -8898,3 +8898,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   not bind an explicit AAPL response to MU. Check every declared symbol/ticker
   before the unchanged normalizer, retain missing identity as unverified, and
   never turn a ticker match into security/issuer certification.
+
+- H1 transport diagnostics crossed two sanitizers: the checkpoint formatter
+  emitted fixed colon-delimited categories, but history safe_error accepted only
+  alphanumeric contract codes and erased every category. Preserve the failing
+  producer-to-consumer counterexample. Reuse the ordered category/verb definitions
+  in a strict bounded formatter validator; never broadly allow colons or raw
+  stderr. Keep the legacy alphanumeric branch and typed HTTP/timeout handling
+  distinct, and preserve all transport/retry/hash policy. Earlier restore success
+  and a later process failure are not evidence of permanent object loss or a
+  confirmed quota cause. Synthetic non-disclosure tests grant no Source recovery.
+
+
+## 2026-10-30 — Freeze every dependency of a historical positive fixture
+
+- PR698 CI40963485965 passed234/235 files; agent_board reported28 nested
+  errors, with only its final traceback retained. The focused original
+  ManualTests reuse-positive case reproduced the checkpoint dependency-hash
+  refusal on exact8f. Do not infer all28 causes from that one traceback.
+- Historical catalog groups423/591 require checkpoint SHA62438ff8; their
+  temporary fixture froze Lake/Reader/SEC/A3 but still copied current
+  checkpoint code. Reuse the bounded hash/size/gzip reader to restore exact
+  reviewed Git-LF checkpoint bytes only in each fresh temporary positive.
+  Keep the production catalog and current-source refusal unchanged. Existing
+  generic positive, tamper, archive-bound and changed-input tests cover the
+  added tuple; full current-head CI remains necessary for overall closure.

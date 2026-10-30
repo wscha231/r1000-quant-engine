@@ -870,6 +870,100 @@ class HistoryTest(unittest.TestCase):
         self.assertIn('workflow_dispatch',workflow['on'])
         self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read'})
 
+    def test_fixed_transport_categories_survive_history_error_sanitization(self):
+        from tools.macro_research_checkpoint import transport_failure, is_safe_transport_failure
+        from tools.long_history_lake import safe_error
+        examples = (
+            ('RATE_LIMIT', b'userRateLimitExceeded'),
+            ('DOWNLOAD_QUOTA', b'downloadQuotaExceeded'),
+            ('STORAGE_QUOTA', b'storageQuotaExceeded'),
+            ('AUTHENTICATION_INVALID_GRANT', b'invalid_grant'),
+            ('AUTHENTICATION_INVALID_CLIENT', b'invalid_client'),
+            ('AUTHENTICATION_UNAUTHORIZED_CLIENT', b'unauthorized_client'),
+            ('AUTHENTICATION_INVALID_SCOPE', b'invalid_scope'),
+            ('AUTHENTICATION', b'error 401'), ('PERMISSION', b'forbidden'),
+            ('QUOTA', b'quota'), ('DOWNLOAD_RESTRICTED', b'abusive'),
+            ('NOT_DOWNLOADABLE', b'not a file'), ('TIMEOUT', b'deadline exceeded'),
+            ('NOT_FOUND', b'not found'), ('UNCLASSIFIED', b'no classified term'),
+        )
+        for category, body in examples:
+            for verb in ('mkdir', 'cat', 'lsjson', 'copy', 'copyto', 'unknown-command'):
+                for status in (0, 1, 3, -9, -(2**31), 2**32 - 1):
+                    with self.subTest(category=category, verb=verb, status=status):
+                        code = transport_failure(body, verb, status)
+                        expected_verb = 'command' if verb == 'unknown-command' else verb
+                        self.assertEqual(code, 'research_transport_failed:' + expected_verb +
+                                         ':exit_' + str(status) + ':' + category)
+                        self.assertTrue(is_safe_transport_failure(code))
+                        self.assertEqual(safe_error(ValueError(code)), code)
+
+    def test_transport_error_validator_refuses_spoofed_private_or_unbounded_text(self):
+        from tools.macro_research_checkpoint import is_safe_transport_failure
+        from tools.long_history_lake import safe_error
+        code = 'research_transport_failed:cat:exit_1:RATE_LIMIT'
+        invalid = (
+            'https://private.invalid/?token=SYNTHETIC_SECRET', '/tmp/private/object',
+            'Authorization: Bearer SYNTHETIC_SECRET', 'arbitrary diagnostic text',
+            'prefix_' + code, code + ':suffix', code + ' ', code + '\n', code + '\r\n',
+            code + '\x00', code.replace('cat:', 'cat/path:'), code.replace('cat:', 'http:'),
+            code.replace('cat:', 'CAT:'), code.replace('cat:', ':'),
+            code.replace('research_transport_failed:', 'research_transport_failed_extra:'),
+            code.replace('RATE_LIMIT', 'FAKE_CATEGORY'), code.replace('RATE_LIMIT', 'RATE_LIMIT_SECRET'),
+            code.replace('RATE_LIMIT', 'rate_limit'), code.replace('RATE_LIMIT', 'RATE%5FLIMIT'),
+            code.replace('exit_1', 'exit_+1'), code.replace('exit_1', 'exit_01'),
+            code.replace('exit_1', 'exit_-0'), code.replace('exit_1', 'exit_1.0'),
+            code.replace('exit_1', 'exit_True'), code.replace('exit_1', 'exit_4294967296'),
+            code.replace('exit_1', 'exit_-2147483649'), code.replace('exit_1', 'exit_' + '9'*10000),
+            code.replace('cat:', 'cat:private:'), '\n' + code,
+        )
+        for index, text in enumerate(invalid):
+            with self.subTest(index=index):
+                self.assertFalse(is_safe_transport_failure(text))
+                self.assertEqual(safe_error(ValueError(text)), 'SOURCE_OR_CONTRACT_ERROR')
+        for value in (None, 1, True, code.encode(), [], {}):
+            self.assertFalse(is_safe_transport_failure(value))
+        self.assertFalse(is_safe_transport_failure('legacy_contract_code'))
+        self.assertEqual(safe_error(ValueError('legacy_contract_code')), 'legacy_contract_code')
+
+    def test_transport_error_keeps_existing_typed_exception_and_blocked_policy(self):
+        from urllib.error import HTTPError, URLError
+        from tools.long_history_lake import safe_error
+        code = 'research_transport_failed:cat:exit_3:NOT_FOUND'
+        self.assertEqual(safe_error(HTTPError('https://private.invalid', 403, code, {}, None)), 'HTTP_403')
+        self.assertEqual(safe_error(TimeoutError(code)), 'TRANSPORT_TIMEOUT')
+        self.assertEqual(safe_error(URLError(code)), 'TRANSPORT_ERROR')
+        self.assertEqual(safe_error(OSError(code)), 'TRANSPORT_ERROR')
+        self.assertEqual(safe_error(ValueError('a'*90)), 'a'*90)
+        self.assertEqual(safe_error(ValueError('a'*91)), 'SOURCE_OR_CONTRACT_ERROR')
+        self.lake.blocked('current/SYNTHETIC', ValueError(code))
+        record = self.lake.catalog['datasets']['current/SYNTHETIC']
+        self.assertEqual(record['last_failure'], code)
+        self.assertEqual(record['status'], 'BLOCKED')
+
+    def test_transport_call_to_history_preserves_only_fixed_code(self):
+        import io
+        import os
+        import subprocess
+        from contextlib import redirect_stdout, redirect_stderr
+        from tools import macro_research_checkpoint as checkpoint
+        from tools.long_history_lake import safe_error
+        transport = object.__new__(checkpoint.RcloneTransport)
+        transport.binary = 'rclone-synthetic'
+        failure = subprocess.CompletedProcess([], 1, b'',
+            b'invalid_grant userRateLimitExceeded https://private.invalid/?token=SYNTHETIC_SECRET')
+        output = io.StringIO()
+        with patch.dict(os.environ, {'MACRO_RCLONE_CONFIG': 'SYNTHETIC_CONFIG'}, clear=True), \
+             patch.object(checkpoint.subprocess, 'run', return_value=failure) as call, \
+             redirect_stdout(output), redirect_stderr(output):
+            with self.assertRaises(ValueError) as caught:
+                transport.call('cat', 'gdrive:synthetic')
+            code = safe_error(caught.exception)
+        call.assert_called_once()
+        self.assertEqual(code, 'research_transport_failed:cat:exit_1:RATE_LIMIT')
+        self.assertEqual(str(caught.exception), code)
+        self.assertNotIn('SYNTHETIC_SECRET', output.getvalue() + code)
+        self.assertNotIn('private.invalid', output.getvalue() + code)
+
     def test_transient_fred_retry_and_secret_safe_failure(self):
         from urllib.error import URLError,HTTPError
         from tools.long_history_lake import fetch_fred_retry,safe_error

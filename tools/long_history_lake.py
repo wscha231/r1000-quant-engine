@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
     fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
-from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes
+from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes, is_safe_transport_failure
 from tools.twelve_private_capture import Refused
 
 SCHEMA = 'long-history-catalog-v1'
@@ -479,6 +479,7 @@ def safe_error(exc):
     if isinstance(exc,TimeoutError): return 'TRANSPORT_TIMEOUT'
     if isinstance(exc,(URLError,OSError)): return 'TRANSPORT_ERROR'
     text = str(exc)
+    if is_safe_transport_failure(text): return text
     return text if re.fullmatch(r'[A-Za-z0-9_]{1,90}',text) else 'SOURCE_OR_CONTRACT_ERROR'
 
 
