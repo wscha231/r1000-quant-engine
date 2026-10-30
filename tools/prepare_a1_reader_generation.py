@@ -25,7 +25,7 @@ from tools.macro_history_sources import digest, encoded
 from tools.research_data_access import (ContractError, PRICE_COLUMNS, _session_close, clock, day,
     PROVIDER_CLOSE_CONSUMER, PROVIDER_COMPOSITION_SCHEMA,
     _provider_close_references, _validate_provider_close_qualification,
-    _validate_observed_volume_selection)
+    _observed_volume_references, _validate_observed_volume_selection)
 
 MAX_ROWS = 100_000
 MAX_DECODED = 32_000_000
@@ -1484,6 +1484,9 @@ def _compose_prepared(parents, evidence_bytes, decision_time, trusted, proof_obj
             'COMPOSITION_QUALIFICATION_BINDING')
     require(q.get('observed_revision_selection') == revision_ref, 'REVISION_QUALIFICATION_BINDING')
     refs = _provider_close_references(q)
+    if revision_bytes is not None:
+        for ref in _observed_volume_references(_decode(revision_bytes,64*1024)):
+            require(refs.get(ref['sha256']) == ref['bytes'], 'REVISION_NOT_SOURCE_BOUND')
     require(trusted.review_receipt_sha256 in refs, 'COMPOSITION_CURRENT_REVIEW_UNBOUND')
     for h, size in refs.items():
         proof(dict(sha256=h,bytes=size))

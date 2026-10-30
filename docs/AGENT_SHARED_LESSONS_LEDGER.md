@@ -8970,3 +8970,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   A sealing helper failed before writing the new packet; correct any premature
   completion message and publish hashes only after successful seal/readback.
   Preserve the failed attempt and earlier immutable review packets.
+- Hosted Codex found that composition preparation bound the revision sidecar
+  but not all of its nested proof references in the qualification. Synthetic
+  omission cases returned generations that the unchanged Reader refused. Before
+  returning a generation, reuse the common reference helpers to compare every
+  nested SHA and byte size. Retaining bytes in proof_objects alone is not a
+  reviewed qualification binding. Preserve the old HEAD/CI evidence separately.

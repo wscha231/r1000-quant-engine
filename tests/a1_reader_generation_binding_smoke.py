@@ -799,6 +799,37 @@ class BindingTest(unittest.TestCase):
             lambda d:d.update(supplier_correction_at='2026-10-30T00:00:00Z'),repin=False)
         self.assertEqual(self.compose_observed(state).blockers,('REVISION_EXTERNAL_PIN_REQUIRED',))
 
+    def test_observed_volume_nested_proofs_must_be_qualification_bound(self):
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        targets=[('comparison_report',revision['comparison_report'])]
+        for index,capture_record in enumerate(revision['captures']):
+            for key in ('raw','normalized','receipt','checkpoint'):
+                targets.append((f'capture{index}_{key}',capture_record[key]))
+            for basis,ref in capture_record['derivations'].items():
+                targets.append((f'capture{index}_{basis}_derivation',ref))
+        for name,ref in targets:
+            with self.subTest(proof=name):
+                def omit(q):
+                    q['source_documents']=[r for r in q['source_documents'] if r!=ref]
+                changed=rewrite_composition_doc(copy.deepcopy(state),'qualification',omit)
+                result=self.compose_observed(changed)
+                self.assertEqual(result.status,'BLOCKED')
+                self.assertEqual(result.blockers,('REVISION_NOT_SOURCE_BOUND',))
+                self.assertEqual(result.bases,())
+
+    def test_observed_volume_nested_proof_size_must_match_qualification(self):
+        state=observed_volume_fixture()
+        revision=json.loads(state[3][state[1]['observed_revision_selection']['sha256']])
+        ref=revision['comparison_report']
+        def wrong_size(q):
+            q['source_documents']=[dict(r,bytes=r['bytes']+1) if r==ref else r
+                                   for r in q['source_documents']]
+        result=self.compose_observed(rewrite_composition_doc(state,'qualification',wrong_size))
+        self.assertEqual(result.status,'BLOCKED')
+        self.assertEqual(result.blockers,('REVISION_NOT_SOURCE_BOUND',))
+        self.assertEqual(result.bases,())
+
     def test_observed_volume_rejects_unreviewed_shape_extra_changes_and_clocks(self):
         cases=[
             (lambda d:d.update(REVIEWED=True),'REVISION_SCHEMA'),
