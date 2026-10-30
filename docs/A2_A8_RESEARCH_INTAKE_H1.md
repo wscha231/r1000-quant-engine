@@ -340,6 +340,12 @@ metadata cannot impersonate a successful cache read. Unobserved ETF attention
 and combined watch scores remain null. ETF row dates/as-of statuses are shown;
 stale ETFs are excluded from current attention when a comparison session is
 supplied, without blocking independent stock observations.
+Attention also requires its actual current/prior20 volume observations and
+finite dollar-volume input. Missing volume is not observed zero; real zero
+volume stays valid without a new positive-volume or liquidity threshold.
+Incomplete/stale rows remain in observation outputs but are excluded before
+the existing score normalization. They cannot change a valid row's score by
+altering an invalid comparison population; existing weights stay unchanged.
 
 Synthetic regressions extend existing registered `ThemeTests`; no test registry
 or protected workflow changes are required. Actual Source-to-A3 wiring, three

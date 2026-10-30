@@ -260,6 +260,56 @@ class ThemeTests(unittest.TestCase):
             self.assertIsNone(summary['top_etf_attention'])
             self.assertEqual(summary['etf_stale_rows'],1)
 
+    def test_etf_missing_volume_is_unknown_but_real_zero_is_observed(self):
+        for missing in ('column','current','prior',None):
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);close=[100.0+i for i in range(160)]
+                px=pd.DataFrame({'Close':close,'Adj Close':close},
+                    index=pd.bdate_range(end='2026-10-29',periods=160))
+                if missing != 'column':
+                    px['Volume']=[float(i+100) for i in range(160)]
+                    px.iloc[-1,px.columns.get_loc('Volume')]=0.0
+                    if missing in ('current','prior'):
+                        px.iloc[-1 if missing=='current' else -2,px.columns.get_loc('Volume')]=float('nan')
+                px.to_parquet(root/tape.px_cache_name('DRAM'))
+                row=tape.etf_attention(root,session='2026-10-29').set_index('etf').loc['DRAM']
+                self.assertIsNotNone(row.ret_21d)
+                if missing is None:
+                    self.assertTrue(pd.notna(row.attention_score))
+                    self.assertTrue(pd.notna(row.volume_z_20d))
+                else:
+                    self.assertTrue(pd.isna(row.attention_score))
+                    self.assertTrue(pd.isna(row.volume_z_20d))
+
+    def test_stale_rows_cannot_change_valid_normalization(self):
+        etf_scores,ticker_scores,group_scores=[],[],[]
+        for rising in (False,True):
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp)
+                _,tickers,_,_=self.local_tape(root,[('AAA',160,'2026-10-29',True),
+                    ('BBB',160,'2020-01-02',rising)],comparison_session='2026-10-29')
+                ticker_scores.append(tickers.set_index('ticker').loc['AAA','participation_score'])
+                # The same fresh ETF bytes, with only a stale peer changed.
+                cache=root/'cache'
+                for name,end,multiplier in [('SOXX','2026-10-29',1),('DRAM','2020-01-02',1 if rising else .01)]:
+                    close=[100.0+i*multiplier for i in range(160)]
+                    pd.DataFrame({'Close':close,'Adj Close':close,'Volume':[1000]*160},
+                        index=pd.bdate_range(end=end,periods=160)).to_parquet(cache/tape.px_cache_name(name))
+                etfs=tape.etf_attention(cache,session='2026-10-29').set_index('etf')
+                etf_scores.append(etfs.loc['SOXX','attention_score'])
+                rows=pd.DataFrame([dict(ticker='AAA',leadership_theme='valid',liquidity_pass=True,
+                    price_as_of_status='ALIGNED_TO_SUPPLIED_SESSION',ret_1d=.01,ret_5d=.02,ret_21d=.04,
+                    ret_63d=.1,participation_score=1.,bubble_climax_score=1.,early_leadership_score=1.,dollar_volume_20d=1e8),
+                    dict(ticker='BBB',leadership_theme='stale',liquidity_pass=True,price_as_of_status='STALE',
+                    ret_1d=.5,ret_5d=10. if rising else -1.,ret_21d=100. if rising else -.99,
+                    ret_63d=10.,participation_score=100.,bubble_climax_score=100.,early_leadership_score=100.,dollar_volume_20d=1e15)])
+                groups=tape.aggregate_leadership(rows,'leadership_theme').set_index('leadership_theme')
+                group_scores.append(groups.loc['valid','leadership_score'])
+                self.assertTrue(pd.isna(groups.loc['stale','leadership_score']))
+        self.assertEqual(etf_scores[0],etf_scores[1])
+        self.assertEqual(ticker_scores[0],ticker_scores[1])
+        self.assertEqual(group_scores[0],group_scores[1])
+
     def test_native_missing_cache_row_is_retained_without_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); (root/'cache').mkdir()

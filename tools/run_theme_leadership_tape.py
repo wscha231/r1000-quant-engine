@@ -244,11 +244,12 @@ def price_metrics(price_cache: Path, ticker: str, *, session: str | None = None)
     vol20 = volume.tail(20)
     vol_prev = volume.shift(1).rolling(20).mean()
     vol_z = np.nan
-    if len(volume) > 21:
+    if len(volume) > 21 and np.isfinite(volume.tail(21)).all():
         denom = float(volume.shift(1).rolling(20).std(ddof=0).iloc[-1])
         base = float(vol_prev.iloc[-1])
+        vol_z = 0.0
         if math.isfinite(denom) and denom > 1e-12:
-            vol_z = (safe_float(volume.iloc[-1], 0.0) - base) / denom
+            vol_z = (float(volume.iloc[-1]) - base) / denom
     high_252 = close.tail(252).max()
     dist_high = float(close.iloc[-1] / high_252 - 1.0) if high_252 and high_252 > 0 else np.nan
     return {
@@ -327,12 +328,13 @@ def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFr
         close = pd.to_numeric(px["close"], errors="coerce").dropna()
         volume = pd.to_numeric(px.get("volume"), errors="coerce")
         dollar_volume = pd.to_numeric(px.get("dollar_volume"), errors="coerce")
-        vol_z = 0.0
-        if len(volume) > 21:
+        vol_z = np.nan
+        if len(volume) > 21 and np.isfinite(volume.tail(21)).all():
             denom = safe_float(volume.shift(1).rolling(20).std(ddof=0).iloc[-1], 0.0)
             base = safe_float(volume.shift(1).rolling(20).mean().iloc[-1], 0.0)
+            vol_z = 0.0  # observed constant volume, including genuine zero
             if denom > 1e-12:
-                vol_z = (safe_float(volume.iloc[-1]) - base) / denom
+                vol_z = (float(volume.iloc[-1]) - base) / denom
         rows.append(
             {
                 "etf": ticker,
@@ -355,17 +357,19 @@ def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFr
     if out.empty:
         return out
     for col in ("ret_1d", "ret_5d", "ret_21d", "ret_63d", "volume_z_20d", "dollar_volume_20d"):
-        out[col] = pd.to_numeric(out.get(col), errors="coerce")
-    out["attention_score"] = (
-        0.25 * robust_z(out["ret_5d"])
-        + 0.25 * robust_z(out["ret_21d"])
-        + 0.20 * robust_z(out["ret_63d"])
-        + 0.15 * out["volume_z_20d"].fillna(0.0).clip(-6, 6)
-        + 0.15 * robust_z(np.log1p(out["dollar_volume_20d"].fillna(0.0)))
-    )
-    complete = out[['ret_5d','ret_21d','ret_63d']].notna().all(axis=1) & out.price_status.eq('ok')
+        out[col] = pd.to_numeric(out.get(col, pd.Series(np.nan, index=out.index)), errors="coerce").replace([np.inf, -np.inf], np.nan)
+    complete = out[['ret_5d','ret_21d','ret_63d','volume_z_20d','dollar_volume_20d']].notna().all(axis=1) & out.price_status.eq('ok')
     complete &= ~out.price_as_of_status.eq('STALE')
-    out.loc[~complete, 'attention_score'] = np.nan
+    observed = out.loc[complete]
+    out['attention_score'] = np.nan
+    # Invalid rows must not alter valid rows' normalization population.
+    out.loc[complete, 'attention_score'] = (
+        0.25 * robust_z(observed["ret_5d"])
+        + 0.25 * robust_z(observed["ret_21d"])
+        + 0.20 * robust_z(observed["ret_63d"])
+        + 0.15 * observed["volume_z_20d"].clip(-6, 6)
+        + 0.15 * robust_z(np.log1p(observed["dollar_volume_20d"]))
+    )
     return out.sort_values("attention_score", ascending=False, na_position="last").reset_index(drop=True)
 
 
@@ -531,12 +535,14 @@ def build_ticker_tape(scored: pd.DataFrame, price_cache: Path, min_mcap: float, 
         out[col] = pd.to_numeric(out.get(col, missing), errors="coerce")
     liquid = (out["market_cap"] >= min_mcap) & (out["dollar_volume_20d"] >= min_dollar_vol)
     out["liquidity_pass"] = liquid
-    out["ret_5d_z"] = robust_z(out["ret_5d"])
-    out["ret_1d_z"] = robust_z(out["ret_1d"])
-    out["ret_21d_z"] = robust_z(out["ret_21d"])
-    out["ret_63d_z"] = robust_z(out["ret_63d"])
-    out["dollar_volume_z"] = robust_z(np.log1p(out["dollar_volume_20d"]))
-    out["volume_z_20d"] = out["volume_z_20d"].fillna(0.0).clip(-6, 6)
+    required = ['ret_1d','ret_5d','ret_21d','ret_63d','volume_z_20d','dollar_volume_20d','market_cap']
+    observed = out[required].replace([np.inf,-np.inf],np.nan).notna().all(axis=1)
+    if comparison_session is not None:
+        observed &= out.price_date.eq(comparison_session)
+    for horizon in (1,5,21,63):
+        out[f'ret_{horizon}d_z'] = robust_z(out[f'ret_{horizon}d'].where(observed)).where(observed)
+    out["dollar_volume_z"] = robust_z(np.log1p(out["dollar_volume_20d"].where(observed))).where(observed)
+    out["volume_z_20d"] = out["volume_z_20d"].clip(-6, 6)
     out["short_term_acceleration"] = (
         out["ret_5d"].fillna(0.0) - (out["ret_21d"].fillna(0.0) / 4.0)
     )
@@ -566,6 +572,7 @@ def build_ticker_tape(scored: pd.DataFrame, price_cache: Path, min_mcap: float, 
         + 0.20 * out["dollar_volume_z"]
     )
     out.loc[~out["liquidity_pass"], ["bubble_climax_score", "early_leadership_score", "participation_score"]] -= 2.0
+    out.loc[~observed, ['bubble_climax_score','early_leadership_score','participation_score']] = np.nan
     return out.sort_values("participation_score", ascending=False, na_position="last").reset_index(drop=True)
 
 
@@ -610,14 +617,18 @@ def aggregate_leadership(tape: pd.DataFrame, group_col: str) -> pd.DataFrame:
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    out["leadership_score"] = (
-        0.25 * robust_z(out["median_ret_5d"])
-        + 0.25 * robust_z(out["median_ret_21d"])
-        + 0.20 * robust_z(out["top_participation_score"])
-        + 0.15 * out["breadth_21d_positive"].fillna(0.0)
-        + 0.15 * robust_z(np.log1p(out["dollar_volume_20d_sum"]))
+    complete = out.leadership_state.ne('data_pending') & out[[
+        'median_ret_5d','median_ret_21d','top_participation_score',
+        'breadth_21d_positive','dollar_volume_20d_sum']].notna().all(axis=1)
+    observed = out.loc[complete]
+    out['leadership_score'] = np.nan
+    out.loc[complete, 'leadership_score'] = (
+        0.25 * robust_z(observed["median_ret_5d"])
+        + 0.25 * robust_z(observed["median_ret_21d"])
+        + 0.20 * robust_z(observed["top_participation_score"])
+        + 0.15 * observed["breadth_21d_positive"]
+        + 0.15 * robust_z(np.log1p(observed["dollar_volume_20d_sum"]))
     )
-    out.loc[out["leadership_state"].eq("data_pending"), "leadership_score"] = np.nan
     return out.sort_values("leadership_score", ascending=False).reset_index(drop=True)
 
 
@@ -895,7 +906,7 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
     sector_leaders = aggregate_leadership(ticker_tape, sector_col)
     etf_attention_frame = etf_attention(price_cache, session=comparison_session)
     lookthrough = build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)
-    assessed_themes = theme_leaders.loc[theme_leaders.leadership_state.ne('data_pending')] if not theme_leaders.empty else theme_leaders
+    assessed_themes = theme_leaders.loc[theme_leaders.leadership_score.notna()] if not theme_leaders.empty else theme_leaders
     assessed_etfs = etf_attention_frame.loc[etf_attention_frame.attention_score.notna()] if not etf_attention_frame.empty else etf_attention_frame
     summary = {
         "status": "completed",
