@@ -223,7 +223,12 @@ class ThemeTests(unittest.TestCase):
              patch.object(tape,'fetch_yfinance_history',side_effect=AssertionError('implicit fetch')) as fetch, \
              patch.object(socket.socket,'connect',side_effect=AssertionError('network')):
             self.assertTrue(tape.etf_price_frame(Path(tmp),'FIXTURE_ETF').empty)
-            self.assertTrue(tape.etf_attention(Path(tmp)).price_status.eq('missing_or_short').all())
+            etfs=tape.etf_attention(Path(tmp))
+            self.assertTrue(etfs.price_status.eq('missing_or_short').all())
+            self.assertTrue(etfs.attention_score.isna().all())
+            watches=tape.build_etf_lookthrough_watchlist(pd.DataFrame(),etfs)
+            self.assertTrue(watches.etf_attention_score.isna().all())
+            self.assertTrue(watches.combined_watch_score.isna().all())
         fetch.assert_not_called()
 
     def test_native_mixed_age_is_partial_and_watermark_only(self):
@@ -242,6 +247,19 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(set(rows.price_as_of_status),{'STALE','ALIGNED_TO_SUPPLIED_SESSION'})
         self.assertIn('watermark only',report)
 
+    def test_stale_etf_cannot_become_top_current_attention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            _,_,_,_=self.local_tape(root,[('DRAM',160,'2020-01-02',True),
+                ('AAA',160,'2026-10-29',True)],comparison_session='2026-10-29')
+            summary=json.loads((root/'out/summary.json').read_bytes())
+            etfs=pd.read_csv(root/'out/etf_attention.csv').set_index('etf')
+            self.assertEqual(etfs.loc['DRAM','price_as_of_status'],'STALE')
+            self.assertEqual(etfs.loc['DRAM','price_date'],'2020-01-02')
+            self.assertTrue(pd.isna(etfs.loc['DRAM','attention_score']))
+            self.assertIsNone(summary['top_etf_attention'])
+            self.assertEqual(summary['etf_stale_rows'],1)
+
     def test_native_missing_cache_row_is_retained_without_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); (root/'cache').mkdir()
@@ -252,6 +270,25 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(summary['missing_price_rows'],1)
         self.assertTrue(pd.isna(row.market_cap)); self.assertTrue(pd.isna(row.dollar_volume_20d))
         self.assertTrue(pd.isna(row.ret_21d))
+
+    def test_missing_cache_cannot_inherit_scored_prices_or_returns(self):
+        # Independent A6's Native RED: metadata cannot impersonate a cache read.
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'cache').mkdir()
+            source=root/'scored.csv'
+            pd.DataFrame([dict(ticker='AAA',sector='Health Care',industry='Devices',
+                mktcap=5e9,price_date='2026-10-29',ret_5d=.15,ret_21d=.25,
+                dollar_volume_20d=50e6)]).to_csv(source,index=False)
+            summary=tape.run(source,root/'cache',root/'out',1e9,1e6,comparison_session='2026-10-29')
+            row=pd.read_csv(root/'out/ticker_leadership.csv').iloc[0]
+        self.assertEqual(summary['observation_status'],'DATA_PENDING')
+        self.assertEqual(summary['missing_price_rows'],1)
+        self.assertIsNone(summary['latest_price_date'])
+        self.assertIsNone(summary['top_theme']);self.assertIsNone(summary['top_etf_attention'])
+        for value in (row.price_date,row.ret_5d,row.ret_21d,row.dollar_volume_20d):
+            self.assertTrue(pd.isna(value))
+        self.assertEqual(row.price_status,'missing_or_short')
+        self.assertEqual(row.sector,'Health Care')
 
     def research_fixture(self):
         import technical_feature_h1_smoke as ft

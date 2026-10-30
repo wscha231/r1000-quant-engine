@@ -334,6 +334,13 @@ means computation finished, while max-date is only a watermark. Cache rows do
 not authenticate Source/PIT or currentness. The legacy scored-input scope is
 explicitly labeled separately from the pre-ranking roster API.
 
+Cache-owned dates, returns and volume fields always replace scored CSV fields,
+including a complete null record when the cache is missing/short. Old producer
+metadata cannot impersonate a successful cache read. Unobserved ETF attention
+and combined watch scores remain null. ETF row dates/as-of statuses are shown;
+stale ETFs are excluded from current attention when a comparison session is
+supplied, without blocking independent stock observations.
+
 Synthetic regressions extend existing registered `ThemeTests`; no test registry
 or protected workflow changes are required. Actual Source-to-A3 wiring, three
 different economic-profit-source examples, independent A6, Registry current,

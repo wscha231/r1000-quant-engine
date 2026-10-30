@@ -220,16 +220,22 @@ def trailing_return(close: pd.Series, days: int) -> float:
 
 
 def price_metrics(price_cache: Path, ticker: str, *, session: str | None = None) -> dict[str, Any]:
+    # These fields belong to the selected cache read, never scored metadata.
+    # A missing/short cache must overwrite old CSV values as well as its status.
+    missing = dict.fromkeys(('price_date', 'close', 'ret_1d', 'ret_5d', 'ret_21d',
+        'ret_63d', 'ret_126d', 'volume', 'volume_avg_20d', 'volume_z_20d',
+        'dollar_volume_20d', 'distance_from_252d_high'))
+    missing.update(ticker=ticker, price_status='missing_or_short')
     px = load_price_cache(price_cache, ticker)
     if session is not None and not px.empty:
         px = px.loc[px.index <= pd.Timestamp(session)]
     if px.empty or len(px) < 6:
-        return {"ticker": ticker, "price_status": "missing_or_short"}
+        return missing
     close = pd.to_numeric(px["close"], errors="coerce").dropna()
     volume = pd.to_numeric(px["volume"], errors="coerce")
     dollar_volume = pd.to_numeric(px["dollar_volume"], errors="coerce")
     if close.empty:
-        return {"ticker": ticker, "price_status": "missing_or_short"}
+        return missing
     ret_1d = trailing_return(close, 1)
     ret_5d = trailing_return(close, 5)
     ret_21d = trailing_return(close, 21)
@@ -312,6 +318,8 @@ def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFr
                     "theme": spec["theme"],
                     "label": spec["label"],
                     "price_status": "missing_or_short",
+                    "price_date": None if px.empty else pd.Timestamp(px.index[-1]).date().isoformat(),
+                    "price_as_of_status": "MISSING_OR_SHORT",
                     "holdings": ",".join(spec.get("holdings", ())),
                 }
             )
@@ -332,6 +340,8 @@ def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFr
                 "label": spec["label"],
                 "price_status": "ok",
                 "price_date": pd.Timestamp(close.index[-1]).date().isoformat(),
+                "price_as_of_status": "NOT_VERIFIED" if session is None else
+                    "ALIGNED_TO_SUPPLIED_SESSION" if pd.Timestamp(close.index[-1]).date().isoformat() == session else "STALE",
                 "ret_1d": trailing_return(close, 1),
                 "ret_5d": trailing_return(close, 5),
                 "ret_21d": trailing_return(close, 21),
@@ -353,6 +363,9 @@ def etf_attention(price_cache: Path, *, session: str | None = None) -> pd.DataFr
         + 0.15 * out["volume_z_20d"].fillna(0.0).clip(-6, 6)
         + 0.15 * robust_z(np.log1p(out["dollar_volume_20d"].fillna(0.0)))
     )
+    complete = out[['ret_5d','ret_21d','ret_63d']].notna().all(axis=1) & out.price_status.eq('ok')
+    complete &= ~out.price_as_of_status.eq('STALE')
+    out.loc[~complete, 'attention_score'] = np.nan
     return out.sort_values("attention_score", ascending=False, na_position="last").reset_index(drop=True)
 
 
@@ -362,7 +375,7 @@ def build_etf_lookthrough_watchlist(ticker_tape: pd.DataFrame, etf_attention_fra
     tape_by_ticker = ticker_tape.set_index("ticker", drop=False) if not ticker_tape.empty and "ticker" in ticker_tape.columns else pd.DataFrame()
     rows: list[dict[str, Any]] = []
     for etf in etf_attention_frame.to_dict("records"):
-        attention = safe_float(etf.get("attention_score"))
+        attention = safe_float(etf.get("attention_score"), np.nan)
         holdings = [x.strip().upper() for x in str(etf.get("holdings") or "").split(",") if x.strip()]
         for ticker in holdings:
             tape = tape_by_ticker.loc[ticker].to_dict() if not tape_by_ticker.empty and ticker in tape_by_ticker.index else {}
@@ -386,8 +399,8 @@ def build_etf_lookthrough_watchlist(ticker_tape: pd.DataFrame, etf_attention_fra
     if out.empty:
         return out
     out["combined_watch_score"] = (
-        pd.to_numeric(out["etf_attention_score"], errors="coerce").fillna(0.0)
-        + 0.50 * pd.to_numeric(out["ticker_participation_score"], errors="coerce").fillna(0.0)
+        pd.to_numeric(out["etf_attention_score"], errors="coerce")
+        + 0.50 * pd.to_numeric(out["ticker_participation_score"], errors="coerce")
     )
     return out.sort_values(["combined_watch_score", "etf_attention_score"], ascending=False, na_position="last").reset_index(drop=True)
 
@@ -687,15 +700,16 @@ def render_report(
     for row in (etfs.head(10).to_dict("records") if not etfs.empty else []):
         lines.append(
             f"- `{row.get('etf')}` {row.get('label')}: theme `{row.get('theme')}`, "
+            f"date `{row.get('price_date')}`, as-of `{row.get('price_as_of_status')}`, "
             f"5d {format_percent(row.get('ret_5d'))}, 21d {format_percent(row.get('ret_21d'))}, "
-            f"attention {safe_float(row.get('attention_score')):.2f}, holdings `{row.get('holdings')}`"
+            f"attention {format_number(row.get('attention_score'))}, holdings `{row.get('holdings')}`"
         )
     lines.extend(["", "## ETF Look-Through Watchlist", ""])
     for row in (lookthrough.head(20).to_dict("records") if not lookthrough.empty else []):
         lines.append(
             f"- `{row.get('ticker')}` via `{row.get('source_etf')}`/{row.get('source_etf_theme')}: "
-            f"ETF attention {safe_float(row.get('etf_attention_score')):.2f}, "
-            f"ticker score {safe_float(row.get('ticker_participation_score')):.2f}, "
+            f"ETF attention {format_number(row.get('etf_attention_score'))}, "
+            f"ticker score {format_number(row.get('ticker_participation_score'))}, "
             f"5d {format_percent(row.get('ticker_ret_5d'))}, in universe `{row.get('ticker_in_scored_universe')}`"
         )
     lines.extend(
@@ -882,6 +896,7 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
     etf_attention_frame = etf_attention(price_cache, session=comparison_session)
     lookthrough = build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)
     assessed_themes = theme_leaders.loc[theme_leaders.leadership_state.ne('data_pending')] if not theme_leaders.empty else theme_leaders
+    assessed_etfs = etf_attention_frame.loc[etf_attention_frame.attention_score.notna()] if not etf_attention_frame.empty else etf_attention_frame
     summary = {
         "status": "completed",
         "research_only": True,
@@ -901,12 +916,13 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         "input_scope": "SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE",
         "denominator_scope": "SUPPLIED_ROWS; GROUP_BREADTH_IS_OBSERVED_LIQUID_MEMBERS_ONLY",
         "whole_market_coverage_verified": False,
+        "etf_stale_rows": int(etf_attention_frame.price_as_of_status.eq('STALE').sum()) if not etf_attention_frame.empty else 0,
         "tickers_scored": int(len(ticker_tape)),
         "liquid_tickers": int(ticker_tape["liquidity_pass"].sum()),
         "top_theme": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_theme"]),
         "top_theme_state": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_state"]),
-        "top_etf_attention": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("etf")),
-        "top_etf_attention_theme": None if etf_attention_frame.empty else str(etf_attention_frame.iloc[0].get("theme")),
+        "top_etf_attention": None if assessed_etfs.empty else str(assessed_etfs.iloc[0].get("etf")),
+        "top_etf_attention_theme": None if assessed_etfs.empty else str(assessed_etfs.iloc[0].get("theme")),
         "top_tickers": ticker_tape.head(20)["ticker"].astype(str).tolist(),
     }
     write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, etf_attention_frame, lookthrough, summary)
