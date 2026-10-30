@@ -8993,3 +8993,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   not a new standing grant, capture activation, budget or purpose extension.
   Readiness/selection cron offsets do not prove Source publication, consumer
   acceptance or three normal runs plus a recovery.
+
+## 2026-10-30 — Search independent workflow contract expectations
+
+- PR702 HEAD3ba passed its12 focused native cases but Linux run41063367670
+  passed234/235 files: workflow_artifact_smoke still required the previous cron.
+  Its exact standalone function reproduced the failure locally. Search all
+  active contract references when changing a shared workflow, preserve dated
+  historical snapshots, and change only the obsolete expected token.
+- Focused validation and an exact-head scoped review do not certify the whole
+  required suite. Keep the failed head/logs, require fresh new-head CI/review,
+  and do not count bare Python assertions under -O as assertion coverage.
