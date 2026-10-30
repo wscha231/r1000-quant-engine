@@ -1147,7 +1147,7 @@ def test_free_data_daily_workflow_updates_metrics_after_close() -> None:
     for token in [
         "Free Data Daily Update",
         "schedule:",
-        "30 23 * * 1-5",
+        "30 0 * * 2-6",
         "tools/run_daily_market_session_gate.py",
         "outputs/free_data_daily_update/market_gate.json",
         "outputs/free_data_daily_update/operating_status.json",

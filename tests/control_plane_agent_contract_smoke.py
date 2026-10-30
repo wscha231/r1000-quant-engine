@@ -1552,11 +1552,83 @@ class ManagedExecutionTests(unittest.TestCase):
         self.assertEqual(value['jobs']['daily_update']['if'],
             "${{ github.event_name != 'workflow_dispatch' || !inputs.managed_refresh }}")
         trigger = value.get('on',value.get(True))
-        self.assertEqual(trigger['schedule'],[dict(cron='30 23 * * 1-5')])
+        self.assertEqual(trigger['schedule'],[dict(cron='30 0 * * 2-6')])
         self.assertFalse(trigger['workflow_dispatch']['inputs']['managed_refresh']['default'])
         self.assertIn('inputs.managed_refresh',value['jobs']['managed_a1_refresh']['if'])
         self.assertEqual(value['jobs']['managed_a1_refresh']['concurrency'],
                          dict(group='a1-private-research-single-writer',**{'cancel-in-progress':False}))
+
+    def test_shared_schedule_slot_keeps_the_completed_us_session_after_midnight(self):
+        import yaml
+        value = yaml.safe_load((ROOT/'.github/workflows/free_data_daily_update.yml').read_text(encoding='utf-8'))
+        trigger = value.get('on',value.get(True))
+        minute,hour,dom,month,weekdays = trigger['schedule'][0]['cron'].split()
+        self.assertEqual((dom,month,weekdays),('*','*','2-6'))
+        for session in ('2026-10-26','2026-10-30','2026-11-02','2026-11-27'):
+            with self.subTest(session=session):
+                observed = self.r.campaign.utc(session+'T00:00:00Z') + timedelta(
+                    days=1,hours=int(hour),minutes=int(minute))
+                self.assertIn(observed.isoweekday(),range(2,7))
+                market = self.preflight(observed)
+                self.assertTrue(market['ready'])
+                self.assertEqual(market['session_date'],session)
+                self.assertTrue(self.r.provider_endpoint_gate(session,observed)['ready'])
+                prior_slot = observed-timedelta(hours=1)
+                self.assertEqual(self.preflight(prior_slot)['session_date'],session)
+                self.assertFalse(self.r.provider_endpoint_gate(session,prior_slot)['ready'])
+
+    def test_shared_midnight_changes_legacy_requests_without_inventing_coverage(self):
+        import pandas as pd
+        from tools import build_replay_price_cache as cache
+        from tests.replay_price_cache_smoke import write_price
+        book = self.root/'legacy-book.csv'
+        cache_dir = self.root/'legacy-cache'
+        day = pd.Timestamp('2026-10-29')
+        names = ('AAA','BBB','CCC','DDD')
+        pd.DataFrame([dict(rebalance_date='2026-10-29',ticker=t,weight=0.25)
+                      for t in names]).to_csv(book,index=False)
+        for offset,ticker in enumerate(names):
+            write_price(cache_dir,ticker,(day-pd.Timedelta(days=offset)).date().isoformat())
+        args = argparse.Namespace(books=[str(book)],scored='',max_scored=250,
+            output_dir=str(cache_dir),start='2016-01-01',end='',batch_size=40,
+            max_tickers=80,required_tickers=[],refresh_stale_days=2,
+            refresh_through_date='',dry_run=True)
+        payloads = []
+        for clock in ('2026-10-29T23:30:00Z','2026-10-30T00:30:00Z'):
+            # Inject only this synthetic caller's UTC clock; real receipts are never restamped.
+            class ClockTimestamp(pd.Timestamp):
+                @classmethod
+                def utcnow(cls):
+                    return pd.Timestamp(clock)
+            class ClockPandas:
+                Timestamp = ClockTimestamp
+                def __getattr__(self,name):
+                    return getattr(pd,name)
+            with patch.object(cache,'pd',ClockPandas()):
+                payloads.append(cache.run(args,download_fn=lambda *a,**k:self.fail('provider request')))
+        before,after = payloads
+        self.assertEqual([p['requested_end'] for p in payloads],['2026-10-31','2026-11-01'])
+        self.assertEqual([p['stale_before'] for p in payloads],[1,2])
+        self.assertEqual([p['download_target_count'] for p in payloads],[1,2])
+        for payload in (before,after):
+            self.assertEqual(payload['requested_start'],'2016-01-01')
+            self.assertEqual(payload['refresh_through_date'],'')
+            self.assertEqual(payload['end'],'2026-10-29')
+            self.assertEqual(payload['manifest_end_source'],'actual_cached_bars')
+            self.assertEqual((payload['status'],payload['downloaded']),('dry_run',0))
+
+    def test_rescheduled_workflow_refuses_the_previous_deployment_pin_before_metadata(self):
+        control = copy.deepcopy(self.control)
+        control['code_pins'] = {p:self.r.digest((ROOT/p).read_bytes().replace(b'\r\n',b'\n'))
+                                for p in self.r.PIN_PATHS}
+        control['code_pins']['.github/workflows/free_data_daily_update.yml'] = (
+            '0003b5f6bbb80e5e5d6c4322844c1d8a1df65e577f2abbaab15567f85c1927c6')
+        context = dict(repository=self.r.REPO,ref='refs/heads/master',event='schedule',
+                       attempt=1,head='2'*40)
+        def no_metadata(_):
+            self.fail('old workflow pin reached deployment metadata')
+        with self.assertRaisesRegex(self.r.Refused,'^MANAGED_CODE_DRIFT$'):
+            self.r.deployed_source(control,no_metadata,context)
 
     def test_execution_subset_is_canonical_bounded_and_owner_hash_bound(self):
         original = copy.deepcopy(self.control)
