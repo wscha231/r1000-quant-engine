@@ -8923,3 +8923,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Keep the production catalog and current-source refusal unchanged. Existing
   generic positive, tamper, archive-bound and changed-input tests cover the
   added tuple; full current-head CI remains necessary for overall closure.
+
+## 2026-10-30 — Separate a shared Source benchmark from the stock inventory
+
+- Adding SPY to Source FOCUS makes821 tracking targets, while the retained
+  stock inventory and research candidate cohort remain820. Archive the exact
+  previous policy and preserve revision1/revision2 test oracles; test the new
+  delta separately. Old control/roster scope must refuse before journal I/O.
+  Policy membership supplies neither price coverage nor an execution grant.
+- A finite private prep stopped after local meter publication left a fixed
+  sibling `.tmp`; the final save raised FileExistsError and masked the first
+  exception. Preserve both snapshots and the full allocation, not an inferred
+  final actual HTTP total. Concurrent Windows readers may obstruct replace,
+  but the original cause remains unknown without its traceback. A later
+  separately authorized wrapper should use numbered append-only step/meter
+  receipts and preserve the primary error; never retry or refund implicitly.

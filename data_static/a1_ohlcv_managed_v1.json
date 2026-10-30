@@ -1,9 +1,9 @@
 {
   "schema": "a1-managed-ohlcv-policy-v1",
-  "revision": 2,
+  "revision": 3,
   "inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
   "baseline_inventory_sha256": "2c2811fcd51d87773da0644600129798b0db84b0ef86f917c864695190d5d730",
-  "previous_policy_sha256": "1ac3387de165a091bc99d20e218f7f3140f5f26d21ca6c0b0ea7dba73d66c420",
+  "previous_policy_sha256": "4eedd6c91df42b9d54786f08d0b2a56000e528df577c749de302edfec16f41f6",
   "active_tickers": [
     "A",
     "AA",
@@ -696,6 +696,7 @@
     "SPG",
     "SPGI",
     "SPOT",
+    "SPY",
     "SRE",
     "STE",
     "STEP",
@@ -826,7 +827,14 @@
     "ZBRA",
     "ZTS"
   ],
-  "changes": [],
+  "changes": [
+    {
+      "ticker": "SPY",
+      "action": "START_UPDATE",
+      "event_id": "A0-SOURCE-SPY-START-UPDATE-20261030",
+      "a0_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6511494400"
+    }
+  ],
   "control_reference": "https://github.com/wscha231/r1000-quant-engine/issues/448",
   "user_scope_reference": "https://github.com/wscha231/r1000-quant-engine/issues/590#issuecomment-6378954941",
   "refresh_delay_minutes": 120,
