@@ -273,3 +273,86 @@ is not the current branch/PR status. Read current GitHub HEAD, reviews and check
 for integration evidence. Native and independent A6 evidence alone do not
 authorize merge, fullrun, collection, learning, Source/PIT promotion,
 portfolio/book/order changes or notifications.
+
+## Pre-ranking observations to the existing queue (2026-10-30)
+
+`tools.run_theme_leadership_tape.prepare_research_roster` accepts explicit
+pre-ranking roster JSON bytes (`scope=PRE_RANKING_RESEARCH_ROSTER`, `rows`),
+the existing supplied US/USD identity-assertion bytes, and exact generation
+hashes keyed by security ID. Each roster row has `ticker` and optional `Name`,
+`sector`, `industry`. Unknown or ambiguous identity and duplicate securities
+are refused before source reads. Classification is descriptive; a missing
+sector remains unclassified, rather than removing the security. The supplied
+roster is the denominator, including names without inputs or with negative
+observations. A scored top-N or ETF seed is not substituted for that roster.
+
+The adapter calls the existing `research_feature_snapshot`, which uses public
+`ResearchDataReader.read_components(purpose=research,
+consumer_id=ohlcv-technical-feature-h1)`. Supply the already-authorized reader,
+original subject/optional-benchmark generations, explicit session and source
+decision `as_of`. Existing identity, rights, original clocks, windows, raw/split
+lineage, same-generation receipts and archival trust requirements apply.
+No manifest field creates trust. An absent subject generation produces an
+explicit pending row. A supplied generation refused by Feature stops the
+handoff with its refusal codes; it is never downgraded to ordinary missing
+data. Missing optional SPY leaves its RS features null while subject features
+remain usable. No Reader, Feature, Registry or Source gate is changed.
+
+Feature's native 5/20/60/120/240-session fields, feature statuses and complete
+snapshots are retained; they are not relabeled as legacy 21/63-day metrics.
+This route computes no new ranking, score, liquidity filter or trading policy,
+and preserves `ranking_allowed=false`. Actual zero and negative returns stay
+numeric; unavailable observations stay null (blank in CSV), never zero.
+
+Supply separate `observed_at` and `intake_cutoff` for the newly produced
+handoff, with `as_of <= observed_at <= intake_cutoff`. Output observation time
+does not replace original source publication, availability or collection
+clocks, and a historical source cutoff is not the new output's observation
+time. `source_kind` is an explicit existing A2 kind assertion, not certification
+of favorable signals or formal RS. The caller creates a new local output
+directory containing exact observation JSON/CSV, identities, request and the
+existing A2 result. Existing directories are refused; partial files after a
+failure are not a completed handoff. No canonical queue is written.
+
+The existing `prepare` file API reads those hash-bound bytes with the complete
+explicit roster and `retain_missing_candidates=true`. Queue items remain
+`DATA_PENDING` with missing consumer receipts. Repeated exact requests replay
+the same proposal; changed bytes require changed hashes. Existing hash,
+identity, scope, expiry and clock refusals are retained. A3 must actually read
+the observation and queue bytes and return their hashes with its partial
+research result or exact refusal. The adapter returns `a3_consumer_ack=null`;
+neither a proposal nor a prepared prompt is an A3 ACK or Registry current.
+
+The legacy cache/report route now performs no implicit ETF provider fetch.
+Missing/nonfinite returns display `UNKNOWN`; observed zero displays `0.00%`.
+Breadth exposes total/observed/missing/positive counts and its observed-liquid
+denominator. Partial required observations produce `data_pending`, not neutral
+or a leadership score; observed-only breadth is not whole-market breadth.
+`--comparison-session` explicitly bounds stock and ETF cache rows. Row dates,
+stale/missing counts and `MIXED_AS_OF`/`PARTIAL` qualify the summary; `completed`
+means computation finished, while max-date is only a watermark. Cache rows do
+not authenticate Source/PIT or currentness. The legacy scored-input scope is
+explicitly labeled separately from the pre-ranking roster API.
+
+Cache-owned dates, returns and volume fields always replace scored CSV fields,
+including a complete null record when the cache is missing/short. Old producer
+metadata cannot impersonate a successful cache read. Unobserved ETF attention
+and combined watch scores remain null. ETF row dates/as-of statuses are shown;
+stale ETFs are excluded from current attention when a comparison session is
+supplied, without blocking independent stock observations.
+Attention also requires its actual current/prior20 volume observations and
+finite dollar-volume input. Missing volume is not observed zero; real zero
+volume stays valid without a new positive-volume or liquidity threshold.
+Incomplete/stale rows remain in observation outputs but are excluded before
+the existing score normalization. They cannot change a valid row's score by
+altering an invalid comparison population; existing weights stay unchanged.
+Group judgment also requires finite participation/bubble/early scores for every
+liquid member, including members outside its top eight. Incomplete groups stay
+`data_pending`; their missing score cannot leave a leader label behind. Group
+and global top-name lists use only observed scores. All original observation
+rows remain available, with missing displayed scores rendered `UNKNOWN`.
+
+Synthetic regressions extend existing registered `ThemeTests`; no test registry
+or protected workflow changes are required. Actual Source-to-A3 wiring, three
+different economic-profit-source examples, independent A6, Registry current,
+validated ER/A5 and repeated operation require their separate actual evidence.
