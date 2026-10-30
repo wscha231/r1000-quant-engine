@@ -346,6 +346,11 @@ volume stays valid without a new positive-volume or liquidity threshold.
 Incomplete/stale rows remain in observation outputs but are excluded before
 the existing score normalization. They cannot change a valid row's score by
 altering an invalid comparison population; existing weights stay unchanged.
+Group judgment also requires finite participation/bubble/early scores for every
+liquid member, including members outside its top eight. Incomplete groups stay
+`data_pending`; their missing score cannot leave a leader label behind. Group
+and global top-name lists use only observed scores. All original observation
+rows remain available, with missing displayed scores rendered `UNKNOWN`.
 
 Synthetic regressions extend existing registered `ThemeTests`; no test registry
 or protected workflow changes are required. Actual Source-to-A3 wiring, three

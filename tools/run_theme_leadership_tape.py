@@ -32,6 +32,7 @@ DEFAULT_SCORED = "cloud_results/full_rebuild/latest_global_alpha_universe/scored
 DEFAULT_PRICE_CACHE = "cache_prices"
 DEFAULT_OUT_DIR = "outputs/theme_leadership_tape"
 CASH_TICKERS = {"CASH", "__CASH__"}
+SCORE_FIELDS = ('participation_score', 'bubble_climax_score', 'early_leadership_score')
 
 ETF_LOOKTHROUGH: dict[str, dict[str, Any]] = {
     "DRAM": {
@@ -162,6 +163,11 @@ def format_percent(value: Any) -> str:
 def format_number(value: Any) -> str:
     number = safe_float(value, np.nan)
     return f"{number:.2f}" if math.isfinite(number) else "UNKNOWN"
+
+
+def observed_score_rows(frame: pd.DataFrame) -> pd.Series:
+    scores = frame.reindex(columns=SCORE_FIELDS).apply(pd.to_numeric, errors='coerce')
+    return scores.replace([np.inf, -np.inf], np.nan).notna().all(axis=1)
 
 
 def robust_z(values: pd.Series) -> pd.Series:
@@ -584,7 +590,7 @@ def aggregate_leadership(tape: pd.DataFrame, group_col: str) -> pd.DataFrame:
         liquid = g[g["liquidity_pass"]].copy()
         if liquid.empty:
             continue
-        top = liquid.sort_values("participation_score", ascending=False).head(8)
+        top = liquid.loc[observed_score_rows(liquid)].sort_values("participation_score", ascending=False).head(8)
         ret21 = pd.to_numeric(liquid["ret_21d"], errors="coerce").replace([np.inf, -np.inf], np.nan)
         observed = int(ret21.notna().sum())
         positive = int(ret21.gt(0).sum())
@@ -635,6 +641,8 @@ def aggregate_leadership(tape: pd.DataFrame, group_col: str) -> pd.DataFrame:
 def classify_group(liquid: pd.DataFrame, top: pd.DataFrame) -> str:
     # No new minimum-coverage threshold: only complete required observations
     # may receive the existing judgment. Partial facts remain visible above.
+    if liquid.empty or not observed_score_rows(liquid).all():
+        return 'data_pending'
     if 'price_as_of_status' in liquid and liquid['price_as_of_status'].isin(['MISSING','STALE']).any():
         return 'data_pending'
     for column in ("ret_5d", "ret_21d"):
@@ -689,7 +697,7 @@ def render_report(
             f"total/observed/missing `{row.get('member_count')}/{row.get('observed_count_21d')}/{row.get('missing_count_21d')}`, "
             f"top `{row.get('top_tickers')}`"
         )
-    lines.extend(["", "## Top Tickers", ""])
+    lines.extend(["", "## Ticker Observations", ""])
     keep = [
         "ticker",
         "Name",
@@ -705,7 +713,7 @@ def render_report(
         lines.append(
             f"- `{row.get('ticker')}` {str(row.get('Name') or '')[:32]}: theme `{row.get('leadership_theme')}`, "
             f"1d {format_percent(row.get('ret_1d'))}, 5d {format_percent(row.get('ret_5d'))}, "
-            f"21d {format_percent(row.get('ret_21d'))}, score {safe_float(row.get('participation_score')):.2f}"
+            f"21d {format_percent(row.get('ret_21d'))}, score {format_number(row.get('participation_score'))}"
         )
     lines.extend(["", "## ETF Attention", ""])
     for row in (etfs.head(10).to_dict("records") if not etfs.empty else []):
@@ -908,6 +916,7 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
     lookthrough = build_etf_lookthrough_watchlist(ticker_tape, etf_attention_frame)
     assessed_themes = theme_leaders.loc[theme_leaders.leadership_score.notna()] if not theme_leaders.empty else theme_leaders
     assessed_etfs = etf_attention_frame.loc[etf_attention_frame.attention_score.notna()] if not etf_attention_frame.empty else etf_attention_frame
+    assessed_tickers = ticker_tape.loc[observed_score_rows(ticker_tape)]
     summary = {
         "status": "completed",
         "research_only": True,
@@ -929,12 +938,13 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         "whole_market_coverage_verified": False,
         "etf_stale_rows": int(etf_attention_frame.price_as_of_status.eq('STALE').sum()) if not etf_attention_frame.empty else 0,
         "tickers_scored": int(len(ticker_tape)),
+        "tickers_with_observed_scores": int(len(assessed_tickers)),
         "liquid_tickers": int(ticker_tape["liquidity_pass"].sum()),
         "top_theme": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_theme"]),
         "top_theme_state": None if assessed_themes.empty else str(assessed_themes.iloc[0]["leadership_state"]),
         "top_etf_attention": None if assessed_etfs.empty else str(assessed_etfs.iloc[0].get("etf")),
         "top_etf_attention_theme": None if assessed_etfs.empty else str(assessed_etfs.iloc[0].get("theme")),
-        "top_tickers": ticker_tape.head(20)["ticker"].astype(str).tolist(),
+        "top_tickers": assessed_tickers.head(20)["ticker"].astype(str).tolist(),
     }
     write_outputs(out_dir, ticker_tape, theme_leaders, sector_leaders, etf_attention_frame, lookthrough, summary)
     return summary

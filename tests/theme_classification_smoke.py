@@ -211,7 +211,7 @@ class ThemeTests(unittest.TestCase):
 
     def test_native_actual_zero_remains_zero_and_neutral(self):
         with tempfile.TemporaryDirectory() as tmp:
-            _, rows, groups, report=self.local_tape(Path(tmp),[('AAA',30,'2026-10-29',False)])
+            _, rows, groups, report=self.local_tape(Path(tmp),[('AAA',160,'2026-10-29',False)])
         self.assertEqual(rows.iloc[0].ret_21d,0)
         self.assertEqual(groups.iloc[0].leadership_state,'neutral')
         self.assertIn('21d 0.00%',report)
@@ -309,6 +309,39 @@ class ThemeTests(unittest.TestCase):
         self.assertEqual(etf_scores[0],etf_scores[1])
         self.assertEqual(ticker_scores[0],ticker_scores[1])
         self.assertEqual(group_scores[0],group_scores[1])
+
+    def test_incomplete_score_group_label_and_top_names_stay_pending(self):
+        valid=dict(ticker='AAA',leadership_theme='fixture',liquidity_pass=True,
+            price_as_of_status='ALIGNED_TO_SUPPLIED_SESSION',ret_1d=.01,ret_5d=.15,
+            ret_21d=.25,ret_63d=.4,dollar_volume_20d=1e8,
+            participation_score=1.,bubble_climax_score=1.,early_leadership_score=1.)
+        missing=dict(valid,ticker='MISSING',volume_z_20d=float('nan'),
+            participation_score=float('nan'),bubble_climax_score=float('nan'),early_leadership_score=float('nan'))
+        for rows in ([missing],[dict(valid,ticker=f'VALID{i}') for i in range(8)]+[missing]):
+            group=tape.aggregate_leadership(pd.DataFrame(rows),'leadership_theme').iloc[0]
+            self.assertEqual(group.leadership_state,'data_pending')
+            self.assertTrue(pd.isna(group.leadership_score))
+            self.assertNotIn('MISSING',group.top_tickers)
+        # Finite existing scores are sufficient; no new volume_z field gate.
+        self.assertEqual(tape.aggregate_leadership(pd.DataFrame([valid]),'leadership_theme').iloc[0].leadership_state,'climax_hot')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);cache=root/'cache';cache.mkdir()
+            px=pd.DataFrame({'Close':[100.+i for i in range(100)],
+                'Adj Close':[100.+i for i in range(100)],'Volume':[1e6+i for i in range(100)]},
+                index=pd.bdate_range(end='2026-10-29',periods=100))
+            px.iloc[-2,px.columns.get_loc('Volume')]=float('nan')
+            px.to_parquet(cache/tape.px_cache_name('AAA'))
+            source=root/'roster.csv';pd.DataFrame([dict(ticker='AAA',sector='Fixture',mktcap=5e9)]).to_csv(source,index=False)
+            summary=tape.run(source,cache,root/'out',1e9,1e6,comparison_session='2026-10-29')
+            groups=pd.read_csv(root/'out/theme_leadership.csv')
+            raw=pd.read_csv(root/'out/ticker_leadership.csv')
+            report=(root/'out/report.md').read_text(encoding='utf-8')
+        self.assertEqual(len(raw),1)
+        self.assertEqual(groups.iloc[0].leadership_state,'data_pending')
+        self.assertEqual(summary['top_tickers'],[])
+        self.assertEqual(summary['tickers_with_observed_scores'],0)
+        self.assertIn('score UNKNOWN',report)
+        self.assertNotIn('state `emerging_leader`',report)
 
     def test_native_missing_cache_row_is_retained_without_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
