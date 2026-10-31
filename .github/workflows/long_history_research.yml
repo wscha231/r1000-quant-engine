@@ -19,6 +19,7 @@ on:
       - 'tools/alpaca_sip_campaign.py'
       - 'tools/prepare_a1_managed_ohlcv.py'
       - 'tools/run_daily_market_session_gate.py'
+      - 'tools/run_pr_validation.py'
       - 'r1000_legacy_input_guard.py'
       - 'tests/research_data_access_smoke.py'
       - 'tests/a1_reader_generation_binding_smoke.py'
@@ -72,6 +73,7 @@ jobs:
             /tools/alpaca_sip_campaign.py
             /tools/prepare_a1_managed_ohlcv.py
             /tools/run_daily_market_session_gate.py
+            /tools/run_pr_validation.py
             /r1000_legacy_input_guard.py
             /tests/research_data_access_smoke.py
             /tests/a1_reader_generation_binding_smoke.py
