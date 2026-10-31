@@ -1320,7 +1320,7 @@ class HistoryTest(unittest.TestCase):
         self.assertTrue(paths)
         self.assertEqual(len(paths),len(set(paths)))
         child=textwrap.dedent('''
-            import importlib,json,pathlib,sys,unittest
+            import importlib,io,json,pathlib,sys,unittest
             root=pathlib.Path(sys.argv[1]).resolve()
             sys.path[:0]=[str(root/'tests'),str(root)]
             def leaves(suite):
@@ -1338,6 +1338,15 @@ class HistoryTest(unittest.TestCase):
                     classes={type(test).__module__+'.'+type(test).__name__ for test in cases}
                     required={'research_data_access_smoke.ReaderTest','a1_reader_generation_binding_smoke.BindingTest'}
                     if not required<=classes: raise RuntimeError('registered_reader_binding_missing')
+            # Imports cannot prove dependencies read only when a test executes.
+            # Run the real registered case, including its DEFAULT_TESTS AST read.
+            binding=importlib.import_module('a1_reader_generation_binding_smoke')
+            deferred=unittest.TestSuite([binding.BindingTest(
+                'test_registered_lake_loads_reader_and_source_suites_without_duplicate_entries')])
+            output=io.StringIO()
+            checked=unittest.TextTestRunner(stream=output,verbosity=2).run(deferred)
+            if checked.testsRun!=1 or not checked.wasSuccessful():
+                raise RuntimeError('sparse_deferred_registry_read_failed:'+output.getvalue())
             for name,module in tuple(sys.modules.items()):
                 if name.startswith('tools.') or name.endswith('_smoke'):
                     origin=getattr(module,'__file__',None)
@@ -1415,6 +1424,7 @@ class HistoryTest(unittest.TestCase):
             for omitted,module in (
                 ('tests/a1_reader_generation_binding_smoke.py','a1_reader_generation_binding_smoke'),
                 ('tools/twelve_private_capture.py','twelve_private_capture'),
+                ('tools/run_pr_validation.py','run_pr_validation'),
             ):
                 with self.subTest(omitted=omitted):
                     case=root/module;shutil.copytree(baseline,case)

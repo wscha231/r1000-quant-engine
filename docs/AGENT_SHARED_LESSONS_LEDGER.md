@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-10-31 - Sparse workflow closure includes deferred test file reads
+
+- Long-history run41063456778/job124088724339 failed before Source/Drive
+  access: the registered BindingTest read `tools/run_pr_validation.py`, which
+  the workflow's sparse checkout omitted. Terminal evidence was288tests,
+  one error and7skips; transport/namespace/collection steps6-10 were skipped.
+  That failed run did not refresh financial or macro history.
+- Importing all sparse suites did not exercise the deferred registry AST read.
+  Execute that actual registered test in the isolated copied projection and
+  prove failure when its runner file is removed. Keep credential scrubbing,
+  socket denial and portable/POSIX macro checks; do not skip the failing gate.
+- Add a consumed file to both sparse checkout and the workflow path filter.
+  Preserve the existing producer's `event_name != 'push'` condition: publishing
+  a code fix is not a collection grant, dispatch or transactional rerun.
+
 ## 2026-10-26 - Version enablement independently from a finite maintenance grant
 
 - Archive exact revision1 policy bytes and bind revision2 to that actual parent
