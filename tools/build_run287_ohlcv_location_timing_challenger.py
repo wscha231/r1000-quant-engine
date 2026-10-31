@@ -861,8 +861,38 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     # The cache is invocation-local: every snapshot revalidates its exact
     # generation, clocks and rights through the public Source component API.
     component_reads = {}
+    generation_qualifications = {}
     global_refusals = []
     session_closes = _SessionCloseMap(allow_batch=True)  # research-only snapshot
+
+    def generation_qualification(gen, manifest, spec, batch):
+        # External generation provenance is global, including when every
+        # requested optional component was absent. Do not defer it to a row.
+        source = spec["source"]
+        expected, trust = generation_trust[gen]
+        if gen in benchmark_gens.values() and gen != generation and source.get(
+                "provider_close_qualification_sha256") is not None:
+            check(expected is not None, "QUALIFICATION_TRUST_REQUIRED")
+        if expected is None:
+            return None  # legacy non-archival path
+        from tools.prepare_a1_reader_generation import (
+            TrustedSourceBinding, TrustedCompositionBinding,
+            qualification_trust_matches)
+        qsha = sha(expected)
+        check(source.get("provider_close_qualification_sha256") == qsha,
+              "HALT_COVERAGE_UNKNOWN")
+        check(type(trust) in (TrustedSourceBinding, TrustedCompositionBinding),
+              "QUALIFICATION_TRUST_REQUIRED")
+        check(batch.receipt.get("provider_close_qualification_sha256") == qsha,
+              "QUALIFICATION_RECEIPT_BINDING")
+        qualification = decode(read_object(reader.transport,
+            f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
+        check(qualification_trust_matches(trust, manifest, source, qualification) and
+              all(h in trust.proof_sha256 for h in _provider_close_references(qualification)),
+              "QUALIFICATION_REVIEW_BINDING")
+        read_object(reader.transport, f"{PREFIX_V1}/objects/{trust.review_receipt_sha256}",
+                    trust.review_receipt_sha256, 4 * 1024 * 1024)
+        return qsha, trust, qualification
 
     def read_generation(gen, ids, required_ids):
         try:
@@ -892,6 +922,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             batch = reader.read_components("ds.us.prices.daily", gen,
                 decision_time=as_of, purpose="research", components=components,
                 consumer_id="ohlcv-technical-feature-h1")
+            generation_qualifications[gen] = generation_qualification(gen, manifest, spec, batch)
             component_reads[gen] = (manifest, spec, batch)
         except ContractError as exc:
             # Reader exceptions are global; only batch.refusals are local.
@@ -930,33 +961,12 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
                   clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
                   "FEATURE_IDENTITY_CLOCK")
-            expected_qualification, trust = generation_trust[gen]
-            if gen in benchmark_gens.values() and gen != generation and source.get(
-                    "provider_close_qualification_sha256") is not None:
-                check(expected_qualification is not None, "QUALIFICATION_TRUST_REQUIRED")
-            if expected_qualification is not None:
-                # Keep the legacy path independent of the optional Source adapter.
-                from tools.prepare_a1_reader_generation import (
-                    TrustedSourceBinding, TrustedCompositionBinding,
-                    qualification_trust_matches)
-                qsha = sha(expected_qualification)
-                check(source.get("provider_close_qualification_sha256") == qsha,
-                      "HALT_COVERAGE_UNKNOWN")
-                check(type(trust) in (TrustedSourceBinding, TrustedCompositionBinding),
-                      "QUALIFICATION_TRUST_REQUIRED")
-                check(read.receipt.get("provider_close_qualification_sha256") == qsha and
-                      batch.receipt.get("provider_close_qualification_sha256") == qsha,
+            if generation_qualifications[gen] is not None:
+                qsha, trust, qualification = generation_qualifications[gen]
+                check(read.receipt.get("provider_close_qualification_sha256") == qsha,
                       "QUALIFICATION_RECEIPT_BINDING")
-                qualification = decode(read_object(reader.transport,
-                    f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
-                check(qualification_trust_matches(trust, manifest, source, qualification) and
-                      all(h in trust.proof_sha256 for h in
-                          _provider_close_references(qualification)) and
-                      identity_sha in trust.proof_sha256,
+                check(identity_sha in trust.proof_sha256,
                       "QUALIFICATION_REVIEW_BINDING")
-                read_object(reader.transport,
-                    f"{PREFIX_V1}/objects/{trust.review_receipt_sha256}",
-                    trust.review_receipt_sha256, 4 * 1024 * 1024)
                 qualified = True
         except ContractError as exc:
             # Consumer proof integrity is global even for an optional benchmark

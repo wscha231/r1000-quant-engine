@@ -310,6 +310,9 @@ the same labels, all present in `benchmark_generations`. The subject's scalar
 qualification/binding still applies to its SPLIT/RAW pair; it is never inherited
 by a distinct benchmark generation. Manifest fields do not supply these pins.
 Conflicting trust for roles in the same generation refuses before source I/O.
+Generation qualification and external review binding are checked even when the
+requested optional instrument is absent. Only absence with valid generation
+provenance may remain local; missing/mismatched pins stop the entire handoff.
 
 All roles in one exact generation share one invocation-local component batch,
 with each instrument's original explicit start through the requested session.

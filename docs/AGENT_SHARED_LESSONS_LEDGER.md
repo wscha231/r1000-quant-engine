@@ -9019,3 +9019,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   replay checks are code evidence only. Preserve global provenance refusals,
   local optional absence, PIT_PROXY RS nulls and the whole unranked candidate
   roster; this interface change grants no actual Source/PIT, A3 or Registry state.
+- Exact-head Codex review4430042482 found a combined case missed by the initial
+  scoped review: an absent optional component raised before its generation's
+  external qualification checks. Validate generation trust independently of row
+  success, then apply local absence. Keep actual public Reader fixture negatives
+  for missing pins, wrong digest and wrong binding with absence, plus valid-trust
+  absence and roster stop-before-output controls. Preserve the earlier review
+  and CI as historical evidence, not approval of this successor head.

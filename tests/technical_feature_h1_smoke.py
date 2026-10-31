@@ -953,14 +953,39 @@ class BenchmarkGenerationTests(unittest.TestCase):
         self.assertIsNotNone(good['features']['ret_5s'], good['blocker'])
         self.assertEqual(good['blocker']['rs_log_spy_5s'], 'BENCHMARK_PIT_UNVERIFIED')
         self.assertEqual(good['benchmark_ref']['SPY']['generation'], benchmark.generation_id)
-        for overrides, code in [({}, 'QUALIFICATION_TRUST_REQUIRED'),
-            (dict(benchmark_expected_qualification_sha256={'SPY': bqsha},
-                  benchmark_trusted_qualification_sources={'SPY': trust}), 'QUALIFICATION_REVIEW_BINDING'),
-            (dict(benchmark_expected_qualification_sha256={'SPY': qsha},
-                  benchmark_trusted_qualification_sources={'SPY': trust}), 'HALT_COVERAGE_UNKNOWN')]:
-            bad = target.research_feature_snapshot(reader, subject.generation_id, **arguments, **overrides)
-            self.assertEqual(set(bad['blocker'].values()), {code})
-            self.assertTrue(all(v is None for v in bad['features'].values()))
+        absent_arguments = dict(arguments, benchmark_ids={'SPY': 'US.TEST.ABSENT'})
+        absent = target.research_feature_snapshot(reader, subject.generation_id,
+            benchmark_expected_qualification_sha256={'SPY': bqsha},
+            benchmark_trusted_qualification_sources={'SPY': btrust}, **absent_arguments)
+        self.assertIsNotNone(absent['features']['ret_5s'], absent['blocker'])
+        self.assertEqual(absent['blocker']['rs_log_spy_5s'], 'MISSING_INSTRUMENT')
+        for request in (arguments, absent_arguments):
+            for overrides, code in [({}, 'QUALIFICATION_TRUST_REQUIRED'),
+                (dict(benchmark_expected_qualification_sha256={'SPY': bqsha},
+                      benchmark_trusted_qualification_sources={'SPY': trust}), 'QUALIFICATION_REVIEW_BINDING'),
+                (dict(benchmark_expected_qualification_sha256={'SPY': qsha},
+                      benchmark_trusted_qualification_sources={'SPY': trust}), 'HALT_COVERAGE_UNKNOWN')]:
+                with self.subTest(instrument=request['benchmark_ids']['SPY'], expected=code):
+                    bad = target.research_feature_snapshot(reader, subject.generation_id, **request, **overrides)
+                    self.assertEqual(set(bad['blocker'].values()), {code})
+                    self.assertTrue(all(v is None for v in bad['features'].values()))
+        from tools import run_theme_leadership_tape as tape, run_a2_research_intake as caller
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp)/'must-not-publish'
+            with self.assertRaisesRegex(caller.intake.IntakeError,
+                    '^OBSERVATION_SOURCE_REFUSED:QUALIFICATION_TRUST_REQUIRED$'):
+                tape.prepare_research_roster(reader, {'US.TEST.AAPL': subject.generation_id},
+                    roster_raw=encoded(dict(scope='PRE_RANKING_RESEARCH_ROSTER', rows=[dict(ticker='AAPL')])),
+                    identities_raw=encoded(dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS', rows=[dict(
+                        security_id='US.TEST.AAPL', issuer_id='FIXTURE:ISSUER:AAPL', tickers=['AAPL'], country='US', currency='USD')])),
+                    session=arguments['session'], as_of=arguments['as_of'],
+                    observed_at='2026-10-30T06:30:00Z', intake_cutoff='2026-10-30T06:31:00Z',
+                    out_dir=destination, source_kind='FUSION_REVIEW',
+                    raw_generations={'US.TEST.AAPL': raw.generation_id},
+                    expected_qualification_sha256=qsha, trusted_qualification_source=trust,
+                    benchmark_ids=absent_arguments['benchmark_ids'],
+                    benchmark_generations=absent_arguments['benchmark_generations'])
+            self.assertFalse(destination.exists())
 
     def test_explicit_corrected_benchmark_preserves_original_replay_and_subject_values(self):
         case = self.fixture()
