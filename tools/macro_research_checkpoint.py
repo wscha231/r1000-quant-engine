@@ -7,6 +7,8 @@ One writer is required. Conflicting heads fail closed instead of choosing a winn
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import itertools
 import json
 import os
 from pathlib import Path
@@ -26,6 +28,9 @@ MAX_OBJECT = 20 * 1024 * 1024
 MAX_TOTAL = 512 * 1024 * 1024
 MAX_FILES = 10000
 NAMESPACE = "research/macro_technical_evidence/v1/"
+PACK_PREFIX = "long-history-v1/packs"
+PACK_BATCH_FILES = 4
+PACK_BATCH_BYTES = 80 * 1024 * 1024
 
 
 _TRANSPORT_FAILURE_TERMS = {
@@ -108,6 +113,65 @@ def checked_bytes(path, expected=None):
     return raw
 
 
+def _pack_names(hashes):
+    require(isinstance(hashes, (list, tuple)) and 0 < len(hashes) <= PACK_BATCH_FILES,
+            "pack_batch_names")
+    require(all(type(sha) is str and SHA.fullmatch(sha) for sha in hashes) and
+            len(set(hashes)) == len(hashes), "pack_batch_names")
+    return sorted(hashes)
+
+
+def _observe_pack_stage(stage, observation):
+    # A bounded lower bound, including partial/failed copies; never wire cost.
+    paths = list(itertools.islice(stage.iterdir(), PACK_BATCH_FILES + 1))
+    observation['staged_bytes'] = sum(p.lstat().st_size for p in paths if not p.is_symlink() and p.is_file())
+    observation['staged_bytes_complete'] = len(paths) <= PACK_BATCH_FILES
+    return paths
+
+
+@contextmanager
+def _pack_stage(hashes, copy_group, observation):
+    hashes = _pack_names(hashes)
+    observation.update(reserved_bytes=PACK_BATCH_BYTES, staged_bytes=0,
+                       staged_bytes_complete=False, subprocess_attempts=0,
+                       backend_requests=None, wire_bytes=None)
+    temporary = tempfile.TemporaryDirectory(prefix="history-pack-batch-")
+    stage = Path(temporary.name) / 'packs'
+    failed = False
+    try:
+        stage = safe_path(stage)
+        stage.mkdir()
+        copy_group(hashes, stage, observation)
+        paths = _observe_pack_stage(stage, observation)
+        require({p.name for p in paths} == set(hashes) and len(paths) == len(hashes),
+                "pack_batch_inventory")
+        for path in paths:
+            require(not path.is_symlink() and path.is_file(), "pack_batch_file")
+            require(0 < path.stat().st_size <= MAX_OBJECT, "checkpoint_object_size")
+        require(observation['staged_bytes'] <= PACK_BATCH_BYTES, "pack_batch_size")
+        yield stage
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        # Diagnostic/cleanup errors must not replace an existing cancellation.
+        final_error = None
+        try:
+            _observe_pack_stage(stage, observation)
+        except BaseException:
+            observation['staged_bytes_complete'] = False
+            if not failed:
+                final_error = sys.exc_info()
+        try:
+            temporary.cleanup()
+        except BaseException:
+            observation['cleanup_failed'] = True
+            if not failed and final_error is None:
+                final_error = sys.exc_info()
+        if final_error is not None:
+            raise final_error[1].with_traceback(final_error[2])
+
+
 class LocalTransport:
     """Filesystem transport for meaningful offline fault injection, never remote proof."""
     remote_verified = False
@@ -135,6 +199,12 @@ class LocalTransport:
     def download(self, hashes, target):
         for sha in hashes:
             exclusive(target / sha, self.read("objects/" + sha))
+
+    def read_pack_batch(self, hashes, observation):
+        def copy_group(names, stage, counts):
+            for sha in names:
+                exclusive(stage / sha, self.read(PACK_PREFIX + '/' + sha))
+        return _pack_stage(hashes, copy_group, observation)
 
 
 class RcloneTransport:
@@ -240,6 +310,18 @@ class RcloneTransport:
             self.call("copy", self.path("objects"), target, "--files-from-raw", listing,
                       "--immutable", "--checksum", "--transfers", "4", "--max-transfer", "512M",
                       "--cutoff-mode", "HARD")
+
+    def read_pack_batch(self, hashes, observation):
+        def copy_group(names, stage, counts):
+            listing = stage.parent / 'packs.txt'
+            listing.write_text('\n'.join(names) + '\n', encoding='ascii')
+            counts['subprocess_attempts'] += 1
+            # Match the existing bounded copy path; no additional Python retry.
+            self.call('copy', self.path(PACK_PREFIX), stage,
+                      '--files-from-raw', listing, '--immutable', '--checksum',
+                      '--transfers', '1', '--checkers', '1',
+                      '--max-transfer', '80M', '--cutoff-mode', 'HARD')
+        return _pack_stage(hashes, copy_group, observation)
 
 
 def read_json(transport, path):

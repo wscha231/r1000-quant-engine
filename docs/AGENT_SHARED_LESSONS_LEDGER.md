@@ -9065,3 +9065,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   verify collision preservation and successful actual-file hashes with zero
   Source/Reader/Feature/A2 preparation calls. Preserve old-head reviews and test
   receipts; require fresh successor-head evidence.
+
+## 2026-11-01 — Batch fresh pack copies without weakening restore evidence
+
+- Repeated retained-pack verification is a process/transport cost, not proof
+  that remote bytes may be replaced by a warm cache. Keep every restore and
+  publication boundary fresh, including remote presence, SHA256, ZIP/member CRC
+  and member hashes; only group up to four packs in disposable 80 MiB staging.
+- Preserve partial/failed-copy observations and reservation separately from
+  unknown backend requests/wire bytes. Count the Python copy attempt even when
+  it fails, never refund budget from a small partial stage, and preserve the
+  original cancellation if diagnostic inspection or cleanup also fails.
+- Synthetic parity/fault tests cannot establish current Drive durability,
+  completed analysis, a measured speedup or a 120-minute runtime guarantee.
+  Keep the existing consumer, source parser identity and scheduling contracts;
+  product CI and independent exact-head review remain separate evidence.
