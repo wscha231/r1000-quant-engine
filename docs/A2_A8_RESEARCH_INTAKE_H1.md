@@ -353,7 +353,59 @@ the observation and queue bytes and return their hashes with its partial
 research result or exact refusal. The adapter returns `a3_consumer_ack=null`;
 neither a proposal nor a prepared prompt is an A3 ACK or Registry current.
 
-The legacy cache/report route now performs no implicit ETF provider fetch.
+### All-requested unranked observations and the strict subset
+
+`prepare_all_requested_research_roster` accepts the same explicit roster and
+identity bytes, clocks, caller-owned generation maps and benchmark trust inputs.
+It retains original input order (`input_ordinal`), raw ticker, unresolved identity
+and missing classification. Unknown identities have null IDs and
+`UNKNOWN_IDENTITY`; they never enter Reader or the A2 subset. A unique supplied
+identity assertion is `SUPPLIED_ASSERTION_RESOLVED`, not independently verified
+identity. Ambiguous/conflicting mappings, duplicate tickers/securities and supplied
+Source refusals still stop the whole handoff before a successful full observation.
+The existing strict `prepare_research_roster` function is unchanged.
+
+Only the one-to-one resolved subset is passed to that strict function. Resolved
+names without Source generations remain in its existing pending proposal. The
+new `all_requested_observations.json` joins the subset's exact observation/A2
+hashes back to every original requested row. If every identity is unknown, the
+caller emits only the bounded diagnostic observation: Reader, Feature and A2
+calls are zero, `a2_status=NOT_RUN`, and no empty formal queue is accepted.
+The output directory must be new. A partial subset after a later write failure
+is not a completed all-requested handoff. No canonical queue or registry is written.
+
+Sector and theme groups preserve all requested members, including explicit
+`UNCLASSIFIED` groups with no observed values. For each native 5/20/60/120/240
+session horizon they report member, observed, positive, negative, zero, missing
+and stale counts, plus the observed-subset median. Members equal observed plus
+missing plus stale; positive plus negative plus zero equal observed. Numeric
+zero stays zero, missing stays null. There is no liquidity filter, dropped-null
+group, score, ranking, leader label or new policy threshold. Median basis is
+`OBSERVED_SUBSET_SPLIT_ADJUSTED_PRICE_RETURN`: these are existing adjusted-price
+feature facts, not dividend total returns, formal benchmark RS or net ER.
+
+`comparison_session` is a caller-supplied comparison scope (default the explicit
+feature session), not evidence of the latest completed NYSE session. It cannot
+precede the requested source session or be an uncompleted/non-NYSE session at
+the source `as_of`. Snapshot session, cutoff and adjustment basis must match the
+strict request. An available older-session return is stale against a later
+comparison; insufficient horizons and unknown identity/source remain missing.
+Only aligned numeric observations enter the median. A fresh output timestamp,
+or matching an old comparison session, never makes old prices current:
+`currentness_verified` and `whole_market_coverage_verified` remain false.
+Hash/rights/expiry/proof refusals are not downgraded to stale or ordinary absence.
+
+`scanned_count` means requested roster rows validated. It is distinct from
+snapshot count, per-horizon observations and admissibility. Independently
+verified identity, price admission and unassessed financial-admissibility counts
+remain null; each row's fundamental admissibility is `UNKNOWN`. The full requested
+denominator is not a verified market universe. Supplied seed/counterseed lists do
+not override it. Actual Source/Reader consumption still requires its own fresh
+finite purpose and original receipts; this code adds no data authorization.
+
+The legacy cache/report route labels its universe `SELECTED_SUBSET` and its
+input `SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE`, including empty input.
+It now performs no implicit ETF provider fetch.
 Missing/nonfinite returns display `UNKNOWN`; observed zero displays `0.00%`.
 Breadth exposes total/observed/missing/positive counts and its observed-liquid
 denominator. Partial required observations produce `data_pending`, not neutral

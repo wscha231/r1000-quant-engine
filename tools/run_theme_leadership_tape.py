@@ -885,6 +885,172 @@ def prepare_research_roster(reader, generations: dict[str, str], *, roster_raw: 
                 a3_consumer_ack=None, canonical_current_verified=False)
 
 
+def _unranked_native_groups(rows: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
+    """Full requested membership, including unclassified and unobserved rows."""
+    groups = {}
+    for row in rows:
+        value = row.get(field)
+        label = value.strip() if isinstance(value, str) and value.strip() else 'UNCLASSIFIED'
+        if label == 'unclassified':
+            label = 'UNCLASSIFIED'
+        groups.setdefault(label, []).append(row)
+    result = []
+    for label, members in sorted(groups.items()):
+        horizons = {}
+        for n in (5, 20, 60, 120, 240):
+            key = f'ret_{n}s'
+            values = [r[key] for r in members if r['metric_status'][key] == 'OBSERVED']
+            positive = sum(v > 0 for v in values)
+            negative = sum(v < 0 for v in values)
+            zero = sum(v == 0 for v in values)
+            ordered = sorted(values)
+            middle = len(ordered) // 2
+            median = (ordered[middle] if len(ordered) % 2 else
+                      ordered[middle-1] / 2 + ordered[middle] / 2) if ordered else None
+            horizons[str(n)] = dict(full_member_count=len(members), observed_count=len(values),
+                positive_count=positive, negative_count=negative, zero_count=zero,
+                missing_count=sum(r['metric_status'][key] == 'MISSING' for r in members),
+                stale_count=sum(r['metric_status'][key] == 'STALE' for r in members),
+                observed_subset_median_return=float(median) if median is not None else None,
+                median_basis='OBSERVED_SUBSET_SPLIT_ADJUSTED_PRICE_RETURN',
+                total_return=False, formal_benchmark_RS=False, net_ER=False)
+        result.append(dict(group=label, full_member_count=len(members), horizons=horizons))
+    return result
+
+
+def prepare_all_requested_research_roster(reader, generations: dict[str, str], *,
+        roster_raw: bytes, identities_raw: bytes, session: str, as_of: str,
+        observed_at: str, intake_cutoff: str, out_dir: Path, source_kind: str,
+        comparison_session: str | None = None, benchmark_ids=None, raw_generations=None,
+        benchmark_generations=None, benchmark_expected_qualification_sha256=None,
+        benchmark_trusted_qualification_sources=None, expected_qualification_sha256=None,
+        trusted_qualification_source=None) -> dict[str, Any]:
+    """All requested diagnostics plus the unchanged strict identity-resolved path.
+
+    A comparison session is caller-supplied scope, never evidence of latest
+    market availability. Unknown identities remain outside the A2 subset.
+    No scores, liquidity filtering, currentness authentication or collection.
+    """
+    from datetime import datetime, timezone
+    from tools import run_a2_research_intake as caller
+    from tools.research_data_access import ContractError, day, _session_close
+    h = caller.intake
+    roster = h.decode(roster_raw)
+    h.need(type(roster) is dict and set(roster) == {'scope', 'rows'} and
+           roster['scope'] == 'PRE_RANKING_RESEARCH_ROSTER', 'OBSERVATION_ROSTER')
+    h.need(type(roster['rows']) is list and 0 < len(roster['rows']) <= 1000, 'OBSERVATION_ROSTER')
+    identities = h._identities(identities_raw)
+    h.need(h.stamp(as_of) <= h.stamp(observed_at) <= h.stamp(intake_cutoff) <=
+           datetime.now(timezone.utc), 'OBSERVATION_HANDOFF_CLOCK')
+    comparison_session = session if comparison_session is None else comparison_session
+    try:
+        start, comparison = day(session), day(comparison_session)
+        h.need(start <= comparison, 'OBSERVATION_COMPARISON_SESSION')
+        h.need(comparison <= h.stamp(as_of).date(), 'OBSERVATION_COMPARISON_NOT_COMPLETED')
+        h.need(_session_close(comparison) <= h.stamp(as_of) and
+               _session_close(start) <= h.stamp(as_of), 'OBSERVATION_COMPARISON_NOT_COMPLETED')
+    except ContractError as exc:
+        raise h.IntakeError('OBSERVATION_COMPARISON_SESSION:' + str(exc)) from None
+    h.need(type(generations) is dict and (raw_generations is None or type(raw_generations) is dict),
+           'OBSERVATION_GENERATIONS')
+    raw_generations = raw_generations or {}
+    aliases = {}
+    for sid, (issuer, tickers) in identities.items():
+        for ticker in tickers:
+            aliases.setdefault(ticker, []).append((sid, issuer))
+    requested, subjects, full_rows, eligible = set(), set(), [], []
+    for ordinal, row in enumerate(roster['rows']):
+        h.need(type(row) is dict and 'ticker' in row and
+               set(row) <= {'ticker', 'Name', 'sector', 'industry'} and
+               all(v is None or type(v) is str for v in row.values()), 'OBSERVATION_ROSTER_ROW')
+        ticker = h.identifier(row['ticker'])
+        h.need(ticker not in requested, 'OBSERVATION_DUPLICATE_TICKER')
+        requested.add(ticker)
+        matches = aliases.get(ticker, [])
+        h.need(len(matches) <= 1, 'OBSERVATION_EXACT_IDENTITY')
+        sid, issuer = matches[0] if matches else (None, None)
+        if sid is not None:
+            h.need(sid not in subjects, 'OBSERVATION_DUPLICATE_SECURITY')
+            subjects.add(sid); eligible.append(row)
+        full_rows.append(dict(row, input_ordinal=ordinal, raw_ticker=row['ticker'],
+            security_id=sid, issuer_id=issuer,
+            identity_status='SUPPLIED_ASSERTION_RESOLVED' if matches else 'UNKNOWN_IDENTITY',
+            identity_authentication='NOT_VERIFIED', fundamental_admissibility='UNKNOWN',
+            observation_status='DATA_PENDING', source_generation=generations.get(sid),
+            snapshot_sha256=None, source_session=None, metric_status={}, metric_missing_reason={}))
+    h.need(set(generations) <= subjects and set(raw_generations) <= set(generations),
+           'OBSERVATION_GENERATION_SUBJECT')
+    out_dir = Path(out_dir)
+    if out_dir.exists():
+        raise FileExistsError(out_dir)
+    subset = None
+    if eligible:
+        subset = prepare_research_roster(reader, generations,
+            roster_raw=h.canonical(dict(scope=roster['scope'], rows=eligible)), identities_raw=identities_raw,
+            session=session, as_of=as_of, observed_at=observed_at, intake_cutoff=intake_cutoff,
+            out_dir=out_dir, source_kind=source_kind, benchmark_ids=benchmark_ids,
+            raw_generations=raw_generations, benchmark_generations=benchmark_generations,
+            benchmark_expected_qualification_sha256=benchmark_expected_qualification_sha256,
+            benchmark_trusted_qualification_sources=benchmark_trusted_qualification_sources,
+            expected_qualification_sha256=expected_qualification_sha256,
+            trusted_qualification_source=trusted_qualification_source)
+    subset_rows = {r['security_id']: r for r in subset['observation']['rows']} if subset else {}
+    snapshots = {s['security_id']: s for s in subset['observation']['snapshots']} if subset else {}
+    for row in full_rows:
+        sid = row['security_id']
+        if sid in subset_rows:
+            for key in ('observation_status', 'source_generation', 'snapshot_sha256', 'leadership_theme'):
+                row[key] = subset_rows[sid][key]
+        else:
+            row['leadership_theme'] = infer_theme(pd.Series(row))
+        snapshot = snapshots.get(sid)
+        if snapshot is not None:
+            h.need(snapshot['session'] == session and snapshot['as_of'] == as_of and
+                   snapshot['adjustment_basis'] == 'SPLIT_ADJUSTED', 'OBSERVATION_SNAPSHOT_SCOPE')
+            row['source_session'] = snapshot['session']
+        for n in (5, 20, 60, 120, 240):
+            key = f'ret_{n}s'
+            value = snapshot['features'][key] if snapshot is not None else None
+            h.need(value is None or (type(value) in (int, float) and math.isfinite(value)),
+                   'OBSERVATION_FEATURE_VALUE')
+            h.need(value is None or snapshot['feature_status'][key] == 'OK', 'OBSERVATION_FEATURE_STATE')
+            row[key] = value
+            state = 'MISSING' if value is None else 'STALE' if start < comparison else 'OBSERVED'
+            row['metric_status'][key] = state
+            if state == 'MISSING':
+                row['metric_missing_reason'][key] = ('UNKNOWN_IDENTITY' if sid is None else
+                    'SOURCE_GENERATION_NOT_PROVIDED' if snapshot is None else snapshot['blocker'][key])
+    full = dict(schema='all-requested-unranked-research-observation-h1-v1',
+        scope='ALL_EXPLICIT_REQUESTED_ROWS_ONLY', research_only=True,
+        session=session, comparison_session=comparison_session,
+        comparison_scope='CALLER_SUPPLIED_SESSION_NOT_LATEST_MARKET_PROOF',
+        as_of=as_of, observed_at=observed_at, intake_cutoff=intake_cutoff,
+        roster_sha256=h.digest(roster_raw), identities_sha256=h.digest(identities_raw),
+        requested_count=len(full_rows), scanned_count=len(full_rows),
+        scanned_scope='REQUESTED_ROSTER_ROWS_VALIDATED_NOT_SOURCE_OR_FINANCIAL_ADMISSION',
+        identity_assertion_resolved_count=len(eligible), identity_unknown_count=len(full_rows)-len(eligible),
+        identity_verified_count=None, price_admissible_count=None, fundamental_admissible_count=None,
+        source_observed_count=len(snapshots), source_missing_resolved_count=len(eligible)-len(snapshots),
+        rows=full_rows, sector_groups=_unranked_native_groups(full_rows, 'sector'),
+        theme_groups=_unranked_native_groups(full_rows, 'leadership_theme'),
+        metric_basis='SPLIT_ADJUSTED_PRICE_RETURN_NOT_TOTAL_RETURN_OR_FORMAL_RS_OR_ER',
+        resolved_subset_ref=dict(observation_path='observations.json',
+            observation_sha256=subset['observation_sha256'], a2_result_path='a2_result.json',
+            a2_result_sha256=subset['a2_result_sha256']) if subset else None,
+        a2_status='READ_ONLY_SUBSET_PROPOSAL_PREPARED' if subset else 'NOT_RUN',
+        a2_not_run_reason=None if subset else 'NO_IDENTITY_RESOLVED_SUBJECTS',
+        currentness_verified=False, whole_market_coverage_verified=False, ranking_allowed=False,
+        source_authenticity='NOT_ADMITTED_BY_THIS_ADAPTER', authority=h.closed())
+    raw = h.canonical(full)
+    h.need(len(raw) <= h.MAX_TOTAL_BYTES, 'OBSERVATION_BYTE_BUDGET')
+    if subset is None:
+        out_dir.mkdir()
+    with (out_dir / 'all_requested_observations.json').open('xb') as target:
+        target.write(raw)
+    return dict(all_requested_observation=full, all_requested_observation_sha256=h.digest(raw),
+        resolved_subset=subset, a3_consumer_ack=None, canonical_current_verified=False)
+
+
 def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, min_dollar_vol: float,
         *, comparison_session: str | None = None) -> dict[str, Any]:
     if comparison_session is not None:
@@ -900,6 +1066,10 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
             "reason": "empty scored input or missing price cache",
             "scored_source": str(scored_path),
             "price_cache": str(price_cache),
+            "universe_scope": "SELECTED_SUBSET",
+            "input_scope": "SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE",
+            "currentness_verified": False,
+            "whole_market_coverage_verified": False,
         }
         write_outputs(out_dir, ticker_tape, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), summary)
         return summary
@@ -940,6 +1110,7 @@ def run(scored_path: Path, price_cache: Path, out_dir: Path, min_mcap: float, mi
         "observation_status": "DATA_PENDING" if not dates.notna().any() else
                               "PARTIAL" if missing_count or len(date_counts) > 1 or stale_count else "OBSERVED_SUBSET",
         "input_scope": "SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE",
+        "universe_scope": "SELECTED_SUBSET",
         "denominator_scope": "SUPPLIED_ROWS; GROUP_BREADTH_IS_OBSERVED_LIQUID_MEMBERS_ONLY",
         "whole_market_coverage_verified": False,
         "etf_stale_rows": int(etf_attention_frame.price_as_of_status.eq('STALE').sum()) if not etf_attention_frame.empty else 0,

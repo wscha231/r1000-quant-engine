@@ -350,6 +350,7 @@ class ThemeTests(unittest.TestCase):
             summary=tape.run(source,root/'cache',root/'out',1e9,1e6)
             row=pd.read_csv(root/'out/ticker_leadership.csv').iloc[0]
         self.assertEqual(summary['observation_status'],'DATA_PENDING')
+        self.assertEqual(summary['universe_scope'],'SELECTED_SUBSET')
         self.assertEqual(summary['missing_price_rows'],1)
         self.assertTrue(pd.isna(row.market_cap)); self.assertTrue(pd.isna(row.dollar_volume_20d))
         self.assertTrue(pd.isna(row.ret_21d))
@@ -455,6 +456,174 @@ class ThemeTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 tape.prepare_research_roster(fixture.reader,{},out_dir=destination,**kwargs)
             self.assertEqual((destination/'owned').read_bytes(),b'preserve')
+
+
+class AllRequestedObservationTests(unittest.TestCase):
+    def fixture(self, count=250):
+        import technical_feature_h1_smoke as ft
+        from tools import run_a2_research_intake as caller
+        with patch.object(ft, 'DAYS', ft.DAYS[-count:]):
+            fixture = ft.FeatureTests(); fixture.setUp()
+        negative_id = 'FIXTURE:US:NEG'
+        fixture.rows[negative_id] = [dict(r, instrument_id=negative_id, ticker='NEG')
+                                    for r in fixture.rows[ft.IDS['TEST']]]
+        for iid, base, direction in [(ft.IDS['TEST'], 100, 1), (ft.IDS['SPY'], 100, 0),
+                                     (negative_id, 400, -1)]:
+            for i, row in enumerate(fixture.rows[iid]):
+                close = base + direction * i
+                row.update(open=close, high=close+1, low=close-1, close=close)
+            fixture.add_file(iid)
+        ids = {'TEST': ft.IDS['TEST'], 'SPY': ft.IDS['SPY'], 'NEG': negative_id,
+               'MISSING': 'FIXTURE:US:MISSING'}
+        identities = dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS', rows=[dict(
+            security_id=sid, issuer_id='FIXTURE:ISSUER:'+ticker, tickers=[ticker],
+            country='US', currency='USD') for ticker, sid in ids.items()])
+        rows = [dict(ticker='NEG', sector='Health Care'), dict(ticker='UNKNOWN'),
+                dict(ticker='SPY', sector='Health Care'), dict(ticker='MISSING', sector=None),
+                dict(ticker='TEST', sector='Health Care')]
+        kwargs = dict(roster_raw=caller.intake.canonical(dict(scope='PRE_RANKING_RESEARCH_ROSTER', rows=rows)),
+            identities_raw=caller.intake.canonical(identities), session=ft.SESSION, as_of=ft.ASOF,
+            observed_at='2026-10-30T06:30:00Z', intake_cutoff='2026-10-30T06:31:00Z',
+            source_kind='FUSION_REVIEW')
+        generation = fixture.generation()
+        generations = {ids[k]: generation for k in ('TEST', 'SPY', 'NEG')}
+        return ft, fixture, caller, ids, identities, kwargs, generations
+
+    def test_actual_reader_feature_a2_subset_preserves_full_denominator_and_replay(self):
+        ft, fixture, caller, ids, _, kwargs, generations = self.fixture()
+        benchmark_ids = {'SPY': ids['SPY']}
+        benchmark_generations = {'SPY': fixture.generation()}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(socket.socket, 'connect', side_effect=AssertionError('network')), \
+             patch.object(fixture.reader, 'read_components', wraps=fixture.reader.read_components) as read, \
+             patch.object(tape, 'prepare_research_roster', wraps=tape.prepare_research_roster) as strict:
+            first = tape.prepare_all_requested_research_roster(fixture.reader, generations,
+                out_dir=Path(tmp)/'first', benchmark_ids=benchmark_ids,
+                benchmark_generations=benchmark_generations, **kwargs)
+            self.assertEqual(read.call_count, 3)
+            self.assertIs(strict.call_args.kwargs['benchmark_ids'], benchmark_ids)
+            self.assertIs(strict.call_args.kwargs['benchmark_generations'], benchmark_generations)
+            full = first['all_requested_observation']
+            self.assertEqual((full['requested_count'], full['identity_assertion_resolved_count'],
+                full['identity_unknown_count'], full['source_observed_count'], full['source_missing_resolved_count']), (5,4,1,3,1))
+            self.assertEqual([r['ticker'] for r in full['rows']], ['NEG','UNKNOWN','SPY','MISSING','TEST'])
+            self.assertEqual([r['input_ordinal'] for r in full['rows']], list(range(5)))
+            unknown = full['rows'][1]
+            self.assertEqual(unknown['identity_status'], 'UNKNOWN_IDENTITY')
+            self.assertIsNone(unknown['security_id']); self.assertIsNone(unknown['issuer_id'])
+            queue = first['resolved_subset']['a2_result']['queue']['items']
+            self.assertEqual({r['ticker'] for r in queue}, {'NEG','SPY','MISSING','TEST'})
+            self.assertTrue(all(r['state'] == 'DATA_PENDING' for r in queue))
+            group = next(g for g in full['sector_groups'] if g['group'] == 'Health Care')
+            for n in (5,20,60,120,240):
+                h = group['horizons'][str(n)]
+                self.assertEqual((h['full_member_count'],h['observed_count'],h['positive_count'],
+                    h['negative_count'],h['zero_count'],h['missing_count'],h['stale_count']), (3,3,1,1,1,0,0))
+                self.assertEqual(h['observed_subset_median_return'], 0.0)
+                self.assertEqual(h['median_basis'], 'OBSERVED_SUBSET_SPLIT_ADJUSTED_PRICE_RETURN')
+                self.assertFalse(h['total_return']);self.assertFalse(h['formal_benchmark_RS']);self.assertFalse(h['net_ER'])
+            unclassified = next(g for g in full['sector_groups'] if g['group'] == 'UNCLASSIFIED')
+            self.assertEqual(unclassified['full_member_count'], 2)
+            self.assertEqual(unclassified['horizons']['5']['missing_count'], 2)
+            self.assertIsNone(unclassified['horizons']['5']['observed_subset_median_return'])
+            for name in ('identity_verified_count','fundamental_admissible_count','price_admissible_count'):
+                self.assertIsNone(full[name])
+            self.assertTrue(all(r['fundamental_admissibility'] == 'UNKNOWN' for r in full['rows']))
+            self.assertFalse(full['currentness_verified']);self.assertFalse(full['whole_market_coverage_verified'])
+            self.assertFalse(full['ranking_allowed']);self.assertTrue(all(v is False for v in full['authority'].values()))
+            self.assertIsNone(first['a3_consumer_ack']);self.assertFalse(first['canonical_current_verified'])
+            # New output clocks with an old matching comparison cannot certify latest/current prices.
+            self.assertEqual(full['comparison_session'], ft.SESSION)
+            self.assertNotIn('ret_21d', full['rows'][0]);self.assertNotIn('leader', full)
+            raw = (Path(tmp)/'first/all_requested_observations.json').read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), first['all_requested_observation_sha256'])
+            again = tape.prepare_all_requested_research_roster(fixture.reader, generations,
+                out_dir=Path(tmp)/'again', benchmark_ids=benchmark_ids,
+                benchmark_generations=benchmark_generations, **kwargs)
+            self.assertEqual(first, again)
+            self.assertEqual(read.call_count, 6)
+
+    def test_all_unknown_unclassified_skips_reader_feature_and_a2(self):
+        ft, fixture, caller, _, _, kwargs, _ = self.fixture(6)
+        kwargs['identities_raw'] = caller.intake.canonical(dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS', rows=[]))
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(tape,'prepare_research_roster',side_effect=AssertionError('STRICT_NOT_ALLOWED')), \
+             patch.object(ft.target,'research_feature_snapshot',side_effect=AssertionError('FEATURE_NOT_ALLOWED')), \
+             patch.object(fixture.reader,'read_components',side_effect=AssertionError('READER_NOT_ALLOWED')), \
+             patch.object(caller,'prepare',side_effect=AssertionError('A2_NOT_ALLOWED')):
+            result = tape.prepare_all_requested_research_roster(fixture.reader,{},out_dir=Path(tmp)/'new',**kwargs)
+            self.assertEqual(sorted(p.name for p in (Path(tmp)/'new').iterdir()), ['all_requested_observations.json'])
+            with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_GENERATION_SUBJECT'):
+                tape.prepare_all_requested_research_roster(fixture.reader,{'UNBOUND:SECURITY':'1'*64},
+                    out_dir=Path(tmp)/'unbound-source',**kwargs)
+            self.assertFalse((Path(tmp)/'unbound-source').exists())
+        full = result['all_requested_observation']
+        self.assertEqual(full['identity_unknown_count'],5);self.assertEqual(full['source_observed_count'],0)
+        self.assertEqual(full['a2_status'],'NOT_RUN');self.assertIsNone(full['resolved_subset_ref'])
+        self.assertIsNone(result['resolved_subset'])
+        for group in full['sector_groups']:
+            for h in group['horizons'].values():
+                self.assertEqual(h['observed_count'],0)
+                self.assertEqual(h['missing_count'],h['full_member_count'])
+                self.assertIsNone(h['observed_subset_median_return'])
+        self.assertIn('UNCLASSIFIED',{g['group'] for g in full['sector_groups']})
+
+    def test_explicit_older_observations_stay_stale_and_short_horizons_stay_missing(self):
+        _, fixture, _, _, _, kwargs, generations = self.fixture(21)
+        kwargs.update(as_of='2026-10-15T00:00:00Z',comparison_session='2026-10-14')
+        with tempfile.TemporaryDirectory() as tmp:
+            result=tape.prepare_all_requested_research_roster(fixture.reader,generations,out_dir=Path(tmp)/'new',**kwargs)
+        full=result['all_requested_observation']
+        h=next(g for g in full['sector_groups'] if g['group']=='Health Care')['horizons']
+        self.assertEqual((h['5']['stale_count'],h['5']['observed_count']), (3,0))
+        self.assertIsNone(h['5']['observed_subset_median_return'])
+        self.assertEqual((h['60']['missing_count'],h['60']['stale_count']), (3,0))
+        self.assertFalse(full['currentness_verified'])
+
+    def test_future_calendar_and_mismatched_comparisons_refuse_before_io(self):
+        _,fixture,caller,_,_,kwargs,generations=self.fixture(6)
+        for comparison, as_of in [('2026-10-12',kwargs['as_of']),('2026-10-14',kwargs['as_of']),
+                                 ('2026-10-17','2026-10-18T00:00:00Z'),('2099-01-01',kwargs['as_of'])]:
+            with self.subTest(comparison=comparison),tempfile.TemporaryDirectory() as tmp, \
+                 patch.object(fixture.reader,'read_components',side_effect=AssertionError('EARLY_READER')):
+                destination=Path(tmp)/'new'
+                with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_COMPARISON'):
+                    tape.prepare_all_requested_research_roster(fixture.reader,generations,
+                        comparison_session=comparison,out_dir=destination,**dict(kwargs,as_of=as_of))
+                self.assertFalse(destination.exists())
+
+    def test_ambiguous_and_duplicate_identities_keep_strict_pre_io_refusal(self):
+        _,fixture,caller,ids,identities,kwargs,generations=self.fixture(6)
+        ambiguous=json.loads(json.dumps(identities))
+        ambiguous['rows'].append(dict(security_id='FIXTURE:US:OTHER',issuer_id='FIXTURE:ISSUER:OTHER',
+            tickers=['TEST'],country='US',currency='USD'))
+        bad=dict(kwargs,identities_raw=caller.intake.canonical(ambiguous))
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(fixture.reader,'read_components',side_effect=AssertionError('EARLY_READER')):
+            for function in (tape.prepare_research_roster,tape.prepare_all_requested_research_roster):
+                call_kwargs = bad if function is tape.prepare_all_requested_research_roster else dict(bad,
+                    roster_raw=caller.intake.canonical(dict(scope='PRE_RANKING_RESEARCH_ROSTER',rows=[dict(ticker='TEST')])))
+                with self.subTest(function=function.__name__),self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_EXACT_IDENTITY'):
+                    function(fixture.reader,generations,out_dir=Path(tmp)/function.__name__,**call_kwargs)
+            duplicate=dict(kwargs,roster_raw=caller.intake.canonical(dict(scope='PRE_RANKING_RESEARCH_ROSTER',rows=[dict(ticker='TEST'),dict(ticker='TEST')])))
+            with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_DUPLICATE_TICKER'):
+                tape.prepare_all_requested_research_roster(fixture.reader,generations,out_dir=Path(tmp)/'dup',**duplicate)
+
+    def test_source_integrity_rights_and_expiry_are_never_optional_absence(self):
+        for mode in ('hash','expiry','rights'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as tmp:
+                _,fixture,caller,ids,_,kwargs,generations=self.fixture(6)
+                if mode=='hash':
+                    item=next(f for f in fixture.data_spec['files'] if f['instrument']['instrument_id']==ids['NEG'])
+                    fixture.transport.objects['shared-research-v1/objects/'+item['sha256']]+=b' '
+                else:
+                    fixture.data_spec['source']['expires_at' if mode=='expiry' else 'eligible_purposes'] = (
+                        '2026-10-13T23:30:00Z' if mode=='expiry' else [])
+                    generations={sid:fixture.generation() for sid in generations}
+                destination=Path(tmp)/'new'
+                with self.assertRaisesRegex(caller.intake.IntakeError,'OBSERVATION_SOURCE_REFUSED:'):
+                    tape.prepare_all_requested_research_roster(fixture.reader,generations,out_dir=destination,**kwargs)
+                self.assertFalse(destination.exists())
 
 
 if __name__ == "__main__":
