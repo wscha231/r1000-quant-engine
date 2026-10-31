@@ -83,6 +83,99 @@ def fixture(*, split_volume_override=None, missing_open=False):
     return raw, norm, rec, evidence, calls
 
 
+def financial_fixture(*, rows_override=None, durable=False, supplier_expires_at=None):
+    """Synthetic R9-shaped evidence and fake execution/publication, never actual proof."""
+    from tools.long_history_lake import sec_rows, packed, extraction_identity
+    original = dict(cik=1, facts={'us-gaap': {
+        'Revenues': {'units': {'USD': [dict(start='2025-09-01', end='2026-08-31',
+            filed='2026-10-09', accn='0000000001-26-000001', form='10-K', val=0, fy=2026, fp='FY'),
+            dict(start='2025-09-01', end='2026-08-31', filed='2026-10-12',
+                 accn='0000000001-26-000002', form='10-K/A', val=-7, fy=2026, fp='FY')]}},
+        'CommonStockSharesOutstanding': {'units': {'shares': [dict(end='2026-08-31',
+            filed='2026-10-09', accn='0000000001-26-000001', form='10-K', val=8)]}},
+        'EarningsPerShareDiluted': {'units': {'USD/shares': [dict(start='2025-09-01', end='2026-08-31',
+            filed='2026-10-09', accn='0000000001-26-000001', form='10-K', val=-0.5)]}}}})
+    original_bytes = encoded(original)
+    rows, rejected = sec_rows(original_bytes, '0000000001', '2016-01-01', '2026-10-23')
+    if rejected: raise AssertionError('synthetic extraction failed')
+    raw, norm = packed(original_bytes), packed(b''.join(encoded(r) for r in (rows_override or rows)))
+    proof = {}
+    def put(value):
+        b = value if type(value) is bytes else encoded(value)
+        h = digest(b); proof[h] = b; return h
+    review = put(b'CONTRACT_FIXTURE_INDEPENDENT_REVIEW_NOT_REAL_AUTHORITY')
+    rights = put(b'CONTRACT_FIXTURE_SEC_RIGHTS_NOT_LEGAL_EVIDENCE')
+    identity = put(b'CONTRACT_FIXTURE_IDENTITY_NOT_REAL_AUTHORITY')
+    origin = dict(provider='SEC_COMPANYFACTS', dataset_key='sec/0000000001',
+        commit_sha256='1'*64, catalog_sha256='2'*64, run_id='CONTRACT_FIXTURE:old_failed_run',
+        source_code_sha='3'*40, config_sha256='4'*64, extraction_sha256=extraction_identity(),
+        start='2016-01-01', through='2026-10-23', retrieved_at='2026-10-23T12:00:00Z',
+        checked_at='2026-10-23T12:00:01Z', status='COLLECTED',
+        matching_execution_receipt_sha256=None, original_public_available_at=None)
+    frozen = put(dict(schema='mu-frozen-g29-selected-dataset-projection-v1', dataset_key=origin['dataset_key'],
+        commit_sha256=origin['commit_sha256'], catalog_sha256=origin['catalog_sha256'],
+        accepted_g29_producer_execution=False, original_catalog_header=dict(code_sha=origin['source_code_sha'],
+            config_sha256=origin['config_sha256'], run_id=origin['run_id']),
+        dataset=dict(cik='0000000001', status='COLLECTED', raw_objects=[digest(raw)], normalized=digest(norm),
+            extraction_sha256=extraction_identity(), rows=len(rows),
+            **{k: origin[k] for k in ('start', 'through', 'retrieved_at', 'checked_at')})))
+    ack = put(dict(schema='mu-financial-diagnostic-consumer-ack-v1', status='DONE_DIAGNOSTIC_ONLY_UNADMITTED',
+        matching_producer_execution=False, reads=[dict(kind='financial',sha256=digest(raw),bytes=len(raw)),
+            dict(kind='financial',sha256=digest(norm),bytes=len(norm)),
+            dict(kind='metadata',sha256=frozen,bytes=len(proof[frozen]))]))
+    result = put(dict(raw_normalized_exact_equal=True, normalized_rows=len(rows), rejected_rows=0,
+        output_refs=[dict(sha256=ack,bytes=len(proof[ack]))]))
+    e = dict(schema='a1-financial-reuse-evidence-v1', task_key='CONTRACT_FIXTURE:financial_reuse_task',
+        raw=dict(sha256=digest(raw),bytes=len(raw)),
+        normalized=dict(sha256=digest(norm),bytes=len(norm)), origin=origin,
+        issuer=dict(cik='0000000001', ticker='CONTRACT_FIXTURE', security_id='CONTRACT_FIXTURE:SECURITY',
+            share_class='COMMON', mic='XNAS', lifecycle_status='VERIFIED',
+            valid_from='2016-01-01', valid_through='2026-10-23'),
+        rights=dict(provider='SEC_COMPANYFACTS',status='REVIEWED',eligible_purposes=['research'],
+            access_policy='PRIVATE_RESEARCH',license_reference='CONTRACT_FIXTURE_ONLY',
+            supplier_expires_at=None,supplier_expiry_state='NOT_STATED'),
+        proofs=dict(rights=rights,issuer_security=identity,source_origin=frozen,reconstruction=ack,
+                    reconstruction_result=result), source_documents=[rights,identity,frozen,ack,result],
+        first_verified_readback_at='2026-10-24T12:00:00Z', research_valid_from='2026-10-24T12:00:00Z',
+        research_expires_at='2026-11-02T00:00:00Z',reuse_run_id='CONTRACT_FIXTURE:new_reuse',reuse_code_sha='5'*40)
+    if supplier_expires_at is not None:
+        e['rights'].update(supplier_expires_at=supplier_expires_at,supplier_expiry_state='STATED')
+    trust = binding.TrustedFinancialSourceBinding(review_reference='CONTRACT_FIXTURE:review',
+        review_receipt_sha256=review,evidence_sha256=digest(encoded(e)),proof_sha256=tuple(sorted(proof)),
+        issuer_cik='0000000001',raw_sha256=digest(raw),normalized_sha256=digest(norm),normalized_rows=len(rows),
+        original_source_sha=origin['source_code_sha'],original_config_sha256=origin['config_sha256'],
+        original_start=origin['start'],original_through=origin['through'],
+        extraction_sha256=extraction_identity(),reconstruction_receipt_sha256=ack,
+        reuse_run_id=e['reuse_run_id'],reuse_code_sha=e['reuse_code_sha'],
+        adapter_file_sha256=digest(Path(binding.__file__).read_bytes()),classification='CONTRACT_FIXTURE',
+        publication_scope='DURABLE_READBACK' if durable else 'LOCAL_ONLY')
+    return raw,norm,e,trust,proof,rows
+
+
+def bound_financial_fixture(*, durable=False, supplier_expires_at=None):
+    raw,norm,e,t,proof,rows=financial_fixture(durable=durable,supplier_expires_at=supplier_expires_at)
+    prepared=binding.prepare_financial_reuse(raw,norm,encoded(e),trusted_source=t,
+        proof_objects=tuple(sorted(proof.items())),decision_time='2026-10-31T18:01:00Z')
+    if prepared.blockers:raise AssertionError(prepared.blockers)
+    p=encoded(dict(schema='a1-financial-reuse-execution-v1',status='COMPLETED_REUSE_ONLY',
+        task_key=e['task_key'],run_id=t.reuse_run_id,code_sha=t.reuse_code_sha,adapter_file_sha256=t.adapter_file_sha256,
+        config_sha256=t.evidence_sha256,raw_sha256=t.raw_sha256,normalized_sha256=t.normalized_sha256,
+        quality_sha256=digest(prepared.quality),rows=t.normalized_rows,provider_gets=0,
+        original_matching_execution=False,historical_pit=False,
+        started_at='2026-10-31T18:00:00Z',finished_at='2026-10-31T18:00:01Z'))
+    t=replace(t,execution_receipt_sha256=digest(p))
+    bound=binding.bind_financial_reuse(prepared,p,trusted_source=t,
+        created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
+    if bound.blockers:raise AssertionError(bound.blockers)
+    blobs=dict(bound.objects);generation=digest(bound.manifest)
+    pub=encoded(dict(schema='a1-financial-reuse-publication-v1',status='PUBLISHED_READBACK',
+        storage='OWNER_PRIVATE_DURABLE',generation_sha256=generation,execution_receipt_sha256=digest(p),
+        objects=json.loads(bound.manifest)['datasets'][0]['objects'],completed_at='2026-10-31T18:00:03Z'))
+    if durable:
+        t=replace(t,publication_receipt_sha256=digest(pub));blobs[digest(pub)]=pub
+    return bound,t,blobs,p,pub
+
+
 class FixtureOwnerRead:
     def __init__(self, objects):
         self.objects, self.calls = dict(objects), []
@@ -755,6 +848,113 @@ def managed_fixture(*,asset_clock='2016-01-06T23:30:01Z',technical_security_id=N
 
 
 class BindingTest(unittest.TestCase):
+    def financial_prepare(self, raw, norm, evidence, trust, proofs):
+        return binding.prepare_financial_reuse(raw,norm,encoded(evidence),trusted_source=trust,
+            proof_objects=tuple(sorted(proofs.items())),decision_time='2026-10-31T18:01:00Z')
+
+    def test_financial_prepare_never_invents_execution_or_publication(self):
+        raw,norm,e,t,proof,_=financial_fixture()
+        blocked=self.financial_prepare(raw,norm,e,None,proof)
+        self.assertEqual((blocked.status,blocked.manifest),('BLOCKED',None))
+        with patch('tools.long_history_lake.extraction_identity',return_value=t.extraction_sha256), \
+             patch('tools.long_history_lake.sec_rows',side_effect=AssertionError('no re-extraction')):
+            prepared=self.financial_prepare(raw,norm,e,t,proof)
+        self.assertEqual(prepared.status,'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT')
+        self.assertIsNone(prepared.manifest)
+        self.assertNotIn('execution_receipt_sha256',json.loads(prepared.quality))
+        bound,t,_,_,_=bound_financial_fixture()
+        s=json.loads(bound.manifest)['datasets'][0]['source']
+        self.assertIsNone(s['reuse_origin']['matching_execution_receipt_sha256'])
+        self.assertEqual(s['availability_meaning'],'CURRENT_REUSE_EXECUTION_COMPLETED')
+        self.assertIsNone(s['original_public_available_at'])
+        self.assertEqual(s['original_collected_at'],'2026-10-23T12:00:00Z')
+        self.assertEqual(s['currentness'],'NOT_CURRENT')
+        self.assertIsNone(t.publication_receipt_sha256)
+
+    def test_financial_raw_norm_config_window_and_extract_must_match_old_r9(self):
+        raw,norm,e,t,proof,_=financial_fixture()
+        for field,value in (('config_sha256','f'*64),('start','2017-01-01'),('through','2026-10-22')):
+            changed=copy.deepcopy(e);changed['origin'][field]=value
+            kwargs={'evidence_sha256':digest(encoded(changed))}
+            kwargs[{'config_sha256':'original_config_sha256','start':'original_start',
+                    'through':'original_through'}[field]]=value
+            result=self.financial_prepare(raw,norm,changed,replace(t,**kwargs),proof)
+            self.assertEqual(result.status,'BLOCKED',field)
+        self.assertEqual(self.financial_prepare(raw+b'x',norm,e,t,proof).status,'BLOCKED')
+        self.assertEqual(self.financial_prepare(raw,norm+b'x',e,t,proof).status,'BLOCKED')
+        self.assertEqual(self.financial_prepare(raw,norm,e,replace(t,extraction_sha256='0'*64),proof).status,'BLOCKED')
+
+    def test_financial_rights_unknown_and_expiry_do_not_become_perpetual_permission(self):
+        raw,norm,e,t,proof,_=financial_fixture()
+        for section,key,value in (('rights','status','UNKNOWN'),('rights','eligible_purposes',['backtest']),
+                ('rights','supplier_expiry_state','UNKNOWN'),('rights','supplier_expires_at','2026-10-25T00:00:00Z'),
+                ('issuer','cik','0000000002'),('issuer','lifecycle_status','UNKNOWN')):
+            changed=copy.deepcopy(e);changed[section][key]=value
+            if key=='supplier_expires_at':changed['rights']['supplier_expiry_state']='STATED'
+            result=self.financial_prepare(raw,norm,changed,replace(t,evidence_sha256=digest(encoded(changed))),proof)
+            self.assertEqual(result.status,'BLOCKED',(section,key))
+        changed=copy.deepcopy(e);changed['research_expires_at']='2026-10-25T00:00:00Z'
+        self.assertEqual(self.financial_prepare(raw,norm,changed,
+            replace(t,evidence_sha256=digest(encoded(changed))),proof).status,'BLOCKED')
+        bound,_,_,_,_=bound_financial_fixture(supplier_expires_at='2026-11-01T00:00:00Z')
+        source=json.loads(bound.manifest)['datasets'][0]['source']
+        self.assertEqual(source['expires_at'],'2026-11-01T00:00:00Z')
+        self.assertEqual(source['supplier_expires_at'],'2026-11-01T00:00:00Z')
+        self.assertEqual(source['research_expires_at'],'2026-11-02T00:00:00Z')
+
+    def test_financial_schema_preserves_zero_negative_null_units_and_versions(self):
+        raw,norm,e,t,proof,rows=financial_fixture()
+        result=self.financial_prepare(raw,norm,e,t,proof)
+        self.assertEqual([dict(r) for r in result.rows],rows)
+        self.assertIn(0,[r['value'] for r in result.rows]);self.assertIn(-7,[r['value'] for r in result.rows])
+        self.assertIn(None,[r['start'] for r in result.rows])
+        self.assertEqual({r['unit'] for r in result.rows},{'USD','shares','USD/shares'})
+        self.assertEqual(len([r for r in result.rows if r['concept']=='Revenues']),2)
+        with self.assertRaises(TypeError):result.rows[0]['value']=999
+        for kind in ('bool','nullvalue','duration','duplicate','unsorted','issuer'):
+            changed=copy.deepcopy(rows)
+            if kind=='bool':changed[0]['value']=False
+            elif kind=='nullvalue':changed[0]['value']=None
+            elif kind=='duration':changed[0]['duration_days']=False
+            elif kind=='duplicate':changed[1]=copy.deepcopy(changed[0])
+            elif kind=='unsorted':changed.reverse()
+            else:changed[0]['cik']='0000000002'
+            r,n,ev,tr,pr,_=financial_fixture(rows_override=changed)
+            self.assertEqual(self.financial_prepare(r,n,ev,tr,pr).status,'BLOCKED',kind)
+
+    def test_financial_resources_cancellation_and_external_proof_pins(self):
+        from tools.twelve_private_capture import Refused
+        raw,norm,e,t,proof,_=financial_fixture()
+        with patch.object(access,'MAX_GENERATION_DECOMPRESSED_BYTES',1024):
+            self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+        with patch.object(access,'MAX_GENERATION_ROWS',3):
+            self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+        failure=Refused('synthetic cancellation')
+        with patch.object(ResearchDataReader,'_rows',side_effect=failure),self.assertRaises(Refused) as caught:
+            self.financial_prepare(raw,norm,e,t,proof)
+        self.assertIs(caught.exception,failure)
+        with patch.object(access.gzip.GzipFile,'read',side_effect=failure),self.assertRaises(Refused) as caught:
+            self.financial_prepare(raw,norm,e,t,proof)
+        self.assertIs(caught.exception,failure)
+        missing=dict(proof);missing.pop(t.review_receipt_sha256)
+        self.assertEqual(self.financial_prepare(raw,norm,e,t,missing).status,'BLOCKED')
+        self.assertEqual(self.financial_prepare(raw,norm,e,{},proof).status,'BLOCKED')
+
+    def test_financial_binding_requires_actual_new_receipt_with_no_future_claims(self):
+        raw,norm,e,t,proof,_=financial_fixture();prepared=self.financial_prepare(raw,norm,e,t,proof)
+        _,trusted,_,p,_=bound_financial_fixture()
+        for field,value in (('schema','long-history-execution-v1'),('provider_gets',1),
+                ('finished_at','2026-11-01T00:00:00Z'),('original_matching_execution',True),
+                ('quality_sha256','0'*64),('code_sha','f'*40),('rows',True)):
+            changed=json.loads(p);changed[field]=value;b=encoded(changed)
+            result=binding.bind_financial_reuse(prepared,b,
+                trusted_source=replace(trusted,execution_receipt_sha256=digest(b)),
+                created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
+            self.assertEqual((result.status,result.manifest),('BLOCKED',None),field)
+        result=binding.bind_financial_reuse(prepared,p,trusted_source=t,
+            created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
+        self.assertEqual(result.status,'BLOCKED')
+
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
 

@@ -1,5 +1,61 @@
 # A1 Source to shared Reader: bounded research preparation
 
+## Financial reuse alongside the unchanged price preparation
+
+`prepare_financial_reuse(raw_gzip, normalized_gzip, evidence_bytes,
+trusted_source=..., proof_objects=..., decision_time=...)` is pure and opt-in.
+It returns `VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT` with quality and
+immutable original objects/rows; it creates no manifest, execution or publication
+receipt. Missing independently accepted `TrustedFinancialSourceBinding` returns
+`BLOCKED`. The trust has no factory/default authority and must not be constructed
+from the evidence packet, a manifest, `reviewed=true` or API success.
+
+The existing Source owner authenticates the external review and legal/identity
+meaning before supplying the exact evidence/proof/review pins. They bind the
+original issuer, raw/normalized hashes and row count, R9 reconstruction ACK/result,
+frozen origin, original source/config/window, extraction fingerprint, and the new
+reuse code/run/loaded adapter bytes. Origin includes the real old commit/catalog
+and missing execution. SEC rights, security/class/lifecycle and permitted archive
+window need their own accepted source-document bytes. No Alpaca account meter,
+credential, invented auth hash or supplier expiry is substituted for those facts.
+
+`bind_financial_reuse(prepared, actual_execution_receipt, trusted_source=...,
+created_at=..., decision_time=...)` requires an independently supplied exact pin
+for an actual new `a1-financial-reuse-execution-v1` completed reuse-only run. It
+verifies input/quality/code/config/run/clock linkage and no provider capture.
+Only then does it return `FINANCIAL_REUSE_PREPARED_UNADMITTED` with a generation.
+The function never writes or authenticates that execution itself. The DAG is
+existing evidence → deterministic quality Q → actual execution P → manifest M;
+actual authorized storage/readback U and Reader C/consumer ACK follow later.
+Q/P do not pre-record M/U/C success. Publication cannot be embedded cyclically
+in its own generation hash. The old g29 execution remains absent/failed.
+
+Supplier `null/NOT_STATED` and a finite research-purpose grant are distinct.
+Original retrieved/checked/filed clocks remain original; a filed date is not
+an accepted/public intraday timestamp. The manifest's effective availability is
+the actual new reuse execution completion, explicitly named as such. Original
+public availability remains null and history is `PIT_PROXY`, forward archival
+research only, `NOT_CURRENT`. Local consumption without durable U is supported
+under explicitly reviewed `LOCAL_ONLY` trust and is not durable publication.
+
+R9's exact same-object/config/window/extraction proof replaces repeated raw
+extraction; normalized schema/count/order/versions/finite values still validate.
+R10/R11/R13 derived monetary/unit/partial-consumer artifacts remain separate
+research references, never the source facts or a renamed new execution/Reader
+ACK. Resource ceilings are reused cumulatively, including proof bytes, decoded
+facts, retained records, version keys and requested views. Resource or provenance
+failures return no partial financial preparation; cancellation propagates.
+Positive fixtures inject explicitly synthetic review, execution and publication
+records. No real Source/Drive/provider run, source/PIT admission or pilot is
+authorized by implementation or green tests.
+
+The producer checks its loaded adapter bytes at preparation. A later Reader
+replay instead authenticates that producer-byte pin through the independently
+accepted execution and separately records its current verifier-code hash.
+It does not require different verifier versions or platform line endings to
+have the producer's old file hash. Quality describes deterministic data meaning;
+actual retained-memory charges belong to the individual verification/read.
+
 The original adapter was offline preparation based on master
 `37809837bd2d67114fae7d4a1c4e2b8ad0344b07`, including merged #627. It does not
 publish a generation, accept rights, admit a Source, integrate Draft #671,

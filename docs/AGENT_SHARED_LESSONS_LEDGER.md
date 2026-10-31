@@ -9080,3 +9080,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   completed analysis, a measured speedup or a 120-minute runtime guarantee.
   Keep the existing consumer, source parser identity and scheduling contracts;
   product CI and independent exact-head review remain separate evidence.
+
+## 2026-11-01 — Preserve financial archive semantics across the shared Reader
+
+- A price-only Reader cannot consume SEC facts by relabeling columns or changing
+  a registry alone. Add an explicit dataset/schema branch while retaining old
+  price registries, manifests and their original identity/meaning; new Reader or
+  registry hashes legitimately change read-receipt provenance.
+- Reuse R9 equality only for the same raw/normalized hashes, extraction code and
+  original config/window. Keep zero, losses, nullable fields, units, periods and
+  amendments. Period-end range filters are not exchange-session completeness.
+- Pure quality/preparation cannot claim an actual producer execution or future
+  publication. New reuse receipts preserve the old failed/missing execution.
+  Local research consumption and owner-private durable readback are distinct;
+  neither supplies Source/PIT, current-filing or economic admission. Unknown
+  supplier expiry is not unknown-purpose permission or an invented deadline.
+- Freeze implementation before a full suite with cached exact-code trust
+  fixtures. Editing the adapter during that run invalidates cached review pins;
+  preserve that failed run and revalidate in a fresh process at the frozen head.

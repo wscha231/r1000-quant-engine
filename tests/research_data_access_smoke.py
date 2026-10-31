@@ -37,6 +37,116 @@ def prices(ticker='SPY'):
 
 
 class ReaderTest(unittest.TestCase):
+    def financial_reader_fixture(self, *, durable=False):
+        from a1_reader_generation_binding_smoke import bound_financial_fixture
+        from tools.research_data_access import FINANCIAL_DATASET
+        bound,trust,blobs,_,_=bound_financial_fixture(durable=durable)
+        holder={'manifest':bound.manifest};calls=[]
+        class Memory:
+            def read(_,path):
+                calls.append(path)
+                if path==PREFIX_V1+'/generations/'+digest(holder['manifest']):return holder['manifest']
+                return blobs[path.rsplit('/',1)[-1]]
+        reader=ResearchDataReader(Memory())
+        def read(**changes):
+            args=dict(decision_time='2026-10-31T18:01:00Z',purpose='research',
+                components=[dict(component_id='financial',issuer_cik=trust.issuer_cik,
+                    required_period_end_start='2016-01-01',required_period_end_end='2026-10-23')],
+                consumer_id='CONTRACT_FIXTURE:financial_consumer',financial_trust=trust)
+            args.update(changes)
+            return reader.read_components(FINANCIAL_DATASET,digest(holder['manifest']),**args)
+        return holder,trust,blobs,calls,read
+
+    def test_financial_local_component_preserves_original_facts_and_not_current_scope(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        with patch('tools.research_data_access._SessionCloseMap',side_effect=AssertionError('not prices')):
+            result=read()
+        r=result.results['financial'];self.assertEqual(len(r.rows),4)
+        self.assertEqual(r.receipt['status'],'VERIFIED_LOCAL_ARCHIVAL_RESEARCH_BYTES')
+        self.assertFalse(r.receipt['durable_publication_verified']);self.assertFalse(r.receipt['source_admitted'])
+        self.assertFalse(r.receipt['historical_pit']);self.assertFalse(r.receipt['eligible_for_economics'])
+        self.assertEqual(r.receipt['currentness'],'NOT_CURRENT')
+        self.assertEqual(r.receipt['original_source']['run_id'],'CONTRACT_FIXTURE:old_failed_run')
+        self.assertIn(0,[row['value'] for row in r.rows]);self.assertIn(-7,[row['value'] for row in r.rows])
+        self.assertIn(None,[row['start'] for row in r.rows])
+        self.assertEqual(len(calls),len(set(calls)))
+        first=list(calls);read();self.assertEqual(calls,first+first)
+
+    def test_financial_trust_purpose_and_issuer_fail_before_object_reads(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        for changes in ({'financial_trust':None},{'financial_trust':{'reviewed':True}},
+                        {'purpose':'training'},{'purpose':'backtest'},
+                        {'components':[dict(component_id='bad',issuer_cik='0000000002',
+                            required_period_end_start='2016-01-01',required_period_end_end='2026-10-23')]}):
+            with self.subTest(changes=changes),self.assertRaises(ContractError):read(**changes)
+        self.assertEqual(calls,[])
+
+    def test_financial_durable_and_local_publication_are_distinct(self):
+        from dataclasses import replace
+        holder,t,blobs,calls,read=self.financial_reader_fixture(durable=True)
+        r=read().results['financial'];self.assertTrue(r.receipt['durable_publication_verified'])
+        self.assertEqual(r.receipt['status'],'VERIFIED_DURABLE_ARCHIVAL_RESEARCH_BYTES')
+        self.assertFalse(r.receipt['source_admitted'])
+        with self.assertRaisesRegex(ContractError,'FINANCIAL_PUBLICATION'):
+            read(financial_trust=replace(t,publication_receipt_sha256=None))
+        pub=blobs[t.publication_receipt_sha256];changed=json.loads(pub);changed['storage']='LOCAL_ONLY'
+        changed=encoded(changed);blobs[digest(changed)]=changed
+        with self.assertRaisesRegex(ContractError,'FINANCIAL_PUBLICATION'):
+            read(financial_trust=replace(t,publication_receipt_sha256=digest(changed)))
+
+    def test_financial_manifest_objects_and_quality_cannot_be_self_relabelled(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        original=holder['manifest']
+        for change in ('issuer','current','schema','extra'):
+            m=json.loads(original);spec=m['datasets'][0]
+            if change=='issuer':spec['files'][0]['issuer']['cik']='0000000002'
+            elif change=='current':spec['source']['currentness']='CURRENT'
+            elif change=='schema':spec['schema']='price-daily-v1'
+            else:spec['objects'].append(dict(sha256='0'*64,bytes=1))
+            holder['manifest']=encoded(m)
+            with self.subTest(change=change),self.assertRaises(ContractError):read()
+        holder['manifest']=original
+        h=t.normalized_sha256;blobs[h]+=b'corrupt'
+        with self.assertRaisesRegex(ContractError,'HASH_MISMATCH|OBJECT_SIZE'):read()
+
+    def test_financial_period_filter_is_not_a_price_session_grid(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        # There is no fact at either requested endpoint; these are range bounds.
+        result=read().results['financial']
+        self.assertEqual({r['end'] for r in result.rows},{'2026-08-31'})
+        for changes in ({'decision_time':'2026-10-23T00:00:00Z'},
+                        {'decision_time':'2026-11-03T00:00:00Z'},
+                        {'components':[dict(component_id='x',issuer_cik=t.issuer_cik,
+                            required_period_end_start='2016-01-01',required_period_end_end='2017-01-01')]}):
+            with self.subTest(changes=changes),self.assertRaises(ContractError):read(**changes)
+
+    def test_financial_registry_extension_preserves_price_only_registry_and_old_generation(self):
+        old=json.loads(REGISTRY.read_bytes());old['datasets'].pop('ds.us.financials.sec.companyfacts')
+        path=self.root/'old-registry.json';path.write_bytes(encoded(old))
+        original_reader=self.reader
+        generation=self.generation();new=self.read(generation)
+        self.reader=ResearchDataReader(self.transport,registry_path=path)
+        try:prior=self.read(generation)
+        finally:self.reader=original_reader
+        self.assertEqual([dict(r) for r in prior.rows],[dict(r) for r in new.rows])
+        self.assertEqual(prior.files,new.files)
+        for field in ('data_generation_id','row_set_sha256','source_receipt_sha256','producer_code_sha',
+                      'producer_config_sha256','raw_source_sha256','source_available_from','source_collected_at'):
+            self.assertEqual(prior.receipt[field],new.receipt[field],field)
+        self.assertNotEqual(prior.receipt['registry_sha256'],new.receipt['registry_sha256'])
+
+    def test_financial_replay_keeps_producer_adapter_separate_from_current_verifier(self):
+        from tools import prepare_a1_reader_generation as binding
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        original=Path.read_bytes
+        def newer_verifier(path):
+            body=original(path)
+            return body+b'\n# synthetic later verifier bytes\n' if path==Path(binding.__file__) else body
+        with patch.object(Path,'read_bytes',newer_verifier):
+            result=read().results['financial']
+        self.assertEqual(result.receipt['execution_receipt_sha256'],t.execution_receipt_sha256)
+        self.assertFalse(result.receipt['historical_pit'])
+
     def observed_revision_reader_fixture(self):
         from a1_reader_generation_binding_smoke import observed_volume_fixture
         from tools import prepare_a1_reader_generation as binding
@@ -785,8 +895,10 @@ class ReaderTest(unittest.TestCase):
 
     def test_schema_and_discovery_map_match_native_contract(self):
         schema = json.loads((ROOT / 'docs/research_dataset_generation_v1.schema.json').read_bytes())
-        item = schema['properties']['datasets']['items']['properties']['files']['items']['properties']
+        item = schema['$defs']['priceDataset']['properties']['files']['items']['properties']
         self.assertEqual(item['columns']['const'], PRICE_COLUMNS)
+        self.assertEqual(schema['$defs']['financialDataset']['properties']['schema']['const'],
+                         'sec-companyfacts-archival-v1')
         index = json.loads((ROOT / 'docs/research_data_access.json').read_bytes())
         self.assertEqual(index['frozen_generation_reader']['reader'], 'tools/research_data_access.py')
         self.assertEqual(index['frozen_generation_reader']['admitted_frozen_generations'], 0)
