@@ -9004,3 +9004,25 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Focused validation and an exact-head scoped review do not certify the whole
   required suite. Keep the failed head/logs, require fresh new-head CI/review,
   and do not count bare Python assertions under -O as assertion coverage.
+
+## 2026-10-31 — Bind an optional benchmark to its own generation and trust
+
+- Per-asset Source generations cannot be consumed by silently assuming a joint
+  stock/benchmark manifest. Pass explicit per-label generation hashes through
+  the existing roster/Feature path, batch all roles in each generation, and keep
+  the same cutoff and each instrument's explicit original window. A distinct
+  benchmark must receive its own externally supplied qualification and trust;
+  the subject's SPLIT/RAW pins do not authenticate it. Conflicting pins for one
+  generation refuse before reads.
+- A stock SPLIT/RAW pair plus separate SPY SPLIT adds a third public component
+  call and requires a fresh finite data grant. Synthetic arithmetic, refusal and
+  replay checks are code evidence only. Preserve global provenance refusals,
+  local optional absence, PIT_PROXY RS nulls and the whole unranked candidate
+  roster; this interface change grants no actual Source/PIT, A3 or Registry state.
+- Exact-head Codex review4430042482 found a combined case missed by the initial
+  scoped review: an absent optional component raised before its generation's
+  external qualification checks. Validate generation trust independently of row
+  success, then apply local absence. Keep actual public Reader fixture negatives
+  for missing pins, wrong digest and wrong binding with absence, plus valid-trust
+  absence and roster stop-before-output controls. Preserve the earlier review
+  and CI as historical evidence, not approval of this successor head.

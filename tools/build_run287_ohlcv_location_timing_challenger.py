@@ -758,6 +758,9 @@ TECH_FEATURE_NAMES = (
 def research_feature_snapshot(reader, generation: str, *, security_id: str,
                               session: str, as_of: str,
                               benchmark_ids: Mapping[str, str] | None = None,
+                              benchmark_generations: Mapping[str, str] | None = None,
+                              benchmark_expected_qualification_sha256: Mapping[str, str] | None = None,
+                              benchmark_trusted_qualification_sources: Mapping[str, Any] | None = None,
                               raw_generation: str | None = None,
                               expected_qualification_sha256: str | None = None,
                               trusted_qualification_source=None) -> dict[str, Any]:
@@ -774,6 +777,9 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     TrustedSourceBinding. Never derive either trust input from the manifest.
     This is the same explicit caller trust boundary as Source preparation,
     not authentication of arbitrary callers or permission for detached reuse.
+    Benchmark generation overrides are explicit by label. A distinct generation
+    receives only its own qualification/trust inputs, never the subject's pins.
+    All roles in one generation share one public component batch and cutoff.
     """
     from aggressive.signals_technical import obv, slope_pct, sma
     from tools.research_data_access import (
@@ -793,6 +799,35 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     refs = dict(benchmark_ids or {})
     check(set(refs) <= {"SPY", "NASDAQ_COMPOSITE"} and
           all(type(v) is str and v for v in refs.values()), "FEATURE_BENCHMARK_REFS")
+    for value in (benchmark_generations, benchmark_expected_qualification_sha256,
+                  benchmark_trusted_qualification_sources):
+        check(value is None or isinstance(value, Mapping), "FEATURE_BENCHMARK_GENERATIONS")
+    benchmark_gens = dict(benchmark_generations or {})
+    benchmark_qualifications = dict(benchmark_expected_qualification_sha256 or {})
+    benchmark_trust = dict(benchmark_trusted_qualification_sources or {})
+    check(set(benchmark_gens) <= set(refs) and
+          set(benchmark_qualifications) == set(benchmark_trust) and
+          set(benchmark_qualifications) <= set(benchmark_gens),
+          "FEATURE_BENCHMARK_GENERATIONS")
+    for value in (*benchmark_gens.values(), *benchmark_qualifications.values()):
+        sha(value)
+    subject_trust = (expected_qualification_sha256, trusted_qualification_source)
+    generation_trust = {generation: subject_trust}
+    generation_ids = {generation: {security_id}}
+    for label, iid in refs.items():
+        gen = benchmark_gens.get(label, generation)
+        pins = (benchmark_qualifications[label], benchmark_trust[label]) if label in benchmark_qualifications else (
+            subject_trust if gen == generation else (None, None))
+        check(gen not in generation_trust or generation_trust[gen] == pins,
+              "FEATURE_GENERATION_TRUST_CONFLICT")
+        generation_trust[gen] = pins
+        generation_ids.setdefault(gen, set()).add(iid)
+    if type(raw_generation) is str:
+        # Preserve the existing RAW companion's exact subject lineage contract.
+        check(raw_generation not in generation_trust or generation_trust[raw_generation] == subject_trust,
+              "FEATURE_GENERATION_TRUST_CONFLICT")
+        generation_trust[raw_generation] = subject_trust
+        generation_ids.setdefault(raw_generation, set()).add(security_id)
     schedule = mcal.get_calendar("NYSE").schedule(start_date=session, end_date=session)
     check(len(schedule) == 1 and schedule["market_close"].iloc[0] <= decision,
           "FEATURE_SESSION_NOT_COMPLETED")
@@ -826,8 +861,38 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     # The cache is invocation-local: every snapshot revalidates its exact
     # generation, clocks and rights through the public Source component API.
     component_reads = {}
+    generation_qualifications = {}
     global_refusals = []
     session_closes = _SessionCloseMap(allow_batch=True)  # research-only snapshot
+
+    def generation_qualification(gen, manifest, spec, batch):
+        # External generation provenance is global, including when every
+        # requested optional component was absent. Do not defer it to a row.
+        source = spec["source"]
+        expected, trust = generation_trust[gen]
+        if gen in benchmark_gens.values() and gen != generation and source.get(
+                "provider_close_qualification_sha256") is not None:
+            check(expected is not None, "QUALIFICATION_TRUST_REQUIRED")
+        if expected is None:
+            return None  # legacy non-archival path
+        from tools.prepare_a1_reader_generation import (
+            TrustedSourceBinding, TrustedCompositionBinding,
+            qualification_trust_matches)
+        qsha = sha(expected)
+        check(source.get("provider_close_qualification_sha256") == qsha,
+              "HALT_COVERAGE_UNKNOWN")
+        check(type(trust) in (TrustedSourceBinding, TrustedCompositionBinding),
+              "QUALIFICATION_TRUST_REQUIRED")
+        check(batch.receipt.get("provider_close_qualification_sha256") == qsha,
+              "QUALIFICATION_RECEIPT_BINDING")
+        qualification = decode(read_object(reader.transport,
+            f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
+        check(qualification_trust_matches(trust, manifest, source, qualification) and
+              all(h in trust.proof_sha256 for h in _provider_close_references(qualification)),
+              "QUALIFICATION_REVIEW_BINDING")
+        read_object(reader.transport, f"{PREFIX_V1}/objects/{trust.review_receipt_sha256}",
+                    trust.review_receipt_sha256, 4 * 1024 * 1024)
+        return qsha, trust, qualification
 
     def read_generation(gen, ids, required_ids):
         try:
@@ -857,6 +922,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             batch = reader.read_components("ds.us.prices.daily", gen,
                 decision_time=as_of, purpose="research", components=components,
                 consumer_id="ohlcv-technical-feature-h1")
+            generation_qualifications[gen] = generation_qualification(gen, manifest, spec, batch)
             component_reads[gen] = (manifest, spec, batch)
         except ContractError as exc:
             # Reader exceptions are global; only batch.refusals are local.
@@ -865,7 +931,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
 
     def read_one(gen, iid):
         if gen not in component_reads:
-            read_generation(gen, [iid], set())  # optional RAW companion
+            read_generation(gen, generation_ids[gen], set())  # optional roles
         manifest, spec, batch = component_reads[gen]
         if iid in batch.refusals:
             raise ContractError(batch.refusals[iid])
@@ -895,30 +961,12 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             check(clock(evidence.get("available_from")) <= clock(evidence.get("collected_at")) <=
                   clock(manifest["created_at"]) <= decision <= clock(evidence.get("expires_at")),
                   "FEATURE_IDENTITY_CLOCK")
-            if expected_qualification_sha256 is not None:
-                # Keep the legacy path independent of the optional Source adapter.
-                from tools.prepare_a1_reader_generation import (
-                    TrustedSourceBinding, TrustedCompositionBinding,
-                    qualification_trust_matches)
-                qsha = sha(expected_qualification_sha256)
-                check(source.get("provider_close_qualification_sha256") == qsha,
-                      "HALT_COVERAGE_UNKNOWN")
-                trust = trusted_qualification_source
-                check(type(trust) in (TrustedSourceBinding, TrustedCompositionBinding),
-                      "QUALIFICATION_TRUST_REQUIRED")
-                check(read.receipt.get("provider_close_qualification_sha256") == qsha and
-                      batch.receipt.get("provider_close_qualification_sha256") == qsha,
+            if generation_qualifications[gen] is not None:
+                qsha, trust, qualification = generation_qualifications[gen]
+                check(read.receipt.get("provider_close_qualification_sha256") == qsha,
                       "QUALIFICATION_RECEIPT_BINDING")
-                qualification = decode(read_object(reader.transport,
-                    f"{PREFIX_V1}/objects/{qsha}", qsha, 64 * 1024))
-                check(qualification_trust_matches(trust, manifest, source, qualification) and
-                      all(h in trust.proof_sha256 for h in
-                          _provider_close_references(qualification)) and
-                      identity_sha in trust.proof_sha256,
+                check(identity_sha in trust.proof_sha256,
                       "QUALIFICATION_REVIEW_BINDING")
-                read_object(reader.transport,
-                    f"{PREFIX_V1}/objects/{trust.review_receipt_sha256}",
-                    trust.review_receipt_sha256, 4 * 1024 * 1024)
                 qualified = True
         except ContractError as exc:
             # Consumer proof integrity is global even for an optional benchmark
@@ -978,7 +1026,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         return frame, identity, ref
 
     try:
-        read_generation(generation, [security_id, *refs.values()], {security_id})
+        read_generation(generation, generation_ids[generation], {security_id})
         px, identity, stock_ref = read_one(generation, security_id)
         check(identity["asset_class"] in {"EQUITY", "ETF"}, "FEATURE_SUBJECT_TYPE")
     except ContractError as exc:
@@ -1120,9 +1168,10 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
     for label in ("SPY", "NASDAQ_COMPOSITE"):
         benchmark = None
         error = "BENCHMARK_NOT_PROVIDED"
+        benchmark_generation = benchmark_gens.get(label, generation)
         if label in refs:
             try:
-                bm, bm_identity, bm_ref = read_one(generation, refs[label])
+                bm, bm_identity, bm_ref = read_one(benchmark_generation, refs[label])
                 check(bm_identity["ticker"] == "SPY" if label == "SPY" else
                       bm_identity["ticker"] in {"^IXIC", "IXIC", "COMP", "^COMP"},
                       "BENCHMARK_IDENTITY_MISMATCH")
@@ -1139,7 +1188,7 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                 if global_refusals:
                     return refuse_all(global_refusals[-1])
                 error = str(exc)
-        result["benchmark_ref"].setdefault(label, dict(generation=generation,
+        result["benchmark_ref"].setdefault(label, dict(generation=benchmark_generation,
             security_id=refs.get(label), status="BLOCKED", blocker=error))
         for n in TECH_HORIZONS:
             need = dates[-n-1:] if len(dates) >= n + 1 else dates[:0]

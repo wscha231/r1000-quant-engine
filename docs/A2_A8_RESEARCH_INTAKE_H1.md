@@ -298,6 +298,36 @@ handoff with its refusal codes; it is never downgraded to ordinary missing
 data. Missing optional SPY leaves its RS features null while subject features
 remain usable. No Reader, Feature, Registry or Source gate is changed.
 
+For per-asset Source layouts, `benchmark_generations` optionally maps existing
+labels (`SPY`, `NASDAQ_COMPOSITE`) to exact generation hashes. Labels without
+an override retain the subject generation; omitting the mapping preserves the
+single-generation interface and result. `prepare_research_roster` forwards this
+mapping and the following trust inputs unchanged to `research_feature_snapshot`.
+For an overridden archival benchmark supply its independently reviewed digest
+in `benchmark_expected_qualification_sha256[label]` and its existing external
+binding in `benchmark_trusted_qualification_sources[label]`. Those two maps have
+the same labels, all present in `benchmark_generations`. The subject's scalar
+qualification/binding still applies to its SPLIT/RAW pair; it is never inherited
+by a distinct benchmark generation. Manifest fields do not supply these pins.
+Conflicting trust for roles in the same generation refuses before source I/O.
+Generation qualification and external review binding are checked even when the
+requested optional instrument is absent. Only absence with valid generation
+provenance may remain local; missing/mismatched pins stop the entire handoff.
+
+All roles in one exact generation share one invocation-local component batch,
+with each instrument's original explicit start through the requested session.
+Every batch uses the same caller `as_of`, purpose and consumer ID. A subject
+SPLIT, its distinct RAW companion and a distinct SPY SPLIT require **three**
+public component calls, rather than the prior two-call graph. Actual use needs
+a fresh finite data authorization covering that graph and current Source
+receipts; old grants, clocks and expired purposes are not reused. No joint
+generation is synthesized. Optional local absence/semantic failures stay local,
+while hash, clock, rights and proof integrity refusals still block the snapshot.
+Identity, adjustment basis, calendar, matched sessions and original availability
+checks remain in force. `PIT_PROXY` continues to block formal SPY RS; absent
+Nasdaq Composite remains null. Separate generation support grants no PIT or A3
+admission and adds no scores, thresholds, weights or collection.
+
 Feature's native 5/20/60/120/240-session fields, feature statuses and complete
 snapshots are retained; they are not relabeled as legacy 21/63-day metrics.
 This route computes no new ranking, score, liquidity filter or trading policy,
