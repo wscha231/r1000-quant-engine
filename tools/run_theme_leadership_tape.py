@@ -1021,6 +1021,7 @@ def prepare_all_requested_research_roster(reader, generations: dict[str, str], *
                 row['metric_missing_reason'][key] = ('UNKNOWN_IDENTITY' if sid is None else
                     'SOURCE_GENERATION_NOT_PROVIDED' if snapshot is None else snapshot['blocker'][key])
     full = dict(schema='all-requested-unranked-research-observation-h1-v1',
+        status='READ_ONLY_OBSERVATION_PREPARED',
         scope='ALL_EXPLICIT_REQUESTED_ROWS_ONLY', research_only=True,
         session=session, comparison_session=comparison_session,
         comparison_scope='CALLER_SUPPLIED_SESSION_NOT_LATEST_MARKET_PROOF',
@@ -1045,9 +1046,8 @@ def prepare_all_requested_research_roster(reader, generations: dict[str, str], *
     h.need(len(raw) <= h.MAX_TOTAL_BYTES, 'OBSERVATION_BYTE_BUDGET')
     if subset is None:
         out_dir.mkdir()
-    with (out_dir / 'all_requested_observations.json').open('xb') as target:
-        target.write(raw)
-    return dict(all_requested_observation=full, all_requested_observation_sha256=h.digest(raw),
+    publication = caller.write_result(out_dir / 'all_requested_observations.json', full)
+    return dict(all_requested_observation=full, all_requested_observation_sha256=publication['result_sha256'],
         resolved_subset=subset, a3_consumer_ack=None, canonical_current_verified=False)
 
 

@@ -9056,3 +9056,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   market currentness. Keep adjusted-price facts separate from total return,
   official benchmark RS, ER and portfolio authority; legacy scored inputs remain
   a selected subset. Actual Source consumption needs a separate finite grant.
+- Independent A6 found the new full-observation tail could expose the final name
+  before completion and return an intended-byte hash after an unchecked short
+  write. Its synthetic 18-byte/17-byte counterexample is contract evidence, not
+  an observed OS fault. Reuse the existing create-only A2 publisher rather than
+  adding another store. Public-wrapper regressions inject short writes and
+  flush/fsync/close failures, check final absence and no successful return, and
+  verify collision preservation and successful actual-file hashes with zero
+  Source/Reader/Feature/A2 preparation calls. Preserve old-head reviews and test
+  receipts; require fresh successor-head evidence.

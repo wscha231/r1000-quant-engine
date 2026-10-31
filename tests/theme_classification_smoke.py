@@ -568,6 +568,90 @@ class AllRequestedObservationTests(unittest.TestCase):
                 self.assertIsNone(h['observed_subset_median_return'])
         self.assertIn('UNCLASSIFIED',{g['group'] for g in full['sector_groups']})
 
+    def test_all_unknown_publication_refuses_partial_or_unclosed_output(self):
+        ft, fixture, caller, _, _, kwargs, _ = self.fixture(6)
+        kwargs['identities_raw'] = caller.intake.canonical(dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS', rows=[]))
+        original_temporary = caller.tempfile.NamedTemporaryFile
+        original_fsync, original_link = caller.os.fsync, caller.os.link
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(tape,'prepare_research_roster',side_effect=AssertionError('STRICT_NOT_ALLOWED')) as strict, \
+             patch.object(ft.target,'research_feature_snapshot',side_effect=AssertionError('FEATURE_NOT_ALLOWED')) as feature, \
+             patch.object(fixture.reader,'read_components',side_effect=AssertionError('READER_NOT_ALLOWED')) as reader, \
+             patch.object(caller,'prepare',side_effect=AssertionError('A2_NOT_ALLOWED')) as a2:
+            for mode in ('short', 'flush', 'fsync', 'close', 'collision', 'success'):
+                with self.subTest(mode=mode):
+                    destination = Path(tmp)/mode
+                    final = destination/'all_requested_observations.json'
+                    streams, synced = [], []
+                    test = self
+
+                    class LocalSink:
+                        def __init__(self, stream):
+                            self.stream, self.name = stream, stream.name
+                            streams.append(self)
+                        def __enter__(self):
+                            return self
+                        def write(self, raw):
+                            test.assertFalse(final.exists())
+                            return self.stream.write(raw[:-1] if mode == 'short' else raw)
+                        def flush(self):
+                            test.assertFalse(final.exists())
+                            if mode == 'flush':
+                                raise OSError('synthetic flush refusal')
+                            self.stream.flush()
+                        def fileno(self):
+                            return self.stream.fileno()
+                        def __exit__(self, *args):
+                            test.assertFalse(final.exists())
+                            result = self.stream.__exit__(*args)
+                            if mode == 'close':
+                                raise OSError('synthetic close refusal')
+                            return result
+
+                    def temporary(*args, **options):
+                        return LocalSink(original_temporary(*args, **options))
+                    def sync(fd):
+                        self.assertFalse(final.exists())
+                        synced.append(fd)
+                        if mode == 'fsync':
+                            raise OSError('synthetic fsync refusal')
+                        return original_fsync(fd)
+                    def publish(source, target):
+                        self.assertFalse(final.exists())
+                        self.assertTrue(streams and streams[0].stream.closed)
+                        self.assertEqual(len(synced), 1)
+                        if mode == 'collision':
+                            final.write_bytes(b'caller-owned collision')
+                        return original_link(source, target)
+
+                    result = None
+                    with patch.object(caller.tempfile,'NamedTemporaryFile',side_effect=temporary), \
+                         patch.object(caller.os,'fsync',side_effect=sync), \
+                         patch.object(caller.os,'link',side_effect=publish):
+                        if mode == 'success':
+                            result = tape.prepare_all_requested_research_roster(
+                                fixture.reader,{},out_dir=destination,**kwargs)
+                        else:
+                            error = caller.intake.IntakeError if mode == 'short' else OSError
+                            with self.assertRaises(error):
+                                result = tape.prepare_all_requested_research_roster(
+                                    fixture.reader,{},out_dir=destination,**kwargs)
+                    if mode == 'success':
+                        raw = final.read_bytes()
+                        self.assertEqual(raw, caller.intake.canonical(result['all_requested_observation']))
+                        self.assertEqual(hashlib.sha256(raw).hexdigest(), result['all_requested_observation_sha256'])
+                        self.assertEqual(sorted(p.name for p in destination.iterdir()), [final.name])
+                    elif mode == 'collision':
+                        self.assertIsNone(result)
+                        self.assertEqual(final.read_bytes(), b'caller-owned collision')
+                        self.assertEqual(sorted(p.name for p in destination.iterdir()), [final.name])
+                    else:
+                        self.assertIsNone(result)
+                        self.assertFalse(final.exists())
+                        self.assertEqual(list(destination.iterdir()), [])
+            for operation in (strict, feature, reader, a2):
+                operation.assert_not_called()
+
     def test_explicit_older_observations_stay_stale_and_short_horizons_stay_missing(self):
         _, fixture, _, _, _, kwargs, generations = self.fixture(21)
         kwargs.update(as_of='2026-10-15T00:00:00Z',comparison_session='2026-10-14')

@@ -403,6 +403,13 @@ denominator is not a verified market universe. Supplied seed/counterseed lists d
 not override it. Actual Source/Reader consumption still requires its own fresh
 finite purpose and original receipts; this code adds no data authorization.
 
+The final full-requested observation reuses the existing A2 `write_result`
+publisher: write-length verification, flush, fsync and close precede create-only
+final-name publication. Short writes or flush/sync/close failures produce no
+final observation or successful wrapper return; an existing final file is never
+replaced. `READ_ONLY_OBSERVATION_PREPARED` means this local observation finished,
+not Source admission, A3 completion, Registry current or a consumer ACK.
+
 The legacy cache/report route labels its universe `SELECTED_SUBSET` and its
 input `SUPPLIED_SCORED_ROWS_NOT_PRE_RANKING_UNIVERSE`, including empty input.
 It now performs no implicit ETF provider fetch.
