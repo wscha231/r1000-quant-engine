@@ -1298,6 +1298,201 @@ class HistoryTest(unittest.TestCase):
         counts=Counter(c.args[0].rsplit('/',1)[1] for c in read.call_args_list if '/packs/' in c.args[0])
         self.assertEqual(dict(counts),dict.fromkeys(expected,1))
 
+    def pack_dependencies(self,count):
+        result={}
+        for i in range(count):
+            body=('synthetic-pack-object-'+str(i)).encode()
+            obj=digest(body);pack=self.alternate_pack([(obj,body)])
+            result[pack]={obj}
+        return result
+
+    def batch_transport(self,fault=None):
+        from tools.macro_research_checkpoint import RcloneTransport
+        remote=RcloneTransport.__new__(RcloneTransport)
+        remote.root='gdrive:'
+        remote.calls=[];remote.stages=[];remote.inventories=[]
+        remote.read=self.t.read
+        def names(prefix):
+            remote.inventories.append(prefix)
+            return self.t.names(prefix)
+        def call(*args):
+            self.assertEqual(args[0:2],('copy','gdrive:'+PREFIX+'/packs'))
+            stage=Path(args[2]);remote.stages.append(stage)
+            self.assertEqual(list(stage.iterdir()),[])
+            listing=Path(args[args.index('--files-from-raw')+1])
+            hashes=listing.read_text('ascii').splitlines()
+            self.assertEqual(hashes,sorted(set(hashes)))
+            self.assertLessEqual(len(hashes),4)
+            self.assertIn('--immutable',args);self.assertIn('--checksum',args)
+            for key,value in [('--transfers','1'),('--checkers','1'),
+                              ('--max-transfer','80M'),('--cutoff-mode','HARD')]:
+                self.assertEqual(args[args.index(key)+1],value)
+            remote.calls.append(tuple(hashes))
+            for sha in hashes:
+                (stage/sha).write_bytes(self.t.read(PREFIX+'/packs/'+sha))
+            if fault:fault(stage,hashes)
+            return b''
+        remote.names=names;remote.call=call
+        return remote
+
+    def test_pack_batch_zero_one_four_five_nine_preserves_fresh_hash_reads(self):
+        for count in (0,1,4,5,9):
+            with self.subTest(count=count):
+                dependencies=self.pack_dependencies(count)
+                transport=self.batch_transport();self.lake.transport=transport
+                self.lake.verify_pack_dependencies(dependencies)
+                self.assertEqual(len(transport.calls),(count+3)//4)
+                self.assertEqual(transport.inventories,([PREFIX+'/packs'] if count else []))
+                self.assertEqual([sha for group in transport.calls for sha in group],sorted(dependencies))
+                self.assertTrue(all(not p.exists() for p in transport.stages))
+
+    def test_pack_batch_and_legacy_restore_same_multi_generation_catalog(self):
+        self.put();self.lake.publish('one',{})
+        second=Lake(self.t,self.root/'second');self.put(second,90);second.publish('two',{})
+        class Legacy:
+            remote_verified=False
+            def names(_,prefix):return self.t.names(prefix)
+            def read(_,path):return self.t.read(path)
+        legacy=Lake(Legacy(),self.root/'legacy')
+        transport=self.batch_transport();batched=Lake(transport,self.root/'batched')
+        self.assertEqual(legacy.parent,batched.parent)
+        self.assertEqual(legacy.catalog,batched.catalog)
+        self.assertEqual(legacy.get_records('sec/0000000001'),batched.get_records('sec/0000000001'))
+        self.assertFalse(any('pack-cache' in str(p) for p in transport.stages))
+
+    def test_pack_batch_invalid_names_and_missing_duplicate_inventory_stop_before_copy(self):
+        transport=self.batch_transport()
+        for hashes in ([],['../bad'],['a'*64]*2,['g'*64],['a'*64]*5):
+            with self.subTest(hashes=hashes),self.assertRaisesRegex(ValueError,'pack_batch_names'):
+                with transport.read_pack_batch(hashes,{}):pass
+        self.assertEqual(transport.calls,[])
+        dependencies=self.pack_dependencies(1);self.lake.transport=transport
+        for inventory in ([],list(dependencies)*2):
+            with patch.object(transport,'names',return_value=inventory),self.assertRaises(ValueError):
+                self.lake.verify_pack_dependencies(dependencies)
+        self.assertEqual(transport.calls,[])
+
+    def test_pack_batch_staged_missing_extra_directory_zero_and_oversize_refuse(self):
+        from tools import macro_research_checkpoint as checkpoint
+        dependencies=self.pack_dependencies(1)
+        def fault(kind):
+            def change(stage,names):
+                p=stage/names[0]
+                if kind=='missing':p.unlink()
+                elif kind=='extra':(stage/('f'*64)).write_bytes(b'extra')
+                elif kind=='directory':p.unlink();p.mkdir()
+                elif kind=='zero':p.write_bytes(b'')
+                else:
+                    with p.open('r+b') as handle:handle.truncate(checkpoint.MAX_OBJECT+1)
+            return change
+        for kind in ('missing','extra','directory','zero','oversize'):
+            with self.subTest(kind=kind):
+                transport=self.batch_transport(fault(kind));self.lake.transport=transport
+                with self.assertRaises(ValueError):self.lake.verify_pack_dependencies(dependencies)
+                self.assertEqual(len(transport.calls),1)
+                self.assertTrue(all(not p.exists() for p in transport.stages))
+                observation=self.lake.pack_batch_observations[-1]
+                self.assertEqual(observation['subprocess_attempts'],1)
+                self.assertIsNone(observation['wire_bytes'])
+                self.assertGreater(observation['reserved_bytes'],0)
+
+    def test_pack_batch_symlink_guard_and_group_overflow_before_loading(self):
+        from tools import macro_research_checkpoint as checkpoint
+        dependencies=self.pack_dependencies(1);name=next(iter(dependencies))
+        transport=self.batch_transport();self.lake.transport=transport
+        original=Path.is_symlink
+        with patch.object(Path,'is_symlink',lambda p:
+                (p.name==name and p.parent.parent.name.startswith('history-pack-batch-')) or original(p)):
+            with self.assertRaisesRegex(ValueError,'pack_batch_file'):
+                self.lake.verify_pack_dependencies(dependencies)
+        self.assertTrue(all(not p.exists() for p in transport.stages))
+        transport=self.batch_transport();self.lake.transport=transport
+        with patch.object(checkpoint,'PACK_BATCH_BYTES',1):
+            with self.assertRaisesRegex(ValueError,'pack_batch_size'):
+                self.lake.verify_pack_dependencies(dependencies)
+
+    def test_pack_batch_corruption_keeps_remote_hash_refusal_and_no_fallback(self):
+        dependencies=self.pack_dependencies(1)
+        def corrupt(stage,names):(stage/names[0]).write_bytes(b'corrupt')
+        transport=self.batch_transport(corrupt);self.lake.transport=transport
+        with patch.object(transport,'read',wraps=transport.read) as legacy:
+            with self.assertRaisesRegex(ValueError,'remote_hash'):
+                self.lake.verify_pack_dependencies(dependencies)
+            legacy.assert_not_called()
+        self.assertEqual(len(transport.calls),1)
+        self.assertTrue(all(not p.exists() for p in transport.stages))
+
+    def test_pack_batch_valid_hash_does_not_bypass_zip_member_and_crc_checks(self):
+        import io
+        import zipfile
+        obj=digest(b'expected')
+        missing=self.alternate_pack([(digest(b'other'),b'other')])
+        wrong=self.alternate_pack([(obj,b'wrong')])
+        duplicate=self.alternate_pack([(obj,b'expected'),(obj,b'expected')])
+        invalid=b'not a zip';invalid_hash=digest(invalid)
+        self.t.write(PREFIX+'/packs/'+invalid_hash,invalid)
+        output=io.BytesIO()
+        with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr(obj,b'expected')
+        crc_broken=output.getvalue().replace(b'expected',b'tampered',1)
+        crc_hash=digest(crc_broken);self.t.write(PREFIX+'/packs/'+crc_hash,crc_broken)
+        for pack,error in ((missing,'pack_dependency'),(wrong,'pack_object_hash'),
+                           (duplicate,'pack_inventory'),(invalid_hash,'File is not a zip file'),
+                           (crc_hash,'Bad CRC')):
+            with self.subTest(error=error):
+                transport=self.batch_transport();self.lake.transport=transport
+                with self.assertRaisesRegex((ValueError,zipfile.BadZipFile),error):
+                    self.lake.verify_pack_dependencies({pack:{obj}})
+                self.assertEqual(len(transport.calls),1)
+                self.assertTrue(all(not p.exists() for p in transport.stages))
+
+    def test_pack_batch_partial_failure_timeout_cancel_keep_attempt_cost_and_cleanup(self):
+        from tools.twelve_private_capture import Refused
+        dependencies=self.pack_dependencies(4)
+        for exc in (ValueError('research_transport_failed:copy:exit_1:RATE_LIMIT'),
+                    TimeoutError('synthetic'),InterruptedError('synthetic'),Refused('synthetic')):
+            with self.subTest(exception=type(exc).__name__):
+                def fail(stage,names):
+                    for name in names[1:]:(stage/name).unlink()
+                    raise exc
+                transport=self.batch_transport(fail);self.lake.transport=transport
+                with self.assertRaises(type(exc)) as caught:self.lake.verify_pack_dependencies(dependencies)
+                self.assertIs(caught.exception,exc)
+                self.assertEqual(len(transport.calls),1)
+                self.assertTrue(all(not p.exists() for p in transport.stages))
+                observation=self.lake.pack_batch_observations[-1]
+                self.assertGreater(observation['staged_bytes'],0)
+                self.assertIsNone(observation['wire_bytes'])
+                self.assertEqual(observation['subprocess_attempts'],1)
+                self.assertEqual(observation['reserved_bytes'],80*1024*1024)
+
+    def test_pack_batch_cleanup_error_does_not_replace_cancellation(self):
+        from tools import macro_research_checkpoint as checkpoint
+        from tools.twelve_private_capture import Refused
+        dependencies=self.pack_dependencies(1);exc=Refused('original')
+        def fail(stage,names):raise exc
+        transport=self.batch_transport(fail);self.lake.transport=transport
+        original=tempfile.TemporaryDirectory
+        class CleanupFailure:
+            def __init__(_,**kwargs):_.real=original(**kwargs);_.name=_.real.name
+            def cleanup(_):_.real.cleanup();raise OSError('synthetic cleanup')
+        with patch.object(checkpoint.tempfile,'TemporaryDirectory',CleanupFailure):
+            with self.assertRaises(Refused) as caught:self.lake.verify_pack_dependencies(dependencies)
+        self.assertIs(caught.exception,exc)
+        self.assertTrue(self.lake.pack_batch_observations[-1]['cleanup_failed'])
+        self.assertTrue(all(not p.exists() for p in transport.stages))
+
+    def test_pack_batch_each_boundary_is_fresh_and_does_not_seed_consumption_cache(self):
+        dependencies=self.pack_dependencies(1);transport=self.batch_transport();self.lake.transport=transport
+        self.lake.verify_pack_dependencies(dependencies);self.lake.verify_pack_dependencies(dependencies)
+        self.assertEqual(len(transport.calls),2)
+        self.assertEqual(len(set(transport.stages)),2)
+        self.assertEqual(transport.inventories,[PREFIX+'/packs']*2)
+        self.assertFalse((self.lake.workspace/'pack-cache').exists())
+        for pack in dependencies:(self.root/'remote'/PREFIX/'packs'/pack).unlink()
+        with self.assertRaises(ValueError):self.lake.verify_pack_dependencies(dependencies)
+        self.assertEqual(len(transport.calls),2)
+
     def test_push_filters_cover_all_consumed_source_paths(self):
         import re
         workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()

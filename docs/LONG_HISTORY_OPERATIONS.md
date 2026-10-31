@@ -220,6 +220,36 @@ a calculation, not an observed network benchmark. Real runtime/bytes must be
 measured before treating the scheduled design as sustainable. Do not optimize
 this by allowing a warm local cache to conceal deleted or corrupt remote packs.
 
+### Fresh verified pack batches — 2026-11-01
+
+Pack dependency restores use fresh, disposable staging for at most four named
+SHA256 packs per copy, with an 80 MiB transfer ceiling. The existing rclone
+copy/files-from-raw/immutable/checksum path uses transfers=1, checkers=1 and the
+unchanged TPS=2, timeout, retry and fixed error grammar. A fresh remote inventory
+must contain every referenced pack before copying. The stage must contain exactly
+the requested regular, nonempty files, each at most 20 MiB; pack SHA256, ZIP member
+inventory, referenced-member CRC and member hashes still pass before acceptance.
+Missing, extra, partial, symlink, oversized or corrupt results fail closed. A
+failed copy never falls back to a cache or a second transfer path.
+
+All six restore boundaries remain independent, including publication rechecks
+and the clean consumer. Staging is removed on success, failure and cancellation;
+cleanup errors cannot replace the original cancellation. No dependency batch
+seeds the consumer cache. get_bytes/get_records/verified_execution, retained
+generation chains, SEC extraction identity, the scheduler and 120-minute workflow
+limit are unchanged. Custom transports without the batch capability retain the
+existing sequential verification path.
+
+PACK_BATCH_READ phase observations distinguish the full reserved ceiling, actual
+Python subprocess attempts and local staged bytes, including partial failure.
+Staged bytes are a bounded lower bound if inspection is incomplete; they are
+neither socket transfer nor billable Drive requests. Backend request and wire-byte
+costs remain unknown, rclone internal retries are not new Python attempts, and
+failure never makes an attempted transfer free or refunds a campaign budget.
+This changes process grouping, not the bytes that integrity verification requires.
+Offline regressions are not evidence of measured speedup, reduced network bytes,
+a completed history execution, or a guarantee that a real run fits 120 minutes.
+
 
 ## Prepared phase diagnostics — 2026-10-29 (not deployed)
 

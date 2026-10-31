@@ -37,7 +37,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
     fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
-from tools.macro_research_checkpoint import LocalTransport, RcloneTransport, relative, checked_bytes, is_safe_transport_failure
+from tools.macro_research_checkpoint import (LocalTransport, RcloneTransport, relative,
+    checked_bytes, is_safe_transport_failure, PACK_BATCH_FILES, PACK_BATCH_BYTES)
 from tools.twelve_private_capture import Refused
 
 SCHEMA = 'long-history-catalog-v1'
@@ -72,10 +73,11 @@ _PHASE_STAGES = frozenset({
     'INITIAL_RESTORE', 'MACRO_COLLECTION', 'FINANCIAL_COLLECTION', 'QUALITY_LOCAL',
     'PUBLICATION', 'CLEAN_CONSUMER_RESTORE', 'SQL_MATERIALIZATION', 'STUDY',
     'LOCAL_STUDY_REPORTS', 'REPORT_PUBLICATION', 'EXECUTION_RECEIPT_WRITE',
-    'LOCAL_PUBLICATION_WRITE',
+    'LOCAL_PUBLICATION_WRITE', 'PACK_BATCH_READ',
 })
 _PHASE_COUNTS = frozenset({'commits', 'packs', 'objects', 'index', 'total',
-                           'application_bytes', 'datasets', 'rows', 'reports'})
+                           'application_bytes', 'datasets', 'rows', 'reports',
+                           'reserved_bytes', 'staged_bytes', 'subprocess_attempts'})
 _PHASE_IDS = itertools.count(1)
 
 
@@ -514,6 +516,7 @@ class Lake:
         self.workspace.mkdir(parents=True,exist_ok=True)
         self.pending={}
         self._pack_cache=(None,None)
+        self.pack_batch_observations=[]
         self.parent,self.catalog=self.restore_catalog()
         self.before=copy.deepcopy(self.catalog)
 
@@ -564,18 +567,44 @@ class Lake:
         recovery. Recheck remote bytes at publication boundaries as well, since
         a pack can disappear after this Lake was constructed.
         """
+        def verify(raw, objects):
+            require(len(raw)<20*1024*1024,'pack_size')
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                names=archive.namelist()
+                require(len(names)==len(set(names)),'pack_inventory')
+                require(objects.issubset(set(names)),'pack_dependency')
+                for obj in sorted(objects):
+                    info=archive.getinfo(obj)
+                    require(0<info.file_size<=MAX_OBJECT,'pack_member_size')
+                    require(digest(archive.read(info))==obj,'pack_object_hash')
         with _history_phase('PACK_DEPENDENCIES', packs=len(dependencies), objects=sum(map(len, dependencies.values()))):
-            for pack_id,objects in sorted(dependencies.items()):
-                raw=self.read_hash('packs',pack_id)
-                require(len(raw)<20*1024*1024,'pack_size')
-                with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                    names=archive.namelist()
-                    require(len(names)==len(set(names)),'pack_inventory')
-                    require(objects.issubset(set(names)),'pack_dependency')
-                    for obj in sorted(objects):
-                        info=archive.getinfo(obj)
-                        require(0<info.file_size<=MAX_OBJECT,'pack_member_size')
-                        require(digest(archive.read(info))==obj,'pack_object_hash')
+            batch=getattr(self.transport,'read_pack_batch',None)
+            if not callable(batch) or not dependencies:
+                for pack_id,objects in sorted(dependencies.items()):
+                    verify(self.read_hash('packs',pack_id),objects)
+                return
+            inventory=self.transport.names(f'{PREFIX}/packs')
+            require(isinstance(inventory,list) and len(inventory)==len(set(inventory))
+                    and len(inventory)<=20000,'pack_batch_inventory')
+            require(set(dependencies).issubset(set(inventory)),'checkpoint_object_size')
+            names=sorted(dependencies)
+            for offset in range(0,len(names),PACK_BATCH_FILES):
+                group=names[offset:offset+PACK_BATCH_FILES]
+                observation={}
+                self.pack_batch_observations.append(observation)
+                with _history_phase('PACK_BATCH_READ',packs=len(group),
+                                    reserved_bytes=PACK_BATCH_BYTES) as counts:
+                    try:
+                        with batch(group,observation) as stage:
+                            for pack_id in group:
+                                with _history_phase('REMOTE_HASH_READ') as read_counts:
+                                    raw=checked_bytes(stage/pack_id)
+                                    require(digest(raw)==pack_id,'remote_hash')
+                                    read_counts['application_bytes']=len(raw)
+                                verify(raw,dependencies[pack_id])
+                    finally:
+                        counts['staged_bytes']=observation.get('staged_bytes',0)
+                        counts['subprocess_attempts']=observation.get('subprocess_attempts',0)
 
     def object(self, raw):
         require(0<len(raw)<=MAX_OBJECT,'object_size')
