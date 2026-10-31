@@ -9041,3 +9041,27 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   for missing pins, wrong digest and wrong binding with absence, plus valid-trust
   absence and roster stop-before-output controls. Preserve the earlier review
   and CI as historical evidence, not approval of this successor head.
+
+## 2026-10-31 — Preserve unknown identities outside the strict A2 subset
+
+- Unknown identity and missing Source generation are distinct. Retain every
+  original requested ordinal, null identity and unclassified group in a bounded
+  research observation; route only the one-to-one supplied-assertion subset
+  through the unchanged strict Reader/Feature/A2 helper. All-unknown inputs make
+  no Reader/Feature/A2 calls. Never invent IDs, weaken ambiguity/refusal gates or
+  label supplied assertions and unassessed finances independently verified.
+- Group native adjusted-price returns over the full requested denominator,
+  preserving negative/zero/missing/stale states and observed-subset medians.
+  Explicit comparison sessions and fresh file timestamps cannot certify latest
+  market currentness. Keep adjusted-price facts separate from total return,
+  official benchmark RS, ER and portfolio authority; legacy scored inputs remain
+  a selected subset. Actual Source consumption needs a separate finite grant.
+- Independent A6 found the new full-observation tail could expose the final name
+  before completion and return an intended-byte hash after an unchecked short
+  write. Its synthetic 18-byte/17-byte counterexample is contract evidence, not
+  an observed OS fault. Reuse the existing create-only A2 publisher rather than
+  adding another store. Public-wrapper regressions inject short writes and
+  flush/fsync/close failures, check final absence and no successful return, and
+  verify collision preservation and successful actual-file hashes with zero
+  Source/Reader/Feature/A2 preparation calls. Preserve old-head reviews and test
+  receipts; require fresh successor-head evidence.
