@@ -8,7 +8,9 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import socket
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -741,6 +743,278 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(len(proof_reads),2)
 
 
+class BenchmarkGenerationTests(unittest.TestCase):
+    """Explicit synthetic per-asset generations through the public Reader."""
+    @classmethod
+    def setUpClass(cls):
+        cls.calendar_cache = patch.object(access, '_session_close',
+            lru_cache(maxsize=2048)(access._session_close))
+        cls.calendar_cache.start()
+        cls.no_network = patch.object(socket.socket, 'connect',
+            side_effect=AssertionError('NETWORK_NOT_ALLOWED'))
+        cls.no_network.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.no_network.stop()
+        cls.calendar_cache.stop()
+
+    def fixture(self, count=21):
+        with patch(__name__+'.DAYS', DAYS[-count:]):
+            case = FeatureTests('runTest'); case.setUp()
+        return case
+
+    def store(self, case, manifest):
+        raw = encoded(manifest); generation = digest(raw)
+        case.transport.objects[f'{access.PREFIX_V1}/generations/{generation}'] = raw
+        return generation
+
+    def separate(self, case):
+        benchmark = copy.deepcopy(case.manifest)
+        benchmark['source_run_id'] = 'SYNTHETIC_SEPARATE_BENCHMARK'
+        benchmark['datasets'][0]['source']['source_receipt_sha256'] = digest(b'BENCHMARK_RECEIPT')
+        benchmark['datasets'][0]['files'] = [f for f in benchmark['datasets'][0]['files']
+            if f['instrument']['instrument_id'] != IDS['TEST']]
+        case.data_spec['files'] = [f for f in case.data_spec['files']
+            if f['instrument']['instrument_id'] == IDS['TEST']]
+        raw = copy.deepcopy(case.manifest)
+        for f in raw['datasets'][0]['files']:
+            f['instrument'].update(adjustment_basis='RAW', volume_basis='RAW')
+        return benchmark, self.store(case, raw)
+
+    def call(self, case, **options):
+        arguments = dict(security_id=IDS['TEST'], session=SESSION, as_of=ASOF,
+            benchmark_ids={'SPY': IDS['SPY']})
+        arguments.update(options)
+        return target.research_feature_snapshot(case.reader, case.generation(), **arguments)
+
+    def test_three_batches_keep_exact_arithmetic_windows_and_same_generation_receipts(self):
+        case = self.fixture(510)
+        before = case.call(benchmark_ids={'SPY': IDS['SPY']})
+        benchmark, raw = self.separate(case)
+        # The benchmark's observed window is independent of the subject window.
+        item = benchmark['datasets'][0]['files'][0]
+        rows = case.rows[IDS['SPY']][-501:]
+        price_raw = b''.join(encoded(r) for r in rows)
+        item.update(sha256=digest(price_raw), bytes=len(price_raw), rows=len(rows), start=rows[0]['session_date'])
+        case.transport.objects[f'{access.PREFIX_V1}/objects/{digest(price_raw)}'] = price_raw
+        gen = self.store(case, benchmark)
+        with patch.object(case.reader, 'read_components', wraps=case.reader.read_components) as reads, \
+             patch.object(case.reader, 'read', side_effect=AssertionError('LEGACY_WHOLE_READ')):
+            after = self.call(case, raw_generation=raw, benchmark_generations={'SPY': gen})
+        self.assertEqual(before['features'], after['features'])
+        self.assertEqual(before['feature_status'], after['feature_status'])
+        self.assertEqual(before['blocker'], after['blocker'])
+        self.assertEqual(reads.call_count, 3)
+        self.assertEqual([c.args[1] for c in reads.call_args_list], [case.generation(), raw, gen])
+        for call in reads.call_args_list:
+            self.assertEqual(call.kwargs['decision_time'], ASOF)
+            self.assertEqual(call.kwargs['purpose'], 'research')
+            self.assertEqual(call.kwargs['consumer_id'], 'ohlcv-technical-feature-h1')
+            self.assertEqual(len(call.kwargs['components']), 1)
+            self.assertEqual(call.kwargs['components'][0]['required_end'], SESSION)
+        subject, companion, spy = [c.kwargs['components'][0] for c in reads.call_args_list]
+        self.assertFalse(subject['optional']); self.assertTrue(companion['optional']); self.assertTrue(spy['optional'])
+        self.assertEqual(subject['required_start'], DAYS[0])
+        self.assertEqual(spy['required_start'], rows[0]['session_date'])
+        self.assertEqual(after['obv_anchor_session'], DAYS[0])
+        self.assertEqual(after['source_ref']['generation'], case.generation())
+        self.assertEqual(after['raw_ref']['generation'], raw)
+        self.assertEqual(after['benchmark_ref']['SPY']['generation'], gen)
+        self.assertNotEqual(after['source_ref']['component_batch_receipt_sha256'],
+                            after['benchmark_ref']['SPY']['component_batch_receipt_sha256'])
+        self.assertEqual(after, self.call(case, raw_generation=raw, benchmark_generations={'SPY': gen}))
+
+    def test_omitted_empty_and_explicit_same_generation_are_exactly_compatible(self):
+        case = self.fixture()
+        legacy = case.call()
+        self.assertEqual(legacy, case.call(benchmark_generations={},
+            benchmark_expected_qualification_sha256={}, benchmark_trusted_qualification_sources={}))
+        with patch.object(case.reader, 'read_components', wraps=case.reader.read_components) as reads:
+            explicit = case.call(benchmark_generations={
+                'SPY': case.generation(), 'NASDAQ_COMPOSITE': case.generation()})
+        self.assertEqual(legacy, explicit)
+        self.assertEqual(reads.call_count, 2)
+
+    def test_shared_benchmark_generation_batches_all_optional_roles_once(self):
+        case = self.fixture()
+        benchmark, _ = self.separate(case); gen = self.store(case, benchmark)
+        with patch.object(case.reader, 'read_components', wraps=case.reader.read_components) as reads:
+            result = self.call(case, benchmark_ids={'SPY': IDS['SPY'], 'NASDAQ_COMPOSITE': IDS['^IXIC']},
+                benchmark_generations={'SPY': gen, 'NASDAQ_COMPOSITE': gen})
+        self.assertEqual(reads.call_count, 2)
+        components = reads.call_args_list[1].kwargs['components']
+        self.assertEqual({r['instrument_id'] for r in components}, {IDS['SPY'], IDS['^IXIC']})
+        self.assertTrue(all(r['optional'] for r in components))
+        self.assertIsNotNone(result['features']['rs_log_spy_5s'])
+        self.assertIsNotNone(result['features']['nasdaq_composite_price_relative_5s'])
+
+    def test_distinct_optional_semantic_refusals_preserve_subject_and_generation(self):
+        for mode, code in [('absent', 'MISSING_INSTRUMENT'), ('unavailable', 'ARCHIVE_UNAVAILABLE'),
+                           ('value', 'INVALID_PRICE_VALUE'), ('role', 'BENCHMARK_SECURITY_TYPE_MISMATCH'),
+                           ('basis', 'BENCHMARK_ADJUSTMENT_MISMATCH'), ('pit', 'BENCHMARK_PIT_UNVERIFIED')]:
+            with self.subTest(mode=mode):
+                case = self.fixture()
+                if mode == 'value':
+                    case.rows[IDS['SPY']][-1]['close'] = -1; case.add_file(IDS['SPY'])
+                if mode == 'role':
+                    case.identity(IDS['SPY'])['asset_class'] = 'INDEX'
+                    case.bind_identity_evidence(case.identity(IDS['SPY']))
+                if mode == 'basis':
+                    case.identity(IDS['SPY'])['adjustment_basis'] = 'TOTAL_RETURN'
+                benchmark, _ = self.separate(case)
+                spec = benchmark['datasets'][0]
+                if mode == 'absent':
+                    spec['files'] = [f for f in spec['files'] if f['instrument']['instrument_id'] != IDS['SPY']]
+                if mode == 'unavailable':
+                    item = next(f for f in spec['files'] if f['instrument']['instrument_id'] == IDS['SPY'])
+                    del case.transport.objects[f"{access.PREFIX_V1}/objects/{item['sha256']}"]
+                if mode == 'pit': spec['source']['pit_status'] = 'PIT_PROXY'
+                gen = self.store(case, benchmark)
+                result = self.call(case, benchmark_generations={'SPY': gen})
+                self.assertIsNotNone(result['features']['ret_5s'], result['blocker'])
+                self.assertEqual(result['blocker']['rs_log_spy_5s'], code)
+                self.assertEqual(result['benchmark_ref']['SPY']['generation'], gen)
+                self.assertIsNone(result['features']['nasdaq_composite_price_relative_5s'])
+
+    def test_distinct_generation_global_integrity_clock_and_rights_refusals(self):
+        for mode, code in [('price_hash', 'HASH_MISMATCH'), ('manifest_hash', 'HASH_MISMATCH'),
+                           ('generation_future', 'FUTURE_GENERATION'), ('source_future', 'FUTURE_SOURCE'),
+                           ('expiry', 'STALE_GENERATION'), ('rights', 'PURPOSE_NOT_LICENSED'),
+                           ('identity_hash', 'HASH_MISMATCH'), ('identity_expiry', 'FEATURE_IDENTITY_CLOCK')]:
+            with self.subTest(mode=mode):
+                case = self.fixture()
+                if mode == 'identity_expiry':
+                    case.bind_identity_evidence(case.identity(IDS['SPY']), expires_at='2026-10-13T23:59:59Z')
+                benchmark, _ = self.separate(case); spec = benchmark['datasets'][0]
+                if mode == 'generation_future': benchmark['created_at'] = '2026-10-15T00:00:00Z'
+                if mode == 'source_future': spec['source']['available_from'] = '2026-10-15T00:00:00Z'
+                if mode == 'expiry': spec['source']['expires_at'] = '2026-10-13T23:59:59Z'
+                if mode == 'rights': spec['source']['eligible_purposes'] = []
+                gen = self.store(case, benchmark)
+                item = next(f for f in spec['files'] if f['instrument']['instrument_id'] == IDS['SPY'])
+                h = item['sha256'] if mode == 'price_hash' else item['instrument']['identity_evidence_sha256']
+                if mode in ('price_hash', 'identity_hash'):
+                    case.transport.objects[f'{access.PREFIX_V1}/objects/{h}'] += b' '
+                if mode == 'manifest_hash': case.transport.objects[f'{access.PREFIX_V1}/generations/{gen}'] += b' '
+                result = self.call(case, benchmark_generations={'SPY': gen})
+                case.assert_blocked(result, code)
+
+    def test_unknown_mapping_or_conflicting_generation_trust_refuses_before_io(self):
+        case = self.fixture(); gen = case.generation()
+        for options in [dict(benchmark_generations={'QQQ': gen}),
+                        dict(benchmark_generations={'SPY': 'latest'}),
+                        dict(benchmark_expected_qualification_sha256={'SPY': '1'*64}),
+                        dict(benchmark_generations={'SPY': gen},
+                             benchmark_expected_qualification_sha256={'SPY': '1'*64},
+                             benchmark_trusted_qualification_sources={'SPY': None}),
+                        dict(benchmark_ids={'SPY': IDS['SPY'], 'NASDAQ_COMPOSITE': IDS['^IXIC']},
+                             benchmark_generations={'SPY': '2'*64, 'NASDAQ_COMPOSITE': '2'*64},
+                             benchmark_expected_qualification_sha256={'SPY': '1'*64},
+                             benchmark_trusted_qualification_sources={'SPY': None})]:
+            with self.subTest(options=options), patch.object(case.transport, 'read',
+                    side_effect=AssertionError('READ_BEFORE_MAPPING_REFUSAL')):
+                with self.assertRaises(access.ContractError): self.call(case, **options)
+
+    def test_provider_close_requires_its_own_external_pins_and_keeps_proxy_rs_null(self):
+        from a1_reader_generation_binding_smoke import provider_close_fixture, rewrite_provider_qualification
+        from tools import prepare_a1_reader_generation as binding
+        transport = MemoryTransport()
+        def prepared(ticker, run):
+            state = provider_close_fixture(names=(ticker,), run_id=run)
+            if ticker == 'SPY':
+                e, objects = state[3], state[5]
+                ref = e['technical_metadata']['SPY']['identity_evidence']
+                identity = json.loads(objects.pop(ref['sha256'])); identity['asset_class'] = 'ETF'
+                raw = encoded(identity); h = digest(raw); objects[h] = raw
+                e['technical_metadata']['SPY']['identity_evidence'] = dict(sha256=h, bytes=len(raw))
+                rewrite_provider_qualification(state, lambda q: q['instruments']['US.TEST.SPY'].update(
+                    identity_evidence_sha256=h))
+            raw, norm, rec, e, trust, objects = state
+            result = binding.prepare(raw, norm, rec, encoded(e), decision_time='2026-10-24T09:00:00Z',
+                trusted_source=trust, proof_objects=tuple(sorted(objects.items())))
+            self.assertEqual(result.status, 'REAL_SOURCE_PREPARED_UNADMITTED', result.blockers)
+            for base in result.bases:
+                transport.objects[f'{access.PREFIX_V1}/generations/{base.generation_id}'] = base.manifest
+                for h, raw in base.objects: transport.objects[f'{access.PREFIX_V1}/objects/{h}'] = raw
+            raw, split = result.bases
+            qsha = json.loads(split.manifest)['datasets'][0]['source']['provider_close_qualification_sha256']
+            return raw, split, qsha, trust
+        raw, subject, qsha, trust = prepared('AAPL', 987654321)
+        _, benchmark, bqsha, btrust = prepared('SPY', 987654322)
+        reader = access.ResearchDataReader(transport)
+        arguments = dict(security_id='US.TEST.AAPL', session='2016-01-12',
+            as_of='2026-10-24T09:00:00Z', raw_generation=raw.generation_id,
+            expected_qualification_sha256=qsha, trusted_qualification_source=trust,
+            benchmark_ids={'SPY': 'US.TEST.SPY'}, benchmark_generations={'SPY': benchmark.generation_id})
+        good = target.research_feature_snapshot(reader, subject.generation_id,
+            benchmark_expected_qualification_sha256={'SPY': bqsha},
+            benchmark_trusted_qualification_sources={'SPY': btrust}, **arguments)
+        self.assertIsNotNone(good['features']['ret_5s'], good['blocker'])
+        self.assertEqual(good['blocker']['rs_log_spy_5s'], 'BENCHMARK_PIT_UNVERIFIED')
+        self.assertEqual(good['benchmark_ref']['SPY']['generation'], benchmark.generation_id)
+        for overrides, code in [({}, 'QUALIFICATION_TRUST_REQUIRED'),
+            (dict(benchmark_expected_qualification_sha256={'SPY': bqsha},
+                  benchmark_trusted_qualification_sources={'SPY': trust}), 'QUALIFICATION_REVIEW_BINDING'),
+            (dict(benchmark_expected_qualification_sha256={'SPY': qsha},
+                  benchmark_trusted_qualification_sources={'SPY': trust}), 'HALT_COVERAGE_UNKNOWN')]:
+            bad = target.research_feature_snapshot(reader, subject.generation_id, **arguments, **overrides)
+            self.assertEqual(set(bad['blocker'].values()), {code})
+            self.assertTrue(all(v is None for v in bad['features'].values()))
+
+    def test_explicit_corrected_benchmark_preserves_original_replay_and_subject_values(self):
+        case = self.fixture()
+        benchmark, _ = self.separate(case); original = self.store(case, benchmark)
+        before = self.call(case, benchmark_generations={'SPY': original})
+        item = next(f for f in benchmark['datasets'][0]['files']
+                    if f['instrument']['instrument_id'] == IDS['SPY'])
+        rows = copy.deepcopy(case.rows[IDS['SPY']])
+        for field in ('open', 'high', 'low', 'close'): rows[-1][field] += 1
+        raw = b''.join(encoded(r) for r in rows); h = digest(raw)
+        item.update(sha256=h, bytes=len(raw))
+        case.transport.objects[f'{access.PREFIX_V1}/objects/{h}'] = raw
+        benchmark['source_run_id'] = 'SYNTHETIC_EXPLICIT_CORRECTION'
+        benchmark['datasets'][0]['source']['source_receipt_sha256'] = digest(b'CORRECTED_BENCHMARK_RECEIPT')
+        corrected = self.store(case, benchmark)
+        after = self.call(case, benchmark_generations={'SPY': corrected})
+        self.assertNotEqual(original, corrected)
+        self.assertNotEqual(before['features']['rs_log_spy_5s'], after['features']['rs_log_spy_5s'])
+        self.assertEqual(before['source_ref'], after['source_ref'])
+        for key in target.TECH_FEATURE_NAMES:
+            if not key.startswith(('rs_log_spy_', 'nasdaq_composite_')):
+                self.assertEqual(before['features'][key], after['features'][key])
+        self.assertEqual(before, self.call(case, benchmark_generations={'SPY': original}))
+
+    def test_roster_forwards_separate_generations_and_keeps_negative_and_missing_candidates(self):
+        from tools import run_theme_leadership_tape as tape, run_a2_research_intake as caller
+        case = self.fixture()
+        for i, row in enumerate(case.rows[IDS['TEST']]):
+            row.update(open=100-i, high=101-i, low=99-i, close=100-i)
+        case.add_file(IDS['TEST'])
+        benchmark, raw = self.separate(case); gen = self.store(case, benchmark)
+        identities = dict(scope='SUPPLIED_US_IDENTITY_ASSERTIONS', rows=[
+            dict(security_id=IDS['TEST'], issuer_id='FIXTURE:ISSUER:TEST', tickers=['TEST'], country='US', currency='USD'),
+            dict(security_id='FIXTURE:US:MISSING', issuer_id='FIXTURE:ISSUER:MISSING', tickers=['MISSING'], country='US', currency='USD')])
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(case.reader, 'read_components', wraps=case.reader.read_components) as reads:
+            result = tape.prepare_research_roster(case.reader, {IDS['TEST']: case.generation()},
+                roster_raw=encoded(dict(scope='PRE_RANKING_RESEARCH_ROSTER', rows=[dict(ticker='TEST'), dict(ticker='MISSING')])),
+                identities_raw=encoded(identities), session=SESSION, as_of=ASOF,
+                observed_at='2026-10-30T06:30:00Z', intake_cutoff='2026-10-30T06:31:00Z',
+                out_dir=Path(tmp)/'new', source_kind='FUSION_REVIEW',
+                raw_generations={IDS['TEST']: raw}, benchmark_ids={'SPY': IDS['SPY']},
+                benchmark_generations={'SPY': gen})
+        self.assertEqual(reads.call_count, 3)
+        observation = result['observation']
+        self.assertEqual((observation['requested_count'], observation['missing_source_count']), (2, 1))
+        self.assertLess(observation['rows'][0]['ret_5s'], 0)
+        self.assertIsNone(observation['rows'][1]['ret_5s'])
+        self.assertEqual(observation['snapshots'][0]['benchmark_ref']['SPY']['generation'], gen)
+        self.assertEqual({r['ticker'] for r in result['a2_result']['queue']['items']}, {'TEST', 'MISSING'})
+        self.assertTrue(all(r['state'] == 'DATA_PENDING' for r in result['a2_result']['queue']['items']))
+        self.assertIsNone(result['a3_consumer_ack']); self.assertFalse(result['canonical_current_verified'])
+
+
 class CompositionFeatureTests(unittest.TestCase):
     def test_actual_reader_and_feature_accept_only_external_composition_review(self):
         from a1_reader_generation_binding_smoke import composition_fixture
@@ -882,6 +1156,7 @@ class CalendarBatchFeatureTests(unittest.TestCase):
 
 def run_contract_suite():
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests)
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BenchmarkGenerationTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CompositionFeatureTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CalendarBatchFeatureTests))
     outcome=unittest.TextTestRunner(verbosity=1).run(suite)

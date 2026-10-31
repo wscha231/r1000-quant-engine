@@ -773,6 +773,9 @@ def prepare_research_roster(reader, generations: dict[str, str], *, roster_raw: 
                             observed_at: str, intake_cutoff: str,
                             out_dir: Path, source_kind: str,
                             benchmark_ids=None, raw_generations=None,
+                            benchmark_generations=None,
+                            benchmark_expected_qualification_sha256=None,
+                            benchmark_trusted_qualification_sources=None,
                             expected_qualification_sha256=None,
                             trusted_qualification_source=None) -> dict[str, Any]:
     """Explicit pre-ranking roster -> existing Feature -> existing A2 proposal.
@@ -823,6 +826,9 @@ def prepare_research_roster(reader, generations: dict[str, str], *, roster_raw: 
         if sid in generations:
             snapshot = research_feature_snapshot(reader, generations[sid], security_id=sid,
                 session=session, as_of=as_of, benchmark_ids=benchmark_ids,
+                benchmark_generations=benchmark_generations,
+                benchmark_expected_qualification_sha256=benchmark_expected_qualification_sha256,
+                benchmark_trusted_qualification_sources=benchmark_trusted_qualification_sources,
                 raw_generation=raw_generations.get(sid),
                 expected_qualification_sha256=expected_qualification_sha256,
                 trusted_qualification_source=trusted_qualification_source)
