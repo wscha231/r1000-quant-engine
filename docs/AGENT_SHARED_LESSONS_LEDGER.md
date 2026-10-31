@@ -9107,3 +9107,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and all market-join/valuation/ER/A5 permissions false; preserve price guards.
 - A public explicit residual allowance must also be at most the global ceiling
   minus prior charges; accepting any value below the ceiling alone resets it.
+- Registry/schema additions can break independently registered historical manual
+  positives even when focused Reader checks pass. Restore their exact original
+  hash/size-bounded bytes only in temporary fixtures; retain accepted catalog
+  pins, current product bytes and changed-input refusal. CI41238471861 passed
+  234/235 files; a focused positive/negative fixture experiment isolated both
+  missing snapshots without changing the production guard or rerunning the suite.
