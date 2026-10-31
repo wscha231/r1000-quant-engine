@@ -9105,3 +9105,5 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Issuer financial facts require SEC issuer/CIK provenance, not a historical
   stock-class/MIC qualification. Keep that market binding explicitly unverified
   and all market-join/valuation/ER/A5 permissions false; preserve price guards.
+- A public explicit residual allowance must also be at most the global ceiling
+  minus prior charges; accepting any value below the ceiling alone resets it.

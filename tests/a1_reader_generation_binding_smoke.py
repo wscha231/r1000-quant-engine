@@ -984,6 +984,24 @@ class BindingTest(unittest.TestCase):
         self.assertGreater(result.decoded_retained_bytes_charged,0)
         self.assertIsNone(result.manifest)
 
+    def test_financial_bind_explicit_remaining_cannot_reset_prior_charge(self):
+        raw,norm,e,t,proof,_=financial_fixture();prepared=self.financial_prepare(raw,norm,e,t,proof)
+        _,trusted,_,p,_=bound_financial_fixture()
+        prior=prepared.decoded_retained_bytes_charged
+        self.assertGreater(prior,0)
+        cap=access.MAX_GENERATION_DECOMPRESSED_BYTES
+        for allowance in (cap,cap-prior+1):
+            result=binding.bind_financial_reuse(prepared,p,trusted_source=trusted,
+                created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z',
+                remaining_bytes=allowance)
+            self.assertEqual((result.status,result.manifest),('BLOCKED',None))
+            self.assertIn('FINANCIAL_RESOURCE_LIMIT',result.blockers)
+            self.assertGreaterEqual(result.decoded_retained_bytes_charged,prior)
+        result=binding.bind_financial_reuse(prepared,p,trusted_source=trusted,
+            created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z',remaining_bytes=cap-prior)
+        self.assertEqual(result.status,'FINANCIAL_REUSE_PREPARED_UNADMITTED',result.blockers)
+        self.assertLessEqual(result.decoded_retained_bytes_charged,cap)
+
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()
 

@@ -2019,7 +2019,8 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
                 'FINANCIAL_RESOURCE_LIMIT')
         prior = original_prior
         budget = MAX_GENERATION_DECOMPRESSED_BYTES - prior if remaining_bytes is None else remaining_bytes
-        require(type(budget) is int and 0 < budget <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+        require(type(budget) is int and 0 < budget <= MAX_GENERATION_DECOMPRESSED_BYTES - prior,
+                'FINANCIAL_RESOURCE_LIMIT')
         def debit(amount):
             nonlocal spent
             require(type(amount) is int and 0 <= amount <= budget - spent, 'FINANCIAL_RESOURCE_LIMIT')
