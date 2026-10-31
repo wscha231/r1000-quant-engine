@@ -9026,3 +9026,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   for missing pins, wrong digest and wrong binding with absence, plus valid-trust
   absence and roster stop-before-output controls. Preserve the earlier review
   and CI as historical evidence, not approval of this successor head.
+
+## 2026-10-31 — Count downloader retries and observe actual clocks after PR702
+
+- The legacy price cap80/batch40 bounds the selected symbols and first batches,
+  not HTTP requests. Two failed-symbol singleton retries allow162 downloader
+  invocations/240 symbol attempts per80-name run. HTTP authentication/library
+  retries, macro, Drive and platform costs remain separate and unpriced.
+- Prior run40994021962 already started after UTC midnight under the old cron:
+  sessionOct29 requested endNov1, targetsAVB/BLD, three downloader invocations,
+  four symbol attempts, one failure, completed. Actual endOct28/commonJul2 did
+  not establish session completeness. Compare actual child clocks, not nominal
+  cron alone; age2 can skip a missing latest session, and old nonempty responses
+  can be requested repeatedly. Preserve strict private pins and all cost gates.
+- Add the registered eight-case synthetic Source-slot suite with socket/provider
+  guards; keep existing production clock/cache/retry policy unchanged. See
+  docs/SOURCE_SLOT_IMPACT_20261031_KO.md for assumptions and scoped evidence.
