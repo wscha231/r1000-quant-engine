@@ -29,12 +29,28 @@ and requires the existing R9 diagnostic ACK/result plus frozen-origin proof to
 match both hashes, extraction fingerprint, original config/window and code.
 It does not re-extract the raw JSON or repair a missing old execution receipt.
 
+Financial identity is explicitly `ISSUER_FINANCIAL_FACTS`: independently reviewed
+SEC issuer/CIK and original-source/row-CIK linkage over the reported archive
+period. It is not a stock-class, exchange MIC, listing-history or corporate-action
+qualification. No fake security IDs or placeholder market fields are required.
+Manifest and read receipts state `market_security_binding_status=UNVERIFIED`,
+`qualified_market_join=false`, and valuation/ER/A5 eligibility false. A later
+market-security join has separate proof and authority; price identity/lifecycle
+guards remain unchanged.
+
 Financial results use the existing immutable result containers and distinct
 financial receipt schemas. They expose original source lineage, current reuse
 availability, row-set/quality/execution hashes, resource charges and
 `NOT_CURRENT` / `ARCHIVAL_RESEARCH_FORWARD_ONLY`. Original publication remains
 unknown; no historical-PIT, source-admission, selector or economic authority is
 conferred. Statement/quarter completeness remains `NOT_CERTIFIED`.
+
+One cumulative budget includes manifest/request and already-held object bytes.
+Only its remaining allowance reaches replay and bind. Decoding, retained version
+keys, canonical row hashing and selected-row copies preflight that allowance;
+failed mandatory work never restarts a fresh per-stage limit. Binding rechecks
+the exported object's exact allowed/required set, duplicate keys, hashes and
+context/quality/row linkage. A frozen preparation dataclass is not a trust anchor.
 
 The independent trust explicitly distinguishes `publication_scope='LOCAL_ONLY'`
 from `DURABLE_READBACK`. Local research can read already-local immutable objects

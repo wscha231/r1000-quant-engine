@@ -9098,3 +9098,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Freeze implementation before a full suite with cached exact-code trust
   fixtures. Editing the adapter during that run invalidates cached review pins;
   preserve that failed run and revalidate in a fresh process at the frozen head.
+- Exact-head A6 found two P2s after the first green tests: replay reset its
+  effective allowance despite Reader-held metadata, and bind trusted a frozen
+  carrier's mutable assembly without checking exported bytes. Carry one residual
+  budget before decode/copy and revalidate object/Q/context/row linkage at bind.
+- Issuer financial facts require SEC issuer/CIK provenance, not a historical
+  stock-class/MIC qualification. Keep that market binding explicitly unverified
+  and all market-join/valuation/ER/A5 permissions false; preserve price guards.

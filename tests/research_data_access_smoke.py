@@ -66,6 +66,12 @@ class ReaderTest(unittest.TestCase):
         self.assertFalse(r.receipt['durable_publication_verified']);self.assertFalse(r.receipt['source_admitted'])
         self.assertFalse(r.receipt['historical_pit']);self.assertFalse(r.receipt['eligible_for_economics'])
         self.assertEqual(r.receipt['currentness'],'NOT_CURRENT')
+        self.assertEqual(r.receipt['identity_scope'],'ISSUER_FINANCIAL_FACTS')
+        self.assertEqual(r.receipt['market_security_binding_status'],'UNVERIFIED')
+        for key in ('qualified_market_join','eligible_for_valuation','eligible_for_er','eligible_for_a5'):
+            self.assertIs(r.receipt[key],False)
+            self.assertIs(result.receipt[key],False)
+        self.assertNotIn('security_id',r.receipt['issuer_identity'])
         self.assertEqual(r.receipt['original_source']['run_id'],'CONTRACT_FIXTURE:old_failed_run')
         self.assertIn(0,[row['value'] for row in r.rows]);self.assertIn(-7,[row['value'] for row in r.rows])
         self.assertIn(None,[row['start'] for row in r.rows])
@@ -146,6 +152,32 @@ class ReaderTest(unittest.TestCase):
             result=read().results['financial']
         self.assertEqual(result.receipt['execution_receipt_sha256'],t.execution_receipt_sha256)
         self.assertFalse(result.receipt['historical_pit'])
+
+    def test_financial_replay_uses_one_remaining_budget_before_decode(self):
+        from tools import prepare_a1_reader_generation as binding
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        # Independent A6's old 33,217-byte counterexample reached _rows despite
+        # manifest/request + replay work already exceeding this combined cap.
+        with patch('tools.research_data_access.MAX_GENERATION_DECOMPRESSED_BYTES',33217), \
+             patch.object(ResearchDataReader,'_rows',side_effect=AssertionError('decode must not start')) as decoder:
+            with self.assertRaises(ContractError):read()
+            decoder.assert_not_called()
+        original=binding._replay_financial_reuse
+        with patch.object(binding,'_replay_financial_reuse',wraps=original) as replay, \
+             patch.object(ResearchDataReader,'_rows',wraps=ResearchDataReader._rows) as decoder:
+            result=read().results['financial']
+        remaining=replay.call_args.kwargs['remaining_bytes']
+        self.assertLess(remaining,256*1024*1024)
+        self.assertIs(replay.call_args.kwargs['inputs_already_charged'],True)
+        self.assertLess(decoder.call_args.kwargs['remaining_bytes'],remaining)
+        self.assertGreater(result.receipt['decoded_retained_bytes_charged'],0)
+
+    def test_financial_selection_checks_budget_before_row_copy(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture()
+        with patch('tools.research_data_access._financial_row_copy_charge',return_value=256*1024*1024), \
+             patch('tools.research_data_access._financial_copy_row',side_effect=AssertionError('copy must not start')) as copy:
+            with self.assertRaisesRegex(ContractError,'FINANCIAL_RESOURCE_LIMIT'):read()
+            copy.assert_not_called()
 
     def observed_revision_reader_fixture(self):
         from a1_reader_generation_binding_smoke import observed_volume_fixture

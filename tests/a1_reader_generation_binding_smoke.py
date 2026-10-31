@@ -128,13 +128,12 @@ def financial_fixture(*, rows_override=None, durable=False, supplier_expires_at=
     e = dict(schema='a1-financial-reuse-evidence-v1', task_key='CONTRACT_FIXTURE:financial_reuse_task',
         raw=dict(sha256=digest(raw),bytes=len(raw)),
         normalized=dict(sha256=digest(norm),bytes=len(norm)), origin=origin,
-        issuer=dict(cik='0000000001', ticker='CONTRACT_FIXTURE', security_id='CONTRACT_FIXTURE:SECURITY',
-            share_class='COMMON', mic='XNAS', lifecycle_status='VERIFIED',
-            valid_from='2016-01-01', valid_through='2026-10-23'),
+        issuer=dict(identity_scope='ISSUER_FINANCIAL_FACTS',cik='0000000001',
+            issuer_name='CONTRACT_FIXTURE_ISSUER',archive_start='2016-01-01',archive_through='2026-10-23'),
         rights=dict(provider='SEC_COMPANYFACTS',status='REVIEWED',eligible_purposes=['research'],
             access_policy='PRIVATE_RESEARCH',license_reference='CONTRACT_FIXTURE_ONLY',
             supplier_expires_at=None,supplier_expiry_state='NOT_STATED'),
-        proofs=dict(rights=rights,issuer_security=identity,source_origin=frozen,reconstruction=ack,
+        proofs=dict(rights=rights,issuer_identity=identity,source_origin=frozen,reconstruction=ack,
                     reconstruction_result=result), source_documents=[rights,identity,frozen,ack,result],
         first_verified_readback_at='2026-10-24T12:00:00Z', research_valid_from='2026-10-24T12:00:00Z',
         research_expires_at='2026-11-02T00:00:00Z',reuse_run_id='CONTRACT_FIXTURE:new_reuse',reuse_code_sha='5'*40)
@@ -888,7 +887,8 @@ class BindingTest(unittest.TestCase):
         raw,norm,e,t,proof,_=financial_fixture()
         for section,key,value in (('rights','status','UNKNOWN'),('rights','eligible_purposes',['backtest']),
                 ('rights','supplier_expiry_state','UNKNOWN'),('rights','supplier_expires_at','2026-10-25T00:00:00Z'),
-                ('issuer','cik','0000000002'),('issuer','lifecycle_status','UNKNOWN')):
+                ('issuer','cik','0000000002'),('issuer','issuer_name','UNKNOWN'),
+                ('issuer','identity_scope','MARKET_SECURITY')):
             changed=copy.deepcopy(e);changed[section][key]=value
             if key=='supplier_expires_at':changed['rights']['supplier_expiry_state']='STATED'
             result=self.financial_prepare(raw,norm,changed,replace(t,evidence_sha256=digest(encoded(changed))),proof)
@@ -906,6 +906,7 @@ class BindingTest(unittest.TestCase):
         raw,norm,e,t,proof,rows=financial_fixture()
         result=self.financial_prepare(raw,norm,e,t,proof)
         self.assertEqual([dict(r) for r in result.rows],rows)
+        self.assertEqual(json.loads(result.quality)['row_set_sha256'],digest(encoded(rows)))
         self.assertIn(0,[r['value'] for r in result.rows]);self.assertIn(-7,[r['value'] for r in result.rows])
         self.assertIn(None,[r['start'] for r in result.rows])
         self.assertEqual({r['unit'] for r in result.rows},{'USD','shares','USD/shares'})
@@ -954,6 +955,34 @@ class BindingTest(unittest.TestCase):
         result=binding.bind_financial_reuse(prepared,p,trusted_source=t,
             created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
         self.assertEqual(result.status,'BLOCKED')
+
+    def test_financial_bind_rechecks_mutable_carrier_objects_context_quality_and_rows(self):
+        raw,norm,e,t,proof,_=financial_fixture();prepared=self.financial_prepare(raw,norm,e,t,proof)
+        _,trusted,_,p,_=bound_financial_fixture()
+        objects=dict(prepared.objects)
+        bad_rows=[dict(r) for r in prepared.rows];bad_rows[0]['value']=123
+        cases=[replace(prepared,objects=tuple((h,b'x' if h==t.raw_sha256 else b) for h,b in prepared.objects)),
+            replace(prepared,objects=prepared.objects+(prepared.objects[0],)),
+            replace(prepared,objects=tuple(pair for pair in prepared.objects if pair[0]!=t.raw_sha256)),
+            replace(prepared,objects=prepared.objects+((digest(b'extra'),b'extra'),)),
+            replace(prepared,context=b'{}'),replace(prepared,quality=b'{}'),
+            replace(prepared,rows=tuple(bad_rows)),replace(prepared,rows=()),
+            replace(prepared,decoded_retained_bytes_charged='invalid')]
+        with patch.object(ResearchDataReader,'_rows',side_effect=AssertionError('bind must not decode again')):
+            for candidate in cases:
+                with self.subTest(candidate=candidate.status):
+                    result=binding.bind_financial_reuse(candidate,p,trusted_source=trusted,
+                        created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
+                    self.assertEqual((result.status,result.manifest),('BLOCKED',None))
+
+    def test_financial_preparation_failure_retains_already_charged_work(self):
+        raw,norm,e,t,proof,_=financial_fixture()
+        # All metadata is inspected before a requested source row-count mismatch.
+        changed=replace(t,normalized_rows=t.normalized_rows+1)
+        result=self.financial_prepare(raw,norm,e,changed,proof)
+        self.assertEqual(result.status,'BLOCKED')
+        self.assertGreater(result.decoded_retained_bytes_charged,0)
+        self.assertIsNone(result.manifest)
 
     def setUp(self):
         self.raw, self.norm, self.rec, self.evidence, self.calls = fixture()

@@ -356,7 +356,13 @@
             "evidence_sha256",
             "review_receipt_sha256",
             "reuse_origin",
-            "research_expires_at"
+            "research_expires_at",
+            "identity_scope",
+            "market_security_binding_status",
+            "qualified_market_join",
+            "eligible_for_valuation",
+            "eligible_for_er",
+            "eligible_for_a5"
           ],
           "properties": {
             "provider": {
@@ -469,6 +475,24 @@
             "research_expires_at": {
               "type": "string",
               "format": "date-time"
+            },
+            "identity_scope": {
+              "const": "ISSUER_FINANCIAL_FACTS"
+            },
+            "market_security_binding_status": {
+              "const": "UNVERIFIED"
+            },
+            "qualified_market_join": {
+              "const": false
+            },
+            "eligible_for_valuation": {
+              "const": false
+            },
+            "eligible_for_er": {
+              "const": false
+            },
+            "eligible_for_a5": {
+              "const": false
             }
           }
         },
@@ -539,49 +563,32 @@
               },
               "issuer": {
                 "type": "object",
+                "additionalProperties": false,
                 "required": [
+                  "identity_scope",
                   "cik",
-                  "ticker",
-                  "security_id",
-                  "share_class",
-                  "mic",
-                  "lifecycle_status",
-                  "valid_from",
-                  "valid_through"
+                  "issuer_name",
+                  "archive_start",
+                  "archive_through"
                 ],
                 "properties": {
+                  "identity_scope": {
+                    "const": "ISSUER_FINANCIAL_FACTS"
+                  },
                   "cik": {
                     "type": "string",
                     "pattern": "^[0-9]{10}$"
                   },
-                  "ticker": {
+                  "issuer_name": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 200
                   },
-                  "security_id": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "share_class": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "mic": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200
-                  },
-                  "lifecycle_status": {
-                    "const": "VERIFIED"
-                  },
-                  "valid_from": {
+                  "archive_start": {
                     "type": "string",
                     "format": "date"
                   },
-                  "valid_through": {
+                  "archive_through": {
                     "type": "string",
                     "format": "date"
                   }

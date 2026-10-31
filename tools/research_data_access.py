@@ -113,6 +113,17 @@ def _json_retained_bytes(value, remaining_bytes):
     return charge
 
 
+def _financial_row_copy_charge(row):
+    # Conservative fixed-primitive dict plus an immutable public view. Compute
+    # before materializing a copy, including keys/values even when shared.
+    return (128 + 72 * len(row) +
+            sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.items()))
+
+
+def _financial_copy_row(row):
+    return dict(row)
+
+
 def _session_close(session):
     """Use the existing offline NYSE holiday/half-day schedule, never a fallback."""
     try:
@@ -880,7 +891,8 @@ class ResearchDataReader:
 
     def _read_financial_components(self, generation_id, *, decision_time, purpose, components, consumer_id, trust):
         from tools.prepare_a1_reader_generation import (
-            TrustedFinancialSourceBinding, _replay_financial_reuse, bind_financial_reuse)
+            TrustedFinancialSourceBinding, _replay_financial_reuse, bind_financial_reuse,
+            _financial_rows_digest)
         check(type(trust) is TrustedFinancialSourceBinding, 'FINANCIAL_TRUST')
         check(purpose == 'research', 'FINANCIAL_HISTORY_PROHIBITED')
         check(FINANCIAL_DATASET in self.registry['datasets'], 'UNKNOWN_DATASET')
@@ -924,18 +936,27 @@ class ResearchDataReader:
         check(set(declared) == expected, 'FINANCIAL_INVENTORY')
         objects = {}
         for h, size in sorted(declared.items()):
+            check(size <= MAX_GENERATION_DECOMPRESSED_BYTES - charge, 'FINANCIAL_RESOURCE_LIMIT')
             raw = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
             check(len(raw) == size, 'OBJECT_SIZE')
+            charge += len(raw)
             objects[h] = raw
         prepared = _replay_financial_reuse(objects[trust.raw_sha256], objects[trust.normalized_sha256],
             objects[trust.evidence_sha256], objects[trust.execution_receipt_sha256], trusted_source=trust,
-            proof_objects=tuple((h, objects[h]) for h in trust.proof_sha256), decision_time=decision_time)
-        check(prepared.status == 'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT',
-              prepared.blockers[0] if prepared.blockers else 'FINANCIAL_REUSE_QUALITY')
+            proof_objects=tuple((h, objects[h]) for h in trust.proof_sha256), decision_time=decision_time,
+            remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - charge, inputs_already_charged=True)
+        if prepared.status != 'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT':
+            refusal = ContractError(prepared.blockers[0] if prepared.blockers else 'FINANCIAL_REUSE_QUALITY')
+            refusal.decoded_retained_bytes_charged = charge + prepared.decoded_retained_bytes_charged
+            raise refusal
         bound = bind_financial_reuse(prepared, objects[trust.execution_receipt_sha256],
-            trusted_source=trust, created_at=manifest.get('created_at'), decision_time=decision_time)
-        check(bound.status == 'FINANCIAL_REUSE_PREPARED_UNADMITTED',
-              bound.blockers[0] if bound.blockers else 'FINANCIAL_REUSE_RECEIPT')
+            trusted_source=trust, created_at=manifest.get('created_at'), decision_time=decision_time,
+            remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - charge - prepared.decoded_retained_bytes_charged)
+        if bound.status != 'FINANCIAL_REUSE_PREPARED_UNADMITTED':
+            refusal = ContractError(bound.blockers[0] if bound.blockers else 'FINANCIAL_REUSE_RECEIPT')
+            refusal.decoded_retained_bytes_charged = charge + bound.decoded_retained_bytes_charged
+            raise refusal
+        charge += bound.decoded_retained_bytes_charged
         check(bound.manifest == manifest_raw and objects[quality_sha] == prepared.quality, 'FINANCIAL_GENERATION')
         # Publication occurs after generation creation; its pin is external, not
         # a cyclic member of the manifest or a success manufactured by prepare.
@@ -944,8 +965,11 @@ class ResearchDataReader:
         if durable:
             check(type(trust.publication_receipt_sha256) is str, 'FINANCIAL_PUBLICATION')
             pub_sha = sha(trust.publication_receipt_sha256)
-            pub_raw = read_object(self.transport, f'{PREFIX_V1}/objects/{pub_sha}', pub_sha, 1024 * 1024)
+            pub_raw = read_object(self.transport, f'{PREFIX_V1}/objects/{pub_sha}', pub_sha,
+                min(1024 * 1024, MAX_GENERATION_DECOMPRESSED_BYTES - charge))
+            charge += len(pub_raw)
             pub = decode(pub_raw)
+            charge += _json_retained_bytes(pub, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
             check(pub.get('schema') == 'a1-financial-reuse-publication-v1' and
                   pub.get('status') == 'PUBLISHED_READBACK' and pub.get('storage') == 'OWNER_PRIVATE_DURABLE' and
                   pub.get('generation_sha256') == generation and
@@ -955,15 +979,18 @@ class ResearchDataReader:
         else:
             check(trust.publication_scope == 'LOCAL_ONLY' and trust.publication_receipt_sha256 is None,
                   'FINANCIAL_PUBLICATION')
-        q = decode(prepared.quality)
-        charge += prepared.decoded_retained_bytes_charged + len(objects[trust.execution_receipt_sha256]) + len(pub_raw)
-        if pub is not None:
-            charge += _json_retained_bytes(pub, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
-        selected = [dict(r) for r in prepared.rows if start <= day(r['end']) <= end]
+        charge += 128 + 16 * len(prepared.rows)
+        check(charge <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+        selected = []
+        for row in prepared.rows:
+            if start <= day(row['end']) <= end:
+                copy_charge = _financial_row_copy_charge(row)
+                check(copy_charge <= MAX_GENERATION_DECOMPRESSED_BYTES - charge, 'FINANCIAL_RESOURCE_LIMIT')
+                charge += copy_charge
+                selected.append(_financial_copy_row(row))
         check(bool(selected), 'FINANCIAL_PERIOD')
-        charge += _json_retained_bytes(selected, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
-        row_bytes = encoded(selected)
-        charge += len(row_bytes)
+        row_digest, hash_charge = _financial_rows_digest(selected, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
+        charge += hash_charge
         check(charge <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
         receipt = dict(schema='research-data-financial-component-read-receipt-v1',
             status=('VERIFIED_DURABLE_ARCHIVAL_RESEARCH_BYTES' if durable else 'VERIFIED_LOCAL_ARCHIVAL_RESEARCH_BYTES'),
@@ -972,9 +999,11 @@ class ResearchDataReader:
             purpose=purpose, decision_time=decision_time, component_id=name, issuer_cik=trust.issuer_cik,
             requested_period_end_start=start.isoformat(), requested_period_end_end=end.isoformat(),
             rows=len(selected), decoded_rows_charged=len(prepared.rows), decoded_retained_bytes_charged=charge,
-            row_set_sha256=digest(row_bytes), verified_file_sha256=sorted(objects),
+            row_set_sha256=row_digest, verified_file_sha256=sorted(objects),
             raw_sha256=trust.raw_sha256, normalized_sha256=trust.normalized_sha256,
-            extraction_sha256=trust.extraction_sha256, issuer_security=spec['files'][0]['issuer'],
+            extraction_sha256=trust.extraction_sha256, issuer_identity=spec['files'][0]['issuer'],
+            identity_scope='ISSUER_FINANCIAL_FACTS', market_security_binding_status='UNVERIFIED',
+            qualified_market_join=False, eligible_for_valuation=False, eligible_for_er=False, eligible_for_a5=False,
             producer_run_id=trust.reuse_run_id, producer_code_sha=trust.reuse_code_sha,
             producer_config_sha256=trust.evidence_sha256, producer_adapter_sha256=trust.adapter_file_sha256,
             review_receipt_sha256=trust.review_receipt_sha256,
@@ -999,7 +1028,9 @@ class ResearchDataReader:
         batch = dict(schema='research-data-financial-batch-read-receipt-v1', **{
             k: receipt[k] for k in ('status', 'dataset_id', 'data_generation_id', 'decision_time',
                                    'historical_pit', 'eligible_for_selector', 'eligible_for_economics',
-                                   'publication_scope', 'durable_publication_verified', 'source_admitted')},
+                                   'publication_scope', 'durable_publication_verified', 'source_admitted',
+                                   'identity_scope', 'market_security_binding_status', 'qualified_market_join',
+                                   'eligible_for_valuation', 'eligible_for_er', 'eligible_for_a5')},
             component_receipts={name: receipt['receipt_sha256']})
         return ComponentReadResult(MappingProxyType({name: result}), _freeze({}), _freeze(batch), encoded(batch))
 

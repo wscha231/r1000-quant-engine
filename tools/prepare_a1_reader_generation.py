@@ -11,11 +11,13 @@ from datetime import timedelta
 from decimal import (Context, Decimal, DivisionByZero, InvalidOperation, Overflow,
                      ROUND_HALF_EVEN, localcontext)
 import gzip
+import hashlib
 import io
 import json
 import math
 from pathlib import Path
 import re
+import sys
 from types import MappingProxyType
 import zlib
 import zipfile
@@ -1738,10 +1740,58 @@ def _financial_known_text(value, code):
     return value
 
 
-def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, decision_time, *, verify_loaded_adapter=True):
+def _financial_rows_digest(rows, remaining_bytes, *, charge=None):
+    """Preflight bounded primitive serialization; never build a whole row copy."""
+    bound, copy_peak = 3, 0  # brackets and canonical trailing newline
+    for row in rows:
+        require(type(row) in (dict, MappingProxyType), 'FINANCIAL_FACT_SCHEMA')
+        bound += 2 + 2 * len(row)  # braces, commas and colons
+        copy_peak = max(copy_peak, 128 + 72 * len(row))
+        for k, v in row.items():
+            require(type(k) is str, 'FINANCIAL_FACT_SCHEMA')
+            bound += 6 * len(k) + 2
+            if type(v) is str:
+                bound += 6 * len(v) + 2  # UTF-8 and JSON escapes bounded before encoding
+            elif v is None:
+                bound += 4
+            elif type(v) is int:
+                bound += (v.bit_length() * 30103 // 100000) + 3
+            elif type(v) is float and math.isfinite(v):
+                bound += 32
+            else:
+                raise BindingError('FINANCIAL_FACT_SCHEMA')
+    cost = bound + copy_peak + len(rows)
+    require(type(remaining_bytes) is int and cost <= remaining_bytes, 'FINANCIAL_RESOURCE_LIMIT')
+    if charge is not None:
+        charge(cost)
+    hashed = hashlib.sha256(); hashed.update(b'[')
+    for i, row in enumerate(rows):
+        if i: hashed.update(b',')
+        hashed.update(encoded(dict(row))[:-1])
+    hashed.update(b']\n')
+    return hashed.hexdigest(), cost
+
+
+def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, decision_time, *,
+                      verify_loaded_adapter=True, remaining_bytes=None, inputs_already_charged=False, charge_state=None):
     from tools.long_history_lake import extraction_identity, FORMS
     from tools.research_data_access import (ResearchDataReader, MAX_GENERATION_ROWS,
         MAX_GENERATION_DECOMPRESSED_BYTES, _json_retained_bytes)
+    budget = MAX_GENERATION_DECOMPRESSED_BYTES if remaining_bytes is None else remaining_bytes
+    require(type(budget) is int and 0 < budget <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+    charge = 0
+    if charge_state is None:
+        charge_state = {'charged': 0}
+    def debit(amount):
+        nonlocal charge
+        require(type(amount) is int and 0 <= amount <= budget - charge, 'FINANCIAL_RESOURCE_LIMIT')
+        charge += amount
+        charge_state['charged'] = charge
+    def metadata(body, limit):
+        require(type(body) is bytes and len(body) <= budget - charge, 'FINANCIAL_RESOURCE_LIMIT')
+        value = _decode(body, limit)
+        debit(_json_retained_bytes(value, budget - charge))
+        return value
     require(type(trust) is TrustedFinancialSourceBinding, 'FINANCIAL_TRUST')
     _financial_known_text(trust.review_reference, 'FINANCIAL_TRUST')
     require(trust.classification in {'REAL_SOURCE', 'CONTRACT_FIXTURE'}, 'FINANCIAL_TRUST')
@@ -1770,7 +1820,9 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
     require(digest(raw) == trust.raw_sha256 and digest(normalized) == trust.normalized_sha256,
             'FINANCIAL_ORIGIN')
     require(digest(evidence_bytes) == trust.evidence_sha256, 'FINANCIAL_TRUST')
-    e = _decode(evidence_bytes, 1024 * 1024)
+    if not inputs_already_charged:
+        debit(len(raw) + len(normalized) + len(evidence_bytes) + sum(map(len, proofs.values())))
+    e = metadata(evidence_bytes, 1024 * 1024)
     require(e['schema'] == 'a1-financial-reuse-evidence-v1', 'FINANCIAL_TRUST')
     require(e['raw'] == dict(sha256=trust.raw_sha256, bytes=len(raw)) and
             e['normalized'] == dict(sha256=trust.normalized_sha256, bytes=len(normalized)),
@@ -1779,11 +1831,11 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
     require(type(identity) is dict and type(trust.issuer_cik) is str and
             re.fullmatch(r'[0-9]{10}', trust.issuer_cik) and identity['cik'] == trust.issuer_cik,
             'FINANCIAL_IDENTITY')
-    for k in ('ticker', 'security_id', 'share_class', 'mic'):
-        _financial_known_text(identity[k], 'FINANCIAL_IDENTITY')
-    require(identity['lifecycle_status'] == 'VERIFIED', 'FINANCIAL_IDENTITY')
-    require(day(identity['valid_from']) <= day(origin['start']) <= day(origin['through']) <=
-            day(identity['valid_through']), 'FINANCIAL_IDENTITY')
+    require(set(identity) == {'identity_scope', 'cik', 'issuer_name', 'archive_start', 'archive_through'} and
+            identity['identity_scope'] == 'ISSUER_FINANCIAL_FACTS', 'FINANCIAL_IDENTITY')
+    _financial_known_text(identity['issuer_name'], 'FINANCIAL_IDENTITY')
+    require(day(identity['archive_start']) <= day(origin['start']) <= day(origin['through']) <=
+            day(identity['archive_through']), 'FINANCIAL_IDENTITY')
     require(origin['provider'] == 'SEC_COMPANYFACTS' and origin['dataset_key'] == 'sec/' + trust.issuer_cik
             and origin['source_code_sha'] == trust.original_source_sha and
             re.fullmatch('[a-f0-9]{40}', trust.original_source_sha) and
@@ -1813,16 +1865,16 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
             'FINANCIAL_RIGHTS')
     if supplier is not None:
         require(decision <= _clock(supplier), 'FINANCIAL_RIGHTS')
-    for role in ('rights', 'issuer_security', 'source_origin'):
+    for role in ('rights', 'issuer_identity', 'source_origin'):
         h = _hash(e['proofs'][role])
         require(h in proofs, 'FINANCIAL_TRUST')
     require(e['proofs']['reconstruction'] == trust.reconstruction_receipt_sha256,
             'FINANCIAL_TRUST')
     # Reuse existing R9 ACK/result and frozen-origin evidence, not a new claim
     # that an unchanged diagnostic hash covers different objects/config/windows.
-    ack = _decode(proofs[trust.reconstruction_receipt_sha256], 4 * 1024 * 1024)
-    frozen = _decode(proofs[e['proofs']['source_origin']], 4 * 1024 * 1024)
-    result = _decode(proofs[_hash(e['proofs']['reconstruction_result'])], 4 * 1024 * 1024)
+    ack = metadata(proofs[trust.reconstruction_receipt_sha256], 4 * 1024 * 1024)
+    frozen = metadata(proofs[e['proofs']['source_origin']], 4 * 1024 * 1024)
+    result = metadata(proofs[_hash(e['proofs']['reconstruction_result'])], 4 * 1024 * 1024)
     actual_inputs = [r for r in ack['reads'] if r['kind'] == 'financial']
     require(ack['schema'] == 'mu-financial-diagnostic-consumer-ack-v1' and
             ack['status'] == 'DONE_DIAGNOSTIC_ONLY_UNADMITTED' and
@@ -1857,14 +1909,17 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
         require(trust.adapter_file_sha256 == digest(Path(__file__).read_bytes()), 'FINANCIAL_ORIGIN')
     _financial_known_text(trust.reuse_run_id, 'FINANCIAL_ORIGIN')
     _financial_known_text(e['task_key'], 'FINANCIAL_ORIGIN')
-    charge = len(raw) + len(normalized) + len(evidence_bytes) + sum(map(len, proofs.values()))
-    charge += _json_retained_bytes(e, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
-    for metadata in (ack, frozen, result):
-        charge += _json_retained_bytes(metadata, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
-    rows, retained = ResearchDataReader._rows(normalized, 'gzip_jsonl',
-        remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - charge, remaining_rows=MAX_GENERATION_ROWS,
-        preserve_cancellation=True)
-    charge += retained
+    require(charge < budget, 'FINANCIAL_RESOURCE_LIMIT')
+    try:
+        rows, retained = ResearchDataReader._rows(normalized, 'gzip_jsonl',
+            remaining_bytes=budget - charge, remaining_rows=MAX_GENERATION_ROWS,
+            preserve_cancellation=True)
+    except BaseException:
+        # Partial decoder cost is not returned by the shared decoder. Preserve
+        # its whole residual reservation on failure, never infer a free decode.
+        charge_state['charged'] = budget
+        raise
+    debit(retained)
     require(type(trust.normalized_rows) is int and 0 < len(rows) == trust.normalized_rows <= MAX_ROWS,
             'FINANCIAL_FACT_SCHEMA')
     seen, previous = set(), None
@@ -1887,20 +1942,19 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
         require(row['fy'] is None or type(row['fy']) is int, 'FINANCIAL_FACT_SCHEMA')
         for k in ('fp', 'frame'):
             require(row[k] is None or type(row[k]) is str, 'FINANCIAL_FACT_SCHEMA')
-        key = tuple(row[k] for k in ('namespace', 'concept', 'unit', 'start', 'end', 'filed',
-                                     'accession', 'form', 'fy', 'fp', 'frame'))
-        charge += _json_retained_bytes(list(key), MAX_GENERATION_DECOMPRESSED_BYTES - charge) + 64
-        require(charge <= MAX_GENERATION_DECOMPRESSED_BYTES and key not in seen, 'FINANCIAL_FACT_SCHEMA')
+        key_fields = ('namespace', 'concept', 'unit', 'start', 'end', 'filed', 'accession', 'form', 'fy', 'fp', 'frame')
+        debit(192 + sum(sys.getsizeof(row[k]) for k in key_fields))
+        key = tuple(row[k] for k in key_fields)
+        require(key not in seen, 'FINANCIAL_FACT_SCHEMA')
         seen.add(key)
         order = (row['end'], row['filed'], row['namespace'], row['concept'], row['unit'],
                  row['accession'], row['start'] or '', str(row['fy']), row['fp'] or '', row['frame'] or '')
         require(previous is None or previous <= order, 'FINANCIAL_FACT_SCHEMA')
         previous = order
-    body = encoded(rows)
-    require(charge + len(body) <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+    row_digest, _ = _financial_rows_digest(rows, budget - charge, charge=debit)
     quality = encoded(dict(schema='a1-financial-reuse-quality-v1', status='VERIFIED_ARCHIVAL_BYTES',
         issuer_cik=trust.issuer_cik, raw_sha256=trust.raw_sha256, normalized_sha256=trust.normalized_sha256,
-        rows=len(rows), row_set_sha256=digest(body), start=min(r['end'] for r in rows),
+        rows=len(rows), row_set_sha256=row_digest, start=min(r['end'] for r in rows),
         end=max(r['end'] for r in rows), units=sorted({r['unit'] for r in rows}),
         extraction_sha256=trust.extraction_sha256, reconstruction_receipt_sha256=trust.reconstruction_receipt_sha256,
         raw_reextracted=False,
@@ -1909,9 +1963,10 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
     objects = dict(proofs)
     objects.update({trust.raw_sha256: raw, trust.normalized_sha256: normalized,
                     trust.evidence_sha256: evidence_bytes, digest(quality): quality})
+    debit(len(quality) + 128 + 16 * len(objects) + 48 * len(rows))
     return FinancialPreparation('VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT', (), evidence_bytes,
         quality, tuple(sorted(objects.items())), tuple(MappingProxyType(r) for r in rows),
-        decoded_retained_bytes_charged=charge + len(body))
+        decoded_retained_bytes_charged=charge)
 
 
 def prepare_financial_reuse(raw, normalized, evidence_bytes, *, trusted_source=None,
@@ -1921,41 +1976,83 @@ def prepare_financial_reuse(raw, normalized, evidence_bytes, *, trusted_source=N
 
 
 def _replay_financial_reuse(raw, normalized, evidence_bytes, execution_receipt, *,
-                           trusted_source, proof_objects, decision_time):
+                           trusted_source, proof_objects, decision_time, remaining_bytes=None,
+                           inputs_already_charged=False):
     # The producer's loaded-byte hash remains evidence, not the current verifier
     # file hash (which can differ across versions/platform line endings).
     if (type(trusted_source) is not TrustedFinancialSourceBinding or type(execution_receipt) is not bytes or
             digest(execution_receipt) != trusted_source.execution_receipt_sha256):
         return FinancialPreparation('BLOCKED', ('FINANCIAL_REUSE_RECEIPT',))
     return _financial_preparation(raw, normalized, evidence_bytes, trusted_source,
-                                 proof_objects, decision_time, verify_loaded_adapter=False)
+                                 proof_objects, decision_time, verify_loaded_adapter=False,
+                                 remaining_bytes=remaining_bytes, inputs_already_charged=inputs_already_charged)
 
 
 def _financial_preparation(raw, normalized, evidence_bytes, trusted_source, proof_objects,
-                           decision_time, *, verify_loaded_adapter=True):
+                           decision_time, *, verify_loaded_adapter=True, remaining_bytes=None,
+                           inputs_already_charged=False):
+    state = {'charged': 0}
     try:
         return _financial_inputs(raw, normalized, evidence_bytes, trusted_source, proof_objects,
-                                 decision_time, verify_loaded_adapter=verify_loaded_adapter)
+            decision_time, verify_loaded_adapter=verify_loaded_adapter, remaining_bytes=remaining_bytes,
+            inputs_already_charged=inputs_already_charged, charge_state=state)
     except (BindingError, ContractError) as exc:
-        return FinancialPreparation('BLOCKED', (str(exc),))
-    except (KeyError, TypeError, AttributeError, OverflowError, RecursionError):
-        return FinancialPreparation('BLOCKED', ('FINANCIAL_FACT_SCHEMA',))
+        return FinancialPreparation('BLOCKED', (str(exc),), decoded_retained_bytes_charged=state['charged'])
+    except (KeyError, TypeError, AttributeError, OverflowError, RecursionError, UnicodeError):
+        return FinancialPreparation('BLOCKED', ('FINANCIAL_FACT_SCHEMA',), decoded_retained_bytes_charged=state['charged'])
     except MemoryError:
-        return FinancialPreparation('BLOCKED', ('FINANCIAL_RESOURCE_LIMIT',))
+        return FinancialPreparation('BLOCKED', ('FINANCIAL_RESOURCE_LIMIT',), decoded_retained_bytes_charged=state['charged'])
 
 
-def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created_at, decision_time):
+def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created_at, decision_time,
+                         remaining_bytes=None):
     """Bind an independently accepted *actual* new execution; never write one here."""
+    spent, prior = 0, 0
     try:
+        from tools.research_data_access import MAX_GENERATION_DECOMPRESSED_BYTES, _json_retained_bytes
         t = trusted_source
         require(type(t) is TrustedFinancialSourceBinding and type(prepared) is FinancialPreparation and
                 prepared.status == 'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT' and
-                digest(prepared.context) == t.evidence_sha256, 'FINANCIAL_TRUST')
+                prepared.manifest is None and digest(prepared.context) == t.evidence_sha256, 'FINANCIAL_TRUST')
+        original_prior = prepared.decoded_retained_bytes_charged
+        require(type(original_prior) is int and 0 <= original_prior <= MAX_GENERATION_DECOMPRESSED_BYTES,
+                'FINANCIAL_RESOURCE_LIMIT')
+        prior = original_prior
+        budget = MAX_GENERATION_DECOMPRESSED_BYTES - prior if remaining_bytes is None else remaining_bytes
+        require(type(budget) is int and 0 < budget <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+        def debit(amount):
+            nonlocal spent
+            require(type(amount) is int and 0 <= amount <= budget - spent, 'FINANCIAL_RESOURCE_LIMIT')
+            spent += amount
+        require(type(prepared.objects) is tuple and 0 < len(prepared.objects) <= MAX_PROOFS + 4,
+                'FINANCIAL_OBJECTS')
+        debit(128 + 128 * len(prepared.objects))
+        objects = {}
+        for pair in prepared.objects:
+            require(type(pair) is tuple and len(pair) == 2, 'FINANCIAL_OBJECTS')
+            h, body = pair
+            require(type(body) is bytes and 0 < len(body) <= MAX_VIEW and
+                    _hash(h) == digest(body) and h not in objects, 'FINANCIAL_OBJECTS')
+            objects[h] = body
+        expected = set(t.proof_sha256) | {t.raw_sha256, t.normalized_sha256,
+                                        t.evidence_sha256, digest(prepared.quality)}
+        require(set(objects) == expected and sum(map(len, objects.values())) <= MAX_REFERENCE_BYTES and
+                objects[t.evidence_sha256] == prepared.context and
+                objects[digest(prepared.quality)] == prepared.quality, 'FINANCIAL_OBJECTS')
         require(type(t.execution_receipt_sha256) is str and type(execution_receipt) is bytes and
                 digest(execution_receipt) == _hash(t.execution_receipt_sha256), 'FINANCIAL_REUSE_RECEIPT')
+        require(len(execution_receipt) + len(prepared.context) + len(prepared.quality) <= budget - spent,
+                'FINANCIAL_RESOURCE_LIMIT')
         p = _decode(execution_receipt, 1024 * 1024)
         e = _decode(prepared.context, 1024 * 1024)
         q = _decode(prepared.quality, 1024 * 1024)
+        for metadata in (p, e, q):
+            debit(_json_retained_bytes(metadata, budget - spent))
+        require(e['raw'] == dict(sha256=t.raw_sha256,bytes=len(objects[t.raw_sha256])) and
+                e['normalized'] == dict(sha256=t.normalized_sha256,bytes=len(objects[t.normalized_sha256])) and
+                type(prepared.rows) is tuple and len(prepared.rows) == t.normalized_rows, 'FINANCIAL_OBJECTS')
+        rows_hash, _ = _financial_rows_digest(prepared.rows, budget - spent, charge=debit)
+        require(rows_hash == q['row_set_sha256'], 'FINANCIAL_OBJECTS')
         require(p['schema'] == 'a1-financial-reuse-execution-v1' and p['status'] == 'COMPLETED_REUSE_ONLY' and
                 p['task_key'] == e['task_key'] and p['run_id'] == t.reuse_run_id and p['code_sha'] == t.reuse_code_sha and
                 p['adapter_file_sha256'] == t.adapter_file_sha256 and p['config_sha256'] == t.evidence_sha256 and
@@ -1977,6 +2074,8 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
         require(supplier is None or decision <= _clock(supplier), 'FINANCIAL_RIGHTS')
         source = dict(provider='SEC_COMPANYFACTS', classification=t.classification,
             admission_state='RESEARCH_BYTES_ONLY', eligible_purposes=['research'], pit_status='PIT_PROXY',
+            identity_scope='ISSUER_FINANCIAL_FACTS', market_security_binding_status='UNVERIFIED',
+            qualified_market_join=False, eligible_for_valuation=False, eligible_for_er=False, eligible_for_a5=False,
             usage='ARCHIVAL_RESEARCH_FORWARD_ONLY', currentness='NOT_CURRENT', historical_pit=False,
             license=e['rights']['license_reference'], access_policy=e['rights']['access_policy'],
             supplier_expires_at=supplier, supplier_expiry_state=e['rights']['supplier_expiry_state'],
@@ -1988,7 +2087,6 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
             source_receipt_sha256=t.execution_receipt_sha256, quality_sha256=digest(prepared.quality),
             evidence_sha256=t.evidence_sha256, review_receipt_sha256=t.review_receipt_sha256,
             reuse_origin=e['origin'])
-        objects = dict(prepared.objects)
         objects[t.execution_receipt_sha256] = execution_receipt
         spec = dict(dataset_id=FINANCIAL_DATASET, schema=FINANCIAL_SCHEMA, source=source,
             files=[dict(storage='archive', format='gzip_jsonl', sha256=t.normalized_sha256,
@@ -1997,10 +2095,14 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
             objects=[dict(sha256=h, bytes=len(b)) for h, b in sorted(objects.items())])
         manifest = encoded(dict(schema='research-data-generation-v1', eligible_for_selector=False,
             created_at=created_at, source_run_id=t.reuse_run_id, datasets=[spec]))
+        require(len(manifest) <= 1024 * 1024, 'FINANCIAL_RESOURCE_LIMIT')
+        debit(len(execution_receipt) + len(manifest))
         return FinancialPreparation('FINANCIAL_REUSE_PREPARED_UNADMITTED', (), prepared.context,
             prepared.quality, tuple(sorted(objects.items())), prepared.rows, manifest,
-            prepared.decoded_retained_bytes_charged)
+            prior + spent)
     except (BindingError, ContractError) as exc:
-        return FinancialPreparation('BLOCKED', (str(exc),))
-    except (KeyError, TypeError, AttributeError, OverflowError, RecursionError):
-        return FinancialPreparation('BLOCKED', ('FINANCIAL_REUSE_RECEIPT',))
+        return FinancialPreparation('BLOCKED', (str(exc),), decoded_retained_bytes_charged=prior + spent)
+    except (KeyError, TypeError, AttributeError, OverflowError, RecursionError, UnicodeError):
+        return FinancialPreparation('BLOCKED', ('FINANCIAL_REUSE_RECEIPT',), decoded_retained_bytes_charged=prior + spent)
+    except MemoryError:
+        return FinancialPreparation('BLOCKED', ('FINANCIAL_RESOURCE_LIMIT',), decoded_retained_bytes_charged=prior + spent)

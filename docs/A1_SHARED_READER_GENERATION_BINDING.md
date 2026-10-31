@@ -15,8 +15,11 @@ meaning before supplying the exact evidence/proof/review pins. They bind the
 original issuer, raw/normalized hashes and row count, R9 reconstruction ACK/result,
 frozen origin, original source/config/window, extraction fingerprint, and the new
 reuse code/run/loaded adapter bytes. Origin includes the real old commit/catalog
-and missing execution. SEC rights, security/class/lifecycle and permitted archive
-window need their own accepted source-document bytes. No Alpaca account meter,
+and missing execution. SEC rights and the financial issuer/CIK/source-period link
+need their own accepted source-document bytes. `identity_scope` is strictly
+`ISSUER_FINANCIAL_FACTS`: market security/class/MIC/lifecycle remain unverified,
+not filled with fake IDs. Market joins, valuation, selector/ER/A5 permissions
+remain false. Original price identity and lifecycle guards do not change. No Alpaca account meter,
 credential, invented auth hash or supplier expiry is substituted for those facts.
 
 `bind_financial_reuse(prepared, actual_execution_receipt, trusted_source=...,
@@ -55,6 +58,12 @@ accepted execution and separately records its current verifier-code hash.
 It does not require different verifier versions or platform line endings to
 have the producer's old file hash. Quality describes deterministic data meaning;
 actual retained-memory charges belong to the individual verification/read.
+
+The bind boundary distrusts the carrier: it hashes every exported byte object,
+rejects duplicate/missing/extra objects, and verifies context/Q/canonical rows
+against the pinned P and normalized object. It never re-extracts raw facts or
+decodes normalized facts a second time. Reader-held metadata/object costs carry
+into one remaining replay/bind/copy budget; failure retains observed charges.
 
 The original adapter was offline preparation based on master
 `37809837bd2d67114fae7d4a1c4e2b8ad0344b07`, including merged #627. It does not
