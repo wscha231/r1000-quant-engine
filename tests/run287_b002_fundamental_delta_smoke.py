@@ -1426,15 +1426,17 @@ class NativeFinancialContextTests(unittest.TestCase):
 
     def test_valid_fcf_changes_invalidate_history_on_cached_and_direct_paths(self):
         import r1000_features as features
-        seed = pd.DataFrame([{**self.financial().to_dict(), **self.price_context(), "current_price_live":10.0}])
+        seed = pd.DataFrame([{**self.financial().to_dict(), **self.price_context(), "current_price_live":10.0,"revenue_growth_final":0.1}])
         cache = {}
         first = features.enforce_native_valuation_context(seed, _operation_cache=cache)
-        history = ("fcf_cagr_1y", "fcf_growth_yoy", "fcf_sign_flip_pos", "fcf_margin", "rule_of_40")
+        history = ("fcf_cagr_1y", "fcf_growth_yoy", "fcf_sign_flip_pos")
         for field in history:
             first[field] = 0.4
         unchanged = features.enforce_native_valuation_context(first, _operation_cache=cache)
         for field in history:
             self.assertEqual(unchanged.loc[0,field],0.4)
+        self.assertEqual(unchanged.loc[0,"fcf_margin"],0.12)
+        self.assertAlmostEqual(unchanged.loc[0,"rule_of_40"],0.22)
         for change in ("value", "currency", "proof", "reason"):
             changed = first.copy()
             if change=="value":
@@ -1455,6 +1457,13 @@ class NativeFinancialContextTests(unittest.TestCase):
                 self.assertTrue(pd.isna(cached.loc[0,field]),(change,field))
                 self.assertTrue(pd.isna(direct[field]),(change,field))
             self.assertEqual(cached.loc[0,"fcf_ttm"],120.0 if change=="value" else 60.0)
+            if change=="currency":
+                self.assertTrue(pd.isna(cached.loc[0,"fcf_margin"]))
+                self.assertTrue(pd.isna(cached.loc[0,"rule_of_40"]))
+            else:
+                margin=0.24 if change=="value" else 0.12
+                self.assertEqual(cached.loc[0,"fcf_margin"],margin)
+                self.assertAlmostEqual(cached.loc[0,"rule_of_40"],0.1+margin)
         # EPS/equity refresh their entire bundle on loss and restoration of
         # parents; neither stale metadata nor old histories authorize recovery.
         changed = first.copy()
@@ -1601,7 +1610,7 @@ class NativeFinancialContextTests(unittest.TestCase):
         import r1000_features as f
         import r1000_pipeline as p
         seed=pd.DataFrame([{**self.financial().to_dict(),**self.price_context(),"ticker":"SYN",
-            "current_price_live":10.0,"px":10.0,"mktcap":1000.0,"capex_ttm":-20.0}])
+            "current_price_live":10.0,"px":10.0,"mktcap":1000.0,"capex_ttm":-20.0,"revenue_growth_final":0.38}])
         first=f.enforce_native_valuation_context(seed)
         first["fcf_cagr_1y"],first["fcf_margin"],first["rule_of_40"]=0.4,0.12,0.5
         for capex in (-20.0,20.0):
@@ -1745,6 +1754,79 @@ class NativeFinancialContextTests(unittest.TestCase):
         expanded=expanded.iloc[::-1]
         from_null=build_exact_fundamental_panel(select_accession_field_records(expanded))
         self.assertEqual(from_null.iloc[-1]["revenues_ttm"],native_alone.iloc[-1]["revenues_ttm"])
+
+
+    def test_current_fcf_margin_and_rule_of_40_revalidate_all_semantic_parents(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        seed=pd.DataFrame([{**self.financial().to_dict(),**self.price_context(),"ticker":"SYN",
+            "current_price_live":10.0,"px":10.0,"mktcap":1000.0,"revenue_growth_final":0.0}])
+        cache={}
+        original=f.enforce_native_valuation_context(seed,_operation_cache=cache)
+        original["fcf_cagr_1y"]=0.4
+        self.assertEqual(original.loc[0,"fcf_margin"],0.12)
+        self.assertEqual(original.loc[0,"rule_of_40"],0.12)
+        for change in ("revenue","growth","both","unit","scope","period","zero","missing","negative","growth_missing"):
+            changed=original.copy()
+            if change in ("revenue","both"):changed["revenues_ttm"]=1000.0
+            if change in ("growth","both"):changed["revenue_growth_final"]=0.1
+            if change=="unit":changed["revenues_ttm_unit"]="EUR"
+            if change=="scope":
+                proof=json.loads(changed.loc[0,"revenues_ttm_provenance"])
+                proof[0]["context_dimensions"]="other-segment"
+                changed["revenues_ttm_provenance"]=json.dumps(proof)
+            if change=="period":
+                context=json.loads(changed.loc[0,"revenues_ttm_financial_context"])
+                context.update(period_start="2024-01-01",period_end="2024-12-31")
+                proof=json.loads(changed.loc[0,"revenues_ttm_provenance"])
+                proof[0].update(start="2024-01-01",period="2024-12-31")
+                changed["revenues_ttm_financial_context"],changed["revenues_ttm_provenance"]=json.dumps(context),json.dumps(proof)
+            if change=="zero":changed["revenues_ttm"]=0.0
+            if change=="missing":changed["revenues_ttm"]=float("nan")
+            if change=="negative":changed["revenues_ttm"]=-500.0
+            if change=="growth_missing":changed["revenue_growth_final"]=float("nan")
+            cached=f.enforce_native_valuation_context(changed,_operation_cache=cache)
+            fresh=f.enforce_native_valuation_context(changed)
+            pd.testing.assert_frame_equal(cached,fresh)
+            direct=f.native_valuation_overrides(changed.iloc[0],technical_price=10.0)
+            self.assertEqual(cached.loc[0,"fcf_ttm"],60.0)
+            self.assertEqual(cached.loc[0,"fcf_cagr_1y"],0.4)  # revenue/growth do not invalidate FCF history
+            if change in ("unit","scope","period","zero","missing"):
+                for field in ("fcf_margin","rule_of_40"):
+                    self.assertTrue(pd.isna(cached.loc[0,field]),(change,field))
+                    self.assertTrue(pd.isna(direct[field]),(change,field))
+                    self.assertTrue(cached.loc[0,field+"_missing_reason"])
+            else:
+                margin=-0.12 if change=="negative" else 0.06 if change in ("revenue","both") else 0.12
+                self.assertAlmostEqual(cached.loc[0,"fcf_margin"],margin)
+                self.assertEqual(cached.loc[0,"fcf_margin_missing_reason"],"")
+                if change=="growth_missing":
+                    self.assertTrue(pd.isna(cached.loc[0,"rule_of_40"]))
+                    self.assertEqual(cached.loc[0,"rule_of_40_missing_reason"],"missing_current_revenue_growth")
+                else:
+                    expected=margin+(0.1 if change in ("growth","both") else 0.0)
+                    self.assertAlmostEqual(cached.loc[0,"rule_of_40"],expected)
+                    self.assertAlmostEqual(direct["rule_of_40"],expected)
+                    self.assertEqual(cached.loc[0,"rule_of_40_missing_reason"],"")
+        # Current growth is a tail dependency on every hit, without another
+        # native parse; the same current value reaches actual Main valuation.
+        cache={}
+        with patch.object(f,"native_valuation_overrides",wraps=f.native_valuation_overrides) as native:
+            stable=f.enforce_native_valuation_context(original,_operation_cache=cache)
+            stable["revenue_growth_final"]=0.1
+            tail=f.enforce_native_valuation_context(stable,_operation_cache=cache)
+            self.assertEqual(native.call_count,1)
+            self.assertAlmostEqual(tail.loc[0,"rule_of_40"],0.22)
+            self.assertEqual(tail.loc[0,"fcf_cagr_1y"],0.4)
+        changed=original.copy();changed["revenues_ttm"],changed["revenue_growth_final"]=1000.0,0.1
+        main=p.compute_valuation_columns(changed)
+        self.assertEqual(main.loc[0,"fcf_margin"],0.06)
+        self.assertAlmostEqual(main.loc[0,"rule_of_40"],0.16)
+        self.assertEqual(main.loc[0,"fcf_cagr_1y"],0.4)
+        zero=original.copy();zero["ocf_ttm"]=20.0
+        self.assertEqual(f.enforce_native_valuation_context(zero).loc[0,"fcf_margin"],0.0)
+        loss=original.copy();loss["ocf_ttm"]=-40.0
+        self.assertEqual(f.enforce_native_valuation_context(loss).loc[0,"fcf_margin"],-0.12)
 
 
 def main() -> int:

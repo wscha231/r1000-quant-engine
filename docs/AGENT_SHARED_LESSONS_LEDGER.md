@@ -9257,3 +9257,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   probe error; preserve all logs/costs. Native runs
   remain sequential under low commit-memory headroom. No actual data/fullrun,
   Source control, T2 consumer execution or canonical/economic write is implied.
+
+
+## 2026-11-01 — PR709 pre-push A6: current ratios have distinct semantic parents
+
+- Scoped43-case and earlier family passes did not cover changing only revenue
+  while FCF stayed60. A6 actually observed stale margin0.12 after500-to1000
+  revenue; its Rule40 expectation was initially static, not observed output.
+- FCF CAGR depends on FCF history; current FCF margin depends on current FCF and
+  revenue values/units/scope/period. Recompute the existing clipped margin ratio
+  with its own denominator evidence. Zero/missing/incompatible revenue is null
+  with a reason; valid signed observations retain the existing arithmetic.
+- Rule40 uses existing current revenue growth + current margin with unchanged
+  clipping. Growth is refreshed on every cache hit; missing growth is UNKNOWN.
+  Revenue/growth changes alone must not delete unchanged valid historical CAGR.
+- Preserve9c62 checkpoint/private seal and failed A6 evidence. Add an actual
+  direct/cached/Main regression for0.06 margin/0.16 Rule40 plus unit/scope/period,
+  growth-only, missing/zero/negative cases. No Source/data/T2/fullrun/Book action.

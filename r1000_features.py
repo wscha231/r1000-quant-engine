@@ -1936,7 +1936,7 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
                 return False
         return json.dumps(left, sort_keys=True, default=str) == json.dumps(right, sort_keys=True, default=str)
     for field, prefixes, extra in (
-        ("fcf_ttm", ("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_"), {"fcf_margin", "rule_of_40"}),
+        ("fcf_ttm", ("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_"), set()),
         ("eps_ttm", ("eps_cagr_", "eps_growth_"), set()),
         ("gross_profit_ttm", ("gp_cagr_", "gp_growth_", "gross_profit_cagr_", "gross_profit_growth_", "gp_sign_", "gp_loss_"), set()),
     ):
@@ -1948,6 +1948,17 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
             for column in latest.index:
                 if column.startswith(prefixes) or column in extra:
                     updates[column] = np.nan
+
+
+def _refresh_native_rule_of_40(row: pd.Series, updates: Any) -> None:
+    """Apply the existing current growth + FCF margin formula, including on hits."""
+    margin = safe_float(updates.get("fcf_margin"))
+    growth_input = row.get("revenue_growth_final", row.get("sales_growth_yoy"))
+    growth = safe_float(growth_input) if not isinstance(growth_input, (bool, np.bool_)) else np.nan
+    valid = np.isfinite(margin) and np.isfinite(growth)
+    updates["rule_of_40"] = float(np.clip(growth + margin, -0.5, 1.5)) if valid else np.nan
+    updates["rule_of_40_missing_reason"] = ("" if valid else "missing_current_revenue_growth" if np.isfinite(margin)
+        else updates.get("fcf_margin_missing_reason") or "missing_or_incompatible_fcf_margin")
 
 
 def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
@@ -2094,6 +2105,9 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     out["gross_margins"] = native_ratio("gross_profit_ttm", "revenues_ttm", "gross_margins")
     out["gross_margin_ttm"] = out["gross_margins"]
     out["gross_margin_ttm_missing_reason"] = out["gross_margins_missing_reason"]
+    # These are current ratios, not historical FCF dependents. Their revenue
+    # denominator and current growth must be refreshed even when FCF is stable.
+    out["fcf_margin"] = float(np.clip(native_ratio("fcf_ttm", "revenues_ttm", "fcf_margin"), -1.0, 1.0))
     out["operating_margins"] = native_ratio("op_income_ttm", "revenues_ttm", "operating_margins")
     out["op_margin_ttm"] = out["operating_margins"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
@@ -2118,6 +2132,7 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
         for suffix in ("unit","financial_context","provenance"):
             out["eps_ttm_"+suffix] = None
     _invalidate_changed_native_history(latest, out)
+    _refresh_native_rule_of_40(latest, out)
     out["valuation_context_status"] = "UNKNOWN" if basis_reason else "COMPATIBLE_REFERENCED_INPUT_NOT_SOURCE_ADMISSION"
     out["valuation_evidence_reference"] = json.dumps({key: context.get(key) for key in (
         "price_currency", "price_asof", "valuation_asof", "shares_basis", "price_share_basis",
@@ -2139,7 +2154,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         return frame.copy()
     fixed = {"mktcap", "market_cap_live", "mktcap_unit", "shares_effective", "ep_ttm", "sp_ttm", "fcfy_ttm",
         "roa_proxy", "asset_turnover_ttm", "roe_proxy", "return_on_equity_effective", "gp_to_assets_ttm",
-        "book_to_market_proxy", "gross_margins", "gross_margin_ttm", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "eps_ttm", "current_price_live", "gross_profit", "gross_profit_ttm"}
+        "book_to_market_proxy", "gross_margins", "gross_margin_ttm", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "fcf_margin", "eps_ttm", "current_price_live", "gross_profit", "gross_profit_ttm"}
     operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
     prefixes = tuple(field + "_" for field in operands) + ("price_", "share_basis_", "ads_ratio_", "fx_", "source_", "reader_", "identity_")
     scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "financial_metadata_version", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
@@ -2161,6 +2176,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
             if _operation_cache is not None:
                 _operation_cache[position] = (stamp, dict(updates))
         _invalidate_changed_native_history(row, updates)
+        _refresh_native_rule_of_40(row, updates)
         ep, cap, shares = (safe_float(updates.get(key)) for key in ("ep_ttm", "mktcap", "shares_effective"))
         updates["earnings_yield_recomputed"] = ep
         updates["trailing_pe_recomputed"] = 1 / ep if np.isfinite(ep) and ep > 0 else np.nan
