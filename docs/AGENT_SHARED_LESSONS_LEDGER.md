@@ -9139,3 +9139,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   assertions alone disappear under -O. No real cohort recomputation, collection,
   fullrun, Source/Paper/Registry write, admission or economic authority follows
   from these checks. Independent exact-head review and required CI remain gates.
+
+
+## 2026-11-01 — PR709 exact-head review: preserve evidence across every consumer
+
+- Independent A6 reproduced a global sparsity leak: adding eight all-null
+  issuers switched five valid-date rows into positional CAGR and revived a
+  JPY-to-USD comparison. Typed rows always use per-issuer actual dates/context;
+  missing peers must change neither valid USD results nor currency refusals.
+- Unit equality alone cannot authorize cross-field FCF, equity or ratios.
+  Compare issuer/entity dimensions and actual period/TTM lineage while allowing
+  different legitimate measure tags. Persist the computed window as field-bound
+  metadata and retain native parent proofs; missing/conflicting context is null.
+- A correct producer/guard is insufficient if feature-store projection drops
+  evidence, if forward_ps_final keeps the pre-FX value, or if repeated guards
+  leave stale status/reason/reference columns. Exercise projection, CSV/Parquet
+  readback and actual normalization, valid-invalid-valid transitions, and the
+  value consumed by the unchanged score formula. Metadata is not a model feature.
+- Refill paths must include GP/assets and every guard-owned output. A 300-day
+  Q3 YTD remains a native cumulative observation, not a standalone annual TTM;
+  annual fallback requires actual full-fiscal-end evidence. Keep 53-week FY,
+  14-week Q4, losses and real zero.
+- The old 3cf5729c A6/Codex/CI cannot certify the corrected head. Its obsolete
+  nontransactional CI was canceled by Root, not counted as success or failure.
+  Focused synthetic tests do not establish real cohort/market-join impact,
+  Source admission, runtime performance, current Registry or ER/A5 authority.

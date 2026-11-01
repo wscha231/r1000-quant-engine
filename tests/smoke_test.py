@@ -1040,6 +1040,10 @@ def test_adr_valuation_uses_adr_equivalent_shares() -> None:
         price_share_basis="ADS", share_basis_status="VERIFIED", share_basis_reference="synthetic-basis",
         share_basis_asof="2026-07-01T00:00:00Z", ordinary_shares_per_ads=5.0,
         ads_ratio_status="VERIFIED", ads_ratio_reference="synthetic-ads", ads_ratio_asof="2026-07-01T00:00:00Z")])
+    df["cik"] = "0001046179"
+    for field, start in (("shares", None), ("net_income_ttm", "2025-01-01")):
+        df[field + "_provenance"] = json.dumps([dict(cik="0001046179", context_dimensions=None,
+            start=start, period="2025-12-31", source_tag=field)])
     row = pipe.compute_valuation_columns(df, EngineConfig()).iloc[0]
     check.assertAlmostEqual(float(row["shares_effective"]), 5.0e9)
     check.assertAlmostEqual(float(row["forward_pe_final"]), 50.0)

@@ -532,6 +532,7 @@ def extract_exact_companyfacts_records(
                                 "frame": item.get("frame"),
                                 "context_id": item.get("contextRef"),
                                 "context_dimensions": item.get("dimensions"),
+                                **{key: item[key] for key in ("entity_id", "entity_scope", "segment") if key in item},
                                 "start": pd.to_datetime(item.get("start"), errors="coerce"),
                                 "duration_days": duration_days,
                                 "field_name": field_name,

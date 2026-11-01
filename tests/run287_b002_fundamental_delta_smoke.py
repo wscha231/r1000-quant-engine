@@ -618,11 +618,18 @@ class NativeFinancialContextTests(unittest.TestCase):
 
     @staticmethod
     def financial(currency="USD", income=50.0):
-        return pd.Series(dict(financial_metadata_version="native-unit-fiscal-v1", shares=100.0,
+        values = dict(cik="0000000001", financial_metadata_version="native-unit-fiscal-v1", shares=100.0,
             shares_unit="shares", net_income_ttm=income, net_income_ttm_unit=currency,
             revenues_ttm=500.0, revenues_ttm_unit=currency, ocf_ttm=80.0, ocf_ttm_unit=currency,
             capex_ttm=20.0, capex_ttm_unit=currency, fcf_ttm=60.0, fcf_ttm_unit=currency,
-            assets=1000.0, assets_unit=currency, liabilities=400.0, liabilities_unit=currency))
+            assets=1000.0, assets_unit=currency, liabilities=400.0, liabilities_unit=currency)
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            start = "2025-01-01" if field.endswith("_ttm") else None
+            context = dict(identities={"cik":"0000000001"}, scope={"dimensions":None}, period_start=start, period_end="2025-12-31")
+            values[field + "_financial_context"] = json.dumps(context)
+            values[field + "_provenance"] = json.dumps([dict(cik="0000000001", context_dimensions=None,
+                start=start, period="2025-12-31", source_tag=field)])
+        return pd.Series(values)
 
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
@@ -909,6 +916,190 @@ class NativeFinancialContextTests(unittest.TestCase):
             bad = {**equity, **change}
             panel = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame([total,bad])))
             self.assertTrue(pd.isna(panel.iloc[0]["liabilities"]))
+
+
+    def test_sparse_typed_lag_is_invariant_to_unrelated_missing_issuers(self):
+        import r1000_features as features
+        periods = pd.date_range("2025-03-31", periods=5, freq="QE-DEC")
+        for mixed in (False, True):
+            rows = []
+            for i, period in enumerate(periods):
+                row = self.financial().to_dict()
+                context = json.loads(row["revenues_ttm_financial_context"])
+                context.update(period_start=(period-pd.DateOffset(years=1)+pd.Timedelta(days=1)).strftime("%Y-%m-%d"), period_end=period.strftime("%Y-%m-%d"))
+                row.update(period=period, revenues_ttm=200.0 if i==4 else 100.0,
+                    revenues_ttm_unit="JPY" if mixed and i==0 else "USD",
+                    revenues_ttm_financial_context=json.dumps(context))
+                row.pop("revenues_ttm_provenance")
+                rows.append(row)
+            frame = pd.DataFrame(rows)
+            missing = pd.DataFrame([dict(cik=str(i).zfill(10), period=pd.NaT,
+                financial_metadata_version="native-unit-fiscal-v1") for i in range(2,10)])
+            outputs = []
+            for candidate in (frame, pd.concat([frame,missing],ignore_index=True)):
+                lag, quarters = features._flexible_lag(candidate, "revenues_ttm", 4, tol=1)
+                cagr = features._cagr_from_lag(candidate["revenues_ttm"],lag,quarters,require_positive=False)
+                outputs.append(cagr.iloc[4])
+            if mixed:
+                self.assertTrue(all(pd.isna(value) for value in outputs))
+            else:
+                self.assertGreater(outputs[0], 0.99)
+                self.assertEqual(outputs[0], outputs[1])
+            # A typed row without an actual date has no positional substitute.
+            frame["period"] = pd.NaT
+            lag, _ = features._flexible_lag(frame,"revenues_ttm",4,tol=1)
+            self.assertTrue(lag.isna().all())
+            lag, _ = features._flexible_lag(frame.drop(columns="period"),"revenues_ttm",4,tol=1)
+            self.assertTrue(lag.isna().all())
+
+    def test_cross_field_scope_period_and_entity_must_match(self):
+        from r1000_features import native_valuation_overrides
+        base = self.financial()
+        positive = native_valuation_overrides(base,technical_price=10.0,price_context=self.price_context())
+        self.assertEqual(positive["fcf_ttm"],60.0)  # different measure tags are compatible
+        self.assertEqual(positive["fcfy_ttm"],0.06)
+        self.assertEqual(positive["equity_native"],600.0)
+        for field, change in (("capex_ttm",dict(context_dimensions="segment-B")),
+            ("capex_ttm",dict(cik="0000000002")),
+            ("capex_ttm",dict(start="2024-01-01",period="2024-12-31")),
+            ("liabilities",dict(context_dimensions="segment-B")),
+            ("liabilities",dict(entity_id="other-company"))):
+            row = base.copy()
+            proof = json.loads(row[field+"_provenance"])
+            proof[0].update(change)
+            row[field+"_provenance"] = json.dumps(proof)
+            if "start" in change:
+                context = json.loads(row[field+"_financial_context"])
+                context.update(period_start=change["start"],period_end=change["period"])
+                row[field+"_financial_context"] = json.dumps(context)
+            out = native_valuation_overrides(row,technical_price=10.0,price_context=self.price_context())
+            if field == "capex_ttm":
+                self.assertTrue(pd.isna(out["fcf_ttm"]))
+                self.assertTrue(pd.isna(out["fcfy_ttm"]))
+                self.assertEqual(out["ocf_ttm"],80.0)
+                self.assertEqual(out["capex_ttm"],20.0)
+            else:
+                self.assertTrue(pd.isna(out["equity_native"]))
+                self.assertTrue(pd.isna(out["book_to_market_proxy"]))
+                self.assertTrue(pd.isna(out["roe_proxy"]))
+        row = base.copy()
+        for field in ("ocf_ttm","capex_ttm"):
+            row.pop(field+"_financial_context")
+            row.pop(field+"_provenance")
+        self.assertTrue(pd.isna(native_valuation_overrides(row,technical_price=10.0,price_context=self.price_context())["fcf_ttm"]))
+
+    def test_guard_refreshes_status_references_and_is_reversible(self):
+        from r1000_features import enforce_native_valuation_context
+        row = {**self.financial().to_dict(),**self.price_context(),"current_price_live":10.0}
+        valid = enforce_native_valuation_context(pd.DataFrame([row]))
+        invalid = valid.copy()
+        invalid["share_basis_status"] = "UNKNOWN"
+        invalid["share_basis_reference"] = "current-unverified-reference"
+        invalid = enforce_native_valuation_context(invalid)
+        self.assertTrue(pd.isna(invalid.loc[0,"mktcap"]))
+        self.assertTrue(pd.isna(invalid.loc[0,"mktcap_unit"]))
+        self.assertEqual(invalid.loc[0,"valuation_context_status"],"UNKNOWN")
+        self.assertEqual(invalid.loc[0,"mktcap_missing_reason"],"missing_verified_share_basis_or_price_clock")
+        evidence = json.loads(invalid.loc[0,"valuation_evidence_reference"])
+        self.assertEqual(evidence["share_basis_reference"],"current-unverified-reference")
+        self.assertEqual(evidence["share_basis_status"],"UNKNOWN")
+        for key,value in self.price_context().items():
+            invalid[key]=value
+        restored = enforce_native_valuation_context(invalid)
+        for field in ("mktcap","ep_ttm","sp_ttm","fcfy_ttm","mktcap_unit","valuation_context_status","mktcap_missing_reason","valuation_evidence_reference"):
+            self.assertEqual(restored.loc[0,field],valid.loc[0,field])
+        pd.testing.assert_frame_equal(restored,enforce_native_valuation_context(restored))
+
+    def test_actual_projection_readback_normalization_retains_evidence(self):
+        import r1000_pipeline as pipe
+        import r1000_features as features
+        from r1000_config import EngineConfig
+        cfg = EngineConfig()
+        original_features = list(cfg.features)
+        row = {**self.financial("EUR").to_dict(),**self.price_context(),"ticker":"SYN","cik10":"0000000001",
+            "rebalance_date":"2026-07-11","px":10.0,"current_price_live":10.0,"revenue_growth_final":0.0,
+            "fx_status":"VERIFIED","fx_reference":"synthetic-fx","fx_rate":2.0,"fx_from_currency":"EUR","fx_to_currency":"USD",
+            "fx_asof":"2026-07-10T19:00:00Z","fx_valid_until":"2026-07-10T21:00:00Z"}
+        for field in ("shares","net_income_ttm","revenues_ttm","ocf_ttm","capex_ttm","fcf_ttm","assets","liabilities"):
+            dimensions = {"region":"ALL"}
+            row[field+"_context_dimensions"] = dimensions
+            context=json.loads(row[field+"_financial_context"])
+            context["scope"]["dimensions"]=dimensions
+            row[field+"_financial_context"]=json.dumps(context)
+            proof=json.loads(row[field+"_provenance"])
+            proof[0]["context_dimensions"]=dimensions
+            row[field+"_provenance"]=json.dumps(proof)
+        keep = ["ticker","cik10","rebalance_date","px","mktcap","shares","assets","liabilities",
+            "net_income_ttm","revenues_ttm","ocf_ttm","capex_ttm","fcf_ttm","revenue_growth_final"]
+        projected = pipe.project_feature_store_frame(pd.DataFrame([row]),keep)
+        self.assertEqual(cfg.features,original_features)
+        self.assertNotIn("fx_rate",cfg.features)
+        self.assertIn("net_income_ttm_financial_context",projected)
+        self.assertIn("share_basis_reference",projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv","parquet"):
+                path=Path(tmp)/("feature_store."+suffix)
+                if suffix=="csv":
+                    projected.to_csv(path,index=False)
+                    reread=pd.read_csv(path,dtype={"cik":str,"cik10":str})
+                else:
+                    projected.to_parquet(path,index=False)
+                    reread=pd.read_parquet(path)
+                with patch.object(pipe,"repair_latest_history_depth_from_diagnostics",side_effect=lambda paths,frame:frame), \
+                    patch.object(features,"_load_finnhub_features_for_fallback",return_value=pd.DataFrame()):
+                    normalized=pipe.normalize_latest_fundamental_snapshot(cfg,{},reread,apply_statement_repair=False,add_fundamental_flags=False)
+                self.assertEqual(normalized.loc[0,"mktcap"],1000.0)
+                self.assertEqual(normalized.loc[0,"ep_ttm"],0.1)
+                self.assertEqual(normalized.loc[0,"sp_ttm"],1.0)
+                self.assertEqual(normalized.loc[0,"forward_ps"],1.0)
+                self.assertEqual(normalized.loc[0,"forward_ps_final"],1.0)
+                self.assertEqual(normalized.loc[0,"net_income_ttm_provenance"],row["net_income_ttm_provenance"])
+
+    def test_gp_assets_ratio_cannot_be_refilled_after_unit_refusal(self):
+        import r1000_pipeline as pipe
+        row = {**self.financial().to_dict(),**self.price_context(),"px":10.0,"mktcap":1000.0,
+            "gross_profit_ttm":100.0,"gross_profit_ttm_unit":"EUR","gp_to_assets_ttm":float("nan")}
+        row["gross_profit_ttm_financial_context"] = row["net_income_ttm_financial_context"]
+        out=pipe.compute_valuation_columns(pd.DataFrame([row])).iloc[0]
+        self.assertTrue(pd.isna(out["gp_to_assets_ttm"]))
+        self.assertEqual(out["gp_to_assets_ttm_missing_reason"],"incompatible_or_missing_component_units_or_context")
+        row["gross_profit_ttm_unit"]="USD"
+        self.assertEqual(pipe.compute_valuation_columns(pd.DataFrame([row])).iloc[0]["gp_to_assets_ttm"],0.1)
+
+    def test_long_q3_ytd_is_not_an_annual_ttm(self):
+        q3=self.row(fp="Q3",start=pd.Timestamp("2026-01-01"),period=pd.Timestamp("2026-10-27"),
+            accepted=pd.Timestamp("2026-11-01"),value=900.0,duration_days=300,semantic_rank=1)
+        panel=build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame([q3])))
+        self.assertEqual(panel.loc[0,"revenues_cum_value"],900.0)
+        self.assertTrue(pd.isna(panel.loc[0,"revenues_ttm"]))
+        annual={**q3,"fp":"FY","fiscal_period":"FY","form":"10-K","start":pd.Timestamp("2025-10-22"),"duration_days":371,"semantic_rank":0}
+        for value in (900.0,0.0,-20.0):
+            annual["value"]=value
+            panel=build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame([annual])))
+            self.assertEqual(panel.loc[0,"revenues_ttm"],value)
+
+
+    def test_forward_ps_final_is_guarded_before_score_consumption(self):
+        import r1000_features as features
+        row={**self.financial("EUR").to_dict(),**self.price_context(),"ticker":"SYN","px":10.0,
+            "current_price_live":10.0,"revenue_growth_final":0.0,"price_to_sales":2.0,
+            "fx_status":"VERIFIED","fx_reference":"synthetic-fx","fx_rate":2.0,
+            "fx_from_currency":"EUR","fx_to_currency":"USD","fx_asof":"2026-07-10T19:00:00Z",
+            "fx_valid_until":"2026-07-10T21:00:00Z"}
+        consumed=[]
+        original=features.cross_sectional_robust_z
+        def capture(frame,column,*args,**kwargs):
+            if column=="forward_ps_final":
+                consumed.extend(frame[column].tolist())
+            return original(frame,column,*args,**kwargs)
+        with patch.object(features,"_load_finnhub_features_for_fallback",return_value=pd.DataFrame()), \
+            patch.object(features,"cross_sectional_robust_z",side_effect=capture):
+            result=features.compute_live_factor_columns(pd.DataFrame([row]))
+        self.assertEqual(result.loc[0,"sp_ttm"],1.0)
+        self.assertEqual(result.loc[0,"forward_ps"],1.0)
+        self.assertEqual(result.loc[0,"forward_ps_final"],1.0)
+        self.assertTrue(consumed)
+        self.assertTrue(all(value==1.0 for value in consumed))
 
 
 def main() -> int:

@@ -2450,7 +2450,7 @@ def select_companyfacts_slots(records: pd.DataFrame, keys: list[str]) -> pd.Data
         return records.copy()
     rows = []
     evidence_columns = [c for c in (
-        "unit", "value", "source_namespace", "source_tag", "accession_number",
+        "unit", "value", "cik", "issuer_id", "entity_id", "entity_scope", "segment", "source_namespace", "source_tag", "accession_number",
         "start", "period", "fy", "fp", "frame", "context_id", "context_dimensions",
         "accepted", "fact_semantics", "fiscal_grid_reference", "fiscal_grid_status", "fiscal_year_start",
     ) if c in records.columns]
@@ -2523,7 +2523,8 @@ def pivot_companyfacts_fields(frame: pd.DataFrame, value_column: str) -> pd.Data
     d = frame.sort_values(["cik", "period", "accepted"]).drop_duplicates(keys, keep="last")
     output = d.set_index(keys)[value_column].unstack("field_name")
     for column in (
-        "unit", "start", "accession_number", "source_namespace", "source_tag", "fy", "fp",
+        "unit", "start", "accession_number", "source_namespace", "source_tag", "fy", "fp", "form", "fact_semantics",
+        "issuer_id", "entity_id", "entity_scope", "segment",
         "frame", "context_id", "context_dimensions", "fact_provenance", "missing_reason",
         "flow_start", "cum_start", "flow_provenance", "cum_provenance", "context_parent",
         "flow_missing_reason", "cum_missing_reason", "flow_status", "cum_status", "fact_status",
@@ -2593,6 +2594,7 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
                             "source_namespace": namespace,
                             "context_id": item.get("contextRef"),
                             "context_dimensions": item.get("dimensions"),
+                            **{key: item[key] for key in ("entity_id", "entity_scope", "segment") if key in item},
                             "form": item.get("form"),
                             "start": pd.to_datetime(item.get("start"), errors="coerce"),
                             "duration_days": companyfacts_duration_days(item.get("start"), item.get("end")),
@@ -8470,6 +8472,30 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     return enforce_native_valuation_context(d)
 
 
+def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
+    """Retain financial evidence alongside values, outside the model whitelist."""
+    fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
+        "op_income", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
+        "liabilities_and_equity", "stockholders_equity_for_liabilities")
+    suffixes = ("_unit", "_financial_context", "_provenance", "_missing_reason", "_start", "_period",
+        "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",
+        "_context_id", "_context_dimensions", "_entity_id", "_entity_scope", "_segment", "_cik", "_issuer_id",
+        "_context_parent", "_flow_status", "_cum_status", "_fact_status", "_availability_basis",
+        "_unit_selection_policy", "_fiscal_grid_reference", "_fiscal_grid_status", "_fiscal_year_start")
+    evidence = [column for column in universe.columns if column in {
+        "cik", "issuer_id", "entity_id", "security_id", "financial_metadata_version", "financial_context_status",
+        "shares_basis", "ordinary_shares_per_ads", "fundamental_missing_reason", "candidate_ordinal",
+    } or column.startswith(("price_", "share_basis_", "ads_ratio_", "fx_", "valuation_"))
+        or (column.startswith(tuple(field + "_" for field in fields)) and column.endswith(suffixes))]
+    columns = list(dict.fromkeys(keep_cols + evidence))
+    output = universe.reindex(columns=columns).copy()
+    for column in evidence:
+        output[column] = output[column].map(
+            lambda value: json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+        )
+    return output
+
+
 def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -8736,10 +8762,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
-    for c in keep_cols:
-        if c not in universe.columns:
-            universe[c] = np.nan
-    fs = universe[keep_cols].copy()
+    fs = project_feature_store_frame(universe, keep_cols)
     # Phase 2 industry metadata is string-typed (industry / industry_group /
     # subindustry) and must NOT be force-converted to numeric by hard_sanitize.
     # Sanitize only the numeric Phase 2 columns (rs_industry_*, breadth, O'Neil
