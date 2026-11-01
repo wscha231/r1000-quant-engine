@@ -9164,3 +9164,30 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   nontransactional CI was canceled by Root, not counted as success or failure.
   Focused synthetic tests do not establish real cohort/market-join impact,
   Source admission, runtime performance, current Registry or ER/A5 authority.
+
+
+## 2026-11-01 — PR709 FFD review: invalidate derived state and verify original periods
+
+- Reapplying a guard must clear derived FCF, unit/context/provenance and dependent
+  values when either current OCF or CapEx is missing/nonfinite. An earlier FCF60
+  is not fallback evidence. Test valid-to-missing-each-parent-to-valid, including
+  real zero/loss controls; preserve original component observations and proofs.
+- A cached financial_context cannot overrule contradictory original periods.
+  Reconcile selected native spans and the actual rolling-four/annual-plus-YTD
+  date algebra before accepting the derived window; do not require all legitimate
+  parent dates to equal a TTM window or request new raw data to resolve a cache.
+- EPS and GP need derived context/provenance before lag and ratio consumers.
+  Keep EPS in native NI/reported-share units across its CAGR and listing guard.
+  GP fallback validates both parents and remains DERIVED_NOT_OBSERVED even if
+  an explicit marker is lost; a unit alone never grants direct-fact exemption.
+- Dividend payout validates its actual denominator: absent earnings may use
+  compatible FCF. Invalid dividend/share/denominator evidence cannot leave a
+  stale payout or score contribution. Existing score weights/thresholds remain.
+- Batch guard outputs and use only operation-local reuse keyed by current native
+  operands, original proof/period and price/share/FX/reference inputs. A changed
+  proof, source reference, share basis or null transition must invalidate reuse.
+- One synthetic pass per size, same Python3.12.10/pandas2.3.3 environment: 50 rows
+  1.503s to0.744s; 200 rows5.809s to2.686s. These are measured bounded helper
+  samples, not 100k extrapolation or full-pipeline/cohort attribution. Runtime
+  package/kernel IO is unmetered, not zero. SOURCE control remains UNISSUED;
+  no real Source/API/Drive/price/Book/fullrun or economic authority follows.

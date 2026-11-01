@@ -8200,6 +8200,7 @@ def compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame:
 
 def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
+    valuation_cache: dict = {}
     d["mktcap"] = pd.to_numeric(d["mktcap"], errors="coerce")
     net_income_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
     revenues_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan)
@@ -8238,7 +8239,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         net_income_ttm / equity_proxy
     )
     d["book_to_market_proxy"] = equity_proxy / d["mktcap"].replace(0, np.nan)
-    d = enforce_native_valuation_context(d)
+    d = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
     net_income_ttm = d["ep_ttm"] * d["mktcap"]
     d["forward_pe_final"] = numeric_series_or_default(d, "forward_pe_final", np.nan)
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "av_forward_pe", np.nan))
@@ -8268,7 +8269,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         adr_shares = shares_proxy.replace([np.inf, -np.inf], np.nan)
         shares_effective.loc[adr_mask] = adr_shares.loc[adr_mask].fillna(shares.loc[adr_mask])
     d["shares_effective"] = shares_effective
-    guarded = enforce_native_valuation_context(d)
+    guarded = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
     d = guarded
     shares_effective = d["shares_effective"]
     eps_ttm = net_income_ttm / shares_effective.replace(0, np.nan)
@@ -8318,7 +8319,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     roe_effective = roe_effective.fillna(numeric_series_or_default(d, "av_return_on_equity", np.nan))
     roe_effective = roe_effective.fillna(numeric_series_or_default(d, "roe_proxy", np.nan))
     d["return_on_equity_effective"] = roe_effective
-    d = enforce_native_valuation_context(d)
+    d = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
     ttm_presence = row_mean(
         [
             revenues_ttm.notna().astype(float),
@@ -8469,7 +8470,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         + 0.20 * quality_support
     ) * (0.55 + 0.45 * garp_confidence)
     d["garp_score"] = winsorize(garp, 0.01).clip(-6.0, 6.0)
-    return enforce_native_valuation_context(d)
+    return enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
 
 
 def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
@@ -8477,7 +8478,7 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
         "op_income", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
         "liabilities_and_equity", "stockholders_equity_for_liabilities")
-    suffixes = ("_unit", "_financial_context", "_provenance", "_missing_reason", "_start", "_period",
+    suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
         "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",
         "_context_id", "_context_dimensions", "_entity_id", "_entity_scope", "_segment", "_cik", "_issuer_id",
         "_context_parent", "_flow_status", "_cum_status", "_fact_status", "_availability_basis",
