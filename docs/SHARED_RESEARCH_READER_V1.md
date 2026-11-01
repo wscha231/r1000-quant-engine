@@ -1,5 +1,77 @@
 # Shared Research Data V1 reader — #590
 
+## Typed archival SEC financial component (H1)
+
+The existing logical registry also names `ds.us.financials.sec.companyfacts` /
+`sec-companyfacts-archival-v1`. A financial generation contains that one dataset
+and one issuer, with exact original gzip raw/normalized objects and reviewed
+evidence. It is separate from `price-daily-v1`; old price-only registries,
+generations and API calls remain supported. The JSON schema keeps the original
+price dataset branch intact under `$defs.priceDataset` and uses dataset/schema
+`oneOf` branches. Neither a price wrapper nor a different registry authenticates
+financial input. Existing Lake execution/study/chain rules are unchanged.
+
+Use `read_components` with `purpose='research'`, an independently supplied
+`TrustedFinancialSourceBinding` as `financial_trust`, and one required component:
+`component_id`, `issuer_cik`, `required_period_end_start`,
+`required_period_end_end`, `optional=False`. Period ends are range filters, not
+NYSE sessions or mandatory endpoint observations. No complete-quarter grid is
+invented. Generic `read()`, training/backtest, foreign issuers and optional
+financial failures are refused. Hash/trust/rights/clock/quality/resource failures
+are global and return no component.
+
+Original fact fields, units, dates, accession/form/amendment versions and nullable
+fields are retained. Finite zero/negative values are valid; missing concepts stay
+missing. No USD/share conversion, quarter/YTD/FY aggregation, new TTM, EPS or
+valuation is performed. Unknown fiscal classification is not inferred from `fp`.
+The first reuse verifies both compressed hashes, decodes normalized rows once,
+and requires the existing R9 diagnostic ACK/result plus frozen-origin proof to
+match both hashes, extraction fingerprint, original config/window and code.
+It does not re-extract the raw JSON or repair a missing old execution receipt.
+
+Financial identity is explicitly `ISSUER_FINANCIAL_FACTS`: independently reviewed
+SEC issuer/CIK and original-source/row-CIK linkage over the reported archive
+period. It is not a stock-class, exchange MIC, listing-history or corporate-action
+qualification. No fake security IDs or placeholder market fields are required.
+Manifest and read receipts state `market_security_binding_status=UNVERIFIED`,
+`qualified_market_join=false`, and valuation/ER/A5 eligibility false. A later
+market-security join has separate proof and authority; price identity/lifecycle
+guards remain unchanged.
+
+Financial results use the existing immutable result containers and distinct
+financial receipt schemas. They expose original source lineage, current reuse
+availability, row-set/quality/execution hashes, resource charges and
+`NOT_CURRENT` / `ARCHIVAL_RESEARCH_FORWARD_ONLY`. Original publication remains
+unknown; no historical-PIT, source-admission, selector or economic authority is
+conferred. Statement/quarter completeness remains `NOT_CERTIFIED`.
+
+One cumulative budget includes manifest/request and already-held object bytes.
+Only its remaining allowance reaches replay and bind. Decoding, retained version
+keys, canonical row hashing and selected-row copies preflight that allowance;
+failed mandatory work never restarts a fresh per-stage limit. Binding rechecks
+the exported object's exact allowed/required set, duplicate keys, hashes and
+context/quality/row linkage. A frozen preparation dataclass is not a trust anchor.
+
+The independent trust explicitly distinguishes `publication_scope='LOCAL_ONLY'`
+from `DURABLE_READBACK`. Local research can read already-local immutable objects
+without a Drive publication. Its receipt says
+`VERIFIED_LOCAL_ARCHIVAL_RESEARCH_BYTES`, `durable_publication_verified=false`.
+Durable mode requires the externally pinned *actual* later publication/readback
+receipt naming the exact manifest/object inventory and owner-private durable
+storage. It says `VERIFIED_DURABLE_ARCHIVAL_RESEARCH_BYTES`; source admission
+still remains false. A local ACK is never durable completion. Neither mode
+constructs a remote transport, collector, scheduler or accepted ledger.
+
+Supplier expiry `null/NOT_STATED` is preserved as a reviewed absence of a stated
+expiry, not perpetual permission or verified unknown rights. Actual research
+permission and its finite validity are independently required. Financial
+`source.expires_at` is the earlier applicable research/supplier deadline; original
+supplier and archive clocks retain their separate meanings. A completed new
+reuse execution proves only that exact current archival input check, never
+g29 completion, latest filings or a historical decision. Pure preparation,
+actual producer execution, local consumption and durable publication are
+separate evidence, not automatic authority from this code.
+
 Task: `R1000-A1-H1-SHARED-RESEARCH-DATA-V2-20261008`.
 Base: `37046b734eccba9176d091c0fcc2745f5050a8e3`.
 Owner: the user-designated Source/Data implementation lane, with a separate
@@ -29,7 +101,9 @@ These paths specify a future reviewed publication contract; this PR neither
 publishes a generation nor creates a Drive folder. The Reader accepts an
 already configured transport and invokes only `read`. It does not instantiate
 `RcloneTransport`, whose legacy constructor may create missing directories.
-No provider import, collection, refresh, cache search or fallback occurs.
+No provider request, collection, refresh, cache search or fallback occurs.
+The opt-in financial validator imports the existing pure Source preparation
+module and its archival primitives; it never instantiates a provider.
 
 The existing `Lake` still validates commit chains, catalogs, packs and linked
 execution/quality reports. `pinned_lake()` restricts its read-only transport

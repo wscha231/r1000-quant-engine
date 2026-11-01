@@ -9,6 +9,11 @@
       "schema": "price-daily-v1",
       "existing_catalog_key": "price_cache_manifest",
       "existing_producer": "tools/build_replay_price_cache.py"
+    },
+    "ds.us.financials.sec.companyfacts": {
+      "schema": "sec-companyfacts-archival-v1",
+      "existing_catalog_key": "sec/<10-digit-CIK>",
+      "existing_producer": "tools/long_history_lake.py"
     }
   },
   "existing_inventory": "tools/build_data_catalog.py",

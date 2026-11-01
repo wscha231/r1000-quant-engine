@@ -24,6 +24,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 from types import MappingProxyType
 
 from tools.long_history_lake import Lake, PREFIX, MAX_OBJECT
@@ -61,6 +62,19 @@ PRICE_COLUMNS = {
     'high': 'positive_number', 'low': 'positive_number',
     'close': 'positive_number', 'volume': 'nonnegative_number',
 }
+FINANCIAL_DATASET = 'ds.us.financials.sec.companyfacts'
+FINANCIAL_SCHEMA = 'sec-companyfacts-archival-v1'
+PRICE_REGISTRY_ENTRY = {'schema': 'price-daily-v1', 'existing_catalog_key': 'price_cache_manifest',
+                        'existing_producer': 'tools/build_replay_price_cache.py'}
+FINANCIAL_REGISTRY_ENTRY = {'schema': FINANCIAL_SCHEMA, 'existing_catalog_key': 'sec/<10-digit-CIK>',
+                            'existing_producer': 'tools/long_history_lake.py'}
+FINANCIAL_COLUMNS = {
+    'cik': 'string', 'namespace': 'string', 'concept': 'string', 'unit': 'string',
+    'start': 'nullable_date', 'end': 'date', 'filed': 'date', 'accession': 'string',
+    'form': 'string', 'value': 'finite_number', 'fy': 'nullable_integer',
+    'fp': 'nullable_string', 'frame': 'nullable_string', 'duration_days': 'nullable_integer',
+    'evidence': 'string',
+}
 
 
 class ContractError(ValueError):
@@ -97,6 +111,17 @@ def _json_retained_bytes(value, remaining_bytes):
         elif type(current) is list:
             pending.extend(current)
     return charge
+
+
+def _financial_row_copy_charge(row):
+    # Conservative fixed-primitive dict plus an immutable public view. Compute
+    # before materializing a copy, including keys/values even when shared.
+    return (128 + 72 * len(row) +
+            sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in row.items()))
+
+
+def _financial_copy_row(row):
+    return dict(row)
 
 
 def _session_close(session):
@@ -782,9 +807,9 @@ class ResearchDataReader:
         check(isinstance(self.registry, dict) and
               self.registry.get('schema') == 'research-dataset-registry-v1' and
               self.registry.get('eligible_for_selector') is False, 'REGISTRY_SCHEMA')
-        check(self.registry.get('datasets') == {'ds.us.prices.daily': {
-            'schema': 'price-daily-v1', 'existing_catalog_key': 'price_cache_manifest',
-            'existing_producer': 'tools/build_replay_price_cache.py'}}, 'REGISTRY_DATASETS')
+        prices = {'ds.us.prices.daily': PRICE_REGISTRY_ENTRY}
+        check(self.registry.get('datasets') in
+              (prices, dict(prices, **{FINANCIAL_DATASET: FINANCIAL_REGISTRY_ENTRY})), 'REGISTRY_DATASETS')
 
     def read(self, dataset_id, data_generation_id, *, decision_time, purpose,
              instrument_ids, required_start, required_end, minimum_rows=1,
@@ -804,13 +829,16 @@ class ResearchDataReader:
                 restore_to=restore_to, resources=resources)
 
     def read_components(self, dataset_id, data_generation_id, *, decision_time,
-                        purpose, components, consumer_id):
+                        purpose, components, consumer_id, financial_trust=None):
         """One bounded research read, with one window per distinct instrument.
 
         No persistent context/cache, restore authority or training/backtest mode.
         Every invocation revalidates the original manifest and global inventory.
         Only explicitly optional local refusals may return alongside results.
         """
+        if dataset_id == FINANCIAL_DATASET:
+            return self._financial_components(data_generation_id, decision_time=decision_time,
+                purpose=purpose, components=components, consumer_id=consumer_id, trust=financial_trust)
         check(type(purpose) is str and purpose == 'research', 'COMPONENT_PURPOSE_RESEARCH_ONLY')
         decision = clock(decision_time)
         check(isinstance(components, (list, tuple)) and 0 < len(components) <= 256,
@@ -852,10 +880,165 @@ class ResearchDataReader:
                 resources=resources, component_requests=requests,
                 component_request_bytes=request_bytes)
 
+    def _financial_components(self, generation_id, *, decision_time, purpose, components, consumer_id, trust):
+        try:
+            return self._read_financial_components(generation_id, decision_time=decision_time,
+                purpose=purpose, components=components, consumer_id=consumer_id, trust=trust)
+        except (KeyError, TypeError, AttributeError, OverflowError, RecursionError):
+            raise ContractError('FINANCIAL_GENERATION') from None
+        except MemoryError:
+            raise ContractError('FINANCIAL_RESOURCE_LIMIT') from None
+
+    def _read_financial_components(self, generation_id, *, decision_time, purpose, components, consumer_id, trust):
+        from tools.prepare_a1_reader_generation import (
+            TrustedFinancialSourceBinding, _replay_financial_reuse, bind_financial_reuse,
+            _financial_rows_digest)
+        check(type(trust) is TrustedFinancialSourceBinding, 'FINANCIAL_TRUST')
+        check(purpose == 'research', 'FINANCIAL_HISTORY_PROHIBITED')
+        check(FINANCIAL_DATASET in self.registry['datasets'], 'UNKNOWN_DATASET')
+        decision = clock(decision_time)
+        text(consumer_id, 'INVALID_CONSUMER')
+        check(type(components) in (list, tuple) and len(components) == 1, 'FINANCIAL_COMPONENTS')
+        request = components[0]
+        fields = {'component_id', 'issuer_cik', 'required_period_end_start', 'required_period_end_end', 'optional'}
+        check(type(request) is dict and set(request) <= fields and request.get('optional', False) is False,
+              'FINANCIAL_COMPONENTS')
+        name = text(request.get('component_id'), 'FINANCIAL_COMPONENTS')
+        check(request.get('issuer_cik') == trust.issuer_cik, 'FINANCIAL_IDENTITY')
+        start, end = day(request.get('required_period_end_start')), day(request.get('required_period_end_end'))
+        check(start <= end <= decision.date(), 'FINANCIAL_CLOCK')
+        generation = sha(generation_id)
+        manifest_raw = read_object(self.transport, f'{PREFIX_V1}/generations/{generation}', generation, 1024 * 1024)
+        manifest = decode(manifest_raw)
+        charge = len(manifest_raw) + _json_retained_bytes(manifest, MAX_GENERATION_DECOMPRESSED_BYTES)
+        charge += _json_retained_bytes(request, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
+        check(manifest.get('schema') == SCHEMA and manifest.get('eligible_for_selector') is False and
+              type(manifest.get('datasets')) is list and len(manifest['datasets']) == 1, 'FINANCIAL_GENERATION')
+        spec = manifest['datasets'][0]
+        check(spec.get('dataset_id') == FINANCIAL_DATASET and spec.get('schema') == FINANCIAL_SCHEMA,
+              'FINANCIAL_GENERATION')
+        refs = spec.get('objects')
+        check(type(refs) is list and 0 < len(refs) <= 37, 'FINANCIAL_INVENTORY')
+        declared = {}
+        for ref in refs:
+            check(type(ref) is dict and set(ref) == {'sha256', 'bytes'}, 'FINANCIAL_INVENTORY')
+            h = sha(ref['sha256'])
+            check(h not in declared and type(ref['bytes']) is int and 0 < ref['bytes'] <= MAX_OBJECT,
+                  'FINANCIAL_INVENTORY')
+            declared[h] = ref['bytes']
+        check(sum(declared.values()) <= 128 * 1024 * 1024, 'FINANCIAL_RESOURCE_LIMIT')
+        expected = set(trust.proof_sha256) | {trust.raw_sha256, trust.normalized_sha256,
+            trust.evidence_sha256, sha(trust.execution_receipt_sha256)}
+        source = spec.get('source')
+        check(type(source) is dict, 'FINANCIAL_GENERATION')
+        quality_sha = sha(source.get('quality_sha256'))
+        expected.add(quality_sha)
+        check(set(declared) == expected, 'FINANCIAL_INVENTORY')
+        objects = {}
+        for h, size in sorted(declared.items()):
+            check(size <= MAX_GENERATION_DECOMPRESSED_BYTES - charge, 'FINANCIAL_RESOURCE_LIMIT')
+            raw = read_object(self.transport, f'{PREFIX_V1}/objects/{h}', h, size)
+            check(len(raw) == size, 'OBJECT_SIZE')
+            charge += len(raw)
+            objects[h] = raw
+        prepared = _replay_financial_reuse(objects[trust.raw_sha256], objects[trust.normalized_sha256],
+            objects[trust.evidence_sha256], objects[trust.execution_receipt_sha256], trusted_source=trust,
+            proof_objects=tuple((h, objects[h]) for h in trust.proof_sha256), decision_time=decision_time,
+            remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - charge, inputs_already_charged=True)
+        if prepared.status != 'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT':
+            refusal = ContractError(prepared.blockers[0] if prepared.blockers else 'FINANCIAL_REUSE_QUALITY')
+            refusal.decoded_retained_bytes_charged = charge + prepared.decoded_retained_bytes_charged
+            raise refusal
+        bound = bind_financial_reuse(prepared, objects[trust.execution_receipt_sha256],
+            trusted_source=trust, created_at=manifest.get('created_at'), decision_time=decision_time,
+            remaining_bytes=MAX_GENERATION_DECOMPRESSED_BYTES - charge - prepared.decoded_retained_bytes_charged)
+        if bound.status != 'FINANCIAL_REUSE_PREPARED_UNADMITTED':
+            refusal = ContractError(bound.blockers[0] if bound.blockers else 'FINANCIAL_REUSE_RECEIPT')
+            refusal.decoded_retained_bytes_charged = charge + bound.decoded_retained_bytes_charged
+            raise refusal
+        charge += bound.decoded_retained_bytes_charged
+        check(bound.manifest == manifest_raw and objects[quality_sha] == prepared.quality, 'FINANCIAL_GENERATION')
+        # Publication occurs after generation creation; its pin is external, not
+        # a cyclic member of the manifest or a success manufactured by prepare.
+        pub_sha, pub_raw, pub = None, b'', None
+        durable = trust.publication_scope == 'DURABLE_READBACK'
+        if durable:
+            check(type(trust.publication_receipt_sha256) is str, 'FINANCIAL_PUBLICATION')
+            pub_sha = sha(trust.publication_receipt_sha256)
+            pub_raw = read_object(self.transport, f'{PREFIX_V1}/objects/{pub_sha}', pub_sha,
+                min(1024 * 1024, MAX_GENERATION_DECOMPRESSED_BYTES - charge))
+            charge += len(pub_raw)
+            pub = decode(pub_raw)
+            charge += _json_retained_bytes(pub, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
+            check(pub.get('schema') == 'a1-financial-reuse-publication-v1' and
+                  pub.get('status') == 'PUBLISHED_READBACK' and pub.get('storage') == 'OWNER_PRIVATE_DURABLE' and
+                  pub.get('generation_sha256') == generation and
+                  pub.get('execution_receipt_sha256') == trust.execution_receipt_sha256 and
+                  pub.get('objects') == refs and clock(manifest['created_at']) <= clock(pub.get('completed_at')) <= decision,
+                  'FINANCIAL_PUBLICATION')
+        else:
+            check(trust.publication_scope == 'LOCAL_ONLY' and trust.publication_receipt_sha256 is None,
+                  'FINANCIAL_PUBLICATION')
+        charge += 128 + 16 * len(prepared.rows)
+        check(charge <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+        selected = []
+        for row in prepared.rows:
+            if start <= day(row['end']) <= end:
+                copy_charge = _financial_row_copy_charge(row)
+                check(copy_charge <= MAX_GENERATION_DECOMPRESSED_BYTES - charge, 'FINANCIAL_RESOURCE_LIMIT')
+                charge += copy_charge
+                selected.append(_financial_copy_row(row))
+        check(bool(selected), 'FINANCIAL_PERIOD')
+        row_digest, hash_charge = _financial_rows_digest(selected, MAX_GENERATION_DECOMPRESSED_BYTES - charge)
+        charge += hash_charge
+        check(charge <= MAX_GENERATION_DECOMPRESSED_BYTES, 'FINANCIAL_RESOURCE_LIMIT')
+        receipt = dict(schema='research-data-financial-component-read-receipt-v1',
+            status=('VERIFIED_DURABLE_ARCHIVAL_RESEARCH_BYTES' if durable else 'VERIFIED_LOCAL_ARCHIVAL_RESEARCH_BYTES'),
+            dataset_id=FINANCIAL_DATASET,
+            data_generation_id=generation, manifest_sha256=generation, consumer_id=consumer_id,
+            purpose=purpose, decision_time=decision_time, component_id=name, issuer_cik=trust.issuer_cik,
+            requested_period_end_start=start.isoformat(), requested_period_end_end=end.isoformat(),
+            rows=len(selected), decoded_rows_charged=len(prepared.rows), decoded_retained_bytes_charged=charge,
+            row_set_sha256=row_digest, verified_file_sha256=sorted(objects),
+            raw_sha256=trust.raw_sha256, normalized_sha256=trust.normalized_sha256,
+            extraction_sha256=trust.extraction_sha256, issuer_identity=spec['files'][0]['issuer'],
+            identity_scope='ISSUER_FINANCIAL_FACTS', market_security_binding_status='UNVERIFIED',
+            qualified_market_join=False, eligible_for_valuation=False, eligible_for_er=False, eligible_for_a5=False,
+            producer_run_id=trust.reuse_run_id, producer_code_sha=trust.reuse_code_sha,
+            producer_config_sha256=trust.evidence_sha256, producer_adapter_sha256=trust.adapter_file_sha256,
+            review_receipt_sha256=trust.review_receipt_sha256,
+            execution_receipt_sha256=trust.execution_receipt_sha256, publication_receipt_sha256=pub_sha,
+            publication_scope=trust.publication_scope, durable_publication_verified=durable, source_admitted=False,
+            quality_sha256=quality_sha, source_available_from=source['available_from'],
+            original_collected_at=source['original_collected_at'], original_public_available_at=None,
+            source_expires_at=source['expires_at'], research_expires_at=source['research_expires_at'],
+            supplier_expires_at=source['supplier_expires_at'],
+            supplier_expiry_state=source['supplier_expiry_state'],
+            original_source=source['reuse_origin'], currentness='NOT_CURRENT',
+            usage='ARCHIVAL_RESEARCH_FORWARD_ONLY', historical_pit=False, provider_refresh_count=0,
+            eligible_for_selector=False, eligible_for_economics=False,
+            quarter_completeness='NOT_CERTIFIED', statement_completeness='NOT_CERTIFIED',
+            registry_sha256=self.registry_sha256, reader_code_sha256=sha256_file(Path(__file__)))
+        receipt['receipt_sha256'] = digest(encoded(receipt))
+        verified = dict(objects)
+        if pub_sha is not None:
+            verified[pub_sha] = pub_raw
+        result = ReadResult(tuple(MappingProxyType(r) for r in selected), tuple(sorted(verified.items())),
+                            _freeze(receipt), encoded(receipt))
+        batch = dict(schema='research-data-financial-batch-read-receipt-v1', **{
+            k: receipt[k] for k in ('status', 'dataset_id', 'data_generation_id', 'decision_time',
+                                   'historical_pit', 'eligible_for_selector', 'eligible_for_economics',
+                                   'publication_scope', 'durable_publication_verified', 'source_admitted',
+                                   'identity_scope', 'market_security_binding_status', 'qualified_market_join',
+                                   'eligible_for_valuation', 'eligible_for_er', 'eligible_for_a5')},
+            component_receipts={name: receipt['receipt_sha256']})
+        return ComponentReadResult(MappingProxyType({name: result}), _freeze({}), _freeze(batch), encoded(batch))
+
     def _read(self, dataset_id, data_generation_id, *, decision_time, purpose,
               instrument_ids, required_start, required_end, minimum_rows,
               required_sessions, consumer_id, restore_to, resources,
               component_requests=None, component_request_bytes=0):
+        check(dataset_id != FINANCIAL_DATASET, 'FINANCIAL_COMPONENT_READ_REQUIRED')
         check(type(dataset_id) is str and dataset_id in self.registry['datasets'], 'UNKNOWN_DATASET')
         generation = sha(data_generation_id)
         decision = clock(decision_time)
@@ -888,6 +1071,7 @@ class ResearchDataReader:
               'GENERATION_DATASETS')
         check(len({x['dataset_id'] for x in datasets}) == len(datasets), 'DUPLICATE_DATASET')
         check(all(x['dataset_id'] in self.registry['datasets'] for x in datasets), 'UNKNOWN_DATASET')
+        check(all(x['dataset_id'] == 'ds.us.prices.daily' for x in datasets), 'DATASET_SCHEMA')
         matches = [x for x in datasets if x['dataset_id'] == dataset_id]
         check(len(matches) == 1, 'DATASET_NOT_IN_GENERATION')
         spec = matches[0]
@@ -1284,7 +1468,7 @@ class ResearchDataReader:
                                    _freeze(receipt), encoded(receipt))
 
     @staticmethod
-    def _rows(raw, format_name, *, remaining_bytes, remaining_rows):
+    def _rows(raw, format_name, *, remaining_bytes, remaining_rows, preserve_cancellation=False):
         check(remaining_bytes > 0, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
         check(remaining_rows > 0, 'BLOCKED_GENERATION_ROWS')
         check(type(format_name) is str and
@@ -1298,8 +1482,12 @@ class ResearchDataReader:
                         raw = stream.read(min(128 * 1024 * 1024, remaining_bytes) + 1)
                 except MemoryError:
                     raise ContractError('BLOCKED_GENERATION_DECOMPRESSED_BYTES') from None
-                except (OSError, EOFError, ValueError):
-                    raise ContractError('INVALID_GZIP') from None
+                except BaseException as exc:
+                    if (preserve_cancellation and type(exc) in
+                            {OSError, EOFError, ValueError, gzip.BadGzipFile, zlib.error}) or (
+                            not preserve_cancellation and isinstance(exc, (OSError, EOFError, ValueError))):
+                        raise ContractError('INVALID_GZIP') from None
+                    raise
             check(len(raw) <= 128 * 1024 * 1024, 'DECODE_SIZE')
             check(len(raw) <= remaining_bytes, 'BLOCKED_GENERATION_DECOMPRESSED_BYTES')
             parsed, charged_bytes = [], len(raw)

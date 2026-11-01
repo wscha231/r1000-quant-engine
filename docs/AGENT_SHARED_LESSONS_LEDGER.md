@@ -9080,3 +9080,36 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   completed analysis, a measured speedup or a 120-minute runtime guarantee.
   Keep the existing consumer, source parser identity and scheduling contracts;
   product CI and independent exact-head review remain separate evidence.
+
+## 2026-11-01 — Preserve financial archive semantics across the shared Reader
+
+- A price-only Reader cannot consume SEC facts by relabeling columns or changing
+  a registry alone. Add an explicit dataset/schema branch while retaining old
+  price registries, manifests and their original identity/meaning; new Reader or
+  registry hashes legitimately change read-receipt provenance.
+- Reuse R9 equality only for the same raw/normalized hashes, extraction code and
+  original config/window. Keep zero, losses, nullable fields, units, periods and
+  amendments. Period-end range filters are not exchange-session completeness.
+- Pure quality/preparation cannot claim an actual producer execution or future
+  publication. New reuse receipts preserve the old failed/missing execution.
+  Local research consumption and owner-private durable readback are distinct;
+  neither supplies Source/PIT, current-filing or economic admission. Unknown
+  supplier expiry is not unknown-purpose permission or an invented deadline.
+- Freeze implementation before a full suite with cached exact-code trust
+  fixtures. Editing the adapter during that run invalidates cached review pins;
+  preserve that failed run and revalidate in a fresh process at the frozen head.
+- Exact-head A6 found two P2s after the first green tests: replay reset its
+  effective allowance despite Reader-held metadata, and bind trusted a frozen
+  carrier's mutable assembly without checking exported bytes. Carry one residual
+  budget before decode/copy and revalidate object/Q/context/row linkage at bind.
+- Issuer financial facts require SEC issuer/CIK provenance, not a historical
+  stock-class/MIC qualification. Keep that market binding explicitly unverified
+  and all market-join/valuation/ER/A5 permissions false; preserve price guards.
+- A public explicit residual allowance must also be at most the global ceiling
+  minus prior charges; accepting any value below the ceiling alone resets it.
+- Registry/schema additions can break independently registered historical manual
+  positives even when focused Reader checks pass. Restore their exact original
+  hash/size-bounded bytes only in temporary fixtures; retain accepted catalog
+  pins, current product bytes and changed-input refusal. CI41238471861 passed
+  234/235 files; a focused positive/negative fixture experiment isolated both
+  missing snapshots without changing the production guard or rerunning the suite.
