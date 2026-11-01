@@ -562,6 +562,53 @@ def statement_snapshot_has_payload(snapshot: dict[str, Any]) -> bool:
     return any(has_present_value(snapshot.get(field)) for field in payload_fields)
 
 
+def _native_optional_text_absent(value: Any) -> bool:
+    """Legacy null text survives CSV/Parquet; malformed objects are not nulls."""
+    return (value is None or value is pd.NA or value is pd.NaT
+        or isinstance(value, (float, np.floating)) and np.isnan(value)
+        or isinstance(value, str) and value.strip().lower() in {"", "nan", "none", "null", "<na>", "nat"})
+
+
+def financial_metadata_mode(value: Any) -> str:
+    """Classify a row's marker, never the presence of a neighbour's column."""
+    if _native_optional_text_absent(value):
+        return "LEGACY"
+    return "NATIVE" if isinstance(value, str) and value == "native-unit-fiscal-v1" else "UNKNOWN"
+
+
+def financial_native_mask(frame: pd.DataFrame) -> pd.Series:
+    marker = frame.get("financial_metadata_version", pd.Series(None, index=frame.index, dtype=object))
+    return marker.map(financial_metadata_mode).ne("LEGACY")
+
+
+def _financial_partitions(frame: pd.DataFrame) -> list[tuple[str, list[int]]]:
+    """Keep native/legacy and distinct source histories independent."""
+    fields = [name for name in ("source", "financial_source", "fundamental_source") if name in frame]
+    sources = [frame[name].tolist() for name in fields]
+    marker = frame.get("financial_metadata_version", pd.Series(None, index=frame.index, dtype=object))
+    groups: dict[tuple, list[int]] = {}
+    ciks = frame.get("cik", pd.Series(None, index=frame.index, dtype=object)).tolist()
+    tickers = frame.get("ticker", pd.Series(None, index=frame.index, dtype=object)).tolist()
+    for position, value in enumerate(marker):
+        source = tuple("" if _native_optional_text_absent(values[position])
+            else str(values[position]) for values in sources)
+        unknown_issuer = (str(tickers[position]) if not _native_optional_text_absent(tickers[position]) else position
+            ) if _native_optional_text_absent(ciks[position]) else None
+        key = (financial_metadata_mode(value), source, unknown_issuer)
+        groups.setdefault(key, []).append(position)
+    return [(key[0], positions) for key, positions in groups.items()]
+
+
+def native_fact_record_context(record: Any) -> Optional[dict[str, Any]]:
+    """Bind an original Companyfacts record to the existing field validator."""
+    bound = {name: record[name] for name in ("cik", "issuer_id", "entity_id", "entity") if name in record}
+    for name in ("unit", "start", "period", "fact_provenance", "source_tag", "cik", "issuer_id",
+        "entity_id", "entity", "context_dimensions", "entity_scope", "segment"):
+        if name in record:
+            bound["native_fact_" + name] = record[name]
+    return native_financial_context(pd.Series(bound), "native_fact")
+
+
 def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, Any]]:
     """Read economic scope/period evidence, ignoring measure tags and context IDs.
 
@@ -569,6 +616,8 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     dimensions. Missing evidence is unknown, not an assumed consolidated scope.
     Derived contexts are ordinary persisted columns, not admission credentials.
     """
+    if financial_metadata_mode(row.get("financial_metadata_version")) == "UNKNOWN":
+        return None
     def present(value: Any) -> bool:
         return value is not None and not (isinstance(value, (float, np.floating)) and np.isnan(value)) and str(value).lower() not in {"", "nat", "<na>", "nan", "none", "null"}
     decoded_cache = {}
@@ -807,6 +856,26 @@ def native_derivation_evidence(row: pd.Series, parents: tuple[str, ...], derivat
     return json.dumps(context, sort_keys=True), json.dumps({"derivation":derivation,"parents":proofs}, sort_keys=True, default=str)
 
 
+def _refresh_native_difference(out: pd.Series, field: str, parents: tuple[str, str],
+    derivation: str, *, absolute_right: bool = False) -> bool:
+    """Refresh a current derived value and its evidence as one bundle."""
+    left, right = (safe_float(out.get(parent)) for parent in parents)
+    units = [out.get(parent + "_unit") for parent in parents]
+    evidence = native_derivation_evidence(out, parents, derivation)
+    amounts_ok = np.isfinite(left) and np.isfinite(right)
+    units_ok = all(isinstance(unit, str) for unit in units) and units[0] == units[1]
+    valid = amounts_ok and units_ok and evidence is not None
+    out[field] = left - (abs(right) if absolute_right else right) if valid else np.nan
+    out[field + "_unit"] = units[0] if valid else None
+    out[field + "_financial_context"], out[field + "_provenance"] = evidence if valid else (None, None)
+    missing = [parent for parent, amount in zip(parents, (left, right)) if not np.isfinite(amount)]
+    out[field + "_missing_reason"] = ("" if valid else
+        ("missing_native_fcf_component:" if field == "fcf_ttm" else "missing_native_component:") + ",".join(missing) if missing else
+        "incompatible_or_missing_component_context" if evidence is None else "incompatible_or_missing_component_units")
+    out[field + "_status"] = "COMPATIBLE_DERIVED_NOT_SOURCE_ADMISSION" if valid else "UNKNOWN"
+    return bool(valid)
+
+
 def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFrame:
     """Return compatible native TTM values and persistent, field-bound lineage."""
     flow = pd.to_numeric(group[field_name], errors="coerce")
@@ -894,7 +963,15 @@ def compute_flow_ttm_with_cum_fallback(
         if field_name in group.columns
         else pd.Series(np.nan, index=group.index, dtype=float)
     )
-    if "financial_metadata_version" in group:
+    partitions = _financial_partitions(group)
+    if len(partitions) > 1:
+        values = pd.Series(np.nan, index=group.index, dtype=float)
+        used = pd.Series(0.0, index=group.index, dtype=float)
+        for _, positions in partitions:
+            part_values, part_used = compute_flow_ttm_with_cum_fallback(group.iloc[positions], field_name)
+            values.iloc[positions], used.iloc[positions] = part_values.to_numpy(), part_used.to_numpy()
+        return values, used
+    if financial_native_mask(group).any():
         native = native_flow_ttm_context(group, field_name)
         return native["value"], native["fallback_used"]
     base_ttm = flow.rolling(4, min_periods=4).sum()
@@ -1841,13 +1918,6 @@ def _load_finnhub_features_for_fallback() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-def _native_optional_text_absent(value: Any) -> bool:
-    """Legacy null text survives CSV/Parquet; malformed objects are not nulls."""
-    return (value is None or value is pd.NA or value is pd.NaT
-        or isinstance(value, (float, np.floating)) and np.isnan(value)
-        or isinstance(value, str) and value.strip().lower() in {"", "nan", "none", "null", "<na>", "nat"})
-
-
 def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
     """Invalidate current-schema dependents when their native bundle changes.
 
@@ -1868,6 +1938,7 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
     for field, prefixes, extra in (
         ("fcf_ttm", ("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_"), {"fcf_margin", "rule_of_40"}),
         ("eps_ttm", ("eps_cagr_", "eps_growth_"), set()),
+        ("gross_profit_ttm", ("gp_cagr_", "gp_growth_", "gross_profit_cagr_", "gross_profit_growth_", "gp_sign_", "gp_loss_"), set()),
     ):
         value, old = safe_float(updates.get(field)), safe_float(latest.get(field))
         unchanged = np.isfinite(value) and np.isfinite(old) and value == old and all(
@@ -1888,28 +1959,16 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
         if field not in field_cache:
             field_cache[field] = native_financial_context(out, field)
         return field_cache[field]
-    ocf, capex = safe_float(out.get("ocf_ttm")), safe_float(out.get("capex_ttm"))
-    ocf_unit, capex_unit = out.get("ocf_ttm_unit"), out.get("capex_ttm_unit")
-    fcf_evidence = native_derivation_evidence(out, ("ocf_ttm", "capex_ttm"), "ocf_minus_abs_capex")
-    compatible_context = fcf_evidence is not None
-    missing_components = [field for field, amount in (("ocf_ttm", ocf), ("capex_ttm", capex)) if not np.isfinite(amount)]
-    units_ok = isinstance(ocf_unit, str) and isinstance(capex_unit, str) and ocf_unit == capex_unit
-    if not missing_components and compatible_context and units_ok:
-        out["fcf_ttm"] = ocf - abs(capex)
-        out["fcf_ttm_unit"] = ocf_unit
-        out["fcf_ttm_financial_context"], out["fcf_ttm_provenance"] = fcf_evidence
-        out["fcf_ttm_missing_reason"] = ""
-        out["fcf_ttm_status"] = "COMPATIBLE_DERIVED_NOT_SOURCE_ADMISSION"
-    else:
-        # An earlier guard's successful result is never evidence for a missing
-        # current parent. Preserve parent observations/proofs; invalidate only
-        # the derived FCF and its dependent outputs and certification metadata.
-        out["fcf_ttm"] = np.nan
-        for suffix in ("unit", "financial_context", "provenance"):
-            out["fcf_ttm_" + suffix] = None
-        out["fcf_ttm_missing_reason"] = ("missing_native_fcf_component:" + ",".join(missing_components) if missing_components
-            else "incompatible_or_missing_component_context" if not compatible_context else "incompatible_or_missing_component_units")
-        out["fcf_ttm_status"] = "UNKNOWN"
+    _refresh_native_difference(out, "fcf_ttm", ("ocf_ttm", "capex_ttm"), "ocf_minus_abs_capex", absolute_right=True)
+    for suffix in ("", "_ttm"):
+        field = "gross_profit" + suffix
+        if (isinstance(out.get(field + "_derivation"), str) and out.get(field + "_derivation") == "revenues_minus_cost_of_revenue"
+            or isinstance(out.get(field + "_fact_status"), str) and out.get(field + "_fact_status") == "DERIVED_NOT_OBSERVED"
+            or has_native_derivation(out.get(field + "_provenance"))
+            or has_native_derivation(out.get(field + "_fact_provenance"))):
+            _refresh_native_difference(out, field, ("revenues" + suffix, "cost_of_revenue" + suffix), "revenues_minus_cost_of_revenue")
+            out[field + "_derivation"] = "revenues_minus_cost_of_revenue"
+            out[field + "_fact_status"] = "DERIVED_NOT_OBSERVED"
     context = dict(latest)
     evidence = dict(price_context or {})
     # Technical evidence may describe price/basis/FX, never overwrite SEC facts.
@@ -2033,6 +2092,8 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     out["book_to_market_proxy"] = ratio(equity_converted, market_cap)
     out["book_to_market_proxy_missing_reason"] = basis_reason or equity_reason
     out["gross_margins"] = native_ratio("gross_profit_ttm", "revenues_ttm", "gross_margins")
+    out["gross_margin_ttm"] = out["gross_margins"]
+    out["gross_margin_ttm_missing_reason"] = out["gross_margins_missing_reason"]
     out["operating_margins"] = native_ratio("op_income_ttm", "revenues_ttm", "operating_margins")
     out["op_margin_ttm"] = out["operating_margins"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
@@ -2078,10 +2139,10 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         return frame.copy()
     fixed = {"mktcap", "market_cap_live", "mktcap_unit", "shares_effective", "ep_ttm", "sp_ttm", "fcfy_ttm",
         "roa_proxy", "asset_turnover_ttm", "roe_proxy", "return_on_equity_effective", "gp_to_assets_ttm",
-        "book_to_market_proxy", "gross_margins", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "eps_ttm", "current_price_live"}
-    operands = ("net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "op_income_ttm", "shares")
+        "book_to_market_proxy", "gross_margins", "gross_margin_ttm", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "eps_ttm", "current_price_live", "gross_profit", "gross_profit_ttm"}
+    operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
     prefixes = tuple(field + "_" for field in operands) + ("price_", "share_basis_", "ads_ratio_", "fx_", "source_", "reader_", "identity_")
-    scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
+    scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "financial_metadata_version", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
     records = []
     for position, (_, row) in enumerate(frame.iterrows()):
         stamp = None
@@ -2094,7 +2155,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
             owned = fixed | {key + "_missing_reason" for key in fixed}
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_")))
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
@@ -2124,7 +2185,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
             unit_ok = _native_optional_text_absent(dps_unit) or isinstance(dps_unit,str) and dps_unit in {currency,str(currency)+"/shares",str(currency)+"/"+str(row.get("price_share_basis"))}
             basis_ok = _native_optional_text_absent(dps_basis) or (isinstance(dps_basis,str) and isinstance(row.get("price_share_basis"),str) and dps_basis == row.get("price_share_basis"))
             payout_ok = np.isfinite(denominator) and denominator > 0 and np.isfinite(shares) and shares > 0 and np.isfinite(dps) and dps > 0 and unit_ok and basis_ok
-            if any(key in row for key in ("dividends_ttm_ps_provenance","dividends_ttm_ps_financial_context")):
+            if any(not _native_optional_text_absent(row.get(key)) for key in ("dividends_ttm_ps_provenance","dividends_ttm_ps_financial_context")):
                 dividend_context = native_financial_context(row,"dividends_ttm_ps")
                 denominator_context = native_financial_context(pd.Series({**row.to_dict(),**updates}),source)
                 payout_ok = payout_ok and native_financial_contexts_match([dividend_context,denominator_context])
@@ -2181,7 +2242,7 @@ def compute_live_factor_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = 
     d["operating_margins"] = numeric_series_or_default(d, "operating_margins", np.nan).fillna(
         d["op_margin_ttm"]
     )
-    d["fcf_ttm"] = numeric_series_or_default(d, "fcf_ttm", np.nan).fillna(ocf_ttm - capex_ttm)
+    d["fcf_ttm"] = numeric_series_or_default(d, "fcf_ttm", np.nan).fillna(ocf_ttm - capex_ttm.abs())
     d["ep_ttm"] = numeric_series_or_default(d, "ep_ttm", np.nan).fillna(
         net_income_ttm / market_cap_effective
     )
@@ -2774,10 +2835,18 @@ def _flexible_lag(d: pd.DataFrame, col: str, target_q: int, tol: int = 2) -> tup
     DAYS_PER_Q = 365.25 / 4.0
     TOL_DAYS = 46  # ±~1.5-month window per quarter-end boundary
 
-    typed_native = "financial_metadata_version" in d
+    partitions = _financial_partitions(d)
+    if len(partitions) > 1:
+        res = pd.Series(np.nan, index=d.index, dtype=float)
+        aq = pd.Series(float(target_q), index=d.index, dtype=float)
+        for _, positions in partitions:
+            lag, elapsed = _flexible_lag(d.iloc[positions], col, target_q, tol)
+            res.iloc[positions], aq.iloc[positions] = lag.to_numpy(), elapsed.to_numpy()
+        return res, aq
+    typed_native = financial_native_mask(d).any()
     if typed_native and "period" not in d.columns:
         return pd.Series(np.nan, index=d.index), pd.Series(float(target_q), index=d.index)
-    if not typed_native and ("period" not in d.columns or d["period"].notna().mean() < 0.5):
+    if not typed_native and "period" not in d.columns:
         # --- legacy row-shift fallback ---
         res = d.groupby("cik")[col].shift(target_q)
         aq = pd.Series(float(target_q), index=d.index)
@@ -2803,6 +2872,11 @@ def _flexible_lag(d: pd.DataFrame, col: str, target_q: int, tol: int = 2) -> tup
         g = grp.copy()
         g["_p"] = pd.to_datetime(g["period"], errors="coerce")
         g["_v"] = pd.to_numeric(g[col], errors="coerce")
+        if not typed_native and g["_p"].notna().mean() < 0.5:
+            # Legacy sparsity is local to this issuer/source, not its peers.
+            lag, elapsed = _flexible_lag(g.drop(columns="period"), col, target_q, tol)
+            res.loc[g.index], aq.loc[g.index] = lag.to_numpy(), elapsed.to_numpy()
+            continue
 
         lkp = (
             g[g["_p"].notna() & g["_v"].notna()][["_p", "_v"]]
@@ -2833,7 +2907,7 @@ def _flexible_lag(d: pd.DataFrame, col: str, target_q: int, tol: int = 2) -> tup
             hit = mrg["_lv"].notna()
             if hit.any():
                 sub = mrg[hit]
-                if "financial_metadata_version" in d:
+                if typed_native:
                     unit_col = f"{col}_unit"
                     if unit_col not in d:
                         continue
@@ -2877,12 +2951,26 @@ def recompute_fund_panel_derived_columns(
     if panel is None or panel.empty:
         return pd.DataFrame() if panel is None else panel
 
+    partitions = _financial_partitions(panel)
+    if len(partitions) > 1:
+        ordinal = "_financial_input_ordinal"
+        while ordinal in panel:
+            ordinal += "_"
+        tagged = panel.copy()
+        tagged[ordinal] = np.arange(len(panel))
+        parts = [recompute_fund_panel_derived_columns(tagged.iloc[positions], ffill_quarters, balance_ffill_quarters)
+            for _, positions in partitions]
+        return pd.concat(parts, ignore_index=True).sort_values(ordinal, kind="stable").drop(columns=ordinal).reset_index(drop=True)
+
     d = panel.copy()
-    typed_native = "financial_metadata_version" in d
+    typed_native = financial_native_mask(d).any()
     if typed_native:
         # A missing/conflicting current native fact cannot inherit old evidence.
         ffill_quarters = balance_ffill_quarters = 0
     d["cik"] = normalize_cik_series(d["cik"], index=d.index)
+    unknown_identity = d["cik"].map(_native_optional_text_absent)
+    if unknown_identity.any():
+        d.loc[unknown_identity, "fundamental_missing_reason"] = "unknown_issuer_identity"
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = pd.to_datetime(d["accepted"], errors="coerce")
     d = d.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik", "period"], keep="last")
@@ -3032,12 +3120,8 @@ def recompute_fund_panel_derived_columns(
         d["gp_to_assets_ttm"] = d["gross_profit_ttm"] / d["assets"].replace(0, np.nan)
     if "op_income_ttm" in d.columns and "revenues_ttm" in d.columns:
         d["op_margin_ttm"] = d["op_income_ttm"] / d["revenues_ttm"].replace(0, np.nan)
-        d["margin_stability_8q"] = (
-            -d.groupby("cik")["op_margin_ttm"]
-            .rolling(8, min_periods=4)
-            .std()
-            .reset_index(level=0, drop=True)
-        )
+        d["margin_stability_8q"] = d.groupby("cik")["op_margin_ttm"].transform(
+            lambda series: -series.rolling(8, min_periods=4).std())
     if "net_income_ttm" in d.columns and "ocf_ttm" in d.columns and "assets" in d.columns:
         d["accruals_to_assets"] = (d["net_income_ttm"] - d["ocf_ttm"]) / d["assets"].replace(0, np.nan)
     if "net_income_ttm" in d.columns:
@@ -3232,14 +3316,14 @@ def recompute_fund_panel_derived_columns(
     )
 
     # --- SAGE derived metrics (proxy-safe: fallback to approximations when new tags absent) ---
-    rev_ttm = pd.to_numeric(d.get("revenues_ttm"), errors="coerce").replace(0, np.nan)
-    fcf_col = pd.to_numeric(d.get("fcf_ttm"), errors="coerce")
-    op_inc_col = pd.to_numeric(d.get("op_income_ttm"), errors="coerce")
-    net_inc_col = pd.to_numeric(d.get("net_income_ttm"), errors="coerce")
-    gp_col = pd.to_numeric(d.get("gross_profit_ttm"), errors="coerce")
-    assets_col = pd.to_numeric(d.get("assets"), errors="coerce").replace(0, np.nan)
-    liab_col = pd.to_numeric(d.get("liabilities"), errors="coerce").replace(0, np.nan)
-    shares_yoy_col = pd.to_numeric(d.get("shares_yoy"), errors="coerce")
+    rev_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan).replace(0, np.nan)
+    fcf_col = numeric_series_or_default(d, "fcf_ttm", np.nan)
+    op_inc_col = numeric_series_or_default(d, "op_income_ttm", np.nan)
+    net_inc_col = numeric_series_or_default(d, "net_income_ttm", np.nan)
+    gp_col = numeric_series_or_default(d, "gross_profit_ttm", np.nan)
+    assets_col = numeric_series_or_default(d, "assets", np.nan).replace(0, np.nan)
+    liab_col = numeric_series_or_default(d, "liabilities", np.nan).replace(0, np.nan)
+    shares_yoy_col = numeric_series_or_default(d, "shares_yoy", np.nan)
 
     if rev_ttm is not None and rev_ttm.notna().any():
         if fcf_col is not None and fcf_col.notna().any():
@@ -3454,7 +3538,12 @@ def recompute_fund_panel_derived_columns(
             if field in d:
                 d.loc[reason.ne(""), field] = np.nan
         d["fund_ttm_ready"] = d[ttm_ready_cols].notna().all(axis=1).astype(float)
-        d["financial_context_status"] = "NATIVE_TYPED_NOT_SOURCE_ADMISSION"
+        modes = d["financial_metadata_version"].map(financial_metadata_mode)
+        d["financial_context_status"] = np.where(modes.eq("NATIVE"), "NATIVE_TYPED_NOT_SOURCE_ADMISSION", "UNKNOWN_FINANCIAL_METADATA")
+        unknown = modes.eq("UNKNOWN")
+        d.loc[unknown, "fund_ttm_ready"] = 0.0
+        if unknown.any():
+            d.loc[unknown, "fundamental_missing_reason"] = "unknown_financial_metadata_version"
     else:
         # Legacy numbers stay observable; untyped context is not admission proof.
         d["financial_context_status"] = "UNVERIFIED"

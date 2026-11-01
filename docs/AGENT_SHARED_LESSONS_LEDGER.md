@@ -9223,3 +9223,37 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Concurrent Native validation also produced MemoryError under low available
   commit memory. Preserve the failed attempts and their cost; serialize bounded
   checks and distinguish resource failures from financial or broker defects.
+
+
+## 2026-11-01 — PR709 912 review: row-local provenance and current derivation parents
+
+- Financial metadata is a row value, not a frame-wide column switch. Partition
+  the existing TTM/panel/lag calculation by native/legacy mode and source; an
+  unrelated typed-null issuer or another source for the same issuer cannot
+  erase legacy diagnostics or splice its history. Legacy stays UNVERIFIED;
+  unsupported explicit metadata stays UNKNOWN, with no admission upgrade.
+- Every derived GP refresh validates the current revenue/cost value, currency,
+  original scope/period and proof, including cached calls. A changed or missing
+  cost recomputes/refuses the bundle and margins; independent direct GP remains
+  observed. Keep OCF minus abs(CapEx) consistent before every valuation guard so
+  a transient sign error cannot delete valid unchanged FCF history.
+- Optional proof/context checks depend on non-null evidence in that row. Null
+  columns added by another issuer must not revoke a legacy payout. Explicit
+  malformed/conflicting evidence still refuses. Serialize malformed scalar
+  evidence as text at disk projection so mixed Parquet columns retain the same
+  refusal rather than failing during Arrow conversion.
+- Validate full native identity/entity/scope/segment before quarter cumulative
+  addition or subtraction. Use the canonical native scope in parent identity,
+  including nullable metadata equivalence. Refusing synthesis must preserve an
+  independent direct quarter or annual cumulative observation and block false
+  five-component core readiness.
+- Separating source histories exposed a legacy missing-field scalar in SAGE
+  derivation: missing optional metrics need indexed missing Series. Preserve
+  unidentified candidates as separate rows and retain precise unknown reasons.
+  Unknown-CIK-only groups also need indexed transform for rolling statistics;
+  an empty group is UNKNOWN, not an exception or a fabricated issuer.
+- Initial combined43-case verification recorded two errors (legacy missing GP
+  scalar and mixed proof Parquet types), followed by the unknown-CIK empty-group
+  probe error; preserve all logs/costs. Native runs
+  remain sequential under low commit-memory headroom. No actual data/fullrun,
+  Source control, T2 consumer execution or canonical/economic write is implied.

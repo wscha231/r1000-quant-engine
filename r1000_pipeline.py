@@ -270,6 +270,10 @@ from r1000_features import (
     recompute_fund_panel_derived_columns,
     native_valuation_overrides,
     enforce_native_valuation_context,
+    financial_native_mask,
+    native_fact_record_context,
+    native_financial_contexts_match,
+    _native_optional_text_absent,
     compute_event_regime_features,
     sector_indicator,
     compute_macro_interaction_features,
@@ -2486,7 +2490,8 @@ def select_companyfacts_slots(records: pd.DataFrame, keys: list[str]) -> pd.Data
             if original_proofs else "[" + ",".join(sorted(set(all_serialized))) + "]")
         row["unit_selection_policy"] = "native_USD_preference" if row.get("unit") == "USD" else "native_unit_or_explicit_declaration"
         units = set(candidates.get("unit", pd.Series(dtype=str)).dropna().astype(str))
-        contexts = [c for c in ("value", "start", "fy", "context_id", "context_dimensions") if c in candidates]
+        contexts = [c for c in ("value", "start", "fy", "context_id", "context_dimensions", "cik", "issuer_id",
+            "entity_id", "entity", "entity_scope", "segment") if c in candidates]
         signatures = candidates[contexts].astype(str).drop_duplicates()
         reason = str(row.get("missing_reason") or "")
         if declaration_missing:
@@ -2636,9 +2641,12 @@ def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
             row["q_idx"] = q
             row["flow"] = row["cum_value"] = np.nan
             row["flow_start"] = row["cum_start"] = pd.NaT
-            parent = json.dumps({c: str(row.get(c, "")) for c in (
-                "source_namespace", "source_tag", "context_dimensions", "shares_basis"
-            )}, sort_keys=True)
+            own_context = native_fact_record_context(row)
+            parent_fields = {name: None if _native_optional_text_absent(row.get(name)) else row[name]
+                for name in ("source_namespace", "source_tag", "shares_basis")}
+            parent_fields["native_scope"] = ({key: own_context[key] for key in ("identities", "scope")}
+                if own_context is not None else None)
+            parent = json.dumps(parent_fields, sort_keys=True, default=str)
             row["context_parent"] = parent
             reason = row.get("missing_reason", "")
             start = pd.to_datetime(row.get("start"), errors="coerce")
@@ -2654,6 +2662,8 @@ def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
                 reason = "missing_native_fiscal_context"
             if not reason and not np.isfinite(value):
                 reason = "missing_native_value"
+            if not reason and own_context is None:
+                reason = "incompatible_or_missing_native_context"
             short_fy = annual and q == 4 and duration is not None and duration < 300
             grid_flag = row.get("fiscal_grid_verified")
             grid_proven = (isinstance(grid_flag, (bool, np.bool_)) and bool(grid_flag)
@@ -2682,6 +2692,8 @@ def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
                         parent_reason = "incompatible_ytd_unit"
                     elif parent != previous.get("context_parent"):
                         parent_reason = "incompatible_ytd_context_parent"
+                    elif not native_financial_contexts_match([own_context, native_fact_record_context(previous)], period_mode="scope"):
+                        parent_reason = "incompatible_ytd_native_scope"
                     elif previous["accepted"] > row["accepted"]:
                         parent_reason = "future_ytd_parent"
                     elif not np.isfinite(safe_float(previous.get("cum_value"))):
@@ -7518,7 +7530,8 @@ def asof_join_fundamentals(
         m = m.set_index("_base_idx").sort_index()
 
         p_ttm = p[numeric_series_or_default(p, "fund_ttm_ready", 0.0) > 0].copy()
-        if not p_ttm.empty and ttm_fallback_cols and "financial_metadata_version" not in p.columns:
+        p_ttm = p_ttm.loc[~financial_native_mask(p_ttm)]
+        if not p_ttm.empty and ttm_fallback_cols:
             fb = pd.merge_asof(
                 left[["_base_idx", "rebalance_date"]],
                 p_ttm[ttm_meta_cols + ttm_fallback_cols].sort_values("accepted"),
@@ -7532,7 +7545,7 @@ def asof_join_fundamentals(
 
             fb_accepted = datetime_series_or_default(m, "ttm_fb_accepted")
             fb_age = (pd.to_datetime(m["rebalance_date"], errors="coerce") - fb_accepted).dt.days
-            valid_fb = fb_accepted.notna() & fb_age.ge(0) & fb_age.le(max_age_days)
+            valid_fb = fb_accepted.notna() & fb_age.ge(0) & fb_age.le(max_age_days) & ~financial_native_mask(m)
             fallback_used = pd.Series(False, index=m.index, dtype=bool)
             for c in ttm_fallback_cols:
                 if c not in m.columns:
@@ -8214,7 +8227,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
 
     d["ep_ttm"] = net_income_ttm / d["mktcap"]
     d["sp_ttm"] = revenues_ttm / d["mktcap"]
-    d["fcf_ttm"] = ocf_ttm - capex_ttm
+    d["fcf_ttm"] = ocf_ttm - capex_ttm.abs()
     d["fcfy_ttm"] = d["fcf_ttm"] / d["mktcap"]
     gross_profit_ttm = numeric_series_or_default(d, "gross_profit_ttm", np.nan)
     op_income_ttm = numeric_series_or_default(d, "op_income_ttm", np.nan)
@@ -8492,7 +8505,9 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     output = universe.reindex(columns=columns).copy()
     for column in evidence:
         output[column] = output[column].map(
-            lambda value: json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else value
+            lambda value: json.dumps(value, sort_keys=True, default=str)
+            if isinstance(value, (dict, list)) or (column.endswith(("_provenance", "_financial_context"))
+                and not isinstance(value, str) and not _native_optional_text_absent(value)) else value
         )
     return output
 
