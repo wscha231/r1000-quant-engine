@@ -41,7 +41,7 @@ from r1000_config import (  # noqa: E402
     CORE_FUNDAMENTAL_MINIMUM_FIELDS,
     FSDS_TAG_ALIASES,
 )
-from r1000_features import recompute_fund_panel_derived_columns  # noqa: E402
+from r1000_features import native_derivation_evidence, recompute_fund_panel_derived_columns  # noqa: E402
 from r1000_pipeline import (  # noqa: E402
     companyfacts_duration_days,
     companyfacts_quarterly_flows,
@@ -681,6 +681,16 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
         left = panel.get(f"liabilities_and_equity_{suffix}", pd.Series(None, index=panel.index, dtype=object))
         right = panel.get(f"stockholders_equity_for_liabilities_{suffix}", pd.Series(None, index=panel.index, dtype=object))
         liability_derivation_mask &= left.fillna("").eq(right.fillna(""))
+    liability_evidence = {}
+    candidates = liabilities_direct.isna() & liabilities_and_equity.notna() & stockholders_equity.notna()
+    for idx in panel.index[candidates]:
+        evidence = native_derivation_evidence(panel.loc[idx], AUXILIARY_BALANCE_FIELDS,
+            "liabilities_and_equity_minus_stockholders_equity")
+        if not liability_derivation_mask.loc[idx] or evidence is None or not np.isfinite(derived_liabilities.loc[idx]):
+            liability_derivation_mask.loc[idx] = False
+            panel.loc[idx, "liabilities_missing_reason"] = "incompatible_or_missing_liability_parent_context"
+        else:
+            liability_evidence[idx] = evidence
     panel.loc[liability_derivation_mask, "liabilities"] = derived_liabilities.loc[
         liability_derivation_mask
     ]
@@ -689,10 +699,7 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
     ]
     panel.loc[liability_derivation_mask, "liabilities_missing_reason"] = ""
     for idx in panel.index[liability_derivation_mask]:
-        panel.loc[idx, "liabilities_fact_provenance"] = json.dumps([{
-            "derivation": "liabilities_and_equity_minus_stockholders_equity",
-            "parents": [panel.loc[idx, f"{field}_fact_provenance"] for field in AUXILIARY_BALANCE_FIELDS],
-        }], sort_keys=True)
+        panel.loc[idx, "liabilities_financial_context"], panel.loc[idx, "liabilities_fact_provenance"] = liability_evidence[idx]
         panel.loc[idx, "liabilities_accession_number"] = panel.loc[idx, "liabilities_and_equity_accession_number"]
     panel["liabilities_derivation_applied"] = liability_derivation_mask
     panel["liabilities_derivation_source"] = np.where(

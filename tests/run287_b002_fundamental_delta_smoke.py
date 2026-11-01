@@ -1226,6 +1226,22 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertTrue(pd.isna(bad["gross_profit"]))
         self.assertEqual(bad["cost_of_revenue_cum_value"],400.0)
         self.assertEqual(bad["cost_of_revenue_ttm"],400.0)
+        # A separately observed direct fact replaces stale derived markers;
+        # subsequent loss of that fact returns to a validated component result.
+        direct_rows = [dict(row) for row in rows]
+        direct_rows.append(self.row(**common,field_name="gross_profit",source_tag="GrossProfit",value=650.0))
+        direct = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(direct_rows)))
+        self.assertEqual(direct.iloc[-1]["gross_profit_ttm"],650.0)
+        direct["gross_profit_derivation"] = direct["gross_profit_ttm_derivation"] = "revenues_minus_cost_of_revenue"
+        direct["gross_profit_fact_status"] = direct["gross_profit_ttm_fact_status"] = "DERIVED_NOT_OBSERVED"
+        reread = features.recompute_fund_panel_derived_columns(direct).iloc[-1]
+        self.assertEqual(reread["gross_profit_ttm"],650.0)
+        self.assertEqual(reread["gross_profit_ttm_fact_status"],"OBSERVED")
+        self.assertTrue(pd.isna(reread["gross_profit_ttm_derivation"]))
+        restored = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame([
+            {**row,"context_dimensions":None} for row in rows]))).iloc[-1]
+        self.assertEqual(restored["gross_profit_ttm"],600.0)
+        self.assertEqual(restored["gross_profit_ttm_fact_status"],"DERIVED_NOT_OBSERVED")
 
     def test_dividend_payout_uses_valid_fcf_without_earnings_and_clears_invalid_score(self):
         import r1000_pipeline as pipe
@@ -1269,6 +1285,265 @@ class NativeFinancialContextTests(unittest.TestCase):
             changed=first.copy();changed["source_hashes"]="changed-evidence-reference"
             features.enforce_native_valuation_context(changed,_operation_cache=cache)
             self.assertEqual(call.call_count,4)
+
+
+    def test_cache_hit_tracks_current_columns_and_candidate_order(self):
+        import r1000_features as features
+        frame = pd.DataFrame([{**self.financial().to_dict(), **self.price_context(),
+            "ticker":"SYN", "current_price_live":10.0, "ocf_ttm":float("nan")}])
+        cache = {}
+        first = features.enforce_native_valuation_context(frame, _operation_cache=cache)
+        first["fcf_cagr_1y"], first["fcf_margin"], first["rule_of_40"] = 0.4, 0.12, 0.5
+        cached = features.enforce_native_valuation_context(first, _operation_cache=cache)
+        fresh = features.enforce_native_valuation_context(first)
+        pd.testing.assert_frame_equal(cached, fresh)
+        for field in ("fcf_cagr_1y", "fcf_margin", "rule_of_40"):
+            self.assertTrue(pd.isna(cached.loc[0, field]))
+        # Valid caller histories survive; removing columns never revives them.
+        rows = [{**self.financial().to_dict(), **self.price_context(), "ticker":ticker,
+            "current_price_live":10.0} for ticker in ("A", "B", "UNKNOWN")]
+        rows[-1]["shares_provenance"] = None
+        cache = {}
+        base = features.enforce_native_valuation_context(pd.DataFrame(rows), _operation_cache=cache)
+        base["fcf_cagr_1y"] = [0.4, 0.6, float("nan")]
+        for candidate in (base, base.drop(columns="fcf_cagr_1y"), base.iloc[[2, 0, 1, 0]], base.iloc[[1, 0]]):
+            candidate = candidate.copy()
+            candidate.index = [7] * len(candidate)  # duplicate/noncontiguous caller labels
+            pd.testing.assert_frame_equal(
+                features.enforce_native_valuation_context(candidate, _operation_cache=cache),
+                features.enforce_native_valuation_context(candidate))
+            self.assertEqual(list(features.enforce_native_valuation_context(candidate)["ticker"]), list(candidate["ticker"]))
+        valid = features.enforce_native_valuation_context(base)
+        self.assertEqual(valid.loc[0, "fcf_cagr_1y"], 0.4)
+        self.assertTrue(pd.isna(valid.loc[2, "mktcap"]))
+
+    def test_dividend_metadata_rejects_objects_and_preserves_null_readback(self):
+        import r1000_features as features
+        import r1000_pipeline as pipe
+        row = {**self.financial(income=float("nan")).to_dict(), **self.price_context(),
+            "ticker":"SYN", "current_price_live":10.0, "dividends_ttm_ps":0.3,
+            "dividend_yield_ttm":0.03, "dividend_policy_score":0.9}
+        for field in ("dividends_ttm_ps_unit", "dividends_share_basis"):
+            for value in (True, False, {}, [], {"unexpected":"ordinary"}, 1, "INVALID"):
+                with self.subTest(field=field, malformed=value):
+                    data = pd.DataFrame([{**row, field:value}])
+                    guarded = features.enforce_native_valuation_context(data).iloc[0]
+                    self.assertTrue(pd.isna(guarded["dividend_payout_ratio"]))
+                    self.assertEqual(guarded["dividend_policy_score"], 0.0)
+                    projected = pipe.project_feature_store_frame(data, list(row))
+                    with tempfile.TemporaryDirectory() as tmp:
+                        for suffix in ("csv", "parquet"):
+                            path = Path(tmp)/("dividend."+suffix)
+                            if suffix == "csv":
+                                projected.to_csv(path, index=False)
+                                read = pd.read_csv(path, dtype={"cik":str})
+                            else:
+                                projected.to_parquet(path, index=False)
+                                read = pd.read_parquet(path)
+                            result = features.enforce_native_valuation_context(read).iloc[0]
+                            self.assertTrue(pd.isna(result["dividend_payout_ratio"]))
+                            self.assertEqual(result["dividend_policy_score"], 0.0)
+            for value in (None, float("nan"), pd.NA, "null", "None", "nan", ""):
+                with self.subTest(field=field, legacy_null=str(value)):
+                    data = pd.DataFrame([{**row, field:value}])
+                    self.assertEqual(features.enforce_native_valuation_context(data).iloc[0]["dividend_payout_ratio"], 0.5)
+                    projected = pipe.project_feature_store_frame(data, list(row))
+                    with tempfile.TemporaryDirectory() as tmp:
+                        for suffix in ("csv", "parquet"):
+                            path = Path(tmp)/("null."+suffix)
+                            if suffix == "csv":
+                                projected.to_csv(path, index=False)
+                                read = pd.read_csv(path, dtype={"cik":str})
+                            else:
+                                projected.to_parquet(path, index=False)
+                                read = pd.read_parquet(path)
+                            self.assertEqual(features.enforce_native_valuation_context(read).iloc[0]["dividend_payout_ratio"], 0.5)
+
+    def test_fcf_lineage_precedes_annual_growth_and_survives_guard(self):
+        import r1000_features as features
+        rows = []
+        for year, cash in ((2024, 80.0), (2025, 140.0)):
+            common = dict(unit="USD", period=pd.Timestamp(str(year)+"-12-31"),
+                start=pd.Timestamp(str(year)+"-01-01"), accepted=pd.Timestamp(str(year+1)+"-02-10"),
+                fy=year, fp="FY", form="10-K", accession_number="fcf-"+str(year), duration_days=366 if year==2024 else 365)
+            for field, amount in (("ocf", cash), ("capex", 20.0)):
+                rows.append(self.row(**common, field_name=field, source_tag=field, value=amount))
+        panel = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        latest = panel.iloc[-1]
+        self.assertEqual(latest["fcf_ttm"], 120.0)
+        expected_growth = 2.0 ** (365.25 / 365.0) - 1.0  # actual dated annual interval
+        self.assertAlmostEqual(latest["fcf_cagr_1y"], expected_growth)
+        self.assertIsNotNone(features.native_financial_context(latest, "fcf_ttm"))
+        self.assertIn("ocf_minus_abs_capex", latest["fcf_ttm_provenance"])
+        guarded = features.enforce_native_valuation_context(pd.DataFrame([{**latest.to_dict(), **self.price_context(), "current_price_live":10.0}])).iloc[0]
+        self.assertEqual(guarded["fcf_ttm_provenance"], latest["fcf_ttm_provenance"])
+        self.assertAlmostEqual(guarded["fcf_cagr_1y"], expected_growth)
+        bad = [dict(row) for row in rows]
+        bad[-1]["entity_scope"] = "different-scope"
+        refused = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(bad))).iloc[-1]
+        self.assertTrue(pd.isna(refused["fcf_ttm"]))
+        self.assertTrue(pd.isna(refused["fcf_cagr_1y"]))
+
+    def test_dividend_projection_keeps_basis_and_original_proof_through_normalize(self):
+        import r1000_features as features
+        import r1000_pipeline as pipe
+        from r1000_config import EngineConfig
+        cfg = EngineConfig()
+        model = list(cfg.features)
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker":"SYN", "cik10":"0000000001",
+            "rebalance_date":"2026-07-11", "px":10.0, "current_price_live":10.0, "mktcap":1000.0,
+            "dividends_ttm_ps":0.3, "dividend_yield_ttm":0.03, "dividend_policy_score":0.9,
+            "dividends_ttm_ps_unit":"USD/shares", "dividends_share_basis":"ADS"}
+        context = json.loads(row["net_income_ttm_financial_context"])
+        row["dividends_ttm_ps_financial_context"] = json.dumps(context)
+        row["dividends_ttm_ps_provenance"] = row["net_income_ttm_provenance"]
+        keep = [key for key in row if not key.startswith("dividends_") or key=="dividends_ttm_ps"]
+        projected = pipe.project_feature_store_frame(pd.DataFrame([row]), keep)
+        self.assertEqual(cfg.features, model)
+        for field in ("dividends_share_basis", "dividends_ttm_ps_unit", "dividends_ttm_ps_financial_context", "dividends_ttm_ps_provenance"):
+            self.assertEqual(projected.loc[0, field], row[field])
+            self.assertNotIn(field, cfg.features)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("feature_store."+suffix)
+                if suffix=="csv":
+                    projected.to_csv(path,index=False)
+                    reread=pd.read_csv(path,dtype={"cik":str,"cik10":str})
+                else:
+                    projected.to_parquet(path,index=False)
+                    reread=pd.read_parquet(path)
+                with patch.object(pipe,"repair_latest_history_depth_from_diagnostics",side_effect=lambda paths,frame:frame), \
+                    patch.object(features,"_load_finnhub_features_for_fallback",return_value=pd.DataFrame()):
+                    normalized=pipe.normalize_latest_fundamental_snapshot(cfg,{},reread,apply_statement_repair=False,add_fundamental_flags=False)
+                self.assertTrue(pd.isna(normalized.loc[0,"dividend_payout_ratio"]))
+                self.assertEqual(normalized.loc[0,"dividend_policy_score"],0.0)
+                restored = reread.copy(); restored["dividends_share_basis"] = "ordinary"
+                self.assertEqual(features.enforce_native_valuation_context(restored).loc[0,"dividend_payout_ratio"], 0.6)
+                proof = json.loads(row["dividends_ttm_ps_provenance"])
+                proof[0]["context_dimensions"] = "other-segment"
+                restored["dividends_ttm_ps_provenance"] = json.dumps(proof)
+                self.assertTrue(pd.isna(features.enforce_native_valuation_context(restored).loc[0,"dividend_payout_ratio"]))
+
+    def test_valid_fcf_changes_invalidate_history_on_cached_and_direct_paths(self):
+        import r1000_features as features
+        seed = pd.DataFrame([{**self.financial().to_dict(), **self.price_context(), "current_price_live":10.0}])
+        cache = {}
+        first = features.enforce_native_valuation_context(seed, _operation_cache=cache)
+        history = ("fcf_cagr_1y", "fcf_growth_yoy", "fcf_sign_flip_pos", "fcf_margin", "rule_of_40")
+        for field in history:
+            first[field] = 0.4
+        unchanged = features.enforce_native_valuation_context(first, _operation_cache=cache)
+        for field in history:
+            self.assertEqual(unchanged.loc[0,field],0.4)
+        for change in ("value", "currency", "proof", "reason"):
+            changed = first.copy()
+            if change=="value":
+                changed["ocf_ttm"]=140.0
+            elif change=="currency":
+                changed["ocf_ttm_unit"]=changed["capex_ttm_unit"]="EUR"
+            elif change=="proof":
+                proof=json.loads(changed.loc[0,"ocf_ttm_provenance"])
+                proof[0]["original_receipt"]="corrected-receipt"
+                changed["ocf_ttm_provenance"]=json.dumps(proof)
+            else:
+                changed["fcf_ttm_missing_reason"]="old-refusal"
+            fresh=features.enforce_native_valuation_context(changed)
+            cached=features.enforce_native_valuation_context(changed,_operation_cache=cache)
+            pd.testing.assert_frame_equal(cached,fresh)
+            direct=features.native_valuation_overrides(changed.iloc[0],technical_price=10.0)
+            for field in history:
+                self.assertTrue(pd.isna(cached.loc[0,field]),(change,field))
+                self.assertTrue(pd.isna(direct[field]),(change,field))
+            self.assertEqual(cached.loc[0,"fcf_ttm"],120.0 if change=="value" else 60.0)
+        # EPS/equity refresh their entire bundle on loss and restoration of
+        # parents; neither stale metadata nor old histories authorize recovery.
+        changed = first.copy()
+        changed["assets"] = changed["net_income_ttm"] = float("nan")
+        changed["eps_cagr_1y"] = 0.3
+        refused = features.enforce_native_valuation_context(changed, _operation_cache=cache)
+        for field in ("equity_native", "eps_ttm"):
+            self.assertTrue(pd.isna(refused.loc[0,field]))
+            for suffix in ("_unit", "_financial_context", "_provenance"):
+                self.assertTrue(pd.isna(refused.loc[0,field+suffix]))
+            self.assertTrue(refused.loc[0,field+"_missing_reason"])
+        self.assertTrue(pd.isna(refused.loc[0,"eps_cagr_1y"]))
+        refused["assets"], refused["net_income_ttm"] = 1000.0, 50.0
+        restored = features.enforce_native_valuation_context(refused, _operation_cache=cache)
+        self.assertEqual(restored.loc[0,"equity_native"],600.0)
+        self.assertEqual(restored.loc[0,"eps_ttm"],0.5)
+        self.assertEqual(restored.loc[0,"equity_native_missing_reason"],"")
+        self.assertEqual(restored.loc[0,"eps_ttm_missing_reason"],"")
+        self.assertTrue(pd.isna(restored.loc[0,"eps_cagr_1y"]))
+
+    def test_market_cap_requires_current_native_shares_identity_and_period(self):
+        import r1000_features as features
+        frame=pd.DataFrame([{**self.financial().to_dict(),**self.price_context(),"current_price_live":10.0}])
+        valid=features.enforce_native_valuation_context(frame)
+        for change in ("other-cik","missing-proof","future-period"):
+            bad=valid.copy()
+            if change=="other-cik":
+                proof=json.loads(bad.loc[0,"shares_provenance"])
+                proof[0]["cik"]="0000000002"
+                bad["shares_provenance"]=json.dumps(proof)
+            elif change=="missing-proof":
+                bad["shares_provenance"]=None
+            else:
+                context=json.loads(bad.loc[0,"shares_financial_context"])
+                context["period_end"]="2026-12-31"
+                proof=json.loads(bad.loc[0,"shares_provenance"])
+                proof[0]["period"]="2026-12-31"
+                bad["shares_financial_context"],bad["shares_provenance"]=json.dumps(context),json.dumps(proof)
+            out=features.enforce_native_valuation_context(bad).iloc[0]
+            for field in ("mktcap","market_cap_live","shares_effective","ep_ttm","sp_ttm","fcfy_ttm"):
+                self.assertTrue(pd.isna(out[field]),(change,field))
+            self.assertEqual(out["valuation_context_status"],"UNKNOWN")
+            self.assertTrue(out["mktcap_missing_reason"])
+        self.assertEqual(features.enforce_native_valuation_context(valid).loc[0,"mktcap"],1000.0)
+
+    def test_liability_identity_checks_full_scope_before_core_coverage(self):
+        common=dict(unit="USD",start=pd.Timestamp("2025-01-01"),period=pd.Timestamp("2025-12-31"),
+            accepted=pd.Timestamp("2026-02-01"),fy=2025,fp="FY",form="10-K",duration_days=365)
+        rows=[self.row(**common,field_name=field,source_tag=field,value=amount)
+            for field,amount in (("revenues",1000.0),("op_income",100.0),("net_income",50.0))]
+        rows += [self.row(**{**common,"start":pd.NaT},field_name=field,source_tag=field,value=amount)
+            for field,amount in (("assets",1000.0),("liabilities_and_equity",1000.0),("stockholders_equity_for_liabilities",400.0))]
+        valid=build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows))).iloc[0]
+        self.assertEqual(valid["liabilities"],600.0)
+        self.assertEqual(valid["fund_panel_ttm_ready"],1.0)
+        for change in (dict(entity_scope="subsidiary"),dict(entity_id="other-company"),dict(segment="other-segment")):
+            bad=[dict(row) for row in rows];bad[-1].update(change)
+            refused=build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(bad))).iloc[0]
+            self.assertTrue(pd.isna(refused["liabilities"]),change)
+            self.assertFalse(refused["liabilities_derivation_applied"])
+            self.assertEqual(refused["fund_panel_ttm_ready"],0.0)
+            self.assertIn("liability_parent_context",refused["liabilities_missing_reason"])
+            self.assertEqual(refused["liabilities_and_equity"],1000.0)
+            self.assertEqual(refused["stockholders_equity_for_liabilities"],400.0)
+
+    def test_refused_rolling_scope_does_not_hide_independent_annual(self):
+        import r1000_features as features
+        rows=[]
+        for i,end in enumerate(pd.date_range("2025-03-31",periods=4,freq="QE-DEC")):
+            start=end-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            annual=i==3
+            native_start=pd.Timestamp("2025-01-01") if annual else start
+            scope="consolidated" if annual else "subsidiary"
+            proof=json.dumps([dict(cik="0000000001",context_dimensions=None,entity_scope=scope,
+                start=str(native_start.date()),period=str(end.date()))])
+            rows.append(dict(cik="0000000001",period=end,accepted=end+pd.Timedelta(days=30),quarter_index=i+1,
+                revenues=250.0,revenues_unit="USD",revenues_start=native_start,revenues_entity_scope=scope,
+                revenues_context_dimensions=None,revenues_context_parent="same-selected-parent",revenues_flow_start=start,
+                revenues_fact_provenance=proof,revenues_flow_provenance=proof,revenues_cum_value_cum_provenance=proof,
+                revenues_cum_value=1000.0 if annual else 250.0*(i+1),revenues_cum_value_cum_start=pd.Timestamp("2025-01-01"),
+                revenues_fp="FY" if annual else "Q"+str(i+1),revenues_form="10-K" if annual else "10-Q"))
+        frame=pd.DataFrame(rows)
+        independent=features.native_flow_ttm_context(frame.iloc[[-1]],"revenues").iloc[-1]
+        combined=features.native_flow_ttm_context(frame,"revenues").iloc[-1]
+        self.assertEqual(independent["value"],1000.0)
+        self.assertEqual(combined["value"],1000.0)
+        self.assertEqual(combined["fallback_used"],1.0)
+        self.assertEqual(combined["provenance"],independent["provenance"])
+        self.assertEqual(combined["financial_context"],independent["financial_context"])
 
 
 def main() -> int:

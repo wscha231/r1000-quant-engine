@@ -834,10 +834,10 @@ def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFram
         return (unit.loc[indices].notna().all() and unit.loc[indices].nunique() == 1
             and parent.loc[indices].notna().all() and parent.loc[indices].nunique() == 1
             and accepted.loc[indices].notna().all() and accepted.loc[indices].le(accepted.loc[indices[-1]]).all())
-    def store(idx: Any, value: float, sources: list[Any], fallback: bool, window_start: Any) -> None:
+    def store(idx: Any, value: float, sources: list[Any], fallback: bool, window_start: Any) -> bool:
         contexts = [native_financial_context(group.loc[source], field_name) for source in sources]
         if not native_financial_contexts_match(contexts, period_mode="scope"):
-            return
+            return False
         context = dict(contexts[-1], period_start=pd.Timestamp(window_start).strftime("%Y-%m-%d"),
             period_end=period.loc[idx].strftime("%Y-%m-%d"))
         result.loc[idx, "value"] = value
@@ -854,6 +854,7 @@ def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFram
                 "flow_proof": column("_flow_provenance", "[]").loc[source],
                 "cumulative_proof": column("_cum_value_cum_provenance", "[]").loc[source]})
         result.loc[idx, "provenance"] = json.dumps(proofs, sort_keys=True, default=str)
+        return True
     indices = list(group.index)
     for pos, idx in enumerate(indices):
         window = indices[max(0, pos - 3):pos + 1]
@@ -861,12 +862,12 @@ def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFram
             contiguous = all(start.loc[b] == period.loc[a] + pd.Timedelta(days=1) for a,b in zip(window,window[1:]))
             span = (period.loc[idx] - start.loc[window[0]]).days
             if contiguous and 300 <= span + 1 <= 380:
-                store(idx, float(flow.loc[window].sum()), window, False, start.loc[window[0]])
-                continue
+                if store(idx, float(flow.loc[window].sum()), window, False, start.loc[window[0]]):
+                    continue
         span = (period.loc[idx] - cum_start.loc[idx]).days
         if quarter.loc[idx] == 4 and full_fiscal_end.loc[idx] and pd.notna(cum.loc[idx]) and compatible([idx]) and 300 <= span + 1 <= 380:
-            store(idx, float(cum.loc[idx]), [idx], True, cum_start.loc[idx])
-            continue
+            if store(idx, float(cum.loc[idx]), [idx], True, cum_start.loc[idx]):
+                continue
         if quarter.loc[idx] not in (1,2,3) or pd.isna(cum.loc[idx]):
             continue
         prior = indices[:pos]
@@ -1840,6 +1841,44 @@ def _load_finnhub_features_for_fallback() -> pd.DataFrame:
     return pd.DataFrame()
 
 
+def _native_optional_text_absent(value: Any) -> bool:
+    """Legacy null text survives CSV/Parquet; malformed objects are not nulls."""
+    return (value is None or value is pd.NA or value is pd.NaT
+        or isinstance(value, (float, np.floating)) and np.isnan(value)
+        or isinstance(value, str) and value.strip().lower() in {"", "nan", "none", "null", "<na>", "nat"})
+
+
+def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
+    """Invalidate current-schema dependents when their native bundle changes.
+
+    This cheap check also runs on cache hits. History columns belong to the
+    current caller, so a cached guard never restores a removed/earlier column.
+    """
+    def same(left: Any, right: Any) -> bool:
+        if _native_optional_text_absent(left) and _native_optional_text_absent(right):
+            return True
+        if isinstance(left, str) and isinstance(right, str):
+            if left == right:
+                return True
+            try:
+                return json.loads(left) == json.loads(right)
+            except (ValueError, TypeError):
+                return False
+        return json.dumps(left, sort_keys=True, default=str) == json.dumps(right, sort_keys=True, default=str)
+    for field, prefixes, extra in (
+        ("fcf_ttm", ("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_"), {"fcf_margin", "rule_of_40"}),
+        ("eps_ttm", ("eps_cagr_", "eps_growth_"), set()),
+    ):
+        value, old = safe_float(updates.get(field)), safe_float(latest.get(field))
+        unchanged = np.isfinite(value) and np.isfinite(old) and value == old and all(
+            same(latest.get(field + suffix), updates.get(field + suffix))
+            for suffix in ("_unit", "_financial_context", "_provenance", "_missing_reason"))
+        if not unchanged:
+            for column in latest.index:
+                if column.startswith(prefixes) or column in extra:
+                    updates[column] = np.nan
+
+
 def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     price_context: Optional[dict[str, Any]] = None) -> pd.Series:
     """Check referenced upstream evidence; never authenticate refs or infer FX/ADS."""
@@ -1851,15 +1890,14 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
         return field_cache[field]
     ocf, capex = safe_float(out.get("ocf_ttm")), safe_float(out.get("capex_ttm"))
     ocf_unit, capex_unit = out.get("ocf_ttm_unit"), out.get("capex_ttm_unit")
-    fcf_contexts = [_field_context(field) for field in ("ocf_ttm", "capex_ttm")]
-    compatible_context = native_financial_contexts_match(fcf_contexts)
+    fcf_evidence = native_derivation_evidence(out, ("ocf_ttm", "capex_ttm"), "ocf_minus_abs_capex")
+    compatible_context = fcf_evidence is not None
     missing_components = [field for field, amount in (("ocf_ttm", ocf), ("capex_ttm", capex)) if not np.isfinite(amount)]
     units_ok = isinstance(ocf_unit, str) and isinstance(capex_unit, str) and ocf_unit == capex_unit
     if not missing_components and compatible_context and units_ok:
         out["fcf_ttm"] = ocf - abs(capex)
         out["fcf_ttm_unit"] = ocf_unit
-        out["fcf_ttm_financial_context"] = json.dumps(fcf_contexts[0], sort_keys=True)
-        out["fcf_ttm_provenance"] = json.dumps({"derivation":"ocf_minus_abs_capex", "parents":[out.get(field+"_provenance", out.get(field+"_financial_context")) for field in ("ocf_ttm", "capex_ttm")]}, sort_keys=True, default=str)
+        out["fcf_ttm_financial_context"], out["fcf_ttm_provenance"] = fcf_evidence
         out["fcf_ttm_missing_reason"] = ""
         out["fcf_ttm_status"] = "COMPATIBLE_DERIVED_NOT_SOURCE_ADMISSION"
     else:
@@ -1872,9 +1910,6 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
         out["fcf_ttm_missing_reason"] = ("missing_native_fcf_component:" + ",".join(missing_components) if missing_components
             else "incompatible_or_missing_component_context" if not compatible_context else "incompatible_or_missing_component_units")
         out["fcf_ttm_status"] = "UNKNOWN"
-        for column in out.index:
-            if column.startswith(("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_")) or column in {"fcf_margin", "rule_of_40"}:
-                out[column] = np.nan
     context = dict(latest)
     evidence = dict(price_context or {})
     # Technical evidence may describe price/basis/FX, never overwrite SEC facts.
@@ -1904,10 +1939,15 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     shares = number("shares")
     effective_shares = np.nan
     basis_reason = ""
+    shares_context = _field_context("shares")
     if not isinstance(context.get("shares_unit"), str) or context.get("shares_unit") != "shares":
         basis_reason = "missing_or_invalid_shares_unit"
+    elif shares_context is None:
+        basis_reason = "incompatible_or_missing_native_shares_context"
     elif not verified("share_basis") or pd.isna(price_time):
         basis_reason = "missing_verified_share_basis_or_price_clock"
+    elif pd.Timestamp(shares_context["period_end"], tz="UTC") > price_time:
+        basis_reason = "future_native_shares_period"
     elif pd.isna(timestamp("share_basis_asof")) or timestamp("share_basis_asof") > price_time:
         basis_reason = "missing_or_future_share_basis_clock"
     elif pd.isna(timestamp("valuation_asof")):
@@ -1976,13 +2016,15 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
             else "missing_component_amount" if not amounts_ok else "zero_denominator" if value(denominator) == 0 else "")
         return ratio(value(numerator), value(denominator)) if compatible and units_ok else np.nan
     equity_contexts = [_field_context(field) for field in ("assets", "liabilities")]
-    equity_ok = isinstance(out.get("assets_unit"), str) and isinstance(out.get("liabilities_unit"), str) and out.get("assets_unit") == out.get("liabilities_unit") and native_financial_contexts_match(equity_contexts)
+    equity_ok = (isinstance(out.get("assets_unit"), str) and isinstance(out.get("liabilities_unit"), str)
+        and out.get("assets_unit") == out.get("liabilities_unit") and native_financial_contexts_match(equity_contexts)
+        and np.isfinite(value("assets")) and np.isfinite(value("liabilities")))
     equity = value("assets") - value("liabilities") if equity_ok else np.nan
     out["equity_native"] = equity
     out["equity_native_unit"] = out.get("assets_unit") if equity_ok else None
     out["equity_native_financial_context"] = json.dumps(equity_contexts[0], sort_keys=True) if equity_ok else None
     out["equity_native_missing_reason"] = "" if equity_ok else "incompatible_or_missing_equity_component_context"
-    out["equity_native_provenance"] = json.dumps({"derivation":"assets_minus_liabilities", "parents":[out.get(field+"_provenance", out.get(field+"_fact_provenance")) for field in ("assets", "liabilities")]}, sort_keys=True, default=str)
+    out["equity_native_provenance"] = json.dumps({"derivation":"assets_minus_liabilities", "parents":[out.get(field+"_provenance", out.get(field+"_fact_provenance")) for field in ("assets", "liabilities")]}, sort_keys=True, default=str) if equity_ok else None
     out["roa_proxy"] = native_ratio("net_income_ttm", "assets", "roa_proxy")
     out["asset_turnover_ttm"] = native_ratio("revenues_ttm", "assets", "asset_turnover_ttm")
     out["roe_proxy"] = native_ratio("net_income_ttm", "equity_native", "roe_proxy")
@@ -2014,13 +2056,7 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     else:
         for suffix in ("unit","financial_context","provenance"):
             out["eps_ttm_"+suffix] = None
-    old_eps = safe_float(latest.get("eps_ttm"))
-    if (not eps_valid or not np.isfinite(old_eps) or old_eps != out["eps_ttm"]
-        or latest.get("eps_ttm_unit") != out.get("eps_ttm_unit")
-        or latest.get("eps_ttm_financial_context") != out.get("eps_ttm_financial_context")):
-        for column in out.index:
-            if column.startswith(("eps_cagr_","eps_growth_")):
-                out[column] = np.nan
+    _invalidate_changed_native_history(latest, out)
     out["valuation_context_status"] = "UNKNOWN" if basis_reason else "COMPATIBLE_REFERENCED_INPUT_NOT_SOURCE_ADMISSION"
     out["valuation_evidence_reference"] = json.dumps({key: context.get(key) for key in (
         "price_currency", "price_asof", "valuation_asof", "shares_basis", "price_share_basis",
@@ -2042,7 +2078,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         return frame.copy()
     fixed = {"mktcap", "market_cap_live", "mktcap_unit", "shares_effective", "ep_ttm", "sp_ttm", "fcfy_ttm",
         "roa_proxy", "asset_turnover_ttm", "roe_proxy", "return_on_equity_effective", "gp_to_assets_ttm",
-        "book_to_market_proxy", "gross_margins", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "eps_ttm", "rule_of_40"}
+        "book_to_market_proxy", "gross_margins", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "eps_ttm", "current_price_live"}
     operands = ("net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "op_income_ttm", "shares")
     prefixes = tuple(field + "_" for field in operands) + ("price_", "share_basis_", "ads_ratio_", "fx_", "source_", "reader_", "identity_")
     scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
@@ -2057,12 +2093,13 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
             updates = dict(cached[1])
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
-            owned = fixed | {key + "_missing_reason" for key in fixed} | set(guarded.index.difference(row.index))
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_", "eps_")))
+            owned = fixed | {key + "_missing_reason" for key in fixed}
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
                 _operation_cache[position] = (stamp, dict(updates))
+        _invalidate_changed_native_history(row, updates)
         ep, cap, shares = (safe_float(updates.get(key)) for key in ("ep_ttm", "mktcap", "shares_effective"))
         updates["earnings_yield_recomputed"] = ep
         updates["trailing_pe_recomputed"] = 1 / ep if np.isfinite(ep) and ep > 0 else np.nan
@@ -2084,8 +2121,8 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
             currency = row.get("price_currency")
             dps_unit = row.get("dividends_ttm_ps_unit")
             dps_basis = row.get("dividends_share_basis")
-            unit_ok = not isinstance(dps_unit,str) or dps_unit in {currency,str(currency)+"/shares",str(currency)+"/"+str(row.get("price_share_basis"))}
-            basis_ok = not isinstance(dps_basis,str) or (isinstance(row.get("price_share_basis"),str) and dps_basis == row.get("price_share_basis"))
+            unit_ok = _native_optional_text_absent(dps_unit) or isinstance(dps_unit,str) and dps_unit in {currency,str(currency)+"/shares",str(currency)+"/"+str(row.get("price_share_basis"))}
+            basis_ok = _native_optional_text_absent(dps_basis) or (isinstance(dps_basis,str) and isinstance(row.get("price_share_basis"),str) and dps_basis == row.get("price_share_basis"))
             payout_ok = np.isfinite(denominator) and denominator > 0 and np.isfinite(shares) and shares > 0 and np.isfinite(dps) and dps > 0 and unit_ok and basis_ok
             if any(key in row for key in ("dividends_ttm_ps_provenance","dividends_ttm_ps_financial_context")):
                 dividend_context = native_financial_context(row,"dividends_ttm_ps")
@@ -2870,6 +2907,22 @@ def recompute_fund_panel_derived_columns(
     else:
         d["fund_balance_backfill_used"] = 0.0
 
+    if typed_native and "gross_profit_fact_provenance" in d:
+        # A new direct native GP fact can replace a prior derived result. Only
+        # its original fact proof may reset old derivation/status metadata.
+        for idx, row in d.iterrows():
+            proof = row.get("gross_profit_fact_provenance")
+            if (_native_optional_text_absent(proof) or has_native_derivation(proof) or has_native_derivation(row.get("gross_profit_provenance"))
+                or not any(np.isfinite(safe_float(row.get(field))) for field in ("gross_profit", "gross_profit_cum_value"))):
+                continue
+            direct_context = native_financial_context(row, "gross_profit")
+            if direct_context is not None:
+                d.loc[idx, "gross_profit_provenance"] = proof if isinstance(proof, str) else json.dumps(proof, sort_keys=True)
+                d.loc[idx, "gross_profit_financial_context"] = json.dumps(direct_context, sort_keys=True)
+                for output in ("gross_profit", "gross_profit_ttm"):
+                    d.loc[idx, output + "_derivation"] = None
+                    d.loc[idx, output + "_fact_status"] = "OBSERVED"
+
     flow_ttm_fallback_cols = []
     for c in ["revenues", "cost_of_revenue", "gross_profit", "op_income", "net_income", "ocf", "capex"]:
         if c in d.columns:
@@ -3033,13 +3086,20 @@ def recompute_fund_panel_derived_columns(
     if "ocf_ttm" in d.columns and "capex_ttm" in d.columns:
         d["fcf_ttm"] = d["ocf_ttm"] - d["capex_ttm"].abs()
         if typed_native:
-            ocf_unit = d.get("ocf_ttm_unit", pd.Series(None, index=d.index, dtype=object))
-            capex_unit = d.get("capex_ttm_unit", pd.Series(None, index=d.index, dtype=object))
-            d["fcf_ttm_unit"] = ocf_unit.where(ocf_unit.notna() & ocf_unit.eq(capex_unit))
-            contexts = [[native_financial_context(row, field) for field in ("ocf_ttm", "capex_ttm")] for _, row in d.iterrows()]
-            compatible = pd.Series([native_financial_contexts_match(items) for items in contexts], index=d.index)
-            d["fcf_ttm"] = d["fcf_ttm"].where(d["fcf_ttm_unit"].notna() & compatible)
-            d["fcf_ttm_financial_context"] = [json.dumps(items[0], sort_keys=True) if ok else None for items, ok in zip(contexts, compatible)]
+            for idx, row in d.iterrows():
+                left, right = row.get("ocf_ttm_unit"), row.get("capex_ttm_unit")
+                evidence = native_derivation_evidence(row, ("ocf_ttm", "capex_ttm"), "ocf_minus_abs_capex")
+                valid = (isinstance(left, str) and isinstance(right, str) and left == right and evidence is not None
+                    and np.isfinite(safe_float(row.get("ocf_ttm"))) and np.isfinite(safe_float(row.get("capex_ttm"))))
+                d.loc[idx, "fcf_ttm_missing_reason"] = "" if valid else "incompatible_or_missing_native_fcf_components"
+                d.loc[idx, "fcf_ttm_status"] = "COMPATIBLE_DERIVED_NOT_SOURCE_ADMISSION" if valid else "UNKNOWN"
+                if valid:
+                    d.loc[idx, "fcf_ttm_unit"] = left
+                    d.loc[idx, "fcf_ttm_financial_context"], d.loc[idx, "fcf_ttm_provenance"] = evidence
+                else:
+                    d.loc[idx, "fcf_ttm"] = np.nan
+                    for metadata in ("unit", "financial_context", "provenance"):
+                        d.loc[idx, "fcf_ttm_" + metadata] = None
         d["fcf_growth_yoy"] = d.groupby("cik")["fcf_ttm"].pct_change(4, fill_method=None)
         lag1, aq1 = _flexible_lag(d, "fcf_ttm", 4, tol=1)
         lag2, aq2 = _flexible_lag(d, "fcf_ttm", 8, tol=2)

@@ -9191,3 +9191,35 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   samples, not 100k extrapolation or full-pipeline/cohort attribution. Runtime
   package/kernel IO is unmetered, not zero. SOURCE control remains UNISSUED;
   no real Source/API/Drive/price/Book/fullrun or economic authority follows.
+
+
+## 2026-11-01 — PR709 A1 review: refresh bundles, caller histories and historical fixtures
+
+- Reuse only intrinsic valuation outputs. Every cache hit must compare the
+  current value/unit/context/proof/reason bundle and invalidate current-schema
+  FCF/EPS dependents on changes or refusal. Added/deleted/reordered columns and
+  duplicate-index candidate rows must match an uncached call; unchanged valid
+  histories remain valid. Never cache caller-owned history or policy columns.
+- FCF needs the same validated parent derivation evidence before lag as at
+  valuation. Native shares identity/scope and a nonfuture financial period are
+  prerequisites for market cap itself. Liability synthesis validates full parent
+  entity/scope/segment evidence before it can satisfy core coverage.
+- Explicit malformed dividend unit/basis objects are refusals, not legacy nulls.
+  Preserve dividend metadata/proof through production projection and CSV/Parquet
+  normalization without adding model features. Null text follows the documented
+  legacy-null contract; currency/basis mismatches still clear payout and score.
+- A refused rolling-quarter window must not hide an independently valid annual
+  observation. Original direct GP evidence can reset stale derived markers;
+  derived provenance cannot grant itself direct-observation exemption.
+- Historical group_577 positives must use the exact reviewed dependencies in a
+  temporary fixture. Current product/catalog guards remain intact; rewriting
+  accepted catalog pins to make a historical positive pass would recertify code.
+- The local agent_board entrypoint exposed missing sparse metadata plus two
+  separate Readiness failures. Do not label its partial run green or repeat the
+  entire suite while the same cause remains. A Windows temporary-fixture broker
+  CLI exit2 does not explain the Linux -6 failure; the cause remains UNKNOWN.
+  Fresh exact-head independent review/required CI remain Root-owned. SOURCE
+  control is UNISSUED; no real data collection, Book, fullrun or merge occurred.
+- Concurrent Native validation also produced MemoryError under low available
+  commit memory. Preserve the failed attempts and their cost; serialize bounded
+  checks and distinguish resource failures from financial or broker defects.
