@@ -46,6 +46,9 @@ from r1000_pipeline import (  # noqa: E402
     companyfacts_duration_days,
     companyfacts_quarterly_flows,
     preferred_companyfacts_unit_keys,
+    pivot_companyfacts_fields,
+    select_companyfacts_slots,
+    native_valuation_overrides,
 )
 
 
@@ -458,7 +461,9 @@ def extract_exact_companyfacts_records(
                 units = fact.get("units") or {}
                 if not isinstance(units, Mapping):
                     continue
-                for unit in preferred_companyfacts_unit_keys(field_name, units.keys()):
+                for unit in preferred_companyfacts_unit_keys(
+                    field_name, units.keys(), preserve_native_units=True,
+                ):
                     values = units.get(unit) or []
                     if not isinstance(values, list):
                         continue
@@ -518,12 +523,15 @@ def extract_exact_companyfacts_records(
                                 "period": pd.Timestamp(end),
                                 "period_of_report": pd.Timestamp(report_period),
                                 "accepted": accepted,
+                                "availability_basis": "sec_index_exact_accepted_at",
                                 "accepted_at": accepted,
                                 "available_from": accepted,
                                 "exact_acceptance": True,
                                 "fy": item.get("fy"),
                                 "fp": item.get("fp"),
                                 "frame": item.get("frame"),
+                                "context_id": item.get("contextRef"),
+                                "context_dimensions": item.get("dimensions"),
                                 "start": pd.to_datetime(item.get("start"), errors="coerce"),
                                 "duration_days": duration_days,
                                 "field_name": field_name,
@@ -546,40 +554,15 @@ def extract_exact_companyfacts_records(
 def select_accession_field_records(records: pd.DataFrame) -> pd.DataFrame:
     if records is None or records.empty:
         return pd.DataFrame() if records is None else records.copy()
-    selected = records.copy()
-    selected["duration_days"] = pd.to_numeric(
-        selected.get("duration_days"), errors="coerce"
-    )
-    selected = selected.sort_values(
-        [
-            "ticker",
-            "accession_number",
-            "field_name",
-            "semantic_rank",
-            "alias_priority",
-            "duration_days",
-            "source_tag",
-        ],
-        ascending=[True, True, True, True, True, True, True],
-        na_position="last",
-    ).drop_duplicates(
-        ["ticker", "accession_number", "field_name"], keep="first"
+    selected = select_companyfacts_slots(
+        records, ["ticker", "accession_number", "field_name"]
     )
     selected["used_for_panel"] = True
     return selected.reset_index(drop=True)
 
 
 def _pivot_panel(frame: pd.DataFrame, value_column: str) -> pd.DataFrame:
-    if frame is None or frame.empty:
-        return pd.DataFrame(columns=["cik", "period"])
-    output = frame.pivot_table(
-        index=["cik", "period"],
-        columns="field_name",
-        values=value_column,
-        aggfunc="last",
-    ).reset_index()
-    output.columns = [column if isinstance(column, str) else str(column) for column in output.columns]
-    return output
+    return pivot_companyfacts_fields(frame, value_column)
 
 
 def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
@@ -601,12 +584,8 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
         )
         if quarterly.empty:
             continue
-        flow_frames.append(
-            quarterly[["cik", "period", "accepted", "field_name", "flow"]]
-        )
-        cumulative = quarterly[
-            ["cik", "period", "accepted", "field_name", "cum_value"]
-        ].copy()
+        flow_frames.append(quarterly)
+        cumulative = quarterly.drop(columns=["value"], errors="ignore").copy()
         cumulative["field_name"] = cumulative["field_name"].astype(str) + "_cum_value"
         cumulative = cumulative.rename(columns={"cum_value": "value"})
         cumulative_frames.append(cumulative)
@@ -660,12 +639,18 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
         [["cik", "period", "accession_number", "form", "fiscal_period"]]
     )
     panel = panel.merge(period_meta, on=["cik", "period"], how="left")
+    panel["financial_metadata_version"] = "native-unit-fiscal-v1"
     # The engine derivator expects every canonical panel field to be a Series.
     # Keep absent components explicitly missing rather than letting DataFrame.get
     # return a scalar NaN in downstream arithmetic.
     for field_name in PANEL_FIELDS:
         if field_name not in panel.columns:
             panel[field_name] = np.nan
+    for field_name in FACT_FIELDS:
+        for suffix, default in (("unit", None), ("missing_reason", "missing_native_fact")):
+            column = f"{field_name}_{suffix}"
+            if column not in panel:
+                panel[column] = default
     liabilities_direct = pd.to_numeric(panel["liabilities"], errors="coerce")
     liabilities_and_equity = pd.to_numeric(
         panel.get("liabilities_and_equity", pd.Series(np.nan, index=panel.index)),
@@ -685,10 +670,29 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
         & stockholders_equity.notna()
         & liabilities_and_equity.ge(stockholders_equity)
         & stockholders_equity.ge(0.0)
+        & panel.get("liabilities_and_equity_unit", pd.Series(None, index=panel.index, dtype=object)).notna()
+        & panel.get("liabilities_and_equity_unit", pd.Series(None, index=panel.index, dtype=object)).eq(
+            panel.get("stockholders_equity_for_liabilities_unit", pd.Series(None, index=panel.index, dtype=object))
+        )
+        & panel["liabilities_missing_reason"].fillna("").isin(["", "missing_native_fact"])
     )
+    for suffix in ("accession_number", "source_namespace", "context_dimensions"):
+        left = panel.get(f"liabilities_and_equity_{suffix}", pd.Series(None, index=panel.index, dtype=object))
+        right = panel.get(f"stockholders_equity_for_liabilities_{suffix}", pd.Series(None, index=panel.index, dtype=object))
+        liability_derivation_mask &= left.fillna("").eq(right.fillna(""))
     panel.loc[liability_derivation_mask, "liabilities"] = derived_liabilities.loc[
         liability_derivation_mask
     ]
+    panel.loc[liability_derivation_mask, "liabilities_unit"] = panel.loc[
+        liability_derivation_mask, "liabilities_and_equity_unit"
+    ]
+    panel.loc[liability_derivation_mask, "liabilities_missing_reason"] = ""
+    for idx in panel.index[liability_derivation_mask]:
+        panel.loc[idx, "liabilities_fact_provenance"] = json.dumps([{
+            "derivation": "liabilities_and_equity_minus_stockholders_equity",
+            "parents": [panel.loc[idx, f"{field}_fact_provenance"] for field in AUXILIARY_BALANCE_FIELDS],
+        }], sort_keys=True)
+        panel.loc[idx, "liabilities_accession_number"] = panel.loc[idx, "liabilities_and_equity_accession_number"]
     panel["liabilities_derivation_applied"] = liability_derivation_mask
     panel["liabilities_derivation_source"] = np.where(
         liability_derivation_mask,
@@ -731,48 +735,10 @@ def build_exact_fundamental_panel(selected: pd.DataFrame) -> pd.DataFrame:
 
 
 def apply_current_valuation_overrides(
-    latest: pd.Series,
-    *,
-    technical_price: float,
+    latest: pd.Series, *, technical_price: float,
+    price_context: Mapping[str, Any] | None = None,
 ) -> pd.Series:
-    output = latest.copy()
-    shares = pd.to_numeric(pd.Series([output.get("shares")]), errors="coerce").iloc[0]
-    price = pd.to_numeric(pd.Series([technical_price]), errors="coerce").iloc[0]
-    market_cap = shares * price if pd.notna(shares) and pd.notna(price) else np.nan
-    revenues = pd.to_numeric(pd.Series([output.get("revenues_ttm")]), errors="coerce").iloc[0]
-    net_income = pd.to_numeric(pd.Series([output.get("net_income_ttm")]), errors="coerce").iloc[0]
-    fcf = pd.to_numeric(pd.Series([output.get("fcf_ttm")]), errors="coerce").iloc[0]
-    assets = pd.to_numeric(pd.Series([output.get("assets")]), errors="coerce").iloc[0]
-    liabilities = pd.to_numeric(pd.Series([output.get("liabilities")]), errors="coerce").iloc[0]
-    gross_profit = pd.to_numeric(
-        pd.Series([output.get("gross_profit_ttm")]), errors="coerce"
-    ).iloc[0]
-    op_income = pd.to_numeric(
-        pd.Series([output.get("op_income_ttm")]), errors="coerce"
-    ).iloc[0]
-    equity = assets - liabilities if pd.notna(assets) and pd.notna(liabilities) else np.nan
-
-    def ratio(numerator: Any, denominator: Any) -> float:
-        if pd.isna(numerator) or pd.isna(denominator) or float(denominator) == 0.0:
-            return np.nan
-        return float(numerator) / float(denominator)
-
-    output["mktcap"] = market_cap
-    output["market_cap_live"] = market_cap
-    output["current_price_live"] = price
-    output["valuation_px"] = price
-    output["ep_ttm"] = ratio(net_income, market_cap)
-    output["sp_ttm"] = ratio(revenues, market_cap)
-    output["fcfy_ttm"] = ratio(fcf, market_cap)
-    output["roa_proxy"] = ratio(net_income, assets)
-    output["asset_turnover_ttm"] = ratio(revenues, assets)
-    output["roe_proxy"] = ratio(net_income, equity)
-    output["return_on_equity_effective"] = output["roe_proxy"]
-    output["book_to_market_proxy"] = ratio(equity, market_cap)
-    output["gross_margins"] = ratio(gross_profit, revenues)
-    output["operating_margins"] = ratio(op_income, revenues)
-    output["shares_effective"] = shares
-    return output
+    return native_valuation_overrides(latest, technical_price=technical_price, price_context=price_context)
 
 
 def values_differ(left: Any, right: Any) -> bool:
@@ -1312,41 +1278,9 @@ def build(args: argparse.Namespace, *, observed_at_utc: str | None = None) -> di
                 ).iloc[0]
                 frozen = reference_row
                 latest = apply_current_valuation_overrides(
-                    latest, technical_price=float(technical_price)
+                    latest, technical_price=float(technical_price),
+                    price_context={**technical_rows.iloc[0].to_dict(), "valuation_asof": decision_time.isoformat()},
                 )
-                if missing_neutral_override:
-                    frozen_px = pd.to_numeric(
-                        pd.Series([frozen.get("px")]), errors="coerce"
-                    ).iloc[0]
-                    frozen_mktcap = pd.to_numeric(
-                        pd.Series([frozen.get("mktcap")]), errors="coerce"
-                    ).iloc[0]
-                    frozen_price_unit_factor = pd.to_numeric(
-                        pd.Series(
-                            [
-                                getattr(
-                                    target,
-                                    "frozen_price_adjustment_factor",
-                                    1.0,
-                                )
-                            ]
-                        ),
-                        errors="coerce",
-                    ).iloc[0]
-                    current_market_cap = (
-                        float(frozen_mktcap)
-                        * float(technical_price)
-                        * float(frozen_price_unit_factor)
-                        / float(frozen_px)
-                        if pd.notna(frozen_mktcap)
-                        and pd.notna(frozen_px)
-                        and float(frozen_px) != 0.0
-                        and pd.notna(technical_price)
-                        and pd.notna(frozen_price_unit_factor)
-                        else np.nan
-                    )
-                    latest["mktcap"] = current_market_cap
-                    latest["market_cap_live"] = current_market_cap
                 latest["ticker"] = ticker
                 latest["cik10"] = cik10
                 latest["accession_number"] = latest_accession

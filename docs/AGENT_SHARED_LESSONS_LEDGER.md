@@ -9113,3 +9113,29 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   pins, current product bytes and changed-input refusal. CI41238471861 passed
   234/235 files; a focused positive/negative fixture experiment isolated both
   missing snapshots without changing the production guard or rerunning the suite.
+
+
+## 2026-11-01 — Native financial unit and fiscal-context closure (H1)
+
+- Preserve field-bound native units, accession/context, original availability basis
+  and parent lineage as real panel columns through pivot, TTM, joins and disk
+  readback. A filed-only clock remains UNVERIFIED; typed facts do not admit a
+  source, authenticate an issuer/security binding or establish current Registry.
+- Prefer an actually reported USD fact with its original foreign alternatives
+  retained in provenance. Reject undeclared currency/value/context conflicts
+  independently of input order; literal shares excludes USD/shares and pure.
+  Select whole source rows when combining panels: groupby.first splices values
+  and evidence from different rows and revives explicitly refused nulls.
+- YTD subtraction needs compatible measure/unit/FY start, contiguous fiscal
+  periods and available parents; equal accession numbers are not required.
+  Short FY cannot masquerade as annual without explicit reviewed fiscal-grid
+  proof. Preserve 52/53-week years, 14-week Q4, losses, real zero and missing.
+- A sidecar-only valuation check is insufficient when later recompute/fillna
+  rebuilds the result. Reapply evidence guards in Main and live valuation: price
+  currency/clock, reviewed share basis, explicit ADS ratio and directional,
+  timestamped valid FX. Missing evidence nulls affected derivations, preserving
+  original financial values and requested candidates, including unknown issuers.
+- Validate synthetic positive and refusal paths in normal and optimized Python;
+  assertions alone disappear under -O. No real cohort recomputation, collection,
+  fullrun, Source/Paper/Registry write, admission or economic authority follows
+  from these checks. Independent exact-head review and required CI remain gates.
