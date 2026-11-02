@@ -30,6 +30,27 @@ COMMENT_EVIDENCE = "MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT"
 TRUSTED_BOT_ID = 199175422
 TRUSTED_APP_ID = 1144995
 TRUSTED_APP_SLUG = "chatgpt-codex-connector"
+CODEX_ABOUT_DETAILS = '''<details> <summary>ℹ️ About Codex in GitHub</summary>
+<br/>
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review".
+If Codex has suggestions, it will comment; otherwise it will react with 👍.
+Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".
+</details>'''
+
+
+def _latest_unique(rows: list[dict], reason: str) -> dict:
+    latest_at = max(_comment_time(row["updated_at"]) for row in rows)
+    latest = [row for row in rows if _comment_time(row["updated_at"]) == latest_at]
+    if len(latest) != 1:
+        raise ValueError(reason)
+    return latest[0]
+
+
+def _normalized_details(value: str) -> str:
+    return " ".join(re.sub(r">\s*<", "><", value).split())
 
 
 def _comment_time(value: Any) -> datetime | None:
@@ -137,7 +158,7 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
     summaries = [row for row in trusted if "<!-- codex-pull-request-review-summary -->" in row["body"]]
     if not summaries or any(_comment_time(row.get("updated_at")) is None for row in summaries):
         raise ValueError("missing_or_invalid_codex_summary")
-    summary = max(summaries, key=lambda row: _comment_time(row["updated_at"]))
+    summary = _latest_unique(summaries, "ambiguous_latest_codex_summary")
     updated, created = _comment_time(summary["updated_at"]), _comment_time(summary.get("created_at"))
     if created is None or not created <= updated or not observed_at <= updated <= attested_at:
         raise ValueError("codex_summary_outside_attestation_window")
@@ -156,18 +177,20 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
     receipt_rows = [row for row in trusted if "<!-- codex-review-receipt:v1 -->" in row["body"]]
     if not receipt_rows or any(_comment_time(row.get("updated_at")) is None for row in receipt_rows):
         raise ValueError("missing_immutable_clean_codex_receipt")
-    latest_receipt = max(receipt_rows, key=lambda row: _comment_time(row["updated_at"]))
+    latest_receipt = _latest_unique(receipt_rows, "ambiguous_latest_codex_receipt")
     receipts = []
     pattern = (r"<!-- codex-review-receipt:v1 -->\n\s*\n"
-        r"Codex Review: Didn't find any major issues\.[^\r\n]*\n\s*\n"
-        r"\*\*Reviewed commit:\*\* `([0-9a-f]{10})`\s*(?:<details>.*</details>\s*)?")
+        r"Codex Review: Didn't find any major issues\.(?: Keep it up!| More of your lovely PRs please\.)?\n\s*\n"
+        r"\*\*Reviewed commit:\*\* `([0-9a-f]{10})`\s*(?P<details><details>.*</details>)?\s*")
     for row in [latest_receipt]:
         body = row["body"].replace("\r\n", "\n")
         match = re.fullmatch(pattern, body, re.DOTALL)
         at, edited = _comment_time(row.get("created_at")), _comment_time(row.get("updated_at"))
         if (match and match[1] == head_sha[:10] and at is not None and at == edited
                 and observed_at <= at <= updated <= attested_at
-                and "<!-- codex-code-review-finding:v1 -->" not in body):
+                and "<!-- codex-code-review-finding:v1 -->" not in body
+                and re.search(r"\[P[0-3]\]", body, re.IGNORECASE) is None
+                and (match["details"] is None or _normalized_details(match["details"]) == _normalized_details(CODEX_ABOUT_DETAILS))):
             receipts.append(row)
     if not receipts:
         raise ValueError("missing_immutable_clean_codex_receipt")

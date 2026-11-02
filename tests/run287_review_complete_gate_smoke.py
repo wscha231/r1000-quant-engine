@@ -19,6 +19,20 @@ WORKFLOW = ROOT / ".github" / "workflows" / "review_complete_gate.yml"
 CONTRACT = ROOT / "data_static" / "run287_review_complete_gate_contract.json"
 HEAD = "a" * 40
 PRIOR = "b" * 40
+ACTUAL_ABOUT_DETAILS = '''<details> <summary>ℹ️ About Codex in GitHub</summary>
+<br/>
+
+[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you
+- Open a pull request for review
+- Mark a draft as ready
+- Comment "@codex review".
+
+If Codex has suggestions, it will comment; otherwise it will react with 👍.
+
+
+Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".
+
+</details>'''
 spec = importlib.util.spec_from_file_location("review_complete_gate_under_test", TOOL)
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
@@ -38,7 +52,7 @@ class CommentReceiptTests(unittest.TestCase):
             +json.dumps(state)+" -->", "2026-07-20T01:00:00Z", "2026-07-21T01:10:03Z")
         receipt = comment(6579005459, "<!-- codex-review-receipt:v1 -->\n\n"
             "Codex Review: Didn't find any major issues. More of your lovely PRs please.\n\n"
-            f"**Reviewed commit:** `{HEAD[:10]}`\n\n<details>About Codex</details>", "2026-07-21T01:10:00Z")
+            f"**Reviewed commit:** `{HEAD[:10]}`\n\n"+ACTUAL_ABOUT_DETAILS, "2026-07-21T01:10:00Z")
         pages = [dict(data=dict(repository=dict(nameWithOwner=repository, pullRequest=dict(number=number,
             headRefOid=HEAD, reviewThreads=dict(totalCount=1, nodes=[dict(id="THREAD:1", isResolved=True)],
             pageInfo=dict(hasNextPage=False, endCursor="CURSOR:1"))))))]
@@ -166,6 +180,34 @@ class CommentReceiptTests(unittest.TestCase):
         args=self.fixture(); args["issue_comments"]=None
         args["reviews"]=[dict(id=1,user=user(),commit_id=HEAD,state="COMMENTED",submitted_at="2026-07-21T01:05:00Z")]
         self.assertEqual(gate.evaluate(**args)["evidence_type"], "ATTESTED_EXACT_HEAD_REVIEW")
+
+    def test_latest_summary_and_receipt_timestamp_ties_refuse_in_both_orders(self):
+        args=self.fixture(); clean=args["issue_comments"][0]; pending=deepcopy(clean); pending["id"]=30
+        self.change_state({"issue_comments": [pending]}, status="pending")
+        for pair in ((clean,pending),(pending,clean),(clean,deepcopy(clean))):
+            case=self.fixture(); case["issue_comments"]=list(pair)+[case["issue_comments"][1]]
+            self.blocked(case)
+        args=self.fixture(); clean=args["issue_comments"][1]; bad=deepcopy(clean); bad["id"]=31
+        bad["body"]=bad["body"].replace("More of your lovely PRs please.", "[P1] unresolved issue.")
+        for pair in ((clean,bad),(bad,clean),(clean,deepcopy(clean))):
+            case=self.fixture(); case["issue_comments"]=[case["issue_comments"][0]]+list(pair)
+            self.blocked(case)
+
+    def test_clean_line_and_optional_about_footer_accept_only_observed_formats(self):
+        for cheer in ("Keep it up!", ""):
+            args=self.fixture(); row=args["issue_comments"][1]
+            row["body"]=row["body"].replace(" More of your lovely PRs please.", " "+cheer if cheer else "")
+            self.assertIs(gate.evaluate(**args)["passed"], True)
+        for mutate in (
+            lambda b: b.replace("More of your lovely PRs please.", "[P1] unresolved issuer bug"),
+            lambda b: b.replace("More of your lovely PRs please.", "Unreviewed arbitrary trailing claim."),
+            lambda b: b.replace("</details>", "[P2] unresolved finding</details>"),
+            lambda b: b.replace("</details>", "Additional unreviewed claim</details>"),
+            lambda b: b.replace(ACTUAL_ABOUT_DETAILS, "<details>About Codex</details>"),
+            lambda b: b+"\n<!-- codex-code-review-finding:v1 -->",
+        ):
+            case=self.fixture(); row=case["issue_comments"][1]; row["body"]=mutate(row["body"])
+            self.blocked(case)
 
     def test_workflow_and_contract_preserve_protected_default_branch_boundary(self):
         contract=json.loads(CONTRACT.read_text(encoding="utf-8"))

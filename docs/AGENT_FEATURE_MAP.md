@@ -164,6 +164,8 @@ complete exact-head GraphQL thread pages with zero unresolved conversations.
 Newer findings or a pending/blocked review refuse this additional path. Comment
 IDs and body hashes remain in the check receipt. The compatibility PR itself
 still runs the default-branch gate and cannot approve its own implementation.
+Tied latest timestamps refuse rather than select by input order. Receipt text
+accepts only observed fixed clean/cheer lines and the known About Codex footer.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 

@@ -9132,3 +9132,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   added receipt payload separately. Publish one final evaluator JSON in the
   workflow log so an internal legacy-then-comment probe does not look like two
   conflicting accepted evaluations. Other consumers retain their own admission.
+- Independent A6 on3c828ae5 reproduced order-dependent PASS for tied latest
+  clean/pending summaries or clean/invalid receipts, and arbitrary priority
+  claims inside the permissive clean-line/footer pattern. Reject every latest
+  timestamp tie and accept only observed fixed clean text/cheers and the exact
+  About Codex footer (whitespace variations only). Earlier scoped passes did
+  not cover these negative cases and are not proof of the corrected head.
