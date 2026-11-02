@@ -1829,6 +1829,153 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertEqual(f.enforce_native_valuation_context(loss).loc[0,"fcf_margin"],-0.12)
 
 
+    def test_public_mixed_legacy_native_unknown_calculate_store_read_normalize(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        from r1000_config import EngineConfig
+        native = {**self.financial().to_dict(), **self.price_context(), "ticker": "NATIVE",
+            "px": 10.0, "current_price_live": 10.0, "mktcap": 1000.0, "revenue_growth_final": 0.1,
+            "fcf_cagr_1y": 0.4, "eps_ttm": 0.5}
+        legacy = {key: value for key, value in native.items()
+            if not key.endswith(("_unit", "_provenance", "_financial_context"))
+            and key != "financial_metadata_version"}
+        legacy.update(ticker="LEGACY", source="fsds", financial_context_status="UNVERIFIED")
+        unknown = {**native, "ticker": "UNKNOWN", "financial_metadata_version": "unsupported-v99"}
+        keep = ["ticker", "source", "px", "current_price_live", "mktcap", "shares", "assets", "liabilities",
+            "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "eps_ttm",
+            "fcf_cagr_1y", "revenue_growth_final"]
+        for rows in ([legacy, native, unknown], [unknown, native, legacy]):
+            with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+                calculated = p.compute_valuation_columns(f.compute_live_factor_columns(pd.DataFrame(rows)))
+                projected = p.project_feature_store_frame(calculated, keep)
+                with tempfile.TemporaryDirectory() as tmp:
+                    for suffix in ("csv", "parquet"):
+                        path = Path(tmp) / ("mixed." + suffix)
+                        if suffix == "csv":
+                            projected.to_csv(path, index=False)
+                            reread = pd.read_csv(path, dtype={"cik": str})
+                        else:
+                            projected.to_parquet(path, index=False)
+                            reread = pd.read_parquet(path)
+                        with patch.object(p, "repair_latest_history_depth_from_diagnostics", side_effect=lambda paths, frame: frame):
+                            result = p.normalize_latest_fundamental_snapshot(EngineConfig(), {}, reread,
+                                apply_statement_repair=False, add_fundamental_flags=False).set_index("ticker")
+                        self.assertEqual(set(result.index), {"LEGACY", "NATIVE", "UNKNOWN"})
+                        for column, amount in (("fcf_ttm", 60.0), ("eps_ttm", 0.5), ("fcf_cagr_1y", 0.4)):
+                            self.assertEqual(result.loc["LEGACY", column], amount, (suffix, column))
+                        self.assertEqual(result.loc["LEGACY", "financial_context_status"], "UNVERIFIED")
+                        self.assertEqual(result.loc["LEGACY", "valuation_context_status"], "UNVERIFIED")
+                        self.assertEqual(result.loc["LEGACY", "fund_ttm_ready"], 0.0)
+                        self.assertAlmostEqual(result.loc["NATIVE", "ep_ttm"], 0.05)
+                        self.assertTrue(pd.isna(result.loc["UNKNOWN", "mktcap"]))
+                        self.assertTrue(pd.isna(result.loc["UNKNOWN", "fcf_ttm"]))
+
+    def test_nullable_proof_aliases_preserve_eps_and_equity_but_not_malformed_primary(self):
+        import r1000_features as f
+        for absent in (None, float("nan"), pd.NA, "", "null"):
+            row = self.financial().copy()
+            for field in ("shares", "net_income_ttm", "assets", "liabilities"):
+                row[field + "_fact_provenance"] = row[field + "_provenance"]
+                row[field + "_provenance"] = absent
+            out = f.native_valuation_overrides(row, technical_price=10.0, price_context=self.price_context())
+            self.assertEqual(out["eps_ttm"], 0.5)
+            self.assertIsNotNone(f.native_financial_context(out, "eps_ttm"))
+            self.assertIsNotNone(f.native_financial_context(out, "equity_native"))
+            self.assertNotIn(None, json.loads(out["eps_ttm_provenance"])["parents"])
+            for malformed in (True, 123, "not-json"):
+                bad = row.copy(); bad["shares_provenance"] = malformed
+                refused = f.native_valuation_overrides(bad, technical_price=10.0, price_context=self.price_context())
+                self.assertTrue(pd.isna(refused["eps_ttm"]))
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period - pd.offsets.QuarterEnd() + pd.Timedelta(days=1)
+            common = dict(period=period, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((period.month-1)//3+1), accession_number="alias-"+str(i))
+            rows.append(self.row(**common, field_name="net_income", unit="USD", start=start, value=10.0,
+                duration_days=(period-start).days+1))
+            rows.append(self.row(**common, field_name="shares", unit="shares", start=pd.NaT, value=100.0))
+        panel = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        panel["shares_provenance"] = None
+        result = f.recompute_fund_panel_derived_columns(panel).iloc[-1]
+        self.assertEqual(result["eps_ttm"], 0.4)
+        self.assertIsNotNone(f.native_financial_context(result, "eps_ttm"))
+
+    def test_native_yoy_scope_refusal_precedes_downstream_growth_consumers(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            rows.append(self.row(unit="USD", period=period, start=start, accepted=period+pd.Timedelta(days=20),
+                fy=period.year, fp="Q"+str((period.month-1)//3+1), accession_number="scope-yoy-"+str(i),
+                value=100.0 if i < 4 else 200.0, duration_days=(period-start).days+1,
+                context_dimensions=None if i < 4 else "subsidiary"))
+        refused = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        self.assertEqual(refused.iloc[-1]["revenues_ttm"], 800.0)
+        self.assertTrue(pd.isna(refused.iloc[-1]["sales_growth_yoy"]))
+        self.assertTrue(pd.isna(refused.iloc[-1]["sales_cagr_1y"]))
+        self.assertEqual(refused.iloc[-1]["sales_growth_yoy_missing_reason"], "incompatible_or_missing_native_comparison_context")
+        with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+            downstream = f.compute_live_factor_columns(refused.tail(1))
+        self.assertTrue(pd.isna(downstream.iloc[0]["revenue_growth_final"]))
+        same = [{**row, "context_dimensions": None} for row in rows]
+        control = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(same)))
+        self.assertEqual(control.iloc[-1]["sales_growth_yoy"], 1.0)
+
+    def test_malformed_text_evidence_roundtrip_retains_each_row_and_refusal(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        from r1000_config import EngineConfig
+        base = {**self.financial().to_dict(), **self.price_context(), "ticker": "VALID",
+            "px": 10.0, "current_price_live": 10.0, "mktcap": 1000.0, "revenue_growth_final": 0.1,
+            "price_to_sales": 2.0, "valuation_px": 10.0, "price_above_ma200": 1.0, "valuation_blueprint_score": 0.3}
+        for field in ("shares_unit", "shares_basis", "price_currency", "price_asof",
+            "share_basis_status", "share_basis_reference", "financial_metadata_version"):
+            rows = [base, {**base, "ticker": "ABSENT", field: None}, {**base, "ticker": "MALFORMED", field: True}]
+            frame = pd.DataFrame(rows)
+            # Observe the actual pre-serialization refusal; no malformed scalar
+            # may become an accepted reference merely by converting to text.
+            before = f.enforce_native_valuation_context(frame).set_index("ticker")
+            self.assertTrue(pd.isna(before.loc["MALFORMED", "mktcap"]))
+            projected = p.project_feature_store_frame(frame, ["ticker", "px", "current_price_live", "mktcap",
+                "shares", "assets", "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "revenue_growth_final"])
+            for column in ("price_to_sales", "valuation_px", "price_above_ma200", "valuation_blueprint_score"):
+                self.assertTrue(pd.api.types.is_numeric_dtype(projected[column]), column)
+                self.assertEqual(projected.loc[0, column], base[column])
+            with tempfile.TemporaryDirectory() as tmp:
+                for suffix in ("csv", "parquet"):
+                    path = Path(tmp) / ("text." + suffix)
+                    if suffix == "csv":
+                        projected.to_csv(path, index=False)
+                        read = pd.read_csv(path, dtype={"cik": str})
+                    else:
+                        projected.to_parquet(path, index=False)
+                        read = pd.read_parquet(path)
+                    with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()), \
+                        patch.object(p, "repair_latest_history_depth_from_diagnostics", side_effect=lambda paths, frame: frame):
+                        result = p.normalize_latest_fundamental_snapshot(EngineConfig(), {}, read,
+                            apply_statement_repair=False, add_fundamental_flags=False).set_index("ticker")
+                    self.assertEqual(len(result), 3)
+                    self.assertEqual(result.loc["VALID", "mktcap"], 1000.0)
+                    self.assertTrue(pd.isna(result.loc["MALFORMED", "mktcap"]), (field, suffix))
+                    if field != "financial_metadata_version":
+                        self.assertTrue(pd.isna(result.loc["ABSENT", "mktcap"]), (field, suffix))
+                    else:
+                        self.assertEqual(result.loc["ABSENT", "valuation_context_status"], "UNVERIFIED")
+
+    def test_guarded_forward_ps_preserves_existing_growth_clip_with_fx(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        for currency, fx in (("USD", {}), ("EUR", dict(fx_rate=2.0, fx_status="VERIFIED", fx_reference="synthetic-fx",
+            fx_from_currency="EUR", fx_to_currency="USD", fx_asof="2026-07-10T19:00:00Z", fx_valid_until="2026-07-10T21:00:00Z"))):
+            for growth, expected in ((-0.8, 4.0), (-1.0, 4.0), (5.0, 2.0/3.0), (0.0, 2.0)):
+                row = {**self.financial(currency).to_dict(), **self.price_context(), **fx, "ticker": "SYN",
+                    "px": 10.0, "current_price_live": 10.0, "mktcap": 1000.0, "revenue_growth_final": growth}
+                with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+                    result = p.compute_valuation_columns(f.compute_live_factor_columns(pd.DataFrame([row]))).iloc[0]
+                for column in ("forward_ps", "forward_ps_final"):
+                    self.assertAlmostEqual(result[column], expected / (2 if currency == "EUR" else 1))
+
+
 def main() -> int:
     test_exact_acceptance_amendment_and_missing_neutral()
     test_current_only_statement_uses_pinned_universe_identity_and_sec_baseline()

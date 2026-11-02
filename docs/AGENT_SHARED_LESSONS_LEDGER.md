@@ -9274,3 +9274,25 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Preserve9c62 checkpoint/private seal and failed A6 evidence. Add an actual
   direct/cached/Main regression for0.06 margin/0.16 Rule40 plus unit/scope/period,
   growth-only, missing/zero/negative cases. No Source/data/T2/fullrun/Book action.
+
+### 2026-11-02 — Preserve row modes and malformed evidence across public consumers
+
+- PR709 exact3d CI41316800847 completed SUCCESS, but its exact-head review
+  still found five actionable edges: public guards deleted legacy history;
+  null primary proof cells hid valid aliases; YoY omitted issuer/scope checks;
+  mixed malformed text aborted Parquet; guarded forward P/S changed the
+  existing growth clip. CI success does not resolve those findings.
+- The existing writer stopped at a usage limit before editing. Root verified
+  its failed/idle state, clean exact3d checkout and existing checkpoint, then
+  archived and reassigned the same seven-path exclusive lease. No new
+  worktree or parallel product writer was created.
+- Reuse the same row mode and original proof validators at public boundaries.
+  Preserve legacy observations as UNVERIFIED without typed admission. Apply
+  YoY context checks before downstream growth consumers. Serialize malformed
+  textual scalars with a reserved marker that cannot become a verified
+  reference; retain numeric price/valuation features as numeric columns.
+- The new mixed public-path test caught heterogeneous block assignment
+  changing float columns to object and breaking numpy isfinite. Per-column
+  restoration preserves dtypes. Initial test startup used Python environments
+  missing requests; the existing A1 virtual environment supplies dependencies
+  without installation. These failed attempts are not successful validations.
