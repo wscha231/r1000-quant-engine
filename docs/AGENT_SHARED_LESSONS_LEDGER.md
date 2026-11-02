@@ -9370,3 +9370,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   OCF units and infinite amounts retaining a positive signal. Native context
   alone permits absent units; a positive signal additionally needs a finite
   non-boolean amount and an explicit three-letter monetary unit.
+
+### 2026-11-02 — Issuer partial references are separate from full A3 research
+
+- Existing R13 and financial-only outputs are not full A3 packets. Keep full
+  Methodology/Moat/market/scenario requirements unchanged; bind the actual
+  archival result, financial Reader receipt and issuer snapshot through an
+  additive partial-reference replay. No security crosswalk or Source/current/
+  ER/A5 authority follows from internally matching bytes. Expired/unknown
+  declarations remain visible and are never renewed by replay.
+- Saved partial results contain immutable upstream references too. Preflight
+  those IDs before row errors; a changed financial hash mixed with its old
+  result is an identity conflict, stronger than the initial regression's
+  expected row-local replay mismatch. Preserve the failed expectation.
+- Root's R4 PowerShell preparation converted ISO text into UTC DateTime, then
+  DateTimeOffset.Parse lost the offset through string conversion and falsely
+  reported future expiry as expired. It stopped with Native0/Source0. A typed
+  DateTimeOffset cast preserved the original GO/host and completed Native1 in
+  29.046s. Never fix clock handling by extending expiry or rewriting old times.
