@@ -9330,3 +9330,33 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   The small reproducer first had a whitespace SyntaxError, corrected before
   reproduction; no data or Source execution occurred. Prior6a57-case normal/-O
   successes remain earlier-head evidence, not proof of this new scope edge.
+- Real financial-only consumers R1/R2/R3 actually reused the same11 local
+  objects597798B each, Reader16700 rows/same generation+rowset, existing B002
+  and issuer-only partial snapshots. They finished29.344/20.422/21.296s,
+  with38081/45301/55617B owned outputs; Source/PIT/current/ER/A5 stayedfalse.
+  Expanding the already retained SEC index8→37 using the existing parser
+  raised the8x18 finite-cell count46→64, not144/144. No new provider calls.
+- The retained actual TTM proof showed mixed direct-quarter/YTD alternatives
+  and an implicit nested cumulative derivation. Native context refused that
+  ambiguous lineage while the amount remained observable. Emit explicit
+  selection/add/subtract proof roles with separately verified native, flow
+  and cumulative date spans; never accept a changed period without an original
+  matching proof or invent missing quarters. Earlier R1/R2/R3 remain immutable.
+- Current bb Codex also found late ROE validation leaking into trend/turnaround
+  composites, and undated Companyfacts placeholders replacing valid FSDS/cache
+  latest rows. Validate native equity/ROE/debt before their histories and
+  preserve compatible parent proof bundles. Prefer dated consumer views while
+  retaining undated candidates with no history; do not erase stored candidates
+  or trigger broad collection because NaT sorted last. Superseded PR CI
+  41376473570 was cancelled, not passed/failed; no transactional workflow ran.
+- Two preparation reviews exceeded wall budgets: financial caller T2 240/180s
+  and host-output-boundary review187/90s. Both retained their artifacts/costs
+  and stopped. These are not cap-compliance evidence or Source executions.
+  General-host explicit control/object counters exclude unmetered registry,
+  schema and package/DLL I/O; whole-process RSS is NOT_CERTIFIED, never zero.
+- The first full60-case closure attempt exposed one direct-GP positive
+  regression: new period-selection/add/subtract proof roles were treated as
+  cross-measure financial derivations. Preserve valid direct GP and keep
+  economic revenue-minus-cost lineage distinct from validated period-only
+  operations; all unknown derivation roles remain conservative. The corrected
+  four affected regressions passed before the new frozen-head full validation.

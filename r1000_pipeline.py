@@ -2657,7 +2657,17 @@ def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
             value = safe_float(row.get("value"))
             annual = str(row.get("fp", "")).upper() == "FY" or str(row.get("form", "")).startswith(("10-K", "20-F"))
             cumulative = annual or (duration is not None and duration > 120)
-            row["flow_provenance"] = row["cum_provenance"] = row.get("fact_provenance", "[]")
+            original_proof = row.get("fact_provenance", "[]")
+            if isinstance(original_proof, str):
+                try:
+                    original_proof = json.loads(original_proof)
+                except (ValueError, TypeError):
+                    pass
+            selected_proof = {"derivation": "native_period_selection",
+                "period_start": start.strftime("%Y-%m-%d") if pd.notna(start) else None,
+                "period_end": end.strftime("%Y-%m-%d") if pd.notna(end) else None,
+                "parents": [original_proof]}
+            row["flow_provenance"] = row["cum_provenance"] = json.dumps(selected_proof, sort_keys=True)
             if not reason and (q is None or pd.isna(start) or duration is None or duration < 1):
                 reason = "missing_native_fiscal_context"
             if not reason and not np.isfinite(value):
@@ -2712,7 +2722,10 @@ def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
                         else:
                             row["cum_missing_reason"] = parent_reason
                     else:
-                        provenance = json.dumps([row.get("fact_provenance", "[]"), previous["cum_provenance"]])
+                        provenance = json.dumps({
+                            "derivation": "native_ytd_minus_prior_ytd" if cumulative else "native_quarter_plus_prior_ytd",
+                            "parents": [selected_proof, json.loads(previous["cum_provenance"])],
+                        }, sort_keys=True)
                         if cumulative:
                             row["flow"] = value - previous["cum_value"]
                             row["flow_start"] = previous["period"] + pd.Timedelta(days=1)
@@ -6607,10 +6620,27 @@ def quarterly_flow_from_ytd(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+def prefer_dated_financial_history(panel: pd.DataFrame) -> pd.DataFrame:
+    """Keep undated candidates only when that issuer has no dated history.
+
+    The stored panel and missing-candidate records remain intact. Consumers
+    must not let NaT sort after a valid FSDS/cache observation and replace it.
+    """
+    if panel is None or panel.empty or "period" not in panel or "cik" not in panel:
+        return pd.DataFrame() if panel is None else panel.copy()
+    dated = pd.to_datetime(panel["period"], errors="coerce").notna()
+    ciks = normalize_cik_series(panel["cik"], index=panel.index)
+    tickers = panel.get("ticker", pd.Series(None, index=panel.index, dtype=object))
+    keys = pd.Series([("cik", cik) if cik else ("unknown", str(tickers.iloc[i]) if not _native_optional_text_absent(tickers.iloc[i]) else i)
+        for i, cik in enumerate(ciks)], index=panel.index)
+    has_dated = dated.groupby(keys, dropna=False).transform("any")
+    return panel.loc[dated | ~has_dated].copy()
+
+
 def panel_latest_flow_coverage(panel: pd.DataFrame) -> float:
     if panel is None or panel.empty or "period" not in panel.columns:
         return 0.0
-    d = panel.copy()
+    d = prefer_dated_financial_history(panel)
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = datetime_series_or_default(d, "accepted")
     d = d.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik"], keep="last")
@@ -6628,7 +6658,7 @@ def select_targeted_repair_ciks(cfg: EngineConfig, base_panel: pd.DataFrame, cik
     if base_panel is None or base_panel.empty:
         return all_ciks[: int(cfg.targeted_repair_max_ciks)]
 
-    d = base_panel.copy()
+    d = prefer_dated_financial_history(base_panel)
     d["cik"] = normalize_cik_series(d["cik"], index=d.index)
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = pd.to_datetime(d["accepted"], errors="coerce")
@@ -6765,7 +6795,7 @@ def attach_fund_panel_join_diagnostics(monthly: pd.DataFrame, panel: pd.DataFram
                 d[c] = np.nan
         return d
 
-    p = panel.copy()
+    p = prefer_dated_financial_history(panel)
     p["cik"] = normalize_cik_series(p["cik"], index=p.index)
     p["period"] = pd.to_datetime(p["period"], errors="coerce")
     p["accepted"] = pd.to_datetime(p["accepted"], errors="coerce")
@@ -6773,7 +6803,7 @@ def attach_fund_panel_join_diagnostics(monthly: pd.DataFrame, panel: pd.DataFram
 
     flow_cols = ["revenues", "op_income", "net_income", "ocf", "capex"]
     latest_panel = (
-        p.sort_values(["cik", "accepted", "period"])
+        prefer_dated_financial_history(p).sort_values(["cik", "accepted", "period"])
         .drop_duplicates(["cik"], keep="last")
         .rename(
             columns={
@@ -6989,12 +7019,12 @@ def write_fundamental_collection_audit(
             "fundamental_panel_latest_snapshot": panel_path,
         }
 
-    p = panel.copy()
+    p = prefer_dated_financial_history(panel)
     p["cik"] = normalize_cik_series(p["cik"], index=p.index)
     p["period"] = pd.to_datetime(p["period"], errors="coerce")
     p["accepted"] = pd.to_datetime(p["accepted"], errors="coerce")
     p = p.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik", "period"], keep="last")
-    latest_panel = p.sort_values(["cik", "accepted", "period"]).drop_duplicates(["cik"], keep="last").copy()
+    latest_panel = prefer_dated_financial_history(p).sort_values(["cik", "accepted", "period"]).drop_duplicates(["cik"], keep="last").copy()
 
     panel_keep = [
         "cik",
@@ -8489,7 +8519,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
 def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
     """Retain financial evidence alongside values, outside the model whitelist."""
     fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
-        "op_income", "op_margin", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
+        "op_income", "op_margin", "roe_proxy", "debt_to_equity", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
         "liabilities_and_equity", "stockholders_equity_for_liabilities", "dividends_ttm_ps")
     suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
         "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",

@@ -2125,6 +2125,95 @@ class NativeFinancialContextTests(unittest.TestCase):
                 self.assertAlmostEqual(out.iloc[0]["margin_stability_8q"], 0.0)
 
 
+    def test_mixed_direct_and_ytd_proofs_preserve_valid_ttm_context_and_refuse_changed_selection(self):
+        import r1000_features as f
+        rows = []
+        for year, scale in ((2025, 1.0), (2026, 1.2)):
+            cumulative = 0.0
+            for quarter, amount in enumerate((100.0, 150.0, 200.0, 250.0), 1):
+                period = pd.Timestamp(year=year, month=quarter*3, day=1)+pd.offsets.MonthEnd()
+                start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+                cumulative += amount*scale
+                common = dict(unit="USD", period=period, accepted=period+pd.Timedelta(days=20), fy=year,
+                    fp="FY" if quarter == 4 else "Q"+str(quarter), form="10-K" if quarter == 4 else "10-Q",
+                    accession_number=f"mixed-{year}-{quarter}", field_name="revenues", source_tag="Revenue")
+                if quarter != 4:
+                    rows.append(self.row(**common, start=start, value=amount*scale,
+                        duration_days=(period-start).days+1, semantic_rank=0))
+                if quarter != 1:
+                    fy_start = pd.Timestamp(year=year, month=1, day=1)
+                    rows.append(self.row(**common, start=fy_start, value=cumulative,
+                        duration_days=(period-fy_start).days+1, semantic_rank=0 if quarter == 4 else 1))
+        panel = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        latest = panel.iloc[-1]
+        self.assertAlmostEqual(latest["revenues_ttm"], 840.0)
+        self.assertIsNotNone(f.native_financial_context(latest, "revenues_ttm"))
+        self.assertIn("native_quarter_plus_prior_ytd", latest["revenues_ttm_provenance"])
+        self.assertIn("native_ytd_minus_prior_ytd", latest["revenues_ttm_provenance"])
+        wrong = latest.copy()
+        proof = json.loads(wrong["revenues_ttm_provenance"])
+        proof[1]["native_period_start"] = "2020-01-01"
+        wrong["revenues_ttm_provenance"] = json.dumps(proof)
+        self.assertIsNone(f.native_financial_context(wrong, "revenues_ttm"))
+
+    def test_roe_and_debt_history_validate_before_trends_and_turnaround(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            common = dict(period=period, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((period.month-1)//3+1), accession_number="roe-"+str(i))
+            rows.append(self.row(**common, field_name="net_income", source_tag="NetIncomeLoss", start=start,
+                duration_days=(period-start).days+1, value=20.0, unit="USD"))
+            rows.append(self.row(**common, field_name="assets", source_tag="Assets", start=pd.NaT,
+                value=100.0 if i < 4 else 400.0, unit="USD"))
+            rows.append(self.row(**common, field_name="liabilities", source_tag="Liabilities", start=pd.NaT,
+                value=250.0, unit="EUR"))
+        bad = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        for column in ("roe_proxy", "roe_trend_4q", "debt_to_equity", "debt_to_equity_delta_4q"):
+            self.assertTrue(bad[column].isna().all(), column)
+        for column in ("roe_turn_positive_4q", "any_profitability_turn_positive_4q"):
+            self.assertTrue(bad[column].eq(0).all(), column)
+        good_rows = [{**row, "unit": "USD"} for row in rows]
+        good = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(good_rows)))
+        self.assertGreater(good.iloc[-1]["roe_trend_4q"], 0)
+        self.assertEqual(good.iloc[-1]["roe_turn_positive_4q"], 1.0)
+        cache = {}
+        stable = f.enforce_native_valuation_context(good.tail(1), _operation_cache=cache)
+        self.assertEqual(stable.iloc[0]["roe_turn_positive_4q"], 1.0)
+        stable["liabilities_unit"] = "EUR"
+        for guarded in (f.enforce_native_valuation_context(stable), f.enforce_native_valuation_context(stable, _operation_cache=cache)):
+            self.assertTrue(pd.isna(guarded.iloc[0]["roe_trend_4q"]))
+            self.assertEqual(guarded.iloc[0]["roe_turn_positive_4q"], 0.0)
+            self.assertEqual(guarded.iloc[0]["any_profitability_turn_positive_4q"], 0.0)
+
+    def test_undated_candidate_does_not_replace_existing_latest_history(self):
+        import r1000_pipeline as p
+        periods = pd.date_range("2025-03-31", periods=5, freq="QE-DEC")
+        history = pd.DataFrame([dict(cik="0000000001", ticker="KNOWN", source="fsds", period=end,
+            accepted=end+pd.Timedelta(days=20), revenues_ttm=400.0, net_income_ttm=40.0, op_income_ttm=60.0)
+            for end in periods])
+        missing = pd.DataFrame([dict(cik=cik, ticker=ticker, source="companyfacts", period=pd.NaT, accepted=pd.NaT,
+            financial_metadata_version="native-unit-fiscal-v1", revenues_ttm=float("nan"),
+            net_income_ttm=float("nan"), op_income_ttm=float("nan"))
+            for cik, ticker in (("0000000001", "KNOWN"), ("0000000002", "MISSING"))])
+        combined = p.combine_fund_panels(missing, history)
+        self.assertEqual(len(combined), 7)
+        retained = p.prefer_dated_financial_history(combined)
+        self.assertEqual(len(retained), 6)
+        self.assertIn("MISSING", retained["ticker"].tolist())
+        self.assertAlmostEqual(p.panel_latest_flow_coverage(combined), 0.5)
+        known = combined[combined["ticker"] == "KNOWN"]
+        self.assertEqual(p.panel_latest_flow_coverage(known), 1.0)
+        selected = p.prefer_dated_financial_history(known).sort_values(["accepted", "period"]).iloc[-1]
+        self.assertEqual(selected["period"], periods[-1])
+        self.assertTrue(history["period"].notna().all())
+        self.assertEqual(len(history), 5)
+        unknown = pd.DataFrame([dict(cik=None, ticker="UNKNOWN_A", period=periods[-1]),
+            dict(cik=None, ticker="UNKNOWN_B", period=pd.NaT)])
+        self.assertEqual(len(p.prefer_dated_financial_history(unknown)), 2)
+
+
 def main() -> int:
     test_exact_acceptance_amendment_and_missing_neutral()
     test_current_only_statement_uses_pinned_universe_identity_and_sec_baseline()

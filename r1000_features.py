@@ -705,6 +705,25 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     def proof_span(value: Any, hint: Any = None) -> Optional[tuple]:
         value = decode(value)
         if isinstance(value, dict):
+            if value.get("derivation") == "native_period_selection":
+                selected = (day(value.get("period_start")), day(value.get("period_end")))
+                parents = value.get("parents")
+                if not selected[1] or not isinstance(parents, list) or len(parents) != 1:
+                    return None
+                result = proof_span(parents[0], selected)
+                return result if hint is None or result == hint else None
+            if value.get("derivation") in {"native_ytd_minus_prior_ytd", "native_quarter_plus_prior_ytd"}:
+                parents = value.get("parents")
+                if not isinstance(parents, list) or len(parents) != 2:
+                    return None
+                own, previous = (proof_span(parent) for parent in parents)
+                if own is None or previous is None or not own[0] or not previous[0]:
+                    return None
+                if value["derivation"] == "native_ytd_minus_prior_ytd":
+                    result = ((pd.Timestamp(previous[1])+pd.Timedelta(days=1)).strftime("%Y-%m-%d"), own[1]) if own[0] == previous[0] and previous[1] < own[1] else None
+                else:
+                    result = (previous[0], own[1]) if pd.Timestamp(own[0]) == pd.Timestamp(previous[1])+pd.Timedelta(days=1) else None
+                return result if hint is None or result == hint else None
             if "derivation" in value and isinstance(value.get("parents"), list):
                 parents = [proof_span(parent) for parent in value["parents"]]
                 if not parents or any(parent is None for parent in parents):
@@ -733,7 +752,9 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                 native = proof_span(item["native_proof"], selected)
                 if native is None or native[1] != day(item.get("period")):
                     return None
-                operands.append((proof_span(item.get("flow_proof"), selected), proof_span(item.get("cumulative_proof"), selected)))
+                flow_hint = (day(item.get("flow_period_start")), day(item.get("period"))) if "flow_period_start" in item else selected
+                cum_hint = (day(item.get("cumulative_period_start")), day(item.get("period"))) if "cumulative_period_start" in item else selected
+                operands.append((proof_span(item.get("flow_proof"), flow_hint), proof_span(item.get("cumulative_proof"), cum_hint)))
             if len(operands) == 1:
                 return operands[0][1]
             if len(operands) == 4:
@@ -850,7 +871,12 @@ def has_native_derivation(value: Any) -> bool:
         except (ValueError,TypeError):
             return False
     if isinstance(value,dict):
-        return "derivation" in value or any(has_native_derivation(item) for item in value.values())
+        # Period selection/quarterization does not turn a directly reported
+        # measure into a revenue-minus-cost or other cross-measure fallback.
+        name = value.get("derivation")
+        period_only = isinstance(name, str) and name in {
+            "native_period_selection", "native_ytd_minus_prior_ytd", "native_quarter_plus_prior_ytd"}
+        return ("derivation" in value and not period_only) or any(has_native_derivation(item) for item in value.values())
     return isinstance(value,list) and any(has_native_derivation(item) for item in value)
 
 
@@ -894,6 +920,27 @@ def _refresh_native_difference(out: pd.Series, field: str, parents: tuple[str, s
         "incompatible_or_missing_component_context" if evidence is None else "incompatible_or_missing_component_units")
     out[field + "_status"] = "COMPATIBLE_DERIVED_NOT_SOURCE_ADMISSION" if valid else "UNKNOWN"
     return bool(valid)
+
+
+def _native_ratio_metadata(row: pd.Series, field: str, parents: tuple[str, ...], derivation: str) -> dict[str, Any]:
+    units = [row.get(parent + "_unit") for parent in parents]
+    evidence = native_derivation_evidence(row, parents, derivation)
+    valid = (np.isfinite(safe_float(row.get(field))) and evidence is not None and units
+        and all(isinstance(unit, str) and bool(re.fullmatch(r"[A-Z]{3}", unit)) and unit == units[0] for unit in units))
+    context, proof = evidence if valid else (None, None)
+    return {field + "_unit": units[0] + "/" + units[0] if valid else None,
+        field + "_financial_context": context, field + "_provenance": proof}
+
+
+def _native_history_comparison(frame: pd.DataFrame, field: str) -> pd.Series:
+    unit = frame.get(field + "_unit", pd.Series(None, index=frame.index, dtype=object))
+    previous_unit = unit.groupby(frame["cik"]).shift(4)
+    contexts = pd.Series([native_financial_context(row, field) for _, row in frame.iterrows()], index=frame.index, dtype=object)
+    previous = contexts.groupby(frame["cik"]).shift(4)
+    compatible = pd.Series([native_financial_contexts_match([current, prior], period_mode="comparison")
+        if isinstance(current, dict) and isinstance(prior, dict) else False
+        for current, prior in zip(contexts, previous)], index=frame.index)
+    return unit.notna() & previous_unit.notna() & unit.eq(previous_unit) & compatible
 
 
 def _native_operating_margin(row: pd.Series) -> dict[str, Any]:
@@ -971,6 +1018,8 @@ def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFram
             source_context = native_financial_context(group.loc[source], field_name)
             proofs.append({"period": str(period.loc[source]), "accepted": str(accepted.loc[source]),
                 "native_period_start": source_context["period_start"], "native_period_end": source_context["period_end"],
+                "flow_period_start": start.loc[source].strftime("%Y-%m-%d") if pd.notna(start.loc[source]) else None,
+                "cumulative_period_start": cum_start.loc[source].strftime("%Y-%m-%d") if pd.notna(cum_start.loc[source]) else None,
                 "native_proof": column("_fact_provenance", "[]").loc[source],
                 "flow_proof": column("_flow_provenance", "[]").loc[source],
                 "cumulative_proof": column("_cum_value_cum_provenance", "[]").loc[source]})
@@ -1992,6 +2041,8 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
         ("eps_ttm", ("eps_cagr_", "eps_growth_"), set()),
         ("gross_profit_ttm", ("gp_cagr_", "gp_growth_", "gross_profit_cagr_", "gross_profit_growth_", "gp_sign_", "gp_loss_"), set()),
         ("op_margin_ttm", (), {"margin_stability_8q", "margin_trend_4q"}),
+        ("roe_proxy", (), {"roe_trend_4q", "roe_sign_flip_pos", "roe_turn_positive_4q"}),
+        ("debt_to_equity", (), {"debt_to_equity_delta_4q"}),
     ):
         value, old = safe_float(updates.get(field)), safe_float(latest.get(field))
         unchanged = np.isfinite(value) and np.isfinite(old) and value == old and all(
@@ -2001,6 +2052,13 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
             for column in latest.index:
                 if column.startswith(prefixes) or column in extra:
                     updates[column] = np.nan
+            if field == "roe_proxy":
+                for column in ("roe_sign_flip_pos", "roe_turn_positive_4q"):
+                    if column in latest:
+                        updates[column] = 0.0
+                if "any_profitability_turn_positive_4q" in latest:
+                    updates["any_profitability_turn_positive_4q"] = float(any(
+                        safe_float(latest.get(column)) > 0 for column in ("profit_turn_positive_4q", "cashflow_turn_positive_4q")))
 
 
 def _refresh_native_rule_of_40(row: pd.Series, updates: Any) -> None:
@@ -2169,6 +2227,12 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     out["operating_margins_missing_reason"] = out["op_margin_ttm_missing_reason"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
     out["debt_to_equity"] = native_ratio("liabilities", "equity_native", "debt_to_equity")
+    for field, parents, derivation in (
+        ("roe_proxy", ("net_income_ttm", "assets", "liabilities"), "net_income_over_assets_minus_liabilities"),
+        ("debt_to_equity", ("assets", "liabilities"), "liabilities_over_assets_minus_liabilities"),
+    ):
+        for key, item in _native_ratio_metadata(out, field, parents, derivation).items():
+            out[key] = item
     # EPS stays in the reporting currency and reported-share basis used by its
     # historical CAGR. Listing-price FX/ADS valuation remains in EP/SP/FCFY.
     eps_contexts = [_field_context(field) for field in ("net_income_ttm","shares")]
@@ -2235,7 +2299,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
             owned = fixed | {key + "_missing_reason" for key in fixed}
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_")))
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_", "roe_proxy_", "debt_to_equity_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
@@ -3303,6 +3367,12 @@ def recompute_fund_panel_derived_columns(
         d["fcf_cagr_5y"] = _cagr_from_lag(d["fcf_ttm"], lag5, aq5)
         d["fcf_cagr_best"] = d["fcf_cagr_3y"].fillna(d["fcf_cagr_2y"]).fillna(d["fcf_cagr_1y"])
 
+    comparison_masks: dict[str, pd.Series] = {}
+    def comparison(field: str) -> pd.Series:
+        if field not in comparison_masks:
+            comparison_masks[field] = _native_history_comparison(d, field)
+        return comparison_masks[field]
+
     if typed_native:
         # Apply the same issuer/scope requirement as CAGR before any downstream
         # growth or Rule-of-40 consumer can see a positional YoY comparison.
@@ -3313,14 +3383,7 @@ def recompute_fund_panel_derived_columns(
         }.items():
             if column not in d:
                 continue
-            unit = d.get(f"{field}_unit", pd.Series(None, index=d.index, dtype=object))
-            prior_unit = unit.groupby(d["cik"]).shift(4)
-            contexts = pd.Series([native_financial_context(row, field) for _, row in d.iterrows()], index=d.index, dtype=object)
-            prior_contexts = contexts.groupby(d["cik"]).shift(4)
-            compatible = pd.Series([native_financial_contexts_match([current, prior], period_mode="comparison")
-                if isinstance(current, dict) and isinstance(prior, dict) else False
-                for current, prior in zip(contexts, prior_contexts)], index=d.index)
-            valid = unit.notna() & prior_unit.notna() & unit.eq(prior_unit) & compatible
+            valid = comparison(field)
             d[column] = d[column].where(valid)
             d[column + "_missing_reason"] = np.where(valid, "", "incompatible_or_missing_native_comparison_context")
 
@@ -3338,6 +3401,8 @@ def recompute_fund_panel_derived_columns(
         cur = pd.to_numeric(d[series_name], errors="coerce")
         prev = d.groupby("cik")[series_name].shift(4)
         prev_num = pd.to_numeric(prev, errors="coerce")
+        if typed_native:
+            prev_num = prev_num.where(comparison(series_name))
         flip = ((cur > 0.0) & (prev_num <= 0.0) & prev_num.notna()).astype(float)
         return flip.fillna(0.0)
 
@@ -3347,6 +3412,8 @@ def recompute_fund_panel_derived_columns(
         cur = pd.to_numeric(d[series_name], errors="coerce")
         prev = pd.to_numeric(d.groupby("cik")[series_name].shift(4), errors="coerce")
         # Both negative; loss narrowing means cur > prev (less negative).
+        if typed_native:
+            prev = prev.where(comparison(series_name))
         improvement = (cur - prev) / prev.abs().replace(0.0, np.nan)
         mask_both_neg = (cur < 0.0) & (prev < 0.0)
         out = improvement.where(mask_both_neg).clip(lower=-1.0, upper=2.0)
@@ -3359,6 +3426,9 @@ def recompute_fund_panel_derived_columns(
         cur = pd.to_numeric(d[series_name], errors="coerce")
         prev = pd.to_numeric(d.groupby("cik")[series_name].shift(4), errors="coerce")
         ni_cur = pd.to_numeric(d[ni_name], errors="coerce")
+        if typed_native:
+            prev = prev.where(comparison(series_name))
+            ni_cur = ni_cur.where(same_units(series_name, ni_name))
         # Either turning positive while NI still negative, OR materially
         # improving cash flow despite NI still negative.
         score = pd.Series(0.0, index=d.index)
@@ -3415,14 +3485,31 @@ def recompute_fund_panel_derived_columns(
 
     if "assets" in d.columns and "liabilities" in d.columns:
         equity = (d["assets"] - d["liabilities"]).replace(0, np.nan)
+        if typed_native:
+            equity = equity.where(same_units("assets", "liabilities"))
         d["debt_to_equity"] = d["liabilities"] / equity
+        if typed_native:
+            metadata = pd.DataFrame([_native_ratio_metadata(row, "debt_to_equity", ("assets", "liabilities"),
+                "liabilities_over_assets_minus_liabilities") for _, row in d.iterrows()], index=d.index)
+            for column in metadata:
+                d[column] = metadata[column]
         if "net_income_ttm" in d.columns:
             d["roe_proxy"] = d["net_income_ttm"] / equity
+            if typed_native:
+                d["roe_proxy"] = d["roe_proxy"].where(same_units("net_income_ttm", "assets", "liabilities"))
+                metadata = pd.DataFrame([_native_ratio_metadata(row, "roe_proxy", ("net_income_ttm", "assets", "liabilities"),
+                    "net_income_over_assets_minus_liabilities") for _, row in d.iterrows()], index=d.index)
+                for column in metadata:
+                    d[column] = metadata[column]
             d["roe_trend_4q"] = d.groupby("cik")["roe_proxy"].diff(4)
+            if typed_native:
+                d["roe_trend_4q"] = d["roe_trend_4q"].where(comparison("roe_proxy"))
             # Phase 9 C3: ROE sign-flip flag + user-facing alias (parallel to op/ocf/fcf/ni).
             d["roe_sign_flip_pos"] = _sign_flip_pos("roe_proxy")
             d["roe_turn_positive_4q"] = d["roe_sign_flip_pos"]
         d["debt_to_equity_delta_4q"] = d.groupby("cik")["debt_to_equity"].diff(4)
+        if typed_native:
+            d["debt_to_equity_delta_4q"] = d["debt_to_equity_delta_4q"].where(comparison("debt_to_equity"))
 
     # Phase 9 C3 union composite — 3-way OR across profit/cashflow/roe.
     # Defensive: fill missing roe_* columns with 0 so the union still computes
