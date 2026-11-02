@@ -9138,3 +9138,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   timestamp tie and accept only observed fixed clean text/cheers and the exact
   About Codex footer (whitespace variations only). Earlier scoped passes did
   not cover these negative cases and are not proof of the corrected head.
+
+## 2026-11-03 — Separate clean review evidence from bounded decoration
+
+- The first compatibility parser pinned two complete cheer lines. Genuine
+  exact-head receipts later used Breezy!, :tada: and :rocket:, blocking delivery
+  despite the unchanged explicit clean assertion. Preserve those failed gate
+  observations and the cancelled financial checks; do not re-review to fish for
+  a favorable phrase or treat a clean local probe as a protected gate PASS.
+- Keep the complete receipt fullmatch and every existing Bot/App, immutable
+  body, full-SHA summary/API, clock, newer-finding and resolved-thread condition.
+  Only the decoration slot gains the observed exact Breezy! literal and one
+  bounded lowercase ASCII shortcode. Arbitrary prose, multiple/combined tokens,
+  overlength names, modified footers and priority/finding markers still refuse.
+  No observation-clock or attestation-authority change is part of this fix.
+- This PR must bootstrap through the currently trusted default-branch gate.
+  Its new parser cannot approve itself; financial57bf and partialA3 checkpoints
+  remain separate, with a fresh current-base head/checks after integration.
