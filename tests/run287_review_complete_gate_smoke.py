@@ -194,7 +194,8 @@ class CommentReceiptTests(unittest.TestCase):
             self.blocked(case)
 
     def test_clean_line_and_optional_about_footer_accept_only_observed_formats(self):
-        for cheer in ("Keep it up!", ""):
+        for cheer in ("Keep it up!", "Breezy!", ":rocket:", ":tada:", ":a:",
+                      ":party_2026:", ":" + "a" * 32 + ":", ""):
             args=self.fixture(); row=args["issue_comments"][1]
             row["body"]=row["body"].replace(" More of your lovely PRs please.", " "+cheer if cheer else "")
             self.assertIs(gate.evaluate(**args)["passed"], True)
@@ -209,6 +210,40 @@ class CommentReceiptTests(unittest.TestCase):
             case=self.fixture(); row=case["issue_comments"][1]; row["body"]=mutate(row["body"])
             self.blocked(case)
 
+    def test_shortcodes_are_one_bounded_ascii_decoration_not_free_text(self):
+        for suffix in (":rocket: extra", "extra :tada:", ":rocket::tada:", ":rocket: :tada:",
+                       ":" + "a" * 33 + ":", "::", ":1rocket:", ":_rocket:", ":Rocket:",
+                       ":rocket-ship:", ":r\u043ecket:", "\U0001f680", ":rocket:\n:tada:",
+                       "Breezy! extra", "You rock!", "Keep it up! :rocket:",
+                       ":rocket: [P1] unresolved issue", ":rocket:\nExtra finding"):
+            with self.subTest(suffix=suffix):
+                args=self.fixture()
+                row=args["issue_comments"][1]
+                row["body"]=row["body"].replace("More of your lovely PRs please.", suffix)
+                self.blocked(args)
+
+    def test_valid_shortcode_never_replaces_identity_clock_finding_or_thread_checks(self):
+        for mutate in (
+            lambda a: a["issue_comments"][1]["user"].update(id=1),
+            lambda a: a["issue_comments"][1]["performed_via_github_app"].update(id=1),
+            lambda a: a["issue_comments"][1].update(updated_at="2026-07-21T01:10:01Z"),
+            lambda a: a["head_observation"].update(observed_at="2026-07-21T01:11:00Z"),
+            lambda a: self.change_state(a, has_any_findings=True),
+            lambda a: a["commit_binding"].update(sha=PRIOR),
+            lambda a: a["review_thread_pages"][0]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0].update(isResolved=False),
+        ):
+            args=self.fixture()
+            row=args["issue_comments"][1]
+            row["body"]=row["body"].replace("More of your lovely PRs please.", ":rocket:")
+            mutate(args)
+            self.blocked(args)
+        for priority in range(4):
+            for location in (":rocket:", f"`{HEAD[:10]}`", "</details>"):
+                args=self.fixture(); row=args["issue_comments"][1]
+                row["body"]=row["body"].replace("More of your lovely PRs please.", ":rocket:")
+                row["body"]=row["body"].replace(location, location + f" [P{priority}] finding")
+                self.blocked(args)
+
     def test_workflow_and_contract_preserve_protected_default_branch_boundary(self):
         contract=json.loads(CONTRACT.read_text(encoding="utf-8"))
         self.assertEqual(contract["required_status_checks"], ["validate", "portfolio_guard", "review_complete"])
@@ -216,6 +251,10 @@ class CommentReceiptTests(unittest.TestCase):
         self.assertIs(contract["maintainer_attestation_required"], True)
         self.assertIs(contract["admin_merge_bypass_allowed"], False)
         self.assertIn(gate.COMMENT_EVIDENCE, contract["accepted_evidence"])
+        decoration=contract["issue_comment_receipt_protocol"]["clean_decoration_policy"]
+        self.assertEqual(decoration["ascii_shortcode_name_max_characters"], 32)
+        self.assertEqual(decoration["maximum_shortcodes"], 1)
+        self.assertIs(decoration["arbitrary_prose_allowed"], False)
         workflow=WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('ref: ${{ github.event.repository.default_branch }}', workflow)
         self.assertIn('reviewThreads(first:100,after:$endCursor)', workflow)

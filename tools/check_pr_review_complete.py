@@ -180,7 +180,8 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
     latest_receipt = _latest_unique(receipt_rows, "ambiguous_latest_codex_receipt")
     receipts = []
     pattern = (r"<!-- codex-review-receipt:v1 -->\n\s*\n"
-        r"Codex Review: Didn't find any major issues\.(?: Keep it up!| More of your lovely PRs please\.)?\n\s*\n"
+        r"Codex Review: Didn't find any major issues\."
+        r"(?: Keep it up!| More of your lovely PRs please\.| Breezy!| :[a-z][a-z0-9_]{0,31}:)?\n\s*\n"
         r"\*\*Reviewed commit:\*\* `([0-9a-f]{10})`\s*(?P<details><details>.*</details>)?\s*")
     for row in [latest_receipt]:
         body = row["body"].replace("\r\n", "\n")
