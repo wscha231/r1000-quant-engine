@@ -176,11 +176,59 @@ jobs:
             --reviews "$ROOT/reviews.json" \
             --reactions "$ROOT/reactions.json" \
             "${ARGS[@]}" \
-            --output "$ROOT/result.json"
+            --output "$ROOT/result.json" > "$ROOT/legacy-evaluation-stdout.json"
           GATE_RC=$?
           set -e
+          # Preserve the legacy evidence path. Only its failed attested case
+          # needs the additive, independently collected issue-comment receipt.
+          if [ "$GATE_RC" != "0" ] && [ -f "$ROOT/attestation.json" ]; then
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" > "$ROOT/issue-comments.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" > "$ROOT/review-comments.json"
+            OWNER="${GITHUB_REPOSITORY%/*}"
+            REPOSITORY_NAME="${GITHUB_REPOSITORY#*/}"
+            gh api graphql --paginate --slurp \
+              -f owner="$OWNER" -f repository="$REPOSITORY_NAME" -F number="$PR_NUMBER" \
+              -f query='query($owner:String!,$repository:String!,$number:Int!,$endCursor:String) {
+                repository(owner:$owner,name:$repository) {
+                  nameWithOwner
+                  pullRequest(number:$number) {
+                    number headRefOid
+                    reviewThreads(first:100,after:$endCursor) {
+                      totalCount
+                      nodes { id isResolved }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  }
+                }
+              }' > "$ROOT/review-threads.json"
+            # GitHub must expand the receipt prefix uniquely in this repository.
+            # An ambiguous/missing commit lookup fails before evidence evaluation.
+            gh api "repos/$GITHUB_REPOSITORY/commits/${HEAD_SHA:0:10}" \
+              --jq '{sha: .sha, url: .url}' > "$ROOT/resolved-commit.json"
+            python - <<'PY' "$ROOT/resolved-commit.json" "$ROOT/commit-binding.json"
+          import json
+          import os
+          import sys
+          resolved = json.load(open(sys.argv[1], encoding="utf-8"))
+          with open(sys.argv[2], "w", encoding="utf-8") as output:
+              json.dump({"repository": os.environ["GITHUB_REPOSITORY"],
+                         "requested_prefix": os.environ["HEAD_SHA"][:10], **resolved}, output)
+          PY
+            set +e
+            python tools/check_pr_review_complete.py \
+              --pull-request "$ROOT/pr.json" --head-observation "$ROOT/head-observation.json" \
+              --reviews "$ROOT/reviews.json" --reactions "$ROOT/reactions.json" \
+              --attestation "$ROOT/attestation.json" --repository "$GITHUB_REPOSITORY" \
+              --issue-comments "$ROOT/issue-comments.json" --review-comments "$ROOT/review-comments.json" \
+              --review-threads "$ROOT/review-threads.json" --commit-binding "$ROOT/commit-binding.json" \
+              --output "$ROOT/result.json" > "$ROOT/comment-evaluation-stdout.json"
+            GATE_RC=$?
+            set -e
+          fi
+          cat "$ROOT/result.json"
           echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
           python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("status="+p["status"]); print("evidence_type="+str(p.get("evidence_type") or "none")); print("failures="+",".join(p["failures"]))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
+          python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("comment_binding="+json.dumps(p.get("comment_receipt_binding"),sort_keys=True,separators=(",",":")))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
 
       - name: Publish required review_complete check on PR head
         if: always() && steps.context.outputs.head_sha != ''
@@ -190,6 +238,7 @@ jobs:
           GATE_STATUS: ${{ steps.gate.outputs.status }}
           EVIDENCE_TYPE: ${{ steps.gate.outputs.evidence_type }}
           FAILURES: ${{ steps.gate.outputs.failures }}
+          COMMENT_BINDING: ${{ steps.gate.outputs.comment_binding }}
           CONCLUSION: ${{ steps.gate.outputs.gate_rc == '0' && 'success' || 'failure' }}
         run: |
           set -euo pipefail
@@ -206,6 +255,7 @@ jobs:
                   "summary": (
                       "Evidence: " + (os.environ.get("EVIDENCE_TYPE") or "none") + "\n\n" +
                       "Failures: " + (os.environ.get("FAILURES") or "none") + "\n\n" +
+                      "Comment receipt binding: " + (os.environ.get("COMMENT_BINDING") or "none") + "\n\n" +
                       "Unresolved conversations are enforced separately by master branch protection."
                   ),
               },
