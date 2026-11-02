@@ -2056,9 +2056,38 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
                 for column in ("roe_sign_flip_pos", "roe_turn_positive_4q"):
                     if column in latest:
                         updates[column] = 0.0
-                if "any_profitability_turn_positive_4q" in latest:
-                    updates["any_profitability_turn_positive_4q"] = float(any(
-                        safe_float(latest.get(column)) > 0 for column in ("profit_turn_positive_4q", "cashflow_turn_positive_4q")))
+    signals = {"op_income_ttm": "op_income_sign_flip_pos", "ocf_ttm": "ocf_sign_flip_pos",
+        "fcf_ttm": "fcf_sign_flip_pos", "net_income_ttm": "ni_sign_flip_pos"}
+    aliases = {"profit_turn_positive_4q": ("ni_sign_flip_pos",),
+        "cashflow_turn_positive_4q": ("ocf_sign_flip_pos", "fcf_sign_flip_pos"),
+        "any_profit_sign_flip_pos": tuple(signals.values()),
+        "any_profitability_turn_positive_4q": ("profit_turn_positive_4q", "cashflow_turn_positive_4q", "roe_turn_positive_4q")}
+    if not any(column in latest for column in (*signals.values(), *aliases)):
+        return
+    current = latest.copy()
+    for column, value in updates.items():
+        current[column] = value
+    validity = {}
+    def valid(field: str) -> bool:
+        if field not in validity:
+            validity[field] = (safe_float(current.get(field)) > 0
+                and native_financial_context(current, field) is not None)
+        return validity[field]
+    def positive(column: str) -> bool:
+        return safe_float(updates.get(column, latest.get(column))) > 0
+    for field, signal in signals.items():
+        if signal in latest and positive(signal) and not valid(field):
+            updates[signal] = np.nan
+    for alias, parents in aliases.items():
+        if alias not in latest:
+            continue
+        if any(parent in latest for parent in parents):
+            updates[alias] = float(any(positive(parent) for parent in parents))
+        elif positive(alias):
+            # A projected alias without its leaves has no selected-parent
+            # attribution. Preserve it only if every possible parent is valid.
+            fields = [field for field, signal in signals.items() if signal in parents]
+            updates[alias] = float(bool(fields) and all(valid(field) for field in fields))
 
 
 def _refresh_native_rule_of_40(row: pd.Series, updates: Any) -> None:

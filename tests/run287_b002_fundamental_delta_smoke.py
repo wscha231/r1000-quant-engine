@@ -2187,6 +2187,41 @@ class NativeFinancialContextTests(unittest.TestCase):
             self.assertEqual(guarded.iloc[0]["roe_turn_positive_4q"], 0.0)
             self.assertEqual(guarded.iloc[0]["any_profitability_turn_positive_4q"], 0.0)
 
+    def test_public_turnaround_aliases_use_only_valid_current_parent_signals(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            common = dict(period=period, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((period.month-1)//3+1), accession_number="signals-"+str(i))
+            for field, value in (("net_income", 20.0), ("ocf", -10.0 if i < 4 else 30.0), ("capex", 0.0)):
+                rows.append(self.row(**common, field_name=field, source_tag=field, start=start,
+                    duration_days=(period-start).days+1, value=value, unit="USD"))
+            for field, value in (("assets", 100.0 if i < 4 else 400.0), ("liabilities", 250.0)):
+                rows.append(self.row(**common, field_name=field, source_tag=field, start=pd.NaT, value=value, unit="USD"))
+        seed = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows))).tail(1)
+        cache = {}
+        stable = f.enforce_native_valuation_context(seed, _operation_cache=cache)
+        self.assertEqual(stable.iloc[0]["cashflow_turn_positive_4q"], 1.0)
+        for bad_field, expected_cash in (("ocf_ttm_unit", 0.0), ("capex_ttm_unit", 1.0)):
+            bad = stable.copy()
+            bad["liabilities_unit"] = "EUR"
+            bad[bad_field] = "EUR"
+            for options in ({}, {"_operation_cache": cache}):
+                actual = f.enforce_native_valuation_context(bad, **options).iloc[0]
+                self.assertTrue(pd.isna(actual["fcf_ttm"]))
+                self.assertTrue(pd.isna(actual["roe_proxy"]))
+                self.assertEqual(actual["roe_turn_positive_4q"], 0.0)
+                self.assertEqual(actual["cashflow_turn_positive_4q"], expected_cash)
+                self.assertEqual(actual["any_profitability_turn_positive_4q"], expected_cash)
+                self.assertEqual(actual["any_profit_sign_flip_pos"], expected_cash)
+        # Feature projections can retain the user alias without internal leaves.
+        projected = stable.drop(columns=["ocf_sign_flip_pos", "fcf_sign_flip_pos"])
+        projected["liabilities_unit"] = projected["ocf_ttm_unit"] = "EUR"
+        actual = f.enforce_native_valuation_context(projected).iloc[0]
+        self.assertEqual(actual["cashflow_turn_positive_4q"], 0.0)
+        self.assertEqual(actual["any_profitability_turn_positive_4q"], 0.0)
+
     def test_undated_candidate_does_not_replace_existing_latest_history(self):
         import r1000_pipeline as p
         periods = pd.date_range("2025-03-31", periods=5, freq="QE-DEC")

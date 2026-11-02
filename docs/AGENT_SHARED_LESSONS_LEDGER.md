@@ -9360,3 +9360,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   economic revenue-minus-cost lineage distinct from validated period-only
   operations; all unknown derivation roles remain conservative. The corrected
   four affected regressions passed before the new frozen-head full validation.
+- Independent A6 on4f05 reproduced refused FCF/ROE plus an OCF unit/proof
+  contradiction leaving old cashflow and union turnaround flags positive.
+  Validate positive leaf signals against their current native parent, then
+  rebuild aliases/unions; preserve a valid independent OCF signal when only
+  CapEx/FCF is refused. Projected aliases without selected leaves require all
+  possible parents. The4f60-case normal/-O passes precede this added edge.
