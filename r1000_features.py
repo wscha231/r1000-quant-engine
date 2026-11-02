@@ -932,11 +932,11 @@ def _native_ratio_metadata(row: pd.Series, field: str, parents: tuple[str, ...],
         field + "_financial_context": context, field + "_provenance": proof}
 
 
-def _native_history_comparison(frame: pd.DataFrame, field: str) -> pd.Series:
+def _native_history_comparison(frame: pd.DataFrame, field: str, *, periods: int = 4) -> pd.Series:
     unit = frame.get(field + "_unit", pd.Series(None, index=frame.index, dtype=object))
-    previous_unit = unit.groupby(frame["cik"]).shift(4)
+    previous_unit = unit.groupby(frame["cik"]).shift(periods)
     contexts = pd.Series([native_financial_context(row, field) for _, row in frame.iterrows()], index=frame.index, dtype=object)
-    previous = contexts.groupby(frame["cik"]).shift(4)
+    previous = contexts.groupby(frame["cik"]).shift(periods)
     compatible = pd.Series([native_financial_contexts_match([current, prior], period_mode="comparison")
         if isinstance(current, dict) and isinstance(prior, dict) else False
         for current, prior in zip(contexts, previous)], index=frame.index)
@@ -1776,25 +1776,60 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
             columns=["cik", "period", "trend_accepted"] + TREND_COLS
         )
 
+    partitions = _financial_partitions(panel)
+    if len(partitions) > 1:
+        parts = [compute_fundamental_trend_features(panel.iloc[positions]) for _, positions in partitions]
+        return pd.concat(parts, ignore_index=True).sort_values(["cik", "period"], kind="stable").reset_index(drop=True)
+
     d = panel.copy().sort_values(["cik", "period"]).reset_index(drop=True)
     d["trend_accepted"] = pd.to_datetime(d.get("accepted"), errors="coerce")
+    native = financial_native_mask(d).any()
+    comparisons = {}
+    def comparison(field: str, periods: int = 4) -> pd.Series:
+        key = field, periods
+        if key not in comparisons:
+            comparisons[key] = _native_history_comparison(d, field, periods=periods)
+        return comparisons[key]
+    if native:
+        margins = pd.DataFrame([_native_operating_margin(row) for _, row in d.iterrows()], index=d.index)
+        for column in margins:
+            d[column] = margins[column]
 
     if "revenues_ttm" in d.columns:
-        d["rev_growth_yoy"] = d.groupby("cik")["revenues_ttm"].pct_change(4)
+        d["rev_growth_yoy"] = (d.groupby("cik")["revenues_ttm"].pct_change(4, fill_method=None)
+            if native else d.groupby("cik")["revenues_ttm"].pct_change(4))
+        if native:
+            d["rev_growth_yoy"] = d["rev_growth_yoy"].where(comparison("revenues_ttm") & np.isfinite(d["rev_growth_yoy"]))
         d["rev_growth_accel_4q"] = d.groupby("cik")["rev_growth_yoy"].diff(1)
+        if native:
+            d["rev_growth_accel_4q"] = d["rev_growth_accel_4q"].where(comparison("revenues_ttm", 1))
         # 2nd derivative: acceleration of acceleration
         d["revenue_accel_2nd_deriv"] = d.groupby("cik")["rev_growth_accel_4q"].diff(1)
+        if native:
+            d["revenue_accel_2nd_deriv"] = d["revenue_accel_2nd_deriv"].where(comparison("revenues_ttm", 1))
 
     if "op_margin_ttm" in d.columns:
         d["margin_trend_4q"] = d.groupby("cik")["op_margin_ttm"].diff(4)
+        if native:
+            d["margin_trend_4q"] = d["margin_trend_4q"].where(comparison("op_margin_ttm"))
 
     if "ocf_ttm" in d.columns and "net_income_ttm" in d.columns:
         ni = pd.to_numeric(d["net_income_ttm"], errors="coerce").replace(0, np.nan)
         d["ocf_ni_quality_4q"] = pd.to_numeric(d["ocf_ttm"], errors="coerce") / ni
+        if native:
+            compatible = pd.Series([isinstance(row.get("ocf_ttm_unit"), str)
+                and re.fullmatch(r"[A-Z]{3}", row["ocf_ttm_unit"]) is not None
+                and row["ocf_ttm_unit"] == row.get("net_income_ttm_unit")
+                and all(np.isfinite(safe_float(row.get(field))) for field in ("ocf_ttm", "net_income_ttm"))
+                and native_derivation_evidence(row, ("ocf_ttm", "net_income_ttm"), "cashflow_over_income") is not None
+                for _, row in d.iterrows()], index=d.index)
+            d["ocf_ni_quality_4q"] = d["ocf_ni_quality_4q"].where(compatible)
 
     # Growth inflection: growth just turned positive with acceleration
-    sgy = pd.to_numeric(d.get("sales_growth_yoy"), errors="coerce")
-    sgy_prev = d.groupby("cik")["sales_growth_yoy"].shift(4) if "sales_growth_yoy" in d.columns else pd.Series(np.nan, index=d.index)
+    sgy = numeric_series_or_default(d, "sales_growth_yoy", np.nan)
+    if native:
+        sgy = sgy.where(comparison("revenues_ttm"))
+    sgy_prev = sgy.groupby(d["cik"]).shift(4)
     rga = pd.to_numeric(d.get("rev_growth_accel_4q"), errors="coerce")
     d["growth_inflection_signal"] = (
         (sgy > 0) & (sgy_prev <= 0.05) & (rga > 0)
@@ -1803,9 +1838,10 @@ def compute_fundamental_trend_features(panel: pd.DataFrame) -> pd.DataFrame:
     # Margin expansion during growth phase
     opm = pd.to_numeric(d.get("op_margin_ttm"), errors="coerce")
     opm_prev = d.groupby("cik")["op_margin_ttm"].shift(4) if "op_margin_ttm" in d.columns else pd.Series(np.nan, index=d.index)
-    d["margin_expansion_at_growth"] = (
-        (opm > opm_prev) & (sgy > 0.15)
-    ).astype(float).fillna(0.0)
+    expansion = (opm > opm_prev) & (sgy > 0.15)
+    if native:
+        expansion &= comparison("op_margin_ttm")
+    d["margin_expansion_at_growth"] = expansion.astype(float).fillna(0.0)
 
     keep = ["cik", "period", "trend_accepted"]
     for c in TREND_COLS:
