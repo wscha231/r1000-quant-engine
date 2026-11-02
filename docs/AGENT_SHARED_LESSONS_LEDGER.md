@@ -9370,3 +9370,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   OCF units and infinite amounts retaining a positive signal. Native context
   alone permits absent units; a positive signal additionally needs a finite
   non-boolean amount and an explicit three-letter monetary unit.
+- Current a79 review found a second historical consumer rebuilding refused
+  comparisons in monthly trends, plus legacy payout losing valid income/FCF
+  when market cap was missing. Reuse native/source partitions and context
+  comparisons before trend differences, adjacent acceleration and composites.
+  Native payout uses guarded converted denominators; legacy payout retains
+  original reported income/FCF without a market-cap dependency. Preserve A3
+  checkpoint b2be2a7b and close its writer before resuming the financial lane;
+  superseded side-effect-free CI41384200304 was cancelled, not passed.

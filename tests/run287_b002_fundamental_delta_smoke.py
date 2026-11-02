@@ -2230,6 +2230,56 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertEqual(actual["cashflow_turn_positive_4q"], 0.0)
         self.assertEqual(actual["any_profitability_turn_positive_4q"], 0.0)
 
+    def test_monthly_trend_consumer_validates_native_history_and_preserves_legacy(self):
+        import r1000_features as f
+        rows = []
+        for i, end in enumerate(pd.date_range("2023-03-31", periods=16, freq="QE-DEC")):
+            scope = None if i < 8 else "subsidiary"
+            start = end-pd.DateOffset(years=1)+pd.Timedelta(days=1)
+            row = dict(cik="0000000001", period=end, accepted=end+pd.Timedelta(days=20),
+                financial_metadata_version="native-unit-fiscal-v1", sales_growth_yoy=0.0 if i < 8 else 1.0)
+            revenue = 400.0 if i < 8 else 800.0
+            for field, amount in (("revenues_ttm", revenue), ("op_income_ttm", revenue*(0.1 if i < 8 else 0.2)),
+                ("ocf_ttm", 80.0), ("net_income_ttm", 50.0)):
+                row[field], row[field+"_unit"] = amount, "USD"
+                row[field+"_financial_context"] = json.dumps(dict(identities={"cik":"0000000001"},
+                    scope={"dimensions":scope}, period_start=str(start.date()), period_end=str(end.date())))
+                row[field+"_provenance"] = json.dumps([dict(cik="0000000001", context_dimensions=scope,
+                    start=str(start.date()), period=str(end.date()), source_tag=field)])
+            row["op_margin_ttm"] = row["op_income_ttm"]/revenue
+            rows.append(row)
+        native = pd.DataFrame(rows)
+        actual = f.compute_fundamental_trend_features(native)
+        for field in ("rev_growth_accel_4q", "revenue_accel_2nd_deriv", "margin_trend_4q"):
+            self.assertTrue(actual.loc[8:11, field].isna().all(), field)
+            self.assertEqual(actual.iloc[-1][field], 0.0)
+        self.assertTrue(actual.loc[8:11, "margin_expansion_at_growth"].eq(0.0).all())
+        self.assertEqual(actual.iloc[-1]["ocf_ni_quality_4q"], 1.6)
+        # Same values without native typing retain the established legacy math.
+        legacy = native.drop(columns="financial_metadata_version")
+        expected_legacy = f.compute_fundamental_trend_features(legacy)
+        self.assertEqual(expected_legacy.loc[8, "rev_growth_accel_4q"], 1.0)
+        self.assertAlmostEqual(expected_legacy.loc[8, "margin_trend_4q"], 0.1)
+        combined = f.compute_fundamental_trend_features(pd.concat([native, legacy], ignore_index=True))
+        expected = pd.concat([actual, expected_legacy], ignore_index=True)
+        order = ["cik", "period", "margin_trend_4q"]
+        pd.testing.assert_frame_equal(combined.sort_values(order).reset_index(drop=True),
+            expected.sort_values(order).reset_index(drop=True))
+        bad = native.copy(); bad["ocf_ttm_unit"] = "EUR"
+        self.assertTrue(f.compute_fundamental_trend_features(bad)["ocf_ni_quality_4q"].isna().all())
+
+    def test_legacy_payout_keeps_income_and_fcf_without_market_cap(self):
+        import r1000_pipeline as p
+        for income, expected in ((50.0, 0.6), (float("nan"), 0.5), (-10.0, 0.5)):
+            row = dict(ticker="LEGACY", shares=100.0, px=10.0, mktcap=float("nan"),
+                net_income_ttm=income, revenues_ttm=500.0, ocf_ttm=80.0, capex_ttm=20.0,
+                dividends_ttm_ps=0.3, dividend_yield_ttm=0.03)
+            actual = p.compute_valuation_columns(pd.DataFrame([row])).iloc[0]
+            self.assertAlmostEqual(actual["dividend_payout_ratio"], expected)
+            self.assertGreater(actual["dividend_policy_score"], 0.0)
+            self.assertEqual(actual["valuation_context_status"], "UNVERIFIED")
+            self.assertTrue(pd.isna(actual["mktcap"]))
+
     def test_undated_candidate_does_not_replace_existing_latest_history(self):
         import r1000_pipeline as p
         periods = pd.date_range("2025-03-31", periods=5, freq="QE-DEC")

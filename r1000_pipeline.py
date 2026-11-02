@@ -8283,7 +8283,8 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     )
     d["book_to_market_proxy"] = equity_proxy / d["mktcap"].replace(0, np.nan)
     d = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
-    net_income_ttm = d["ep_ttm"] * d["mktcap"]
+    native_rows = financial_native_mask(d)
+    net_income_ttm = net_income_ttm.where(~native_rows, d["ep_ttm"] * d["mktcap"])
     d["forward_pe_final"] = numeric_series_or_default(d, "forward_pe_final", np.nan)
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "av_forward_pe", np.nan))
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "forward_pe", np.nan))
@@ -8321,8 +8322,9 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     payout_eps = payout_eps.where((eps_ttm > 0) & np.isfinite(eps_ttm), np.nan)
     payout_ni = dividends_total / net_income_ttm.replace(0, np.nan)
     payout_ni = payout_ni.where(net_income_ttm > 0, np.nan)
-    payout_fcf = dividends_total / (d["fcfy_ttm"] * d["mktcap"]).replace(0, np.nan)
-    payout_fcf = payout_fcf.where(d["fcf_ttm"] > 0, np.nan)
+    fcf_for_payout = d["fcf_ttm"].where(~native_rows, d["fcfy_ttm"] * d["mktcap"])
+    payout_fcf = dividends_total / fcf_for_payout.replace(0, np.nan)
+    payout_fcf = payout_fcf.where(fcf_for_payout > 0, np.nan)
     payout = payout_eps.fillna(payout_ni).fillna(payout_fcf)
     payout = payout.where(dividends_ps.fillna(0.0) > 0, np.nan)
     d["dividend_payout_ratio"] = payout
