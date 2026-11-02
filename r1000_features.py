@@ -957,6 +957,45 @@ def _native_operating_margin(row: pd.Series) -> dict[str, Any]:
         "op_margin_ttm_missing_reason": "" if valid else "incompatible_or_missing_native_operating_margin_parents"}
 
 
+def _native_roic(row: pd.Series) -> dict[str, Any]:
+    """Recompute the current proxy from its selected, non-refused parents."""
+    current = "current_liabilities"
+    supplied = any(not _native_optional_text_absent(row.get(current + suffix))
+        for suffix in ("", "_unit", "_missing_reason", "_financial_context", "_provenance", "_fact_provenance"))
+    denominator = current if supplied else "liabilities"
+    parents = ("op_income_ttm", "assets", denominator)
+    amounts = []
+    reason = ""
+    for field in parents:
+        raw = row.get(field)
+        amount = np.nan if isinstance(raw, (bool, np.bool_)) else safe_float(raw)
+        if not _native_optional_text_absent(row.get(field + "_missing_reason")):
+            reason = reason or "refused_native_roic_parent:" + field
+        elif not np.isfinite(amount):
+            reason = reason or "missing_or_invalid_native_roic_parent:" + field
+        amounts.append(amount)
+    units = [row.get(field + "_unit") for field in parents]
+    derivation = "nopat_079_over_assets_minus_" + (current if supplied else "liabilities_030_proxy")
+    evidence = native_derivation_evidence(row, parents, derivation)
+    if not reason and (evidence is None or not all(isinstance(unit, str)
+        and bool(re.fullmatch(r"[A-Z]{3}", unit)) and unit == units[0] for unit in units)):
+        reason = "incompatible_or_missing_native_roic_parent_context"
+    invested = amounts[1] - amounts[2] * (1.0 if supplied else 0.30)
+    if not reason and (not np.isfinite(invested) or invested == 0):
+        reason = "zero_or_invalid_native_invested_capital"
+    # Zero and negative operating income, and actual zero current liabilities,
+    # are valid observations. Never carry a prior ratio across a current refusal.
+    result = amounts[0] * 0.79 / invested if not reason else np.nan
+    if not reason and not np.isfinite(result):
+        reason = "nonfinite_native_roic"
+    valid = not reason
+    context, proof = evidence if valid else (None, None)
+    return {"roic_approx": float(np.clip(result, -0.50, 1.00)) if valid else np.nan,
+        "roic_approx_missing_reason": reason, "roic_approx_derivation": derivation,
+        "roic_approx_unit": units[0] + "/" + units[0] if valid else None,
+        "roic_approx_financial_context": context, "roic_approx_provenance": proof}
+
+
 def _native_margin_stability(frame: pd.DataFrame) -> pd.Series:
     """Keep the existing last-eight/min-four formula within the current scope."""
     result = pd.Series(np.nan, index=frame.index, dtype=float)
@@ -2295,6 +2334,8 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     out["operating_margins_missing_reason"] = out["op_margin_ttm_missing_reason"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
     out["debt_to_equity"] = native_ratio("liabilities", "equity_native", "debt_to_equity")
+    for key, item in _native_roic(out).items():
+        out[key] = item
     for field, parents, derivation in (
         ("roe_proxy", ("net_income_ttm", "assets", "liabilities"), "net_income_over_assets_minus_liabilities"),
         ("debt_to_equity", ("assets", "liabilities"), "liabilities_over_assets_minus_liabilities"),
@@ -2342,9 +2383,9 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
     if frame.empty:
         return frame.copy()
     fixed = {"mktcap", "market_cap_live", "mktcap_unit", "shares_effective", "ep_ttm", "sp_ttm", "fcfy_ttm",
-        "roa_proxy", "asset_turnover_ttm", "roe_proxy", "return_on_equity_effective", "gp_to_assets_ttm",
+        "roa_proxy", "asset_turnover_ttm", "roe_proxy", "roic_approx", "return_on_equity_effective", "gp_to_assets_ttm",
         "book_to_market_proxy", "gross_margins", "gross_margin_ttm", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "fcf_margin", "eps_ttm", "current_price_live", "gross_profit", "gross_profit_ttm"}
-    operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
+    operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "current_liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
     prefixes = tuple(field + "_" for field in operands) + ("price_", "share_basis_", "ads_ratio_", "fx_", "source_", "reader_", "identity_")
     scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "financial_metadata_version", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
     records = []
@@ -2367,7 +2408,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
             owned = fixed | {key + "_missing_reason" for key in fixed}
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_", "roe_proxy_", "debt_to_equity_")))
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_", "roe_proxy_", "roic_approx_", "debt_to_equity_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
@@ -3213,6 +3254,11 @@ def recompute_fund_panel_derived_columns(
 
     for c in CORE_FUNDAMENTAL_COLUMNS:
         if c in d.columns:
+            if typed_native and c in {"op_income", "op_income_ttm", "assets", "liabilities"}:
+                invalid = d[c].map(lambda value: isinstance(value, (bool, np.bool_)))
+                d.loc[invalid, c] = np.nan
+                if invalid.any():
+                    d.loc[invalid, c + "_missing_reason"] = "invalid_native_boolean_amount"
             d[c] = pd.to_numeric(d[c], errors="coerce")
 
     balance_cols = [c for c in ["assets", "liabilities", "shares"] if c in d.columns]
@@ -3643,7 +3689,7 @@ def recompute_fund_panel_derived_columns(
             d["rd_intensity"] = np.nan
 
     # ROIC approximation: NOPAT / Invested Capital proxy
-    if assets_col is not None and liab_col is not None and op_inc_col is not None:
+    if not typed_native and assets_col is not None and liab_col is not None and op_inc_col is not None:
         if "current_liabilities" in d.columns and pd.to_numeric(d["current_liabilities"], errors="coerce").notna().any():
             curr_liab = pd.to_numeric(d["current_liabilities"], errors="coerce").replace(0, np.nan)
         else:
@@ -3782,7 +3828,6 @@ def recompute_fund_panel_derived_columns(
             "net_margin": ("net_income_ttm", "revenues_ttm"),
             "gross_margin_ttm": ("gross_profit_ttm", "revenues_ttm"),
             "op_margin_calc_ttm": ("op_income_ttm", "revenues_ttm"),
-            "roic_approx": ("op_income_ttm", "assets", "liabilities"),
             "roe_proxy": ("net_income_ttm", "assets", "liabilities"),
             "debt_to_equity": ("assets", "liabilities"),
             "interest_coverage": ("op_income_ttm", "liabilities"),
@@ -3803,6 +3848,9 @@ def recompute_fund_panel_derived_columns(
             reason = f"{column}_missing_reason"
             d[reason] = d.get(reason, pd.Series("", index=d.index)).fillna("")
             d.loc[~valid, reason] = "incompatible_or_missing_component_units"
+        roic = pd.DataFrame([_native_roic(row) for _, row in d.iterrows()], index=d.index)
+        for column in roic:
+            d[column] = roic[column]
         d["fcf_ttm_unit"] = d.get("ocf_ttm_unit", pd.Series(None, index=d.index, dtype=object)).where(d["fcf_ttm"].notna())
         for field in ("assets", "liabilities", "shares", "gross_profit"):
             reason = d.get(f"{field}_missing_reason", pd.Series("", index=d.index)).fillna("")

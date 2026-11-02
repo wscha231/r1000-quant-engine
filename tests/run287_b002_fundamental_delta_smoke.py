@@ -632,6 +632,115 @@ class NativeFinancialContextTests(unittest.TestCase):
                 start=start, period="2025-12-31", source_tag=field)])
         return pd.Series(values)
 
+    def test_native_roic_cannot_carry_across_refused_current_assets(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            common = dict(period=period, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((i % 4)+1), accession_number="roic-"+str(i), unit="USD")
+            rows.append(self.row(**common, field_name="op_income", source_tag="OperatingIncome",
+                start=start, duration_days=(period-start).days+1, value=20.0))
+            for field, amount in (("assets", 1000.0), ("liabilities", 400.0)):
+                rows.append(self.row(**common, field_name=field, source_tag=field, start=pd.NaT, value=amount))
+        control = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        self.assertAlmostEqual(control.iloc[-1]["roic_approx"], 80*0.79/(1000-400*0.30))
+        conflict = dict(rows[-2], value=2000.0)
+        for records in (rows+[conflict], [conflict]+rows):
+            bad = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(records)))
+            self.assertEqual(bad.iloc[-1]["assets_missing_reason"], "conflicting_native_facts_or_contexts")
+            for result in (bad, f.enforce_native_valuation_context(bad.tail(1))):
+                self.assertTrue(pd.isna(result.iloc[-1]["roic_approx"]))
+                self.assertIn("assets", result.iloc[-1]["roic_approx_missing_reason"])
+            self.assertEqual(len(bad), len(control))
+            self.assertAlmostEqual(bad.iloc[-1]["op_income_ttm"], 80.0)
+        # Refusal also applies before clipping when a direct native panel is reused.
+        for amount in (float("inf"), float("-inf"), True, np.bool_(False)):
+            bad = control.copy()
+            bad["assets"] = bad["assets"].astype(object)
+            bad.loc[bad.index[-1], "assets"] = amount
+            self.assertTrue(pd.isna(f.recompute_fund_panel_derived_columns(bad).iloc[-1]["roic_approx"]))
+        for position, amount in ((-2, True), (-1, np.bool_(False)), (-3, True), (-2, float("inf"))):
+            bad_rows = [dict(row) for row in rows]
+            bad_rows[position]["value"] = amount
+            selected = select_accession_field_records(pd.DataFrame(bad_rows))
+            current = selected[selected["accession_number"] == "roic-7"]
+            self.assertIn("invalid_native_amount", current["missing_reason"].tolist())
+            self.assertTrue(pd.isna(build_exact_fundamental_panel(selected).iloc[-1]["roic_approx"]))
+
+    def test_native_roic_public_cache_selected_parent_and_readback(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        original = self.financial().to_dict()
+        original.update(self.price_context(), ticker="SYN", current_price_live=10.0, px=10.0,
+            mktcap=1000.0, op_income_ttm=80.0, op_income_ttm_unit="USD", roic_approx=999.0,
+            op_income_ttm_financial_context=original["net_income_ttm_financial_context"],
+            op_income_ttm_provenance=original["net_income_ttm_provenance"])
+        cache = {}
+        control = f.enforce_native_valuation_context(pd.DataFrame([original]), _operation_cache=cache)
+        self.assertAlmostEqual(control.loc[0, "roic_approx"], 80*0.79/880)
+        changed = control.copy(); changed["roic_approx"] = 999.0
+        self.assertAlmostEqual(f.enforce_native_valuation_context(changed, _operation_cache=cache).loc[0, "roic_approx"], 80*0.79/880)
+        for income in (0.0, -80.0):
+            changed = original | {"op_income_ttm": income}
+            self.assertAlmostEqual(f.native_valuation_overrides(pd.Series(changed), technical_price=10.0)["roic_approx"], income*0.79/880)
+        invalid = []
+        for field in ("assets", "liabilities", "op_income_ttm"):
+            invalid.extend([original | {field: amount} for amount in (float("nan"), float("inf"), float("-inf"), True, np.bool_(False))])
+            invalid.append(original | {field+"_missing_reason": "conflicting_native_facts_or_contexts"})
+        current = original | {"current_liabilities": 0.0, "current_liabilities_unit": "USD",
+            "current_liabilities_financial_context": original["liabilities_financial_context"],
+            "current_liabilities_provenance": original["liabilities_provenance"]}
+        # A supplied zero is the selected amount, not the 30% debt fallback.
+        zero = f.enforce_native_valuation_context(pd.DataFrame([current]), _operation_cache=cache)
+        self.assertAlmostEqual(zero.loc[0, "roic_approx"], 80*0.79/1000)
+        self.assertIn("current_liabilities", zero.loc[0, "roic_approx_derivation"])
+        no_total_debt = current | {"liabilities": float("nan"), "liabilities_missing_reason": "missing_native_fact"}
+        self.assertAlmostEqual(f.enforce_native_valuation_context(pd.DataFrame([no_total_debt])).loc[0, "roic_approx"], 80*0.79/1000)
+        for amount in (float("nan"), float("inf"), float("-inf"), True, np.bool_(False), 1000.0):
+            invalid.append(current | {"current_liabilities": amount})
+        invalid.append(current | {"current_liabilities_missing_reason": "refused_current_fact"})
+        invalid.append(current | {"current_liabilities_unit": "EUR"})
+        for key, value in (("period_end", "2024-12-31"), ("scope", {"dimensions": "segment"})):
+            context = json.loads(current["current_liabilities_financial_context"])
+            context[key] = value
+            invalid.append(current | {"current_liabilities_financial_context": json.dumps(context)})
+        for changed in invalid:
+            with self.subTest(changed={key: value for key, value in changed.items() if str(value) != str(original.get(key))}):
+                frame = pd.DataFrame([changed])
+                cached = f.enforce_native_valuation_context(frame, _operation_cache=cache)
+                fresh = f.enforce_native_valuation_context(frame)
+                self.assertTrue(pd.isna(cached.loc[0, "roic_approx"]))
+                self.assertEqual(cached.loc[0, "roic_approx_missing_reason"], fresh.loc[0, "roic_approx_missing_reason"])
+                self.assertTrue(cached.loc[0, "roic_approx_missing_reason"])
+                self.assertAlmostEqual(cached.loc[0, "fcf_margin"], 0.12)
+                self.assertIsNone(cached.loc[0, "roic_approx_provenance"])
+        # Removing the selected component and its evidence explicitly restores
+        # the legacy debt proxy; neither cache entries nor output edits decide.
+        restored = f.enforce_native_valuation_context(pd.DataFrame([original]), _operation_cache=cache)
+        self.assertAlmostEqual(restored.loc[0, "roic_approx"], 80*0.79/880)
+        refused = current | {"ticker": "REFUSED", "current_liabilities": float("nan"), "roic_approx": 999.0}
+        keep = ["ticker", "px", "current_price_live", "mktcap", "shares", "assets", "liabilities", "op_income_ttm",
+            "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "roic_approx"]
+        projected = p.project_feature_store_frame(pd.DataFrame([current, refused]), keep)
+        self.assertIn("current_liabilities", projected)
+        self.assertIn("current_liabilities_provenance", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("roic."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    read = pd.read_parquet(path)
+                result = p.compute_valuation_columns(read).set_index("ticker")
+                self.assertEqual(set(result.index), {"SYN", "REFUSED"})
+                self.assertAlmostEqual(result.loc["SYN", "roic_approx"], 80*0.79/1000)
+                self.assertTrue(pd.isna(result.loc["REFUSED", "roic_approx"]))
+                self.assertAlmostEqual(result.loc["REFUSED", "fcf_margin"], 0.12)
+                self.assertTrue(np.isfinite(result.loc["REFUSED", "sage_q_score"]))
+
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
         for order in (rows, rows[::-1]):

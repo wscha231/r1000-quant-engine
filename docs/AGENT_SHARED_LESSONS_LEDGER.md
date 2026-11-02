@@ -9403,3 +9403,17 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   timestamp tie and accept only observed fixed clean text/cheers and the exact
   About Codex footer (whitespace variations only). Earlier scoped passes did
   not cover these negative cases and are not proof of the corrected head.
+
+## 2026-11-03 — Clear current ROIC when a selected native parent is refused
+
+- Exact F6 Codex review on PR709 reproduced eight synthetic quarters with a
+  final same-unit/scope asset conflict: assets became null, but unconditional
+  ROIC carry retained 0.07181818181818182 through the public valuation guard.
+  Stop attestation/merge; side-effect-free CI41498142054 was cancelled, not
+  passed. Previous E3/F6 checks did not cover this current-parent refusal.
+- Recompute native ROIC from finite, non-boolean, non-refused current amounts
+  and compatible original evidence in both panel and public/cache paths. Bind
+  the actual selected current liabilities (including zero), or the explicit
+  30% total-liabilities proxy, through cache and feature-store readback. Keep
+  zero/negative operating income and legacy research formulas; clear only the
+  refused contribution, without removing the candidate or its other evidence.
