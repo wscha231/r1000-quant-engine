@@ -13,6 +13,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1928,9 +1929,10 @@ class NativeFinancialContextTests(unittest.TestCase):
         base = {**self.financial().to_dict(), **self.price_context(), "ticker": "VALID",
             "px": 10.0, "current_price_live": 10.0, "mktcap": 1000.0, "revenue_growth_final": 0.1,
             "price_to_sales": 2.0, "valuation_px": 10.0, "price_above_ma200": 1.0, "valuation_blueprint_score": 0.3}
-        for field in ("shares_unit", "shares_basis", "price_currency", "price_asof",
-            "share_basis_status", "share_basis_reference", "financial_metadata_version"):
-            rows = [base, {**base, "ticker": "ABSENT", field: None}, {**base, "ticker": "MALFORMED", field: True}]
+        for field, malformed in [(field, True) for field in ("shares_unit", "shares_basis", "price_currency", "price_asof",
+            "share_basis_status", "share_basis_reference", "financial_metadata_version")] + [
+            ("share_basis_reference", value) for value in ({}, [], {"claimed": "reference"}, ["reference"])]:
+            rows = [base, {**base, "ticker": "ABSENT", field: None}, {**base, "ticker": "MALFORMED", field: malformed}]
             frame = pd.DataFrame(rows)
             # Observe the actual pre-serialization refusal; no malformed scalar
             # may become an accepted reference merely by converting to text.
@@ -1961,6 +1963,29 @@ class NativeFinancialContextTests(unittest.TestCase):
                         self.assertTrue(pd.isna(result.loc["ABSENT", "mktcap"]), (field, suffix))
                     else:
                         self.assertEqual(result.loc["ABSENT", "valuation_context_status"], "UNVERIFIED")
+        # Existing validators explicitly allow numeric CIKs and these three
+        # datetime types; projection must preserve their economic meaning.
+        frame = pd.DataFrame([{**base, "ticker": str(i), "cik": cik} for i, cik in enumerate((1, 1.0, np.int64(1)))])
+        frame["price_asof"] = pd.Series([np.datetime64("2026-07-10T20:00:00"),
+            pd.Timestamp("2026-07-10T20:00:00Z"), pd.Timestamp("2026-07-10T20:00:00Z").to_pydatetime()], dtype=object)
+        self.assertTrue(f.enforce_native_valuation_context(frame)["mktcap"].eq(1000.0).all())
+        projected = p.project_feature_store_frame(frame, ["ticker", "px", "mktcap", "shares",
+            "assets", "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm"])
+        self.assertTrue(projected["cik"].eq("0000000001").all())
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp) / ("valid_roles." + suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    read = pd.read_parquet(path)
+                with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()), \
+                    patch.object(p, "repair_latest_history_depth_from_diagnostics", side_effect=lambda paths, frame: frame):
+                    result = p.normalize_latest_fundamental_snapshot(EngineConfig(), {}, read,
+                        apply_statement_repair=False, add_fundamental_flags=False)
+                self.assertTrue(result["mktcap"].eq(1000.0).all())
 
     def test_guarded_forward_ps_preserves_existing_growth_clip_with_fx(self):
         import r1000_features as f

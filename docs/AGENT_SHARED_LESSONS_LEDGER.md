@@ -9296,3 +9296,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   restoration preserves dtypes. Initial test startup used Python environments
   missing requests; the existing A1 virtual environment supplies dependencies
   without installation. These failed attempts are not successful validations.
+- Independent static A6 on89b07d39 identified three remaining type-role edges:
+  container references could become valid nonempty strings, and already valid
+  numeric CIKs/numpy datetime clocks could become malformed markers. Preserve
+  the existing accepted identity/clock types, and allow JSON containers only
+  for structured proof/context roles. The intermediate55 normal/-O successes
+  do not supersede these independent findings or certify the replacement head.

@@ -8506,21 +8506,26 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     textual_evidence = {"cik", "issuer_id", "entity_id", "security_id", "financial_metadata_version"}
     text_suffixes = tuple(suffix for suffix in suffixes if suffix != "_fy") + (
         "_reference", "_status", "_asof", "_valid_until", "_currency", "_basis", "_cutoff_date", "_as_of", "_last_date")
-    def evidence_scalar(value: Any) -> Optional[str]:
+    def evidence_scalar(value: Any, column: str) -> Optional[str]:
         if _native_optional_text_absent(value):
             return None
         if isinstance(value, str):
             return value
-        if isinstance(value, (pd.Timestamp, datetime)):
-            return value.isoformat()
-        if isinstance(value, (dict, list)):
+        if isinstance(value, (pd.Timestamp, datetime, np.datetime64)):
+            return pd.Timestamp(value).isoformat()
+        if (column == "cik" or column.endswith("_cik")) and not isinstance(value, (bool, np.bool_)):
+            text = str(value).removesuffix(".0")
+            if text.isdigit():
+                return text.zfill(10)
+        if isinstance(value, (dict, list)) and column.endswith((
+            "_provenance", "_financial_context", "_context_dimensions", "_entity_scope", "_segment", "_context_parent")):
             return json.dumps(value, sort_keys=True, default=str)
         # A malformed scalar must not become a nonempty "verified" reference
         # merely because Parquet requires a common textual type.
         return "__MALFORMED_NATIVE_TEXT_V1__:" + json.dumps(value, sort_keys=True, default=str)
     for column in evidence:
         if column in textual_evidence or column.endswith(text_suffixes):
-            output[column] = output[column].map(evidence_scalar)
+            output[column] = output[column].map(lambda value: evidence_scalar(value, column))
     return output
 
 
