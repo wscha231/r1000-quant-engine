@@ -100,6 +100,13 @@
     "latest_summary_and_receipt_required": true,
     "latest_timestamp_ties_allowed": false,
     "observed_clean_text_and_about_footer_only": true,
+    "clean_decoration_policy": {
+      "fixed_cheers": ["Keep it up!", "More of your lovely PRs please.", "Breezy!"],
+      "ascii_shortcode_name_max_characters": 32,
+      "maximum_shortcodes": 1,
+      "arbitrary_prose_allowed": false,
+      "unicode_emoji_allowed": false
+    },
     "evidence_must_fit_head_observation_attestation_window": true,
     "newer_findings_or_blocking_reviews_allowed": false,
     "complete_exact_head_graphql_thread_snapshot_required": true,
