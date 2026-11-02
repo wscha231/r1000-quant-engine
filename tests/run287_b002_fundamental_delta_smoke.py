@@ -2003,6 +2003,79 @@ class NativeFinancialContextTests(unittest.TestCase):
                     self.assertAlmostEqual(result[column], expected / (2 if currency == "EUR" else 1))
 
 
+    def test_projection_preserves_every_validated_owner_and_field_identity_conflict(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker": "SYN", "current_price_live": 10.0}
+        identities = {"cik": "0000000001", "issuer_id": "issuer-one", "entity_id": "entity-one", "entity": "owner-one"}
+        row.update(identities)
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            proof = json.loads(row[field + "_provenance"])
+            proof[0].update(identities)
+            context = json.loads(row[field + "_financial_context"])
+            context["identities"] = identities
+            row[field + "_provenance"] = json.dumps(proof)
+            row[field + "_financial_context"] = json.dumps(context)
+        cases = [("valid", row)]
+        for identity in identities:
+            bad = "0000000002" if identity == "cik" else "conflicting-owner"
+            cases.append(("owner-" + identity, {**row, identity: bad}))
+            cases.append(("field-" + identity, {**row, "shares_" + identity: bad, "shares_context_dimensions": None}))
+        frame = pd.DataFrame([{**value, "ticker": label} for label, value in cases])
+        before = f.enforce_native_valuation_context(frame).set_index("ticker")
+        self.assertEqual(before.loc["valid", "mktcap"], 1000.0)
+        self.assertTrue(before.drop(index="valid")["mktcap"].isna().all())
+        projected = p.project_feature_store_frame(frame, ["ticker", "current_price_live", "shares", "assets",
+            "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm"])
+        self.assertIn("entity", projected)
+        self.assertIn("shares_entity", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp) / ("owner_identity." + suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    read = pd.read_csv(path, dtype={"cik": str, "shares_cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    read = pd.read_parquet(path)
+                guarded = f.enforce_native_valuation_context(read).set_index("ticker")
+                self.assertEqual(guarded.loc["valid", "mktcap"], 1000.0)
+                self.assertAlmostEqual(guarded.loc["valid", "ep_ttm"], 0.05)
+                self.assertTrue(guarded.drop(index="valid")["mktcap"].isna().all(), suffix)
+                self.assertTrue(guarded.drop(index="valid")["ep_ttm"].isna().all(), suffix)
+
+    def test_margin_stability_uses_validated_native_ratios_before_public_scores(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            common = dict(period=period, start=start, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((period.month-1)//3+1), accession_number="margin-history-"+str(i),
+                duration_days=(period-start).days+1)
+            for field, value in (("revenues", 100.0), ("op_income", 20.0)):
+                rows.append(self.row(**common, field_name=field, value=value, unit="EUR", source_tag=field))
+        control = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        self.assertAlmostEqual(control.iloc[-1]["op_margin_ttm"], 0.2)
+        self.assertAlmostEqual(control.iloc[-1]["margin_stability_8q"], 0.0)
+        for mismatch in ("unit", "scope"):
+            bad = [{**row, **({"unit": "USD"} if mismatch == "unit" else {"context_dimensions": "subsidiary"})}
+                if row["field_name"] == "op_income" else row for row in rows]
+            panel = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(bad)))
+            self.assertTrue(panel["op_margin_ttm"].isna().all())
+            self.assertTrue(panel["margin_stability_8q"].isna().all())
+            with patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+                public = f.compute_live_factor_columns(panel.tail(2))
+            self.assertTrue(public["margin_stability_8q"].isna().all())
+        # A subsequently refused current operand cannot retain old histories,
+        # on either a direct guard pass or an operation-cache hit.
+        latest = control.tail(1).copy(); cache = {}
+        stable = f.enforce_native_valuation_context(latest, _operation_cache=cache)
+        self.assertAlmostEqual(stable.iloc[0]["margin_stability_8q"], 0.0)
+        stable["op_income_ttm_unit"] = "USD"
+        for result in (f.enforce_native_valuation_context(stable), f.enforce_native_valuation_context(stable, _operation_cache=cache)):
+            self.assertTrue(pd.isna(result.iloc[0]["margin_stability_8q"]))
+
+
 def main() -> int:
     test_exact_acceptance_amendment_and_missing_neutral()
     test_current_only_statement_uses_pinned_universe_identity_and_sec_baseline()

@@ -9307,3 +9307,17 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   supplied non-string scalar/container reference types remain malformed.
   Root's attempted early stop found multiple Python launcher owners and
   refused without terminating anything; the6f local suite completed normally.
+- Current d3 Codex found two further public edges despite scoped local/A6
+  passes: feature projection omitted top-level entity and per-field _entity,
+  removing an original identity contradiction; rolling margin stability was
+  computed before invalid operating margins were masked. Preserve every
+  validator-consumed identity and validate ratio operands before history or
+  score consumers. Refusing a current margin also invalidates retained margin
+  stability/trend on direct/cache paths. Prior scoped success is not global
+  completion. Superseded side-effect-free CI41373001629 was requested cancelled.
+- The new identity regression first exposed a related nullable selected-field
+  case: field-level identity contradictions must be checked even without a
+  separate scope witness; absent selected cells must coalesce to the owner
+  just like absent proof aliases. Preserve conflicting supplied values and
+  valid mixed-row readback controls together. Two initial synthetic failures
+  were retained before the corrected two-case pass; no actual Source read.

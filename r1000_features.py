@@ -648,7 +648,9 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     def identity(values: dict[str, Any]) -> dict[str, str]:
         result = {}
         for key in ("cik", "issuer_id", "entity_id", "entity"):
-            value = values.get(key, row.get(key))
+            value = values.get(key)
+            if not present(value):
+                value = row.get(key)
             if present(value):
                 text = str(value)
                 if key == "cik" and text.removesuffix(".0").isdigit():
@@ -785,6 +787,14 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
         witnesses.append((stored["identities"], stored["scope"]))
     if not witnesses or not witnesses[0][0] or not witnesses[0][1]:
         return None
+    # A selected field identity is a constraint even when its optional scope
+    # cell is absent (or became NaN in a mixed frame). Do not drop that
+    # contradiction merely because there is no separate selected-scope witness.
+    for key in ("cik", "issuer_id", "entity_id", "entity"):
+        if key in selected and present(selected[key]):
+            declared = identity({key: selected[key]}).get(key)
+            if any(identities.get(key) != declared for identities, _ in witnesses):
+                return None
     owner = identity({})
     if any(any(key in owner and owner[key] != value for key, value in identities.items()) for identities, _ in witnesses):
         return None
@@ -1949,6 +1959,7 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
         ("fcf_ttm", ("fcf_cagr_", "fcf_growth_", "fcf_sign_", "fcf_loss_", "fcf_under_"), set()),
         ("eps_ttm", ("eps_cagr_", "eps_growth_"), set()),
         ("gross_profit_ttm", ("gp_cagr_", "gp_growth_", "gross_profit_cagr_", "gross_profit_growth_", "gp_sign_", "gp_loss_"), set()),
+        ("op_margin_ttm", (), {"margin_stability_8q", "margin_trend_4q"}),
     ):
         value, old = safe_float(updates.get(field)), safe_float(latest.get(field))
         unchanged = np.isfinite(value) and np.isfinite(old) and value == old and all(
@@ -3025,6 +3036,11 @@ def recompute_fund_panel_derived_columns(
         d.loc[unknown_identity, "fundamental_missing_reason"] = "unknown_issuer_identity"
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = pd.to_datetime(d["accepted"], errors="coerce")
+    def same_units(*fields: str) -> pd.Series:
+        units = pd.concat([d.get(f"{f}_unit", pd.Series(None, index=d.index, dtype=object)) for f in fields], axis=1)
+        compatible = pd.Series([native_financial_contexts_match([native_financial_context(row, field) for field in fields])
+            for _, row in d.iterrows()], index=d.index)
+        return units.notna().all(axis=1) & units.nunique(axis=1).eq(1) & compatible
     d = d.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik", "period"], keep="last")
     d = d.sort_values(["cik", "period"]).reset_index(drop=True)
     d["fund_history_quarters_available"] = d.groupby("cik").cumcount() + 1
@@ -3172,6 +3188,8 @@ def recompute_fund_panel_derived_columns(
         d["gp_to_assets_ttm"] = d["gross_profit_ttm"] / d["assets"].replace(0, np.nan)
     if "op_income_ttm" in d.columns and "revenues_ttm" in d.columns:
         d["op_margin_ttm"] = d["op_income_ttm"] / d["revenues_ttm"].replace(0, np.nan)
+        if typed_native:
+            d["op_margin_ttm"] = d["op_margin_ttm"].where(same_units("op_income_ttm", "revenues_ttm"))
         d["margin_stability_8q"] = d.groupby("cik")["op_margin_ttm"].transform(
             lambda series: -series.rolling(8, min_periods=4).std())
     if "net_income_ttm" in d.columns and "ocf_ttm" in d.columns and "assets" in d.columns:
@@ -3559,10 +3577,6 @@ def recompute_fund_panel_derived_columns(
     ).astype(float)
     if typed_native:
         d = d.copy()
-        def same_units(*fields: str) -> pd.Series:
-            units = pd.concat([d.get(f"{f}_unit", pd.Series(None, index=d.index, dtype=object)) for f in fields], axis=1)
-            compatible = pd.Series([native_financial_contexts_match([native_financial_context(row, field) for field in fields]) for _, row in d.iterrows()], index=d.index)
-            return units.notna().all(axis=1) & units.nunique(axis=1).eq(1) & compatible
         # Guard only the financial results affected by incompatible evidence.
         dependencies = {
             "gross_profit": ("revenues", "cost_of_revenue"),

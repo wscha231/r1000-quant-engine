@@ -8493,17 +8493,17 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
         "liabilities_and_equity", "stockholders_equity_for_liabilities", "dividends_ttm_ps")
     suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
         "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",
-        "_context_id", "_context_dimensions", "_entity_id", "_entity_scope", "_segment", "_cik", "_issuer_id",
+        "_context_id", "_context_dimensions", "_entity_id", "_entity", "_entity_scope", "_segment", "_cik", "_issuer_id",
         "_context_parent", "_flow_status", "_cum_status", "_fact_status", "_availability_basis",
         "_unit_selection_policy", "_fiscal_grid_reference", "_fiscal_grid_status", "_fiscal_year_start")
     evidence = [column for column in universe.columns if column in {
-        "cik", "issuer_id", "entity_id", "security_id", "financial_metadata_version", "financial_context_status",
+        "cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version", "financial_context_status",
         "shares_basis", "ordinary_shares_per_ads", "dividends_share_basis", "fundamental_missing_reason", "candidate_ordinal",
     } or column.startswith(("price_", "share_basis_", "ads_ratio_", "fx_", "valuation_"))
         or (column.startswith(tuple(field + "_" for field in fields)) and column.endswith(suffixes))]
     columns = list(dict.fromkeys(keep_cols + evidence))
     output = universe.reindex(columns=columns).copy()
-    textual_evidence = {"cik", "issuer_id", "entity_id", "security_id", "financial_metadata_version"}
+    textual_evidence = {"cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version"}
     text_suffixes = tuple(suffix for suffix in suffixes if suffix != "_fy") + (
         "_reference", "_status", "_asof", "_valid_until", "_currency", "_basis", "_cutoff_date", "_as_of", "_last_date")
     clock_suffixes = ("_asof", "_valid_until", "_as_of", "_start", "_period", "_accepted", "_cutoff_date", "_last_date")
