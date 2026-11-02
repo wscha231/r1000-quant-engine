@@ -1931,7 +1931,9 @@ class NativeFinancialContextTests(unittest.TestCase):
             "price_to_sales": 2.0, "valuation_px": 10.0, "price_above_ma200": 1.0, "valuation_blueprint_score": 0.3}
         for field, malformed in [(field, True) for field in ("shares_unit", "shares_basis", "price_currency", "price_asof",
             "share_basis_status", "share_basis_reference", "financial_metadata_version")] + [
-            ("share_basis_reference", value) for value in ({}, [], {"claimed": "reference"}, ["reference"])]:
+            ("share_basis_reference", value) for value in ({}, [], {"claimed": "reference"}, ["reference"],
+                pd.Timestamp("2026-07-01"), np.datetime64("2026-07-01"),
+                pd.Timestamp("2026-07-01").to_pydatetime(), pd.Timestamp("2026-07-01").date())]:
             rows = [base, {**base, "ticker": "ABSENT", field: None}, {**base, "ticker": "MALFORMED", field: malformed}]
             frame = pd.DataFrame(rows)
             # Observe the actual pre-serialization refusal; no malformed scalar

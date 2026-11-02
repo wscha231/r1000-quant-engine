@@ -8506,13 +8506,16 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     textual_evidence = {"cik", "issuer_id", "entity_id", "security_id", "financial_metadata_version"}
     text_suffixes = tuple(suffix for suffix in suffixes if suffix != "_fy") + (
         "_reference", "_status", "_asof", "_valid_until", "_currency", "_basis", "_cutoff_date", "_as_of", "_last_date")
+    clock_suffixes = ("_asof", "_valid_until", "_as_of", "_start", "_period", "_accepted", "_cutoff_date", "_last_date")
     def evidence_scalar(value: Any, column: str) -> Optional[str]:
         if _native_optional_text_absent(value):
             return None
         if isinstance(value, str):
             return value
-        if isinstance(value, (pd.Timestamp, datetime, np.datetime64)):
+        if isinstance(value, (pd.Timestamp, datetime, np.datetime64)) and column.endswith(clock_suffixes):
             return pd.Timestamp(value).isoformat()
+        if isinstance(value, date) and column.endswith(("_start", "_period", "_accepted", "_cutoff_date", "_last_date")):
+            return value.isoformat()
         if (column == "cik" or column.endswith("_cik")) and not isinstance(value, (bool, np.bool_)):
             text = str(value).removesuffix(".0")
             if text.isdigit():

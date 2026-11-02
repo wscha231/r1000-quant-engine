@@ -9302,3 +9302,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   the existing accepted identity/clock types, and allow JSON containers only
   for structured proof/context roles. The intermediate55 normal/-O successes
   do not supersede these independent findings or certify the replacement head.
+- The6fca9511 delta review also rejected date objects converted into nonempty
+  reference strings. ISO conversion belongs only to clock/date roles; all
+  supplied non-string scalar/container reference types remain malformed.
+  Root's attempted early stop found multiple Python launcher owners and
+  refused without terminating anything; the6f local suite completed normally.
