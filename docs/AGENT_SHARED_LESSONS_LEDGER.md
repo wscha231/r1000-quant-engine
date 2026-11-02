@@ -9113,3 +9113,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   pins, current product bytes and changed-input refusal. CI41238471861 passed
   234/235 files; a focused positive/negative fixture experiment isolated both
   missing snapshots without changing the production guard or rerunning the suite.
+
+## 2026-11-03 — Bind Codex issue-comment receipts without bypassing review gates
+
+- A clean bot issue comment is absent from the PR review-submission endpoint.
+  Exact-head E3 reviews therefore remained blocked despite actual clean receipts.
+  Keep all three required checks, maintainer attestation and trusted default-
+  branch execution; add only a separate authenticated comment protocol.
+- A mutable summary's null finding flags are not evidence of no findings. Pair
+  the latest completed full-SHA summary with an unedited explicit clean receipt,
+  trusted Bot/user/App IDs, same repository/PR scope, original API clocks, unique
+  commit-prefix expansion and complete exact-head resolved-thread pages. Record
+  both body hashes and refuse newer findings, pending state or partial pages.
+- The compatibility PR cannot run its own gate implementation to approve
+  itself. Preserve bootstrap failure and obtain review through the currently
+  trusted gate; never force a check success or relabel a failed gate as passed.
+- Keep existing outer v2 schemas for strict Source/census readers; version the
+  added receipt payload separately. Publish one final evaluator JSON in the
+  workflow log so an internal legacy-then-comment probe does not look like two
+  conflicting accepted evaluations. Other consumers retain their own admission.
+- Independent A6 on3c828ae5 reproduced order-dependent PASS for tied latest
+  clean/pending summaries or clean/invalid receipts, and arbitrary priority
+  claims inside the permissive clean-line/footer pattern. Reject every latest
+  timestamp tie and accept only observed fixed clean text/cheers and the exact
+  About Codex footer (whitespace variations only). Earlier scoped passes did
+  not cover these negative cases and are not proof of the corrected head.

@@ -155,6 +155,17 @@ PASS must carry the exact PR/head, check identity, and GitHub Actions app ID;
 the same attestation binding applies when the ruleset lists only the two CI checks.
 The current `review_complete@15368` check result must also be PASS, so a stale
 structured PASS cannot override a conflicting current FAIL.
+The gate also supports a paired Codex issue-comment receipt: the exact trusted
+Bot/App must supply an immutable explicit clean receipt and the latest completed
+full-SHA summary. A null finding flag alone is not clean evidence. The trusted
+workflow resolves the short receipt SHA through this repository's commit API,
+binds both comments to the PR and observation/attestation window, and verifies
+complete exact-head GraphQL thread pages with zero unresolved conversations.
+Newer findings or a pending/blocked review refuse this additional path. Comment
+IDs and body hashes remain in the check receipt. The compatibility PR itself
+still runs the default-branch gate and cannot approve its own implementation.
+Tied latest timestamps refuse rather than select by input order. Receipt text
+accepts only observed fixed clean/cheer lines and the known About Codex footer.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 
