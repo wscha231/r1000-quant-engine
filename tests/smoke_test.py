@@ -1025,27 +1025,34 @@ def test_mktcap_proxy_bound_budget_zero() -> None:
 
 @_test("logic.adr_valuation_uses_adr_equivalent_shares")
 def test_adr_valuation_uses_adr_equivalent_shares() -> None:
-    """ADR EPS/share math should use mktcap/ADR price, not ordinary local shares."""
+    """ADS share math needs a reviewed ratio, native currency and source clocks."""
     if _args.quick:
         return
     import pandas as pd
+    import unittest
     from r1000_config import EngineConfig
     import r1000_pipeline as pipe
-
-    df = pd.DataFrame(
-        {
-            "ticker": ["TSM"],
-            "universe_source": ["adr_whitelist"],
-            "mktcap": [2.0e12],
-            "px": [400.0],
-            "shares": [25.0e9],
-            "net_income_ttm": [40.0e9],
-        }
-    )
-    out = pipe.compute_valuation_columns(df, EngineConfig())
-    row = out.iloc[0]
-    assert abs(float(row["shares_effective"]) - 5.0e9) < 1e3, row["shares_effective"]
-    assert abs(float(row["forward_pe_final"]) - 50.0) < 1e-6, row["forward_pe_final"]
+    check = unittest.TestCase()
+    df = pd.DataFrame([dict(ticker="TSM", universe_source="adr_whitelist", mktcap=2.0e12,
+        px=400.0, shares=25.0e9, net_income_ttm=40.0e9, shares_unit="shares",
+        net_income_ttm_unit="USD", financial_metadata_version="native-unit-fiscal-v1",
+        price_currency="USD", price_asof="2026-07-10T20:00:00Z", valuation_asof="2026-07-11T00:00:00Z", shares_basis="ordinary",
+        price_share_basis="ADS", share_basis_status="VERIFIED", share_basis_reference="synthetic-basis",
+        share_basis_asof="2026-07-01T00:00:00Z", ordinary_shares_per_ads=5.0,
+        ads_ratio_status="VERIFIED", ads_ratio_reference="synthetic-ads", ads_ratio_asof="2026-07-01T00:00:00Z")])
+    df["cik"] = "0001046179"
+    for field, start in (("shares", None), ("net_income_ttm", "2025-01-01")):
+        df[field + "_provenance"] = json.dumps([dict(cik="0001046179", context_dimensions=None,
+            start=start, period="2025-12-31", source_tag=field)])
+    row = pipe.compute_valuation_columns(df, EngineConfig()).iloc[0]
+    check.assertAlmostEqual(float(row["shares_effective"]), 5.0e9)
+    check.assertAlmostEqual(float(row["forward_pe_final"]), 50.0)
+    # A name/price/market-cap quotient cannot supply the missing ADS evidence.
+    df["ads_ratio_status"] = "UNKNOWN"
+    refused = pipe.compute_valuation_columns(df, EngineConfig()).iloc[0]
+    check.assertTrue(pd.isna(refused["shares_effective"]))
+    check.assertTrue(pd.isna(refused["ep_ttm"]))
+    check.assertEqual(refused["mktcap_missing_reason"], "missing_verified_ads_ratio")
 
 
 @_test("logic.companyfacts_prefers_usd_units")
@@ -1054,6 +1061,8 @@ def test_companyfacts_prefers_usd_units() -> None:
     if _args.quick:
         return
     import r1000_pipeline as pipe
+    import unittest
+    check = unittest.TestCase()
 
     payload = {
         "facts": {
@@ -1082,9 +1091,11 @@ def test_companyfacts_prefers_usd_units() -> None:
         }
     }
     out = pipe.extract_companyfacts_records(payload, "1046179", "revenues")
-    assert len(out) == 1, out
-    assert str(out.iloc[0]["unit"]) == "USD", out
-    assert abs(float(out.iloc[0]["value"]) - 100.0) < 1e-9, out
+    check.assertEqual(len(out), 1)
+    check.assertEqual(out.iloc[0]["unit"], "USD")
+    check.assertAlmostEqual(float(out.iloc[0]["value"]), 100.0)
+    check.assertEqual({r["unit"] for r in json.loads(out.iloc[0]["fact_provenance"])}, {"USD", "TWD"})
+    check.assertEqual(out.iloc[0]["source_namespace"], "ifrs-full")
 
 
 # ======================================================================

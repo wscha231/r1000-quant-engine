@@ -9113,3 +9113,268 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   pins, current product bytes and changed-input refusal. CI41238471861 passed
   234/235 files; a focused positive/negative fixture experiment isolated both
   missing snapshots without changing the production guard or rerunning the suite.
+
+
+## 2026-11-01 — Native financial unit and fiscal-context closure (H1)
+
+- Preserve field-bound native units, accession/context, original availability basis
+  and parent lineage as real panel columns through pivot, TTM, joins and disk
+  readback. A filed-only clock remains UNVERIFIED; typed facts do not admit a
+  source, authenticate an issuer/security binding or establish current Registry.
+- Prefer an actually reported USD fact with its original foreign alternatives
+  retained in provenance. Reject undeclared currency/value/context conflicts
+  independently of input order; literal shares excludes USD/shares and pure.
+  Select whole source rows when combining panels: groupby.first splices values
+  and evidence from different rows and revives explicitly refused nulls.
+- YTD subtraction needs compatible measure/unit/FY start, contiguous fiscal
+  periods and available parents; equal accession numbers are not required.
+  Short FY cannot masquerade as annual without explicit reviewed fiscal-grid
+  proof. Preserve 52/53-week years, 14-week Q4, losses, real zero and missing.
+- A sidecar-only valuation check is insufficient when later recompute/fillna
+  rebuilds the result. Reapply evidence guards in Main and live valuation: price
+  currency/clock, reviewed share basis, explicit ADS ratio and directional,
+  timestamped valid FX. Missing evidence nulls affected derivations, preserving
+  original financial values and requested candidates, including unknown issuers.
+- Validate synthetic positive and refusal paths in normal and optimized Python;
+  assertions alone disappear under -O. No real cohort recomputation, collection,
+  fullrun, Source/Paper/Registry write, admission or economic authority follows
+  from these checks. Independent exact-head review and required CI remain gates.
+
+
+## 2026-11-01 — PR709 exact-head review: preserve evidence across every consumer
+
+- Independent A6 reproduced a global sparsity leak: adding eight all-null
+  issuers switched five valid-date rows into positional CAGR and revived a
+  JPY-to-USD comparison. Typed rows always use per-issuer actual dates/context;
+  missing peers must change neither valid USD results nor currency refusals.
+- Unit equality alone cannot authorize cross-field FCF, equity or ratios.
+  Compare issuer/entity dimensions and actual period/TTM lineage while allowing
+  different legitimate measure tags. Persist the computed window as field-bound
+  metadata and retain native parent proofs; missing/conflicting context is null.
+- A correct producer/guard is insufficient if feature-store projection drops
+  evidence, if forward_ps_final keeps the pre-FX value, or if repeated guards
+  leave stale status/reason/reference columns. Exercise projection, CSV/Parquet
+  readback and actual normalization, valid-invalid-valid transitions, and the
+  value consumed by the unchanged score formula. Metadata is not a model feature.
+- Refill paths must include GP/assets and every guard-owned output. A 300-day
+  Q3 YTD remains a native cumulative observation, not a standalone annual TTM;
+  annual fallback requires actual full-fiscal-end evidence. Keep 53-week FY,
+  14-week Q4, losses and real zero.
+- The old 3cf5729c A6/Codex/CI cannot certify the corrected head. Its obsolete
+  nontransactional CI was canceled by Root, not counted as success or failure.
+  Focused synthetic tests do not establish real cohort/market-join impact,
+  Source admission, runtime performance, current Registry or ER/A5 authority.
+
+
+## 2026-11-01 — PR709 FFD review: invalidate derived state and verify original periods
+
+- Reapplying a guard must clear derived FCF, unit/context/provenance and dependent
+  values when either current OCF or CapEx is missing/nonfinite. An earlier FCF60
+  is not fallback evidence. Test valid-to-missing-each-parent-to-valid, including
+  real zero/loss controls; preserve original component observations and proofs.
+- A cached financial_context cannot overrule contradictory original periods.
+  Reconcile selected native spans and the actual rolling-four/annual-plus-YTD
+  date algebra before accepting the derived window; do not require all legitimate
+  parent dates to equal a TTM window or request new raw data to resolve a cache.
+- EPS and GP need derived context/provenance before lag and ratio consumers.
+  Keep EPS in native NI/reported-share units across its CAGR and listing guard.
+  GP fallback validates both parents and remains DERIVED_NOT_OBSERVED even if
+  an explicit marker is lost; a unit alone never grants direct-fact exemption.
+- Dividend payout validates its actual denominator: absent earnings may use
+  compatible FCF. Invalid dividend/share/denominator evidence cannot leave a
+  stale payout or score contribution. Existing score weights/thresholds remain.
+- Batch guard outputs and use only operation-local reuse keyed by current native
+  operands, original proof/period and price/share/FX/reference inputs. A changed
+  proof, source reference, share basis or null transition must invalidate reuse.
+- One synthetic pass per size, same Python3.12.10/pandas2.3.3 environment: 50 rows
+  1.503s to0.744s; 200 rows5.809s to2.686s. These are measured bounded helper
+  samples, not 100k extrapolation or full-pipeline/cohort attribution. Runtime
+  package/kernel IO is unmetered, not zero. SOURCE control remains UNISSUED;
+  no real Source/API/Drive/price/Book/fullrun or economic authority follows.
+
+
+## 2026-11-01 — PR709 A1 review: refresh bundles, caller histories and historical fixtures
+
+- Reuse only intrinsic valuation outputs. Every cache hit must compare the
+  current value/unit/context/proof/reason bundle and invalidate current-schema
+  FCF/EPS dependents on changes or refusal. Added/deleted/reordered columns and
+  duplicate-index candidate rows must match an uncached call; unchanged valid
+  histories remain valid. Never cache caller-owned history or policy columns.
+- FCF needs the same validated parent derivation evidence before lag as at
+  valuation. Native shares identity/scope and a nonfuture financial period are
+  prerequisites for market cap itself. Liability synthesis validates full parent
+  entity/scope/segment evidence before it can satisfy core coverage.
+- Explicit malformed dividend unit/basis objects are refusals, not legacy nulls.
+  Preserve dividend metadata/proof through production projection and CSV/Parquet
+  normalization without adding model features. Null text follows the documented
+  legacy-null contract; currency/basis mismatches still clear payout and score.
+- A refused rolling-quarter window must not hide an independently valid annual
+  observation. Original direct GP evidence can reset stale derived markers;
+  derived provenance cannot grant itself direct-observation exemption.
+- Historical group_577 positives must use the exact reviewed dependencies in a
+  temporary fixture. Current product/catalog guards remain intact; rewriting
+  accepted catalog pins to make a historical positive pass would recertify code.
+- The local agent_board entrypoint exposed missing sparse metadata plus two
+  separate Readiness failures. Do not label its partial run green or repeat the
+  entire suite while the same cause remains. A Windows temporary-fixture broker
+  CLI exit2 does not explain the Linux -6 failure; the cause remains UNKNOWN.
+  Fresh exact-head independent review/required CI remain Root-owned. SOURCE
+  control is UNISSUED; no real data collection, Book, fullrun or merge occurred.
+- Concurrent Native validation also produced MemoryError under low available
+  commit memory. Preserve the failed attempts and their cost; serialize bounded
+  checks and distinguish resource failures from financial or broker defects.
+
+
+## 2026-11-01 — PR709 912 review: row-local provenance and current derivation parents
+
+- Financial metadata is a row value, not a frame-wide column switch. Partition
+  the existing TTM/panel/lag calculation by native/legacy mode and source; an
+  unrelated typed-null issuer or another source for the same issuer cannot
+  erase legacy diagnostics or splice its history. Legacy stays UNVERIFIED;
+  unsupported explicit metadata stays UNKNOWN, with no admission upgrade.
+- Every derived GP refresh validates the current revenue/cost value, currency,
+  original scope/period and proof, including cached calls. A changed or missing
+  cost recomputes/refuses the bundle and margins; independent direct GP remains
+  observed. Keep OCF minus abs(CapEx) consistent before every valuation guard so
+  a transient sign error cannot delete valid unchanged FCF history.
+- Optional proof/context checks depend on non-null evidence in that row. Null
+  columns added by another issuer must not revoke a legacy payout. Explicit
+  malformed/conflicting evidence still refuses. Serialize malformed scalar
+  evidence as text at disk projection so mixed Parquet columns retain the same
+  refusal rather than failing during Arrow conversion.
+- Validate full native identity/entity/scope/segment before quarter cumulative
+  addition or subtraction. Use the canonical native scope in parent identity,
+  including nullable metadata equivalence. Refusing synthesis must preserve an
+  independent direct quarter or annual cumulative observation and block false
+  five-component core readiness.
+- Separating source histories exposed a legacy missing-field scalar in SAGE
+  derivation: missing optional metrics need indexed missing Series. Preserve
+  unidentified candidates as separate rows and retain precise unknown reasons.
+  Unknown-CIK-only groups also need indexed transform for rolling statistics;
+  an empty group is UNKNOWN, not an exception or a fabricated issuer.
+- Initial combined43-case verification recorded two errors (legacy missing GP
+  scalar and mixed proof Parquet types), followed by the unknown-CIK empty-group
+  probe error; preserve all logs/costs. Native runs
+  remain sequential under low commit-memory headroom. No actual data/fullrun,
+  Source control, T2 consumer execution or canonical/economic write is implied.
+
+
+## 2026-11-01 — PR709 pre-push A6: current ratios have distinct semantic parents
+
+- Scoped43-case and earlier family passes did not cover changing only revenue
+  while FCF stayed60. A6 actually observed stale margin0.12 after500-to1000
+  revenue; its Rule40 expectation was initially static, not observed output.
+- FCF CAGR depends on FCF history; current FCF margin depends on current FCF and
+  revenue values/units/scope/period. Recompute the existing clipped margin ratio
+  with its own denominator evidence. Zero/missing/incompatible revenue is null
+  with a reason; valid signed observations retain the existing arithmetic.
+- Rule40 uses existing current revenue growth + current margin with unchanged
+  clipping. Growth is refreshed on every cache hit; missing growth is UNKNOWN.
+  Revenue/growth changes alone must not delete unchanged valid historical CAGR.
+- Preserve9c62 checkpoint/private seal and failed A6 evidence. Add an actual
+  direct/cached/Main regression for0.06 margin/0.16 Rule40 plus unit/scope/period,
+  growth-only, missing/zero/negative cases. No Source/data/T2/fullrun/Book action.
+
+### 2026-11-02 — Preserve row modes and malformed evidence across public consumers
+
+- PR709 exact3d CI41316800847 completed SUCCESS, but its exact-head review
+  still found five actionable edges: public guards deleted legacy history;
+  null primary proof cells hid valid aliases; YoY omitted issuer/scope checks;
+  mixed malformed text aborted Parquet; guarded forward P/S changed the
+  existing growth clip. CI success does not resolve those findings.
+- The existing writer stopped at a usage limit before editing. Root verified
+  its failed/idle state, clean exact3d checkout and existing checkpoint, then
+  archived and reassigned the same seven-path exclusive lease. No new
+  worktree or parallel product writer was created.
+- Reuse the same row mode and original proof validators at public boundaries.
+  Preserve legacy observations as UNVERIFIED without typed admission. Apply
+  YoY context checks before downstream growth consumers. Serialize malformed
+  textual scalars with a reserved marker that cannot become a verified
+  reference; retain numeric price/valuation features as numeric columns.
+- The new mixed public-path test caught heterogeneous block assignment
+  changing float columns to object and breaking numpy isfinite. Per-column
+  restoration preserves dtypes. Initial test startup used Python environments
+  missing requests; the existing A1 virtual environment supplies dependencies
+  without installation. These failed attempts are not successful validations.
+- Independent static A6 on89b07d39 identified three remaining type-role edges:
+  container references could become valid nonempty strings, and already valid
+  numeric CIKs/numpy datetime clocks could become malformed markers. Preserve
+  the existing accepted identity/clock types, and allow JSON containers only
+  for structured proof/context roles. The intermediate55 normal/-O successes
+  do not supersede these independent findings or certify the replacement head.
+- The6fca9511 delta review also rejected date objects converted into nonempty
+  reference strings. ISO conversion belongs only to clock/date roles; all
+  supplied non-string scalar/container reference types remain malformed.
+  Root's attempted early stop found multiple Python launcher owners and
+  refused without terminating anything; the6f local suite completed normally.
+- Current d3 Codex found two further public edges despite scoped local/A6
+  passes: feature projection omitted top-level entity and per-field _entity,
+  removing an original identity contradiction; rolling margin stability was
+  computed before invalid operating margins were masked. Preserve every
+  validator-consumed identity and validate ratio operands before history or
+  score consumers. Refusing a current margin also invalidates retained margin
+  stability/trend on direct/cache paths. Prior scoped success is not global
+  completion. Superseded side-effect-free CI41373001629 was requested cancelled.
+- The new identity regression first exposed a related nullable selected-field
+  case: field-level identity contradictions must be checked even without a
+  separate scope witness; absent selected cells must coalesce to the owner
+  just like absent proof aliases. Preserve conflicting supplied values and
+  valid mixed-row readback controls together. Two initial synthetic failures
+  were retained before the corrected two-case pass; no actual Source read.
+- A6 then identified and Root reproduced a cross-period margin-scope gap:
+  consolidated and subsidiary ratios were individually valid but the10th
+  quarter's rolling statistic mixed1old+3new contexts and returned-0.1.
+  Bind ratio value/unit/context/proof together, persist it through projection,
+  and retain the original last8/min4 formula only within the current context.
+  Equal ratios after a parent-scope change still invalidate old history.
+  The small reproducer first had a whitespace SyntaxError, corrected before
+  reproduction; no data or Source execution occurred. Prior6a57-case normal/-O
+  successes remain earlier-head evidence, not proof of this new scope edge.
+- Real financial-only consumers R1/R2/R3 actually reused the same11 local
+  objects597798B each, Reader16700 rows/same generation+rowset, existing B002
+  and issuer-only partial snapshots. They finished29.344/20.422/21.296s,
+  with38081/45301/55617B owned outputs; Source/PIT/current/ER/A5 stayedfalse.
+  Expanding the already retained SEC index8→37 using the existing parser
+  raised the8x18 finite-cell count46→64, not144/144. No new provider calls.
+- The retained actual TTM proof showed mixed direct-quarter/YTD alternatives
+  and an implicit nested cumulative derivation. Native context refused that
+  ambiguous lineage while the amount remained observable. Emit explicit
+  selection/add/subtract proof roles with separately verified native, flow
+  and cumulative date spans; never accept a changed period without an original
+  matching proof or invent missing quarters. Earlier R1/R2/R3 remain immutable.
+- Current bb Codex also found late ROE validation leaking into trend/turnaround
+  composites, and undated Companyfacts placeholders replacing valid FSDS/cache
+  latest rows. Validate native equity/ROE/debt before their histories and
+  preserve compatible parent proof bundles. Prefer dated consumer views while
+  retaining undated candidates with no history; do not erase stored candidates
+  or trigger broad collection because NaT sorted last. Superseded PR CI
+  41376473570 was cancelled, not passed/failed; no transactional workflow ran.
+- Two preparation reviews exceeded wall budgets: financial caller T2 240/180s
+  and host-output-boundary review187/90s. Both retained their artifacts/costs
+  and stopped. These are not cap-compliance evidence or Source executions.
+  General-host explicit control/object counters exclude unmetered registry,
+  schema and package/DLL I/O; whole-process RSS is NOT_CERTIFIED, never zero.
+- The first full60-case closure attempt exposed one direct-GP positive
+  regression: new period-selection/add/subtract proof roles were treated as
+  cross-measure financial derivations. Preserve valid direct GP and keep
+  economic revenue-minus-cost lineage distinct from validated period-only
+  operations; all unknown derivation roles remain conservative. The corrected
+  four affected regressions passed before the new frozen-head full validation.
+- Independent A6 on4f05 reproduced refused FCF/ROE plus an OCF unit/proof
+  contradiction leaving old cashflow and union turnaround flags positive.
+  Validate positive leaf signals against their current native parent, then
+  rebuild aliases/unions; preserve a valid independent OCF signal when only
+  CapEx/FCF is refused. Projected aliases without selected leaves require all
+  possible parents. The4f60-case normal/-O passes precede this added edge.
+- The87074 delta fixed those aliases but independent A6 also reproduced null
+  OCF units and infinite amounts retaining a positive signal. Native context
+  alone permits absent units; a positive signal additionally needs a finite
+  non-boolean amount and an explicit three-letter monetary unit.
+- Current a79 review found a second historical consumer rebuilding refused
+  comparisons in monthly trends, plus legacy payout losing valid income/FCF
+  when market cap was missing. Reuse native/source partitions and context
+  comparisons before trend differences, adjacent acceleration and composites.
+  Native payout uses guarded converted denominators; legacy payout retains
+  original reported income/FCF without a market-cap dependency. Preserve A3
+  checkpoint b2be2a7b and close its writer before resuming the financial lane;
+  superseded side-effect-free CI41384200304 was cancelled, not passed.

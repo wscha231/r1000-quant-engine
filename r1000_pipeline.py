@@ -268,6 +268,12 @@ from r1000_features import (
     _flexible_lag,
     _cagr_from_lag,
     recompute_fund_panel_derived_columns,
+    native_valuation_overrides,
+    enforce_native_valuation_context,
+    financial_native_mask,
+    native_fact_record_context,
+    native_financial_contexts_match,
+    _native_optional_text_absent,
     compute_event_regime_features,
     sector_indicator,
     compute_macro_interaction_features,
@@ -2416,22 +2422,126 @@ def companyfacts_duration_days(start: Any, end: Any) -> Optional[int]:
     return int((e - s).days) + 1
 
 
-def preferred_companyfacts_unit_keys(field_name: str, unit_keys: Iterable[Any]) -> list[str]:
-    """Prefer USD monetary facts and share-count facts when SEC exposes multiple units.
+def preferred_companyfacts_unit_keys(
+    field_name: str, unit_keys: Iterable[Any], *, preserve_native_units: bool = False,
+) -> list[str]:
+    """Select only literal share counts; optionally retain every native currency.
 
     Foreign issuers may expose both reporting-currency and USD-translated facts.
     Using mixed units against USD market caps distorts valuation ratios. When a
     USD monetary unit exists, use it; otherwise keep the available unit so the
     pipeline degrades to sparse coverage instead of fabricating FX conversion.
     """
-    keys = [str(k) for k in unit_keys if str(k)]
+    keys = sorted({str(k) for k in unit_keys if str(k)})
     if not keys:
         return []
     if field_name == "shares":
-        share_keys = [k for k in keys if "shares" in k.lower()]
-        return share_keys or keys
+        return [k for k in keys if k == "shares"]
+    if preserve_native_units:
+        return keys
     usd_keys = [k for k in keys if k.upper() == "USD"]
     return usd_keys or keys
+
+
+def select_companyfacts_slots(records: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Resolve a native fact slot without using input order as financial evidence.
+
+    Direct-quarter/annual semantics outrank alternate durations. Within that
+    class, conflicting units, values or native contexts remain explicit nulls.
+    All competing source records remain in the field-level provenance JSON.
+    """
+    if records.empty:
+        return records.copy()
+    rows = []
+    evidence_columns = [c for c in (
+        "unit", "value", "cik", "issuer_id", "entity_id", "entity_scope", "segment", "source_namespace", "source_tag", "accession_number",
+        "start", "period", "fy", "fp", "frame", "context_id", "context_dimensions",
+        "accepted", "fact_semantics", "fiscal_grid_reference", "fiscal_grid_status", "fiscal_year_start",
+    ) if c in records.columns]
+    for _, group in records.groupby(keys, dropna=False, sort=True):
+        candidates = group.copy()
+        all_candidates = candidates.copy()
+        if "semantic_rank" in candidates:
+            ranks = pd.to_numeric(candidates["semantic_rank"], errors="coerce")
+            candidates = candidates[ranks.eq(ranks.min())]
+        # USD is a preference among actually reported native facts, never an FX
+        # conversion. Other multi-currency slots need an explicit declaration.
+        declared = candidates.get("declared_unit", pd.Series(dtype=str)).dropna().unique()
+        if len(declared) == 1:
+            candidates = candidates[candidates["unit"].eq(declared[0])]
+        elif "USD" in set(candidates.get("unit", [])):
+            candidates = candidates[candidates["unit"].eq("USD")]
+        declaration_missing = candidates.empty
+        if declaration_missing:
+            candidates = all_candidates.copy()
+        # JSON also makes selection deterministic for equal aliases/duplicates.
+        serialized = candidates[evidence_columns].apply(
+            lambda r: json.dumps(r.to_dict(), default=str, sort_keys=True), axis=1
+        )
+        candidates = candidates.assign(_stable=serialized).sort_values("_stable")
+        row = candidates.iloc[0].drop(labels="_stable").to_dict()
+        original_proofs = []
+        for proof in all_candidates.get("fact_provenance", pd.Series(dtype=str)).dropna():
+            original_proofs.extend(json.loads(proof))
+        all_serialized = all_candidates[evidence_columns].apply(
+            lambda r: json.dumps(r.to_dict(), default=str, sort_keys=True), axis=1
+        )
+        row["fact_provenance"] = (json.dumps(original_proofs, default=str, sort_keys=True)
+            if original_proofs else "[" + ",".join(sorted(set(all_serialized))) + "]")
+        row["unit_selection_policy"] = "native_USD_preference" if row.get("unit") == "USD" else "native_unit_or_explicit_declaration"
+        units = set(candidates.get("unit", pd.Series(dtype=str)).dropna().astype(str))
+        contexts = [c for c in ("value", "start", "fy", "context_id", "context_dimensions", "cik", "issuer_id",
+            "entity_id", "entity", "entity_scope", "segment") if c in candidates]
+        signatures = candidates[contexts].astype(str).drop_duplicates()
+        reason = str(row.get("missing_reason") or "")
+        if declaration_missing:
+            reason = "declared_native_unit_not_observed"
+        elif reason:
+            pass
+        elif not units:
+            reason = "missing_native_unit"
+        elif row.get("field_name") == "shares" and units != {"shares"}:
+            reason = "invalid_shares_unit"
+        elif len(units) != 1:
+            reason = "conflicting_native_units"
+        elif row.get("field_name") != "shares" and not re.fullmatch(r"[A-Z]{3}", next(iter(units))):
+            reason = "invalid_monetary_unit"
+        elif len(signatures) != 1:
+            reason = "conflicting_native_facts_or_contexts"
+        elif pd.isna(row.get("value")):
+            reason = str(row.get("missing_reason") or "missing_native_value")
+        row["missing_reason"] = reason
+        row["fact_status"] = "UNKNOWN" if reason else "OBSERVED"
+        if reason:
+            row["value"] = np.nan
+            if len(units) != 1:
+                row["unit"] = None
+        rows.append(row)
+    return pd.DataFrame(rows).reset_index(drop=True)
+
+
+def pivot_companyfacts_fields(frame: pd.DataFrame, value_column: str) -> pd.DataFrame:
+    """Pivot values and their native evidence together, including all-null slots."""
+    if frame.empty:
+        return pd.DataFrame(columns=["cik", "period"])
+    keys = ["cik", "period", "field_name"]
+    d = frame.sort_values(["cik", "period", "accepted"]).drop_duplicates(keys, keep="last")
+    output = d.set_index(keys)[value_column].unstack("field_name")
+    for column in (
+        "unit", "start", "accession_number", "source_namespace", "source_tag", "fy", "fp", "form", "fact_semantics",
+        "issuer_id", "entity_id", "entity_scope", "segment",
+        "frame", "context_id", "context_dimensions", "fact_provenance", "missing_reason",
+        "flow_start", "cum_start", "flow_provenance", "cum_provenance", "context_parent",
+        "flow_missing_reason", "cum_missing_reason", "flow_status", "cum_status", "fact_status",
+        "accepted", "unit_selection_policy", "availability_basis",
+        "fiscal_grid_reference", "fiscal_grid_status", "fiscal_year_start",
+    ):
+        if column in d:
+            meta = d.set_index(keys)[column].unstack("field_name")
+            meta.columns = [f"{field}_{column}" for field in meta.columns]
+            output = output.join(meta)
+    output.columns.name = None
+    return output.reset_index()
 
 
 def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: str) -> pd.DataFrame:
@@ -2452,7 +2562,7 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
             units = fact.get("units", {})
             if not isinstance(units, dict):
                 continue
-            for unit_key in preferred_companyfacts_unit_keys(field_name, units.keys()):
+            for unit_key in preferred_companyfacts_unit_keys(field_name, units.keys(), preserve_native_units=True):
                 vals = units.get(unit_key)
                 if not isinstance(vals, list):
                     continue
@@ -2481,9 +2591,15 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
                             "cik": str(cik).zfill(10),
                             "period": end,
                             "accepted": filed_at,
+                            "availability_basis": "filed_date_only_UNVERIFIED",
                             "fy": item.get("fy"),
                             "fp": item.get("fp"),
                             "frame": item.get("frame"),
+                            "accession_number": item.get("accn"),
+                            "source_namespace": namespace,
+                            "context_id": item.get("contextRef"),
+                            "context_dimensions": item.get("dimensions"),
+                            **{key: item[key] for key in ("entity_id", "entity_scope", "segment") if key in item},
                             "form": item.get("form"),
                             "start": pd.to_datetime(item.get("start"), errors="coerce"),
                             "duration_days": companyfacts_duration_days(item.get("start"), item.get("end")),
@@ -2496,90 +2612,135 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    out = out.sort_values(["cik", "period", "accepted"]).drop_duplicates(
-        ["cik", "period", "field_name", "source_tag", "accepted"], keep="last"
-    )
-    return out
+    duration = pd.to_numeric(out["duration_days"], errors="coerce")
+    annual = out["fp"].astype(str).eq("FY") | out["form"].astype(str).str.startswith(("10-K", "20-F"))
+    out["semantic_rank"] = np.where(annual, np.where(duration.ge(300), 0, 2), np.where(duration.between(70, 120), 0, 1))
+    return select_companyfacts_slots(out, ["cik", "period", "accepted", "field_name"])
 
 
 def companyfacts_quarterly_flows(flow_records: pd.DataFrame) -> pd.DataFrame:
+    """Quarterize only compatible native fiscal contexts; retain refused slots."""
     if flow_records is None or flow_records.empty:
         return pd.DataFrame(columns=["cik", "period", "accepted", "field_name", "q_idx", "cum_value", "flow"])
-
     d = flow_records.copy()
+    if "semantic_rank" not in d:
+        duration = pd.to_numeric(d["duration_days"], errors="coerce")
+        annual = d["fp"].astype(str).eq("FY") | d["form"].astype(str).str.startswith("10-K")
+        d["semantic_rank"] = np.where(annual, np.where(duration.ge(300), 0, 2), np.where(duration.between(70, 120), 0, 1))
+    slots = ["cik", "period", "accepted", "field_name"]
+    d = select_companyfacts_slots(d, slots)
+    d = d.sort_values(slots).drop_duplicates(["cik", "period", "field_name"], keep="last")
     rows = []
-    for (cik, field_name, fy), g in d.groupby(["cik", "field_name", "fy"], sort=False, dropna=False):
-        fiscal_year_end_month = infer_fiscal_year_end_month(g)
-        gg = g.copy()
-        gg["q_idx"] = [
-            companyfacts_quarter_index(
-                fp,
-                frame,
-                period=period,
-                duration_days=duration_days,
-                fiscal_year_end_month=fiscal_year_end_month,
-            )
-            for fp, frame, period, duration_days in zip(
-                gg["fp"],
-                gg["frame"],
-                gg["period"],
-                gg["duration_days"],
-            )
-        ]
-        gg = gg[gg["q_idx"].notna()].copy()
-        if gg.empty:
-            continue
-        gg["q_idx"] = gg["q_idx"].astype(int)
-        gg = gg.sort_values(["q_idx", "accepted"]).drop_duplicates(["q_idx"], keep="last")
-        cumulative_by_q: dict[int, float] = {}
-        for r in gg.itertuples(index=False):
-            q_idx = int(getattr(r, "q_idx"))
-            if q_idx < 1 or q_idx > 4:
-                continue
-            val = safe_float(getattr(r, "value"))
-            if not np.isfinite(val):
-                continue
-            duration_days = getattr(r, "duration_days")
-            fp = str(getattr(r, "fp", "")).upper()
-            is_cumulative = bool(
-                (q_idx == 4 and (fp == "FY" or (pd.notna(duration_days) and float(duration_days) >= 300)))
-                or (q_idx in {2, 3, 4} and pd.notna(duration_days) and float(duration_days) > 120)
-            )
-            prev_cum = cumulative_by_q.get(q_idx - 1)
-            if is_cumulative:
-                flow = val - prev_cum if (q_idx > 1 and prev_cum is not None and np.isfinite(prev_cum)) else (val if q_idx == 1 else np.nan)
-                cum_value = val
-                cumulative_by_q[q_idx] = val
-            else:
-                flow = val
-                if q_idx == 1:
-                    cum_value = val
-                    cumulative_by_q[q_idx] = val
-                elif prev_cum is not None and np.isfinite(prev_cum):
-                    cum_value = prev_cum + val
-                    cumulative_by_q[q_idx] = cum_value
-                else:
-                    cum_value = np.nan
-            rows.append(
-                {
-                    "cik": cik,
-                    "period": getattr(r, "period"),
-                    "accepted": getattr(r, "accepted"),
-                    "field_name": field_name,
-                    "q_idx": q_idx,
-                    "cum_value": cum_value,
-                    "flow": flow,
-                }
-            )
-    out = pd.DataFrame(rows)
-    if out.empty:
-        return out
-    out = out.dropna(subset=["period", "accepted"])
-    out = out[out["flow"].notna() | out["cum_value"].notna()]
-    out = out.sort_values(["cik", "period", "accepted"]).drop_duplicates(
-        ["cik", "period", "field_name"], keep="last"
-    )
-    return out
+    for (_, _), group in d.groupby(["cik", "field_name"], sort=True, dropna=False):
+        fiscal_month = infer_fiscal_year_end_month(group)
+        previous = None
+        for _, record in group.sort_values("period").iterrows():
+            row = record.to_dict()
+            q = companyfacts_quarter_index(row.get("fp"), row.get("frame"), period=row["period"],
+                duration_days=row.get("duration_days"), fiscal_year_end_month=fiscal_month)
+            row["q_idx"] = q
+            row["flow"] = row["cum_value"] = np.nan
+            row["flow_start"] = row["cum_start"] = pd.NaT
+            own_context = native_fact_record_context(row)
+            parent_fields = {name: None if _native_optional_text_absent(row.get(name)) else row[name]
+                for name in ("source_namespace", "source_tag", "shares_basis")}
+            parent_fields["native_scope"] = ({key: own_context[key] for key in ("identities", "scope")}
+                if own_context is not None else None)
+            parent = json.dumps(parent_fields, sort_keys=True, default=str)
+            row["context_parent"] = parent
+            reason = row.get("missing_reason", "")
+            start = pd.to_datetime(row.get("start"), errors="coerce")
+            end = pd.to_datetime(row.get("period"), errors="coerce")
+            row["period"] = end
+            row["accepted"] = pd.Timestamp(row["accepted"])
+            duration = companyfacts_duration_days(start, end)
+            value = safe_float(row.get("value"))
+            annual = str(row.get("fp", "")).upper() == "FY" or str(row.get("form", "")).startswith(("10-K", "20-F"))
+            cumulative = annual or (duration is not None and duration > 120)
+            original_proof = row.get("fact_provenance", "[]")
+            if isinstance(original_proof, str):
+                try:
+                    original_proof = json.loads(original_proof)
+                except (ValueError, TypeError):
+                    pass
+            selected_proof = {"derivation": "native_period_selection",
+                "period_start": start.strftime("%Y-%m-%d") if pd.notna(start) else None,
+                "period_end": end.strftime("%Y-%m-%d") if pd.notna(end) else None,
+                "parents": [original_proof]}
+            row["flow_provenance"] = row["cum_provenance"] = json.dumps(selected_proof, sort_keys=True)
+            if not reason and (q is None or pd.isna(start) or duration is None or duration < 1):
+                reason = "missing_native_fiscal_context"
+            if not reason and not np.isfinite(value):
+                reason = "missing_native_value"
+            if not reason and own_context is None:
+                reason = "incompatible_or_missing_native_context"
+            short_fy = annual and q == 4 and duration is not None and duration < 300
+            grid_flag = row.get("fiscal_grid_verified")
+            grid_proven = (isinstance(grid_flag, (bool, np.bool_)) and bool(grid_flag)
+                and row.get("fiscal_grid_status") == "VERIFIED" and isinstance(row.get("fiscal_grid_reference"), str)
+                and bool(row["fiscal_grid_reference"].strip())
+                and pd.to_datetime(row.get("fiscal_year_start"), errors="coerce") == start)
+            if not reason and short_fy and not grid_proven:
+                reason = "short_fy_without_fiscal_grid_proof"
+            if not reason and not annual:
+                valid_duration = (70 <= duration <= 120 if not cumulative or q == 1
+                    else 150 <= duration <= 240 if q == 2 else 220 <= duration <= 310)
+                if not valid_duration:
+                    reason = "incompatible_native_fiscal_duration"
+            if not reason:
+                if not cumulative or q == 1:
+                    row["flow"] = value
+                    row["flow_start"] = start
+                if cumulative or q == 1:
+                    row["cum_value"] = value
+                    row["cum_start"] = start
+                if q != 1:
+                    compatible = previous is not None and previous.get("q_idx") == q - 1
+                    if not compatible:
+                        parent_reason = "missing_previous_fiscal_quarter"
+                    elif row.get("unit") != previous.get("unit") or not row.get("unit"):
+                        parent_reason = "incompatible_ytd_unit"
+                    elif parent != previous.get("context_parent"):
+                        parent_reason = "incompatible_ytd_context_parent"
+                    elif not native_financial_contexts_match([own_context, native_fact_record_context(previous)], period_mode="scope"):
+                        parent_reason = "incompatible_ytd_native_scope"
+                    elif previous["accepted"] > row["accepted"]:
+                        parent_reason = "future_ytd_parent"
+                    elif not np.isfinite(safe_float(previous.get("cum_value"))):
+                        parent_reason = "missing_previous_cumulative"
+                    elif cumulative and start != previous.get("cum_start"):
+                        parent_reason = "incompatible_ytd_fiscal_start"
+                    elif not cumulative and start != previous["period"] + pd.Timedelta(days=1):
+                        parent_reason = "noncontiguous_direct_quarter"
+                    elif not 70 <= (end - previous["period"]).days <= 120:
+                        parent_reason = "incompatible_fiscal_grid"
+                    else:
+                        parent_reason = ""
+                    if parent_reason:
+                        if cumulative:
+                            reason = parent_reason
+                        else:
+                            row["cum_missing_reason"] = parent_reason
+                    else:
+                        provenance = json.dumps({
+                            "derivation": "native_ytd_minus_prior_ytd" if cumulative else "native_quarter_plus_prior_ytd",
+                            "parents": [selected_proof, json.loads(previous["cum_provenance"])],
+                        }, sort_keys=True)
+                        if cumulative:
+                            row["flow"] = value - previous["cum_value"]
+                            row["flow_start"] = previous["period"] + pd.Timedelta(days=1)
+                            row["flow_provenance"] = provenance
+                        else:
+                            row["cum_value"] = previous["cum_value"] + value
+                            row["cum_start"] = previous["cum_start"]
+                            row["cum_provenance"] = provenance
+            row["flow_missing_reason"] = reason
+            row.setdefault("cum_missing_reason", "" if pd.notna(row["cum_value"]) else reason)
+            row["flow_status"] = "OBSERVED_OR_COMPATIBLE_DERIVED" if pd.notna(row["flow"]) else "UNKNOWN"
+            row["cum_status"] = "OBSERVED_OR_COMPATIBLE_DERIVED" if pd.notna(row["cum_value"]) else "UNKNOWN"
+            rows.append(row)
+            previous = row
+    return pd.DataFrame(rows).sort_values(["cik", "period", "accepted"]).reset_index(drop=True)
 
 
 def build_companyfacts_panel_for_ciks(cfg: EngineConfig, paths: dict[str, Path], cik_list: list[str]) -> pd.DataFrame:
@@ -2634,7 +2795,7 @@ def build_companyfacts_panel_for_ciks(cfg: EngineConfig, paths: dict[str, Path],
                 rec = rec.sort_values(["cik", "period", "accepted"]).drop_duplicates(
                     ["cik", "period", "field_name"], keep="last"
                 )
-                balance_frames.append(rec[["cik", "period", "accepted", "field_name", "value"]])
+                balance_frames.append(rec)
             for field_name in flow_fields:
                 rec = extract_companyfacts_records(payload, cik, field_name)
                 if rec.empty:
@@ -2644,11 +2805,11 @@ def build_companyfacts_panel_for_ciks(cfg: EngineConfig, paths: dict[str, Path],
                     continue
                 flow_q = companyfacts_quarterly_flows(rec)
                 if not flow_q.empty:
-                    flow_frames.append(flow_q[["cik", "period", "accepted", "field_name", "flow"]])
-                    flow_cum = flow_q[["cik", "period", "accepted", "field_name", "cum_value"]].copy()
+                    flow_frames.append(flow_q)
+                    flow_cum = flow_q.drop(columns=["value"], errors="ignore").copy()
                     flow_cum["field_name"] = flow_cum["field_name"].astype(str) + "_cum_value"
                     flow_cum = flow_cum.rename(columns={"cum_value": "value"})
-                    flow_cum_frames.append(flow_cum[["cik", "period", "accepted", "field_name", "value"]])
+                    flow_cum_frames.append(flow_cum)
                     quarter_frames.append(
                         flow_q[["cik", "period", "accepted", "q_idx"]].rename(columns={"q_idx": "quarter_index"})
                     )
@@ -2667,15 +2828,15 @@ def build_companyfacts_panel_for_ciks(cfg: EngineConfig, paths: dict[str, Path],
     flow = pd.concat(flow_frames, ignore_index=True) if flow_frames else pd.DataFrame()
     flow_cum = pd.concat(flow_cum_frames, ignore_index=True) if flow_cum_frames else pd.DataFrame()
     quarter_meta = pd.concat(quarter_frames, ignore_index=True) if quarter_frames else pd.DataFrame()
+    missing = pd.DataFrame({"cik": norm_ciks, "candidate_ordinal": range(len(norm_ciks))})
+    missing["period"] = missing["accepted"] = pd.NaT
+    missing["financial_metadata_version"] = "native-unit-fiscal-v1"
+    missing["fundamental_missing_reason"] = "no_native_financial_facts"
     if bal.empty and flow.empty:
-        return pd.DataFrame()
+        return missing
 
     def pivot_panel(d: pd.DataFrame, value_col: str) -> pd.DataFrame:
-        if d.empty:
-            return pd.DataFrame(columns=["cik", "period"])
-        p = d.pivot_table(index=["cik", "period"], columns="field_name", values=value_col, aggfunc="last").reset_index()
-        p.columns = [c if isinstance(c, str) else str(c) for c in p.columns]
-        return p
+        return pivot_companyfacts_fields(d, value_col)
 
     acc_frames = []
     if not bal.empty:
@@ -2705,11 +2866,17 @@ def build_companyfacts_panel_for_ciks(cfg: EngineConfig, paths: dict[str, Path],
         panel = panel.merge(quarter_meta, on=["cik", "period"], how="left")
     panel["asof_quarter"] = "companyfacts"
     panel["source"] = "companyfacts"
-    return recompute_fund_panel_derived_columns(
+    panel["financial_metadata_version"] = "native-unit-fiscal-v1"
+    for field in balance_fields + flow_fields:
+        if field not in panel:
+            panel[field] = np.nan
+    output = recompute_fund_panel_derived_columns(
         panel,
         ffill_quarters=cfg.fund_ttm_ffill_quarters,
         balance_ffill_quarters=cfg.fund_balance_ffill_quarters,
     )
+    output = output.merge(missing[["cik", "candidate_ordinal"]], on="cik", how="left")
+    return pd.concat([output, missing[~missing["cik"].isin(output["cik"])]], ignore_index=True, sort=False)
 
 
 def combine_fund_panels(primary: pd.DataFrame, secondary: pd.DataFrame) -> pd.DataFrame:
@@ -2727,7 +2894,9 @@ def combine_fund_panels(primary: pd.DataFrame, secondary: pd.DataFrame) -> pd.Da
     combo["period"] = pd.to_datetime(combo["period"], errors="coerce")
     combo["accepted"] = datetime_series_or_default(combo, "accepted")
     combo = combo.sort_values(["cik", "period", "_source_rank", "accepted"], ascending=[True, True, True, False])
-    grouped = combo.groupby(["cik", "period"], as_index=False).first()
+    # Select an entire source row, including its nulls and evidence. groupby.first
+    # silently spliced a secondary value onto primary unit/accession metadata.
+    grouped = combo.drop_duplicates(["cik", "period"], keep="first").copy()
     if "_source_rank" in grouped.columns:
         grouped = grouped.drop(columns=["_source_rank"])
     return grouped
@@ -6451,10 +6620,27 @@ def quarterly_flow_from_ytd(df: pd.DataFrame) -> pd.DataFrame:
 
 
 
+def prefer_dated_financial_history(panel: pd.DataFrame) -> pd.DataFrame:
+    """Keep undated candidates only when that issuer has no dated history.
+
+    The stored panel and missing-candidate records remain intact. Consumers
+    must not let NaT sort after a valid FSDS/cache observation and replace it.
+    """
+    if panel is None or panel.empty or "period" not in panel or "cik" not in panel:
+        return pd.DataFrame() if panel is None else panel.copy()
+    dated = pd.to_datetime(panel["period"], errors="coerce").notna()
+    ciks = normalize_cik_series(panel["cik"], index=panel.index)
+    tickers = panel.get("ticker", pd.Series(None, index=panel.index, dtype=object))
+    keys = pd.Series([("cik", cik) if cik else ("unknown", str(tickers.iloc[i]) if not _native_optional_text_absent(tickers.iloc[i]) else i)
+        for i, cik in enumerate(ciks)], index=panel.index)
+    has_dated = dated.groupby(keys, dropna=False).transform("any")
+    return panel.loc[dated | ~has_dated].copy()
+
+
 def panel_latest_flow_coverage(panel: pd.DataFrame) -> float:
     if panel is None or panel.empty or "period" not in panel.columns:
         return 0.0
-    d = panel.copy()
+    d = prefer_dated_financial_history(panel)
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = datetime_series_or_default(d, "accepted")
     d = d.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik"], keep="last")
@@ -6472,7 +6658,7 @@ def select_targeted_repair_ciks(cfg: EngineConfig, base_panel: pd.DataFrame, cik
     if base_panel is None or base_panel.empty:
         return all_ciks[: int(cfg.targeted_repair_max_ciks)]
 
-    d = base_panel.copy()
+    d = prefer_dated_financial_history(base_panel)
     d["cik"] = normalize_cik_series(d["cik"], index=d.index)
     d["period"] = pd.to_datetime(d["period"], errors="coerce")
     d["accepted"] = pd.to_datetime(d["accepted"], errors="coerce")
@@ -6609,7 +6795,7 @@ def attach_fund_panel_join_diagnostics(monthly: pd.DataFrame, panel: pd.DataFram
                 d[c] = np.nan
         return d
 
-    p = panel.copy()
+    p = prefer_dated_financial_history(panel)
     p["cik"] = normalize_cik_series(p["cik"], index=p.index)
     p["period"] = pd.to_datetime(p["period"], errors="coerce")
     p["accepted"] = pd.to_datetime(p["accepted"], errors="coerce")
@@ -6617,7 +6803,7 @@ def attach_fund_panel_join_diagnostics(monthly: pd.DataFrame, panel: pd.DataFram
 
     flow_cols = ["revenues", "op_income", "net_income", "ocf", "capex"]
     latest_panel = (
-        p.sort_values(["cik", "accepted", "period"])
+        prefer_dated_financial_history(p).sort_values(["cik", "accepted", "period"])
         .drop_duplicates(["cik"], keep="last")
         .rename(
             columns={
@@ -6833,12 +7019,12 @@ def write_fundamental_collection_audit(
             "fundamental_panel_latest_snapshot": panel_path,
         }
 
-    p = panel.copy()
+    p = prefer_dated_financial_history(panel)
     p["cik"] = normalize_cik_series(p["cik"], index=p.index)
     p["period"] = pd.to_datetime(p["period"], errors="coerce")
     p["accepted"] = pd.to_datetime(p["accepted"], errors="coerce")
     p = p.sort_values(["cik", "period", "accepted"]).drop_duplicates(["cik", "period"], keep="last")
-    latest_panel = p.sort_values(["cik", "accepted", "period"]).drop_duplicates(["cik"], keep="last").copy()
+    latest_panel = prefer_dated_financial_history(p).sort_values(["cik", "accepted", "period"]).drop_duplicates(["cik"], keep="last").copy()
 
     panel_keep = [
         "cik",
@@ -7328,6 +7514,7 @@ def asof_join_fundamentals(
         return base_df
 
     d = base_df.copy()
+    d["_fund_request_ordinal"] = np.arange(len(d))
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     panel = panel.copy()
     panel["cik"] = normalize_cik_series(panel["cik"], index=panel.index)
@@ -7343,20 +7530,22 @@ def asof_join_fundamentals(
     max_age_days = max(int(ttm_fallback_max_age_days), 1)
 
     chunks = []
-    for cik, g in d.groupby("cik10", sort=False):
+    for cik, g in d.groupby("cik10", sort=False, dropna=False):
         if pd.isna(cik):
             gg = g.copy()
             for c in panel.columns:
                 if c not in gg.columns:
                     gg[c] = np.nan
+            gg["fundamental_missing_reason"] = "unknown_issuer_identity"
             chunks.append(gg)
             continue
-        p = panel[panel["cik"] == str(cik)]
+        p = panel[(panel["cik"] == str(cik)) & panel["accepted"].notna()]
         gg = g.sort_values("rebalance_date").copy()
         if p.empty:
             for c in panel.columns:
                 if c not in gg.columns:
                     gg[c] = np.nan
+            gg["fundamental_missing_reason"] = "no_available_native_financial_facts"
             chunks.append(gg)
             continue
 
@@ -7371,6 +7560,7 @@ def asof_join_fundamentals(
         m = m.set_index("_base_idx").sort_index()
 
         p_ttm = p[numeric_series_or_default(p, "fund_ttm_ready", 0.0) > 0].copy()
+        p_ttm = p_ttm.loc[~financial_native_mask(p_ttm)]
         if not p_ttm.empty and ttm_fallback_cols:
             fb = pd.merge_asof(
                 left[["_base_idx", "rebalance_date"]],
@@ -7385,7 +7575,7 @@ def asof_join_fundamentals(
 
             fb_accepted = datetime_series_or_default(m, "ttm_fb_accepted")
             fb_age = (pd.to_datetime(m["rebalance_date"], errors="coerce") - fb_accepted).dt.days
-            valid_fb = fb_accepted.notna() & fb_age.ge(0) & fb_age.le(max_age_days)
+            valid_fb = fb_accepted.notna() & fb_age.ge(0) & fb_age.le(max_age_days) & ~financial_native_mask(m)
             fallback_used = pd.Series(False, index=m.index, dtype=bool)
             for c in ttm_fallback_cols:
                 if c not in m.columns:
@@ -7436,6 +7626,7 @@ def asof_join_fundamentals(
         m = m.drop(columns=[c for c in m.columns if c.startswith("ttm_fb_")], errors="ignore")
         chunks.append(m)
     out = pd.concat(chunks, ignore_index=True)
+    out = out.sort_values("_fund_request_ordinal").drop(columns=["_fund_request_ordinal"]).reset_index(drop=True)
     if "accepted" in out.columns and "fund_accepted" not in out.columns:
         # Phase 15-C fix: mask 1970-01-01 epoch placeholders as NaT.
         out["fund_accepted"] = pd.to_datetime(out["accepted"], errors="coerce").where(
@@ -8052,6 +8243,7 @@ def compute_sage_scores(d: pd.DataFrame) -> pd.DataFrame:
 
 def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = None) -> pd.DataFrame:
     d = df.copy()
+    valuation_cache: dict = {}
     d["mktcap"] = pd.to_numeric(d["mktcap"], errors="coerce")
     net_income_ttm = numeric_series_or_default(d, "net_income_ttm", np.nan)
     revenues_ttm = numeric_series_or_default(d, "revenues_ttm", np.nan)
@@ -8065,7 +8257,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
 
     d["ep_ttm"] = net_income_ttm / d["mktcap"]
     d["sp_ttm"] = revenues_ttm / d["mktcap"]
-    d["fcf_ttm"] = ocf_ttm - capex_ttm
+    d["fcf_ttm"] = ocf_ttm - capex_ttm.abs()
     d["fcfy_ttm"] = d["fcf_ttm"] / d["mktcap"]
     gross_profit_ttm = numeric_series_or_default(d, "gross_profit_ttm", np.nan)
     op_income_ttm = numeric_series_or_default(d, "op_income_ttm", np.nan)
@@ -8090,6 +8282,9 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         net_income_ttm / equity_proxy
     )
     d["book_to_market_proxy"] = equity_proxy / d["mktcap"].replace(0, np.nan)
+    d = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
+    native_rows = financial_native_mask(d)
+    net_income_ttm = net_income_ttm.where(~native_rows, d["ep_ttm"] * d["mktcap"])
     d["forward_pe_final"] = numeric_series_or_default(d, "forward_pe_final", np.nan)
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "av_forward_pe", np.nan))
     d["forward_pe_final"] = d["forward_pe_final"].fillna(numeric_series_or_default(d, "forward_pe", np.nan))
@@ -8118,14 +8313,18 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         adr_shares = shares_proxy.replace([np.inf, -np.inf], np.nan)
         shares_effective.loc[adr_mask] = adr_shares.loc[adr_mask].fillna(shares.loc[adr_mask])
     d["shares_effective"] = shares_effective
+    guarded = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
+    d = guarded
+    shares_effective = d["shares_effective"]
     eps_ttm = net_income_ttm / shares_effective.replace(0, np.nan)
     dividends_total = dividends_ps * shares_effective
     payout_eps = dividends_ps / eps_ttm.replace(0, np.nan)
     payout_eps = payout_eps.where((eps_ttm > 0) & np.isfinite(eps_ttm), np.nan)
     payout_ni = dividends_total / net_income_ttm.replace(0, np.nan)
     payout_ni = payout_ni.where(net_income_ttm > 0, np.nan)
-    payout_fcf = dividends_total / d["fcf_ttm"].replace(0, np.nan)
-    payout_fcf = payout_fcf.where(d["fcf_ttm"] > 0, np.nan)
+    fcf_for_payout = d["fcf_ttm"].where(~native_rows, d["fcfy_ttm"] * d["mktcap"])
+    payout_fcf = dividends_total / fcf_for_payout.replace(0, np.nan)
+    payout_fcf = payout_fcf.where(fcf_for_payout > 0, np.nan)
     payout = payout_eps.fillna(payout_ni).fillna(payout_fcf)
     payout = payout.where(dividends_ps.fillna(0.0) > 0, np.nan)
     d["dividend_payout_ratio"] = payout
@@ -8165,6 +8364,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
     roe_effective = roe_effective.fillna(numeric_series_or_default(d, "av_return_on_equity", np.nan))
     roe_effective = roe_effective.fillna(numeric_series_or_default(d, "roe_proxy", np.nan))
     d["return_on_equity_effective"] = roe_effective
+    d = enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
     ttm_presence = row_mean(
         [
             revenues_ttm.notna().astype(float),
@@ -8315,7 +8515,53 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
         + 0.20 * quality_support
     ) * (0.55 + 0.45 * garp_confidence)
     d["garp_score"] = winsorize(garp, 0.01).clip(-6.0, 6.0)
-    return d
+    return enforce_native_valuation_context(d, _operation_cache=valuation_cache, cfg=cfg)
+
+
+def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
+    """Retain financial evidence alongside values, outside the model whitelist."""
+    fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
+        "op_income", "op_margin", "roe_proxy", "debt_to_equity", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
+        "liabilities_and_equity", "stockholders_equity_for_liabilities", "dividends_ttm_ps")
+    suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
+        "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",
+        "_context_id", "_context_dimensions", "_entity_id", "_entity", "_entity_scope", "_segment", "_cik", "_issuer_id",
+        "_context_parent", "_flow_status", "_cum_status", "_fact_status", "_availability_basis",
+        "_unit_selection_policy", "_fiscal_grid_reference", "_fiscal_grid_status", "_fiscal_year_start")
+    evidence = [column for column in universe.columns if column in {
+        "cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version", "financial_context_status",
+        "shares_basis", "ordinary_shares_per_ads", "dividends_share_basis", "fundamental_missing_reason", "candidate_ordinal",
+    } or column.startswith(("price_", "share_basis_", "ads_ratio_", "fx_", "valuation_"))
+        or (column.startswith(tuple(field + "_" for field in fields)) and column.endswith(suffixes))]
+    columns = list(dict.fromkeys(keep_cols + evidence))
+    output = universe.reindex(columns=columns).copy()
+    textual_evidence = {"cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version"}
+    text_suffixes = tuple(suffix for suffix in suffixes if suffix != "_fy") + (
+        "_reference", "_status", "_asof", "_valid_until", "_currency", "_basis", "_cutoff_date", "_as_of", "_last_date")
+    clock_suffixes = ("_asof", "_valid_until", "_as_of", "_start", "_period", "_accepted", "_cutoff_date", "_last_date")
+    def evidence_scalar(value: Any, column: str) -> Optional[str]:
+        if _native_optional_text_absent(value):
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (pd.Timestamp, datetime, np.datetime64)) and column.endswith(clock_suffixes):
+            return pd.Timestamp(value).isoformat()
+        if isinstance(value, date) and column.endswith(("_start", "_period", "_accepted", "_cutoff_date", "_last_date")):
+            return value.isoformat()
+        if (column == "cik" or column.endswith("_cik")) and not isinstance(value, (bool, np.bool_)):
+            text = str(value).removesuffix(".0")
+            if text.isdigit():
+                return text.zfill(10)
+        if isinstance(value, (dict, list)) and column.endswith((
+            "_provenance", "_financial_context", "_context_dimensions", "_entity_scope", "_segment", "_context_parent")):
+            return json.dumps(value, sort_keys=True, default=str)
+        # A malformed scalar must not become a nonempty "verified" reference
+        # merely because Parquet requires a common textual type.
+        return "__MALFORMED_NATIVE_TEXT_V1__:" + json.dumps(value, sort_keys=True, default=str)
+    for column in evidence:
+        if column in textual_evidence or column.endswith(text_suffixes):
+            output[column] = output[column].map(lambda value: evidence_scalar(value, column))
+    return output
 
 
 def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
@@ -8584,10 +8830,7 @@ def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
             + ["r_1m", "r_3m", "r_6m", "bench_r_1m", "bench_r_3m", "bench_r_6m"]
         )
     )
-    for c in keep_cols:
-        if c not in universe.columns:
-            universe[c] = np.nan
-    fs = universe[keep_cols].copy()
+    fs = project_feature_store_frame(universe, keep_cols)
     # Phase 2 industry metadata is string-typed (industry / industry_group /
     # subindustry) and must NOT be force-converted to numeric by hard_sanitize.
     # Sanitize only the numeric Phase 2 columns (rs_industry_*, breadth, O'Neil
