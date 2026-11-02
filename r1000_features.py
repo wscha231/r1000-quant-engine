@@ -896,6 +896,38 @@ def _refresh_native_difference(out: pd.Series, field: str, parents: tuple[str, s
     return bool(valid)
 
 
+def _native_operating_margin(row: pd.Series) -> dict[str, Any]:
+    """Bind the current ratio to both validated parents for history reuse."""
+    income, revenue = (safe_float(row.get(field)) for field in ("op_income_ttm", "revenues_ttm"))
+    unit, revenue_unit = row.get("op_income_ttm_unit"), row.get("revenues_ttm_unit")
+    evidence = native_derivation_evidence(row, ("op_income_ttm", "revenues_ttm"), "operating_income_divided_by_revenues")
+    valid = (isinstance(unit, str) and bool(re.fullmatch(r"[A-Z]{3}", unit)) and unit == revenue_unit
+        and np.isfinite(income) and np.isfinite(revenue) and revenue != 0 and evidence is not None)
+    context, proof = evidence if valid else (None, None)
+    return {"op_margin_ttm": income / revenue if valid else np.nan,
+        "op_margin_ttm_unit": unit + "/" + unit if valid else None,
+        "op_margin_ttm_financial_context": context, "op_margin_ttm_provenance": proof,
+        "op_margin_ttm_missing_reason": "" if valid else "incompatible_or_missing_native_operating_margin_parents"}
+
+
+def _native_margin_stability(frame: pd.DataFrame) -> pd.Series:
+    """Keep the existing last-eight/min-four formula within the current scope."""
+    result = pd.Series(np.nan, index=frame.index, dtype=float)
+    contexts = {idx: native_financial_context(row, "op_margin_ttm") for idx, row in frame.iterrows()}
+    for _, group in frame.groupby("cik", sort=False):
+        indices = list(group.index)
+        for position, idx in enumerate(indices):
+            if contexts[idx] is None:
+                continue
+            window = [prior for prior in indices[max(0, position-7):position+1]
+                if frame.loc[prior, "op_margin_ttm_unit"] == frame.loc[idx, "op_margin_ttm_unit"]
+                and native_financial_contexts_match([contexts[idx], contexts[prior]], period_mode="comparison")]
+            values = pd.to_numeric(frame.loc[window, "op_margin_ttm"], errors="coerce").dropna()
+            if len(values) >= 4:
+                result.loc[idx] = -values.std(ddof=1)
+    return result
+
+
 def native_flow_ttm_context(group: pd.DataFrame, field_name: str) -> pd.DataFrame:
     """Return compatible native TTM values and persistent, field-bound lineage."""
     flow = pd.to_numeric(group[field_name], errors="coerce")
@@ -2131,8 +2163,10 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     # These are current ratios, not historical FCF dependents. Their revenue
     # denominator and current growth must be refreshed even when FCF is stable.
     out["fcf_margin"] = float(np.clip(native_ratio("fcf_ttm", "revenues_ttm", "fcf_margin"), -1.0, 1.0))
-    out["operating_margins"] = native_ratio("op_income_ttm", "revenues_ttm", "operating_margins")
-    out["op_margin_ttm"] = out["operating_margins"]
+    for key, item in _native_operating_margin(out).items():
+        out[key] = item
+    out["operating_margins"] = out["op_margin_ttm"]
+    out["operating_margins_missing_reason"] = out["op_margin_ttm_missing_reason"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
     out["debt_to_equity"] = native_ratio("liabilities", "equity_native", "debt_to_equity")
     # EPS stays in the reporting currency and reported-share basis used by its
@@ -2201,7 +2235,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
             owned = fixed | {key + "_missing_reason" for key in fixed}
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_")))
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
@@ -3189,9 +3223,13 @@ def recompute_fund_panel_derived_columns(
     if "op_income_ttm" in d.columns and "revenues_ttm" in d.columns:
         d["op_margin_ttm"] = d["op_income_ttm"] / d["revenues_ttm"].replace(0, np.nan)
         if typed_native:
-            d["op_margin_ttm"] = d["op_margin_ttm"].where(same_units("op_income_ttm", "revenues_ttm"))
-        d["margin_stability_8q"] = d.groupby("cik")["op_margin_ttm"].transform(
-            lambda series: -series.rolling(8, min_periods=4).std())
+            margin = pd.DataFrame([_native_operating_margin(row) for _, row in d.iterrows()], index=d.index)
+            for column in margin:
+                d[column] = margin[column]
+            d["margin_stability_8q"] = _native_margin_stability(d)
+        else:
+            d["margin_stability_8q"] = d.groupby("cik")["op_margin_ttm"].transform(
+                lambda series: -series.rolling(8, min_periods=4).std())
     if "net_income_ttm" in d.columns and "ocf_ttm" in d.columns and "assets" in d.columns:
         d["accruals_to_assets"] = (d["net_income_ttm"] - d["ocf_ttm"]) / d["assets"].replace(0, np.nan)
     if "net_income_ttm" in d.columns:

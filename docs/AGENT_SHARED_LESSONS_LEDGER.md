@@ -9321,3 +9321,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   just like absent proof aliases. Preserve conflicting supplied values and
   valid mixed-row readback controls together. Two initial synthetic failures
   were retained before the corrected two-case pass; no actual Source read.
+- A6 then identified and Root reproduced a cross-period margin-scope gap:
+  consolidated and subsidiary ratios were individually valid but the10th
+  quarter's rolling statistic mixed1old+3new contexts and returned-0.1.
+  Bind ratio value/unit/context/proof together, persist it through projection,
+  and retain the original last8/min4 formula only within the current context.
+  Equal ratios after a parent-scope change still invalidate old history.
+  The small reproducer first had a whitespace SyntaxError, corrected before
+  reproduction; no data or Source execution occurred. Prior6a57-case normal/-O
+  successes remain earlier-head evidence, not proof of this new scope edge.

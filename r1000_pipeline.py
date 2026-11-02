@@ -8489,7 +8489,7 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
 def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
     """Retain financial evidence alongside values, outside the model whitelist."""
     fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
-        "op_income", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
+        "op_income", "op_margin", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
         "liabilities_and_equity", "stockholders_equity_for_liabilities", "dividends_ttm_ps")
     suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
         "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",

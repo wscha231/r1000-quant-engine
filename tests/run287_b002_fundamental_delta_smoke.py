@@ -2074,6 +2074,55 @@ class NativeFinancialContextTests(unittest.TestCase):
         stable["op_income_ttm_unit"] = "USD"
         for result in (f.enforce_native_valuation_context(stable), f.enforce_native_valuation_context(stable, _operation_cache=cache)):
             self.assertTrue(pd.isna(result.iloc[0]["margin_stability_8q"]))
+        # Each current ratio may be valid while old/current scopes differ.
+        # Keep the original eight-observation window and minimum four, using
+        # only compatible observations in that window.
+        scoped = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=11, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            for field, value in (("revenues", 100.0), ("op_income", 20.0 if i < 4 else 40.0)):
+                scoped.append(self.row(period=period, start=start, accepted=period+pd.Timedelta(days=20),
+                    fy=period.year, fp="Q"+str((period.month-1)//3+1), accession_number="scope-rolling-"+str(i),
+                    duration_days=(period-start).days+1, field_name=field, value=value, unit="USD", source_tag=field,
+                    context_dimensions=None if i < 4 else "subsidiary"))
+        histories = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(scoped)))
+        self.assertTrue(pd.isna(histories.iloc[9]["margin_stability_8q"]))
+        self.assertAlmostEqual(histories.iloc[10]["margin_stability_8q"], 0.0)
+        def rescope(value):
+            if isinstance(value, str):
+                try:
+                    return json.dumps(rescope(json.loads(value)), sort_keys=True)
+                except (ValueError, TypeError):
+                    return value
+            if isinstance(value, list):
+                return [rescope(item) for item in value]
+            if isinstance(value, dict):
+                return {key: "subsidiary" if key in {"context_dimensions", "dimensions"} else rescope(item)
+                    for key, item in value.items()}
+            return value
+        unchanged_ratio = control.tail(1).copy()
+        for field in ("op_income_ttm", "revenues_ttm"):
+            for suffix in ("_financial_context", "_provenance"):
+                unchanged_ratio[field + suffix] = unchanged_ratio[field + suffix].map(rescope)
+        changed_scope = f.enforce_native_valuation_context(unchanged_ratio)
+        self.assertAlmostEqual(changed_scope.iloc[0]["op_margin_ttm"], 0.2)
+        self.assertTrue(pd.isna(changed_scope.iloc[0]["margin_stability_8q"]))
+        # The ratio's own context/proof must survive production projection too.
+        import r1000_pipeline as p
+        projected = p.project_feature_store_frame(control.tail(1), ["cik", "op_income_ttm", "revenues_ttm",
+            "op_margin_ttm", "margin_stability_8q"])
+        self.assertIn("op_margin_ttm_financial_context", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp) / ("margin_history." + suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    read = pd.read_parquet(path)
+                out = f.enforce_native_valuation_context(read)
+                self.assertAlmostEqual(out.iloc[0]["margin_stability_8q"], 0.0)
 
 
 def main() -> int:
