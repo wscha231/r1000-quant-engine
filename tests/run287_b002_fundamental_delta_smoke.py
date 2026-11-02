@@ -2215,6 +2215,14 @@ class NativeFinancialContextTests(unittest.TestCase):
                 self.assertEqual(actual["cashflow_turn_positive_4q"], expected_cash)
                 self.assertEqual(actual["any_profitability_turn_positive_4q"], expected_cash)
                 self.assertEqual(actual["any_profit_sign_flip_pos"], expected_cash)
+        for field, value in (("ocf_ttm_unit", None), ("ocf_ttm", float("inf")), ("ocf_ttm", True)):
+            bad = stable.copy()
+            bad["liabilities_unit"] = "EUR"
+            bad[field] = value
+            for options in ({}, {"_operation_cache": cache}):
+                actual = f.enforce_native_valuation_context(bad, **options).iloc[0]
+                self.assertEqual(actual["cashflow_turn_positive_4q"], 0.0, (field, value))
+                self.assertEqual(actual["any_profitability_turn_positive_4q"], 0.0, (field, value))
         # Feature projections can retain the user alias without internal leaves.
         projected = stable.drop(columns=["ocf_sign_flip_pos", "fcf_sign_flip_pos"])
         projected["liabilities_unit"] = projected["ocf_ttm_unit"] = "EUR"

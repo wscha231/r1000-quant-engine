@@ -9366,3 +9366,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   rebuild aliases/unions; preserve a valid independent OCF signal when only
   CapEx/FCF is refused. Projected aliases without selected leaves require all
   possible parents. The4f60-case normal/-O passes precede this added edge.
+- The87074 delta fixed those aliases but independent A6 also reproduced null
+  OCF units and infinite amounts retaining a positive signal. Native context
+  alone permits absent units; a positive signal additionally needs a finite
+  non-boolean amount and an explicit three-letter monetary unit.

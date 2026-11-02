@@ -2070,7 +2070,10 @@ def _invalidate_changed_native_history(latest: pd.Series, updates: Any) -> None:
     validity = {}
     def valid(field: str) -> bool:
         if field not in validity:
-            validity[field] = (safe_float(current.get(field)) > 0
+            amount, unit = current.get(field), current.get(field + "_unit")
+            value = safe_float(amount)
+            validity[field] = (not isinstance(amount, (bool, np.bool_)) and np.isfinite(value) and value > 0
+                and isinstance(unit, str) and re.fullmatch(r"[A-Z]{3}", unit) is not None
                 and native_financial_context(current, field) is not None)
         return validity[field]
     def positive(column: str) -> bool:
