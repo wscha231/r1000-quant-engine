@@ -210,6 +210,8 @@ BOARD_INPUT_DEPENDENCIES = [
 # by the existing fullrun_runtime_source_manifest smoke entrypoint below.
 # Master 1640819e (#597-#600) adds the Twelve suite and embedded workflow
 # consumed by the existing api_credentials_check smoke entrypoint.
+# Source715 at05a9 adds one registered managed-refresh smoke and its two
+# local helpers. Keep all three mandatory even if mutable runner rows omit it.
 # Keep these mandatory independently of mutable Toolbox/runner rows;
 # deleting a helper must not remove its required pin. This is a path inventory,
 # not a claim of approved semantics or completed proof. Changes to the proof
@@ -502,6 +504,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/alpha_selector_broker_grid_smoke.py',
     'tests/alphaops_vnext_policy_replay_smoke.py',
     'tests/alpaca_sip_campaign_smoke.py',
+    'tests/alpaca_sip_managed_refresh_smoke.py',
     'tests/alpaca_sip_private_backfill_v1_smoke.py',
     'tests/api_credentials_check_smoke.py',
     'tests/twelve_data_credential_preflight_smoke.py',
@@ -1064,7 +1067,9 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/trade_insights.py',
     'tools/train_explosion_classifier.py',
     'tools/alpaca_sip_campaign.py',
+    'tools/alpaca_sip_managed_refresh.py',
     'tools/alpaca_sip_private_backfill_v1.py',
+    'tools/prepare_a1_managed_ohlcv.py',
     'tools/twelve_private_capture.py',
     'tools/twelve_private_cohort.py',
     'tools/validate_daily_close_prices.py',

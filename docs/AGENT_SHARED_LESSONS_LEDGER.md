@@ -9214,3 +9214,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reproduce the actual bot body in a clearly synthetic maintainer test fixture;
   local acceptance is not live authentication or gate approval. Preserve573
   financial bytes/CI/QA and710 separately; bootstrap from the trusted default.
+
+## 2026-11-03 — Close registered Source proof dependencies and reviewed lineage
+
+- Source715 hosted CI41621414559 failed234/236 although the new managed smoke
+  passed. Its new registry member was absent from A6's independently fixed
+  proof closure, leaving the temporary proof root incomplete and the explicit
+  235-program oracle stale. Pin the actual new program and both managed/prepare
+  helpers, with exact-once236 and omission/changed-byte negatives. Copying only
+  the fixture or deriving mandatory trust from mutable runner rows is insufficient.
+- P0-4 correctly rejected the changed protected runner after frozen4f17. Root
+  explicitly reviewed the sole registration-line delta and authorized the fixed
+  anchor05a9 in both verifier and independent test. Preserve protected paths,
+  ancestry, dirty-state checks, frozen source/bundle/requirements and the existing
+  generator pin-only rule. Advancing this literal is reviewed verifier code;
+  the failed05a9 CI remains failed and the new exact head needs fresh review.
+- Prepare and validate this correction locally while Main is frozen; publish
+  only after the coordinated final master is accepted. No canonical bundle
+  regeneration, old100/169-suite replay, provider capture or runtime activation.
