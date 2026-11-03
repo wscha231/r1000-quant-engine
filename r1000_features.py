@@ -3920,6 +3920,9 @@ def recompute_fund_panel_derived_columns(
     else:
         # Legacy numbers stay observable; untyped context is not admission proof.
         d["financial_context_status"] = "UNVERIFIED"
+        # The age-bounded legacy join consumes numerical completeness, not
+        # admission. Keep that signal before clearing the evidence flags.
+        d["fund_ttm_numerically_complete"] = d["fund_ttm_ready"]
         d["fund_ttm_ready"] = d["fund_ttm_ready_raw"] = 0.0
     return d
 

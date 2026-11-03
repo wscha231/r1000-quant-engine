@@ -9537,3 +9537,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reproduce the actual bot body in a clearly synthetic maintainer test fixture;
   local acceptance is not live authentication or gate approval. Preserve573
   financial bytes/CI/QA and710 separately; bootstrap from the trusted default.
+
+## 2026-11-03 — Separate legacy TTM completeness from admission readiness
+
+- Actual Codex4454143038 on ebd2 found that clearing legacy readiness flags
+  also disabled the existing age-bounded monthly TTM fallback. With panel
+  forward fill disabled, four complete quarters produced revenue400, but a
+  later missing quarter made the monthly join null; restoring only the old
+  numerical signal restored400. Preserve that repro and cancelled CI41627870774
+  as CANCELLED_NOT_PASS, rather than treating its earlier checks as completion.
+- Preserve a separate numerical-completeness signal for the legacy fallback.
+  Keep legacy ready/raw flags zero and evidence UNVERIFIED; retain the old
+  cache witness, acceptance-time/maximum-age limits and native/unknown exclusion.
+  Coalesce only truly missing old/new-cache cells; explicit zero or invalid
+  signals cannot use an older ready flag. Retain the signal through feature
+  projection/normalization and test zero/loss income and CSV/Parquet without
+  granting Source or ER authority.

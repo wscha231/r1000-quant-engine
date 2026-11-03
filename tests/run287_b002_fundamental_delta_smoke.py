@@ -2140,6 +2140,131 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertEqual(from_null.iloc[-1]["revenues_ttm"],native_alone.iloc[-1]["revenues_ttm"])
 
 
+    def test_legacy_ttm_numerical_completeness_keeps_age_bounded_fallback_unverified(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        periods = pd.date_range("2024-03-31", periods=5, freq="QE-DEC")
+        for source in ("fsds", "cache", "provider"):
+            for income in (10.0, 0.0, -10.0):
+                rows = [dict(cik="0000000001", source=source, period=end,
+                    accepted=end + pd.Timedelta(days=20), assets=1000.0, liabilities=400.0,
+                    shares=100.0, revenues=100.0 if i < 4 else np.nan,
+                    net_income=income if i < 4 else np.nan, op_income=20.0 if i < 4 else np.nan,
+                    ocf=15.0 if i < 4 else np.nan, capex=5.0 if i < 4 else np.nan)
+                    for i, end in enumerate(periods)]
+                panel = f.recompute_fund_panel_derived_columns(pd.DataFrame(rows),
+                    ffill_quarters=0, balance_ffill_quarters=0)
+                self.assertEqual(panel.iloc[3]["revenues_ttm"], 400.0)
+                self.assertEqual(list(panel["fund_ttm_numerically_complete"]), [0.0, 0.0, 0.0, 1.0, 0.0])
+                self.assertTrue(panel["fund_ttm_ready"].eq(0.0).all())
+                self.assertTrue(panel["fund_ttm_ready_raw"].eq(0.0).all())
+                self.assertTrue(panel["financial_context_status"].eq("UNVERIFIED").all())
+                complete_at = panel.iloc[3]["accepted"]
+                latest_at = panel.iloc[4]["accepted"]
+                base = pd.DataFrame(dict(cik10=["0000000001"] * 4, rebalance_date=[
+                    complete_at - pd.Timedelta(days=1), latest_at + pd.Timedelta(days=1),
+                    complete_at + pd.Timedelta(days=180), complete_at + pd.Timedelta(days=181)]))
+                joined = p.asof_join_fundamentals(base, panel, ttm_fallback_max_age_days=180)
+                self.assertTrue(pd.isna(joined.iloc[0]["revenues_ttm"]))
+                self.assertTrue(pd.isna(joined.iloc[3]["revenues_ttm"]))
+                for index in (1, 2):
+                    row = joined.iloc[index]
+                    self.assertEqual(row["revenues_ttm"], 400.0, (source, income, index))
+                    self.assertEqual(row["net_income_ttm"], income * 4)
+                    self.assertEqual(row["fund_ttm_fallback_used"], 1.0)
+                    self.assertEqual(row["accepted"], latest_at)
+                    self.assertEqual(row["fund_effective_accepted"], complete_at)
+                    self.assertEqual(row["fund_ttm_fallback_accepted"], complete_at)
+                    self.assertEqual(row["fund_ttm_ready"], 0.0)
+                    self.assertEqual(row["financial_context_status"], "UNVERIFIED")
+                self.assertEqual(joined.iloc[2]["fund_ttm_fallback_age_days"], 180.0)
+                self.assertEqual(joined.iloc[3]["fund_ttm_fallback_used"], 0.0)
+                if income != 10.0:
+                    continue
+                with tempfile.TemporaryDirectory() as tmp:
+                    for suffix in ("csv", "parquet"):
+                        path = Path(tmp) / ("legacy." + suffix)
+                        if suffix == "csv":
+                            panel.to_csv(path, index=False)
+                            restored = pd.read_csv(path)
+                        else:
+                            panel.to_parquet(path, index=False)
+                            restored = pd.read_parquet(path)
+                        out = p.asof_join_fundamentals(base.iloc[[1]], restored)
+                        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0, (source, suffix))
+                        self.assertEqual(out.iloc[0]["fund_ttm_ready"], 0.0)
+                        self.assertEqual(out.iloc[0]["financial_context_status"], "UNVERIFIED")
+                # Older cached legacy panels keep their established readiness
+                # witness; the new signal does not require a cache rewrite.
+                old = panel.drop(columns="fund_ttm_numerically_complete")
+                old["fund_ttm_ready"] = panel["fund_ttm_numerically_complete"]
+                self.assertEqual(p.asof_join_fundamentals(base.iloc[[1]], old).iloc[0]["revenues_ttm"], 400.0)
+        from r1000_config import EngineConfig
+        projected = p.project_feature_store_frame(panel,
+            [c for c in panel if c != "fund_ttm_numerically_complete"])
+        self.assertIn("fund_ttm_numerically_complete", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp) / ("projected." + suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    reread = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    reread = pd.read_parquet(path)
+                with patch.object(p, "repair_latest_history_depth_from_diagnostics", side_effect=lambda paths, frame: frame), \
+                        patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+                    normalized = p.normalize_latest_fundamental_snapshot(EngineConfig(), {}, reread,
+                        apply_statement_repair=False, add_fundamental_flags=False)
+                self.assertEqual(list(normalized["fund_ttm_numerically_complete"]), [0.0, 0.0, 0.0, 1.0, 0.0])
+                row = p.asof_join_fundamentals(base.iloc[[1]], normalized).iloc[0]
+                self.assertEqual(row["revenues_ttm"], 400.0)
+                self.assertEqual(row["net_income_ttm"], -40.0)
+                self.assertEqual(row["fund_ttm_ready"], 0.0)
+                self.assertEqual(row["financial_context_status"], "UNVERIFIED")
+        # A numerical flag is never native/unknown admission. Even a supplied
+        # positive flag cannot reopen their refused historical fallback.
+        mixed = [panel]
+        for cik, marker in (("0000000002", "native-unit-fiscal-v1"), ("0000000003", "unsupported-v99")):
+            typed = panel.copy()
+            typed["cik"], typed["financial_metadata_version"] = cik, marker
+            typed["fund_ttm_numerically_complete"] = 1.0
+            typed["fund_ttm_ready"] = 1.0
+            mixed.append(typed)
+        requests = pd.DataFrame(dict(cik10=["0000000001", "0000000002", "0000000003"],
+            rebalance_date=[latest_at + pd.Timedelta(days=1)] * 3))
+        out = p.asof_join_fundamentals(requests, pd.concat(mixed, ignore_index=True))
+        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0)
+        self.assertTrue(out.iloc[1:]["revenues_ttm"].isna().all())
+        self.assertTrue(out.iloc[1:]["fund_ttm_fallback_used"].eq(0.0).all())
+
+    def test_legacy_ttm_signal_row_missing_compatibility_does_not_override_explicit_refusal(self):
+        import r1000_pipeline as p
+        seed = pd.DataFrame(dict(cik=["0000000001"] * 2, source=["cache"] * 2,
+            period=pd.to_datetime(["2024-12-31", "2025-03-31"]),
+            accepted=pd.to_datetime(["2025-01-20", "2025-04-20"]),
+            revenues_ttm=[400.0, np.nan], net_income_ttm=[40.0, np.nan],
+            op_margin_ttm=[0.2, np.nan], fund_ttm_ready=[1.0, 0.0]))
+        request = pd.DataFrame(dict(cik10=["0000000001"], rebalance_date=["2025-05-01"]))
+        for absent in (None, np.nan, pd.NA):
+            current = seed.copy()
+            current["fund_ttm_numerically_complete"] = [absent, 0.0]
+            self.assertEqual(p.asof_join_fundamentals(request, current).iloc[0]["revenues_ttm"], 400.0)
+        for refused in (0.0, -1.0, 0.5, 2.0, np.inf, -np.inf, True, False, "invalid", ""):
+            current = seed.copy()
+            current["fund_ttm_numerically_complete"] = [refused, 0.0]
+            out = p.asof_join_fundamentals(request, current).iloc[0]
+            self.assertTrue(pd.isna(out["revenues_ttm"]), repr(refused))
+            self.assertEqual(out["fund_ttm_fallback_used"], 0.0)
+        new = seed.copy()
+        new["cik"] = "0000000002"
+        new["fund_ttm_numerically_complete"] = 0.0
+        combined = pd.concat([seed, new], ignore_index=True)
+        requests = pd.DataFrame(dict(cik10=["0000000001", "0000000002"], rebalance_date=["2025-05-01"] * 2))
+        out = p.asof_join_fundamentals(requests, combined)
+        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0)
+        self.assertTrue(pd.isna(out.iloc[1]["revenues_ttm"]))
+
     def test_current_fcf_margin_and_rule_of_40_revalidate_all_semantic_parents(self):
         import r1000_features as f
         import r1000_pipeline as p

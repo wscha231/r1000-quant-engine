@@ -7563,7 +7563,13 @@ def asof_join_fundamentals(
         )
         m = m.set_index("_base_idx").sort_index()
 
-        p_ttm = p[numeric_series_or_default(p, "fund_ttm_ready", 0.0) > 0].copy()
+        raw_complete = p.get("fund_ttm_numerically_complete", pd.Series(np.nan, index=p.index))
+        complete = pd.to_numeric(raw_complete, errors="coerce").eq(1.0)
+        complete &= ~raw_complete.map(lambda value: isinstance(value, (bool, np.bool_)))
+        # Old cached panels predate the separate numerical signal. Preserve
+        # only genuinely missing cells; explicit zero/invalid values refuse.
+        complete = complete.where(raw_complete.notna(), numeric_series_or_default(p, "fund_ttm_ready", 0.0).gt(0))
+        p_ttm = p[complete].copy()
         p_ttm = p_ttm.loc[~financial_native_mask(p_ttm)]
         if not p_ttm.empty and ttm_fallback_cols:
             fb = pd.merge_asof(
@@ -8535,6 +8541,7 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     evidence = [column for column in universe.columns if column in {
         "cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version", "financial_context_status",
         "shares_basis", "ordinary_shares_per_ads", "dividends_share_basis", "fundamental_missing_reason", "candidate_ordinal", "current_liabilities",
+        "fund_ttm_numerically_complete",
     } or column.startswith(("price_", "share_basis_", "ads_ratio_", "fx_", "valuation_"))
         or (column.startswith(tuple(field + "_" for field in fields)) and column.endswith(suffixes))]
     columns = list(dict.fromkeys(keep_cols + evidence))
