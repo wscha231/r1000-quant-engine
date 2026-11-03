@@ -687,11 +687,6 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                 visit(item, native_wrapper=native_batch)
         elif isinstance(value, dict):
             context_record = isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict)
-            if context_record:
-                witnesses.append((value["identities"], value["scope"]))
-                end = day(value.get("period_end"))
-                if end:
-                    spans.append((day(value.get("period_start")), end))
             # Native preference can retain alternate currencies in provenance.
             unit = value.get("unit")
             if present(unit) and present(row.get(field + "_unit")) and "/" not in str(row.get(field + "_unit", "")) and unit != row.get(field + "_unit"):
@@ -699,6 +694,11 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
             selected_tag = row.get(field + "_source_tag")
             if present(selected_tag) and present(value.get("source_tag")) and selected_tag != value["source_tag"]:
                 return
+            if context_record:
+                witnesses.append((value["identities"], value["scope"]))
+                end = day(value.get("period_end"))
+                if end:
+                    spans.append((day(value.get("period_start")), end))
             # Identity is a constraint even when this used proof has no scope
             # cell. Persisted derived context must not hide its original owner.
             if isinstance(value.get("identities"), dict):
@@ -810,8 +810,6 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     # Flat optional cells acquire None during projection/Parquet transport.
     # They are not original scope assertions; explicit {} remains evidence.
     selected_scope = scope({key: value for key, value in selected.items() if not _native_optional_text_absent(value)})
-    if selected_scope:
-        witnesses.append((identity(selected), selected_scope))
     original_spans = []
     raw_end = day(row.get(field + "_period", row.get("period")))
     raw_hint = (day(row.get(field + "_start")), raw_end) if raw_end and not field.endswith("_ttm") else None
@@ -827,6 +825,12 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
             original_spans.append(period_evidence)
     if missing_original_scope:
         return None
+    if selected_scope:
+        # Fill transport-missing selected cells only from actual original
+        # proof scope. Persisted derived context is not a fallback authority.
+        selected_bound_scope = dict(witnesses[0][1]) if witnesses else {}
+        selected_bound_scope.update(selected_scope)
+        witnesses.insert(0, (identity(selected), selected_bound_scope))
     stored = decode(row.get(field + "_financial_context"))
     if present(row.get(field + "_financial_context")) and not isinstance(stored, dict):
         return None

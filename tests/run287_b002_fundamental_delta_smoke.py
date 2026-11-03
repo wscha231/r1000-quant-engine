@@ -872,6 +872,63 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertEqual(old.loc[0, "mktcap"], 777.0)
         self.assertEqual(old.loc[0, "ep_ttm"], -0.5)
 
+    def test_transport_missing_selected_scope_uses_original_proof_not_stored_context(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker": "NULL_SCOPE", "current_price_live": 10.0}
+        fields = ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities")
+        for field in fields:
+            context = json.loads(row[field+"_financial_context"])
+            context["scope"]["entity_scope"] = "consolidated"
+            proof = json.loads(row[field+"_provenance"])
+            proof[0]["entity_scope"] = "consolidated"
+            row.update({field+"_context_dimensions": None, field+"_entity_scope": "consolidated",
+                field+"_financial_context": json.dumps(context), field+"_provenance": json.dumps(proof)})
+        cache = {}
+        for income in (50.0, 0.0, -50.0):
+            good = dict(row, net_income_ttm=income)
+            context = f.native_financial_context(pd.Series(good), "shares")
+            self.assertEqual(context["scope"], {"dimensions": None, "entity_scope": "consolidated"})
+            guarded = f.enforce_native_valuation_context(pd.DataFrame([good]), _operation_cache=cache)
+            self.assertEqual(guarded.loc[0,"mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc[0,"ep_ttm"], income/1000)
+        original = json.loads(row["shares_provenance"])[0]
+        for change in (dict(cik="0000000002"), dict(entity_scope="subsidiary"), dict(context_dimensions={})):
+            bad = dict(row, shares_provenance=json.dumps([dict(original, **change)]))
+            self.assertIsNone(f.native_financial_context(pd.Series(bad), "shares"), change)
+            self.assertTrue(pd.isna(f.enforce_native_valuation_context(pd.DataFrame([bad]), _operation_cache=cache).loc[0,"mktcap"]))
+        explicit = dict(row, shares_context_dimensions={})
+        self.assertIsNone(f.native_financial_context(pd.Series(explicit), "shares"))
+        missing = {key: value for key,value in original.items() if key not in {"context_dimensions", "entity_scope"}}
+        self.assertIsNone(f.native_financial_context(pd.Series(dict(row, shares_provenance=json.dumps([missing]))), "shares"))
+        # An excluded alternative cannot supply missing original scope, even
+        # when it uses the persisted-context-shaped native proof form.
+        for unused in (dict(unit="EUR"), dict(source_tag="unused-tag")):
+            alternate = dict(identities={"cik":"0000000001"}, scope={"dimensions":None,"entity_scope":"consolidated"},
+                period_start=None, period_end="2025-12-31", **unused)
+            changed = dict(row, shares_source_tag="shares", shares_provenance=json.dumps([missing, alternate]))
+            self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), unused)
+        for proof in ([original, dict(original, context_dimensions={})], [dict(original, context_dimensions={}), original]):
+            self.assertIsNone(f.native_financial_context(pd.Series(dict(row, shares_provenance=json.dumps(proof))), "shares"))
+        empty_scope = dict(row, ticker="EMPTY_SCOPE")
+        for field in fields:
+            context = json.loads(empty_scope[field+"_financial_context"]); context["scope"]["dimensions"] = {}
+            proof = json.loads(empty_scope[field+"_provenance"]); proof[0]["context_dimensions"] = {}
+            empty_scope[field+"_financial_context"], empty_scope[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        projected = p.project_feature_store_frame(pd.DataFrame([row, empty_scope]), list(row))
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("selected_scope_authority."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False); read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False); read = pd.read_parquet(path)
+                out = f.enforce_native_valuation_context(read).set_index("ticker")
+                self.assertEqual(len(out), 2)
+                for ticker in ("NULL_SCOPE", "EMPTY_SCOPE"):
+                    self.assertEqual(out.loc[ticker,"mktcap"], 1000.0)
+                    self.assertAlmostEqual(out.loc[ticker,"ep_ttm"], 0.05)
+
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
         for order in (rows, rows[::-1]):

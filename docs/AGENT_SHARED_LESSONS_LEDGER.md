@@ -9482,3 +9482,22 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Preserve financial9c and its seven file hashes/lease separately. This scoped
   gate PR must still bootstrap using the currently trusted default gate, never
   its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
+
+## 2026-11-03 — Preserve original null scope across selected metadata transport
+
+- Actual PR709 CI41555546135 failed two positive financial controls despite
+  the earlier focused identity/readback QA: annual1000 and cumulative350 became
+  NaN. Preserve that failed run; 234/235 scripts passed, not the complete gate.
+- On unchanged financial9c plus protected master, both failures reproduced.
+  Selected flat None had correctly become missing, but its remaining partial
+  scope was compared as a complete witness against original dimensions:null.
+  Coalesce only missing selected scope keys from the actual original proof,
+  before reading persisted derived context. Keep original null versus {},
+  explicit selected conflicts, owner identity and original-source conflicts
+  distinct; stored context cannot supply the missing authority.
+- Apply existing selected currency/tag filtering before accepting a nested
+  context-shaped proof as a scope witness; an excluded alternative cannot fill
+  missing original scope or become a new operand through coalescence.
+- Retain the original1000/350 expectations and negative scope cases. Exercise
+  cached public valuation, zero/loss and CSV/Parquet alongside the two actual
+  failed tests before one fresh-head hosted CI; never mask this as an infra retry.
