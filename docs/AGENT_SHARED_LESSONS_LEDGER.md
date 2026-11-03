@@ -9173,3 +9173,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Preserve financial9c and its seven file hashes/lease separately. This scoped
   gate PR must still bootstrap using the currently trusted default gate, never
   its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
+
+## 2026-11-03 — Bound pinned review decoration by token and terminal punctuation
+
+- Financial573 had current CI success, independent QA and an immutable clean
+  receipt with completed full-head summary, but the observed Bravo. token failed
+  the pinned grammar's exclamation-only terminal. Null flags remain nullable;
+  no maintainer signal, merge or favorable-word review retry repaired that gap.
+- Extend only the existing pinned single ASCII alphabetic token (1..32 letters)
+  to one terminal ! or .; add no word allowlist. Preserve bare/unpinned/dispatch,
+  fixed clean assertion, authenticated pin, raw hash, head, clocks and all guards.
+- Reproduce the actual bot body in a clearly synthetic maintainer test fixture;
+  local acceptance is not live authentication or gate approval. Preserve573
+  financial bytes/CI/QA and710 separately; bootstrap from the trusted default.
