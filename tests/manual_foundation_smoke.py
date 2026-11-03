@@ -560,6 +560,23 @@ class ManualTests(unittest.TestCase):
         # Restore only the exact reviewed Lake bytes inside this temporary root.
         # Current-source refusal is tested separately; production lookup is intact.
         catalog = manual.load_catalog(self.root)
+        for row in catalog['entries']:
+            if row['entry_id'] == 'group_577' and row['classification'] == 'REUSE_NOW':
+                # This positive exercises the historical reviewed catalog. Do
+                # not mix current financial code into its temporary snapshot.
+                reviewed = {
+                    'r1000_features.py': ('899d4ccc495cb9c66afcb06093f854e1a1b90e35', 297268,
+                        '96decfe3eef4bfe7fc92e2419ffddf9d1ffc54be685c98d96f270a551cd568da'),
+                    'r1000_pipeline.py': ('af9234babc4e713d57daec3ce7df1451c0ceae7e', 950048,
+                        '8384a59befc11ebbb80fe9235e40dadc6fddefe3a8f2cf6adebf47621d1a3880'),
+                }
+                for name, (blob, size, expected_sha) in reviewed.items():
+                    if row['dependency_hashes'].get(name) != expected_sha:
+                        raise ValueError('unknown_historical_feature_pin:' + name)
+                    raw = subprocess.check_output(['git', 'show', blob], cwd=ROOT, stderr=subprocess.PIPE)
+                    if len(raw) != size or hashlib.sha256(raw).hexdigest() != expected_sha:
+                        raise ValueError('historical_feature_fixture_hash:' + name)
+                    (self.root / name).write_bytes(raw)
         if any(row['classification'] == 'REUSE_NOW' and
                row['dependency_hashes'].get('tools/long_history_lake.py') == HISTORICAL_LAKE_SHA256
                for row in catalog['entries']):
