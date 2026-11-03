@@ -26,7 +26,11 @@ jobs:
   evaluate:
     if: >-
       github.event_name != 'issue_comment' ||
-      (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review-complete '))
+      (github.event.issue.pull_request &&
+        (startsWith(github.event.comment.body, '/review-complete ') ||
+          (github.event.action == 'edited' &&
+            startsWith(github.event.changes.body.from, '/review-complete ') &&
+            contains(github.event.changes.body.from, ' codex-receipt '))))
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -93,7 +97,34 @@ jobs:
           export HEAD_SHA
           if [ "$GITHUB_EVENT_NAME" = "issue_comment" ]; then
             COMMAND="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["body"].strip())')"
-            test "$COMMAND" = "/review-complete $HEAD_SHA"
+            PIN_EDIT="$(python -c 'import json,os; e=json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8")); old=((e.get("changes") or {}).get("body") or {}).get("from", ""); print("yes" if e.get("action")=="edited" and old.startswith("/review-complete ") and " codex-receipt " in old else "no")')"
+            if [ "$COMMAND" != "/review-complete $HEAD_SHA" ] || [ "$PIN_EDIT" = yes ]; then
+              # Only the trusted default-branch parser may recognize a pin.
+              python - <<'PY' "$ROOT/pin-command.json" "$ROOT/attestation-event.json"
+          import json
+          import os
+          import sys
+          sys.path.insert(0, "tools")
+          from check_pr_review_complete import parse_review_complete_command
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))
+          pin = parse_review_complete_command(event["comment"]["body"], os.environ["HEAD_SHA"])
+          cid = event["comment"]["id"]
+          if pin is None or type(cid) is not int or cid <= 0:
+              raise SystemExit("invalid explicit receipt pin")
+          selected = {"action": event.get("action"),
+                      "repository": {"full_name": event["repository"].get("full_name")},
+                      "issue": {"number": event["issue"].get("number"), "pull_request": event["issue"].get("pull_request")},
+                      "sender": {key: event["sender"].get(key) for key in ("id", "login")},
+                      "comment": {key: event["comment"].get(key) for key in
+                                  ("id", "body", "created_at", "updated_at", "issue_url", "user")}}
+          with open(sys.argv[1], "w", encoding="utf-8") as output:
+              json.dump({"receipt_pin": pin, "comment_id": cid, "actor_id": event["comment"]["user"]["id"]}, output)
+          with open(sys.argv[2], "w", encoding="utf-8") as output:
+              json.dump(selected, output)
+          PY
+              PIN_COMMENT_ID="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["comment_id"])' "$ROOT/pin-command.json")"
+              gh api "repos/$GITHUB_REPOSITORY/issues/comments/$PIN_COMMENT_ID" > "$ROOT/attestation-comment.json"
+            fi
             ACTOR="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["user"]["login"])')"
             ATTESTED_AT="$(python -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8"))["comment"]["created_at"])')"
             SOURCE=issue_comment
@@ -140,16 +171,21 @@ jobs:
           PY
 
           export ACTOR ATTESTED_AT PERMISSION SOURCE
-          python - <<'PY' > "$ROOT/attestation.json"
+          python - <<'PY' "$ROOT/pin-command.json" > "$ROOT/attestation.json"
           import json
           import os
-          print(json.dumps({
+          import sys
+          result = {
               "head_sha": os.environ["HEAD_SHA"],
               "created_at": os.environ["ATTESTED_AT"],
               "actor": os.environ["ACTOR"],
               "permission": os.environ["PERMISSION"],
               "source": os.environ["SOURCE"],
-          }))
+          }
+          if os.path.exists(sys.argv[1]):
+              command = json.load(open(sys.argv[1], encoding="utf-8"))
+              result.update(receipt_pin=command["receipt_pin"], actor_id=command["actor_id"])
+          print(json.dumps(result))
           PY
 
       - name: Evaluate Codex review evidence for current head
@@ -176,11 +212,64 @@ jobs:
             --reviews "$ROOT/reviews.json" \
             --reactions "$ROOT/reactions.json" \
             "${ARGS[@]}" \
-            --output "$ROOT/result.json"
+            --output "$ROOT/result.json" > "$ROOT/legacy-evaluation-stdout.json"
           GATE_RC=$?
           set -e
+          # Preserve the legacy evidence path. Only its failed attested case
+          # needs the additive, independently collected issue-comment receipt.
+          if [ "$GATE_RC" != "0" ] && [ -f "$ROOT/attestation.json" ]; then
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" > "$ROOT/issue-comments.json"
+            gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/comments" > "$ROOT/review-comments.json"
+            OWNER="${GITHUB_REPOSITORY%/*}"
+            REPOSITORY_NAME="${GITHUB_REPOSITORY#*/}"
+            gh api graphql --paginate --slurp \
+              -f owner="$OWNER" -f repository="$REPOSITORY_NAME" -F number="$PR_NUMBER" \
+              -f query='query($owner:String!,$repository:String!,$number:Int!,$endCursor:String) {
+                repository(owner:$owner,name:$repository) {
+                  nameWithOwner
+                  pullRequest(number:$number) {
+                    number headRefOid
+                    reviewThreads(first:100,after:$endCursor) {
+                      totalCount
+                      nodes { id isResolved }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  }
+                }
+              }' > "$ROOT/review-threads.json"
+            # GitHub must expand the receipt prefix uniquely in this repository.
+            # An ambiguous/missing commit lookup fails before evidence evaluation.
+            gh api "repos/$GITHUB_REPOSITORY/commits/${HEAD_SHA:0:10}" \
+              --jq '{sha: .sha, url: .url}' > "$ROOT/resolved-commit.json"
+            python - <<'PY' "$ROOT/resolved-commit.json" "$ROOT/commit-binding.json"
+          import json
+          import os
+          import sys
+          resolved = json.load(open(sys.argv[1], encoding="utf-8"))
+          with open(sys.argv[2], "w", encoding="utf-8") as output:
+              json.dump({"repository": os.environ["GITHUB_REPOSITORY"],
+                         "requested_prefix": os.environ["HEAD_SHA"][:10], **resolved}, output)
+          PY
+            PIN_ARGS=()
+            if [ -f "$ROOT/attestation-comment.json" ] && [ -f "$ROOT/attestation-event.json" ]; then
+              PIN_ARGS+=(--attestation-comment "$ROOT/attestation-comment.json" --attestation-event "$ROOT/attestation-event.json")
+            fi
+            set +e
+            python tools/check_pr_review_complete.py \
+              --pull-request "$ROOT/pr.json" --head-observation "$ROOT/head-observation.json" \
+              --reviews "$ROOT/reviews.json" --reactions "$ROOT/reactions.json" \
+              --attestation "$ROOT/attestation.json" --repository "$GITHUB_REPOSITORY" \
+              --issue-comments "$ROOT/issue-comments.json" --review-comments "$ROOT/review-comments.json" \
+              --review-threads "$ROOT/review-threads.json" --commit-binding "$ROOT/commit-binding.json" \
+              "${PIN_ARGS[@]}" \
+              --output "$ROOT/result.json" > "$ROOT/comment-evaluation-stdout.json"
+            GATE_RC=$?
+            set -e
+          fi
+          cat "$ROOT/result.json"
           echo "gate_rc=$GATE_RC" >> "$GITHUB_OUTPUT"
           python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("status="+p["status"]); print("evidence_type="+str(p.get("evidence_type") or "none")); print("failures="+",".join(p["failures"]))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
+          python -c 'import json,sys; p=json.load(open(sys.argv[1], encoding="utf-8")); print("comment_binding="+json.dumps(p.get("comment_receipt_binding"),sort_keys=True,separators=(",",":")))' "$ROOT/result.json" >> "$GITHUB_OUTPUT"
 
       - name: Publish required review_complete check on PR head
         if: always() && steps.context.outputs.head_sha != ''
@@ -190,6 +279,7 @@ jobs:
           GATE_STATUS: ${{ steps.gate.outputs.status }}
           EVIDENCE_TYPE: ${{ steps.gate.outputs.evidence_type }}
           FAILURES: ${{ steps.gate.outputs.failures }}
+          COMMENT_BINDING: ${{ steps.gate.outputs.comment_binding }}
           CONCLUSION: ${{ steps.gate.outputs.gate_rc == '0' && 'success' || 'failure' }}
         run: |
           set -euo pipefail
@@ -206,6 +296,7 @@ jobs:
                   "summary": (
                       "Evidence: " + (os.environ.get("EVIDENCE_TYPE") or "none") + "\n\n" +
                       "Failures: " + (os.environ.get("FAILURES") or "none") + "\n\n" +
+                      "Comment receipt binding: " + (os.environ.get("COMMENT_BINDING") or "none") + "\n\n" +
                       "Unresolved conversations are enforced separately by master branch protection."
                   ),
               },

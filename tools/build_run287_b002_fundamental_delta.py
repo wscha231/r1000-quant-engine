@@ -497,6 +497,9 @@ def extract_exact_companyfacts_records(
                         ):
                             counters["period_mismatch_fact_count"] += 1
                             continue
+                        if field_name in {"op_income", "assets", "liabilities", "current_liabilities"} and isinstance(item.get("val"), (bool, np.bool_)):
+                            counters["invalid_value_fact_count"] += 1
+                            continue
                         value = pd.to_numeric(
                             pd.Series([item.get("val")]), errors="coerce"
                         ).iloc[0]

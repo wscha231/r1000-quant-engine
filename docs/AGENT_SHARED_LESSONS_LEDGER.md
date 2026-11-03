@@ -9396,3 +9396,229 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   reported future expiry as expired. It stopped with Native0/Source0. A typed
   DateTimeOffset cast preserved the original GO/host and completed Native1 in
   29.046s. Never fix clock handling by extending expiry or rewriting old times.
+## 2026-11-03 — Bind Codex issue-comment receipts without bypassing review gates
+
+- A clean bot issue comment is absent from the PR review-submission endpoint.
+  Exact-head E3 reviews therefore remained blocked despite actual clean receipts.
+  Keep all three required checks, maintainer attestation and trusted default-
+  branch execution; add only a separate authenticated comment protocol.
+- A mutable summary's null finding flags are not evidence of no findings. Pair
+  the latest completed full-SHA summary with an unedited explicit clean receipt,
+  trusted Bot/user/App IDs, same repository/PR scope, original API clocks, unique
+  commit-prefix expansion and complete exact-head resolved-thread pages. Record
+  both body hashes and refuse newer findings, pending state or partial pages.
+- The compatibility PR cannot run its own gate implementation to approve
+  itself. Preserve bootstrap failure and obtain review through the currently
+  trusted gate; never force a check success or relabel a failed gate as passed.
+- Keep existing outer v2 schemas for strict Source/census readers; version the
+  added receipt payload separately. Publish one final evaluator JSON in the
+  workflow log so an internal legacy-then-comment probe does not look like two
+  conflicting accepted evaluations. Other consumers retain their own admission.
+- Independent A6 on3c828ae5 reproduced order-dependent PASS for tied latest
+  clean/pending summaries or clean/invalid receipts, and arbitrary priority
+  claims inside the permissive clean-line/footer pattern. Reject every latest
+  timestamp tie and accept only observed fixed clean text/cheers and the exact
+  About Codex footer (whitespace variations only). Earlier scoped passes did
+  not cover these negative cases and are not proof of the corrected head.
+
+## 2026-11-03 — Clear current ROIC when a selected native parent is refused
+
+- Exact F6 Codex review on PR709 reproduced eight synthetic quarters with a
+  final same-unit/scope asset conflict: assets became null, but unconditional
+  ROIC carry retained 0.07181818181818182 through the public valuation guard.
+  Stop attestation/merge; side-effect-free CI41498142054 was cancelled, not
+  passed. Previous E3/F6 checks did not cover this current-parent refusal.
+- Recompute native ROIC from finite, non-boolean, non-refused current amounts
+  and compatible original evidence in both panel and public/cache paths. Bind
+  the actual selected current liabilities (including zero), or the explicit
+  30% total-liabilities proxy, through cache and feature-store readback. Keep
+  zero/negative operating income and legacy research formulas; clear only the
+  refused contribution, without removing the candidate or its other evidence.
+
+## 2026-11-03 — Separate clean review evidence from bounded decoration
+
+- The first compatibility parser pinned two complete cheer lines. Genuine
+  exact-head receipts later used Breezy!, :tada: and :rocket:, blocking delivery
+  despite the unchanged explicit clean assertion. Preserve those failed gate
+  observations and the cancelled financial checks; do not re-review to fish for
+  a favorable phrase or treat a clean local probe as a protected gate PASS.
+- Keep the complete receipt fullmatch and every existing Bot/App, immutable
+  body, full-SHA summary/API, clock, newer-finding and resolved-thread condition.
+  Only the decoration slot gains the observed exact Breezy! literal and one
+  bounded lowercase ASCII shortcode. Arbitrary prose, multiple/combined tokens,
+  overlength names, modified footers and priority/finding markers still refuse.
+  No observation-clock or attestation-authority change is part of this fix.
+- This PR must bootstrap through the currently trusted default-branch gate.
+  Its new parser cannot approve itself; financial57bf and partialA3 checkpoints
+  remain separate, with a fresh current-base head/checks after integration.
+
+## 2026-11-03 — Validate original proof identity independently of optional scope
+
+- Actual PR709 review on315664dc found another-issuer original shares proof
+  without scope keys could be hidden by the persisted context. Reproduce the
+  shared validator and public valuation, not just a caller: contextCIK1,
+  market cap1000 and EP0.05 incorrectly survived original proofCIK2.
+- Compare every used original identity independently of scope presence. Keep
+  explicit selected source scope distinct from stored derived context; stored
+  context alone cannot replace missing original scope. Preserve actual unit/tag
+  selection and existing fiscal-period algebra, zero/loss and legacy behavior.
+- Preserve the first diagnostic harness: Series.update did not add missing
+  price-evidence keys, making its public-valuation result inconclusive. The R1
+  dictionary-merge fixture reproduced the finding without Source/provider reads.
+  Prior315664dc CI success is not evidence for the corrected HEAD.
+- Independent static review then found a same-boundary wrapper shortcut.
+  On312ad47b, parents:[], parents:[null] and a malformed parents value were
+  reproduced as incorrectly retaining the stored scope; native_proof:null in a
+  list already refused. Preserve the initial strict-JSON diagnostic failure
+  (a refused value was NaN) and its corrected null-valued R1 output. Child-key
+  presence is not wrapper evidence: recognize only existing period-valid
+  derived structures/native batches and validate their actual original leaves.
+- Independent readback QA found a prior false refusal in both315664dc/5dc54304:
+  an absent selected flat scope cell became NaN in a mixed frame, then None in
+  projection/Parquet and was misread as an explicit dimensions:null assertion
+  conflicting with valid original dimensions:{}. CSV only passed because it
+  reinterpreted None as NaN. Normalize transport-missing selected cells only;
+  preserve actual selected{} and original proof null/{} semantics. Keep both
+  good rows in one mixed-frame/CSV/Parquet regression. CI41553259226 was
+  cancelled, not passed; prior good-fixture failure and diagnostics are retained.
+
+## 2026-11-03 — Pin authenticated completed review receipts without word lists
+
+- Immutable clean receipts used Hooray! and Delightful! after the earlier
+  decoration fix. Keep these current-head observations separate from a clean
+  machine finding flag: the flags remained null, and only an actually completed
+  full-SHA summary can accompany a clean immutable receipt. No stale-running
+  override or favorable-phrase review retry is an admissible repair.
+- Add an optional exact receipt-ID/raw-UTF8-body-SHA maintainer command, bound
+  to a same-PR immutable GitHub comment and its actual event/API actor, clocks
+  and current write permission. Only this pinned route permits one bounded
+  ASCII alphabetic decoration token; preserve the fixed clean assertion, exact
+  footer, trusted Bot/App, latest-unique receipt selection, full-head binding,
+  all clock/security/finding/thread guards and existing evidence/schema names.
+  Explicit bad pins fail closed even if a legacy review or reaction exists.
+- Preserve financial9c and its seven file hashes/lease separately. This scoped
+  gate PR must still bootstrap using the currently trusted default gate, never
+  its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
+
+## 2026-11-03 — Isolate incomplete baseline components without admitting them
+
+- Scheduled managed refresh41593690605 stopped before any provider GET on
+  `MANAGED_BOOTSTRAP_INCOMPLETE_GRID`. Root's bounded retained-date diagnostic
+  found38 of53 components complete for their own receipt windows and15 with
+  missing earlier prefixes. That is not a lifecycle certificate for those15
+  names: a first observed bar does not establish an IPO, and the local/hosted
+  calendar versions differed. Do not identify the hosted failing ticker from
+  a generic error or rewrite receipt dates to manufacture completeness.
+- Keep strict bootstrap callers failing closed. A typed incomplete-coverage
+  refusal may expose verified complete/held partitions only after every
+  selected original/normalized archive passes existing integrity checks.
+  The managed component consumer holds incomplete grids before identity,
+  provider or backfill work, including names explicitly listed for backfill.
+  Hash/bytes/schema/malformed rows/raw-split mismatches remain global failures.
+- Preserve prior holds and WATCH history. A partial producer completion must
+  separate held/reused/updated counts; zero eligible updates/reuse must leave
+  a BLOCKED journal and meter and return non-success. Synthetic regression
+  proof is not current market coverage, account-rights evidence, permission to
+  replay the spent control, recurring activation or Source/PIT admission.
+- The private-capture smoke also registers imported campaign suites. A bounded
+  author check must select its own defined test classes explicitly; loading
+  every exposed class silently widens the run. Preserve the interrupted broad
+  attempt as NOT_COMPLETED and do not count it as a validation PASS.
+- Tier1 launches absolute test-file paths. Bootstrap the new smoke's repository
+  import path explicitly and verify that entrypoint with isolated Python;
+  a developer shell's PYTHONPATH must not be its hidden CI prerequisite.
+
+## 2026-11-03 — Preserve original null scope across selected metadata transport
+
+- Actual PR709 CI41555546135 failed two positive financial controls despite
+  the earlier focused identity/readback QA: annual1000 and cumulative350 became
+  NaN. Preserve that failed run; 234/235 scripts passed, not the complete gate.
+- On unchanged financial9c plus protected master, both failures reproduced.
+  Selected flat None had correctly become missing, but its remaining partial
+  scope was compared as a complete witness against original dimensions:null.
+  Coalesce only missing selected scope keys from the actual original proof,
+  before reading persisted derived context. Keep original null versus {},
+  explicit selected conflicts, owner identity and original-source conflicts
+  distinct; stored context cannot supply the missing authority.
+- Apply existing selected currency/tag filtering before accepting a nested
+  context-shaped proof as a scope witness; an excluded alternative cannot fill
+  missing original scope or become a new operand through coalescence.
+- Retain the original1000/350 expectations and negative scope cases. Exercise
+  cached public valuation, zero/loss and CSV/Parquet alongside the two actual
+  failed tests before one fresh-head hosted CI; never mask this as an infra retry.
+
+## 2026-11-03 — Select scope witnesses with the actual native operand period
+
+- Actual Codex4452057560 on9603 found that a lower-ranked YTD retained for
+  audit could erase a selected direct-quarter flow. Direct Q2 alone returned
+  selected300/context/flow300; adding a differently scoped January-June audit
+  alternative kept the selected300 and empty slot refusal but nullified context
+  and flow. Preserve this repro; CI41597703728 was cancelled, not passed.
+- Reuse the existing proof_span selection hints for raw alternatives only.
+  Preserve standalone period failures and all same-selected-period conflicts.
+  Native selection wrappers and native/flow/cumulative batch operands each carry
+  their existing period hint; actual YTD arithmetic parents retain their own
+  input spans and must all agree on scope/issuer even outside the output quarter.
+  Unknown/malformed spans are not sufficient evidence to discard an operand.
+- Share the existing batch hint calculation with period validation rather than
+  introducing a second fiscal algorithm. Test both audit input orders, native
+  batch hints, real YTD subtraction/addition, same-span/foreign-owner conflicts
+  and no matching operand. Keep all audit provenance and the original values.
+- Before checkpoint/publication, parallel static QA found the first hint repair
+  could hide the previous operand in the existing bare nested-list YTD form.
+  Reproduce scope and foreign-issuer false acceptance, preserve the private
+  65-case results as superseded evidence, and mirror proof_span's own-hint /
+  previous-no-hint rule. No unsafe private version was pushed or approved.
+
+## 2026-11-03 — Bound pinned review decoration by token and terminal punctuation
+
+- Financial573 had current CI success, independent QA and an immutable clean
+  receipt with completed full-head summary, but the observed Bravo. token failed
+  the pinned grammar's exclamation-only terminal. Null flags remain nullable;
+  no maintainer signal, merge or favorable-word review retry repaired that gap.
+- Extend only the existing pinned single ASCII alphabetic token (1..32 letters)
+  to one terminal ! or .; add no word allowlist. Preserve bare/unpinned/dispatch,
+  fixed clean assertion, authenticated pin, raw hash, head, clocks and all guards.
+- Reproduce the actual bot body in a clearly synthetic maintainer test fixture;
+  local acceptance is not live authentication or gate approval. Preserve573
+  financial bytes/CI/QA and710 separately; bootstrap from the trusted default.
+
+## 2026-11-03 — Close registered Source proof dependencies and reviewed lineage
+
+- Source715 hosted CI41621414559 failed234/236 although the new managed smoke
+  passed. Its new registry member was absent from A6's independently fixed
+  proof closure, leaving the temporary proof root incomplete and the explicit
+  235-program oracle stale. Pin the actual new program and both managed/prepare
+  helpers, with exact-once236 and omission/changed-byte negatives. Copying only
+  the fixture or deriving mandatory trust from mutable runner rows is insufficient.
+- P0-4 correctly rejected the changed protected runner after frozen4f17. Root
+  explicitly reviewed the sole registration-line delta and authorized the fixed
+  anchor05a9 in both verifier and independent test. Preserve protected paths,
+  ancestry, dirty-state checks, frozen source/bundle/requirements and the existing
+  generator pin-only rule. Advancing this literal is reviewed verifier code;
+  the failed05a9 CI remains failed and the new exact head needs fresh review.
+- Prepare and validate this correction locally while Main is frozen; publish
+  only after the coordinated final master is accepted. No canonical bundle
+  regeneration, old100/169-suite replay, provider capture or runtime activation.
+- The Native Source environment serializes PyArrow26.0.0 while the frozen P0
+  contract pins23.0.1; the original P0 check also exposes Windows README CRLF.
+  Preserve both failed byte comparisons as ENV_PIN_MISMATCH/BLOCKED. Separate
+  the Foundation closure checks from canonical P0-byte acceptance; never
+  rewrite the bundle, requirements or verifier to turn environment drift into
+  PASS. Final exact-head hosted required CI must still run the complete checks.
+
+## 2026-11-03 — Separate legacy TTM completeness from admission readiness
+
+- Actual Codex4454143038 on ebd2 found that clearing legacy readiness flags
+  also disabled the existing age-bounded monthly TTM fallback. With panel
+  forward fill disabled, four complete quarters produced revenue400, but a
+  later missing quarter made the monthly join null; restoring only the old
+  numerical signal restored400. Preserve that repro and cancelled CI41627870774
+  as CANCELLED_NOT_PASS, rather than treating its earlier checks as completion.
+- Preserve a separate numerical-completeness signal for the legacy fallback.
+  Keep legacy ready/raw flags zero and evidence UNVERIFIED; retain the old
+  cache witness, acceptance-time/maximum-age limits and native/unknown exclusion.
+  Coalesce only truly missing old/new-cache cells; explicit zero or invalid
+  signals cannot use an older ready flag. Retain the signal through feature
+  projection/normalization and test zero/loss income and CSV/Parquet without
+  granting Source or ER authority.

@@ -3744,9 +3744,17 @@ class ManualTests(unittest.TestCase):
         programs.update({'tests/control_plane_agent_contract_smoke.py',
                          'tests/system_state_materializer_smoke.py',
                          'tests/manual_foundation_smoke.py', 'tools/run_pr_validation.py'})
-        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 235)
+        self.assertEqual(len(registered_validation.DEFAULT_TESTS), 236)
+        self.assertEqual(registered_validation.DEFAULT_TESTS.count(
+            ('tests/alpaca_sip_managed_refresh_smoke.py', [])), 1)
         required = set(manual.required_dependencies('A6_INDEPENDENT_QA', self.root))
         self.assertTrue(programs.issubset(required), sorted(programs - required))
+        for name in ('tests/alpaca_sip_managed_refresh_smoke.py',
+                     'tools/alpaca_sip_managed_refresh.py',
+                     'tools/prepare_a1_managed_ohlcv.py'):
+            self.assertEqual(manual.A6_FIXED_PROOF_PROGRAMS.count(name), 1)
+            self.assertIn(name, required)
+            self.assertTrue((self.root / name).is_file(), name)
         self.assertTrue({'tools/materialize_system_state.py', 'mission_contract.py',
                          'tools/run_orchestrator.py',
                          'tools/research_data_access.py', 'tests/frozen_stage_ab_fairness_smoke.py',
@@ -3758,6 +3766,34 @@ class ManualTests(unittest.TestCase):
                          '.github/workflows/api_credentials_check.yml',
                          '.github/workflows/twelve_data_credential_preflight.yml'}.issubset(required))
         packet, scope = self.packet('A6_INDEPENDENT_QA')
+        result = self.validate(packet, scope)
+        self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
+        self.assertFalse(result['worker_invoked'])
+        self.assertEqual(set(result['proof_results'].values()), {'NOT_RUN'})
+
+    def test_a6_managed_refresh_closure_refuses_changed_and_rebound_missing_pins(self):
+        # Independent literal witnesses: the registered program plus the local
+        # managed/prepare imports it consumes. No proof/collector is invoked.
+        names = ('tests/alpaca_sip_managed_refresh_smoke.py',
+                 'tools/alpaca_sip_managed_refresh.py',
+                 'tools/prepare_a1_managed_ohlcv.py')
+        packet, scope = self.packet('A6_INDEPENDENT_QA')
+        for name in names:
+            with self.subTest(path=name):
+                self.assertIn(name, packet['dependencies'])
+                target = self.root / name
+                original = target.read_bytes()
+                self.assertEqual(original, fixture_dependency_bytes(name, 'HEAD'))
+                try:
+                    target.write_bytes(original + b'\n# synthetic changed managed proof\n')
+                    self.rejected(packet, scope, 'dependency_bytes_changed:' + name)
+                finally:
+                    target.write_bytes(original)
+                omitted, verified = copy.deepcopy(packet), copy.deepcopy(scope)
+                del omitted['dependencies'][name]
+                del verified['dependencies'][name]
+                self.rebind_all(omitted, verified)
+                self.rejected(omitted, verified, 'missing_dependency')
         result = self.validate(packet, scope)
         self.assertEqual(result['status'], 'VALIDATED_PREPARE_ONLY')
         self.assertFalse(result['worker_invoked'])

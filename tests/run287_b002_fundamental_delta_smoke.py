@@ -632,6 +632,389 @@ class NativeFinancialContextTests(unittest.TestCase):
                 start=start, period="2025-12-31", source_tag=field)])
         return pd.Series(values)
 
+    def test_native_roic_cannot_carry_across_refused_current_assets(self):
+        import r1000_features as f
+        rows = []
+        for i, period in enumerate(pd.date_range("2024-03-31", periods=8, freq="QE-DEC")):
+            start = period-pd.offsets.QuarterEnd()+pd.Timedelta(days=1)
+            common = dict(period=period, accepted=period+pd.Timedelta(days=20), fy=period.year,
+                fp="Q"+str((i % 4)+1), accession_number="roic-"+str(i), unit="USD")
+            rows.append(self.row(**common, field_name="op_income", source_tag="OperatingIncome",
+                start=start, duration_days=(period-start).days+1, value=20.0))
+            for field, amount in (("assets", 1000.0), ("liabilities", 400.0)):
+                rows.append(self.row(**common, field_name=field, source_tag=field, start=pd.NaT, value=amount))
+        control = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(rows)))
+        self.assertAlmostEqual(control.iloc[-1]["roic_approx"], 80*0.79/(1000-400*0.30))
+        conflict = dict(rows[-2], value=2000.0)
+        for records in (rows+[conflict], [conflict]+rows):
+            bad = build_exact_fundamental_panel(select_accession_field_records(pd.DataFrame(records)))
+            self.assertEqual(bad.iloc[-1]["assets_missing_reason"], "conflicting_native_facts_or_contexts")
+            for result in (bad, f.enforce_native_valuation_context(bad.tail(1))):
+                self.assertTrue(pd.isna(result.iloc[-1]["roic_approx"]))
+                self.assertIn("assets", result.iloc[-1]["roic_approx_missing_reason"])
+            self.assertEqual(len(bad), len(control))
+            self.assertAlmostEqual(bad.iloc[-1]["op_income_ttm"], 80.0)
+        # Refusal also applies before clipping when a direct native panel is reused.
+        for amount in (float("inf"), float("-inf"), True, np.bool_(False)):
+            bad = control.copy()
+            bad["assets"] = bad["assets"].astype(object)
+            bad.loc[bad.index[-1], "assets"] = amount
+            self.assertTrue(pd.isna(f.recompute_fund_panel_derived_columns(bad).iloc[-1]["roic_approx"]))
+        for position, amount in ((-2, True), (-1, np.bool_(False)), (-3, True), (-2, float("inf"))):
+            bad_rows = [dict(row) for row in rows]
+            bad_rows[position]["value"] = amount
+            selected = select_accession_field_records(pd.DataFrame(bad_rows))
+            current = selected[selected["accession_number"] == "roic-7"]
+            self.assertIn("invalid_native_amount", current["missing_reason"].tolist())
+            self.assertTrue(pd.isna(build_exact_fundamental_panel(selected).iloc[-1]["roic_approx"]))
+
+    def test_native_roic_public_cache_selected_parent_and_readback(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        original = self.financial().to_dict()
+        original.update(self.price_context(), ticker="SYN", current_price_live=10.0, px=10.0,
+            mktcap=1000.0, op_income_ttm=80.0, op_income_ttm_unit="USD", roic_approx=999.0,
+            op_income_ttm_financial_context=original["net_income_ttm_financial_context"],
+            op_income_ttm_provenance=original["net_income_ttm_provenance"])
+        cache = {}
+        control = f.enforce_native_valuation_context(pd.DataFrame([original]), _operation_cache=cache)
+        self.assertAlmostEqual(control.loc[0, "roic_approx"], 80*0.79/880)
+        changed = control.copy(); changed["roic_approx"] = 999.0
+        self.assertAlmostEqual(f.enforce_native_valuation_context(changed, _operation_cache=cache).loc[0, "roic_approx"], 80*0.79/880)
+        for income in (0.0, -80.0):
+            changed = original | {"op_income_ttm": income}
+            self.assertAlmostEqual(f.native_valuation_overrides(pd.Series(changed), technical_price=10.0)["roic_approx"], income*0.79/880)
+        invalid = []
+        for field in ("assets", "liabilities", "op_income_ttm"):
+            invalid.extend([original | {field: amount} for amount in (float("nan"), float("inf"), float("-inf"), True, np.bool_(False))])
+            invalid.append(original | {field+"_missing_reason": "conflicting_native_facts_or_contexts"})
+        current = original | {"current_liabilities": 0.0, "current_liabilities_unit": "USD",
+            "current_liabilities_financial_context": original["liabilities_financial_context"],
+            "current_liabilities_provenance": original["liabilities_provenance"]}
+        # A supplied zero is the selected amount, not the 30% debt fallback.
+        zero = f.enforce_native_valuation_context(pd.DataFrame([current]), _operation_cache=cache)
+        self.assertAlmostEqual(zero.loc[0, "roic_approx"], 80*0.79/1000)
+        self.assertIn("current_liabilities", zero.loc[0, "roic_approx_derivation"])
+        no_total_debt = current | {"liabilities": float("nan"), "liabilities_missing_reason": "missing_native_fact"}
+        self.assertAlmostEqual(f.enforce_native_valuation_context(pd.DataFrame([no_total_debt])).loc[0, "roic_approx"], 80*0.79/1000)
+        for amount in (float("nan"), float("inf"), float("-inf"), True, np.bool_(False), 1000.0):
+            invalid.append(current | {"current_liabilities": amount})
+        invalid.append(current | {"current_liabilities_missing_reason": "refused_current_fact"})
+        invalid.append(current | {"current_liabilities_unit": "EUR"})
+        for key, value in (("period_end", "2024-12-31"), ("scope", {"dimensions": "segment"})):
+            context = json.loads(current["current_liabilities_financial_context"])
+            context[key] = value
+            invalid.append(current | {"current_liabilities_financial_context": json.dumps(context)})
+        for changed in invalid:
+            with self.subTest(changed={key: value for key, value in changed.items() if str(value) != str(original.get(key))}):
+                frame = pd.DataFrame([changed])
+                cached = f.enforce_native_valuation_context(frame, _operation_cache=cache)
+                fresh = f.enforce_native_valuation_context(frame)
+                self.assertTrue(pd.isna(cached.loc[0, "roic_approx"]))
+                self.assertEqual(cached.loc[0, "roic_approx_missing_reason"], fresh.loc[0, "roic_approx_missing_reason"])
+                self.assertTrue(cached.loc[0, "roic_approx_missing_reason"])
+                self.assertAlmostEqual(cached.loc[0, "fcf_margin"], 0.12)
+                self.assertIsNone(cached.loc[0, "roic_approx_provenance"])
+        # Removing the selected component and its evidence explicitly restores
+        # the legacy debt proxy; neither cache entries nor output edits decide.
+        restored = f.enforce_native_valuation_context(pd.DataFrame([original]), _operation_cache=cache)
+        self.assertAlmostEqual(restored.loc[0, "roic_approx"], 80*0.79/880)
+        refused = current | {"ticker": "REFUSED", "current_liabilities": float("nan"), "roic_approx": 999.0}
+        keep = ["ticker", "px", "current_price_live", "mktcap", "shares", "assets", "liabilities", "op_income_ttm",
+            "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "roic_approx"]
+        projected = p.project_feature_store_frame(pd.DataFrame([current, refused]), keep)
+        self.assertIn("current_liabilities", projected)
+        self.assertIn("current_liabilities_provenance", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("roic."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    read = pd.read_parquet(path)
+                result = p.compute_valuation_columns(read).set_index("ticker")
+                self.assertEqual(set(result.index), {"SYN", "REFUSED"})
+                self.assertAlmostEqual(result.loc["SYN", "roic_approx"], 80*0.79/1000)
+                self.assertTrue(pd.isna(result.loc["REFUSED", "roic_approx"]))
+                self.assertAlmostEqual(result.loc["REFUSED", "fcf_margin"], 0.12)
+                self.assertTrue(np.isfinite(result.loc["REFUSED", "sage_q_score"]))
+
+    def test_original_proof_identity_is_checked_without_optional_scope(self):
+        import r1000_features as f
+        identities = dict(cik="0000000001", issuer_id="issuer-one", entity_id="entity-one", entity="owner-one")
+        row = {**self.financial().to_dict(), **self.price_context(), **identities, "current_price_live": 10.0}
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            context = json.loads(row[field+"_financial_context"]); context["identities"] = identities
+            proof = json.loads(row[field+"_provenance"]); proof[0].update(identities)
+            row[field+"_financial_context"], row[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        cache = {}
+        self.assertEqual(f.enforce_native_valuation_context(pd.DataFrame([row]), _operation_cache=cache).loc[0, "mktcap"], 1000.0)
+        original = json.loads(row["shares_provenance"])[0]
+        for name in identities:
+            bad = dict(original); bad.pop("context_dimensions")
+            bad[name] = "0000000002" if name == "cik" else "different-owner"
+            for selected_scope in (False, True):
+                for proof in (bad, [bad], {"derivation": "native_period_selection", "period_start": None,
+                    "period_end": "2025-12-31", "parents": [bad]}):
+                    changed = dict(row, shares_provenance=json.dumps(proof))
+                    if selected_scope:
+                        changed["shares_context_dimensions"] = {}
+                        context = json.loads(changed["shares_financial_context"])
+                        context["scope"] = {"dimensions": {}}
+                        changed["shares_financial_context"] = json.dumps(context)
+                    self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), (name, selected_scope))
+                    guarded = f.enforce_native_valuation_context(pd.DataFrame([changed]), _operation_cache=cache)
+                    self.assertTrue(pd.isna(guarded.loc[0, "mktcap"]))
+                    self.assertTrue(pd.isna(guarded.loc[0, "ep_ttm"]))
+        # Each original leaf, not just the wrapper or its persisted context,
+        # constrains identity in the actual quarterization proof containers.
+        for target in ("native_proof", "flow_proof", "cumulative_proof"):
+            wrapper = dict(period="2025-12-31", native_period_start=None, native_period_end="2025-12-31",
+                native_proof=[original], flow_proof=[original], cumulative_proof=[original])
+            good = dict(row, shares_provenance=json.dumps([wrapper]), shares_context_dimensions=None)
+            self.assertIsNotNone(f.native_financial_context(pd.Series(good), "shares"))
+            bad = dict(original, cik="0000000002"); bad.pop("context_dimensions")
+            wrapper[target] = [bad]
+            changed = dict(row, shares_provenance=json.dumps([wrapper]), shares_context_dimensions=None)
+            self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), target)
+        # Scope from only a persisted context is not original scope evidence.
+        absent = dict(original); absent.pop("context_dimensions")
+        missing = dict(row, shares_provenance=json.dumps([absent]))
+        self.assertIsNone(f.native_financial_context(pd.Series(missing), "shares"))
+        # Explicit selected source metadata remains usable, including nullable
+        # optional owner aliases falling back to the verified row owner.
+        selected = dict(missing, shares_context_dimensions={})
+        context = json.loads(selected["shares_financial_context"]); context["scope"] = {"dimensions": {}}
+        selected["shares_financial_context"] = json.dumps(context)
+        absent["issuer_id"] = None
+        selected["shares_provenance"] = json.dumps([absent])
+        self.assertIsNotNone(f.native_financial_context(pd.Series(selected), "shares"))
+        ownerless = {**selected, **{key: None for key in identities}}
+        ownerless["shares_provenance"] = json.dumps([{key: value for key, value in absent.items() if key not in identities}])
+        self.assertIsNone(f.native_financial_context(pd.Series(ownerless), "shares"))
+        # Keep actual unit/tag preference: an excluded alternative is not a new
+        # operand merely because it carries other metadata.
+        for alternative in (dict(original, unit="EUR", cik="0000000002"),
+            dict(original, source_tag="unused-alias", cik="0000000002")):
+            chosen = dict(row, shares_unit="shares", shares_source_tag="shares",
+                shares_provenance=json.dumps([original, alternative]))
+            self.assertIsNotNone(f.native_financial_context(pd.Series(chosen), "shares"))
+
+    def test_original_proof_scope_cannot_be_replaced_by_dummy_wrapper_keys(self):
+        import r1000_features as f
+        row = {**self.financial().to_dict(), **self.price_context(), "current_price_live": 10.0}
+        original = json.loads(row["shares_provenance"])[0]
+        missing = dict(original); missing.pop("context_dimensions")
+        for extra in ({"parents": []}, {"parents": None}, {"parents": [None]}, {"parents": "malformed"},
+            {"native_proof": None}, {"native_proof": []}, {"flow_proof": None}, {"cumulative_proof": {}}):
+            for proof in (dict(missing, **extra), [dict(missing, **extra)]):
+                changed = dict(row, shares_provenance=json.dumps(proof))
+                self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), (extra, proof))
+                out = f.enforce_native_valuation_context(pd.DataFrame([changed])).iloc[0]
+                self.assertTrue(pd.isna(out["mktcap"]))
+                self.assertTrue(pd.isna(out["ep_ttm"]))
+        # Existing, period-valid wrappers retain their actual scoped children.
+        for proof in ({"derivation": "native_period_selection", "period_start": None,
+                "period_end": "2025-12-31", "parents": [original]},
+            [dict(period="2025-12-31", native_period_start=None, native_period_end="2025-12-31",
+                native_proof=[original], flow_proof=[original], cumulative_proof=[original])]):
+            out = f.enforce_native_valuation_context(pd.DataFrame([dict(row, shares_provenance=json.dumps(proof))])).iloc[0]
+            self.assertEqual(out["mktcap"], 1000.0)
+            self.assertAlmostEqual(out["ep_ttm"], 0.05)
+
+    def test_original_proof_scope_identity_survives_projection_and_cache(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker": "VALID", "current_price_live": 10.0}
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            context = json.loads(row[field+"_financial_context"]); context["scope"] = {"dimensions": {}}
+            proof = json.loads(row[field+"_provenance"]); proof[0]["context_dimensions"] = {}
+            row[field+"_financial_context"], row[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        proof = json.loads(row["shares_provenance"])[0]; proof.pop("context_dimensions")
+        row.update(shares_provenance=proof, shares_context_dimensions={})
+        for income in (50.0, 0.0, -50.0):
+            guarded = f.enforce_native_valuation_context(pd.DataFrame([dict(row, net_income_ttm=income)]))
+            self.assertEqual(guarded.loc[0, "mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc[0, "ep_ttm"], income/1000)
+        for count in (0.0, -1.0, float("nan")):
+            self.assertTrue(pd.isna(f.enforce_native_valuation_context(pd.DataFrame([dict(row, shares=count)])).loc[0, "mktcap"]))
+        wrong = dict(row, ticker="WRONG", shares_provenance=[dict(proof, cik="0000000002")])
+        missing = dict(row, ticker="MISSING"); missing.pop("shares_context_dimensions")
+        raw = dict(row, ticker="VALID_RAW", shares_provenance=dict(proof, context_dimensions={}))
+        raw.pop("shares_context_dimensions")
+        unknown = dict(row, ticker="UNKNOWN", financial_metadata_version="unsupported-v99")
+        frame = pd.DataFrame([row, raw, wrong, missing, unknown])
+        keep = ["ticker", "current_price_live", "shares", "assets", "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm"]
+        projected = p.project_feature_store_frame(frame, keep)
+        for materialized in (frame, projected):
+            guarded = f.enforce_native_valuation_context(materialized).set_index("ticker")
+            self.assertEqual(guarded.loc["VALID_RAW", "mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc["VALID_RAW", "ep_ttm"], 0.05)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("original_identity."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False); read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False); read = pd.read_parquet(path)
+                guarded = f.enforce_native_valuation_context(read).set_index("ticker")
+                self.assertEqual(len(guarded), 5)
+                self.assertEqual(guarded.loc["VALID", "mktcap"], 1000.0)
+                self.assertAlmostEqual(guarded.loc["VALID", "ep_ttm"], 0.05)
+                self.assertEqual(guarded.loc["VALID_RAW", "mktcap"], 1000.0)
+                self.assertAlmostEqual(guarded.loc["VALID_RAW", "ep_ttm"], 0.05)
+                self.assertTrue(guarded.loc[["WRONG", "MISSING", "UNKNOWN"], "mktcap"].isna().all(), suffix)
+                self.assertTrue(guarded.loc[["WRONG", "MISSING", "UNKNOWN"], "ep_ttm"].isna().all(), suffix)
+        legacy = pd.DataFrame([dict(financial_metadata_version=None, mktcap=777.0, ep_ttm=-0.5)])
+        old = f.enforce_native_valuation_context(legacy)
+        self.assertEqual(old.loc[0, "mktcap"], 777.0)
+        self.assertEqual(old.loc[0, "ep_ttm"], -0.5)
+
+    def test_transport_missing_selected_scope_uses_original_proof_not_stored_context(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker": "NULL_SCOPE", "current_price_live": 10.0}
+        fields = ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities")
+        for field in fields:
+            context = json.loads(row[field+"_financial_context"])
+            context["scope"]["entity_scope"] = "consolidated"
+            proof = json.loads(row[field+"_provenance"])
+            proof[0]["entity_scope"] = "consolidated"
+            row.update({field+"_context_dimensions": None, field+"_entity_scope": "consolidated",
+                field+"_financial_context": json.dumps(context), field+"_provenance": json.dumps(proof)})
+        cache = {}
+        for income in (50.0, 0.0, -50.0):
+            good = dict(row, net_income_ttm=income)
+            context = f.native_financial_context(pd.Series(good), "shares")
+            self.assertEqual(context["scope"], {"dimensions": None, "entity_scope": "consolidated"})
+            guarded = f.enforce_native_valuation_context(pd.DataFrame([good]), _operation_cache=cache)
+            self.assertEqual(guarded.loc[0,"mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc[0,"ep_ttm"], income/1000)
+        original = json.loads(row["shares_provenance"])[0]
+        for change in (dict(cik="0000000002"), dict(entity_scope="subsidiary"), dict(context_dimensions={})):
+            bad = dict(row, shares_provenance=json.dumps([dict(original, **change)]))
+            self.assertIsNone(f.native_financial_context(pd.Series(bad), "shares"), change)
+            self.assertTrue(pd.isna(f.enforce_native_valuation_context(pd.DataFrame([bad]), _operation_cache=cache).loc[0,"mktcap"]))
+        explicit = dict(row, shares_context_dimensions={})
+        self.assertIsNone(f.native_financial_context(pd.Series(explicit), "shares"))
+        missing = {key: value for key,value in original.items() if key not in {"context_dimensions", "entity_scope"}}
+        self.assertIsNone(f.native_financial_context(pd.Series(dict(row, shares_provenance=json.dumps([missing]))), "shares"))
+        # An excluded alternative cannot supply missing original scope, even
+        # when it uses the persisted-context-shaped native proof form.
+        for unused in (dict(unit="EUR"), dict(source_tag="unused-tag")):
+            alternate = dict(identities={"cik":"0000000001"}, scope={"dimensions":None,"entity_scope":"consolidated"},
+                period_start=None, period_end="2025-12-31", **unused)
+            changed = dict(row, shares_source_tag="shares", shares_provenance=json.dumps([missing, alternate]))
+            self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), unused)
+        for proof in ([original, dict(original, context_dimensions={})], [dict(original, context_dimensions={}), original]):
+            self.assertIsNone(f.native_financial_context(pd.Series(dict(row, shares_provenance=json.dumps(proof))), "shares"))
+        empty_scope = dict(row, ticker="EMPTY_SCOPE")
+        for field in fields:
+            context = json.loads(empty_scope[field+"_financial_context"]); context["scope"]["dimensions"] = {}
+            proof = json.loads(empty_scope[field+"_provenance"]); proof[0]["context_dimensions"] = {}
+            empty_scope[field+"_financial_context"], empty_scope[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        projected = p.project_feature_store_frame(pd.DataFrame([row, empty_scope]), list(row))
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("selected_scope_authority."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False); read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False); read = pd.read_parquet(path)
+                out = f.enforce_native_valuation_context(read).set_index("ticker")
+                self.assertEqual(len(out), 2)
+                for ticker in ("NULL_SCOPE", "EMPTY_SCOPE"):
+                    self.assertEqual(out.loc[ticker,"mktcap"], 1000.0)
+                    self.assertAlmostEqual(out.loc[ticker,"ep_ttm"], 0.05)
+
+    def test_unselected_duration_proof_cannot_erase_selected_quarter(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        direct = self.row(unit="USD", start=pd.Timestamp("2025-04-01"), period=pd.Timestamp("2025-06-30"),
+            accepted=pd.Timestamp("2025-07-20"), fy=2025, fp="Q2", value=300., duration_days=91,
+            entity_scope="consolidated")
+        alternate = dict(direct, start=pd.Timestamp("2025-01-01"), duration_days=181, value=500.,
+            semantic_rank=1, context_dimensions={"ProductAxis":"Other"})
+        keys = ["cik", "period", "accepted", "field_name"]
+        for records in ([direct, alternate], [alternate, direct]):
+            selected = p.select_companyfacts_slots(pd.DataFrame(records), keys).iloc[0]
+            self.assertEqual(selected["value"], 300.)
+            self.assertEqual(selected["missing_reason"], "")
+            self.assertEqual(len(json.loads(selected["fact_provenance"])), 2)
+            self.assertEqual(f.native_fact_record_context(selected)["period_start"], "2025-04-01")
+            self.assertEqual(p.companyfacts_quarterly_flows(pd.DataFrame(records)).iloc[0]["flow"], 300.)
+        proof = json.loads(selected["fact_provenance"])
+        chosen = next(item for item in proof if item["start"].startswith("2025-04-01"))
+        unused = next(item for item in proof if item["start"].startswith("2025-01-01"))
+        for change in (dict(context_dimensions={"actual":"conflict"}), dict(cik="0000000002")):
+            bad = selected.copy(); bad["fact_provenance"] = json.dumps([chosen, dict(chosen, **change)])
+            self.assertIsNone(f.native_fact_record_context(bad), change)
+        for lineage in (unused, [unused]):
+            bad = selected.copy(); bad["fact_provenance"] = json.dumps(lineage)
+            self.assertIsNone(f.native_fact_record_context(bad))
+        conflict = dict(direct, context_dimensions={"actual":"conflict"})
+        refused = p.select_companyfacts_slots(pd.DataFrame([direct, conflict]), keys).iloc[0]
+        self.assertTrue(pd.isna(refused["value"]))
+        self.assertTrue(pd.isna(p.companyfacts_quarterly_flows(pd.DataFrame([direct, conflict])).iloc[0]["flow"]))
+
+    def test_selected_duration_hints_preserve_all_actual_native_and_ytd_parents(self):
+        import r1000_features as f
+        def fact(start, end, **changes):
+            return dict(cik="0000000001", unit="USD", start=start, period=end, context_dimensions=None, **changes)
+        def selection(start, end, alternatives):
+            return dict(derivation="native_period_selection", period_start=start, period_end=end, parents=[alternatives])
+        annual = fact("2025-01-01", "2025-12-31")
+        quarter = fact("2025-10-01", "2025-12-31")
+        batch = [dict(period="2025-12-31", native_period_start="2025-01-01", native_period_end="2025-12-31",
+            flow_period_start="2025-10-01", cumulative_period_start="2025-01-01",
+            native_proof=[annual, dict(quarter, context_dimensions={"unused":"quarter"})],
+            flow_proof=[quarter, dict(annual, context_dimensions={"unused":"annual"})],
+            cumulative_proof=[annual, dict(quarter, context_dimensions={"unused":"quarter"})])]
+        base = self.financial().to_dict()
+        row = dict(base, net_income_ttm_provenance=json.dumps(batch))
+        self.assertIsNotNone(f.native_financial_context(pd.Series(row), "net_income_ttm"))
+        for key in ("native_proof", "flow_proof", "cumulative_proof"):
+            for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                changed = json.loads(json.dumps(batch)); changed[0][key][0].update(change)
+                self.assertIsNone(f.native_financial_context(pd.Series(dict(base,
+                    net_income_ttm_provenance=json.dumps(changed))), "net_income_ttm"), (key, change))
+        previous = selection("2025-01-01", "2025-03-31", [fact("2025-01-01", "2025-03-31")])
+        for derivation, own_start, output_start, unused_start in (
+            ("native_ytd_minus_prior_ytd", "2025-01-01", "2025-04-01", "2025-04-01"),
+            ("native_quarter_plus_prior_ytd", "2025-04-01", "2025-01-01", "2025-01-01")):
+            own = selection(own_start, "2025-06-30", [fact(own_start, "2025-06-30"),
+                fact(unused_start, "2025-06-30")])
+            own["parents"][0][1]["context_dimensions"] = {"unused":"duration"}
+            lineage = dict(derivation=derivation, parents=[own, previous])
+            current = dict(cik="0000000001", financial_metadata_version="native-unit-fiscal-v1",
+                revenues_unit="USD", revenues_start=output_start, revenues_period="2025-06-30",
+                revenues_provenance=json.dumps(lineage))
+            self.assertEqual(f.native_financial_context(pd.Series(current), "revenues")["period_start"], output_start)
+            for parent in (0, 1):
+                for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                    changed = json.loads(json.dumps(lineage)); changed["parents"][parent]["parents"][0][0].update(change)
+                    bad = dict(current, revenues_provenance=json.dumps(changed))
+                    self.assertIsNone(f.native_financial_context(pd.Series(bad), "revenues"), (derivation, parent, change))
+
+    def test_bare_native_arithmetic_does_not_hide_actual_previous_parent(self):
+        import r1000_features as f
+        previous = dict(cik="0000000001", unit="USD", start="2025-01-01", period="2025-03-31", context_dimensions=None)
+        for own_start, output_start in (("2025-01-01", "2025-04-01"), ("2025-04-01", "2025-01-01")):
+            own = dict(previous, start=own_start, period="2025-06-30")
+            stored = dict(identities={"cik":"0000000001"}, scope={"dimensions":None},
+                period_start=output_start, period_end="2025-06-30")
+            row = dict(cik="0000000001", financial_metadata_version="native-unit-fiscal-v1",
+                revenues_unit="USD", revenues_start=own_start, revenues_period="2025-06-30",
+                revenues_provenance=json.dumps([[own], [previous]]), revenues_financial_context=json.dumps(stored))
+            self.assertEqual(f.native_financial_context(pd.Series(row), "revenues")["period_start"], output_start)
+            for parent in (0, 1):
+                for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                    lineage = [[dict(own)], [dict(previous)]]; lineage[parent][0].update(change)
+                    bad = dict(row, revenues_provenance=json.dumps(lineage))
+                    self.assertIsNone(f.native_financial_context(pd.Series(bad), "revenues"), (own_start, parent, change))
+
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
         for order in (rows, rows[::-1]):
@@ -1756,6 +2139,131 @@ class NativeFinancialContextTests(unittest.TestCase):
         from_null=build_exact_fundamental_panel(select_accession_field_records(expanded))
         self.assertEqual(from_null.iloc[-1]["revenues_ttm"],native_alone.iloc[-1]["revenues_ttm"])
 
+
+    def test_legacy_ttm_numerical_completeness_keeps_age_bounded_fallback_unverified(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        periods = pd.date_range("2024-03-31", periods=5, freq="QE-DEC")
+        for source in ("fsds", "cache", "provider"):
+            for income in (10.0, 0.0, -10.0):
+                rows = [dict(cik="0000000001", source=source, period=end,
+                    accepted=end + pd.Timedelta(days=20), assets=1000.0, liabilities=400.0,
+                    shares=100.0, revenues=100.0 if i < 4 else np.nan,
+                    net_income=income if i < 4 else np.nan, op_income=20.0 if i < 4 else np.nan,
+                    ocf=15.0 if i < 4 else np.nan, capex=5.0 if i < 4 else np.nan)
+                    for i, end in enumerate(periods)]
+                panel = f.recompute_fund_panel_derived_columns(pd.DataFrame(rows),
+                    ffill_quarters=0, balance_ffill_quarters=0)
+                self.assertEqual(panel.iloc[3]["revenues_ttm"], 400.0)
+                self.assertEqual(list(panel["fund_ttm_numerically_complete"]), [0.0, 0.0, 0.0, 1.0, 0.0])
+                self.assertTrue(panel["fund_ttm_ready"].eq(0.0).all())
+                self.assertTrue(panel["fund_ttm_ready_raw"].eq(0.0).all())
+                self.assertTrue(panel["financial_context_status"].eq("UNVERIFIED").all())
+                complete_at = panel.iloc[3]["accepted"]
+                latest_at = panel.iloc[4]["accepted"]
+                base = pd.DataFrame(dict(cik10=["0000000001"] * 4, rebalance_date=[
+                    complete_at - pd.Timedelta(days=1), latest_at + pd.Timedelta(days=1),
+                    complete_at + pd.Timedelta(days=180), complete_at + pd.Timedelta(days=181)]))
+                joined = p.asof_join_fundamentals(base, panel, ttm_fallback_max_age_days=180)
+                self.assertTrue(pd.isna(joined.iloc[0]["revenues_ttm"]))
+                self.assertTrue(pd.isna(joined.iloc[3]["revenues_ttm"]))
+                for index in (1, 2):
+                    row = joined.iloc[index]
+                    self.assertEqual(row["revenues_ttm"], 400.0, (source, income, index))
+                    self.assertEqual(row["net_income_ttm"], income * 4)
+                    self.assertEqual(row["fund_ttm_fallback_used"], 1.0)
+                    self.assertEqual(row["accepted"], latest_at)
+                    self.assertEqual(row["fund_effective_accepted"], complete_at)
+                    self.assertEqual(row["fund_ttm_fallback_accepted"], complete_at)
+                    self.assertEqual(row["fund_ttm_ready"], 0.0)
+                    self.assertEqual(row["financial_context_status"], "UNVERIFIED")
+                self.assertEqual(joined.iloc[2]["fund_ttm_fallback_age_days"], 180.0)
+                self.assertEqual(joined.iloc[3]["fund_ttm_fallback_used"], 0.0)
+                if income != 10.0:
+                    continue
+                with tempfile.TemporaryDirectory() as tmp:
+                    for suffix in ("csv", "parquet"):
+                        path = Path(tmp) / ("legacy." + suffix)
+                        if suffix == "csv":
+                            panel.to_csv(path, index=False)
+                            restored = pd.read_csv(path)
+                        else:
+                            panel.to_parquet(path, index=False)
+                            restored = pd.read_parquet(path)
+                        out = p.asof_join_fundamentals(base.iloc[[1]], restored)
+                        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0, (source, suffix))
+                        self.assertEqual(out.iloc[0]["fund_ttm_ready"], 0.0)
+                        self.assertEqual(out.iloc[0]["financial_context_status"], "UNVERIFIED")
+                # Older cached legacy panels keep their established readiness
+                # witness; the new signal does not require a cache rewrite.
+                old = panel.drop(columns="fund_ttm_numerically_complete")
+                old["fund_ttm_ready"] = panel["fund_ttm_numerically_complete"]
+                self.assertEqual(p.asof_join_fundamentals(base.iloc[[1]], old).iloc[0]["revenues_ttm"], 400.0)
+        from r1000_config import EngineConfig
+        projected = p.project_feature_store_frame(panel,
+            [c for c in panel if c != "fund_ttm_numerically_complete"])
+        self.assertIn("fund_ttm_numerically_complete", projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp) / ("projected." + suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False)
+                    reread = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False)
+                    reread = pd.read_parquet(path)
+                with patch.object(p, "repair_latest_history_depth_from_diagnostics", side_effect=lambda paths, frame: frame), \
+                        patch.object(f, "_load_finnhub_features_for_fallback", return_value=pd.DataFrame()):
+                    normalized = p.normalize_latest_fundamental_snapshot(EngineConfig(), {}, reread,
+                        apply_statement_repair=False, add_fundamental_flags=False)
+                self.assertEqual(list(normalized["fund_ttm_numerically_complete"]), [0.0, 0.0, 0.0, 1.0, 0.0])
+                row = p.asof_join_fundamentals(base.iloc[[1]], normalized).iloc[0]
+                self.assertEqual(row["revenues_ttm"], 400.0)
+                self.assertEqual(row["net_income_ttm"], -40.0)
+                self.assertEqual(row["fund_ttm_ready"], 0.0)
+                self.assertEqual(row["financial_context_status"], "UNVERIFIED")
+        # A numerical flag is never native/unknown admission. Even a supplied
+        # positive flag cannot reopen their refused historical fallback.
+        mixed = [panel]
+        for cik, marker in (("0000000002", "native-unit-fiscal-v1"), ("0000000003", "unsupported-v99")):
+            typed = panel.copy()
+            typed["cik"], typed["financial_metadata_version"] = cik, marker
+            typed["fund_ttm_numerically_complete"] = 1.0
+            typed["fund_ttm_ready"] = 1.0
+            mixed.append(typed)
+        requests = pd.DataFrame(dict(cik10=["0000000001", "0000000002", "0000000003"],
+            rebalance_date=[latest_at + pd.Timedelta(days=1)] * 3))
+        out = p.asof_join_fundamentals(requests, pd.concat(mixed, ignore_index=True))
+        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0)
+        self.assertTrue(out.iloc[1:]["revenues_ttm"].isna().all())
+        self.assertTrue(out.iloc[1:]["fund_ttm_fallback_used"].eq(0.0).all())
+
+    def test_legacy_ttm_signal_row_missing_compatibility_does_not_override_explicit_refusal(self):
+        import r1000_pipeline as p
+        seed = pd.DataFrame(dict(cik=["0000000001"] * 2, source=["cache"] * 2,
+            period=pd.to_datetime(["2024-12-31", "2025-03-31"]),
+            accepted=pd.to_datetime(["2025-01-20", "2025-04-20"]),
+            revenues_ttm=[400.0, np.nan], net_income_ttm=[40.0, np.nan],
+            op_margin_ttm=[0.2, np.nan], fund_ttm_ready=[1.0, 0.0]))
+        request = pd.DataFrame(dict(cik10=["0000000001"], rebalance_date=["2025-05-01"]))
+        for absent in (None, np.nan, pd.NA):
+            current = seed.copy()
+            current["fund_ttm_numerically_complete"] = [absent, 0.0]
+            self.assertEqual(p.asof_join_fundamentals(request, current).iloc[0]["revenues_ttm"], 400.0)
+        for refused in (0.0, -1.0, 0.5, 2.0, np.inf, -np.inf, True, False, "invalid", ""):
+            current = seed.copy()
+            current["fund_ttm_numerically_complete"] = [refused, 0.0]
+            out = p.asof_join_fundamentals(request, current).iloc[0]
+            self.assertTrue(pd.isna(out["revenues_ttm"]), repr(refused))
+            self.assertEqual(out["fund_ttm_fallback_used"], 0.0)
+        new = seed.copy()
+        new["cik"] = "0000000002"
+        new["fund_ttm_numerically_complete"] = 0.0
+        combined = pd.concat([seed, new], ignore_index=True)
+        requests = pd.DataFrame(dict(cik10=["0000000001", "0000000002"], rebalance_date=["2025-05-01"] * 2))
+        out = p.asof_join_fundamentals(requests, combined)
+        self.assertEqual(out.iloc[0]["revenues_ttm"], 400.0)
+        self.assertTrue(pd.isna(out.iloc[1]["revenues_ttm"]))
 
     def test_current_fcf_margin_and_rule_of_40_revalidate_all_semantic_parents(self):
         import r1000_features as f

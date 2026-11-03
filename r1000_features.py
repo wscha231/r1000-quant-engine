@@ -674,18 +674,38 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                 result["dimensions" if key == "context_dimensions" else key] = value
         return result
     witnesses = []
+    proof_identities = []
+    missing_original_scope = False
     spans = []
-    def visit(value: Any) -> None:
+    def native_operand_hints(item: dict) -> tuple:
+        selected_end = day(item.get("native_period_end"))
+        selected = (day(item.get("native_period_start")), selected_end) if selected_end else None
+        flow = (day(item.get("flow_period_start")), day(item.get("period"))) if "flow_period_start" in item else selected
+        cumulative = (day(item.get("cumulative_period_start")), day(item.get("period"))) if "cumulative_period_start" in item else selected
+        return selected, flow, cumulative
+    def visit(value: Any, *, hint: Any = None, native_wrapper: bool = False) -> None:
+        nonlocal missing_original_scope
         value = decode(value)
         if isinstance(value, list):
-            for item in value:
-                visit(item)
+            native_batch = bool(value) and all(isinstance(decode(item), dict) and "native_proof" in decode(item)
+                for item in value) and proof_span(value) is not None
+            raw_alternatives = all(isinstance(decode(item), dict) and "derivation" not in decode(item)
+                and "native_proof" not in decode(item) for item in value)
+            bare_arithmetic = (len(value) == 2 and not native_batch and not raw_alternatives
+                and proof_span(value, hint) is not None)
+            for index, item in enumerate(value):
+                # Audit provenance retains unselected duration alternatives.
+                # Unknown/malformed spans are not proof of being an alternative.
+                if hint is not None and raw_alternatives:
+                    candidate = proof_span(item)
+                    if candidate is not None and candidate != hint:
+                        continue
+                # The existing bare YTD +/- form selects its own operand with
+                # the hint and validates its actual previous operand without it.
+                child_hint = None if bare_arithmetic and index == 1 else hint
+                visit(item, hint=child_hint, native_wrapper=native_batch)
         elif isinstance(value, dict):
-            if isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict):
-                witnesses.append((value["identities"], value["scope"]))
-                end = day(value.get("period_end"))
-                if end:
-                    spans.append((day(value.get("period_start")), end))
+            context_record = isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict)
             # Native preference can retain alternate currencies in provenance.
             unit = value.get("unit")
             if present(unit) and present(row.get(field + "_unit")) and "/" not in str(row.get(field + "_unit", "")) and unit != row.get(field + "_unit"):
@@ -693,15 +713,40 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
             selected_tag = row.get(field + "_source_tag")
             if present(selected_tag) and present(value.get("source_tag")) and selected_tag != value["source_tag"]:
                 return
+            if context_record:
+                witnesses.append((value["identities"], value["scope"]))
+                end = day(value.get("period_end"))
+                if end:
+                    spans.append((day(value.get("period_start")), end))
+            # Identity is a constraint even when this used proof has no scope
+            # cell. Persisted derived context must not hide its original owner.
+            if isinstance(value.get("identities"), dict):
+                proof_identities.append(identity(value["identities"]))
+            if any(present(value.get(key)) for key in ("cik", "issuer_id", "entity_id", "entity")):
+                proof_identities.append(identity(value))
             record_scope = scope(value)
             if record_scope:
                 witnesses.append((identity(value), record_scope))
                 end = day(value.get("period", value.get("end")))
                 if end:
                     spans.append((day(value.get("start")), end))
+            elif not context_record and not selected_scope:
+                # Selected original metadata may provide optional scope; the
+                # stored derived context alone cannot authenticate a proof leaf.
+                # Empty/dummy child keys do not turn a direct fact into a wrapper.
+                derived_wrapper = (isinstance(value.get("derivation"), str) and bool(value["derivation"].strip())
+                    and isinstance(value.get("parents"), list) and bool(value["parents"])
+                    and proof_span(value) is not None)
+                if not native_wrapper and not derived_wrapper:
+                    missing_original_scope = True
             for key in ("native_proof", "flow_proof", "cumulative_proof", "parents"):
                 if key in value:
-                    visit(value[key])
+                    child_hint = None
+                    if native_wrapper and key != "parents":
+                        child_hint = dict(zip(("native_proof", "flow_proof", "cumulative_proof"), native_operand_hints(value)))[key]
+                    elif key == "parents" and value.get("derivation") == "native_period_selection":
+                        child_hint = (day(value.get("period_start")), day(value.get("period_end")))
+                    visit(value[key], hint=child_hint)
     def proof_span(value: Any, hint: Any = None) -> Optional[tuple]:
         value = decode(value)
         if isinstance(value, dict):
@@ -747,13 +792,10 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
         if all(isinstance(item, dict) and "native_proof" in item for item in decoded):
             operands = []
             for item in decoded:
-                selected_end = day(item.get("native_period_end"))
-                selected = (day(item.get("native_period_start")), selected_end) if selected_end else None
+                selected, flow_hint, cum_hint = native_operand_hints(item)
                 native = proof_span(item["native_proof"], selected)
                 if native is None or native[1] != day(item.get("period")):
                     return None
-                flow_hint = (day(item.get("flow_period_start")), day(item.get("period"))) if "flow_period_start" in item else selected
-                cum_hint = (day(item.get("cumulative_period_start")), day(item.get("period"))) if "cumulative_period_start" in item else selected
                 operands.append((proof_span(item.get("flow_proof"), flow_hint), proof_span(item.get("cumulative_proof"), cum_hint)))
             if len(operands) == 1:
                 return operands[0][1]
@@ -786,8 +828,9 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     selected = {key: row[field + "_" + key] for key in (
         "cik", "issuer_id", "entity_id", "entity", "context_dimensions", "entity_scope", "segment"
     ) if field + "_" + key in row.index}
-    if scope(selected):
-        witnesses.append((identity(selected), scope(selected)))
+    # Flat optional cells acquire None during projection/Parquet transport.
+    # They are not original scope assertions; explicit {} remains evidence.
+    selected_scope = scope({key: value for key, value in selected.items() if not _native_optional_text_absent(value)})
     original_spans = []
     raw_end = day(row.get(field + "_period", row.get("period")))
     raw_hint = (day(row.get(field + "_start")), raw_end) if raw_end and not field.endswith("_ttm") else None
@@ -795,18 +838,29 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
         proof = row.get(field + suffix)
         if present(proof) and decode(proof) is None:
             return None
-        visit(proof)
+        visit(proof, hint=raw_hint)
         if present(proof):
             period_evidence = proof_span(proof, raw_hint)
             if period_evidence is None:
                 return None
             original_spans.append(period_evidence)
+    if missing_original_scope:
+        return None
+    if selected_scope:
+        # Fill transport-missing selected cells only from actual original
+        # proof scope. Persisted derived context is not a fallback authority.
+        selected_bound_scope = dict(witnesses[0][1]) if witnesses else {}
+        selected_bound_scope.update(selected_scope)
+        witnesses.insert(0, (identity(selected), selected_bound_scope))
     stored = decode(row.get(field + "_financial_context"))
     if present(row.get(field + "_financial_context")) and not isinstance(stored, dict):
         return None
     if isinstance(stored, dict) and isinstance(stored.get("identities"), dict) and isinstance(stored.get("scope"), dict) and stored["identities"] and stored["scope"]:
         witnesses.append((stored["identities"], stored["scope"]))
     if not witnesses or not witnesses[0][0] or not witnesses[0][1]:
+        return None
+    if any(any(witnesses[0][0].get(key) != value for key, value in claim.items())
+        for claim in proof_identities):
         return None
     # A selected field identity is a constraint even when its optional scope
     # cell is absent (or became NaN in a mixed frame). Do not drop that
@@ -955,6 +1009,45 @@ def _native_operating_margin(row: pd.Series) -> dict[str, Any]:
         "op_margin_ttm_unit": unit + "/" + unit if valid else None,
         "op_margin_ttm_financial_context": context, "op_margin_ttm_provenance": proof,
         "op_margin_ttm_missing_reason": "" if valid else "incompatible_or_missing_native_operating_margin_parents"}
+
+
+def _native_roic(row: pd.Series) -> dict[str, Any]:
+    """Recompute the current proxy from its selected, non-refused parents."""
+    current = "current_liabilities"
+    supplied = any(not _native_optional_text_absent(row.get(current + suffix))
+        for suffix in ("", "_unit", "_missing_reason", "_financial_context", "_provenance", "_fact_provenance"))
+    denominator = current if supplied else "liabilities"
+    parents = ("op_income_ttm", "assets", denominator)
+    amounts = []
+    reason = ""
+    for field in parents:
+        raw = row.get(field)
+        amount = np.nan if isinstance(raw, (bool, np.bool_)) else safe_float(raw)
+        if not _native_optional_text_absent(row.get(field + "_missing_reason")):
+            reason = reason or "refused_native_roic_parent:" + field
+        elif not np.isfinite(amount):
+            reason = reason or "missing_or_invalid_native_roic_parent:" + field
+        amounts.append(amount)
+    units = [row.get(field + "_unit") for field in parents]
+    derivation = "nopat_079_over_assets_minus_" + (current if supplied else "liabilities_030_proxy")
+    evidence = native_derivation_evidence(row, parents, derivation)
+    if not reason and (evidence is None or not all(isinstance(unit, str)
+        and bool(re.fullmatch(r"[A-Z]{3}", unit)) and unit == units[0] for unit in units)):
+        reason = "incompatible_or_missing_native_roic_parent_context"
+    invested = amounts[1] - amounts[2] * (1.0 if supplied else 0.30)
+    if not reason and (not np.isfinite(invested) or invested == 0):
+        reason = "zero_or_invalid_native_invested_capital"
+    # Zero and negative operating income, and actual zero current liabilities,
+    # are valid observations. Never carry a prior ratio across a current refusal.
+    result = amounts[0] * 0.79 / invested if not reason else np.nan
+    if not reason and not np.isfinite(result):
+        reason = "nonfinite_native_roic"
+    valid = not reason
+    context, proof = evidence if valid else (None, None)
+    return {"roic_approx": float(np.clip(result, -0.50, 1.00)) if valid else np.nan,
+        "roic_approx_missing_reason": reason, "roic_approx_derivation": derivation,
+        "roic_approx_unit": units[0] + "/" + units[0] if valid else None,
+        "roic_approx_financial_context": context, "roic_approx_provenance": proof}
 
 
 def _native_margin_stability(frame: pd.DataFrame) -> pd.Series:
@@ -2295,6 +2388,8 @@ def native_valuation_overrides(latest: pd.Series, *, technical_price: float,
     out["operating_margins_missing_reason"] = out["op_margin_ttm_missing_reason"]
     out["gp_to_assets_ttm"] = native_ratio("gross_profit_ttm", "assets", "gp_to_assets_ttm")
     out["debt_to_equity"] = native_ratio("liabilities", "equity_native", "debt_to_equity")
+    for key, item in _native_roic(out).items():
+        out[key] = item
     for field, parents, derivation in (
         ("roe_proxy", ("net_income_ttm", "assets", "liabilities"), "net_income_over_assets_minus_liabilities"),
         ("debt_to_equity", ("assets", "liabilities"), "liabilities_over_assets_minus_liabilities"),
@@ -2342,9 +2437,9 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
     if frame.empty:
         return frame.copy()
     fixed = {"mktcap", "market_cap_live", "mktcap_unit", "shares_effective", "ep_ttm", "sp_ttm", "fcfy_ttm",
-        "roa_proxy", "asset_turnover_ttm", "roe_proxy", "return_on_equity_effective", "gp_to_assets_ttm",
+        "roa_proxy", "asset_turnover_ttm", "roe_proxy", "roic_approx", "return_on_equity_effective", "gp_to_assets_ttm",
         "book_to_market_proxy", "gross_margins", "gross_margin_ttm", "operating_margins", "op_margin_ttm", "debt_to_equity", "fcf_ttm", "fcf_margin", "eps_ttm", "current_price_live", "gross_profit", "gross_profit_ttm"}
-    operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
+    operands = ("net_income_ttm", "revenues_ttm", "revenues", "cost_of_revenue_ttm", "cost_of_revenue", "ocf_ttm", "capex_ttm", "assets", "liabilities", "current_liabilities", "gross_profit_ttm", "gross_profit", "op_income_ttm", "shares")
     prefixes = tuple(field + "_" for field in operands) + ("price_", "share_basis_", "ads_ratio_", "fx_", "source_", "reader_", "identity_")
     scalar_inputs = set(operands) | {"cik", "cik10", "issuer_id", "entity_id", "entity", "period", "ticker", "financial_metadata_version", "current_price_live", "px", "shares_basis", "ordinary_shares_per_ads", "valuation_asof", "generation_id"}
     records = []
@@ -2367,7 +2462,7 @@ def enforce_native_valuation_context(frame: pd.DataFrame, *, _operation_cache: O
         else:
             guarded = native_valuation_overrides(row, technical_price=safe_float(row.get("current_price_live", row.get("px"))))
             owned = fixed | {key + "_missing_reason" for key in fixed}
-            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_", "roe_proxy_", "debt_to_equity_")))
+            owned.update(key for key in guarded.index if key.startswith(("valuation_", "equity_native", "fcf_ttm_", "eps_ttm_", "gross_profit_", "op_margin_ttm_", "roe_proxy_", "roic_approx_", "debt_to_equity_")))
             owned.discard("valuation_asof")
             updates = {key: guarded[key] for key in owned if key in guarded}
             if _operation_cache is not None:
@@ -3213,6 +3308,11 @@ def recompute_fund_panel_derived_columns(
 
     for c in CORE_FUNDAMENTAL_COLUMNS:
         if c in d.columns:
+            if typed_native and c in {"op_income", "op_income_ttm", "assets", "liabilities"}:
+                invalid = d[c].map(lambda value: isinstance(value, (bool, np.bool_)))
+                d.loc[invalid, c] = np.nan
+                if invalid.any():
+                    d.loc[invalid, c + "_missing_reason"] = "invalid_native_boolean_amount"
             d[c] = pd.to_numeric(d[c], errors="coerce")
 
     balance_cols = [c for c in ["assets", "liabilities", "shares"] if c in d.columns]
@@ -3643,7 +3743,7 @@ def recompute_fund_panel_derived_columns(
             d["rd_intensity"] = np.nan
 
     # ROIC approximation: NOPAT / Invested Capital proxy
-    if assets_col is not None and liab_col is not None and op_inc_col is not None:
+    if not typed_native and assets_col is not None and liab_col is not None and op_inc_col is not None:
         if "current_liabilities" in d.columns and pd.to_numeric(d["current_liabilities"], errors="coerce").notna().any():
             curr_liab = pd.to_numeric(d["current_liabilities"], errors="coerce").replace(0, np.nan)
         else:
@@ -3782,7 +3882,6 @@ def recompute_fund_panel_derived_columns(
             "net_margin": ("net_income_ttm", "revenues_ttm"),
             "gross_margin_ttm": ("gross_profit_ttm", "revenues_ttm"),
             "op_margin_calc_ttm": ("op_income_ttm", "revenues_ttm"),
-            "roic_approx": ("op_income_ttm", "assets", "liabilities"),
             "roe_proxy": ("net_income_ttm", "assets", "liabilities"),
             "debt_to_equity": ("assets", "liabilities"),
             "interest_coverage": ("op_income_ttm", "liabilities"),
@@ -3803,6 +3902,9 @@ def recompute_fund_panel_derived_columns(
             reason = f"{column}_missing_reason"
             d[reason] = d.get(reason, pd.Series("", index=d.index)).fillna("")
             d.loc[~valid, reason] = "incompatible_or_missing_component_units"
+        roic = pd.DataFrame([_native_roic(row) for _, row in d.iterrows()], index=d.index)
+        for column in roic:
+            d[column] = roic[column]
         d["fcf_ttm_unit"] = d.get("ocf_ttm_unit", pd.Series(None, index=d.index, dtype=object)).where(d["fcf_ttm"].notna())
         for field in ("assets", "liabilities", "shares", "gross_profit"):
             reason = d.get(f"{field}_missing_reason", pd.Series("", index=d.index)).fillna("")
@@ -3818,6 +3920,9 @@ def recompute_fund_panel_derived_columns(
     else:
         # Legacy numbers stay observable; untyped context is not admission proof.
         d["financial_context_status"] = "UNVERIFIED"
+        # The age-bounded legacy join consumes numerical completeness, not
+        # admission. Keep that signal before clearing the evidence flags.
+        d["fund_ttm_numerically_complete"] = d["fund_ttm_ready"]
         d["fund_ttm_ready"] = d["fund_ttm_ready_raw"] = 0.0
     return d
 

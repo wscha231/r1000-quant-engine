@@ -2508,6 +2508,9 @@ def select_companyfacts_slots(records: pd.DataFrame, keys: list[str]) -> pd.Data
             reason = "invalid_monetary_unit"
         elif len(signatures) != 1:
             reason = "conflicting_native_facts_or_contexts"
+        elif row.get("field_name") in {"op_income", "assets", "liabilities", "current_liabilities"} and (
+            isinstance(row.get("value"), (bool, np.bool_)) or np.isinf(safe_float(row.get("value")))):
+            reason = "invalid_native_amount"
         elif pd.isna(row.get("value")):
             reason = str(row.get("missing_reason") or "missing_native_value")
         row["missing_reason"] = reason
@@ -2583,7 +2586,8 @@ def extract_companyfacts_records(payload: dict[str, Any], cik: str, field_name: 
                     if isinstance(_filed_raw, (int, np.integer)):
                         _filed_raw = str(_filed_raw)
                     filed_at = pd.to_datetime(_filed_raw, errors="coerce")
-                    val = safe_float(item.get("val"))
+                    val = (np.nan if field_name in {"op_income", "assets", "liabilities", "current_liabilities"}
+                        and isinstance(item.get("val"), (bool, np.bool_)) else safe_float(item.get("val")))
                     if pd.isna(end) or pd.isna(filed_at) or not np.isfinite(val):
                         continue
                     rows.append(
@@ -7559,7 +7563,13 @@ def asof_join_fundamentals(
         )
         m = m.set_index("_base_idx").sort_index()
 
-        p_ttm = p[numeric_series_or_default(p, "fund_ttm_ready", 0.0) > 0].copy()
+        raw_complete = p.get("fund_ttm_numerically_complete", pd.Series(np.nan, index=p.index))
+        complete = pd.to_numeric(raw_complete, errors="coerce").eq(1.0)
+        complete &= ~raw_complete.map(lambda value: isinstance(value, (bool, np.bool_)))
+        # Old cached panels predate the separate numerical signal. Preserve
+        # only genuinely missing cells; explicit zero/invalid values refuse.
+        complete = complete.where(raw_complete.notna(), numeric_series_or_default(p, "fund_ttm_ready", 0.0).gt(0))
+        p_ttm = p[complete].copy()
         p_ttm = p_ttm.loc[~financial_native_mask(p_ttm)]
         if not p_ttm.empty and ttm_fallback_cols:
             fb = pd.merge_asof(
@@ -8520,8 +8530,8 @@ def compute_valuation_columns(df: pd.DataFrame, cfg: Optional[EngineConfig] = No
 
 def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) -> pd.DataFrame:
     """Retain financial evidence alongside values, outside the model whitelist."""
-    fields = ("assets", "liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
-        "op_income", "op_margin", "roe_proxy", "debt_to_equity", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
+    fields = ("assets", "liabilities", "current_liabilities", "shares", "revenues", "cost_of_revenue", "gross_profit",
+        "op_income", "op_margin", "roe_proxy", "roic_approx", "debt_to_equity", "net_income", "ocf", "capex", "fcf", "eps", "equity_native", "mktcap",
         "liabilities_and_equity", "stockholders_equity_for_liabilities", "dividends_ttm_ps")
     suffixes = ("_unit", "_financial_context", "_provenance", "_derivation", "_missing_reason", "_start", "_period",
         "_accepted", "_accession_number", "_source_namespace", "_source_tag", "_fy", "_fp", "_form", "_fact_semantics", "_frame",
@@ -8530,7 +8540,8 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
         "_unit_selection_policy", "_fiscal_grid_reference", "_fiscal_grid_status", "_fiscal_year_start")
     evidence = [column for column in universe.columns if column in {
         "cik", "issuer_id", "entity_id", "entity", "security_id", "financial_metadata_version", "financial_context_status",
-        "shares_basis", "ordinary_shares_per_ads", "dividends_share_basis", "fundamental_missing_reason", "candidate_ordinal",
+        "shares_basis", "ordinary_shares_per_ads", "dividends_share_basis", "fundamental_missing_reason", "candidate_ordinal", "current_liabilities",
+        "fund_ttm_numerically_complete",
     } or column.startswith(("price_", "share_basis_", "ads_ratio_", "fx_", "valuation_"))
         or (column.startswith(tuple(field + "_" for field in fields)) and column.endswith(suffixes))]
     columns = list(dict.fromkeys(keep_cols + evidence))

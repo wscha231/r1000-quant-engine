@@ -33,6 +33,24 @@ The derived requests/results participate in the existing task key and V2 reuse
 identity. Caller-supplied values for that parameter are rejected, and this
 path is always dispatch-ineligible. The A1/A2 dependency DAG is unchanged.
 
+The existing private managed-refresh adapter isolates well-formed baseline
+components with missing sessions in their own original receipt windows as
+`BASELINE_COVERAGE_OR_LIFECYCLE_REVIEW_REQUIRED`. The strict bootstrap API
+still refuses incomplete coverage; its typed refusal carries the complete and
+held partitions only after all selected archive-integrity checks finish.
+`collect_groups` alone handles that partition: held names never enter identity
+reads, provider calls, backfill, reused names or coverage updates. Prior holds
+remain visible and FOCUS/WATCH membership is preserved. First observed bars do
+not prove listing dates, and receipt windows are never shortened.
+
+`tests/alpaca_sip_managed_refresh_smoke.py` exercises this boundary in Tier1
+with synthetic raw/split archives and the existing meter/journal primitives.
+Hash/byte/schema/row errors, raw/split mismatches and unexpected exchange
+sessions still block globally. Mixed runs report separate updated/reused/held
+counts; all-held runs produce a BLOCKED terminal journal, BLOCKED final meter
+and non-success instead of claiming current coverage. Rights, calendar,
+deadline, code pins, budgets and actual-capture authorization are unchanged.
+
 The payload distinguishes REUSE_EXISTING, INCREMENTAL_ONLY, BACKFILL_REQUIRED,
 NO_DATA and BLOCKED over declared session grids. A captured ticker list cannot
 establish coverage; US archives use the deployed raw/split Source verifier,
@@ -155,6 +173,36 @@ PASS must carry the exact PR/head, check identity, and GitHub Actions app ID;
 the same attestation binding applies when the ruleset lists only the two CI checks.
 The current `review_complete@15368` check result must also be PASS, so a stale
 structured PASS cannot override a conflicting current FAIL.
+The gate also supports a paired Codex issue-comment receipt: the exact trusted
+Bot/App must supply an immutable explicit clean receipt and the latest completed
+full-SHA summary. A null finding flag alone is not clean evidence. The trusted
+workflow resolves the short receipt SHA through this repository's commit API,
+binds both comments to the PR and observation/attestation window, and verifies
+complete exact-head GraphQL thread pages with zero unresolved conversations.
+Newer findings or a pending/blocked review refuse this additional path. Comment
+IDs and body hashes remain in the check receipt. The compatibility PR itself
+still runs the default-branch gate and cannot approve its own implementation.
+Tied latest timestamps refuse rather than select by input order. Receipt text
+accepts the fixed clean assertion, observed fixed cheers or one ASCII shortcode
+whose name has at most 32 lowercase letters, digits or underscores and starts
+with a letter, and the known About Codex footer. Decorative
+tokens are not review evidence; arbitrary prose, combined decorations and
+unrecognized Unicode emoji remain blocked. Every identity, clock and finding
+check still applies to the complete immutable receipt.
+An optional maintainer pin uses one exact line:
+`/review-complete <full40sha> codex-receipt <positiveID> sha256:<rawUTF8body64hex>`.
+Only an immutable, same-PR GitHub issue comment from a currently write-authorized
+maintainer may supply it; the trusted default workflow fetches that comment and
+matches its event ID, actor ID/login, raw body and clocks to the authenticated API.
+The latest unique trusted receipt is selected before comparing the pinned ID and
+raw UTF-8 body hash. A failed explicit pin cannot fall back to a review/reaction.
+Only this pinned route additionally accepts one 1..32-character ASCII alphabetic
+token followed by `!` or `.`; arbitrary prose, combined tokens, finding markers and
+modified footers still refuse. The existing completed full-SHA summary, nullable
+finding-flag handling, security, clock, complete-thread and newer-finding checks
+remain mandatory. A pin never converts running into completed or supplies a clean
+decision itself. Bare commands, dispatch and unpinned decoration retain their
+existing behavior; outer v2 schemas and evidence names remain unchanged.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 
