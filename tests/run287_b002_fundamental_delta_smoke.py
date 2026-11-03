@@ -929,6 +929,92 @@ class NativeFinancialContextTests(unittest.TestCase):
                     self.assertEqual(out.loc[ticker,"mktcap"], 1000.0)
                     self.assertAlmostEqual(out.loc[ticker,"ep_ttm"], 0.05)
 
+    def test_unselected_duration_proof_cannot_erase_selected_quarter(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        direct = self.row(unit="USD", start=pd.Timestamp("2025-04-01"), period=pd.Timestamp("2025-06-30"),
+            accepted=pd.Timestamp("2025-07-20"), fy=2025, fp="Q2", value=300., duration_days=91,
+            entity_scope="consolidated")
+        alternate = dict(direct, start=pd.Timestamp("2025-01-01"), duration_days=181, value=500.,
+            semantic_rank=1, context_dimensions={"ProductAxis":"Other"})
+        keys = ["cik", "period", "accepted", "field_name"]
+        for records in ([direct, alternate], [alternate, direct]):
+            selected = p.select_companyfacts_slots(pd.DataFrame(records), keys).iloc[0]
+            self.assertEqual(selected["value"], 300.)
+            self.assertEqual(selected["missing_reason"], "")
+            self.assertEqual(len(json.loads(selected["fact_provenance"])), 2)
+            self.assertEqual(f.native_fact_record_context(selected)["period_start"], "2025-04-01")
+            self.assertEqual(p.companyfacts_quarterly_flows(pd.DataFrame(records)).iloc[0]["flow"], 300.)
+        proof = json.loads(selected["fact_provenance"])
+        chosen = next(item for item in proof if item["start"].startswith("2025-04-01"))
+        unused = next(item for item in proof if item["start"].startswith("2025-01-01"))
+        for change in (dict(context_dimensions={"actual":"conflict"}), dict(cik="0000000002")):
+            bad = selected.copy(); bad["fact_provenance"] = json.dumps([chosen, dict(chosen, **change)])
+            self.assertIsNone(f.native_fact_record_context(bad), change)
+        for lineage in (unused, [unused]):
+            bad = selected.copy(); bad["fact_provenance"] = json.dumps(lineage)
+            self.assertIsNone(f.native_fact_record_context(bad))
+        conflict = dict(direct, context_dimensions={"actual":"conflict"})
+        refused = p.select_companyfacts_slots(pd.DataFrame([direct, conflict]), keys).iloc[0]
+        self.assertTrue(pd.isna(refused["value"]))
+        self.assertTrue(pd.isna(p.companyfacts_quarterly_flows(pd.DataFrame([direct, conflict])).iloc[0]["flow"]))
+
+    def test_selected_duration_hints_preserve_all_actual_native_and_ytd_parents(self):
+        import r1000_features as f
+        def fact(start, end, **changes):
+            return dict(cik="0000000001", unit="USD", start=start, period=end, context_dimensions=None, **changes)
+        def selection(start, end, alternatives):
+            return dict(derivation="native_period_selection", period_start=start, period_end=end, parents=[alternatives])
+        annual = fact("2025-01-01", "2025-12-31")
+        quarter = fact("2025-10-01", "2025-12-31")
+        batch = [dict(period="2025-12-31", native_period_start="2025-01-01", native_period_end="2025-12-31",
+            flow_period_start="2025-10-01", cumulative_period_start="2025-01-01",
+            native_proof=[annual, dict(quarter, context_dimensions={"unused":"quarter"})],
+            flow_proof=[quarter, dict(annual, context_dimensions={"unused":"annual"})],
+            cumulative_proof=[annual, dict(quarter, context_dimensions={"unused":"quarter"})])]
+        base = self.financial().to_dict()
+        row = dict(base, net_income_ttm_provenance=json.dumps(batch))
+        self.assertIsNotNone(f.native_financial_context(pd.Series(row), "net_income_ttm"))
+        for key in ("native_proof", "flow_proof", "cumulative_proof"):
+            for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                changed = json.loads(json.dumps(batch)); changed[0][key][0].update(change)
+                self.assertIsNone(f.native_financial_context(pd.Series(dict(base,
+                    net_income_ttm_provenance=json.dumps(changed))), "net_income_ttm"), (key, change))
+        previous = selection("2025-01-01", "2025-03-31", [fact("2025-01-01", "2025-03-31")])
+        for derivation, own_start, output_start, unused_start in (
+            ("native_ytd_minus_prior_ytd", "2025-01-01", "2025-04-01", "2025-04-01"),
+            ("native_quarter_plus_prior_ytd", "2025-04-01", "2025-01-01", "2025-01-01")):
+            own = selection(own_start, "2025-06-30", [fact(own_start, "2025-06-30"),
+                fact(unused_start, "2025-06-30")])
+            own["parents"][0][1]["context_dimensions"] = {"unused":"duration"}
+            lineage = dict(derivation=derivation, parents=[own, previous])
+            current = dict(cik="0000000001", financial_metadata_version="native-unit-fiscal-v1",
+                revenues_unit="USD", revenues_start=output_start, revenues_period="2025-06-30",
+                revenues_provenance=json.dumps(lineage))
+            self.assertEqual(f.native_financial_context(pd.Series(current), "revenues")["period_start"], output_start)
+            for parent in (0, 1):
+                for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                    changed = json.loads(json.dumps(lineage)); changed["parents"][parent]["parents"][0][0].update(change)
+                    bad = dict(current, revenues_provenance=json.dumps(changed))
+                    self.assertIsNone(f.native_financial_context(pd.Series(bad), "revenues"), (derivation, parent, change))
+
+    def test_bare_native_arithmetic_does_not_hide_actual_previous_parent(self):
+        import r1000_features as f
+        previous = dict(cik="0000000001", unit="USD", start="2025-01-01", period="2025-03-31", context_dimensions=None)
+        for own_start, output_start in (("2025-01-01", "2025-04-01"), ("2025-04-01", "2025-01-01")):
+            own = dict(previous, start=own_start, period="2025-06-30")
+            stored = dict(identities={"cik":"0000000001"}, scope={"dimensions":None},
+                period_start=output_start, period_end="2025-06-30")
+            row = dict(cik="0000000001", financial_metadata_version="native-unit-fiscal-v1",
+                revenues_unit="USD", revenues_start=own_start, revenues_period="2025-06-30",
+                revenues_provenance=json.dumps([[own], [previous]]), revenues_financial_context=json.dumps(stored))
+            self.assertEqual(f.native_financial_context(pd.Series(row), "revenues")["period_start"], output_start)
+            for parent in (0, 1):
+                for change in (dict(cik="0000000002"), dict(context_dimensions={"actual":"conflict"})):
+                    lineage = [[dict(own)], [dict(previous)]]; lineage[parent][0].update(change)
+                    bad = dict(row, revenues_provenance=json.dumps(lineage))
+                    self.assertIsNone(f.native_financial_context(pd.Series(bad), "revenues"), (own_start, parent, change))
+
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
         for order in (rows, rows[::-1]):

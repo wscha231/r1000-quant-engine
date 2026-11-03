@@ -9501,3 +9501,26 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Retain the original1000/350 expectations and negative scope cases. Exercise
   cached public valuation, zero/loss and CSV/Parquet alongside the two actual
   failed tests before one fresh-head hosted CI; never mask this as an infra retry.
+
+## 2026-11-03 — Select scope witnesses with the actual native operand period
+
+- Actual Codex4452057560 on9603 found that a lower-ranked YTD retained for
+  audit could erase a selected direct-quarter flow. Direct Q2 alone returned
+  selected300/context/flow300; adding a differently scoped January-June audit
+  alternative kept the selected300 and empty slot refusal but nullified context
+  and flow. Preserve this repro; CI41597703728 was cancelled, not passed.
+- Reuse the existing proof_span selection hints for raw alternatives only.
+  Preserve standalone period failures and all same-selected-period conflicts.
+  Native selection wrappers and native/flow/cumulative batch operands each carry
+  their existing period hint; actual YTD arithmetic parents retain their own
+  input spans and must all agree on scope/issuer even outside the output quarter.
+  Unknown/malformed spans are not sufficient evidence to discard an operand.
+- Share the existing batch hint calculation with period validation rather than
+  introducing a second fiscal algorithm. Test both audit input orders, native
+  batch hints, real YTD subtraction/addition, same-span/foreign-owner conflicts
+  and no matching operand. Keep all audit provenance and the original values.
+- Before checkpoint/publication, parallel static QA found the first hint repair
+  could hide the previous operand in the existing bare nested-list YTD form.
+  Reproduce scope and foreign-issuer false acceptance, preserve the private
+  65-case results as superseded evidence, and mirror proof_span's own-hint /
+  previous-no-hint rule. No unsafe private version was pushed or approved.

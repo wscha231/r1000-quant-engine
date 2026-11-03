@@ -677,14 +677,33 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     proof_identities = []
     missing_original_scope = False
     spans = []
-    def visit(value: Any, *, native_wrapper: bool = False) -> None:
+    def native_operand_hints(item: dict) -> tuple:
+        selected_end = day(item.get("native_period_end"))
+        selected = (day(item.get("native_period_start")), selected_end) if selected_end else None
+        flow = (day(item.get("flow_period_start")), day(item.get("period"))) if "flow_period_start" in item else selected
+        cumulative = (day(item.get("cumulative_period_start")), day(item.get("period"))) if "cumulative_period_start" in item else selected
+        return selected, flow, cumulative
+    def visit(value: Any, *, hint: Any = None, native_wrapper: bool = False) -> None:
         nonlocal missing_original_scope
         value = decode(value)
         if isinstance(value, list):
             native_batch = bool(value) and all(isinstance(decode(item), dict) and "native_proof" in decode(item)
                 for item in value) and proof_span(value) is not None
-            for item in value:
-                visit(item, native_wrapper=native_batch)
+            raw_alternatives = all(isinstance(decode(item), dict) and "derivation" not in decode(item)
+                and "native_proof" not in decode(item) for item in value)
+            bare_arithmetic = (len(value) == 2 and not native_batch and not raw_alternatives
+                and proof_span(value, hint) is not None)
+            for index, item in enumerate(value):
+                # Audit provenance retains unselected duration alternatives.
+                # Unknown/malformed spans are not proof of being an alternative.
+                if hint is not None and raw_alternatives:
+                    candidate = proof_span(item)
+                    if candidate is not None and candidate != hint:
+                        continue
+                # The existing bare YTD +/- form selects its own operand with
+                # the hint and validates its actual previous operand without it.
+                child_hint = None if bare_arithmetic and index == 1 else hint
+                visit(item, hint=child_hint, native_wrapper=native_batch)
         elif isinstance(value, dict):
             context_record = isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict)
             # Native preference can retain alternate currencies in provenance.
@@ -722,7 +741,12 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                     missing_original_scope = True
             for key in ("native_proof", "flow_proof", "cumulative_proof", "parents"):
                 if key in value:
-                    visit(value[key])
+                    child_hint = None
+                    if native_wrapper and key != "parents":
+                        child_hint = dict(zip(("native_proof", "flow_proof", "cumulative_proof"), native_operand_hints(value)))[key]
+                    elif key == "parents" and value.get("derivation") == "native_period_selection":
+                        child_hint = (day(value.get("period_start")), day(value.get("period_end")))
+                    visit(value[key], hint=child_hint)
     def proof_span(value: Any, hint: Any = None) -> Optional[tuple]:
         value = decode(value)
         if isinstance(value, dict):
@@ -768,13 +792,10 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
         if all(isinstance(item, dict) and "native_proof" in item for item in decoded):
             operands = []
             for item in decoded:
-                selected_end = day(item.get("native_period_end"))
-                selected = (day(item.get("native_period_start")), selected_end) if selected_end else None
+                selected, flow_hint, cum_hint = native_operand_hints(item)
                 native = proof_span(item["native_proof"], selected)
                 if native is None or native[1] != day(item.get("period")):
                     return None
-                flow_hint = (day(item.get("flow_period_start")), day(item.get("period"))) if "flow_period_start" in item else selected
-                cum_hint = (day(item.get("cumulative_period_start")), day(item.get("period"))) if "cumulative_period_start" in item else selected
                 operands.append((proof_span(item.get("flow_proof"), flow_hint), proof_span(item.get("cumulative_proof"), cum_hint)))
             if len(operands) == 1:
                 return operands[0][1]
@@ -817,7 +838,7 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
         proof = row.get(field + suffix)
         if present(proof) and decode(proof) is None:
             return None
-        visit(proof)
+        visit(proof, hint=raw_hint)
         if present(proof):
             period_evidence = proof_span(proof, raw_hint)
             if period_evidence is None:
