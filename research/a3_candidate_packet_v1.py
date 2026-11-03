@@ -17,6 +17,8 @@ from types import MappingProxyType
 
 SCHEMA = "a3-candidate-packet-v1"
 RESULT_SCHEMA = "a3-candidate-packet-v1-result"
+PARTIAL_SCHEMA = "a3-issuer-partial-research-reference-v1"
+PARTIAL_RESULT_SCHEMA = "a3-issuer-partial-research-reference-v1-result"
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_CACHED_TOTAL_BYTES = 128 * 1024 * 1024
 MAX_JSON_DEPTH = 64
@@ -738,6 +740,170 @@ def evaluate_packet(packet: Any, cutoff: str, artifact_resolver: ArtifactResolve
     }
 
 
+_PARTIAL_ROLES = {"financial_result", "reader_receipt", "issuer_snapshot"}
+_PARTIAL_REF_FIELDS = {"artifact_id", "sha256", "available_at", "collected_at", "expires_at"}
+
+
+def _partial_reference(ref: Any, as_of: datetime) -> dict[str, Any]:
+    _require(_is_json_object(ref) and set(ref) == _PARTIAL_REF_FIELDS, "partial_reference_fields")
+    _identifier(ref["artifact_id"], "artifact_id")
+    _hash(ref["sha256"], "invalid_sha256")
+    available = _stamp(ref["available_at"], "partial_reference_time")
+    collected = _stamp(ref["collected_at"], "partial_reference_time")
+    _require(available <= collected <= as_of, "partial_reference_time")
+    if ref["expires_at"] is not None:
+        _require(_stamp(ref["expires_at"], "partial_reference_expiry") >= collected,
+                 "partial_expiry_precedes_collection")
+    return _copy_json(ref)
+
+
+def _partial_expiry(values: list[Any], at: datetime) -> str:
+    stamps = [None if value is None else _stamp(value, "partial_expiry") for value in values]
+    return ("EXPIRED" if any(value is not None and value <= at for value in stamps)
+            else "UNKNOWN" if any(value is None for value in stamps) else "UNEXPIRED")
+
+
+def _partial_closed(value: Any, required: tuple[str, ...] = ()) -> None:
+    _require(_is_json_object(value), "partial_authority")
+    optional = {"source_admitted", "source_authenticated", "historical_pit", "current_market", "formal_a3",
+        "registry_current", "er", "a5", "reuse_authorized", "selector_eligible", "orders_allowed",
+        "canonical_write_allowed", "target_book_write_allowed", "production_authority",
+        "economic_admission", "economic_consumption_allowed", "ranking_allowed", "A5_eligible_input"}
+    _require(all(value.get(name) is False for name in set(required) | (optional & set(value))), "partial_authority")
+    _require(all(value.get(name) is None for name in ("validated_er", "expected_return")), "partial_authority")
+
+
+def evaluate_partial_research_reference(packet: Any, cutoff: str, artifact_resolver: ArtifactResolver, *,
+        _artifact_cache: _VerifiedArtifactCache | None = None) -> dict[str, Any]:
+    """Bind one archival issuer financial result to its actual receipt/snapshot.
+
+    This is a byte/identity/clock reference, not full A3 research or Source
+    authentication. Supplied immutable IDs are resolved only by the caller's
+    read-only resolver. No amounts, scores, rights or current pointers are made.
+    Expiry is reported at the frozen packet as_of; later replay never renews it.
+    """
+    _require(_is_json_object(packet) and set(packet) == {
+        "schema", "entity_kind", "issuer_id", "as_of", "artifacts"}, "partial_packet_fields")
+    _require(packet["schema"] == PARTIAL_SCHEMA and packet["entity_kind"] == "ISSUER", "partial_schema")
+    issuer = _identifier(packet["issuer_id"], "partial_issuer_identity")
+    _require(re.fullmatch(r"CIK:[0-9]{10}", issuer) is not None, "partial_issuer_identity")
+    as_of = _stamp(packet["as_of"], "partial_as_of")
+    _require(as_of <= _stamp(cutoff, "partial_cutoff"), "future_partial_packet")
+    _require(_is_json_object(packet["artifacts"]) and set(packet["artifacts"]) == _PARTIAL_ROLES,
+             "partial_artifact_roles")
+    refs = {role: _partial_reference(ref, as_of) for role, ref in packet["artifacts"].items()}
+    if _artifact_cache is not None:
+        _require(type(_artifact_cache) is _VerifiedArtifactCache
+                 and _artifact_cache.resolver == artifact_resolver, "verified_artifact_cache_required")
+    cache = _artifact_cache or _VerifiedArtifactCache(artifact_resolver)
+    # Register every top-level immutable ID before any row-specific validation.
+    identities = {}
+    for ref in refs.values():
+        previous = identities.setdefault(ref["artifact_id"], ref["sha256"])
+        _require(previous == ref["sha256"], "artifact_id_conflict")
+    documents = {role: cache.object(ref["artifact_id"], ref["sha256"]) for role, ref in refs.items()}
+    financial, receipt, snapshot = (documents[role] for role in
+        ("financial_result", "reader_receipt", "issuer_snapshot"))
+    _require(financial.get("schema") == "mu-financial-only-partial-research-diagnostic-v1"
+             and financial.get("status") in {"PRE_MERGE_UNADMITTED", "ARCHIVAL_RESEARCH_ONLY"},
+             "partial_financial_schema")
+    _require(receipt.get("schema") == "research-data-financial-component-read-receipt-v1"
+             and receipt.get("status") == "VERIFIED_LOCAL_ARCHIVAL_RESEARCH_BYTES",
+             "partial_receipt_schema")
+    _require(receipt.get("issuer_cik") == issuer[4:] and _is_json_object(receipt.get("issuer_identity"))
+             and receipt["issuer_identity"].get("cik") == issuer[4:], "partial_issuer_identity")
+    _require(receipt.get("dataset_id") == "ds.us.financials.sec.companyfacts"
+             and receipt.get("identity_scope") == "ISSUER_FINANCIAL_FACTS"
+             and receipt.get("purpose") == "research"
+             and receipt.get("usage") == "ARCHIVAL_RESEARCH_FORWARD_ONLY"
+             and receipt.get("publication_scope") == "LOCAL_ONLY"
+             and receipt.get("currentness") == "NOT_CURRENT", "partial_receipt_scope")
+    for value, names in ((financial, ("source_admitted", "historical_pit", "current_market", "formal_a3",
+                                      "registry_current", "er", "a5")),
+                         (receipt, ("source_admitted", "historical_pit", "qualified_market_join",
+                                    "eligible_for_valuation", "eligible_for_er", "eligible_for_a5",
+                                    "eligible_for_economics", "eligible_for_selector", "durable_publication_verified"))):
+        _partial_closed(value, names)
+    receipt_hash, financial_hash = refs["reader_receipt"]["sha256"], refs["financial_result"]["sha256"]
+    _require(financial.get("reader_receipt_sha256") == receipt_hash
+             and canonical_sha256(financial.get("original_source_receipt")) == canonical_sha256(receipt),
+             "partial_receipt_binding")
+    _require(financial.get("consumer_id") == receipt.get("consumer_id"), "partial_consumer_binding")
+    _identifier(receipt.get("consumer_id"), "partial_consumer_binding")
+    decision = _stamp(receipt.get("decision_time"), "partial_decision_time")
+    _require(decision == _stamp(financial.get("decision_time"), "partial_decision_time")
+             and decision <= _stamp(refs["reader_receipt"]["available_at"], "partial_reference_time"),
+             "partial_decision_time")
+    _require(_stamp(receipt.get("source_available_from"), "partial_source_clock") <= decision,
+             "partial_source_clock")
+    generation = _hash(receipt.get("data_generation_id"), "partial_generation")
+    _require(receipt.get("manifest_sha256") == generation, "partial_generation")
+    rowset = _hash(receipt.get("row_set_sha256"), "partial_rowset")
+    _require(type(receipt.get("rows")) is int and receipt["rows"] > 0, "partial_rows")
+    periods = financial.get("periods")
+    _require(_is_json_array(periods) and 0 < len(periods) <= 10000
+             and type(financial.get("period_count")) is int and financial["period_count"] == len(periods),
+             "partial_periods")
+    period_ends = [_day(row.get("period"), "partial_period") for row in periods if _is_json_object(row)]
+    _require(len(period_ends) == len(periods) and period_ends == sorted(set(period_ends))
+             and period_ends[-1] <= decision.date(), "partial_periods")
+    _require(_is_json_object(snapshot) and set(snapshot) == {"schema", "scope_id", "cutoff", "expires_at",
+        "rows", "source_authenticated", "content_sha256"}
+        and snapshot["schema"] == "review-observation-snapshot-v1"
+        and snapshot["source_authenticated"] is False, "partial_snapshot_schema")
+    _identifier(snapshot["scope_id"], "partial_snapshot_scope")
+    # The existing bridge seals with JSON's ASCII canonical representation.
+    unsigned = {key: value for key, value in snapshot.items() if key != "content_sha256"}
+    seal = hashlib.sha256(json.dumps(unsigned, sort_keys=True, separators=(",", ":"),
+        allow_nan=False, default=_json_default).encode()).hexdigest()
+    _require(snapshot["content_sha256"] == seal, "partial_snapshot_seal")
+    snap_at = _stamp(snapshot["cutoff"], "partial_snapshot_clock")
+    _require(decision <= snap_at <= _stamp(refs["issuer_snapshot"]["available_at"], "partial_reference_time")
+             and snap_at < _stamp(snapshot["expires_at"], "partial_snapshot_expiry"), "partial_snapshot_clock")
+    rows = snapshot["rows"]
+    _require(_is_json_array(rows) and len(rows) == 1 and _is_json_object(rows[0]), "partial_snapshot_rows")
+    row = rows[0]
+    _partial_closed(snapshot)
+    _partial_closed(row)
+    _require(row.get("entity_kind") == "ISSUER" and row.get("entity_id") == issuer
+             and row.get("family") == "ACTUAL" and row.get("status") == "OBSERVED"
+             and row.get("metric") == "FINANCIAL_ONLY_ARCHIVAL_RESEARCH"
+             and _is_json_object(row.get("identity"))
+             and row["identity"].get("scope") == "ISSUER_FINANCIAL_FACTS"
+             and row["identity"].get("market_binding") == "UNVERIFIED", "partial_snapshot_identity")
+    values = row.get("values")
+    _partial_closed(values, ("a5", "current_market", "er", "formal_a3"))
+    derived = values.get("derived_ref")
+    _require(_is_json_object(derived) and derived.get("sha256") == financial_hash
+             and values.get("derived_sha256") == financial_hash and row.get("revision_id") == financial_hash
+             and values.get("reader_receipt_sha256") == receipt_hash and row.get("source_sha256") == receipt_hash,
+             "partial_snapshot_binding")
+    _require(type(derived.get("bytes")) is int and derived["bytes"] == len(cache.read(
+        refs["financial_result"]["artifact_id"], financial_hash)), "partial_derived_bytes")
+    closed_at = _stamp(derived.get("closed_at"), "partial_derived_clock")
+    _require(decision <= closed_at <= _stamp(row.get("available_at"), "partial_snapshot_clock")
+             <= _stamp(row.get("collected_at"), "partial_snapshot_clock") <= snap_at
+             and closed_at <= _stamp(refs["financial_result"]["available_at"], "partial_reference_time"),
+             "partial_derived_clock")
+    _require(_day(row.get("observation_period"), "partial_snapshot_period") == period_ends[-1],
+             "partial_snapshot_period")
+    return dict(schema=PARTIAL_RESULT_SCHEMA, status="PARTIAL_RESEARCH_REFERENCE_VERIFIED",
+        entity_kind="ISSUER", issuer_id=issuer, asset_id=None, as_of=packet["as_of"],
+        packet_semantic_sha256=canonical_sha256(packet), artifact_refs=refs,
+        generation_id=generation, row_set_sha256=rowset, reader_rows=receipt["rows"],
+        period_count=len(periods), latest_period_end=period_ends[-1].isoformat(),
+        reference_expiry_state_at_as_of=_partial_expiry([ref["expires_at"] for ref in refs.values()], as_of),
+        snapshot_expiry_state_at_as_of=_partial_expiry([snapshot["expires_at"]], as_of),
+        research_expiry_state_at_as_of=_partial_expiry([receipt.get("research_expires_at")], as_of),
+        snapshot_expires_at=snapshot["expires_at"], research_expires_at=receipt.get("research_expires_at"),
+        source_admitted=False, historical_pit=False, current_market=False, formal_a3=False,
+        registry_current=False, validated_er=None, er=False, a5=False, reuse_authorized=False,
+        source_authenticated=False, expected_return=None, economic_consumption_allowed=False,
+        selector_eligible=False, orders_allowed=False, canonical_write_allowed=False,
+        target_book_write_allowed=False, production_authority=False,
+        review_authentication_status="NOT_VERIFIED", research_freshness_state="NOT_CERTIFIED")
+
+
 __all__ = [
     "A3CandidatePacketError",
     "ARTIFACT_KINDS",
@@ -750,4 +916,7 @@ __all__ = [
     "THESIS_STATUSES",
     "canonical_sha256",
     "evaluate_packet",
+    "PARTIAL_SCHEMA",
+    "PARTIAL_RESULT_SCHEMA",
+    "evaluate_partial_research_reference",
 ]

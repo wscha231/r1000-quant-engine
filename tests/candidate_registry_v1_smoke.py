@@ -869,5 +869,113 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("FRESHNESS_CATALYST_COLLECTION_CHECK_REQUIRED",row["consumption_blockers"])
 
 
+class PartialRegistryTests(unittest.TestCase):
+    def fixture(self, *, mutate_result=None, **options):
+        packet, self.raw = a3_fixture.partial_fixture(**options)
+        self.reads = []
+        result = a3.evaluate_partial_research_reference(packet, CUTOFF, self.resolve)
+        if mutate_result: mutate_result(result)
+        entry = dict(issuer_id=packet["issuer_id"], partial_packet_ref=self.put("ISSUER:PACKET", packet),
+            partial_result_ref=self.put("ISSUER:RESULT", result))
+        self.reads.clear()
+        return entry
+
+    def put(self, aid, value):
+        body = raw_json(value); digest = hashlib.sha256(body).hexdigest()
+        self.raw[(aid, digest)] = body
+        return dict(artifact_id=aid, sha256=digest, available_at="2026-09-19T01:10:00Z",
+                    collected_at="2026-09-19T01:10:00Z", expires_at="2026-09-20T00:00:00Z")
+
+    def resolve(self, aid, digest):
+        self.reads.append((aid, digest))
+        return self.raw[(aid, digest)]
+
+    def build(self, entry, cutoff=CUTOFF):
+        return registry.build_partial_reference_index([entry], cutoff=cutoff, artifact_resolver=self.resolve)
+
+    def test_partial_replays_once_per_blob_with_issuer_only_closed_authority(self):
+        entry = self.fixture(); out = self.build(entry); row = out["records"][0]
+        self.assertEqual(out["reference_verified_count"], 1)
+        self.assertEqual(row["reference_status"], "PARTIAL_RESEARCH_REFERENCE_REPLAY_VERIFIED")
+        self.assertIsNone(row["asset_id"])
+        self.assertEqual(len(self.reads), 5)
+        self.assertEqual(len(set(self.reads)), 5)
+        for key in ("formal_a3", "source_admitted", "historical_pit", "registry_current", "er", "a5",
+                    "reuse_authorized", "selector_eligible", "orders_allowed"):
+            self.assertIs(row[key], False)
+        self.assertIs(out["canonical_write_performed"], False)
+        self.assertIn("PARTIAL_RESEARCH_NOT_FORMAL_A3", row["consumption_blockers"])
+        self.assertEqual(row["metadata"]["snapshot_expiry_state_at_cutoff"], "EXPIRED")
+
+    def test_partial_entire_result_replay_rejects_authority_or_type_change(self):
+        for mutate in (lambda r: r.update(a5=True), lambda r: r.update(er=0),
+                       lambda r: r.update(period_count=100), lambda r: r.update(extra="unexpected")):
+            entry = self.fixture(mutate_result=mutate)
+            row = self.build(entry)["records"][0]
+            self.assertEqual(row["reference_status"], "BLOCKED")
+            self.assertEqual(row["blockers"], ["result_replay_mismatch"])
+            self.assertIs(row["a5"], False)
+
+    def test_partial_missing_refs_remain_visible_and_duplicate_issuer_rejects(self):
+        entry = self.fixture(); entry["partial_result_ref"] = None
+        self.assertEqual(self.build(entry)["blocked_count"], 1)
+        self.assertEqual(self.reads, [])
+        entry = self.fixture()
+        with self.assertRaisesRegex(ReferenceIndexError, "duplicate_issuer_id"):
+            registry.build_partial_reference_index([entry, entry], cutoff=CUTOFF, artifact_resolver=self.resolve)
+        wrong = deepcopy(entry); wrong["issuer_id"] = "CIK:0000000002"
+        self.assertEqual(self.build(wrong)["records"][0]["blockers"], ["packet_issuer_identity"])
+
+    def test_partial_future_refs_do_not_resolve_and_expiry_does_not_become_current(self):
+        entry = self.fixture(); entry["partial_packet_ref"]["available_at"] = "2026-09-22T00:00:00Z"
+        entry["partial_packet_ref"]["collected_at"] = "2026-09-22T00:00:00Z"
+        self.assertEqual(self.build(entry)["blocked_count"], 1); self.assertEqual(self.reads, [])
+        for field in ("as_of", "collected_at"):
+            entry = self.fixture()
+            packet = json.loads(self.raw[(entry["partial_packet_ref"]["artifact_id"], entry["partial_packet_ref"]["sha256"])])
+            if field == "as_of": packet[field] = "2026-09-22T00:00:00Z"
+            else: packet["artifacts"]["financial_result"][field] = "2026-09-22T00:00:00Z"
+            entry["partial_packet_ref"] = self.put("ISSUER:FUTURE_PACKET", packet)
+            self.assertEqual(self.build(entry)["blocked_count"], 1)
+            self.assertNotIn((packet["artifacts"]["financial_result"]["artifact_id"],
+                packet["artifacts"]["financial_result"]["sha256"]), self.reads)
+        entry = self.fixture(); entry["partial_packet_ref"]["expires_at"] = None
+        row = self.build(entry)["records"][0]
+        self.assertEqual(row["declared_expiry_state"], "UNKNOWN")
+        self.assertIs(row["registry_current"], False)
+        entry = self.fixture(); row = self.build(entry, "2026-09-22T04:00:00Z")["records"][0]
+        self.assertEqual(row["declared_expiry_state"], "EXPIRED")
+        self.assertEqual(row["reference_status"], "PARTIAL_RESEARCH_REFERENCE_REPLAY_VERIFIED")
+        self.assertIs(row["reuse_authorized"], False)
+
+    def test_partial_nested_immutable_conflict_cannot_hide_behind_bad_expiry(self):
+        entry = self.fixture()
+        packet = json.loads(self.raw[(entry["partial_packet_ref"]["artifact_id"], entry["partial_packet_ref"]["sha256"])])
+        packet["artifacts"]["reader_receipt"]["artifact_id"] = packet["artifacts"]["financial_result"]["artifact_id"]
+        packet["artifacts"]["financial_result"]["expires_at"] = "bad"
+        entry["partial_packet_ref"] = self.put("ISSUER:PACKET:CORRECTED", packet)
+        with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"): self.build(entry)
+        entry = self.fixture()
+        def result_conflict(result):
+            result["artifact_refs"]["reader_receipt"]["sha256"] = "0"*64
+        entry = self.fixture(mutate_result=result_conflict)
+        with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"): self.build(entry)
+
+    def test_partial_changed_correction_requires_new_matching_result_and_full_path_stays_closed(self):
+        entry = self.fixture()
+        old_result = self.raw[(entry["partial_result_ref"]["artifact_id"], entry["partial_result_ref"]["sha256"])]
+        corrected = self.fixture(financial_change=lambda f: f["periods"][0]["values"].update(loss=-20))
+        corrected["partial_result_ref"] = self.put("ISSUER:PRIOR_RESULT", json.loads(old_result))
+        with self.assertRaisesRegex(ReferenceIndexError, "artifact_id_conflict"): self.build(corrected)
+        current = self.fixture(financial_change=lambda f: f["periods"][0]["values"].update(loss=-20))
+        self.assertEqual(self.build(current)["reference_verified_count"], 1)
+        full = dict(asset_id="US:EXAMPLE", issuer_id=current["issuer_id"],
+            a3_packet_ref=current["partial_packet_ref"], a3_result_ref=current["partial_result_ref"])
+        self.assertEqual(registry.build_reference_index([full], cutoff=CUTOFF,
+            artifact_resolver=self.resolve)["reference_verified_count"], 0)
+        with patch.object(registry, "MAX_TOTAL_BYTES", 20):
+            with self.assertRaisesRegex(ReferenceIndexError, "total_byte_budget"): self.build(current)
+
+
 if __name__ == "__main__":
     unittest.main()

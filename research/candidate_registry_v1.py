@@ -19,10 +19,12 @@ from typing import Any
 
 if __package__:
     from .a3_candidate_packet_v1 import (A3CandidatePacketError, _VerifiedArtifactCache,
-        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet)
+        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet,
+        evaluate_partial_research_reference)
 else:
     from a3_candidate_packet_v1 import (A3CandidatePacketError, _VerifiedArtifactCache,
-        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet)
+        _is_json_object, _is_json_array, _json_default, _copy_json, evaluate_packet,
+        evaluate_partial_research_reference)
 
 SCHEMA = "candidate-registry-v1-reference-index"
 MAX_ENTRIES = 10000
@@ -237,7 +239,9 @@ def _nested_reference(ref: Any, as_of: datetime, cutoff: datetime) -> None:
 
 
 def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
-                      snapshot: _Snapshot) -> None:
+                      snapshot: _Snapshot, *, identity_role: str = "asset_id",
+                      packet_role: str = "a3_packet_ref", result_role: str = "a3_result_ref",
+                      nested_collection_clock: bool = False) -> None:
     packets = []
     packet_attempts, dependency_attempts, scanned = set(), set(), set()
 
@@ -247,10 +251,10 @@ def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
             scanned.add(key)
             _register_nested(value, snapshot)
 
-    for entry in sorted(entries, key=lambda e: e["asset_id"]):
+    for entry in sorted(entries, key=lambda e: e[identity_role]):
         try:
-            pref = _access_reference(entry.get("a3_packet_ref"), cutoff)
-            _access_reference(entry.get("a3_result_ref"), cutoff)
+            pref = _access_reference(entry.get(packet_role), cutoff)
+            _access_reference(entry.get(result_role), cutoff)
             key = pref["artifact_id"], pref["sha256"]
             if key in packet_attempts:
                 continue
@@ -278,6 +282,8 @@ def _preflight_nested(entries: list[dict[str, Any]], cutoff: datetime,
                 continue
             try:
                 _nested_reference(ref, as_of, cutoff)
+                if nested_collection_clock:
+                    _access_reference(ref, as_of)
                 key = ref["artifact_id"], ref["sha256"]
                 if key in dependency_attempts:
                     continue
@@ -449,4 +455,111 @@ def build_reference_index(entries: Any, *, cutoff: str,
     return out
 
 
-__all__ = ["ReferenceIndexError", "build_reference_index"]
+def build_partial_reference_index(entries: Any, *, cutoff: str,
+        artifact_resolver: ArtifactResolver) -> dict[str, Any]:
+    """Replay issuer-only archival references; never select a current A3 row.
+
+    Uses the same resolver cache, cross-reference identity preflight, strict
+    JSON and shared budgets as the full reference path. Missing/corrupt rows
+    stay visible; ambiguous IDs or duplicate issuers reject the whole batch.
+    """
+    at = _stamp(cutoff)
+    _require(callable(artifact_resolver), "artifact_resolver_required")
+    _require(isinstance(entries, list) and len(entries) <= MAX_ENTRIES, "entry_batch")
+    seen, snapshot = set(), _Snapshot(artifact_resolver)
+    for entry in entries:
+        _require(isinstance(entry, dict), "entry_object")
+        issuer = _identifier(entry.get("issuer_id"), "issuer_id")
+        _require(re.fullmatch(r"CIK:[0-9]{10}", issuer) is not None, "issuer_id")
+        _require(issuer not in seen, "duplicate_issuer_id")
+        seen.add(issuer)
+        for role in ("partial_packet_ref", "partial_result_ref"):
+            ref = entry.get(role)
+            if isinstance(ref, dict):
+                try:
+                    aid = _identifier(ref.get("artifact_id"), "artifact_id")
+                    digest = _digest(ref.get("sha256"))
+                except ReferenceIndexError:
+                    continue
+                snapshot.register(aid, digest)
+    _preflight_nested(entries, at, snapshot, identity_role="issuer_id",
+        packet_role="partial_packet_ref", result_role="partial_result_ref", nested_collection_clock=True)
+    # Partial saved results also carry upstream immutable descriptors. Scan
+    # their eligible bytes before row errors can hide a conflicting identity.
+    for entry in entries:
+        try:
+            pref = _access_reference(entry.get("partial_packet_ref"), at)
+            rref = _access_reference(entry.get("partial_result_ref"), at)
+            packet = snapshot.object(pref)
+            _require(_stamp(packet.get("as_of")) <= at, "reference_time_order")
+            _register_nested(snapshot.object(rref), snapshot)
+        except _BatchError:
+            raise
+        except ReferenceIndexError:
+            continue
+    records = []
+    for entry in sorted(entries, key=lambda item: item["issuer_id"]):
+        row = _closed_record({"asset_id": None, "issuer_id": entry["issuer_id"]})
+        for key in ("a3_packet_ref", "a3_result_ref", "a3_result_status"):
+            row.pop(key)
+        row.update(entity_kind="ISSUER", partial_packet_ref=None, partial_result_ref=None,
+            partial_result_status=None, formal_a3=False, source_admitted=False,
+            historical_pit=False, registry_current=False, er=False, a5=False,
+            current_market=False, source_authenticated=False, expected_return=None)
+        row["consumption_blockers"].append("PARTIAL_RESEARCH_NOT_FORMAL_A3")
+        snapshot.current_reads = set()
+        try:
+            _require(set(entry) == {"issuer_id", "partial_packet_ref", "partial_result_ref"}, "entry_fields")
+            pref, rref = (_reference(entry[role], at) for role in ("partial_packet_ref", "partial_result_ref"))
+            row["partial_packet_ref"], row["partial_result_ref"] = pref, rref
+            _require(_stamp(rref["available_at"]) >= _stamp(pref["collected_at"]), "result_precedes_packet")
+            packet = snapshot.object(pref)
+            _require(packet.get("issuer_id") == entry["issuer_id"], "packet_issuer_identity")
+            _require(_stamp(pref["available_at"]) >= _stamp(packet.get("as_of")), "packet_precedes_as_of")
+            stored = snapshot.object(rref)
+            actual = evaluate_partial_research_reference(packet, cutoff, snapshot.read,
+                _artifact_cache=snapshot.artifacts)
+            _require(_canonical(actual) == _canonical(stored), "result_replay_mismatch")
+            expiries = [pref["expires_at"], rref["expires_at"]]
+            expiries.extend(ref["expires_at"] for ref in actual["artifact_refs"].values())
+            expiry = ("EXPIRED" if any(value is not None and _stamp(value) <= at for value in expiries)
+                else "UNKNOWN" if any(value is None for value in expiries) else "UNEXPIRED")
+            row.update(reference_status="PARTIAL_RESEARCH_REFERENCE_REPLAY_VERIFIED",
+                packet_semantic_sha256=actual["packet_semantic_sha256"],
+                partial_result_status=actual["status"], upstream_artifact_refs=actual["artifact_refs"],
+                declared_expiry_state=expiry,
+                metadata={name: actual[name] for name in ("as_of", "generation_id", "row_set_sha256",
+                    "reader_rows", "period_count", "latest_period_end", "snapshot_expiry_state_at_as_of",
+                    "research_expiry_state_at_as_of")},
+                resolved_blob_refs=[dict(artifact_id=aid, sha256=digest, bytes=len(snapshot.cache[(aid, digest)]))
+                    for aid, digest in sorted(snapshot.current_reads)])
+            for kind in ("snapshot", "research"):
+                expires = actual[kind + "_expires_at"]
+                row["metadata"][kind + "_expiry_state_at_cutoff"] = (
+                    "UNKNOWN" if expires is None else "EXPIRED" if _stamp(expires) <= at else "UNEXPIRED")
+            if expiry != "UNEXPIRED":
+                row["consumption_blockers"].append("DECLARED_REFERENCE_EXPIRY_" + expiry)
+        except _BatchError:
+            raise
+        except (ReferenceIndexError, A3CandidatePacketError) as exc:
+            if snapshot.fatal is not None:
+                raise snapshot.fatal
+            if snapshot.artifacts.fatal_reason is not None:
+                raise _BatchError(snapshot.artifacts.fatal_reason) from None
+            row["blockers"] = [str(exc)]
+        except (ValueError, TypeError, KeyError, OverflowError, RecursionError):
+            if snapshot.fatal is not None:
+                raise snapshot.fatal
+            row["blockers"] = ["MALFORMED_PARTIAL_INPUT"]
+        records.append(row)
+    verified = sum(row["reference_status"] == "PARTIAL_RESEARCH_REFERENCE_REPLAY_VERIFIED" for row in records)
+    out = dict(schema="candidate-registry-v1-partial-reference-index", authority="PROPOSAL_NOT_CANONICAL",
+        scope="SUPPLIED_ISSUER_PARTIAL_REFERENCE_SET_ONLY", cutoff=at.isoformat(),
+        status="EMPTY_INPUT" if not records else "REFERENCE_INDEX_BUILT" if verified == len(records) else "REFERENCE_ERRORS_PRESENT",
+        input_count=len(records), reference_verified_count=verified, blocked_count=len(records)-verified,
+        economic_consumption_allowed=False, canonical_write_performed=False, records=records)
+    out["index_sha256"] = hashlib.sha256(_canonical(out)).hexdigest()
+    return out
+
+
+__all__ = ["ReferenceIndexError", "build_reference_index", "build_partial_reference_index"]
