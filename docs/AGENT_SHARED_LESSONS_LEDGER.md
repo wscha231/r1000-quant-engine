@@ -9232,3 +9232,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Prepare and validate this correction locally while Main is frozen; publish
   only after the coordinated final master is accepted. No canonical bundle
   regeneration, old100/169-suite replay, provider capture or runtime activation.
+- The Native Source environment serializes PyArrow26.0.0 while the frozen P0
+  contract pins23.0.1; the original P0 check also exposes Windows README CRLF.
+  Preserve both failed byte comparisons as ENV_PIN_MISMATCH/BLOCKED. Separate
+  the Foundation closure checks from canonical P0-byte acceptance; never
+  rewrite the bundle, requirements or verifier to turn environment drift into
+  PASS. Final exact-head hosted required CI must still run the complete checks.
