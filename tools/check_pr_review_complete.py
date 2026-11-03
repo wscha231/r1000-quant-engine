@@ -241,7 +241,7 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
     receipts = []
     decoration = r"(?: Keep it up!| More of your lovely PRs please\.| Breezy!| :[a-z][a-z0-9_]{0,31}:)?"
     if receipt_pin is not None:
-        decoration = r"(?: Keep it up!| More of your lovely PRs please\.| [A-Za-z]{1,32}!| :[a-z][a-z0-9_]{0,31}:)?"
+        decoration = r"(?: Keep it up!| More of your lovely PRs please\.| [A-Za-z]{1,32}[!.]| :[a-z][a-z0-9_]{0,31}:)?"
     pattern = (r"<!-- codex-review-receipt:v1 -->\n\s*\n"
         r"Codex Review: Didn't find any major issues\."
         + decoration + r"\n\s*\n"
