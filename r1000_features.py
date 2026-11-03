@@ -807,7 +807,9 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     selected = {key: row[field + "_" + key] for key in (
         "cik", "issuer_id", "entity_id", "entity", "context_dimensions", "entity_scope", "segment"
     ) if field + "_" + key in row.index}
-    selected_scope = scope(selected)
+    # Flat optional cells acquire None during projection/Parquet transport.
+    # They are not original scope assertions; explicit {} remains evidence.
+    selected_scope = scope({key: value for key, value in selected.items() if not _native_optional_text_absent(value)})
     if selected_scope:
         witnesses.append((identity(selected), selected_scope))
     original_spans = []

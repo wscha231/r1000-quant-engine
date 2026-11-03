@@ -760,7 +760,10 @@ class NativeFinancialContextTests(unittest.TestCase):
                     "period_end": "2025-12-31", "parents": [bad]}):
                     changed = dict(row, shares_provenance=json.dumps(proof))
                     if selected_scope:
-                        changed["shares_context_dimensions"] = None
+                        changed["shares_context_dimensions"] = {}
+                        context = json.loads(changed["shares_financial_context"])
+                        context["scope"] = {"dimensions": {}}
+                        changed["shares_financial_context"] = json.dumps(context)
                     self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), (name, selected_scope))
                     guarded = f.enforce_native_valuation_context(pd.DataFrame([changed]), _operation_cache=cache)
                     self.assertTrue(pd.isna(guarded.loc[0, "mktcap"]))
@@ -782,7 +785,9 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertIsNone(f.native_financial_context(pd.Series(missing), "shares"))
         # Explicit selected source metadata remains usable, including nullable
         # optional owner aliases falling back to the verified row owner.
-        selected = dict(missing, shares_context_dimensions=None)
+        selected = dict(missing, shares_context_dimensions={})
+        context = json.loads(selected["shares_financial_context"]); context["scope"] = {"dimensions": {}}
+        selected["shares_financial_context"] = json.dumps(context)
         absent["issuer_id"] = None
         selected["shares_provenance"] = json.dumps([absent])
         self.assertIsNotNone(f.native_financial_context(pd.Series(selected), "shares"))
@@ -837,10 +842,16 @@ class NativeFinancialContextTests(unittest.TestCase):
             self.assertTrue(pd.isna(f.enforce_native_valuation_context(pd.DataFrame([dict(row, shares=count)])).loc[0, "mktcap"]))
         wrong = dict(row, ticker="WRONG", shares_provenance=[dict(proof, cik="0000000002")])
         missing = dict(row, ticker="MISSING"); missing.pop("shares_context_dimensions")
+        raw = dict(row, ticker="VALID_RAW", shares_provenance=dict(proof, context_dimensions={}))
+        raw.pop("shares_context_dimensions")
         unknown = dict(row, ticker="UNKNOWN", financial_metadata_version="unsupported-v99")
-        frame = pd.DataFrame([row, wrong, missing, unknown])
+        frame = pd.DataFrame([row, raw, wrong, missing, unknown])
         keep = ["ticker", "current_price_live", "shares", "assets", "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm"]
         projected = p.project_feature_store_frame(frame, keep)
+        for materialized in (frame, projected):
+            guarded = f.enforce_native_valuation_context(materialized).set_index("ticker")
+            self.assertEqual(guarded.loc["VALID_RAW", "mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc["VALID_RAW", "ep_ttm"], 0.05)
         with tempfile.TemporaryDirectory() as tmp:
             for suffix in ("csv", "parquet"):
                 path = Path(tmp)/("original_identity."+suffix)
@@ -849,11 +860,13 @@ class NativeFinancialContextTests(unittest.TestCase):
                 else:
                     projected.to_parquet(path, index=False); read = pd.read_parquet(path)
                 guarded = f.enforce_native_valuation_context(read).set_index("ticker")
-                self.assertEqual(len(guarded), 4)
+                self.assertEqual(len(guarded), 5)
                 self.assertEqual(guarded.loc["VALID", "mktcap"], 1000.0)
                 self.assertAlmostEqual(guarded.loc["VALID", "ep_ttm"], 0.05)
-                self.assertTrue(guarded.drop(index="VALID")["mktcap"].isna().all(), suffix)
-                self.assertTrue(guarded.drop(index="VALID")["ep_ttm"].isna().all(), suffix)
+                self.assertEqual(guarded.loc["VALID_RAW", "mktcap"], 1000.0)
+                self.assertAlmostEqual(guarded.loc["VALID_RAW", "ep_ttm"], 0.05)
+                self.assertTrue(guarded.loc[["WRONG", "MISSING", "UNKNOWN"], "mktcap"].isna().all(), suffix)
+                self.assertTrue(guarded.loc[["WRONG", "MISSING", "UNKNOWN"], "ep_ttm"].isna().all(), suffix)
         legacy = pd.DataFrame([dict(financial_metadata_version=None, mktcap=777.0, ep_ttm=-0.5)])
         old = f.enforce_native_valuation_context(legacy)
         self.assertEqual(old.loc[0, "mktcap"], 777.0)

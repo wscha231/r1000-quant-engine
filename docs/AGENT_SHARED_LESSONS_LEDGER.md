@@ -9456,3 +9456,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   (a refused value was NaN) and its corrected null-valued R1 output. Child-key
   presence is not wrapper evidence: recognize only existing period-valid
   derived structures/native batches and validate their actual original leaves.
+- Independent readback QA found a prior false refusal in both315664dc/5dc54304:
+  an absent selected flat scope cell became NaN in a mixed frame, then None in
+  projection/Parquet and was misread as an explicit dimensions:null assertion
+  conflicting with valid original dimensions:{}. CSV only passed because it
+  reinterpreted None as NaN. Normalize transport-missing selected cells only;
+  preserve actual selected{} and original proof null/{} semantics. Keep both
+  good rows in one mixed-frame/CSV/Parquet regression. CI41553259226 was
+  cancelled, not passed; prior good-fixture failure and diagnostics are retained.
