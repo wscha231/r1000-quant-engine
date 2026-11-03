@@ -9622,3 +9622,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   signals cannot use an older ready flag. Retain the signal through feature
   projection/normalization and test zero/loss income and CSV/Parquet without
   granting Source or ER authority.
+
+## 2026-11-04 — Publish failure when review evaluation never completed
+
+- Actual review gate41644493411 attempt1/job125946147847 hit HTTP503 after
+  recording the PR head, then failed before evaluator outputs existed. The
+  publisher's loose missing-output/zero comparison nevertheless posted green
+  check125946240966 with no review evidence. Preserve that failed attempt and
+  rejected false green; only the later real evaluator success permitted merge.
+- Derive publication from successful context and evaluator outcomes, exact
+  zero/status/evidence outputs and the matching current-head evaluator result.
+  Missing, skipped, malformed or contradictory evidence must publish failure
+  on the known head, replacing any old green. Keep the trusted default checkout,
+  all review/attestation/clock/thread gates and the three evidence types.
+- Execute the actual publisher script against the captured no-output shape and
+  existing accepted evidence paths. A local synthetic payload is not a GitHub
+  review, a posted check, Source admission or permission to execute a portfolio.
