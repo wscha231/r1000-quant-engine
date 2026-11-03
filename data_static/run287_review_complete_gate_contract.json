@@ -112,7 +112,21 @@
     "complete_exact_head_graphql_thread_snapshot_required": true,
     "unresolved_threads_allowed": 0,
     "comment_ids_and_body_hashes_recorded": true,
-    "bootstrap_uses_trusted_default_branch_only": true
+    "bootstrap_uses_trusted_default_branch_only": true,
+    "maintainer_receipt_pin": {
+      "schema_version": "maintainer-receipt-pin-binding-v1",
+      "command": "/review-complete <40-char-head-sha> codex-receipt <positive-comment-id> sha256:<raw-utf8-body-sha256>",
+      "trigger": "issue_comment_created_only",
+      "same_pr_actual_comment_api_and_event_match_required": true,
+      "maintainer_user_id_login_and_current_write_permission_required": true,
+      "immutable_maintainer_comment_required": true,
+      "raw_receipt_hash_before_normalization_required": true,
+      "pinned_receipt_must_be_latest_unique": true,
+      "invalid_explicit_pin_legacy_fallback_allowed": false,
+      "additional_decoration": "one ASCII alphabetic token of 1..32 characters followed by !",
+      "completed_summary_and_all_existing_guards_required": true,
+      "bare_command_and_dispatch_unchanged": true
+    }
   },
   "exact_head_review_required_when_review_exists": true,
   "trusted_head_observation_check": "review_head_observed",

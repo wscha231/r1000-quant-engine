@@ -72,6 +72,160 @@ class CommentReceiptTests(unittest.TestCase):
         self.assertIn("no_codex_evidence_for_current_head", result["failures"])
         return result
 
+    def pin_fixture(self, decoration="Delightful!"):
+        args = self.fixture()
+        args["issue_comments"][1]["body"] = args["issue_comments"][1]["body"].replace("More of your lovely PRs please.", decoration)
+        args["attestation"].update(source="issue_comment", actor_id=73)
+        comment = dict(id=9001, body="", created_at=args["attestation"]["created_at"], updated_at=args["attestation"]["created_at"],
+            issue_url="https://api.github.com/repos/"+args["repository"]+"/issues/709", user=dict(login="maintainer", id=73, type="User"))
+        args["attestation_comment"] = comment
+        args["attestation_event"] = dict(action="created", repository=dict(full_name=args["repository"]),
+            issue=dict(number=709, pull_request=dict(url="https://api.github.com/repos/"+args["repository"]+"/pulls/709")),
+            sender=dict(login="maintainer", id=73), comment=deepcopy(comment))
+        self.repin(args)
+        return args
+
+    def repin(self, args, *, receipt_id=None, digest=None):
+        receipt = args["issue_comments"][1]
+        pin = dict(receipt_comment_id=receipt["id"] if receipt_id is None else receipt_id,
+            receipt_body_sha256=hashlib.sha256(receipt["body"].encode("utf-8")).hexdigest() if digest is None else digest)
+        args["attestation"]["receipt_pin"] = pin
+        command = f"/review-complete {HEAD} codex-receipt {pin['receipt_comment_id']} sha256:{pin['receipt_body_sha256']}"
+        args["attestation_comment"]["body"] = command
+        args["attestation_event"]["comment"]["body"] = command
+
+    def test_pinned_receipt_keeps_v2_and_all_clean_evidence_bindings(self):
+        for token in ("Delightful!", "Hooray!", "A!", "a"*32+"!", ":rocket:", "Keep it up!"):
+            args = self.pin_fixture(token); result = gate.evaluate(**args)
+            self.assertIs(result["passed"], True, token)
+            self.assertEqual(result["schema_version"], "run287-review-complete-gate-v2")
+            self.assertEqual(result["evidence_type"], gate.COMMENT_EVIDENCE)
+            binding = result["comment_receipt_binding"]
+            self.assertEqual(binding["pin_binding"]["maintainer_comment_id"], 9001)
+            self.assertEqual(binding["pin_binding"]["maintainer_user_id"], 73)
+            self.assertEqual(binding["pin_binding"]["receipt_body_sha256"], binding["receipt_body_sha256"])
+            self.assertIsNone(binding["summary_finding_flags"]["has_any_findings"])
+        args = self.pin_fixture()
+        args.pop("attestation_comment"); args.pop("attestation_event"); args["attestation"].pop("receipt_pin")
+        self.blocked(args)  # No unpinned decoration broadening.
+
+    def test_explicit_bad_pin_never_falls_back_to_formal_review_or_reaction(self):
+        for legacy in ("review", "reaction"):
+            for mode in ("hash", "id", "dto", "dispatch", "extra"):
+                args = self.pin_fixture()
+                if legacy == "review":
+                    args["reviews"] = [dict(id=99, user=user(), commit_id=HEAD, state="COMMENTED", submitted_at="2026-07-21T01:05:00Z")]
+                else:
+                    args["reactions"] = [dict(id=99, user=user(), content="+1", created_at="2026-07-21T01:05:00Z")]
+                if mode == "hash": self.repin(args, digest="0"*64)
+                if mode == "id": self.repin(args, receipt_id=123)
+                if mode == "dto": args.pop("attestation_comment"); args.pop("attestation_event")
+                if mode == "dispatch": args["attestation"]["source"] = "workflow_dispatch"
+                if mode == "extra": args["attestation"]["receipt_pin"]["unknown"] = True
+                self.blocked(args)
+
+    def test_pin_requires_actual_immutable_same_pr_actor_and_exact_event_body(self):
+        for mutate in (
+            lambda a: a["attestation"].update(permission="read"),
+            lambda a: a["attestation"].update(actor_id=True),
+            lambda a: a["attestation"].update(actor="other"),
+            lambda a: a["attestation_comment"].update(id=True),
+            lambda a: a["attestation_comment"]["user"].update(id=True),
+            lambda a: a["attestation_comment"]["user"].update(type="Bot"),
+            lambda a: a["attestation_comment"].update(updated_at="2026-07-21T01:20:01Z"),
+            lambda a: a["attestation_comment"].update(issue_url="https://api.github.com/repos/other/repo/issues/709"),
+            lambda a: a["attestation_event"].update(action="edited"),
+            lambda a: a["attestation_event"]["repository"].update(full_name="other/repo"),
+            lambda a: a["attestation_event"]["issue"].update(number=710),
+            lambda a: a["attestation_event"]["sender"].update(id=74),
+            lambda a: a["attestation_event"]["comment"].update(body="other"),
+            lambda a: a["attestation_event"]["comment"]["user"].update(login="other"),
+            lambda a: a.update(attestation_comment=None),
+        ):
+            args = self.pin_fixture(); mutate(args); self.blocked(args)
+        for suffix in (" extra", "\n", "\r\n", " ", "\nmore"):
+            args = self.pin_fixture()
+            args["attestation_comment"]["body"] += suffix; args["attestation_event"]["comment"]["body"] += suffix
+            self.blocked(args)
+        for bad_id in ("0", "01", "-1", "true", str(2**63)):
+            with self.assertRaises(ValueError):
+                gate.parse_review_complete_command(f"/review-complete {HEAD} codex-receipt {bad_id} sha256:"+"a"*64, HEAD)
+
+    def test_pinned_body_raw_hash_and_bounded_fullmatch_are_independent(self):
+        args = self.pin_fixture(); args["issue_comments"][1]["body"] += " "
+        self.blocked(args)
+        args = self.pin_fixture(); args["issue_comments"][1]["body"] = args["issue_comments"][1]["body"].replace("\n", "\r\n")
+        self.blocked(args)
+        self.repin(args); self.assertIs(gate.evaluate(**args)["passed"], True)
+        for token in ("Too many words!", "a"*33+"!", "Delightful!!", "123!", "D\u0435lightful!", "A! B!",
+            "Delightful! :rocket:", "<b>Delightful!</b>", "Delightful!\nAdditional text", "[P1] finding"):
+            self.blocked(self.pin_fixture(token))
+        for mutate in (lambda b: b+"\nextra", lambda b: b.replace("</details>", "[P2] issue</details>"),
+            lambda b: b.replace(ACTUAL_ABOUT_DETAILS, "<details>other footer</details>"),
+            lambda b: b+"\n<!-- codex-code-review-finding:v1 -->",
+            lambda b: b.replace("Didn't find", "Did find")):
+            args = self.pin_fixture(); args["issue_comments"][1]["body"] = mutate(args["issue_comments"][1]["body"])
+            self.repin(args); self.blocked(args)
+
+    def test_pin_cannot_cherry_pick_or_relax_common_review_requirements(self):
+        for mutate in (
+            lambda a: a["issue_comments"][1]["user"].update(id=1),
+            lambda a: a["issue_comments"][1]["performed_via_github_app"].update(id=1),
+            lambda a: a["issue_comments"][1].update(updated_at="2026-07-21T01:10:01Z"),
+            lambda a: self.change_state(a, status="running"),
+            lambda a: self.change_state(a, has_any_findings=True),
+            lambda a: self.change_state(a, has_unresolved_findings="false"),
+            lambda a: a["commit_binding"].update(sha=PRIOR),
+            lambda a: a.update(commit_binding=None),
+            lambda a: a["review_thread_pages"][0]["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0].update(isResolved=False),
+            lambda a: a["review_thread_pages"][0]["data"]["repository"]["pullRequest"]["reviewThreads"].update(totalCount=2),
+        ):
+            args = self.pin_fixture(); mutate(args); self.blocked(args)
+        for kind in ("summary", "receipt"):
+            args = self.pin_fixture(); target = 0 if kind == "summary" else 1
+            duplicate = deepcopy(args["issue_comments"][target]); duplicate["id"] += 1
+            args["issue_comments"].append(duplicate); self.blocked(args)
+        args = self.pin_fixture(); newer = deepcopy(args["issue_comments"][1])
+        newer.update(id=10000, created_at="2026-07-21T01:11:00Z", updated_at="2026-07-21T01:11:00Z")
+        args["issue_comments"].append(newer); self.blocked(args)
+        args = self.pin_fixture(); state = gate._summary_state(args["issue_comments"][0]["body"])
+        state["security_review"] = dict(commit_sha=HEAD, status="running", has_any_findings=None, has_unresolved_findings=None)
+        args["issue_comments"][0]["body"] = "<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 "+json.dumps(state)+" -->"
+        self.blocked(args)
+        args = self.pin_fixture(); args["review_comments"] = [dict(user=user(), commit_id=HEAD,
+            body="<!-- codex-code-review-finding:v1 -->", updated_at="2026-07-21T01:11:00Z")]
+        self.blocked(args)
+
+        for key in ("has_any_findings", "has_unresolved_findings"):
+            args = self.pin_fixture(); state = gate._summary_state(args["issue_comments"][0]["body"])
+            state["code_review"].pop(key)
+            args["issue_comments"][0]["body"] = "<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 "+json.dumps(state)+" -->"
+            self.blocked(args)
+        for review_state in ("PENDING", "CHANGES_REQUESTED", "COMMENTED"):
+            args = self.pin_fixture(); args["reviews"] = [dict(user=user(), commit_id=HEAD,
+                state=review_state, submitted_at="2026-07-21T01:11:00Z")]
+            self.blocked(args)
+
+    def test_pinned_cli_requires_collected_api_snapshots_and_records_binding(self):
+        args = self.pin_fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            command = [sys.executable, "-B", str(TOOL), "--repository", args["repository"]]
+            for key, option in (("pull_request", "pull-request"), ("head_observation", "head-observation"),
+                    ("attestation", "attestation"), ("reviews", "reviews"), ("reactions", "reactions"),
+                    ("issue_comments", "issue-comments"), ("review_comments", "review-comments"),
+                    ("review_thread_pages", "review-threads"), ("commit_binding", "commit-binding"),
+                    ("attestation_comment", "attestation-comment"), ("attestation_event", "attestation-event")):
+                path = root / (key+".json")
+                path.write_text(json.dumps(args[key]), encoding="utf-8")
+                command.extend(["--"+option, str(path)])
+            result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", check=False)
+            self.assertEqual(result.returncode, 0, result.stderr+result.stdout)
+            self.assertEqual(json.loads(result.stdout)["comment_receipt_binding"]["pin_binding"]["maintainer_comment_id"], 9001)
+            result = subprocess.run(command[:-4], capture_output=True, text=True, encoding="utf-8", check=False)
+            self.assertEqual(result.returncode, 2, result.stderr+result.stdout)
+            self.assertIn("missing_authenticated_pin_comment", json.loads(result.stdout)["failures"])
+
     def change_state(self, args, **changes):
         row = args["issue_comments"][0]
         state = gate._summary_state(row["body"])
@@ -250,6 +404,7 @@ class CommentReceiptTests(unittest.TestCase):
         self.assertIs(contract["required_conversation_resolution"], True)
         self.assertIs(contract["maintainer_attestation_required"], True)
         self.assertIs(contract["admin_merge_bypass_allowed"], False)
+        self.assertIs(contract["issue_comment_receipt_protocol"]["maintainer_receipt_pin"]["invalid_explicit_pin_legacy_fallback_allowed"], False)
         self.assertIn(gate.COMMENT_EVIDENCE, contract["accepted_evidence"])
         decoration=contract["issue_comment_receipt_protocol"]["clean_decoration_policy"]
         self.assertEqual(decoration["ascii_shortcode_name_max_characters"], 32)
@@ -260,6 +415,9 @@ class CommentReceiptTests(unittest.TestCase):
         self.assertIn('reviewThreads(first:100,after:$endCursor)', workflow)
         self.assertIn('gh api graphql --paginate --slurp', workflow)
         self.assertIn('/commits/${HEAD_SHA:0:10}', workflow)
+        self.assertIn('issues/comments/$PIN_COMMENT_ID', workflow)
+        self.assertIn('github.event.changes.body.from', workflow)
+        self.assertIn('--attestation-event', workflow)
         self.assertNotIn('ref: ${{ github.event.pull_request.head.sha }}', workflow)
 
 

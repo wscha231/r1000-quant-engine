@@ -138,9 +138,65 @@ def _resolved_threads(pages: Any, *, repository: str, number: int, head_sha: str
     return len(ids), len(pages)
 
 
+def parse_review_complete_command(body: Any, head_sha: str) -> dict | None:
+    """Keep the legacy bare command; pins require one exact unedited line."""
+    if isinstance(body, str) and body.strip() == f"/review-complete {head_sha}":
+        return None
+    match = re.fullmatch(r"/review-complete ([0-9a-f]{40}) codex-receipt ([1-9][0-9]{0,18}) sha256:([0-9a-f]{64})", body) if isinstance(body, str) else None
+    if not match or match[1] != head_sha or int(match[2]) > 2**63-1:
+        raise ValueError("invalid_pinned_attestation_command")
+    return dict(receipt_comment_id=int(match[2]), receipt_body_sha256=match[3])
+
+
+def _verified_attestation_pin(*, attestation: dict, api_comment: Any, event: Any,
+        repository: str, number: int, head_sha: str) -> tuple[dict, dict]:
+    """Bind a pin to an actual same-PR maintainer comment, never a free DTO."""
+    if (attestation.get("source") != "issue_comment" or not isinstance(api_comment, dict)
+            or not isinstance(event, dict) or event.get("action") != "created"
+            or attestation.get("permission") not in WRITE_PERMISSIONS):
+        raise ValueError("missing_authenticated_pin_comment")
+    user, sender, event_comment = api_comment.get("user"), event.get("sender"), event.get("comment")
+    issue = event.get("issue")
+    if (not isinstance(user, dict) or not isinstance(sender, dict) or not isinstance(event_comment, dict)
+            or not isinstance(issue, dict) or type(issue.get("number")) is not int or issue["number"] != number
+            or (event.get("repository") or {}).get("full_name") != repository
+            or (issue.get("pull_request") or {}).get("url") != f"https://api.github.com/repos/{repository}/pulls/{number}"
+            or api_comment.get("issue_url") != f"https://api.github.com/repos/{repository}/issues/{number}"):
+        raise ValueError("pin_comment_scope_mismatch")
+    if (type(api_comment.get("id")) is not int or api_comment["id"] <= 0
+            or type(event_comment.get("id")) is not int
+            or type(user.get("id")) is not int or user["id"] <= 0 or user.get("type") != "User"
+            or type(sender.get("id")) is not int or sender["id"] != user["id"]
+            or not isinstance(user.get("login"), str) or not user["login"]
+            or sender.get("login") != user["login"] or attestation.get("actor") != user["login"]
+            or type(attestation.get("actor_id")) is not int or attestation["actor_id"] != user["id"]):
+        raise ValueError("pin_comment_actor_mismatch")
+    for key in ("id", "body", "created_at", "updated_at", "issue_url"):
+        if event_comment.get(key) != api_comment.get(key):
+            raise ValueError("pin_event_api_comment_mismatch")
+    event_user = event_comment.get("user")
+    if (not isinstance(event_user, dict) or type(event_user.get("id")) is not int
+            or any(event_user.get(key) != user.get(key) for key in ("id", "login", "type"))):
+        raise ValueError("pin_event_api_actor_mismatch")
+    created = _comment_time(api_comment.get("created_at"))
+    if (created is None or api_comment.get("created_at") != api_comment.get("updated_at")
+            or api_comment.get("created_at") != attestation.get("created_at")):
+        raise ValueError("pin_attestation_not_immutable")
+    pin = parse_review_complete_command(api_comment.get("body"), head_sha)
+    declared = attestation.get("receipt_pin")
+    if (pin is None or not isinstance(declared, dict) or set(declared) != set(pin)
+            or type(declared.get("receipt_comment_id")) is not int or declared != pin):
+        raise ValueError("pin_attestation_binding_mismatch")
+    return pin, dict(schema_version="maintainer-receipt-pin-binding-v1",
+        maintainer_comment_id=api_comment["id"], maintainer_comment_body_sha256=hashlib.sha256(api_comment["body"].encode("utf-8")).hexdigest(),
+        maintainer_login=user["login"], maintainer_user_id=user["id"], maintainer_created_at=api_comment["created_at"],
+        receipt_comment_id=pin["receipt_comment_id"], receipt_body_sha256=pin["receipt_body_sha256"])
+
+
 def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages: Any,
         commit_binding: Any, repository: Any, pull_request: dict, head_sha: str,
-        observed_at: datetime, attested_at: datetime, reviews: list[dict]) -> dict:
+        observed_at: datetime, attested_at: datetime, reviews: list[dict], receipt_pin: dict | None = None,
+        pin_binding: dict | None = None) -> dict:
     """Only trusted workflow API snapshots may supply this additive evidence."""
     number = pull_request.get("number")
     if (not isinstance(repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
@@ -178,10 +234,17 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
     if not receipt_rows or any(_comment_time(row.get("updated_at")) is None for row in receipt_rows):
         raise ValueError("missing_immutable_clean_codex_receipt")
     latest_receipt = _latest_unique(receipt_rows, "ambiguous_latest_codex_receipt")
+    if receipt_pin is not None:
+        if (latest_receipt["id"] != receipt_pin["receipt_comment_id"]
+                or hashlib.sha256(latest_receipt["body"].encode("utf-8")).hexdigest() != receipt_pin["receipt_body_sha256"]):
+            raise ValueError("pinned_receipt_not_latest_or_hash_mismatch")
     receipts = []
+    decoration = r"(?: Keep it up!| More of your lovely PRs please\.| Breezy!| :[a-z][a-z0-9_]{0,31}:)?"
+    if receipt_pin is not None:
+        decoration = r"(?: Keep it up!| More of your lovely PRs please\.| [A-Za-z]{1,32}!| :[a-z][a-z0-9_]{0,31}:)?"
     pattern = (r"<!-- codex-review-receipt:v1 -->\n\s*\n"
         r"Codex Review: Didn't find any major issues\."
-        r"(?: Keep it up!| More of your lovely PRs please\.| Breezy!| :[a-z][a-z0-9_]{0,31}:)?\n\s*\n"
+        + decoration + r"\n\s*\n"
         r"\*\*Reviewed commit:\*\* `([0-9a-f]{10})`\s*(?P<details><details>.*</details>)?\s*")
     for row in [latest_receipt]:
         body = row["body"].replace("\r\n", "\n")
@@ -209,7 +272,7 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
             if at is None or at >= receipt_at:
                 raise ValueError("newer_codex_finding_for_current_head")
     count, page_count = _resolved_threads(thread_pages, repository=repository, number=number, head_sha=head_sha)
-    return dict(schema_version="trusted-codex-issue-comment-receipt-v1",
+    result = dict(schema_version="trusted-codex-issue-comment-receipt-v1",
         repository=repository, pull_request_number=number, head_sha=head_sha,
         commit_prefix=head_sha[:10], receipt_comment_id=receipt["id"], receipt_created_at=receipt["created_at"],
         receipt_body_sha256=hashlib.sha256(receipt["body"].encode()).hexdigest(), summary_comment_id=summary["id"],
@@ -217,6 +280,9 @@ def paired_comment_evidence(*, comments: Any, review_comments: Any, thread_pages
         summary_finding_flags={key: code[key] for key in ("has_any_findings", "has_unresolved_findings")},
         resolved_thread_count=count, thread_page_count=page_count,
         thread_snapshot_sha256=hashlib.sha256(json.dumps(thread_pages, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+    if pin_binding is not None:
+        result["pin_binding"] = pin_binding
+    return result
 
 
 def read_json(path: str | Path) -> Any:
@@ -317,6 +383,8 @@ def evaluate(
     review_thread_pages: list[dict[str, Any]] | None = None,
     commit_binding: dict[str, Any] | None = None,
     repository: str | None = None,
+    attestation_comment: dict | None = None,
+    attestation_event: dict | None = None,
 ) -> dict[str, Any]:
     allowed = {value.lower() for value in (reviewers or DEFAULT_REVIEWERS)}
     head = pull_request.get("head")
@@ -371,7 +439,26 @@ def evaluate(
     evidence_id: int | str | None = None
     evidence_at = ""
     comment_receipt_binding = None
-    if exact_reviews:
+    pin_requested = "receipt_pin" in attestation or attestation_comment is not None or attestation_event is not None
+    if pin_requested:
+        try:
+            pin, pin_binding = _verified_attestation_pin(attestation=attestation, api_comment=attestation_comment,
+                event=attestation_event, repository=repository, number=pull_request.get("number"), head_sha=head_sha)
+            if observed_at is None or attested_at is None:
+                raise ValueError("missing_pin_attestation_window")
+            comment_receipt_binding = paired_comment_evidence(comments=issue_comments,
+                review_comments=review_comments, thread_pages=review_thread_pages, commit_binding=commit_binding,
+                repository=repository, pull_request=pull_request, head_sha=head_sha,
+                observed_at=observed_at, attested_at=attested_at, reviews=reviews,
+                receipt_pin=pin, pin_binding=pin_binding)
+            evidence_type = COMMENT_EVIDENCE
+            evidence_id = comment_receipt_binding["receipt_comment_id"]
+            evidence_at = comment_receipt_binding["receipt_created_at"]
+        except ValueError as exc:
+            failures.extend(["no_codex_evidence_for_current_head", str(exc)])
+        except (TypeError, KeyError, AttributeError, OverflowError, RecursionError):
+            failures.extend(["no_codex_evidence_for_current_head", "malformed_pin_evidence"])
+    elif exact_reviews:
         selected = max(
             exact_reviews,
             key=lambda row: parse_time(row.get("submitted_at")) or datetime.min.replace(tzinfo=timezone.utc),
@@ -446,6 +533,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--review-threads")
     parser.add_argument("--commit-binding")
     parser.add_argument("--repository")
+    parser.add_argument("--attestation-comment")
+    parser.add_argument("--attestation-event")
     parser.add_argument("--output")
     return parser.parse_args()
 
@@ -464,6 +553,8 @@ def main() -> int:
         review_thread_pages=read_json(args.review_threads) if args.review_threads else None,
         commit_binding=read_json(args.commit_binding) if args.commit_binding else None,
         repository=args.repository,
+        attestation_comment=read_json(args.attestation_comment) if args.attestation_comment else None,
+        attestation_event=read_json(args.attestation_event) if args.attestation_event else None,
     )
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if args.output:
