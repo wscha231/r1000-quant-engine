@@ -9483,6 +9483,34 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   gate PR must still bootstrap using the currently trusted default gate, never
   its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
 
+## 2026-11-03 — Isolate incomplete baseline components without admitting them
+
+- Scheduled managed refresh41593690605 stopped before any provider GET on
+  `MANAGED_BOOTSTRAP_INCOMPLETE_GRID`. Root's bounded retained-date diagnostic
+  found38 of53 components complete for their own receipt windows and15 with
+  missing earlier prefixes. That is not a lifecycle certificate for those15
+  names: a first observed bar does not establish an IPO, and the local/hosted
+  calendar versions differed. Do not identify the hosted failing ticker from
+  a generic error or rewrite receipt dates to manufacture completeness.
+- Keep strict bootstrap callers failing closed. A typed incomplete-coverage
+  refusal may expose verified complete/held partitions only after every
+  selected original/normalized archive passes existing integrity checks.
+  The managed component consumer holds incomplete grids before identity,
+  provider or backfill work, including names explicitly listed for backfill.
+  Hash/bytes/schema/malformed rows/raw-split mismatches remain global failures.
+- Preserve prior holds and WATCH history. A partial producer completion must
+  separate held/reused/updated counts; zero eligible updates/reuse must leave
+  a BLOCKED journal and meter and return non-success. Synthetic regression
+  proof is not current market coverage, account-rights evidence, permission to
+  replay the spent control, recurring activation or Source/PIT admission.
+- The private-capture smoke also registers imported campaign suites. A bounded
+  author check must select its own defined test classes explicitly; loading
+  every exposed class silently widens the run. Preserve the interrupted broad
+  attempt as NOT_COMPLETED and do not count it as a validation PASS.
+- Tier1 launches absolute test-file paths. Bootstrap the new smoke's repository
+  import path explicitly and verify that entrypoint with isolated Python;
+  a developer shell's PYTHONPATH must not be its hidden CI prerequisite.
+
 ## 2026-11-03 — Preserve original null scope across selected metadata transport
 
 - Actual PR709 CI41555546135 failed two positive financial controls despite
@@ -9537,6 +9565,30 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reproduce the actual bot body in a clearly synthetic maintainer test fixture;
   local acceptance is not live authentication or gate approval. Preserve573
   financial bytes/CI/QA and710 separately; bootstrap from the trusted default.
+
+## 2026-11-03 — Close registered Source proof dependencies and reviewed lineage
+
+- Source715 hosted CI41621414559 failed234/236 although the new managed smoke
+  passed. Its new registry member was absent from A6's independently fixed
+  proof closure, leaving the temporary proof root incomplete and the explicit
+  235-program oracle stale. Pin the actual new program and both managed/prepare
+  helpers, with exact-once236 and omission/changed-byte negatives. Copying only
+  the fixture or deriving mandatory trust from mutable runner rows is insufficient.
+- P0-4 correctly rejected the changed protected runner after frozen4f17. Root
+  explicitly reviewed the sole registration-line delta and authorized the fixed
+  anchor05a9 in both verifier and independent test. Preserve protected paths,
+  ancestry, dirty-state checks, frozen source/bundle/requirements and the existing
+  generator pin-only rule. Advancing this literal is reviewed verifier code;
+  the failed05a9 CI remains failed and the new exact head needs fresh review.
+- Prepare and validate this correction locally while Main is frozen; publish
+  only after the coordinated final master is accepted. No canonical bundle
+  regeneration, old100/169-suite replay, provider capture or runtime activation.
+- The Native Source environment serializes PyArrow26.0.0 while the frozen P0
+  contract pins23.0.1; the original P0 check also exposes Windows README CRLF.
+  Preserve both failed byte comparisons as ENV_PIN_MISMATCH/BLOCKED. Separate
+  the Foundation closure checks from canonical P0-byte acceptance; never
+  rewrite the bundle, requirements or verifier to turn environment drift into
+  PASS. Final exact-head hosted required CI must still run the complete checks.
 
 ## 2026-11-03 — Separate legacy TTM completeness from admission readiness
 

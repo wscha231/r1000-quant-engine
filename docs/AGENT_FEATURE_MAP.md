@@ -33,6 +33,24 @@ The derived requests/results participate in the existing task key and V2 reuse
 identity. Caller-supplied values for that parameter are rejected, and this
 path is always dispatch-ineligible. The A1/A2 dependency DAG is unchanged.
 
+The existing private managed-refresh adapter isolates well-formed baseline
+components with missing sessions in their own original receipt windows as
+`BASELINE_COVERAGE_OR_LIFECYCLE_REVIEW_REQUIRED`. The strict bootstrap API
+still refuses incomplete coverage; its typed refusal carries the complete and
+held partitions only after all selected archive-integrity checks finish.
+`collect_groups` alone handles that partition: held names never enter identity
+reads, provider calls, backfill, reused names or coverage updates. Prior holds
+remain visible and FOCUS/WATCH membership is preserved. First observed bars do
+not prove listing dates, and receipt windows are never shortened.
+
+`tests/alpaca_sip_managed_refresh_smoke.py` exercises this boundary in Tier1
+with synthetic raw/split archives and the existing meter/journal primitives.
+Hash/byte/schema/row errors, raw/split mismatches and unexpected exchange
+sessions still block globally. Mixed runs report separate updated/reused/held
+counts; all-held runs produce a BLOCKED terminal journal, BLOCKED final meter
+and non-success instead of claiming current coverage. Rights, calendar,
+deadline, code pins, budgets and actual-capture authorization are unchanged.
+
 The payload distinguishes REUSE_EXISTING, INCREMENTAL_ONLY, BACKFILL_REQUIRED,
 NO_DATA and BLOCKED over declared session grids. A captured ticker list cannot
 establish coverage; US archives use the deployed raw/split Source verifier,
