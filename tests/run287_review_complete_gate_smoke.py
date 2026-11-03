@@ -109,6 +109,22 @@ class CommentReceiptTests(unittest.TestCase):
         args.pop("attestation_comment"); args.pop("attestation_event"); args["attestation"].pop("receipt_pin")
         self.blocked(args)  # No unpinned decoration broadening.
 
+    def test_pinned_terminal_punctuation_is_one_bounded_ascii_token(self):
+        for token in ("Bravo.", "A.", "z"*32+".", "Bravo!", "A!", "z"*32+"!"):
+            self.assertIs(gate.evaluate(**self.pin_fixture(token))["passed"], True, token)
+        for token in (".", "!", "Bravo..", "Bravo.!", "Bravo!.", "Bravo. More.", "A. B.",
+            "Bravo.Next.", "a"*33+".", "123.", "Brav0.", "Bravo_.", "Bravo-.", "Brav\u00f3.",
+            "Bravo\u2024", "<b>Bravo.</b>", "Bravo.\nAnother sentence", "Bravo. [P1] finding"):
+            self.blocked(self.pin_fixture(token))
+        for token in ("Bravo.", "Bravo!"):
+            args = self.pin_fixture(token)
+            args.pop("attestation_comment"); args.pop("attestation_event"); args["attestation"].pop("receipt_pin")
+            self.blocked(args)  # Bare/unpinned grammar is unchanged.
+        args = self.pin_fixture("Bravo.")
+        args["reactions"] = [dict(id=99, user=user(), content="+1", created_at="2026-07-21T01:05:00Z")]
+        self.repin(args, digest="0"*64)
+        self.blocked(args)  # Explicit bad dot pin cannot use a legacy fallback.
+
     def test_explicit_bad_pin_never_falls_back_to_formal_review_or_reaction(self):
         for legacy in ("review", "reaction"):
             for mode in ("hash", "id", "dto", "dispatch", "extra"):
