@@ -741,6 +741,102 @@ class NativeFinancialContextTests(unittest.TestCase):
                 self.assertAlmostEqual(result.loc["REFUSED", "fcf_margin"], 0.12)
                 self.assertTrue(np.isfinite(result.loc["REFUSED", "sage_q_score"]))
 
+    def test_original_proof_identity_is_checked_without_optional_scope(self):
+        import r1000_features as f
+        identities = dict(cik="0000000001", issuer_id="issuer-one", entity_id="entity-one", entity="owner-one")
+        row = {**self.financial().to_dict(), **self.price_context(), **identities, "current_price_live": 10.0}
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            context = json.loads(row[field+"_financial_context"]); context["identities"] = identities
+            proof = json.loads(row[field+"_provenance"]); proof[0].update(identities)
+            row[field+"_financial_context"], row[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        cache = {}
+        self.assertEqual(f.enforce_native_valuation_context(pd.DataFrame([row]), _operation_cache=cache).loc[0, "mktcap"], 1000.0)
+        original = json.loads(row["shares_provenance"])[0]
+        for name in identities:
+            bad = dict(original); bad.pop("context_dimensions")
+            bad[name] = "0000000002" if name == "cik" else "different-owner"
+            for selected_scope in (False, True):
+                for proof in (bad, [bad], {"derivation": "native_period_selection", "period_start": None,
+                    "period_end": "2025-12-31", "parents": [bad]}):
+                    changed = dict(row, shares_provenance=json.dumps(proof))
+                    if selected_scope:
+                        changed["shares_context_dimensions"] = None
+                    self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), (name, selected_scope))
+                    guarded = f.enforce_native_valuation_context(pd.DataFrame([changed]), _operation_cache=cache)
+                    self.assertTrue(pd.isna(guarded.loc[0, "mktcap"]))
+                    self.assertTrue(pd.isna(guarded.loc[0, "ep_ttm"]))
+        # Each original leaf, not just the wrapper or its persisted context,
+        # constrains identity in the actual quarterization proof containers.
+        for target in ("native_proof", "flow_proof", "cumulative_proof"):
+            wrapper = dict(period="2025-12-31", native_period_start=None, native_period_end="2025-12-31",
+                native_proof=[original], flow_proof=[original], cumulative_proof=[original])
+            good = dict(row, shares_provenance=json.dumps([wrapper]), shares_context_dimensions=None)
+            self.assertIsNotNone(f.native_financial_context(pd.Series(good), "shares"))
+            bad = dict(original, cik="0000000002"); bad.pop("context_dimensions")
+            wrapper[target] = [bad]
+            changed = dict(row, shares_provenance=json.dumps([wrapper]), shares_context_dimensions=None)
+            self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), target)
+        # Scope from only a persisted context is not original scope evidence.
+        absent = dict(original); absent.pop("context_dimensions")
+        missing = dict(row, shares_provenance=json.dumps([absent]))
+        self.assertIsNone(f.native_financial_context(pd.Series(missing), "shares"))
+        # Explicit selected source metadata remains usable, including nullable
+        # optional owner aliases falling back to the verified row owner.
+        selected = dict(missing, shares_context_dimensions=None)
+        absent["issuer_id"] = None
+        selected["shares_provenance"] = json.dumps([absent])
+        self.assertIsNotNone(f.native_financial_context(pd.Series(selected), "shares"))
+        ownerless = {**selected, **{key: None for key in identities}}
+        ownerless["shares_provenance"] = json.dumps([{key: value for key, value in absent.items() if key not in identities}])
+        self.assertIsNone(f.native_financial_context(pd.Series(ownerless), "shares"))
+        # Keep actual unit/tag preference: an excluded alternative is not a new
+        # operand merely because it carries other metadata.
+        for alternative in (dict(original, unit="EUR", cik="0000000002"),
+            dict(original, source_tag="unused-alias", cik="0000000002")):
+            chosen = dict(row, shares_unit="shares", shares_source_tag="shares",
+                shares_provenance=json.dumps([original, alternative]))
+            self.assertIsNotNone(f.native_financial_context(pd.Series(chosen), "shares"))
+
+    def test_original_proof_scope_identity_survives_projection_and_cache(self):
+        import r1000_features as f
+        import r1000_pipeline as p
+        row = {**self.financial().to_dict(), **self.price_context(), "ticker": "VALID", "current_price_live": 10.0}
+        for field in ("shares", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm", "fcf_ttm", "assets", "liabilities"):
+            context = json.loads(row[field+"_financial_context"]); context["scope"] = {"dimensions": {}}
+            proof = json.loads(row[field+"_provenance"]); proof[0]["context_dimensions"] = {}
+            row[field+"_financial_context"], row[field+"_provenance"] = json.dumps(context), json.dumps(proof)
+        proof = json.loads(row["shares_provenance"])[0]; proof.pop("context_dimensions")
+        row.update(shares_provenance=proof, shares_context_dimensions={})
+        for income in (50.0, 0.0, -50.0):
+            guarded = f.enforce_native_valuation_context(pd.DataFrame([dict(row, net_income_ttm=income)]))
+            self.assertEqual(guarded.loc[0, "mktcap"], 1000.0)
+            self.assertAlmostEqual(guarded.loc[0, "ep_ttm"], income/1000)
+        for count in (0.0, -1.0, float("nan")):
+            self.assertTrue(pd.isna(f.enforce_native_valuation_context(pd.DataFrame([dict(row, shares=count)])).loc[0, "mktcap"]))
+        wrong = dict(row, ticker="WRONG", shares_provenance=[dict(proof, cik="0000000002")])
+        missing = dict(row, ticker="MISSING"); missing.pop("shares_context_dimensions")
+        unknown = dict(row, ticker="UNKNOWN", financial_metadata_version="unsupported-v99")
+        frame = pd.DataFrame([row, wrong, missing, unknown])
+        keep = ["ticker", "current_price_live", "shares", "assets", "liabilities", "net_income_ttm", "revenues_ttm", "ocf_ttm", "capex_ttm"]
+        projected = p.project_feature_store_frame(frame, keep)
+        with tempfile.TemporaryDirectory() as tmp:
+            for suffix in ("csv", "parquet"):
+                path = Path(tmp)/("original_identity."+suffix)
+                if suffix == "csv":
+                    projected.to_csv(path, index=False); read = pd.read_csv(path, dtype={"cik": str})
+                else:
+                    projected.to_parquet(path, index=False); read = pd.read_parquet(path)
+                guarded = f.enforce_native_valuation_context(read).set_index("ticker")
+                self.assertEqual(len(guarded), 4)
+                self.assertEqual(guarded.loc["VALID", "mktcap"], 1000.0)
+                self.assertAlmostEqual(guarded.loc["VALID", "ep_ttm"], 0.05)
+                self.assertTrue(guarded.drop(index="VALID")["mktcap"].isna().all(), suffix)
+                self.assertTrue(guarded.drop(index="VALID")["ep_ttm"].isna().all(), suffix)
+        legacy = pd.DataFrame([dict(financial_metadata_version=None, mktcap=777.0, ep_ttm=-0.5)])
+        old = f.enforce_native_valuation_context(legacy)
+        self.assertEqual(old.loc[0, "mktcap"], 777.0)
+        self.assertEqual(old.loc[0, "ep_ttm"], -0.5)
+
     def test_native_usd_preference_keeps_original_foreign_proof(self):
         rows = [self.row(unit="EUR"), self.row(unit="USD", value=120.0)]
         for order in (rows, rows[::-1]):

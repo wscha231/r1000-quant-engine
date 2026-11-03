@@ -9434,3 +9434,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - This PR must bootstrap through the currently trusted default-branch gate.
   Its new parser cannot approve itself; financial57bf and partialA3 checkpoints
   remain separate, with a fresh current-base head/checks after integration.
+
+## 2026-11-03 — Validate original proof identity independently of optional scope
+
+- Actual PR709 review on315664dc found another-issuer original shares proof
+  without scope keys could be hidden by the persisted context. Reproduce the
+  shared validator and public valuation, not just a caller: contextCIK1,
+  market cap1000 and EP0.05 incorrectly survived original proofCIK2.
+- Compare every used original identity independently of scope presence. Keep
+  explicit selected source scope distinct from stored derived context; stored
+  context alone cannot replace missing original scope. Preserve actual unit/tag
+  selection and existing fiscal-period algebra, zero/loss and legacy behavior.
+- Preserve the first diagnostic harness: Series.update did not add missing
+  price-evidence keys, making its public-valuation result inconclusive. The R1
+  dictionary-merge fixture reproduced the finding without Source/provider reads.
+  Prior315664dc CI success is not evidence for the corrected HEAD.

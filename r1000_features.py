@@ -674,14 +674,18 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                 result["dimensions" if key == "context_dimensions" else key] = value
         return result
     witnesses = []
+    proof_identities = []
+    missing_original_scope = False
     spans = []
     def visit(value: Any) -> None:
+        nonlocal missing_original_scope
         value = decode(value)
         if isinstance(value, list):
             for item in value:
                 visit(item)
         elif isinstance(value, dict):
-            if isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict):
+            context_record = isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict)
+            if context_record:
                 witnesses.append((value["identities"], value["scope"]))
                 end = day(value.get("period_end"))
                 if end:
@@ -693,12 +697,24 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
             selected_tag = row.get(field + "_source_tag")
             if present(selected_tag) and present(value.get("source_tag")) and selected_tag != value["source_tag"]:
                 return
+            # Identity is a constraint even when this used proof has no scope
+            # cell. Persisted derived context must not hide its original owner.
+            if isinstance(value.get("identities"), dict):
+                proof_identities.append(identity(value["identities"]))
+            if any(present(value.get(key)) for key in ("cik", "issuer_id", "entity_id", "entity")):
+                proof_identities.append(identity(value))
             record_scope = scope(value)
             if record_scope:
                 witnesses.append((identity(value), record_scope))
                 end = day(value.get("period", value.get("end")))
                 if end:
                     spans.append((day(value.get("start")), end))
+            elif not context_record and not selected_scope and not any(
+                key in value for key in ("native_proof", "flow_proof", "cumulative_proof", "parents")
+            ):
+                # Selected original metadata may provide optional scope; the
+                # stored derived context alone cannot authenticate a proof leaf.
+                missing_original_scope = True
             for key in ("native_proof", "flow_proof", "cumulative_proof", "parents"):
                 if key in value:
                     visit(value[key])
@@ -786,8 +802,9 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     selected = {key: row[field + "_" + key] for key in (
         "cik", "issuer_id", "entity_id", "entity", "context_dimensions", "entity_scope", "segment"
     ) if field + "_" + key in row.index}
-    if scope(selected):
-        witnesses.append((identity(selected), scope(selected)))
+    selected_scope = scope(selected)
+    if selected_scope:
+        witnesses.append((identity(selected), selected_scope))
     original_spans = []
     raw_end = day(row.get(field + "_period", row.get("period")))
     raw_hint = (day(row.get(field + "_start")), raw_end) if raw_end and not field.endswith("_ttm") else None
@@ -801,12 +818,17 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
             if period_evidence is None:
                 return None
             original_spans.append(period_evidence)
+    if missing_original_scope:
+        return None
     stored = decode(row.get(field + "_financial_context"))
     if present(row.get(field + "_financial_context")) and not isinstance(stored, dict):
         return None
     if isinstance(stored, dict) and isinstance(stored.get("identities"), dict) and isinstance(stored.get("scope"), dict) and stored["identities"] and stored["scope"]:
         witnesses.append((stored["identities"], stored["scope"]))
     if not witnesses or not witnesses[0][0] or not witnesses[0][1]:
+        return None
+    if any(any(witnesses[0][0].get(key) != value for key, value in claim.items())
+        for claim in proof_identities):
         return None
     # A selected field identity is a constraint even when its optional scope
     # cell is absent (or became NaN in a mixed frame). Do not drop that
