@@ -123,7 +123,7 @@
       "raw_receipt_hash_before_normalization_required": true,
       "pinned_receipt_must_be_latest_unique": true,
       "invalid_explicit_pin_legacy_fallback_allowed": false,
-      "additional_decoration": "one ASCII alphabetic token of 1..32 characters followed by !",
+      "additional_decoration": "one ASCII alphabetic token of 1..32 characters followed by ! or .",
       "completed_summary_and_all_existing_guards_required": true,
       "bare_command_and_dispatch_unchanged": true
     }

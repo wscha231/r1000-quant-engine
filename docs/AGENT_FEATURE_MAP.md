@@ -197,7 +197,7 @@ matches its event ID, actor ID/login, raw body and clocks to the authenticated A
 The latest unique trusted receipt is selected before comparing the pinned ID and
 raw UTF-8 body hash. A failed explicit pin cannot fall back to a review/reaction.
 Only this pinned route additionally accepts one 1..32-character ASCII alphabetic
-token followed by `!`; arbitrary prose, combined tokens, finding markers and
+token followed by `!` or `.`; arbitrary prose, combined tokens, finding markers and
 modified footers still refuse. The existing completed full-SHA summary, nullable
 finding-flag handling, security, clock, complete-thread and newer-finding checks
 remain mandatory. A pin never converts running into completed or supplies a clean
