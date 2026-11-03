@@ -171,6 +171,20 @@ with a letter, and the known About Codex footer. Decorative
 tokens are not review evidence; arbitrary prose, combined decorations and
 unrecognized Unicode emoji remain blocked. Every identity, clock and finding
 check still applies to the complete immutable receipt.
+An optional maintainer pin uses one exact line:
+`/review-complete <full40sha> codex-receipt <positiveID> sha256:<rawUTF8body64hex>`.
+Only an immutable, same-PR GitHub issue comment from a currently write-authorized
+maintainer may supply it; the trusted default workflow fetches that comment and
+matches its event ID, actor ID/login, raw body and clocks to the authenticated API.
+The latest unique trusted receipt is selected before comparing the pinned ID and
+raw UTF-8 body hash. A failed explicit pin cannot fall back to a review/reaction.
+Only this pinned route additionally accepts one 1..32-character ASCII alphabetic
+token followed by `!`; arbitrary prose, combined tokens, finding markers and
+modified footers still refuse. The existing completed full-SHA summary, nullable
+finding-flag handling, security, clock, complete-thread and newer-finding checks
+remain mandatory. A pin never converts running into completed or supplies a clean
+decision itself. Bare commands, dispatch and unpinned decoration retain their
+existing behavior; outer v2 schemas and evidence names remain unchanged.
 The pure reducer cannot authenticate GitHub itself: the trusted caller must fetch
 the live ruleset and base together, not accept a worker-provided subset or old observation.
 

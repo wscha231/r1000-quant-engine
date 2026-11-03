@@ -9155,3 +9155,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - This PR must bootstrap through the currently trusted default-branch gate.
   Its new parser cannot approve itself; financial57bf and partialA3 checkpoints
   remain separate, with a fresh current-base head/checks after integration.
+
+## 2026-11-03 — Pin authenticated completed review receipts without word lists
+
+- Immutable clean receipts used Hooray! and Delightful! after the earlier
+  decoration fix. Keep these current-head observations separate from a clean
+  machine finding flag: the flags remained null, and only an actually completed
+  full-SHA summary can accompany a clean immutable receipt. No stale-running
+  override or favorable-phrase review retry is an admissible repair.
+- Add an optional exact receipt-ID/raw-UTF8-body-SHA maintainer command, bound
+  to a same-PR immutable GitHub comment and its actual event/API actor, clocks
+  and current write permission. Only this pinned route permits one bounded
+  ASCII alphabetic decoration token; preserve the fixed clean assertion, exact
+  footer, trusted Bot/App, latest-unique receipt selection, full-head binding,
+  all clock/security/finding/thread guards and existing evidence/schema names.
+  Explicit bad pins fail closed even if a legacy review or reaction exists.
+- Preserve financial9c and its seven file hashes/lease separately. This scoped
+  gate PR must still bootstrap using the currently trusted default gate, never
+  its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
