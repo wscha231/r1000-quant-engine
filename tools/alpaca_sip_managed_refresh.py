@@ -444,9 +444,22 @@ def restore_journal(rows, history, control_sha, meter_verifier=None):
     return parent, coverage, held
 
 
+class IncompleteBootstrapCoverage(Refused):
+    """Strict bootstrap refusal after all selected archives passed integrity.
+
+    The managed component consumer may retain the verified complete partition
+    and hold the incomplete partition. Other callers still receive a refusal;
+    an archive/hash/schema failure never produces this recoverable result.
+    """
+
+    def __init__(self, coverage, held):
+        super().__init__("MANAGED_BOOTSTRAP_INCOMPLETE_GRID")
+        self.coverage, self.held = dict(coverage), dict(held)
+
+
 def bootstrap_coverage(drive, control, bootstrap, targets):
     """Validate only retained groups needed by this run; never recensus the Lake."""
-    found = {}
+    found, held = {}, {}
     seen = set()
     for group in bootstrap["groups"]:
         names = group.get("symbols") if isinstance(group, dict) else None
@@ -472,12 +485,20 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
         for line in body.splitlines():
             row = decode(line)
             dates[row["ticker"]][row["adjustment"]].add(row["date"])
-        complete = complete_grid(norm, names, receipt["start"], receipt["end"])
+        expected = expected_sessions(receipt["start"], receipt["end"])
+        require(expected, "MANAGED_BOOTSTRAP_INCOMPLETE_GRID")
         for t in names:
             require(dates[t]["raw"] == dates[t]["split"], "MANAGED_GRID")
             if t in targets:
-                require(t in complete, "MANAGED_BOOTSTRAP_INCOMPLETE_GRID")
-                found[t] = max(dates[t]["raw"])
+                require(dates[t]["raw"] <= expected, "MANAGED_BOOTSTRAP_UNEXPECTED_SESSION")
+                if dates[t]["raw"] == expected:
+                    found[t] = max(dates[t]["raw"])
+                else:
+                    held[t] = "BASELINE_COVERAGE_OR_LIFECYCLE_REVIEW_REQUIRED"
+    # Finish every selected group's integrity checks before offering either
+    # partition. A later corrupt group must still block the whole run.
+    if held:
+        raise IncompleteBootstrapCoverage(found, held)
     return found
 
 
@@ -503,11 +524,15 @@ def missing_windows(targets, coverage, target_session, backfill, *, include_prev
     return windows, reused, held
 
 
-def complete_grid(normalized, valid, start, end):
+def expected_sessions(start, end):
     from tools.run_daily_market_session_gate import mcal
-    expected = set(mcal.get_calendar("NYSE").schedule(
+    return set(mcal.get_calendar("NYSE").schedule(
         start_date=start, end_date=(date.fromisoformat(end) - timedelta(days=1)).isoformat()
     ).index.strftime("%Y-%m-%d"))
+
+
+def complete_grid(normalized, valid, start, end):
+    expected = expected_sessions(start, end)
     with gzip.GzipFile(fileobj=io.BytesIO(normalized)) as gz:
         body = gz.read(32_000_001)
     require(len(body) <= 32_000_000, "MANAGED_NORMALIZED_LIMIT")
@@ -525,14 +550,23 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
     candidates = sorted(set(tracked) - set(prior_held), key=lambda t: (prior_coverage.get(t, ""), t))
     candidates = candidates[:control["max_symbols_per_run"]]
     needs = set(candidates) - set(prior_coverage)
-    coverage = bootstrap_coverage(drive, control, bootstrap, needs)
+    held = {t: prior_held[t] for t in set(tracked) & set(prior_held)}
+    try:
+        coverage = bootstrap_coverage(drive, control, bootstrap, needs)
+    except IncompleteBootstrapCoverage as incomplete:
+        coverage = incomplete.coverage
+        held.update(incomplete.held)
     coverage.update(prior_coverage)
-    windows, reused, held = missing_windows(candidates, coverage, session, set(control["backfill_tickers"]),
+    candidates = [t for t in candidates if t not in held]
+    windows, reused, missing = missing_windows(candidates, coverage, session, set(control["backfill_tickers"]),
         include_previous_close=control.get("include_previous_close", False))
+    held.update(missing)
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
     identities = {}
     for t in candidates:
+        if t in held:
+            continue
         ref = identity_refs.get(t)
         if ref is None:
             held[t] = "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"
@@ -621,9 +655,13 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
                                 gate["session_date"], key, secret, clock)
         updates, held, reused, receipts, rows = values
-        terminal.update(state="COMPLETE", reason=None, coverage_updates=updates, held=held,
+        terminal.update(coverage_updates=updates, held=held,
                         reused=reused, receipts=receipts, rows=rows,
                         session=gate["session_date"], completed_at=clock().isoformat())
+        if not updates:
+            terminal["reason"] = "MANAGED_ALL_COMPONENTS_HELD"
+            raise Refused(terminal["reason"])
+        terminal.update(state="COMPLETE", reason=None)
     except BaseException:
         terminal.update(completed_at=clock().isoformat())
         capture.persist_object(drive, control["journal_folder_id"], encoded(terminal), ".json")

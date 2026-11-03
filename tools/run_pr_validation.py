@@ -112,6 +112,7 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/etf_holding_event_builder_smoke.py", []),
     ("tests/smart_money_top30_smoke.py", []),
     ("tests/agent_board_smoke.py", []),
+    ("tests/alpaca_sip_managed_refresh_smoke.py", []),
     ("tests/research_handoff_package_smoke.py", []),
     ("tests/agent_shared_lessons_contract_smoke.py", []),
     ("tests/run287_agent_github_operating_standard_smoke.py", []),

@@ -9173,3 +9173,31 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Preserve financial9c and its seven file hashes/lease separately. This scoped
   gate PR must still bootstrap using the currently trusted default gate, never
   its own code or a fabricated bot reaction/check. Source/account/Fullrun0.
+
+## 2026-11-03 — Isolate incomplete baseline components without admitting them
+
+- Scheduled managed refresh41593690605 stopped before any provider GET on
+  `MANAGED_BOOTSTRAP_INCOMPLETE_GRID`. Root's bounded retained-date diagnostic
+  found38 of53 components complete for their own receipt windows and15 with
+  missing earlier prefixes. That is not a lifecycle certificate for those15
+  names: a first observed bar does not establish an IPO, and the local/hosted
+  calendar versions differed. Do not identify the hosted failing ticker from
+  a generic error or rewrite receipt dates to manufacture completeness.
+- Keep strict bootstrap callers failing closed. A typed incomplete-coverage
+  refusal may expose verified complete/held partitions only after every
+  selected original/normalized archive passes existing integrity checks.
+  The managed component consumer holds incomplete grids before identity,
+  provider or backfill work, including names explicitly listed for backfill.
+  Hash/bytes/schema/malformed rows/raw-split mismatches remain global failures.
+- Preserve prior holds and WATCH history. A partial producer completion must
+  separate held/reused/updated counts; zero eligible updates/reuse must leave
+  a BLOCKED journal and meter and return non-success. Synthetic regression
+  proof is not current market coverage, account-rights evidence, permission to
+  replay the spent control, recurring activation or Source/PIT admission.
+- The private-capture smoke also registers imported campaign suites. A bounded
+  author check must select its own defined test classes explicitly; loading
+  every exposed class silently widens the run. Preserve the interrupted broad
+  attempt as NOT_COMPLETED and do not count it as a validation PASS.
+- Tier1 launches absolute test-file paths. Bootstrap the new smoke's repository
+  import path explicitly and verify that entrypoint with isolated Python;
+  a developer shell's PYTHONPATH must not be its hidden CI prerequisite.
