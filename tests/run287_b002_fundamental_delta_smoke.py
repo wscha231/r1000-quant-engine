@@ -797,6 +797,28 @@ class NativeFinancialContextTests(unittest.TestCase):
                 shares_provenance=json.dumps([original, alternative]))
             self.assertIsNotNone(f.native_financial_context(pd.Series(chosen), "shares"))
 
+    def test_original_proof_scope_cannot_be_replaced_by_dummy_wrapper_keys(self):
+        import r1000_features as f
+        row = {**self.financial().to_dict(), **self.price_context(), "current_price_live": 10.0}
+        original = json.loads(row["shares_provenance"])[0]
+        missing = dict(original); missing.pop("context_dimensions")
+        for extra in ({"parents": []}, {"parents": None}, {"parents": [None]}, {"parents": "malformed"},
+            {"native_proof": None}, {"native_proof": []}, {"flow_proof": None}, {"cumulative_proof": {}}):
+            for proof in (dict(missing, **extra), [dict(missing, **extra)]):
+                changed = dict(row, shares_provenance=json.dumps(proof))
+                self.assertIsNone(f.native_financial_context(pd.Series(changed), "shares"), (extra, proof))
+                out = f.enforce_native_valuation_context(pd.DataFrame([changed])).iloc[0]
+                self.assertTrue(pd.isna(out["mktcap"]))
+                self.assertTrue(pd.isna(out["ep_ttm"]))
+        # Existing, period-valid wrappers retain their actual scoped children.
+        for proof in ({"derivation": "native_period_selection", "period_start": None,
+                "period_end": "2025-12-31", "parents": [original]},
+            [dict(period="2025-12-31", native_period_start=None, native_period_end="2025-12-31",
+                native_proof=[original], flow_proof=[original], cumulative_proof=[original])]):
+            out = f.enforce_native_valuation_context(pd.DataFrame([dict(row, shares_provenance=json.dumps(proof))])).iloc[0]
+            self.assertEqual(out["mktcap"], 1000.0)
+            self.assertAlmostEqual(out["ep_ttm"], 0.05)
+
     def test_original_proof_scope_identity_survives_projection_and_cache(self):
         import r1000_features as f
         import r1000_pipeline as p

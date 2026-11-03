@@ -9449,3 +9449,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   price-evidence keys, making its public-valuation result inconclusive. The R1
   dictionary-merge fixture reproduced the finding without Source/provider reads.
   Prior315664dc CI success is not evidence for the corrected HEAD.
+- Independent static review then found a same-boundary wrapper shortcut.
+  On312ad47b, parents:[], parents:[null] and a malformed parents value were
+  reproduced as incorrectly retaining the stored scope; native_proof:null in a
+  list already refused. Preserve the initial strict-JSON diagnostic failure
+  (a refused value was NaN) and its corrected null-valued R1 output. Child-key
+  presence is not wrapper evidence: recognize only existing period-valid
+  derived structures/native batches and validate their actual original leaves.

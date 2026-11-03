@@ -677,12 +677,14 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
     proof_identities = []
     missing_original_scope = False
     spans = []
-    def visit(value: Any) -> None:
+    def visit(value: Any, *, native_wrapper: bool = False) -> None:
         nonlocal missing_original_scope
         value = decode(value)
         if isinstance(value, list):
+            native_batch = bool(value) and all(isinstance(decode(item), dict) and "native_proof" in decode(item)
+                for item in value) and proof_span(value) is not None
             for item in value:
-                visit(item)
+                visit(item, native_wrapper=native_batch)
         elif isinstance(value, dict):
             context_record = isinstance(value.get("identities"), dict) and isinstance(value.get("scope"), dict)
             if context_record:
@@ -709,12 +711,15 @@ def native_financial_context(row: pd.Series, field: str) -> Optional[dict[str, A
                 end = day(value.get("period", value.get("end")))
                 if end:
                     spans.append((day(value.get("start")), end))
-            elif not context_record and not selected_scope and not any(
-                key in value for key in ("native_proof", "flow_proof", "cumulative_proof", "parents")
-            ):
+            elif not context_record and not selected_scope:
                 # Selected original metadata may provide optional scope; the
                 # stored derived context alone cannot authenticate a proof leaf.
-                missing_original_scope = True
+                # Empty/dummy child keys do not turn a direct fact into a wrapper.
+                derived_wrapper = (isinstance(value.get("derivation"), str) and bool(value["derivation"].strip())
+                    and isinstance(value.get("parents"), list) and bool(value["parents"])
+                    and proof_span(value) is not None)
+                if not native_wrapper and not derived_wrapper:
+                    missing_original_scope = True
             for key in ("native_proof", "flow_proof", "cumulative_proof", "parents"):
                 if key in value:
                     visit(value[key])
