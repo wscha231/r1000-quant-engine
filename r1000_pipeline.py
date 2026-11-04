@@ -6563,17 +6563,29 @@ def download_fsds_zip(cfg: EngineConfig, paths: dict[str, Path], year: int, q: i
 def read_fsds_tables(zip_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     with zipfile.ZipFile(zip_path) as z:
         with z.open("sub.txt") as f:
-            sub = pd.read_csv(f, sep="\t", low_memory=False)
+            sub = pd.read_csv(f, sep="\t", dtype={"period": "string"}, low_memory=False)
         with z.open("num.txt") as f:
-            num = pd.read_csv(f, sep="\t", low_memory=False)
+            num = pd.read_csv(f, sep="\t", dtype={"ddate": "string"}, low_memory=False)
     return sub, num
+
+
+def _parse_fsds_report_dates(values: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(values.dtype):
+        return pd.to_datetime(values, errors="coerce")
+
+    # Raw report dates are calendar dates. Passing integers directly to pandas
+    # interprets them as epoch nanoseconds. Keep blank TSV cells from promoting
+    # the rest of the column to floats by reading these two fields as strings.
+    text = values.astype("string")
+    date_shape = r"(?:[0-9]{8}|[0-9]{4}-[0-9]{2}-[0-9]{2}(?:[T ].*)?)"
+    return pd.to_datetime(text.where(text.str.fullmatch(date_shape, na=False)), format="ISO8601", errors="coerce")
 
 
 def prep_sub(sub: pd.DataFrame) -> pd.DataFrame:
     keep = ["adsh", "cik", "period", "fy", "fp", "accepted", "form", "name"]
     out = sub[keep].copy()
     out["accepted"] = pd.to_datetime(out["accepted"], errors="coerce")
-    out["period"] = pd.to_datetime(out["period"], errors="coerce")
+    out["period"] = _parse_fsds_report_dates(out["period"])
     out["cik"] = normalize_cik_series(out["cik"], index=out.index)
     out["form"] = out["form"].astype(str).str.upper()
     out = out[out["form"].isin(ACCEPTED_SEC_FORMS)]
@@ -6583,7 +6595,7 @@ def prep_sub(sub: pd.DataFrame) -> pd.DataFrame:
 def prep_num(num: pd.DataFrame) -> pd.DataFrame:
     keep = ["adsh", "tag", "ddate", "qtrs", "uom", "value"]
     out = num[keep].copy()
-    out["ddate"] = pd.to_datetime(out["ddate"], errors="coerce")
+    out["ddate"] = _parse_fsds_report_dates(out["ddate"])
     out["qtrs"] = pd.to_numeric(out["qtrs"], errors="coerce")
     out["value"] = pd.to_numeric(out["value"], errors="coerce")
     return out

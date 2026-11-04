@@ -9638,3 +9638,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Execute the actual publisher script against the captured no-output shape and
   existing accepted evidence paths. A local synthetic payload is not a GitHub
   review, a posted check, Source admission or permission to execute a portfolio.
+
+## 2026-11-04 — Parse FSDS report dates as calendar values at ingress
+
+- A bounded retained SEC 2019q2 sample reproduced 48 report dates becoming
+  1970 because generic pandas conversion interpreted integer YYYYMMDD as epoch
+  nanoseconds. Bind the actual sub.period and num.ddate member-prefix hashes
+  and verify the restored dates against their original tokens.
+- Preserve the two raw TSV date columns as text so a blank cell cannot make
+  valid dates look like decimal numbers. Accept exact YYYYMMDD and ISO dates,
+  coerce invalid tokens to missing, and keep the existing accepted timestamp
+  conversion. A prefix replay does not reprocess the archive or validate
+  historical publication clocks or point-in-time admission.
