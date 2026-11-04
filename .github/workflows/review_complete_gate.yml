@@ -276,27 +276,78 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.context.outputs.head_sha }}
+          CONTEXT_OUTCOME: ${{ steps.context.outcome }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          GATE_RC: ${{ steps.gate.outputs.gate_rc }}
           GATE_STATUS: ${{ steps.gate.outputs.status }}
           EVIDENCE_TYPE: ${{ steps.gate.outputs.evidence_type }}
           FAILURES: ${{ steps.gate.outputs.failures }}
           COMMENT_BINDING: ${{ steps.gate.outputs.comment_binding }}
-          CONCLUSION: ${{ steps.gate.outputs.gate_rc == '0' && 'success' || 'failure' }}
         run: |
           set -euo pipefail
           python - <<'PY' > "$RUNNER_TEMP/review-complete-check.json"
           import json
           import os
+          # Missing step outputs must never be coerced to a successful exit code.
+          accepted = {"ATTESTED_EXACT_HEAD_REVIEW", "MAINTAINER_BOUND_CLEAN_REACTION",
+                      "MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT"}
+          head = os.environ.get("HEAD_SHA", "")
+          verified = (
+              os.environ.get("CONTEXT_OUTCOME") == "success"
+              and os.environ.get("GATE_OUTCOME") == "success"
+              and os.environ.get("GATE_RC") == "0"
+              and os.environ.get("GATE_STATUS") == "PASS_REVIEW_COMPLETE"
+              and os.environ.get("EVIDENCE_TYPE") in accepted
+              and os.environ.get("FAILURES") == ""
+              and len(head) == 40 and all(c in "0123456789abcdef" for c in head)
+          )
+          def unique_object(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value:
+                      raise ValueError("duplicate evaluator result key")
+                  value[key] = item
+              return value
+          def reject_constant(value):
+              raise ValueError("nonfinite evaluator result")
+          if verified:
+              try:
+                  with open(os.path.join(os.environ["RUNNER_TEMP"], "review-complete", "result.json"),
+                            encoding="utf-8") as source:
+                      result = json.load(source, object_pairs_hook=unique_object,
+                                         parse_constant=reject_constant)
+                  verified = (
+                      type(result) is dict
+                      and result.get("schema_version") == "run287-review-complete-gate-v2"
+                      and result.get("passed") is True
+                      and result.get("status") == "PASS_REVIEW_COMPLETE"
+                      and result.get("head_sha") == head
+                      and result.get("evidence_type") == os.environ["EVIDENCE_TYPE"]
+                      and type(result.get("evidence_id")) is int and result["evidence_id"] > 0
+                      and type(result.get("evidence_at")) is str and bool(result["evidence_at"])
+                      and type(result.get("failures")) is list and not result["failures"]
+                      and "comment_receipt_binding" in result
+                      and (type(result["comment_receipt_binding"]) is dict
+                           if result["evidence_type"] == "MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT"
+                           else result["comment_receipt_binding"] is None)
+                      and json.dumps(result.get("comment_receipt_binding"), sort_keys=True,
+                                     separators=(",", ":")) == os.environ.get("COMMENT_BINDING")
+                  )
+              except (OSError, ValueError, TypeError, KeyError, RecursionError):
+                  verified = False
           print(json.dumps({
               "name": "review_complete",
-              "head_sha": os.environ["HEAD_SHA"],
+              "head_sha": head,
               "status": "completed",
-              "conclusion": os.environ["CONCLUSION"],
+              "conclusion": "success" if verified else "failure",
               "output": {
-                  "title": os.environ.get("GATE_STATUS") or "review gate evaluation failed",
+                  "title": "PASS_REVIEW_COMPLETE" if verified else "BLOCKED_REVIEW_INCOMPLETE",
                   "summary": (
                       "Evidence: " + (os.environ.get("EVIDENCE_TYPE") or "none") + "\n\n" +
                       "Failures: " + (os.environ.get("FAILURES") or "none") + "\n\n" +
                       "Comment receipt binding: " + (os.environ.get("COMMENT_BINDING") or "none") + "\n\n" +
+                      "Publisher verification: " + ("verified" if verified else
+                          "context, evaluator or result not verified") + "\n\n" +
                       "Unresolved conversations are enforced separately by master branch protection."
                   ),
               },

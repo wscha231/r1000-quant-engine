@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import hashlib
 import importlib.util
 from copy import deepcopy
@@ -437,6 +438,142 @@ class CommentReceiptTests(unittest.TestCase):
         self.assertNotIn('ref: ${{ github.event.pull_request.head.sha }}', workflow)
 
 
+
+class PublisherTests(unittest.TestCase):
+    """Execute the actual publisher heredoc, never a test-only success predicate."""
+    def evaluated(self, kind="comment"):
+        args = CommentReceiptTests().fixture()
+        if kind == "review":
+            args["reviews"] = [dict(id=21, state="APPROVED", commit_id=HEAD,
+                submitted_at="2026-07-21T01:10:00Z", user=user())]
+        elif kind == "reaction":
+            args["reactions"] = [dict(id=22, content="+1",
+                created_at="2026-07-21T01:10:00Z", user=user())]
+        result = gate.evaluate(**args)
+        self.assertIs(result["passed"], True)
+        return result
+
+    def publish(self, result, *, changes=None, raw=None, omit=()):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        marker = 'python - <<\'PY\' > "$RUNNER_TEMP/review-complete-check.json"\n'
+        self.assertEqual(text.count(marker), 1)
+        script = text.split(marker, 1)[1].split("\n          PY\n", 1)[0]
+        script = "\n".join(line[10:] if line.startswith(" " * 10) else line
+                           for line in script.splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "review-complete").mkdir()
+            if result is not None or raw is not None:
+                (root / "review-complete" / "result.json").write_text(
+                    raw if raw is not None else json.dumps(result), encoding="utf-8")
+            env = dict(os.environ, RUNNER_TEMP=tmp, HEAD_SHA=HEAD,
+                CONTEXT_OUTCOME="success", GATE_OUTCOME="success", GATE_RC="0",
+                GATE_STATUS="PASS_REVIEW_COMPLETE",
+                EVIDENCE_TYPE=(result or {}).get("evidence_type") or gate.COMMENT_EVIDENCE,
+                FAILURES="", COMMENT_BINDING=json.dumps(
+                    (result or {}).get("comment_receipt_binding"), sort_keys=True,
+                    separators=(",", ":")),
+                CONCLUSION="success")  # An old green/default must not override failure.
+            env.update(changes or {})
+            for name in omit:
+                env.pop(name, None)
+            command = [sys.executable, *(["-O"] if not __debug__ else []), "-c", script]
+            proc = subprocess.run(command, capture_output=True, text=True, env=env,
+                                  encoding="utf-8", timeout=10)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return json.loads(proc.stdout)
+
+    def refused(self, result, **kwargs):
+        payload = self.publish(result, **kwargs)
+        self.assertEqual(payload["conclusion"], "failure")
+        self.assertEqual(payload["output"]["title"], "BLOCKED_REVIEW_INCOMPLETE")
+        self.assertEqual(payload["head_sha"], HEAD)
+        self.assertIn("not verified", payload["output"]["summary"])
+
+    def test_publisher_accepts_all_three_actual_evaluator_paths(self):
+        seen = set()
+        for kind in ("review", "reaction", "comment"):
+            with self.subTest(kind=kind):
+                result = self.evaluated(kind)
+                seen.add(result["evidence_type"])
+                payload = self.publish(result)
+                self.assertEqual(payload["conclusion"], "success")
+                self.assertEqual(payload["output"]["title"], "PASS_REVIEW_COMPLETE")
+                self.assertIn(result["evidence_type"], payload["output"]["summary"])
+        self.assertEqual(seen, set(json.loads(CONTRACT.read_text(
+            encoding="utf-8"))["accepted_evidence"]))
+
+    def test_publisher_captured_http503_no_outputs_overwrites_green_with_failure(self):
+        # Run41644493411/a1/job125946147847: context HTTP503 after HEAD_SHA,
+        # evaluator FileNotFound before outputs, synthetic check125946240966 green.
+        self.refused(None, changes={"CONTEXT_OUTCOME": "failure", "GATE_OUTCOME": "failure"},
+            omit=("GATE_RC", "GATE_STATUS", "EVIDENCE_TYPE", "FAILURES", "COMMENT_BINDING"))
+
+    def test_publisher_failed_skipped_or_missing_step_outputs_refuse(self):
+        result = self.evaluated()
+        for name in ("CONTEXT_OUTCOME", "GATE_OUTCOME"):
+            for value in ("failure", "cancelled", "skipped", "", "Success"):
+                with self.subTest(name=name, value=value):
+                    self.refused(result, changes={name: value})
+        for name in ("CONTEXT_OUTCOME", "GATE_OUTCOME", "GATE_RC", "GATE_STATUS",
+                     "EVIDENCE_TYPE", "FAILURES", "COMMENT_BINDING"):
+            with self.subTest(missing=name):
+                self.refused(result, omit=(name,))
+        for name, value in (("GATE_RC", "2"), ("GATE_RC", "00"), ("GATE_RC", "0 "),
+                ("GATE_STATUS", "BLOCKED_REVIEW_INCOMPLETE"),
+                ("GATE_STATUS", "PASS_REVIEW_COMPLETE\n"), ("EVIDENCE_TYPE", "unknown"),
+                ("FAILURES", "no_codex_evidence_for_current_head"),
+                ("COMMENT_BINDING", "{}")):
+            with self.subTest(name=name, value=value):
+                self.refused(result, changes={name: value})
+
+    def test_publisher_missing_malformed_or_conflicting_result_refuses(self):
+        result = self.evaluated()
+        self.refused(None)
+        for raw in ("", "{", "[]", "null", '{"passed":false,"passed":true}'):
+            with self.subTest(raw=raw):
+                self.refused(result, raw=raw)
+        for raw in ('{"passed":false,' + json.dumps(result)[1:],
+                    json.dumps(result)[:-1] + ',"unexpected":NaN}'):
+            with self.subTest(raw_result=raw):
+                self.refused(result, raw=raw)
+        for kind in ("review", "reaction", "comment"):
+            missing = self.evaluated(kind)
+            del missing["comment_receipt_binding"]
+            self.refused(missing)
+        for name, value in (("schema_version", "other"), ("passed", False), ("passed", 1),
+                ("status", "BLOCKED_REVIEW_INCOMPLETE"), ("head_sha", PRIOR),
+                ("evidence_type", "MAINTAINER_BOUND_CLEAN_REACTION"),
+                ("evidence_id", None), ("evidence_id", True), ("evidence_id", 0),
+                ("evidence_at", ""), ("failures", None), ("failures", {}),
+                ("failures", ""), ("failures", ["finding"]),
+                ("comment_receipt_binding", None)):
+            with self.subTest(name=name, value=value):
+                changed = deepcopy(result)
+                changed[name] = value
+                self.refused(changed, changes={"EVIDENCE_TYPE": result["evidence_type"],
+                    "COMMENT_BINDING": json.dumps(result["comment_receipt_binding"],
+                        sort_keys=True, separators=(",", ":"))})
+
+    def test_publisher_preserves_actual_blocked_failure_and_always_known_head_post(self):
+        args = CommentReceiptTests().fixture()
+        args["attestation"]["permission"] = "read"
+        result = gate.evaluate(**args)
+        self.assertIs(result["passed"], False)
+        payload = self.publish(result, changes={"GATE_RC": "2",
+            "GATE_STATUS": result["status"], "FAILURES": ",".join(result["failures"])})
+        self.assertEqual(payload["conclusion"], "failure")
+        self.assertIn("attestor_lacks_write_permission", payload["output"]["summary"])
+        publisher = WORKFLOW.read_text(encoding="utf-8").split(
+            "- name: Publish required review_complete check on PR head", 1)[1]
+        self.assertIn("if: always() && steps.context.outputs.head_sha != ''", publisher)
+        self.assertIn("CONTEXT_OUTCOME: ${{ steps.context.outcome }}", publisher)
+        self.assertIn("GATE_OUTCOME: ${{ steps.gate.outcome }}", publisher)
+        self.assertIn("GATE_RC: ${{ steps.gate.outputs.gate_rc }}", publisher)
+        self.assertNotIn("steps.gate.outputs.gate_rc == '0'", publisher)
+        self.assertIn('gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs"', publisher)
+
+
 def user(login: str = "chatgpt-codex-connector[bot]") -> dict[str, str]:
     return {"login": login}
 
@@ -666,5 +803,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(CommentReceiptTests))
+    suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
+        for case in (CommentReceiptTests, PublisherTests))
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)
