@@ -9650,3 +9650,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   coerce invalid tokens to missing, and keep the existing accepted timestamp
   conversion. A prefix replay does not reprocess the archive or validate
   historical publication clocks or point-in-time admission.
+
+## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
+
+- An observed 2026-01-05 cutoff replay changed a missing required BBB fill into
+  a pending fill when only a 2026-01-06 row was added. Synchronous one-session
+  delay could also pass the lag check. Future prices must not change a required
+  transition's eligibility at a fixed cutoff.
+- In an explicit-cutoff next-close research replay, schedule the next NYSE
+  session first. A later scheduled session is pending; a due session requires
+  one valid close on that date for each entry, rebalance and exit. Apply the
+  same rule to coverage and fills, and bound prices, cost inputs and marks.
+  Retain the existing lag-only, inferred operating-cutoff and other fill modes.
+- Check both completed future-tail variants as well as refusal parity. Verify
+  that a final cash target liquidates held names at the exact due close even
+  when that target contains no ticker to supply the last marking period.

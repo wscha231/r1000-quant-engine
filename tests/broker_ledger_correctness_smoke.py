@@ -466,6 +466,140 @@ def test_long_horizon_equity_curve_continuous() -> None:
         assert (curve["equity_usd"] > 0).all(), "non-positive equity observed"
 
 
+class ForwardNextCloseClockTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.cache = self.root / "prices"
+        self.cache.mkdir()
+        self.target = self.root / "target.csv"
+        pd.DataFrame(
+            [("2026-01-02", "AAA", 0.5), ("2026-01-02", "BBB", 0.5)],
+            columns=["rebalance_date", "ticker", "weight"],
+        ).to_csv(self.target, index=False)
+
+    def write_close(self, ticker: str, dates: list[str], prices: list[float]) -> None:
+        pd.DataFrame(
+            {"Open": prices, "Close": prices, "Adj Close": prices, "Volume": 1_000_000},
+            index=pd.to_datetime(dates),
+        ).to_parquet(self.cache / px_cache_name(ticker))
+
+    def run_replay(self, name: str, cutoff: str | None, *, max_lag: int = 7):
+        output = self.root / name
+        result = replay(
+            target_book=self.target,
+            price_cache=self.cache,
+            output_dir=output,
+            portfolio_kind="main",
+            starting_capital=10_000.0,
+            cost_bps=25.0,
+            max_fill_lag_days=max_lag,
+            cash_carry_config=CashCarryConfig(mode="none"),
+            evidence_end_date=cutoff,
+        )
+        return result, output
+
+    def test_missing_due_close_cannot_become_pending_from_future_bar(self):
+        self.write_close("AAA", ["2026-01-02", "2026-01-05"], [100.0, 101.0])
+        coverage_tables = []
+        for name, dates, prices in (
+            ("no_future", ["2026-01-02"], [100.0]),
+            ("with_future", ["2026-01-02", "2026-01-06"], [100.0, 103.0]),
+        ):
+            with self.subTest(name=name):
+                self.write_close("BBB", dates, prices)
+                result, output = self.run_replay(name, "2026-01-05")
+                self.assertEqual(result["status"], "blocked")
+                self.assertEqual(result["reason"], "target_fill_coverage_incomplete")
+                self.assertEqual(result["metric_mode"], "DO_NOT_USE")
+                self.assertNotIn("cagr", result)
+                audit = result["target_fill_coverage"]
+                self.assertEqual(audit["required_transition_fill_count"], 2)
+                self.assertEqual(audit["missing_transition_fill_count"], 1)
+                self.assertEqual(audit["pending_transition_fill_count"], 0)
+                self.assertEqual(audit["missing_transition_fills"][0]["reason"], "missing_exact_due_close")
+                for artifact in ("trades.csv", "equity_curve.csv", "account_state_latest.json"):
+                    self.assertFalse((output / artifact).exists())
+                coverage_tables.append((output / "target_fill_coverage.csv").read_bytes())
+        self.assertEqual(coverage_tables[0], coverage_tables[1])
+
+    def test_synchronous_late_close_is_refused_only_on_exact_forward_path(self):
+        for ticker in ("AAA", "BBB"):
+            self.write_close(ticker, ["2026-01-02", "2026-01-06", "2026-01-07"], [100.0, 101.0, 102.0])
+        exact, _ = self.run_replay("exact", "2026-01-06")
+        self.assertEqual(exact["status"], "blocked")
+        self.assertEqual(exact["target_fill_coverage"]["missing_transition_fill_count"], 2)
+        legacy, out = self.run_replay("legacy", None)
+        self.assertEqual(legacy["status"], "completed")
+        self.assertEqual(set(pd.read_csv(out / "trades.csv")["date"]), {"2026-01-06"})
+        pd.DataFrame(
+            [
+                ("2026-01-02", "AAA", 0.5, False, ""),
+                ("2026-01-02", "BBB", 0.5, False, ""),
+                ("2026-01-07", "CASH", 1.0, True, "2026-01-07"),
+            ],
+            columns=["rebalance_date", "ticker", "weight", "operating_appended", "operating_latest_price_date"],
+        ).to_csv(self.target, index=False)
+        inferred, out = self.run_replay("inferred", None)
+        self.assertEqual(inferred["status"], "completed")
+        self.assertEqual(inferred["stock_evidence_end_source"], "target_book_operating_latest_price_date")
+        self.assertEqual(set(pd.read_csv(out / "trades.csv")["date"]), {"2026-01-06"})
+
+    def test_future_tail_does_not_change_successful_fills_marks_or_cash_exit(self):
+        pd.DataFrame(
+            [
+                ("2026-01-02", "AAA", 0.5),
+                ("2026-01-02", "BBB", 0.5),
+                ("2026-01-05", "CASH", 1.0),
+            ],
+            columns=["rebalance_date", "ticker", "weight"],
+        ).to_csv(self.target, index=False)
+        dates = ["2026-01-02", "2026-01-05", "2026-01-06"]
+        outputs = []
+        for label, extra_dates, extra_prices in (
+            ("prefix", [], []),
+            ("future", ["2026-01-07", "2026-01-08"], [50_000.0, 0.01]),
+        ):
+            for ticker in ("AAA", "BBB"):
+                self.write_close(ticker, dates + extra_dates, [100.0, 102.0, 104.0] + extra_prices)
+            result, out = self.run_replay(label, "2026-01-06", max_lag=0)
+            self.assertEqual(result["status"], "completed")
+            self.assertFalse(result["valid_for_production"])
+            self.assertTrue(result["research_only"])
+            self.assertEqual(
+                result["target_fill_coverage"]["execution_clock_contract"], "explicit_cutoff_exact_next_close_v1",
+            )
+            trades = pd.read_csv(out / "trades.csv")
+            self.assertEqual(set(trades.loc[trades["side"].eq("BUY"), "date"]), {"2026-01-05"})
+            self.assertEqual(set(trades.loc[trades["side"].eq("SELL"), "date"]), {"2026-01-06"})
+            self.assertEqual(set(pd.read_csv(out / "equity_curve.csv")["date"]), {"2026-01-05", "2026-01-06"})
+            outputs.append(out)
+        for name in ("target_fill_coverage.csv", "trades.csv", "equity_curve.csv",
+                     "cash_ledger.csv", "account_state_latest.json"):
+            self.assertEqual((outputs[0] / name).read_bytes(), (outputs[1] / name).read_bytes(), name)
+
+    def test_only_a_due_after_cutoff_is_pending_and_duplicate_due_is_rejected(self):
+        signal = pd.Timestamp("2026-01-02")
+        cutoff = pd.Timestamp("2026-01-05")
+        raw = pd.DataFrame(
+            {"rebalance_date": [signal, cutoff], "ticker": ["AAA", "AAA"], "weight": [1.0, 1.0]}
+        )
+        history = pd.DataFrame({"close": [100.0, 101.0]}, index=pd.to_datetime(["2026-01-05", "2026-01-06"]))
+        frame, coverage = broker.build_target_fill_coverage(
+            raw, {"AAA": history}, fill_mode="next_close", max_fill_lag_days=7, evidence_end_date=cutoff,
+        )
+        self.assertTrue(coverage["coverage_complete"])
+        self.assertEqual(coverage["pending_transition_fill_count"], 1)
+        self.assertEqual(frame.iloc[-1]["earliest_possible_fill_date"], "2026-01-06")
+        self.assertEqual(frame.iloc[-1]["actual_fill_date"], "")
+        repeated = pd.concat([history.iloc[[0]], history])
+        self.assertEqual(
+            fill_price({"AAA": repeated}, "AAA", signal, "next_close", 7, exact_next_close_end=cutoff),
+            (None, None),
+        )
+
+
 class OpeningClockAdmissionTests(unittest.TestCase):
     """Native parquet/replay checks whose assertions remain active under -O."""
 
@@ -2534,7 +2668,10 @@ def main() -> int:
     test_long_horizon_equity_curve_continuous()
     suite = unittest.TestSuite(
         unittest.defaultTestLoader.loadTestsFromTestCase(case)
-        for case in (OpeningClockAdmissionTests, GeneratedOutputLifecycleTests, CallerInputCollisionTests, ResearchNavCallerTests)
+        for case in (
+            ForwardNextCloseClockTests, OpeningClockAdmissionTests, GeneratedOutputLifecycleTests,
+            CallerInputCollisionTests, ResearchNavCallerTests,
+        )
     )
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
         return 1
