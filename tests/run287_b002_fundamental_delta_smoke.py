@@ -598,6 +598,57 @@ def test_declared_single_partial_core_field_is_missing_neutral() -> None:
 
 class NativeFinancialContextTests(unittest.TestCase):
     """Synthetic boundaries; unittest checks remain active under python -O."""
+
+    def test_fsds_integer_report_dates_keep_filing_clock(self):
+        import r1000_pipeline as pipe
+
+        index = [7, 4, 2, 1, 9]
+        dates = pd.Series([20190430, 20240229, 20230229, 2019043, 1546300800000000000], index=index)
+        filings = pd.DataFrame(dict(
+            adsh="sample", cik=1, period=dates, fy=2019, fp="Q2",
+            accepted="2019-05-03 14:31:09", form="10-Q", name="Sample",
+        ), index=index)
+        facts = pd.DataFrame(dict(
+            adsh="sample", tag="Assets", ddate=dates, qtrs=0, uom="USD", value=0,
+        ), index=index)
+        expected = pd.Series(pd.to_datetime(["2019-04-30", "2024-02-29", None, None, None]), index=index)
+        prepared_filings = pipe.prep_sub(filings)
+        prepared_facts = pipe.prep_num(facts)
+        pd.testing.assert_series_equal(prepared_filings["period"], expected.rename("period"))
+        pd.testing.assert_series_equal(prepared_facts["ddate"], expected.rename("ddate"))
+        pd.testing.assert_series_equal(
+            prepared_filings["accepted"], pd.to_datetime(filings["accepted"], errors="coerce"),
+        )
+        pd.testing.assert_series_equal(filings["period"], dates.rename("period"))
+        pd.testing.assert_series_equal(facts["ddate"], dates.rename("ddate"))
+
+    def test_fsds_nullable_tsv_and_iso_report_dates(self):
+        import r1000_pipeline as pipe
+
+        dates = ["20190430", "", "2019-06-30", "20190430.0", "20241301", "2019-06-30T12:34:56"]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.zip"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr("sub.txt", "adsh\tcik\tperiod\tfy\tfp\taccepted\tform\tname\n" + "".join(
+                    f"a{i}\t1\t{date}\t2019\tQ2\t2019-08-01 15:00:01\t10-Q\tSample\n"
+                    for i, date in enumerate(dates)
+                ))
+                archive.writestr("num.txt", "adsh\ttag\tddate\tqtrs\tuom\tvalue\n" + "".join(
+                    f"a{i}\tAssets\t{date}\t0\tUSD\t0\n" for i, date in enumerate(dates)
+                ))
+            filings, facts = pipe.read_fsds_tables(path)
+
+        expected = [pd.Timestamp("2019-04-30"), pd.NaT, pd.Timestamp("2019-06-30"), pd.NaT, pd.NaT,
+                    pd.Timestamp("2019-06-30 12:34:56")]
+        pd.testing.assert_series_equal(pipe.prep_sub(filings)["period"], pd.Series(expected, name="period"))
+        pd.testing.assert_series_equal(pipe.prep_num(facts)["ddate"], pd.Series(expected, name="ddate"))
+        nullable = pd.Series([20190430, pd.NA], dtype="Int64")
+        mixed = pd.Series([pd.Timestamp("2019-04-30"), False, 20190430.0, "2019", "2019-06-31"])
+        for report_dates in (nullable, mixed, pd.Series(expected[:2])):
+            parsed = pipe._parse_fsds_report_dates(report_dates)
+            self.assertEqual(parsed.iloc[0], pd.Timestamp("2019-04-30"))
+            self.assertTrue(parsed.iloc[1:].isna().all())
+
     @staticmethod
     def row(**changes):
         row = dict(ticker="SYN", cik="0000000001", accession_number="a1", field_name="revenues",
