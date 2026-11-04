@@ -20,6 +20,7 @@ import math
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -538,6 +539,27 @@ def normalize_targets(
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
 
 
+def _parse_forward_close_date(value: Any) -> pd.Timestamp | None:
+    # A Forward cutoff identifies the last observable close by calendar date.
+    if isinstance(value, str):
+        try:
+            calendar_date = date.fromisoformat(value)
+        except ValueError:
+            return None
+        if calendar_date.isoformat() != value:
+            return None
+        value = calendar_date
+    if not isinstance(value, (date, np.datetime64)) or pd.isna(value):
+        return None
+    try:
+        cutoff = pd.to_datetime(value, errors="coerce")
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if pd.isna(cutoff) or cutoff.tzinfo is not None or cutoff != cutoff.normalize():
+        return None
+    return cutoff
+
+
 def resolve_evidence_end(
     raw_targets: pd.DataFrame,
     explicit_evidence_end: Any = None,
@@ -626,11 +648,19 @@ def weight_book_diagnostics(targets: pd.DataFrame, max_reasonable_weight_sum: fl
     }
 
 
+def _price_rows_through(px: pd.DataFrame, end_date: pd.Timestamp | None) -> pd.DataFrame:
+    if end_date is None or px.empty:
+        return px
+    return px.loc[px.index < end_date + pd.Timedelta(days=1)]
+
+
 def target_period_ends(
     targets: pd.DataFrame,
     price_cache: Path,
     calendar_prices: dict[str, pd.DataFrame] | None = None,
     evidence_end_date: Any = None,
+    *,
+    exact_next_close: bool = False,
 ) -> dict[pd.Timestamp, pd.Timestamp]:
     dates = sorted(pd.to_datetime(targets["rebalance_date"], errors="coerce").dropna().unique())
     clamp = pd.to_datetime(evidence_end_date, errors="coerce")
@@ -643,6 +673,9 @@ def target_period_ends(
         if i + 1 < len(dates):
             period_end = pd.Timestamp(dates[i + 1]).normalize()
             out[dt] = min(period_end, clamp) if clamp is not None else period_end
+            continue
+        if exact_next_close and clamp is not None:
+            out[dt] = clamp
             continue
         latest: list[pd.Timestamp] = []
         for ticker in targets.loc[targets["rebalance_date"].eq(dt), "ticker"].astype(str).str.upper().unique():
@@ -700,6 +733,8 @@ def fill_price(
     signal_date: pd.Timestamp,
     fill_mode: str,
     max_fill_lag_days: int,
+    *,
+    exact_next_close_end: pd.Timestamp | None = None,
 ) -> tuple[pd.Timestamp | None, float | None]:
     column = "close"
     if fill_mode == "next_open":
@@ -707,11 +742,25 @@ def fill_price(
     elif fill_mode not in {"next_close", "same_close"}:
         raise ValueError(f"unsupported fill_mode={fill_mode}")
     target_date = pd.Timestamp(signal_date)
-    if fill_mode in {"next_close", "next_open"}:
+    exact_next_close = fill_mode == "next_close" and exact_next_close_end is not None
+    ticker_prices = prices.get(ticker, pd.DataFrame())
+    if exact_next_close:
+        target_date = earliest_nyse_fill_date(target_date.date().isoformat(), fill_mode)
+        if target_date > exact_next_close_end or ticker_prices.empty:
+            return None, None
+        # Require a single observed close on the scheduled session.
+        index = ticker_prices.index
+        left = index.searchsorted(target_date)
+        right = index.searchsorted(target_date + pd.Timedelta(days=1))
+        if right - left != 1:
+            return None, None
+    elif fill_mode in {"next_close", "next_open"}:
         target_date = target_date + pd.Timedelta(days=1)
-    actual_dt, px = price_on_or_after(prices.get(ticker, pd.DataFrame()), target_date, column)
+    actual_dt, px = price_on_or_after(ticker_prices, target_date, column)
     if actual_dt is None or px is None:
         return None, None
+    if exact_next_close:
+        return actual_dt, px
     if (pd.Timestamp(actual_dt).normalize() - pd.Timestamp(target_date).normalize()).days > int(max_fill_lag_days):
         return None, None
     return actual_dt, px
@@ -754,6 +803,7 @@ def build_target_fill_coverage(
     fill_mode: str,
     max_fill_lag_days: int,
     evidence_end_date: pd.Timestamp | None = None,
+    exact_next_close: bool = True,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Audit every transition fill against its actual execution calendar.
 
@@ -770,6 +820,9 @@ def build_target_fill_coverage(
         pd.Timestamp(evidence_end_date).normalize()
         if evidence_end_date is not None
         else None
+    )
+    exact_next_close_end = (
+        normalized_evidence_end if fill_mode == "next_close" and exact_next_close else None
     )
     normalized_targets = targets.copy()
     normalized_targets["ticker"] = (
@@ -794,6 +847,7 @@ def build_target_fill_coverage(
                 signal_date,
                 fill_mode,
                 max_fill_lag_days,
+                exact_next_close_end=exact_next_close_end,
             )
             normalized_fill = (
                 pd.Timestamp(actual_dt).normalize()
@@ -801,8 +855,7 @@ def build_target_fill_coverage(
                 else None
             )
             earliest_possible_fill = earliest_nyse_fill_date(
-                signal_date.date().isoformat(),
-                fill_mode,
+                signal_date.date().isoformat(), fill_mode
             )
             pending_after_evidence = bool(
                 normalized_evidence_end is not None
@@ -857,7 +910,11 @@ def build_target_fill_coverage(
                         else (
                             "fill_after_evidence_end"
                             if pending_after_evidence
-                            else "no_fill_within_lag"
+                            else (
+                                "missing_exact_due_close"
+                                if exact_next_close_end is not None
+                                else "no_fill_within_lag"
+                            )
                         )
                     ),
                 }
@@ -991,6 +1048,8 @@ def build_target_fill_coverage(
         "missing_target_fills": missing[:100],
         "missing_transition_fills": missing[:100],
     }
+    if exact_next_close_end is not None:
+        summary["execution_clock_contract"] = "explicit_cutoff_exact_next_close_v1"
     return frame, summary
 
 
@@ -999,7 +1058,19 @@ def calendar_fill_date(
     signal_date: pd.Timestamp,
     fill_mode: str,
     max_fill_lag_days: int,
+    *,
+    exact_next_close_end: pd.Timestamp | None = None,
 ) -> pd.Timestamp | None:
+    if fill_mode == "next_close" and exact_next_close_end is not None:
+        for ticker in calendar_prices:
+            actual, _ = fill_price(
+                calendar_prices, ticker, signal_date, fill_mode, max_fill_lag_days,
+                exact_next_close_end=exact_next_close_end,
+            )
+            if actual is not None:
+                return actual.normalize()
+        return None
+
     target_date = pd.Timestamp(signal_date)
     if fill_mode in {"next_close", "next_open"}:
         target_date = target_date + pd.Timedelta(days=1)
@@ -1760,6 +1831,13 @@ def replay(
     measurement_context_path: Path | None = None,
     load_measurement_context_from_path: bool = False,
 ) -> dict[str, Any]:
+    forward_cutoff_requested = (
+        fill_mode == "next_close"
+        and evidence_end_date is not None
+        and not (isinstance(evidence_end_date, str) and not evidence_end_date)
+    )
+    exact_next_close_end = _parse_forward_close_date(evidence_end_date) if forward_cutoff_requested else None
+    invalid_forward_cutoff = forward_cutoff_requested and exact_next_close_end is None
     research_measurement = measurement_context is not None or load_measurement_context_from_path
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
@@ -1840,7 +1918,10 @@ def replay(
             explicit_filters=concentrated_champion_filters)[0]
         preview_targets = normalize_targets(research_raw, portfolio_kind, preview_filters,
                                              disable_champion_filter=disable_concentrated_champion_filter)
-        preview_end = resolve_evidence_end(research_raw, evidence_end_date)[0]
+        preview_end = (
+            exact_next_close_end if forward_cutoff_requested
+            else resolve_evidence_end(research_raw, evidence_end_date)[0]
+        )
         if preview_end is not None and not preview_targets.empty:
             preview_targets = preview_targets.loc[preview_targets["rebalance_date"] <= preview_end].copy()
         if not preview_targets.empty:
@@ -1855,7 +1936,9 @@ def replay(
                     inputs.add(nav_v2.resolve_research_path(price_cache / px_cache_name(ticker)))
                     if any(nav_v2.resolve_research_path(p) in inputs for p in paths):
                         return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
-                    if not load_price_series(price_cache, ticker).empty:
+                    if not invalid_forward_cutoff and not _price_rows_through(
+                        load_price_series(price_cache, ticker), exact_next_close_end
+                    ).empty:
                         break
         nav_v2.authorize_research_cleanup(output_dir, generated_names, inputs, price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1870,6 +1953,15 @@ def replay(
             (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
         if (nav_v2.resolve_research_path(output_dir / artifact("replay_report.md")) if research_measurement else (output_dir / artifact("replay_report.md")).resolve()) not in protected:
             (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
+        return payload
+    if invalid_forward_cutoff:
+        payload = redact_execution_performance(
+            {"target_book": str(target_book), "price_cache": str(price_cache),
+             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode},
+            reason="invalid_forward_evidence_end_date",
+        )
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
+        (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1925,9 +2017,11 @@ def replay(
             portfolio_kind=portfolio_kind,
             explicit_filters=concentrated_champion_filters,
         )
-    evidence_end, evidence_end_source = resolve_evidence_end(
-        raw,
-        evidence_end_date,
+    # An explicit Forward cutoff opts in to the scheduled NYSE close. Existing
+    # lag-only and inferred operating-book replays retain their fill contract.
+    evidence_end, evidence_end_source = (
+        (exact_next_close_end, "explicit_argument")
+        if forward_cutoff_requested else resolve_evidence_end(raw, evidence_end_date)
     )
     targets = normalize_targets(
         raw,
@@ -1989,6 +2083,8 @@ def replay(
             )
             for ticker in tickers
         }
+    if exact_next_close_end is not None:
+        prices = {ticker: _price_rows_through(px, exact_next_close_end) for ticker, px in prices.items()}
     prices = {ticker: px for ticker, px in prices.items() if not px.empty}
     execution_cost_model = (
         (ExecutionCostModel(prices, execution_cost_config, strict_io=True) if research_measurement
@@ -2039,6 +2135,7 @@ def replay(
         fill_mode=fill_mode,
         max_fill_lag_days=max_fill_lag_days,
         evidence_end_date=evidence_end,
+        exact_next_close=exact_next_close_end is not None,
     )
     target_fill_frame.to_csv(
         output_dir / artifact("target_fill_coverage.csv"),
@@ -2228,7 +2325,7 @@ def replay(
     calendar_prices: dict[str, pd.DataFrame] = {}
     if carry_enabled:
         for ticker in DEFAULT_CASH_CARRY_CALENDAR_TICKERS:
-            px = load_price_series(price_cache, ticker)
+            px = _price_rows_through(load_price_series(price_cache, ticker), exact_next_close_end)
             if not px.empty:
                 calendar_prices[ticker] = px
                 break
@@ -2252,6 +2349,7 @@ def replay(
         price_cache,
         calendar_prices if carry_enabled else None,
         evidence_end,
+        exact_next_close=exact_next_close_end is not None,
     )
     state = LedgerState(cash=float(starting_capital))
     trade_rows: list[dict[str, Any]] = []
@@ -2290,7 +2388,10 @@ def replay(
         for ticker in sorted(set(target["ticker"].astype(str).str.upper()) | set(state.shares.keys())):
             if ticker in CASH_TICKERS:
                 continue
-            actual_dt, px = fill_price(prices, ticker, signal_dt, fill_mode, max_fill_lag_days)
+            actual_dt, px = fill_price(
+                prices, ticker, signal_dt, fill_mode, max_fill_lag_days,
+                exact_next_close_end=exact_next_close_end,
+            )
             normalized_fill = (
                 pd.Timestamp(actual_dt).normalize() if actual_dt is not None else None
             )
@@ -2304,7 +2405,10 @@ def replay(
         if not fill_dt_by_ticker:
             if not carry_enabled:
                 continue
-            fill_dt = calendar_fill_date(calendar_prices, signal_dt, fill_mode, max_fill_lag_days)
+            fill_dt = calendar_fill_date(
+                calendar_prices, signal_dt, fill_mode, max_fill_lag_days,
+                exact_next_close_end=exact_next_close_end,
+            )
             if fill_dt is None or (
                 evidence_end is not None and pd.Timestamp(fill_dt).normalize() > evidence_end
             ):
@@ -2741,6 +2845,7 @@ def replay(
             "valid_for_production": bool(
                 metrics.get("status") == "completed"
                 and fill_mode == "next_close"
+                and exact_next_close_end is None
                 and integer_shares
                 and not carry_enabled
                 and not partial_resize_two_signal_confirmation
@@ -2756,6 +2861,8 @@ def replay(
             **weight_diag,
         }
     )
+    if exact_next_close_end is not None:
+        metrics.update(research_only=True, production_activation_allowed=False)
     if execution_cost_config.enabled:
         execution_summary = summarize_execution_costs(
             trades_df,
@@ -3084,7 +3191,8 @@ def parse_args() -> argparse.Namespace:
         "--evidence-end-date",
         default="",
         help=(
-            "Optional last observable close date. When omitted, a valid "
+            "Optional last observable close date (YYYY-MM-DD). An explicit date makes next_close "
+            "research-only and requires the scheduled NYSE close. When omitted, a valid "
             "operating target book may supply its audited latest-price metadata."
         ),
     )
