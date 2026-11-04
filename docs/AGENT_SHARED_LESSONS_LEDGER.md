@@ -9671,3 +9671,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   while preserving protected output cleanup and the omitted-cutoff contract.
   Check Pandas and NumPy NaT before conversion; the generic NumPy NaT can
   raise even with errors=coerce and previously bypassed stale-output cleanup.
+
+- PR720's first hosted validation (run 41845931219, job 126629292460) passed
+  the broker replay smoke and 235 of 236 registered programs. The agent-board
+  proof refused the changed replay bytes because five current-equivalent
+  catalog entries still pinned the old dependency. Rebind those exact Git
+  bytes under the reviewed 43a00000 base and preserve historical source
+  references, classifications, negative checks, and the failed CI record.
