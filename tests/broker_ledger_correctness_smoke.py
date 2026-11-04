@@ -26,6 +26,7 @@ from pathlib import Path
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -508,8 +509,11 @@ class ForwardNextCloseClockTests(unittest.TestCase):
         self.assertEqual(old["status"], "completed")
         self.assertTrue((output / "trades.csv").is_file())
         self.assertTrue((output / "account_state_latest.json").is_file())
-        for value in ("not-a-cutoff", "2026-02-30", "01/05/2026", pd.NaT, 0, False,
-                      pd.Timestamp("2026-01-05 10:30"), pd.Timestamp("2026-01-05", tz="UTC")):
+        for value in (
+            "not-a-cutoff", "2026-02-30", "01/05/2026", pd.NaT,
+            np.datetime64("NaT"), np.datetime64("NaT", "D"), 0, False,
+            pd.Timestamp("2026-01-05 10:30"), pd.Timestamp("2026-01-05", tz="UTC"),
+        ):
             with self.subTest(value=value), patch.object(
                 broker, "load_price_series", side_effect=AssertionError("invalid cutoff loaded prices"),
             ):

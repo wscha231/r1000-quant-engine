@@ -9669,3 +9669,5 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   legacy delayed execution and production-valid metrics. Validate a supplied
   Forward close date before pricing and redact results on invalid dates,
   while preserving protected output cleanup and the omitted-cutoff contract.
+  Check Pandas and NumPy NaT before conversion; the generic NumPy NaT can
+  raise even with errors=coerce and previously bypassed stale-output cleanup.

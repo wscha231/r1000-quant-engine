@@ -549,9 +549,12 @@ def _parse_forward_close_date(value: Any) -> pd.Timestamp | None:
         if calendar_date.isoformat() != value:
             return None
         value = calendar_date
-    if not isinstance(value, (date, np.datetime64)):
+    if not isinstance(value, (date, np.datetime64)) or pd.isna(value):
         return None
-    cutoff = pd.to_datetime(value, errors="coerce")
+    try:
+        cutoff = pd.to_datetime(value, errors="coerce")
+    except (TypeError, ValueError, OverflowError):
+        return None
     if pd.isna(cutoff) or cutoff.tzinfo is not None or cutoff != cutoff.normalize():
         return None
     return cutoff
