@@ -451,12 +451,185 @@ class MonitorTests(unittest.TestCase):
         self.assertTrue(all(v is False for k, v in report["safety"].items() if k != "research_only"))
 
 
+
+class ForwardContextTests(unittest.TestCase):
+    session = "2026-09-04"
+
+    class Feed:
+        """Serve only the pinned GitHub routes and known ZIP members."""
+        def __init__(self, key, payloads=None, *, conclusion="success", attempt=1):
+            self.spec = CONTRACT["forward_context_sources"][key]
+            self.run = sample_run(conclusion=conclusion)
+            self.run.update(
+                path=".github/workflows/" + self.spec["workflow"], run_attempt=attempt,
+                created_at="2026-09-05T01:00:00Z", updated_at="2026-09-05T01:04:00Z",
+                head_repository={"full_name": CONTRACT["repository"], "id": 100})
+            self.calls = []
+            self.jobs = []
+            self.artifact = None
+            self.artifact_count = 1
+            if payloads is not None:
+                data = io.BytesIO()
+                with zipfile.ZipFile(data, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    for label, payload in payloads.items():
+                        archive.writestr(self.spec["members"][label], json.dumps(payload))
+                self.raw = data.getvalue()
+                self.actual_digest = "sha256:" + hashlib.sha256(self.raw).hexdigest()
+                self.artifact = dict(id=3, name=self.spec["artifact_prefix"] + "2",
+                    digest=self.actual_digest, expired=False, size_in_bytes=len(self.raw),
+                    created_at="2026-09-05T01:03:00Z",
+                    workflow_run=dict(id=2, head_sha="a" * 40, head_branch="master",
+                                      repository_id=100, head_repository_id=100))
+
+        def set_jobs(self, proxy="success", managed="success"):
+            self.jobs = [dict(id=index, name=self.spec["job_names"][label],
+                         run_id=self.run["id"], run_attempt=self.run["run_attempt"],
+                         head_sha=self.run["head_sha"], status="completed", conclusion=conclusion)
+                         for index, (label, conclusion) in enumerate(
+                             (("proxy_validation", proxy), ("managed_refresh", managed)), start=10)]
+
+        def json(self, path):
+            self.calls.append(path)
+            if path == f"/actions/workflows/{self.spec['workflow']}/runs?branch=master&per_page=30":
+                return {"workflow_runs": [self.run]}
+            if path == f"/actions/runs/2/attempts/{self.run['run_attempt']}/jobs?per_page=100":
+                return {"total_count": len(self.jobs), "jobs": self.jobs}
+            if path == "/actions/runs/2/artifacts?per_page=100" and self.artifact is not None:
+                return {"total_count": self.artifact_count, "artifacts": [self.artifact]}
+            raise AssertionError("unexpected GitHub route")
+
+        def archive(self, artifact_id, destination, limit):
+            self.calls.append(("archive", artifact_id, limit))
+            if self.artifact is None or artifact_id != 3 or len(self.raw) > limit:
+                raise AssertionError("unexpected artifact download")
+            destination.write_bytes(self.raw)
+            return self.actual_digest
+
+    def collect(self, key, feed):
+        return monitor.collect_source(feed, key, feed.spec, CONTRACT, now=NOW, session=self.session)
+
+    def managed_payload(self, *, date=None, blocked=False):
+        auth = dict(source_admission=False, pit_verified=False, economic_authority=False)
+        result = dict(status="REFRESH_CHECKPOINT_VERIFIED", session=date or self.session,
+                      checkpoint_sha256="c" * 64, **auth)
+        meter = dict(schema="a1-sip-campaign-meter-v1", run_id=2, run_attempt=1, source_sha="a" * 40,
+                     managed_checkpoint_sha256="c" * 64, finalized=True, status="COMPLETE", **auth)
+        if blocked:
+            result = dict(status="BLOCKED", reason="MANAGED_BOOTSTRAP_INCOMPLETE_GRID", **auth)
+            meter.update(status="BLOCKED", managed_checkpoint_sha256=None)
+        return dict(result=result, meter=meter)
+
+    def crisis_payload(self, *, date=None, generated="2026-09-05T01:02:00Z"):
+        session = date or self.session
+        return dict(summary=dict(schema_version="daily-crisis-monitor-v2",
+            expected_session=session, generated_at_utc=generated, research_only=True,
+            auto_trade_allowed=False, market_analysis=dict(schema="market-analysis-report-v1",
+                status="DATA_BLOCKED", market="US", session=session, cutoff="2026-09-05T01:02:00Z",
+                blockers=["MARKET_INPUT_UNAVAILABLE_INVALID_OR_EXPIRED", "untrusted URL"],
+                market_assessment=dict(risk_score=999))))
+
+    def test_context_survives_ledger_failure_without_changing_queue_or_authority(self):
+        original = evidence()
+        original["operating"] = {"status": "UPSTREAM_FAILED",
+                                 "data": {"recovery": {"status": "BLOCKED_ACCEPTED_LEDGER"}}}
+        baseline = monitor.evaluate(original, self.session, NOW, CONTRACT)
+        a1 = self.Feed("a1_forward", self.managed_payload())
+        a1.set_jobs()
+        a4 = self.Feed("a4_forward", self.crisis_payload(), conclusion="failure")
+        form4 = self.Feed("sec_form4")
+        sources = dict(original, a1_forward=self.collect("a1_forward", a1),
+                       a4_forward=self.collect("a4_forward", a4), sec_form4=self.collect("sec_form4", form4))
+        before = copy.deepcopy(sources)
+        report = monitor.evaluate(sources, self.session, NOW, CONTRACT)
+        self.assertEqual(sources, before)
+        self.assertEqual(len(form4.calls), 1)
+        for key in ("status", "alerts", "watchlist", "safety", "current_portfolio_ready",
+                    "current_investment_ranking_ready", "current_engine_scores_ready"):
+            self.assertEqual(report[key], baseline[key])
+        self.assertEqual(report["observations"]["ownership"], baseline["observations"]["ownership"])
+        view = report["observations"]["forward_source_context"]
+        self.assertEqual(view["a1"]["managed_generation"]["status"], "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION")
+        self.assertIsNone(view["a1"]["proxy_validation"]["session"])
+        self.assertEqual(view["a4"]["status"], "DATA_BLOCKED")
+        self.assertEqual(view["a4"]["report_session"], self.session)
+        self.assertEqual(view["a4"]["reason_codes"], ["MARKET_INPUT_UNAVAILABLE_INVALID_OR_EXPIRED"])
+        for key in ("risk_score", "source_session", "source_receipts"):
+            self.assertIsNone(view["a4"][key])
+        self.assertEqual(view["sec_form4"]["run_conclusion"], "success")
+        self.assertIsNone(view["sec_form4"]["filing_available_at"])
+        self.assertEqual(view["sec_13f"]["observation_key"], "ownership")
+        self.assertIn("forward_source_context", monitor.render(report))
+        self.assertIn("forward_source_context", monitor.render_html(report))
+
+    def test_proxy_success_and_managed_failure_are_distinct(self):
+        a1 = self.Feed("a1_forward", self.managed_payload(blocked=True), conclusion="failure")
+        a1.set_jobs(managed="failure")
+        source = self.collect("a1_forward", a1)
+        view = monitor.forward_a1_context(source, self.session)
+        self.assertEqual(view["proxy_validation"]["job"]["conclusion"], "success")
+        self.assertEqual(view["managed_generation"]["job"]["conclusion"], "failure")
+        self.assertEqual(view["managed_generation"]["status"], "MANAGED_REFRESH_BLOCKED")
+        self.assertEqual(view["managed_generation"]["reason"], "MANAGED_BOOTSTRAP_INCOMPLETE_GRID")
+        self.assertIsNone(view["managed_generation"]["session"])
+        self.assertIsNone(view["managed_generation"]["checkpoint_sha256"])
+
+    def test_unbound_managed_checkpoints_and_dates_are_refused(self):
+        for date, expected in (("2026-09-03", "STALE"), ("2026-09-05", "FUTURE_DATE")):
+            with self.subTest(date=date):
+                feed = self.Feed("a1_forward", self.managed_payload(date=date))
+                feed.set_jobs()
+                view = monitor.forward_a1_context(self.collect("a1_forward", feed), self.session)
+                self.assertEqual(view["managed_generation"]["status"], expected)
+                self.assertIsNone(view["managed_generation"]["checkpoint_sha256"])
+        for field, value in (("managed_checkpoint_sha256", "d" * 64),
+                             ("run_attempt", True), ("pit_verified", True)):
+            with self.subTest(field=field):
+                payload = self.managed_payload()
+                payload["meter"][field] = value
+                feed = self.Feed("a1_forward", payload)
+                feed.set_jobs()
+                view = monitor.forward_a1_context(self.collect("a1_forward", feed), self.session)
+                self.assertEqual(view["managed_generation"]["status"], "MANAGED_EVIDENCE_UNVERIFIED")
+
+    def test_a4_failure_needs_exact_artifact_identity_member_session_and_clock(self):
+        for variation, expected in (
+            ("digest", "BLOCKED_SOURCE"), ("head", "BLOCKED_SOURCE"), ("repository", "BLOCKED_SOURCE"),
+            ("attempt", "UNVERIFIED_RUN_ATTEMPT"), ("session", "A4_SESSION_MISMATCH"),
+            ("future_report", "A4_REPORT_CLOCK_UNVERIFIED"), ("member", "A4_REPORT_UNVERIFIED"),
+            ("oversize", "BLOCKED_SOURCE"), ("partial_list", "BLOCKED_SOURCE"),
+            ("cancelled", "A4_REPORT_UNVERIFIED"),
+        ):
+            with self.subTest(variation=variation):
+                payload = self.crisis_payload(date="2026-09-03" if variation == "session" else None,
+                    generated="2026-09-06T01:02:00Z" if variation == "future_report" else "2026-09-05T01:02:00Z")
+                feed = self.Feed("a4_forward", {} if variation == "member" else payload,
+                    conclusion="cancelled" if variation == "cancelled" else "failure",
+                    attempt=2 if variation == "attempt" else 1)
+                if variation == "digest":
+                    feed.artifact["digest"] = "sha256:" + "d" * 64
+                if variation == "head":
+                    feed.artifact["workflow_run"]["head_sha"] = "e" * 40
+                if variation == "repository":
+                    feed.artifact["workflow_run"]["head_repository_id"] = 101
+                if variation == "oversize":
+                    feed.artifact["size_in_bytes"] = feed.spec["max_artifact_bytes"] + 1
+                if variation == "partial_list":
+                    feed.artifact_count = 2
+                result = monitor.forward_a4_context(self.collect("a4_forward", feed), self.session, NOW)
+                self.assertEqual(result["status"], expected)
+                self.assertIsNone(result["report_session"])
+                self.assertIsNone(result["risk_score"])
+                if variation in {"attempt", "head", "repository", "oversize", "partial_list"}:
+                    self.assertFalse(any(isinstance(call, tuple) for call in feed.calls))
+
+
 def main() -> int:
     # This existing CI path also exercises the optional strict Theme/ETF reader.
     # No frozen Tier-1 registry or gate definition is changed.
     import theme_etf_source_bridge_smoke
     suite = unittest.TestSuite([
         unittest.defaultTestLoader.loadTestsFromTestCase(MonitorTests),
+        unittest.defaultTestLoader.loadTestsFromTestCase(ForwardContextTests),
         unittest.defaultTestLoader.loadTestsFromModule(theme_etf_source_bridge_smoke),
     ])
     result = unittest.TextTestRunner(verbosity=1).run(suite)

@@ -191,8 +191,36 @@ def recovery_receipt_ready(receipt: dict, run: dict, artifact: dict, session: st
         return False
 
 
+def forward_a1_jobs(client: GitHub, run: dict, names: dict) -> dict:
+    """Bind the proxy and managed jobs to one run attempt."""
+    path = f"/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
+    listing = client.json(path)
+    jobs = listing.get("jobs")
+    count = listing.get("total_count")
+    if not isinstance(jobs, list) or type(count) is not int or count != len(jobs) or count > 100:
+        raise ValueError("forward_job_list_incomplete")
+    result = {}
+    for label, name in names.items():
+        matches = [job for job in jobs if job.get("name") == name]
+        if not matches:
+            continue
+        if len(matches) != 1:
+            raise ValueError("forward_job_ambiguous")
+        job = matches[0]
+        if (type(job.get("id")) is not int or job["id"] <= 0
+                or type(job.get("run_id")) is not int or job["run_id"] != run["id"]
+                or type(job.get("run_attempt")) is not int or job["run_attempt"] != run["run_attempt"]
+                or job.get("head_sha") != run["head_sha"] or job.get("status") != "completed"):
+            raise ValueError("forward_job_identity_mismatch")
+        result[label] = {k: job.get(k) for k in ("id", "status", "conclusion")}
+    return result
+
+
 def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=None, session=None) -> dict:
     result: dict[str, Any] = {"source": key, "status": "MISSING_RUN", "data": {}}
+    forward = key in contract.get("forward_context_sources", {})
+    archive_limit = min(contract["max_artifact_bytes"], spec.get("max_artifact_bytes", contract["max_artifact_bytes"]))
+    member_limit = min(contract["max_member_bytes"], spec.get("max_member_bytes", contract["max_member_bytes"]))
     try:
         runs = client.json(f"/actions/workflows/{spec['workflow']}/runs?branch=master&per_page=30")
         run = latest_run(runs.get("workflow_runs", []), spec["workflow"], contract["repository"], spec["allowed_events"])
@@ -204,7 +232,30 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
             result["status"] = "UPSTREAM_IN_PROGRESS"
             return result
         result["status"] = "UPSTREAM_FAILED" if run.get("conclusion") != "success" else "MISSING_ARTIFACT"
-        artifacts = client.json(f"/actions/runs/{run['id']}/artifacts?per_page=100").get("artifacts", [])
+        if forward:
+            observed = now if now is not None else datetime.now(timezone.utc)
+            if (type(run.get("id")) is not int or run["id"] <= 0
+                    or type(run.get("run_attempt")) is not int or run["run_attempt"] <= 0
+                    or not re.fullmatch(r"[a-f0-9]{40}", run.get("head_sha") or "")):
+                raise ValueError("forward_run_identity_invalid")
+            if not (timestamp(run["created_at"]) <= timestamp(run["updated_at"]) <= observed):
+                raise ValueError("forward_run_clock_invalid")
+            if spec.get("metadata_only") is True:
+                result["status"] = "RUN_METADATA_ONLY"
+                return result
+            if spec.get("job_names"):
+                result["jobs"] = forward_a1_jobs(client, run, spec["job_names"])
+            # These artifact names contain a run ID, with no attempt field.
+            if run["run_attempt"] != 1:
+                result["status"] = "UNVERIFIED_RUN_ATTEMPT"
+                return result
+        listing = client.json(f"/actions/runs/{run['id']}/artifacts?per_page=100")
+        artifacts = listing.get("artifacts", [])
+        if forward:
+            count = listing.get("total_count")
+            if (not isinstance(artifacts, list) or type(count) is not int
+                    or count != len(artifacts) or count > 100):
+                raise ValueError("forward_artifact_list_incomplete")
         matches = [a for a in artifacts if a.get("name") == spec["artifact_prefix"] + str(run["id"])]
         if len(matches) != 1:
             return result
@@ -213,18 +264,32 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
         identity = artifact.get("workflow_run") or {}
         if identity.get("id") != run["id"] or identity.get("head_sha") != run["head_sha"]:
             raise ValueError("artifact_run_identity_mismatch")
-        if artifact.get("expired") or artifact.get("size_in_bytes", 0) > contract["max_artifact_bytes"]:
+        if forward:
+            repo_id = (run.get("head_repository") or {}).get("id")
+            if (type(identity.get("id")) is not int or identity.get("head_branch") != "master"
+                    or artifact.get("expired") is not False
+                    or type(repo_id) is not int or repo_id <= 0
+                    or identity.get("repository_id") != repo_id or identity.get("head_repository_id") != repo_id
+                    or type(artifact.get("id")) is not int or artifact["id"] <= 0
+                    or type(artifact.get("size_in_bytes")) is not int
+                    or not 0 < artifact["size_in_bytes"] <= archive_limit):
+                raise ValueError("forward_artifact_identity_or_size_invalid")
+            if not (timestamp(run["created_at"]) <= timestamp(artifact["created_at"])
+                    <= timestamp(run["updated_at"]) <= observed):
+                raise ValueError("forward_artifact_clock_invalid")
+            result["artifact"]["created_at"] = artifact["created_at"]
+        if artifact.get("expired") or artifact.get("size_in_bytes", 0) > archive_limit:
             raise ValueError("artifact_expired_or_oversize")
         if not re.fullmatch(r"sha256:[a-f0-9]{64}", artifact.get("digest") or ""):
             raise ValueError("artifact_digest_missing")
         with tempfile.TemporaryDirectory(prefix="run287-monitor-") as folder:
             path = Path(folder) / "evidence.zip"
-            actual = client.archive(artifact["id"], path, contract["max_artifact_bytes"])
+            actual = client.archive(artifact["id"], path, archive_limit)
             if actual != artifact["digest"]:
                 raise ValueError("artifact_digest_mismatch")
             members = {k: v.format(run_id=run["id"], run_attempt=run.get("run_attempt", 1))
                        for k, v in spec["members"].items()}
-            result["data"], result["files"] = read_members(path, members, contract["max_member_bytes"])
+            result["data"], result["files"] = read_members(path, members, member_limit)
             if key == "operating" and contract.get("theme_etf_bridge"):
                 bridge_now = now if now is not None else datetime.now(timezone.utc)
                 bridge_session = session if session is not None else completed_session(bridge_now)
@@ -297,9 +362,106 @@ def completed_session(now: datetime) -> str:
     return str(completed.index[-1].date())
 
 
+def forward_a1_context(source: dict, session: str) -> dict:
+    jobs = source.get("jobs", {})
+    proxy = jobs.get("proxy_validation")
+    managed_job = jobs.get("managed_refresh")
+    proxy_view = {"status": "JOB_METADATA_ONLY" if proxy else "JOB_UNAVAILABLE",
+                  "job": proxy, "session": None}
+    managed = {"status": source.get("status", "MISSING_SOURCE"), "job": managed_job,
+               "session": None, "checkpoint_sha256": None, "reason": None}
+    report = source.get("data", {}).get("result", {})
+    meter = source.get("data", {}).get("meter", {})
+    run = source.get("run", {})
+    if not (source.get("artifact_hash_verified") is True and managed_job
+            and type(run.get("run_attempt")) is int and run["run_attempt"] == 1
+            and meter.get("schema") == "a1-sip-campaign-meter-v1"
+            and type(meter.get("run_id")) is int and meter["run_id"] == run.get("id")
+            and type(meter.get("run_attempt")) is int and meter["run_attempt"] == 1
+            and meter.get("source_sha") == run.get("head_sha")
+            and meter.get("finalized") is True
+            and all(item.get(k) is False for item in (report, meter)
+                    for k in ("source_admission", "pit_verified", "economic_authority"))):
+        if source.get("artifact_hash_verified") is True:
+            managed["status"] = "MANAGED_EVIDENCE_UNVERIFIED"
+        return {"proxy_validation": proxy_view, "managed_generation": managed}
+    if (managed_job.get("conclusion") == "failure" and meter.get("status") == "BLOCKED"
+            and report.get("status") == "BLOCKED"):
+        reason = report.get("reason")
+        managed.update(status="MANAGED_REFRESH_BLOCKED",
+                       reason=reason if isinstance(reason, str) and re.fullmatch(r"[A-Z_]{1,100}", reason) else None)
+    elif (managed_job.get("conclusion") == "success" and meter.get("status") == "COMPLETE"
+          and report.get("status") == "REFRESH_CHECKPOINT_VERIFIED"
+          and isinstance(report.get("checkpoint_sha256"), str)
+          and re.fullmatch(r"[a-f0-9]{64}", report["checkpoint_sha256"])
+          and meter.get("managed_checkpoint_sha256") == report["checkpoint_sha256"]):
+        state = date_state(report.get("session"), session)
+        managed["status"] = "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION" if state == "CURRENT" else state
+        if state == "CURRENT":
+            managed.update(session=session, checkpoint_sha256=report["checkpoint_sha256"])
+    else:
+        managed["status"] = "MANAGED_EVIDENCE_UNVERIFIED"
+    return {"proxy_validation": proxy_view, "managed_generation": managed}
+
+
+def forward_a4_context(source: dict, session: str, now: datetime) -> dict:
+    result = {"status": source.get("status", "MISSING_SOURCE"), "report_session": None,
+              "source_session": None, "source_receipts": None, "risk_score": None,
+              "reason_codes": []}
+    if source.get("artifact_hash_verified") is not True:
+        return result
+    result["status"] = "A4_REPORT_UNVERIFIED"
+    run, artifact = source.get("run", {}), source.get("artifact", {})
+    report = source.get("data", {}).get("summary", {})
+    market = report.get("market_analysis")
+    if (type(run.get("run_attempt")) is not int or run["run_attempt"] != 1
+            or run.get("conclusion") not in {"success", "failure"}
+            or report.get("schema_version") != "daily-crisis-monitor-v2"
+            or report.get("research_only") is not True or report.get("auto_trade_allowed") is not False
+            or not isinstance(market, dict) or market.get("schema") != "market-analysis-report-v1"
+            or market.get("market") != "US"):
+        return result
+    if report.get("expected_session") != session or market.get("session") not in (None, session):
+        result["status"] = "A4_SESSION_MISMATCH"
+        return result
+    try:
+        generated = timestamp(report["generated_at_utc"])
+        if not (timestamp(run["created_at"]) <= generated <= timestamp(artifact["created_at"]) <= now):
+            raise ValueError("a4_report_clock")
+        if market.get("cutoff") is not None and timestamp(market["cutoff"]) > generated:
+            raise ValueError("a4_report_clock")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        result["status"] = "A4_REPORT_CLOCK_UNVERIFIED"
+        return result
+    if market.get("status") == "DATA_BLOCKED":
+        reasons = market.get("blockers", [])
+        result.update(status="DATA_BLOCKED", report_session=session,
+                      reason_codes=[r for r in reasons[:20] if isinstance(r, str)
+                                    and re.fullmatch(r"[A-Z0-9_]{1,100}", r)]
+                      if isinstance(reasons, list) else [])
+    elif (run.get("conclusion") == "success" and market.get("status") == "READY_RESEARCH_ONLY"
+          and market.get("session") == session and market.get("cutoff") is not None):
+        result.update(status="RESEARCH_REPORT_AVAILABLE", report_session=session)
+    return result
+
+
+def forward_source_context(sources: dict, session: str, now: datetime) -> dict:
+    form4 = sources.get("sec_form4", {})
+    return {"a1": forward_a1_context(sources.get("a1_forward", {}), session),
+            "a4": forward_a4_context(sources.get("a4_forward", {}), session, now),
+            "sec_form4": {"status": form4.get("status", "MISSING_SOURCE"),
+                          "run_conclusion": form4.get("run", {}).get("conclusion")
+                          if form4.get("status") == "RUN_METADATA_ONLY" else None,
+                          "filing_available_at": None, "source_session": None,
+                          "source_receipt_sha256": None},
+            "sec_13f": {"observation_key": "ownership", "scope": "QUARTERLY_DISCLOSURES"}}
+
+
 def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict:
     alerts, observations = [], {}
     observations["theme_etf_bridge"] = theme_etf_source_bridge.observation(sources.get("operating", {}), session)
+    if contract.get("forward_context_sources"):
+        observations["forward_source_context"] = forward_source_context(sources, session, now)
     bridge_observation = observations["theme_etf_bridge"]
     if not bridge_observation["runtime_executed"]:
         alerts.append("theme_etf:" + str(bridge_observation["reason"]))
@@ -488,8 +650,11 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     client = GitHub(contract["repository"], os.environ.get("GH_TOKEN", ""))
     session = completed_session(now)
+    forward_specs = contract.get("forward_context_sources", {})
+    if set(contract["sources"]).intersection(forward_specs):
+        raise ValueError("forward_source_key_conflict")
     sources = {k: collect_source(client, k, spec, contract, now=now, session=session)
-               for k, spec in contract["sources"].items()}
+               for k, spec in {**contract["sources"], **forward_specs}.items()}
     report = evaluate(sources, session, now, contract)
     report["code_sha"] = os.environ.get("GITHUB_SHA", "local-unpublished")
     report["contract_sha256"] = hashlib.sha256(args.contract.read_bytes()).hexdigest()

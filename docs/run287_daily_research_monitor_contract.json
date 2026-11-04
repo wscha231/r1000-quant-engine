@@ -76,6 +76,47 @@
       }
     }
   },
+  "forward_context_sources": {
+    "a1_forward": {
+      "workflow": "free_data_daily_update.yml",
+      "allowed_events": [
+        "schedule",
+        "workflow_dispatch"
+      ],
+      "artifact_prefix": "a1-managed-ohlcv-",
+      "max_artifact_bytes": 150000,
+      "max_member_bytes": 65536,
+      "job_names": {
+        "proxy_validation": "daily_update",
+        "managed_refresh": "Managed A1 private OHLCV refresh"
+      },
+      "members": {
+        "result": "managed_result.json",
+        "meter": "managed_meter.json"
+      }
+    },
+    "a4_forward": {
+      "workflow": "daily_crisis_monitor.yml",
+      "allowed_events": [
+        "schedule",
+        "workflow_dispatch"
+      ],
+      "artifact_prefix": "daily-crisis-monitor-",
+      "max_artifact_bytes": 262144,
+      "max_member_bytes": 131072,
+      "members": {
+        "summary": "summary.json"
+      }
+    },
+    "sec_form4": {
+      "workflow": "sec_form4_daily_refresh.yml",
+      "allowed_events": [
+        "schedule",
+        "workflow_dispatch"
+      ],
+      "metadata_only": true
+    }
+  },
   "watchlist": {
     "US": ["NVDA", "AMD", "AVGO", "ANET", "TSM", "MU", "AMAT", "KLAC", "LRCX", "GEV", "ETN", "VRT", "PWR", "EME", "FIX", "NVT", "CEG", "VST", "NEE", "BE", "CCJ", "FCX", "MTZ", "FLR"],
     "KR": ["000660", "005930", "267260", "010120", "298040", "034020", "052690", "009830", "000720"]
