@@ -9665,3 +9665,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Check both completed future-tail variants as well as refusal parity. Verify
   that a final cash target liquidates held names at the exact due close even
   when that target contains no ticker to supply the last marking period.
+- Independent QA reproduced a malformed explicit cutoff falling through to
+  legacy delayed execution and production-valid metrics. Validate a supplied
+  Forward close date before pricing and redact results on invalid dates,
+  while preserving protected output cleanup and the omitted-cutoff contract.

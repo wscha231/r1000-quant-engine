@@ -485,7 +485,7 @@ class ForwardNextCloseClockTests(unittest.TestCase):
             index=pd.to_datetime(dates),
         ).to_parquet(self.cache / px_cache_name(ticker))
 
-    def run_replay(self, name: str, cutoff: str | None, *, max_lag: int = 7):
+    def run_replay(self, name: str, cutoff, *, max_lag: int = 7, measurement_context=None):
         output = self.root / name
         result = replay(
             target_book=self.target,
@@ -497,8 +497,34 @@ class ForwardNextCloseClockTests(unittest.TestCase):
             max_fill_lag_days=max_lag,
             cash_carry_config=CashCarryConfig(mode="none"),
             evidence_end_date=cutoff,
+            measurement_context=measurement_context,
         )
         return result, output
+
+    def test_invalid_explicit_cutoff_blocks_before_prices_and_clears_old_results(self):
+        for ticker in ("AAA", "BBB"):
+            self.write_close(ticker, ["2026-01-02", "2026-01-06", "2026-01-07"], [100.0, 101.0, 102.0])
+        old, output = self.run_replay("reuse", "")
+        self.assertEqual(old["status"], "completed")
+        self.assertTrue((output / "trades.csv").is_file())
+        self.assertTrue((output / "account_state_latest.json").is_file())
+        for value in ("not-a-cutoff", "2026-02-30", "01/05/2026", pd.NaT, 0, False,
+                      pd.Timestamp("2026-01-05 10:30"), pd.Timestamp("2026-01-05", tz="UTC")):
+            with self.subTest(value=value), patch.object(
+                broker, "load_price_series", side_effect=AssertionError("invalid cutoff loaded prices"),
+            ):
+                result, _ = self.run_replay("reuse", value)
+                self.assertEqual(result["status"], "blocked")
+                self.assertEqual(result["reason"], "invalid_forward_evidence_end_date")
+                self.assertTrue(result["performance_fields_redacted"])
+                self.assertFalse(result["valid_for_production"])
+                self.assertNotIn("cagr", result)
+                for artifact in ("trades.csv", "equity_curve.csv", "account_state_latest.json"):
+                    self.assertFalse((output / artifact).exists())
+        with patch.object(broker, "load_price_series", side_effect=AssertionError("invalid cutoff loaded prices")):
+            research, _ = self.run_replay("research", pd.NaT, measurement_context={})
+        self.assertEqual(research["reason"], "invalid_forward_evidence_end_date")
+        self.assertFalse(research["measurement_admission"]["metric_admission_complete"])
 
     def test_missing_due_close_cannot_become_pending_from_future_bar(self):
         self.write_close("AAA", ["2026-01-02", "2026-01-05"], [100.0, 101.0])

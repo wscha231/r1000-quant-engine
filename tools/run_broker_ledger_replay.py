@@ -20,6 +20,7 @@ import math
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -536,6 +537,24 @@ def normalize_targets(
         }
     )
     return d.sort_values(["rebalance_date", "weight"], ascending=[True, False]).reset_index(drop=True)
+
+
+def _parse_forward_close_date(value: Any) -> pd.Timestamp | None:
+    # A Forward cutoff identifies the last observable close by calendar date.
+    if isinstance(value, str):
+        try:
+            calendar_date = date.fromisoformat(value)
+        except ValueError:
+            return None
+        if calendar_date.isoformat() != value:
+            return None
+        value = calendar_date
+    if not isinstance(value, (date, np.datetime64)):
+        return None
+    cutoff = pd.to_datetime(value, errors="coerce")
+    if pd.isna(cutoff) or cutoff.tzinfo is not None or cutoff != cutoff.normalize():
+        return None
+    return cutoff
 
 
 def resolve_evidence_end(
@@ -1809,6 +1828,13 @@ def replay(
     measurement_context_path: Path | None = None,
     load_measurement_context_from_path: bool = False,
 ) -> dict[str, Any]:
+    forward_cutoff_requested = (
+        fill_mode == "next_close"
+        and evidence_end_date is not None
+        and not (isinstance(evidence_end_date, str) and not evidence_end_date)
+    )
+    exact_next_close_end = _parse_forward_close_date(evidence_end_date) if forward_cutoff_requested else None
+    invalid_forward_cutoff = forward_cutoff_requested and exact_next_close_end is None
     research_measurement = measurement_context is not None or load_measurement_context_from_path
     if research_measurement:
         output_dir = output_dir / nav_v2.NAMESPACE
@@ -1889,9 +1915,9 @@ def replay(
             explicit_filters=concentrated_champion_filters)[0]
         preview_targets = normalize_targets(research_raw, portfolio_kind, preview_filters,
                                              disable_champion_filter=disable_concentrated_champion_filter)
-        preview_end, preview_end_source = resolve_evidence_end(research_raw, evidence_end_date)
-        preview_exact_end = (
-            preview_end if fill_mode == "next_close" and preview_end_source == "explicit_argument" else None
+        preview_end = (
+            exact_next_close_end if forward_cutoff_requested
+            else resolve_evidence_end(research_raw, evidence_end_date)[0]
         )
         if preview_end is not None and not preview_targets.empty:
             preview_targets = preview_targets.loc[preview_targets["rebalance_date"] <= preview_end].copy()
@@ -1907,7 +1933,9 @@ def replay(
                     inputs.add(nav_v2.resolve_research_path(price_cache / px_cache_name(ticker)))
                     if any(nav_v2.resolve_research_path(p) in inputs for p in paths):
                         return nav_v2.refused_research_publication("caller_input_collides_with_replay_output", output_dir, generated_names, inputs)
-                    if not _price_rows_through(load_price_series(price_cache, ticker), preview_exact_end).empty:
+                    if not invalid_forward_cutoff and not _price_rows_through(
+                        load_price_series(price_cache, ticker), exact_next_close_end
+                    ).empty:
                         break
         nav_v2.authorize_research_cleanup(output_dir, generated_names, inputs, price_cache)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1922,6 +1950,15 @@ def replay(
             (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
         if (nav_v2.resolve_research_path(output_dir / artifact("replay_report.md")) if research_measurement else (output_dir / artifact("replay_report.md")).resolve()) not in protected:
             (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
+        return payload
+    if invalid_forward_cutoff:
+        payload = redact_execution_performance(
+            {"target_book": str(target_book), "price_cache": str(price_cache),
+             "portfolio_kind": portfolio_kind, "fill_mode": fill_mode},
+            reason="invalid_forward_evidence_end_date",
+        )
+        (output_dir / metric_name).write_text(metric_json(payload, indent=2, refusal_class="E1"), encoding="utf-8")
+        (output_dir / artifact("replay_report.md")).write_text(render_report(payload), encoding="utf-8")
         return payload
     reserve_explicit = reserve_asset_policy is not None or bool(str(reserve_mode or "").strip())
     if reserve_asset_policy is None:
@@ -1977,14 +2014,11 @@ def replay(
             portfolio_kind=portfolio_kind,
             explicit_filters=concentrated_champion_filters,
         )
-    evidence_end, evidence_end_source = resolve_evidence_end(
-        raw,
-        evidence_end_date,
-    )
     # An explicit Forward cutoff opts in to the scheduled NYSE close. Existing
     # lag-only and inferred operating-book replays retain their fill contract.
-    exact_next_close_end = (
-        evidence_end if fill_mode == "next_close" and evidence_end_source == "explicit_argument" else None
+    evidence_end, evidence_end_source = (
+        (exact_next_close_end, "explicit_argument")
+        if forward_cutoff_requested else resolve_evidence_end(raw, evidence_end_date)
     )
     targets = normalize_targets(
         raw,
@@ -3154,7 +3188,7 @@ def parse_args() -> argparse.Namespace:
         "--evidence-end-date",
         default="",
         help=(
-            "Optional last observable close date. An explicit date makes next_close "
+            "Optional last observable close date (YYYY-MM-DD). An explicit date makes next_close "
             "research-only and requires the scheduled NYSE close. When omitted, a valid "
             "operating target book may supply its audited latest-price metadata."
         ),
