@@ -240,6 +240,8 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 raise ValueError("forward_run_identity_invalid")
             if not (timestamp(run["created_at"]) <= timestamp(run["updated_at"]) <= observed):
                 raise ValueError("forward_run_clock_invalid")
+            if not isinstance(run.get("conclusion"), str) or not run["conclusion"]:
+                raise ValueError("forward_run_conclusion_invalid")
             if spec.get("metadata_only") is True:
                 result["status"] = "RUN_METADATA_ONLY"
                 return result
@@ -415,7 +417,7 @@ def forward_a4_context(source: dict, session: str, now: datetime) -> dict:
     report = source.get("data", {}).get("summary", {})
     market = report.get("market_analysis")
     if (type(run.get("run_attempt")) is not int or run["run_attempt"] != 1
-            or run.get("conclusion") not in {"success", "failure"}
+            or run.get("conclusion") not in ("success", "failure")
             or report.get("schema_version") != "daily-crisis-monitor-v2"
             or report.get("research_only") is not True or report.get("auto_trade_allowed") is not False
             or not isinstance(market, dict) or market.get("schema") != "market-analysis-report-v1"

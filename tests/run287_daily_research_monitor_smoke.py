@@ -623,6 +623,25 @@ class ForwardContextTests(unittest.TestCase):
                     self.assertFalse(any(isinstance(call, tuple) for call in feed.calls))
 
 
+    def test_malformed_forward_conclusion_preserves_legacy_report(self):
+        feed = self.Feed("a4_forward", self.crisis_payload(), conclusion=[])
+        blocked = self.collect("a4_forward", feed)
+        self.assertEqual(blocked["reason"], "forward_run_conclusion_invalid")
+        self.assertFalse(any(isinstance(call, tuple) for call in feed.calls))
+        # A malformed conclusion must also be harmless in a supplied source snapshot.
+        valid = self.collect("a4_forward", self.Feed("a4_forward", self.crisis_payload(), conclusion="failure"))
+        valid["run"]["conclusion"] = []
+        sources = evidence()
+        baseline = monitor.evaluate(sources, self.session, NOW, CONTRACT)
+        sources["a4_forward"] = valid
+        report = monitor.evaluate(sources, self.session, NOW, CONTRACT)
+        self.assertEqual(report["observations"]["forward_source_context"]["a4"]["status"],
+                         "A4_REPORT_UNVERIFIED")
+        self.assertEqual(report["watchlist"], baseline["watchlist"])
+        self.assertEqual(report["alerts"], baseline["alerts"])
+        self.assertEqual(report["safety"], baseline["safety"])
+
+
 def main() -> int:
     # This existing CI path also exercises the optional strict Theme/ETF reader.
     # No frozen Tier-1 registry or gate definition is changed.
