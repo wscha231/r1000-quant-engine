@@ -9700,3 +9700,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and prior relative strength. A missing peer can suppress a cohort rank but
   must not erase valid stock vs SPY research. Price-only requests need stable
   stock/session IDs and private byte readback; they grant no A3/ER completion.
+- The full local workflow-artifact smoke passed the 92 monitor cases, then
+  hit the unchanged daily-capture test's Windows path-separator expectation
+  (test line 2381: Bash / versus pathlib backslash). Keep this local failure;
+  do not change capture code or weaken the test. The required hosted Linux
+  validation remains the integration gate.
