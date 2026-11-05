@@ -36,6 +36,94 @@
     "unavailable_policy": "Return null and an explicit reason; never use the tactical historical score as fallback.",
     "outputs": ["report.json", "report.md", "report.html", "research_queue.csv"]
   },
+  "etf_rotation": {
+    "benchmark": "SPY",
+    "references": {
+      "SPY": "S&P 500",
+      "QQQ": "Nasdaq 100",
+      "RSP": "S&P 500 equal weight"
+    },
+    "sectors": {
+      "XLC": "Communication services",
+      "XLY": "Consumer discretionary",
+      "XLP": "Consumer staples",
+      "XLE": "Energy",
+      "XLF": "Financials",
+      "XLV": "Health care",
+      "XLI": "Industrials",
+      "XLB": "Materials",
+      "XLRE": "Real estate",
+      "XLK": "Information technology",
+      "XLU": "Utilities"
+    },
+    "themes": {
+      "traditional_energy": {
+        "XOP": "Oil and gas exploration",
+        "OIH": "Oilfield services",
+        "AMLP": "Energy midstream"
+      },
+      "clean_power": {
+        "ICLN": "Clean energy",
+        "TAN": "Solar",
+        "FAN": "Wind",
+        "GRID": "Electric grid",
+        "NLR": "Nuclear and uranium"
+      },
+      "consumer": {
+        "XRT": "Retail",
+        "XHB": "Homebuilding",
+        "PEJ": "Leisure and entertainment",
+        "IBUY": "Online retail",
+        "PBJ": "Food and beverage"
+      },
+      "health_care": {
+        "XBI": "Biotechnology, equal weight",
+        "IHI": "Medical devices",
+        "IHF": "Health care providers",
+        "XPH": "Pharmaceuticals",
+        "IBB": "Biotechnology"
+      },
+      "technology": {
+        "SMH": "Semiconductors",
+        "IGV": "Software",
+        "CIBR": "Cybersecurity"
+      },
+      "industry": {
+        "ITA": "Aerospace and defense",
+        "PAVE": "US infrastructure",
+        "IYT": "Transportation"
+      },
+      "finance": {
+        "KRE": "Regional banking",
+        "KIE": "Insurance"
+      },
+      "real_assets": {
+        "XME": "Metals and mining",
+        "REZ": "Residential and specialized real estate"
+      }
+    },
+    "watch_reference": {
+      "NVDA": "SMH",
+      "AMD": "SMH",
+      "AVGO": "SMH",
+      "TSM": "SMH",
+      "MU": "SMH",
+      "AMAT": "SMH",
+      "KLAC": "SMH",
+      "LRCX": "SMH",
+      "GEV": "PAVE",
+      "ETN": "PAVE",
+      "PWR": "PAVE",
+      "EME": "PAVE",
+      "FIX": "PAVE",
+      "MTZ": "PAVE",
+      "FLR": "PAVE",
+      "CEG": "XLU",
+      "VST": "XLU",
+      "NEE": "XLU",
+      "FCX": "XLB"
+    }
+  },
   "sources": {
     "operating": {
       "workflow": "daily_operating_selection_refresh.yml",
@@ -50,11 +138,13 @@
       }
     },
     "tactical": {
+      "optional_members": ["etf_rotation"],
       "workflow": "after_close_daily.yml",
       "allowed_events": ["schedule", "workflow_dispatch"],
       "artifact_prefix": "after-close-daily-",
       "members": {
-        "summary": "outputs/tactical_alpha/tactical_run_summary.json"
+        "summary": "outputs/tactical_alpha/tactical_run_summary.json",
+        "etf_rotation": "outputs/after_close_daily/etf_rotation_receipt.json"
       }
     },
     "estimates": {

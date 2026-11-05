@@ -30,7 +30,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
 from tools.run287_research_report_html import render_html
-from tools import theme_etf_source_bridge
+from tools import run287_etf_rotation, theme_etf_source_bridge
 from tools.theme_etf_upstream_admission import read_upstream_prerequisite, recovery_observed_ready
 
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
@@ -291,7 +291,20 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 raise ValueError("artifact_digest_mismatch")
             members = {k: v.format(run_id=run["id"], run_attempt=run.get("run_attempt", 1))
                        for k, v in spec["members"].items()}
-            result["data"], result["files"] = read_members(path, members, member_limit)
+            rotation_member = members.get("etf_rotation") if key == "tactical" else None
+            ordinary_members = {k: v for k, v in members.items() if not rotation_member or k != "etf_rotation"}
+            result["data"], result["files"] = read_members(path, ordinary_members, member_limit)
+            if rotation_member:
+                # A bad optional receipt must not discard existing tactical diagnostics.
+                try:
+                    rotation, hashes = read_members(path, {"etf_rotation": rotation_member}, min(member_limit, 16_384))
+                    rotation_now = now if now is not None else datetime.now(timezone.utc)
+                    result["data"]["etf_rotation"] = run287_etf_rotation.receipt_observation(
+                        rotation.get("etf_rotation"), run, artifact, session or completed_session(rotation_now),
+                        rotation_now, contract)
+                    result["files"].update(hashes)
+                except (ValueError, OSError, RuntimeError, zipfile.BadZipFile):
+                    result["data"]["etf_rotation"] = {"status": "UNVERIFIED_RECEIPT"}
             if key == "operating" and contract.get("theme_etf_bridge"):
                 bridge_now = now if now is not None else datetime.now(timezone.utc)
                 bridge_session = session if session is not None else completed_session(bridge_now)
@@ -486,6 +499,13 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
     if str(recovery.get("status", "")).startswith("BLOCKED"):
         alerts.append("operating:" + str(recovery["status"]))
     tactical = data("tactical").get("summary", {})
+    if contract.get("etf_rotation"):
+        rotation = data("tactical").get("etf_rotation", {"status": "MISSING_RECEIPT"})
+        observations["etf_rotation"] = rotation
+        if rotation["status"] != "CURRENT":
+            alerts.append("etf_rotation:" + rotation["status"])
+        if rotation.get("a3_handoff_status") == "PRIVATE_HANDOFF_BLOCKED":
+            alerts.append("etf_rotation:PRIVATE_HANDOFF_BLOCKED")
     for key in ("data_as_of", "latest_scored_rebalance_date"):
         state = date_state(tactical.get(key), session)
         observations[f"tactical_{key}"] = {"date": tactical.get(key), "state": state}
@@ -598,6 +618,10 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
                               "engine_corporate_action_quarantine": engine["corporate_action_quarantine"] if engine is not None else None,
                               "engine_missing_neutral_applied": engine["missing_neutral_applied"] if engine is not None else None,
                               "research_status": "PRIMARY_SOURCE_REVIEW_REQUIRED",
+                              "a3_rotation_batch_status": (observations.get("etf_rotation", {}).get(
+                                  "a3_handoff_status", "UNAVAILABLE") if market == "US" else "OUTSIDE_US_SCOPE"),
+                              "a3_rotation_batch_sha256": (observations.get("etf_rotation", {}).get(
+                                  "private_payload_sha256") if market == "US" else None),
                               "data_gap": "KR_ADAPTER_REQUIRED" if market == "KR" else
                               "PRICE_FINANCIAL_MOAT_AND_SELECTOR_REVIEW_REQUIRED" if engine is not None else
                               "PRICE_FINANCIAL_MOAT_AND_SCORE_HANDOFF_REQUIRED"})

@@ -85,8 +85,8 @@ def fetch_etf_history(ticker: str, days: int = 260):
         return None
 
 
-def compute_etf_metrics(ticker: str, label: str) -> dict | None:
-    df = fetch_etf_history(ticker)
+def compute_etf_metrics(ticker: str, label: str, *, history_loader=None) -> dict | None:
+    df = (history_loader or fetch_etf_history)(ticker)
     if df is None or len(df) < 22:
         return None
     close = df["Close"]
@@ -120,7 +120,7 @@ def classify_state(ret_1m: float | None) -> str:
     return "neutral"
 
 
-def build_snapshot() -> dict:
+def build_snapshot(*, history_loader=None) -> dict:
     asof = datetime.now(timezone.utc)
     snap = {
         "asof": asof.strftime("%Y-%m-%d %H:%M UTC"),
@@ -133,7 +133,7 @@ def build_snapshot() -> dict:
 
     metrics: list[dict] = []
     for ticker, label in ALL_ETFS.items():
-        m = compute_etf_metrics(ticker, label)
+        m = compute_etf_metrics(ticker, label, history_loader=history_loader)
         if m is None:
             continue
         m["state_1m"] = classify_state(m.get("ret_1m"))
@@ -178,11 +178,28 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--telegram", action="store_true")
     p.add_argument("--out-dir", default=str(OUTPUT_DIR))
+    p.add_argument("--scheduled-rotation", action="store_true")
     args = p.parse_args()
+
+    rotation = None
+    if args.scheduled_rotation:
+        if (os.environ.get("GITHUB_REF") != "refs/heads/master"
+                or os.environ.get("GITHUB_EVENT_NAME") != "schedule"
+                or os.environ.get("GITHUB_REPOSITORY") != "wscha231/r1000-quant-engine"):
+            p.error("rotation requires the existing scheduled default-branch run")
+        sys.path.insert(0, str(REPO_ROOT))
+        from tools.run287_etf_rotation import ScheduledRotation
+
+        try:
+            contract = json.loads((REPO_ROOT / "docs/run287_daily_research_monitor_contract.json").read_bytes())
+            rotation = ScheduledRotation(contract, datetime.now(timezone.utc))
+        except (ImportError, OSError, ValueError, KeyError, TypeError):
+            print("[etf-rotation] CONFIGURATION_BLOCKED")
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    snap = build_snapshot()
+    loader = None if rotation is None else lambda ticker: rotation.legacy_history(fetch_etf_history, ticker)
+    snap = build_snapshot(history_loader=loader)
 
     daily_path = out_dir / f"snapshot_{snap['asof_date']}.json"
     daily_path.write_text(json.dumps(snap, indent=2, default=str))
@@ -217,6 +234,22 @@ def main() -> int:
             ret = l.get("ret_1m") or 0
             body.append(f"  {l['ticker']:>5} {l['label']:<22} {ret:+.2%}")
         telegram_send("\n".join(body))
+    if rotation is not None:
+        from tools.run287_etf_rotation import canonical, publish_private
+
+        try:
+            result = rotation.finish()
+            producer = {"run_id": int(os.environ["GITHUB_RUN_ID"]),
+                        "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                        "head_sha": os.environ["GITHUB_SHA"]}
+            receipt = publish_private(result, producer, datetime.now(timezone.utc))
+            destination = REPO_ROOT / "outputs/after_close_daily/etf_rotation_receipt.json"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as handle:
+                handle.write(canonical(receipt))
+            print(f"[etf-rotation] {receipt['price_status']} / {receipt['a3_handoff_status']}")
+        except (ImportError, OSError, ValueError, KeyError, TypeError):
+            print("[etf-rotation] OBSERVATION_BLOCKED")
     return 0
 
 

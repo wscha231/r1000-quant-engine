@@ -8,6 +8,9 @@ on:
     paths:
       - '.github/workflows/run287_daily_research_monitor.yml'
       - 'tools/run_run287_daily_research_monitor.py'
+      - 'tools/run287_etf_rotation.py'
+      - 'tools/etf_leadership_snapshot.py'
+      - '.github/workflows/after_close_daily.yml'
       - 'tools/theme_etf_source_bridge.py'
       - 'tools/theme_etf_upstream_admission.py'
       - 'tools/run_run287_exact_packet_upstream.py'

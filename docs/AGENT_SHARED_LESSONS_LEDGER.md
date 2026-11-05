@@ -9688,3 +9688,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   catalog entries still pinned the old dependency. Rebind those exact Git
   bytes under the reviewed 43a00000 base and preserve historical source
   references, classifications, negative checks, and the failed CI record.
+
+
+## 2026-11-05 — Separate daily rotation review from the After-Close Paper result
+
+- In After-Close run 41957430178, ETF and theme steps completed before the Paper
+  dry-run failed. Verify a rotation receipt against its exact run, attempt,
+  exchange session and artifact hash. Keep the parent failure and other monitor
+  evidence intact when the independent research receipt is valid or malformed.
+- Require the same 22 settled exchange dates and adjustment basis for current
+  and prior relative strength. A missing peer can suppress a cohort rank but
+  must not erase valid stock vs SPY research. Price-only requests need stable
+  stock/session IDs and private byte readback; they grant no A3/ER completion.
