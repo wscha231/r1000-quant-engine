@@ -9699,7 +9699,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - SEC presents the same cover as rendered HTML at the xslForm13F_X02 path and
   as a separate raw XML document. Resolve the raw URL first, preserve any
   historical viewer cache, and restore both explicitly named cache paths.
-  Persist a downloaded cover only after its amendment type parses.
+  For a viewer alias, validate complete XML and bind filer, quarter and form
+  before caching. Independent review reproduced truncated XML and viewer HTML
+  containing the type tag, which passed the legacy type-only regex.
 - SEC's filing page identifies this amendment as a restatement. Local direct
   raw and complete-submission requests returned HTTP 404. The isolated cache
   recovery and standalone reader tests do not certify hosted SEC retrieval

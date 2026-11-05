@@ -66,8 +66,11 @@ class SECSourceRegression(unittest.TestCase):
                 self.assertIsNone(receipt['row_count'])
 
     def test_viewer_cover_recovers_raw_xml_without_overwriting_old_html(self):
-        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml'}
-        cover = '<?xml version="1.0"?><cover><amendmentType>RESTATEMENT</amendmentType></cover>'
+        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml',
+                     'period_of_report': '2026-06-30'}
+        cover = ('<?xml version="1.0"?><edgarSubmission><submissionType>13F-HR/A</submissionType>'
+                 '<credentials><cik>0000000001</cik></credentials><periodOfReport>06-30-2026</periodOfReport>'
+                 '<isAmendment>true</isAmendment><amendmentType>RESTATEMENT</amendmentType></edgarSubmission>')
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             directory = root / 'filings/13f_cover'
@@ -87,12 +90,18 @@ class SECSourceRegression(unittest.TestCase):
             self.assertIn('filings/13f_cover/' + legacy.name, paths)
 
     def test_failed_raw_cover_is_not_cached_and_can_recover(self):
-        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml'}
-        with tempfile.TemporaryDirectory() as td, patch.object(f13, 'sec_get_text', return_value='<html/>'):
-            root = Path(td)
-            with self.assertRaisesRegex(RuntimeError, 'unrecognized 13F amendment type'):
-                f13.cache_13f_amendment_type(amendment, root)
-            self.assertEqual(list((root / 'filings/13f_cover').iterdir()), [])
+        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml',
+                     'period_of_report': '2026-06-30'}
+        for text, reason in (
+            ('<edgarSubmission><amendmentType>RESTATEMENT</amendmentType>', '13F_MALFORMED_AMENDMENT_COVER'),
+            ('<html><amendmentType>RESTATEMENT</amendmentType></html>', '13F_AMENDMENT_COVER_IDENTITY'),
+        ):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as td, \
+                    patch.object(f13, 'sec_get_text', return_value=text):
+                root = Path(td)
+                with self.assertRaisesRegex(ValueError, reason):
+                    f13.cache_13f_amendment_type(amendment, root)
+                self.assertEqual(list((root / 'filings/13f_cover').iterdir()), [])
 
     def test_unchanged_checkpoint_reuses_rows_without_reparsing(self):
         raw,index=self.checkpoint_fixture()

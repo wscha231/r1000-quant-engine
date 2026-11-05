@@ -18,7 +18,7 @@ import re
 import stat
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -356,19 +356,25 @@ def cache_13f_amendment_type(
     out_dir.mkdir(parents=True, exist_ok=True)
     raw_doc = raw_amendment_document(primary_doc)
     cache = out_dir / cache_name(accession, raw_doc)
+
+    def parse_cover(text: str) -> str:
+        if raw_doc != primary_doc:
+            return disclosure_amendment_cover(text.encode("utf-8"), filing)
+        return amendment_type_from_text(text)
+
     if not refresh:
         if cache.is_file():
-            return amendment_type_from_text(cache.read_text(encoding="utf-8"))
+            return parse_cover(cache.read_text(encoding="utf-8"))
         legacy = out_dir / cache_name(accession, primary_doc)
         if legacy != cache and legacy.is_file():
             try:
-                return amendment_type_from_text(legacy.read_text(encoding="utf-8"))
-            except RuntimeError:
+                return parse_cover(legacy.read_text(encoding="utf-8"))
+            except (ValueError, RuntimeError):
                 # Preserve previously cached viewer HTML. Recover raw XML in
                 # the canonical path, and do not cache a failed response.
                 pass
     text = sec_get_text(filing_archive_url(cik, accession, raw_doc), user_agent=user_agent, sleep_s=sleep_s)
-    amendment_type = amendment_type_from_text(text)
+    amendment_type = parse_cover(text)
     cache.write_text(text, encoding="utf-8")
     return amendment_type
 
