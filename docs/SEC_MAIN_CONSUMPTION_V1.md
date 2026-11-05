@@ -85,8 +85,9 @@ python tools/run_sec_research_consumption.py --pit-root <verified-pit> --raw-dir
 The existing consumer also accepts a single verified Source generation and an
 explicit identity assertions file pinned by SHA-256. It selects original Form
 3, 4 and 5 filings with complete accession scope in the preceding 36 hours and
-one supplied issuer/ticker relationship. It commits all eligible requests in
-one local research transaction and preserves the existing request IDs on
+one supplied issuer/ticker relationship. The caller must name the owned output
+directory explicitly. The consumer commits eligible requests in one local
+research transaction and preserves the existing request IDs on
 replay. Hold missing raw documents, ambiguous identities and amendments
 requiring an explicit original accession. Hold mixed availability clocks
 instead of writing an incomplete request.
@@ -108,8 +109,9 @@ continues to handle amendments with a supplied original accession.
 Read one current disclosed share position from the existing standalone store.
 The store readback verifies Source, the current attempt, exact derivation
 code, filing lineage and row parity. The selected event must contain positive
-shares from the latest observed filing itself, carry the exact caller-pinned
-CUSIP and map to one supplied US ticker relationship. A supplied issuer
+shares from the latest observed filing for the latest report period, carry
+the exact caller-pinned CUSIP and map to one supplied US ticker relationship.
+A later amendment to an older period keeps its original period. A supplied issuer
 assertion must agree with any issuer CIK carried by the event.
 
 ```text

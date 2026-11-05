@@ -366,13 +366,17 @@ class StandaloneDisclosureTests(unittest.TestCase):
     def test_main_reads_one_exact_disclosed_holding_without_writing(self):
         from tools import run_sec_research_consumption as consumer
 
+        late_amendment = dict(accession="0000000001-26-000002", period="2025-09-30",
+                              accepted="2026-02-17T15:00:00Z", form="13F-HR/A",
+                              amendment="RESTATEMENT", positions=[("000000001", 110, 1100)])
+        self.options = standalone_fixture(self.root / "source", standalone_filings() + [late_amendment])
         self.assertEqual(self.execute()["status"], "COMPLETED_DISCLOSURE_STORAGE")
         manifest = self.read()
         events = [json.loads(disclosure_builder._disclosure_ref(self.store, row["ref"]))
                   for row in manifest["events"]]
         event = next(e for e in events if e["accession"] == "0000000001-26-000001"
                      and e["source_row"]["cusip"] == "000000001")
-        prior = next(e for e in events if e["accession"] == "0000000001-25-000001"
+        prior = next(e for e in events if e["accession"] == late_amendment["accession"]
                      and e["source_row"]["cusip"] == "000000001")
         security_id = "US:AAA:COMMON"
         identity = consumer.encoded(dict(scope="SUPPLIED_US_IDENTITY_ASSERTIONS", rows=[

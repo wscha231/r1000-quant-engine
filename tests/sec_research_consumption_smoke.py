@@ -520,6 +520,12 @@ class ConsumptionTests(unittest.TestCase):
             args = ["consumer", "--pit-root", str(pit), "--raw-dir", str(raw_dir),
                     "--identities", str(identities), "--identities-sha256", c.digest(SUBJECTS),
                     "--recent-batch", "--decision-at", NOW, "--output-dir", str(store)]
+            with (patch.object(sys, "argv", args[:-2]), patch.object(sys, "stderr", io.StringIO()),
+                  patch.object(c, "consume") as consume, self.assertRaises(SystemExit) as missing_output):
+                c.main()
+            self.assertEqual(missing_output.exception.code, 2)
+            consume.assert_not_called()
+            self.assertFalse(store.exists())
             with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()) as stdout:
                 self.assertEqual(c.main(), 0)
             result = json.loads(stdout.getvalue())

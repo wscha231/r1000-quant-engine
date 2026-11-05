@@ -630,7 +630,7 @@ def prepare_13f_filing_review(root, *, event_id, cusip, security_id, identities,
     need(re.fullmatch(r"[A-Z0-9]{9}", cusip or "") is not None and row["cusip"] == cusip
          and event["constituent_identity"]["cusip"] == cusip, "13F_REVIEW_CUSIP_BINDING")
     latest = max((f for f in manifest["filing_prefix"] if f["manager_cik"] == event["manager_cik"]),
-                 key=lambda f: (bridge.stamp(f["accepted_at"]), f["accession"]))
+                 key=lambda f: (f["report_period"], bridge.stamp(f["accepted_at"]), f["accession"]))
     need(latest["accession"] == event["accession"], "13F_REVIEW_LATEST_FILING_REQUIRED")
 
     subjects = intake._identities(identities)
@@ -762,6 +762,8 @@ def main():
         return 0
     if not args.pit_root or not args.raw_dir or any(value is not None for value in disclosure_args):
         parser.error("Form345 consumption requires --pit-root and --raw-dir")
+    if args.recent_batch and not args.output_dir:
+        parser.error("Form345 recent batch requires an explicit owned --output-dir")
     output_root = Path("outputs/agent_board" if args.output_dir is None else args.output_dir)
     # Revoke prior current success before *any* source, identity or raw-file read.
     # A hash-valid old Registry remains historical after a failed CLI attempt.

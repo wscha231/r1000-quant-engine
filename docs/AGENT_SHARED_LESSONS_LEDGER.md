@@ -9675,6 +9675,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   reference with the raw hash and exact CUSIP. Preserve incomplete snapshot
   status, unverified supplied identity and an unchanged store inventory.
   Complete comparable manager coverage is a separate requirement.
+- Require an explicit owned output for batch attempts before touching the
+  shared Registry. A late 13F amendment for an earlier quarter must never
+  displace the latest report period for a current review.
 
 ## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
 
