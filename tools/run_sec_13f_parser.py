@@ -145,11 +145,13 @@ def selected_restore_paths(index: pd.DataFrame, *, as_of: str, max_filings: int)
         accession = str(row["accession_number"])
         if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession):
             raise ValueError("13F_RESTORE_ACCESSION")
-        name = cache_name(accession, str(row["primary_document"]) or "information_table.xml")
+        primary_doc = str(row["primary_document"]) or "information_table.xml"
+        name = cache_name(accession, primary_doc)
         result.add("filings/13f/" + name)
         result.add("parsed/13f/" + name + ".json")
         if str(row["form_type"]) == "13F-HR/A":
             result.add("filings/13f_cover/" + name)
+            result.add("filings/13f_cover/" + cache_name(accession, raw_amendment_document(primary_doc)))
     return sorted(result)
 
 
@@ -326,6 +328,12 @@ def cache_13f_document(
     return cache, cache.read_text(encoding="utf-8")
 
 
+def raw_amendment_document(primary_doc: str) -> str:
+    """The SEC XSL viewer serves HTML at an XML-looking archive URL."""
+    viewer = re.fullmatch(r"xslForm13F_X[0-9]+/([A-Za-z0-9_.-]+\.xml)", primary_doc, re.IGNORECASE)
+    return viewer.group(1) if viewer else primary_doc
+
+
 def cache_13f_amendment_type(
     filing: dict[str, Any],
     raw_dir: Path,
@@ -346,15 +354,23 @@ def cache_13f_amendment_type(
         raise RuntimeError("13F amendment is missing CIK, accession, or primary document")
     out_dir = raw_dir / "filings" / "13f_cover"
     out_dir.mkdir(parents=True, exist_ok=True)
-    cache = out_dir / cache_name(accession, primary_doc)
-    if refresh or not cache.exists():
-        text = sec_get_text(
-            filing_archive_url(cik, accession, primary_doc),
-            user_agent=user_agent,
-            sleep_s=sleep_s,
-        )
-        cache.write_text(text, encoding="utf-8")
-    return amendment_type_from_text(cache.read_text(encoding="utf-8"))
+    raw_doc = raw_amendment_document(primary_doc)
+    cache = out_dir / cache_name(accession, raw_doc)
+    if not refresh:
+        if cache.is_file():
+            return amendment_type_from_text(cache.read_text(encoding="utf-8"))
+        legacy = out_dir / cache_name(accession, primary_doc)
+        if legacy != cache and legacy.is_file():
+            try:
+                return amendment_type_from_text(legacy.read_text(encoding="utf-8"))
+            except RuntimeError:
+                # Preserve previously cached viewer HTML. Recover raw XML in
+                # the canonical path, and do not cache a failed response.
+                pass
+    text = sec_get_text(filing_archive_url(cik, accession, raw_doc), user_agent=user_agent, sleep_s=sleep_s)
+    amendment_type = amendment_type_from_text(text)
+    cache.write_text(text, encoding="utf-8")
+    return amendment_type
 
 
 def amendment_type_from_text(text: str) -> str:
@@ -705,7 +721,11 @@ def load_disclosure_source_inputs(*, holdings, filings_index, raw_dir, cusip_map
         paths["filings/13f/" + name] = rr / "filings/13f" / name
         paths["checkpoints/" + name + ".json"] = rr / "parsed/13f" / (name + ".json")
         if filing["form_type"] == "13F-HR/A":
-            paths["filings/13f_cover/" + name] = rr / "filings/13f_cover" / name
+            cover_dir = rr / "filings/13f_cover"
+            raw_name = cache_name(filing["accession_number"], raw_amendment_document(filing["primary_document"]))
+            raw_cover = cover_dir / raw_name
+            legacy = cover_dir / name
+            paths["filings/13f_cover/" + name] = raw_cover if raw_cover.is_file() or not legacy.is_file() else legacy
     disclosure_need(len(paths) <= 1600, "13F_SOURCE_FILE_COUNT")
     for role, path in paths.items():
         if role not in inputs:

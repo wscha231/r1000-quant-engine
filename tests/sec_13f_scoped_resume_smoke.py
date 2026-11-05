@@ -65,6 +65,35 @@ class SECSourceRegression(unittest.TestCase):
                 self.assertEqual(receipt['status'], 'PARSE_FAILED')
                 self.assertIsNone(receipt['row_count'])
 
+    def test_viewer_cover_recovers_raw_xml_without_overwriting_old_html(self):
+        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml'}
+        cover = '<?xml version="1.0"?><cover><amendmentType>RESTATEMENT</amendmentType></cover>'
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            directory = root / 'filings/13f_cover'
+            directory.mkdir(parents=True)
+            legacy = directory / f13.cache_name(ACC, amendment['primary_document'])
+            legacy.write_text('<html>Restatement display page</html>', encoding='utf-8')
+            with patch.object(f13, 'sec_get_text', return_value=cover) as fetch:
+                self.assertEqual(f13.cache_13f_amendment_type(amendment, root), 'RESTATEMENT')
+                self.assertEqual(fetch.call_args.args[0], f13.filing_archive_url(amendment['cik10'], ACC, 'primary_doc.xml'))
+            self.assertEqual(legacy.read_text(encoding='utf-8'), '<html>Restatement display page</html>')
+            raw_path = directory / f13.cache_name(ACC, 'primary_doc.xml')
+            self.assertEqual(raw_path.read_text(encoding='utf-8'), cover)
+            with patch.object(f13, 'sec_get_text', side_effect=AssertionError('must reuse raw cache')):
+                self.assertEqual(f13.cache_13f_amendment_type(amendment, root), 'RESTATEMENT')
+            paths = f13.selected_restore_paths(pd.DataFrame([amendment]), as_of=NOW, max_filings=1)
+            self.assertIn('filings/13f_cover/' + raw_path.name, paths)
+            self.assertIn('filings/13f_cover/' + legacy.name, paths)
+
+    def test_failed_raw_cover_is_not_cached_and_can_recover(self):
+        amendment = {**filing(form='13F-HR/A'), 'primary_document': 'xslForm13F_X02/primary_doc.xml'}
+        with tempfile.TemporaryDirectory() as td, patch.object(f13, 'sec_get_text', return_value='<html/>'):
+            root = Path(td)
+            with self.assertRaisesRegex(RuntimeError, 'unrecognized 13F amendment type'):
+                f13.cache_13f_amendment_type(amendment, root)
+            self.assertEqual(list((root / 'filings/13f_cover').iterdir()), [])
+
     def test_unchanged_checkpoint_reuses_rows_without_reparsing(self):
         raw,index=self.checkpoint_fixture()
         with tempfile.TemporaryDirectory() as td,patch.object(f13,'cache_13f_document',return_value=(Path('unused'),raw)),patch.object(f13,'cache_13f_amendment_type',return_value='ORIGINAL'):

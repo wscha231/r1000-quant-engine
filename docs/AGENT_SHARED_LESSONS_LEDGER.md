@@ -9688,3 +9688,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   catalog entries still pinned the old dependency. Rebind those exact Git
   bytes under the reviewed 43a00000 base and preserve historical source
   references, classifications, negative checks, and the failed CI record.
+
+
+## 2026-11-06 — Read the SEC raw 13F amendment cover
+
+- Run 41963243732 / artifact 13388404682 parsed at least one required-quarter
+  filing for 30 managers. Five of 34 satisfied the per-accession CUSIP mapping
+  thresholds. Keep source parsing, mapped coverage and weighted publication
+  distinct. The due-period parse failure was accession 0001104659-26-104387.
+- SEC presents the same cover as rendered HTML at the xslForm13F_X02 path and
+  as a separate raw XML document. Resolve the raw URL first, preserve any
+  historical viewer cache, and restore both explicitly named cache paths.
+  Persist a downloaded cover only after its amendment type parses.
+- SEC's filing page identifies this amendment as a restatement. Local direct
+  raw and complete-submission requests returned HTTP 404. The isolated cache
+  recovery and standalone reader tests do not certify hosted SEC retrieval
+  or repair the independent CUSIP coverage gate.
