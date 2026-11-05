@@ -9678,3 +9678,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   catalog entries still pinned the old dependency. Rebind those exact Git
   bytes under the reviewed 43a00000 base and preserve historical source
   references, classifications, negative checks, and the failed CI record.
+
+## 2026-11-05 — Preserve current FRED response format and vintage boundary
+
+- The retained run 41851501777 reported 34 current graph transport timeouts.
+  Route current requests through the existing authenticated endpoint when a
+  key is configured. Keep the unkeyed graph path and ALFRED archive semantics.
+- Validate one complete JSON page and retain original bytes. Use the same
+  parser during standalone collection, Lake collection, and restored studies.
+  Reject duplicate JSON keys and nonstandard constants. A response may omit
+  the series ID, so bind original bytes to the authenticated request and
+  receipt. Keep the strict decoder inside the existing sparse workflow scope.
+  FRED's real-time date selects the response vintage. Current availability is
+  the actual retrieval clock, with historical publication left unknown.
+- Existing A4 inputs still require a CSV derivative. Keep its hash and
+  transform lineage bound to the authenticated JSON before A4 consumption.
+  Offline fixtures establish parser behavior; hosted credentials, current
+  coverage, and A4 acceptance require separate evidence.

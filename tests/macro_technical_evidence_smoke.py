@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
@@ -24,7 +25,95 @@ def alfred_page(rows):
     return source.encoded(dict(units="lin", output_type=1, count=len(rows), offset=0, observations=rows))
 
 
+def current_payload():
+    vintage = "2026-09-11"
+    rows = [dict(date=day, value=value, realtime_start=vintage, realtime_end=vintage)
+            for day, value in (("2020-01-01", "3.5"), ("2020-02-01", "."), ("2020-03-01", None))]
+    return dict(file_type="json", units="lin", output_type=1, offset=0,
+                limit=source.CURRENT_API_ROW_LIMIT, count=len(rows), observations=rows,
+                observation_start="2020-01-01", observation_end="2020-03-31",
+                realtime_start=vintage, realtime_end=vintage)
+
+
 class EvidenceTests(unittest.TestCase):
+    def test_keyed_current_collect_keeps_exact_api_bytes_and_current_only_clocks(self):
+        raw = source.encoded(current_payload())
+        retrieved = "2026-09-11T12:00:00Z"
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"FRED_API_KEY": "fixture-secret"}), \
+             patch.object(source, "utc_now", return_value=retrieved), \
+             patch.object(source, "request_bytes", return_value=raw) as request:
+            receipt, path = source.collect(tmp, ["UNRATE"], "2020-01-01", "2020-03-31")
+            request.assert_called_once()
+            self.assertEqual(request.call_args.kwargs, {"secret": "fixture-secret"})
+            endpoint = urlparse(request.call_args.args[0])
+            self.assertEqual((endpoint.netloc, endpoint.path),
+                             ("api.stlouisfed.org", "/fred/series/observations"))
+            self.assertEqual(parse_qs(endpoint.query), dict(series_id=["UNRATE"], api_key=["fixture-secret"],
+                file_type=["json"], units=["lin"], output_type=["1"], offset=["0"],
+                limit=[str(source.CURRENT_API_ROW_LIMIT)], observation_start=["2020-01-01"],
+                observation_end=["2020-03-31"]))
+            item = receipt["sources"][0]
+            self.assertEqual(item["status"], "COLLECTED")
+            self.assertEqual(item["raw_sha256"], [source.digest(raw)])
+            self.assertEqual((Path(tmp) / "objects" / item["raw_sha256"][0]).read_bytes(), raw)
+            self.assertEqual(item["missing_observation_dates"], ["2020-02-01", "2020-03-01"])
+            rows = source.load_bundle(tmp, path)[1]["UNRATE"]
+            self.assertEqual(rows, source.parse_graph(
+                b"DATE,UNRATE\n2020-01-01,3.5\n", "UNRATE", "2020-01-01", "2020-03-31", retrieved)[0])
+            self.assertNotIn(b"fixture-secret", path.read_bytes())
+
+    def test_current_without_key_uses_graph_and_keyed_errors_are_redacted(self):
+        csv_raw = b"DATE,UNRATE\n2020-01-01,3.5\n"
+        with patch.dict(os.environ, {"FRED_API_KEY": ""}), \
+             patch.object(source, "request_bytes", return_value=csv_raw) as request:
+            pages, retrieved = source.fetch("UNRATE", "2020-01-01", "2020-03-31", "current")
+            request.assert_called_once_with(
+                "https://fred.stlouisfed.org/graph/fredgraph.csv?id=UNRATE&cosd=2020-01-01&coed=2020-03-31")
+            self.assertEqual(source.parse_current(pages, "UNRATE", "2020-01-01", "2020-03-31", retrieved)[0][0]["value"], 3.5)
+        for failure in (HTTPError("https://example.com/?api_key=fixture-secret", 403, "fixture-secret", {}, None),
+                        URLError("fixture-secret"), TimeoutError("fixture-secret"), OSError("fixture-secret")):
+            with self.subTest(kind=type(failure)), patch.dict(os.environ, {"FRED_API_KEY": "fixture-secret"}), \
+                 patch.object(source, "request_bytes", side_effect=failure) as request:
+                with self.assertRaises(type(failure)) as caught:
+                    source.fetch("UNRATE", "2020-01-01", "2020-03-31", "current")
+                request.assert_called_once()
+                self.assertNotIn("fixture-secret", repr(caught.exception))
+                self.assertFalse(getattr(caught.exception, "url", ""))
+                self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_current_api_contract_rejects_truncation_wrong_scope_and_invalid_observations(self):
+        args = ("UNRATE", "2020-01-01", "2020-03-31", "2026-09-11T12:00:00Z")
+        for field, bad in (("count", 4), ("count", True), ("offset", 1), ("limit", 2),
+                           ("units", "chg"), ("output_type", True), ("series_id", "PAYEMS"),
+                           ("observation_start", "2019-01-01"), ("observation_end", "2020-03-30"),
+                           ("realtime_end", "2026-09-12"), ("realtime_start", "2026-09-10")):
+            payload = current_payload()
+            payload[field] = bad
+            with self.subTest(field=field, bad=bad), self.assertRaisesRegex(ValueError, "current_api_"):
+                source.parse_current([source.encoded(payload)], *args)
+        for field, bad in (("date", "2019-12-01"), ("date", "2020-04-01"), ("date", "20200101"),
+                           ("date", "2020-01-01"), ("value", True), ("value", "inf"),
+                           ("realtime_end", "2026-09-12")):
+            payload = current_payload()
+            payload["observations"][1][field] = bad
+            with self.subTest(field=field, bad=bad), self.assertRaises(ValueError):
+                source.parse_current([source.encoded(payload)], *args)
+        with self.assertRaisesRegex(ValueError, "current_page_count"):
+            source.parse_current([source.encoded(current_payload())] * 2, *args)
+
+    def test_current_api_rejects_duplicate_json_keys_and_nonstandard_constants(self):
+        raw = source.encoded(current_payload())
+        bad_payloads = (
+            raw.replace(b'"count":3', b'"count":0,"count":3', 1),
+            raw.replace(b'"value":"3.5"', b'"value":"9.9","value":"3.5"', 1),
+            raw.replace(b'"value":"3.5"', b'"extra":NaN,"value":"3.5"', 1),
+        )
+        for index, bad in enumerate(bad_payloads):
+            with self.subTest(case=index), self.assertRaisesRegex(ValueError, "^current_api_json$"):
+                source.parse_current([bad], "UNRATE", "2020-01-01", "2020-03-31",
+                                     "2026-09-11T12:00:00Z")
+
     def test_a4_exact_fred_series_have_distinct_registered_units_and_frequencies(self):
         import json
         specs = {row['id']: row for row in source.registry()['series']}

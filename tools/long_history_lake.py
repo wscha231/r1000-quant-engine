@@ -36,7 +36,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
-    fetch as fetch_fred, parse_alfred, parse_graph, registry, require, utc_now)
+    fetch as fetch_fred, parse_alfred, parse_current, registry, require, utc_now)
 from tools.macro_research_checkpoint import (LocalTransport, RcloneTransport, relative,
     checked_bytes, is_safe_transport_failure, PACK_BATCH_FILES, PACK_BATCH_BYTES)
 from tools.twelve_private_capture import Refused
@@ -842,7 +842,7 @@ def collect_macros(lake,start,through):
             key=f'{mode}/{sid}'
             try:
                 pages,retrieved=fetch_fred_retry(sid,start,through,mode)
-                if mode=='current': rows,missing=parse_graph(pages[0],sid,start,through,retrieved)
+                if mode=='current': rows,missing=parse_current(pages,sid,start,through,retrieved)
                 else: rows=parse_alfred(pages,sid,start,through,retrieved); missing=[]
                 # Retrieval belongs to the version receipt, not every unchanged row.
                 clean=[{k:v for k,v in r.items() if k!='retrieved_at'} for r in rows]
@@ -853,7 +853,7 @@ def collect_macros(lake,start,through):
                 retained_missing=[]
                 if mode=='current' and spec['group']=='price' and old.get('normalized'):
                     # The provider window includes explicit missing rows, even
-                    # though parse_graph omits them from normalized records.
+                    # though the current parser omits them from normalized records.
                     window_start=min([r['observation_date'] for r in rows]+missing)
                     clean,retained=retain_price_prefix(lake._verified_normalized_records(old),clean,
                         old['retrieved_at'],window_start)
@@ -973,7 +973,7 @@ def analyze_restored(lake, root, start, through):
             raw_pages=[unpacked(lake.get_bytes(sha)) for sha in entry['raw_objects']]
             retrieved=entry['retrieved_at']
             if mode=='current':
-                rows,_=parse_graph(raw_pages[0],sid,start,through,retrieved)
+                rows,_=parse_current(raw_pages,sid,start,through,retrieved)
                 if entry.get('retained_expired_provider_rows'):
                     for sha in entry['retained_source_objects']:
                         lake.get_bytes(sha)  # Verify original lineage dependencies too.
