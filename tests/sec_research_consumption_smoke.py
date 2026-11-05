@@ -498,6 +498,55 @@ class ConsumptionTests(unittest.TestCase):
                 self.assertEqual(len(result["created_requests"]),1)
                 self.assertEqual(len(c.readback(root/"research")["requests"]),1)
 
+    def test_recent_batch_uses_existing_source_and_pending_registry_once(self):
+        first = "0000000001-26-000001"
+        second = "0000000001-26-000002"
+        amendment = "0000000001-26-000003"
+        missing = "0000000001-26-000004"
+        forms = {first: "4", second: "5", amendment: "4/A", missing: "4"}
+        raws = {acc: next(iter(filing(acc, form=form, original="2026-10-21")[1].values()))
+                for acc, form in forms.items()}
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pit, _, _ = checked_generation(
+                root, pd.DataFrame([fixture_index(acc, form) for acc, form in forms.items()]), raws)
+            raw_dir = root / "raw"
+            raw_dir.mkdir(exist_ok=True)
+            for acc in (first, second, amendment):
+                (raw_dir / (acc.replace("-", "") + "_fixture.xml")).write_bytes(raws[acc])
+            identities = root / "identities.json"
+            identities.write_bytes(SUBJECTS)
+            store = root / "research"
+            args = ["consumer", "--pit-root", str(pit), "--raw-dir", str(raw_dir),
+                    "--identities", str(identities), "--identities-sha256", c.digest(SUBJECTS),
+                    "--recent-batch", "--decision-at", NOW, "--output-dir", str(store)]
+            with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(c.main(), 0)
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["recent_batch"]["recent_accessions"], 4)
+            self.assertEqual(result["recent_batch"]["selected_accessions"], 2)
+            self.assertEqual(result["recent_batch"]["held_accessions"],
+                             {"amendment_lineage": 1, "clock": 0, "identity": 0, "raw_documents": 1})
+            self.assertEqual(len(result["created_requests"]), 2)
+            state = c.readback(store)
+            for request in state["requests"].values():
+                record = json.loads(c.read_ref(store, request["registry_ref"]))
+                ref = json.loads(c.read_ref(store, record["a3_filing_review_refs"][0]))
+                self.assertEqual(ref["status"], "FILING_CONTENT_REVIEW_PENDING")
+                self.assertFalse(ref["used_for_assessment"])
+            with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(c.main(), 0)
+            replay = json.loads(stdout.getvalue())
+            self.assertEqual(len(replay["replayed_requests"]), 2)
+            self.assertEqual(replay["created_requests"], [])
+            self.assertEqual(replay["notification_intents_created"], 0)
+            identities.write_bytes(SUBJECTS + b" ")
+            with patch.object(sys, "argv", args), patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(c.main(), 2)
+            self.assertFalse(json.loads(stdout.getvalue())["current_eligible"])
+            self.assertEqual(c.readback(store), state)
+
+
     def test_successful_empty_check_has_successful_cli_result(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
@@ -516,6 +565,19 @@ class ConsumptionTests(unittest.TestCase):
             self.assertTrue(attempt["current_eligible"])
             self.assertEqual(attempt["notification_intents_created"],0)
             self.assertEqual(c.readback(root/"research")["requests"],{})
+
+            identities = root / "batch_identities.json"
+            identities.write_bytes(SUBJECTS)
+            batch_args = ["consumer", "--pit-root", str(pit), "--raw-dir", str(root / "unused"),
+                          "--identities", str(identities), "--identities-sha256", c.digest(SUBJECTS),
+                          "--recent-batch", "--decision-at", NOW, "--output-dir", str(root / "research")]
+            with patch.object(sys, "argv", batch_args), patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(c.main(), 0)
+            self.assertEqual(json.loads(stdout.getvalue())["status"], "CHECKED_NO_NEW")
+            identities.write_bytes(SUBJECTS + b" ")
+            with patch.object(sys, "argv", batch_args), patch.object(sys, "stdout", io.StringIO()) as stdout:
+                self.assertEqual(c.main(), 2)
+            self.assertFalse(json.loads(stdout.getvalue())["current_eligible"])
 
     def test_stale_empty_cli_refuses_without_changing_committed_requests(self):
         with tempfile.TemporaryDirectory() as td:

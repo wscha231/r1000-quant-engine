@@ -9661,6 +9661,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   conversion. A prefix replay does not reprocess the archive or validate
   historical publication clocks or point-in-time admission.
 
+## 2026-11-06 — Batch one verified Form345 generation into the existing review store
+
+- Parse the same Source bytes that were hashed. A second read from the live
+  sync path can race the next generation. A recent window can bisect an
+  accession if event clocks differ. Hold the whole accession in that case.
+- The retained November 5 Drive generation produced five actual Form4
+  requests and 39 pending A3 references in an isolated store. Preserve the
+  original source and exact identity assertion hashes. Supplied assertions
+  and local readback do not establish scheduled identity approval.
+- One actual 13F store contained 179 events across two quarters. Read one
+  latest directly reported share position into the existing pending A3
+  reference with the raw hash and exact CUSIP. Preserve incomplete snapshot
+  status, unverified supplied identity and an unchanged store inventory.
+  Complete comparable manager coverage is a separate requirement.
+
 ## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
 
 - An observed 2026-01-05 cutoff replay changed a missing required BBB fill into
