@@ -192,6 +192,8 @@ class ComponentHoldTests(unittest.TestCase):
     def test_mixed_reuse_and_prefix_hold_no_identity_or_provider_for_held(self):
         result = self.execute([self.baseline(dict(AAPL=FULL, MSFT=FULL[1:]))])
         self.assertEqual((result["valid_updated"], result["reused"], result["held"], result["rows"]), (0, 1, 1, 0))
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=2, execution_scoped=2,
+            current=1, held=1, pending=0, outside_scope=0, all_tracked_same_session=False))
         self.assertFalse(any(result[k] for k in ("source_admission", "pit_verified", "economic_authority")))
         self.assertEqual(self.opener.urls, [])
         self.assertNotIn(self.identities["MSFT"]["file_id"], self.drive.checked)
@@ -199,6 +201,35 @@ class ComponentHoldTests(unittest.TestCase):
         self.assertEqual(terminal["coverage_updates"], {"AAPL": FULL[-1]})
         self.assertEqual(terminal["held"], {"MSFT": HELD})
         self.assertEqual(terminal["reused"], ["AAPL"])
+        self.assertNotIn("session_coverage", terminal)
+
+    def test_execution_subset_keeps_excluded_spy_outside_scope(self):
+        self.control["authorized_tickers"].append("SPY")
+        self.control["execution_tickers"] = ["AAPL", "MSFT"]
+        result = self.execute([self.baseline(dict(AAPL=FULL, MSFT=FULL))],
+                              tracked=("AAPL", "MSFT", "SPY"))
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=3, execution_scoped=2,
+            current=2, held=0, pending=0, outside_scope=1, all_tracked_same_session=False))
+        self.assertEqual(self.opener.urls, [])
+
+    def test_bounded_batch_counts_same_session_prior_and_leaves_stale_spy_pending(self):
+        self.control["authorized_tickers"].append("SPY")
+        self.control["max_symbols_per_run"] = 1
+        prior = {"MSFT": FULL[-1], "SPY": FULL[-2]}
+        with patch.object(runtime, "restore_journal", return_value=("c" * 64, prior, {})):
+            result = self.execute([self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])],
+                                  tracked=("AAPL", "MSFT", "SPY"))
+        self.assertEqual(result["valid_updated"], 1)
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=3, execution_scoped=3,
+            current=2, held=0, pending=1, outside_scope=0, all_tracked_same_session=False))
+        self.assertEqual(len(self.opener.urls), 3)
+
+    def test_full_same_session_reuse_reports_all_tracked(self):
+        result = self.execute([self.baseline(dict(AAPL=FULL, MSFT=FULL))])
+        self.assertEqual(result["reused"], 2)
+        self.assertEqual(result["session_coverage"], dict(policy_tracked=2, execution_scoped=2,
+            current=2, held=0, pending=0, outside_scope=0, all_tracked_same_session=True))
+        self.assertEqual(self.opener.urls, [])
 
     def test_internal_hole_held_even_when_explicit_backfill_lists_it(self):
         self.control["backfill_tickers"] = ["MSFT"]

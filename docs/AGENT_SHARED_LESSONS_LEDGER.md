@@ -9607,6 +9607,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   rewrite the bundle, requirements or verifier to turn environment drift into
   PASS. Final exact-head hosted required CI must still run the complete checks.
 
+## 2026-11-05 — Reconcile managed coverage at one exchange session
+
+- A verified refresh checkpoint can describe a partial batch. Keep its existing
+  status and report policy scope separately from the current, held, pending and
+  outside-scope counts. Count only exact-session coverage from the verified
+  checkpoint and validated prior chain. A held component takes precedence.
+- Test a capped batch with prior same-session coverage and stale SPY, a subset
+  that leaves SPY outside scope, held siblings, and complete reuse. Keep the
+  aggregate diagnostic in the result and preserve checkpoint and meter bytes.
+
 ## 2026-11-03 — Separate legacy TTM completeness from admission readiness
 
 - Actual Codex4454143038 on ebd2 found that clearing legacy readiness flags
