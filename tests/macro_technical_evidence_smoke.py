@@ -82,6 +82,19 @@ class EvidenceTests(unittest.TestCase):
                 self.assertFalse(getattr(caught.exception, "url", ""))
                 self.assertTrue(caught.exception.__suppress_context__)
 
+    def test_current_api_rejects_http_success_csv_before_legacy_parser(self):
+        csv_raw = b"DATE,UNRATE\n2020-01-01,3.5\n"
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"FRED_API_KEY": "fixture-secret"}), \
+             patch.object(source, "request_bytes", return_value=csv_raw) as request:
+            receipt, _ = source.collect(tmp, ["UNRATE"], "2020-01-01", "2020-03-31")
+            request.assert_called_once()
+            self.assertEqual(receipt["sources"], [
+                dict(series="UNRATE", status="BLOCKED", reason="current_api_json")])
+            self.assertFalse((Path(tmp) / "objects" / source.digest(csv_raw)).exists())
+        self.assertEqual(source.parse_current([csv_raw], "UNRATE", "2020-01-01",
+            "2020-03-31", "2026-09-11T12:00:00Z")[0][0]["value"], 3.5)
+
     def test_current_api_contract_rejects_truncation_wrong_scope_and_invalid_observations(self):
         args = ("UNRATE", "2020-01-01", "2020-03-31", "2026-09-11T12:00:00Z")
         for field, bad in (("count", 4), ("count", True), ("offset", 1), ("limit", 2),

@@ -9689,9 +9689,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Reject duplicate JSON keys and nonstandard constants. A response may omit
   the series ID, so bind original bytes to the authenticated request and
   receipt. Keep the strict decoder inside the existing sparse workflow scope.
+  Refuse an authenticated HTTP 200 CSV before format selection. Preserve
+  legacy CSV parsing for keyless requests and verified archived objects.
   FRED's real-time date selects the response vintage. Current availability is
   the actual retrieval clock, with historical publication left unknown.
 - Existing A4 inputs still require a CSV derivative. Keep its hash and
   transform lineage bound to the authenticated JSON before A4 consumption.
   Offline fixtures establish parser behavior; hosted credentials, current
   coverage, and A4 acceptance require separate evidence.
+- A four-pin refresh passed both temporary historical controls, while current
+  reuse still refused eight older Reader dependency pins across two entries.
+  Preserve the active catalog until the wider dependency set is reviewed.

@@ -144,12 +144,16 @@ def _current_api_json(raw):
         raise ValueError("current_api_json") from None
 
 
+def _is_current_api_object(raw):
+    return raw.removeprefix(b"\xef\xbb\xbf").lstrip().startswith(b"{")
+
+
 def parse_current(pages, series, start, through, retrieved):
     """Read one exact current response, including archived graph CSV."""
     require(len(pages) == 1, "current_page_count")
     raw = pages[0]
     require(0 < len(raw) <= MAX_BYTES, "source_bounds")
-    if not raw.removeprefix(b"\xef\xbb\xbf").lstrip().startswith(b"{"):
+    if not _is_current_api_object(raw):
         return parse_graph(raw, series, start, through, retrieved)
     now = stamp(retrieved)
     first, last = date.fromisoformat(start), date.fromisoformat(through)
@@ -259,7 +263,7 @@ def fetch(series, start, through, mode):
             series_id=series, api_key=key, file_type="json", units="lin", output_type=1,
             observation_start=start, observation_end=through, limit=CURRENT_API_ROW_LIMIT, offset=0))
         try:
-            return [request_bytes(url, secret=key)], utc_now()
+            raw = request_bytes(url, secret=key)
         except HTTPError as exc:
             code = exc.code
             exc.close()
@@ -270,6 +274,8 @@ def fetch(series, start, through, mode):
             raise URLError("FRED current API transport failed") from None
         except OSError:
             raise OSError("FRED current API transport failed") from None
+        require(_is_current_api_object(raw), "current_api_json")
+        return [raw], utc_now()
     require(bool(key), "fred_key_unavailable")
     pages, offset = [], 0
     for _ in range(MAX_PAGES):
