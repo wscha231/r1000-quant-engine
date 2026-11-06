@@ -1014,6 +1014,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/run_run287_current_model_score_dryrun.py',
     'tools/run_run287_current_score_stack_audit.py',
     'tools/run_run287_current_selector_no_write.py',
+    'tools/run287_etf_rotation.py',
     'tools/run_run287_daily_research_monitor.py',
     'tools/run_run287_exact_packet_producer.py',
     'tools/run_run287_exact_packet_upstream.py',

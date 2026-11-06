@@ -9729,3 +9729,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   raw and complete-submission requests returned HTTP 404. The isolated cache
   recovery and standalone reader tests do not certify hosted SEC retrieval
   or repair the independent CUSIP coverage gate.
+
+
+## 2026-11-05 — Separate daily rotation review from the After-Close Paper result
+
+- In After-Close run 41957430178, ETF and theme steps completed before the Paper
+  dry-run failed. Verify a rotation receipt against its exact run, attempt,
+  exchange session and artifact hash. Keep the parent failure and other monitor
+  evidence intact when the independent research receipt is valid or malformed.
+- Require the same 22 settled exchange dates and adjustment basis for current
+  and prior relative strength. A missing peer can suppress a cohort rank but
+  must not erase valid stock vs SPY research. Price-only requests need stable
+  stock/session IDs and private byte readback; they grant no A3/ER completion.
+- The full local workflow-artifact smoke passed the 92 monitor cases, then
+  hit the unchanged daily-capture test's Windows path-separator expectation
+  (test line 2381: Bash / versus pathlib backslash). Keep this local failure;
+  do not change capture code or weaken the test. The required hosted Linux
+  validation remains the integration gate.
