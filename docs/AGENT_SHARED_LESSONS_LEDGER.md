@@ -9661,6 +9661,29 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   conversion. A prefix replay does not reprocess the archive or validate
   historical publication clocks or point-in-time admission.
 
+## 2026-11-06 — Batch one verified Form345 generation into the existing review store
+
+- Parse the same Source bytes that were hashed. A second read from the live
+  sync path can race the next generation. A recent window can bisect an
+  accession if event clocks differ. Hold the whole accession in that case.
+- The retained November 5 Drive generation produced five actual Form4
+  requests and 39 pending A3 references in an isolated store. Preserve the
+  original source and exact identity assertion hashes. Supplied assertions
+  and local readback do not establish scheduled identity approval.
+- One actual 13F store contained 179 events across two quarters. Read one
+  latest directly reported share position into the existing pending A3
+  reference with the raw hash and exact CUSIP. Preserve incomplete snapshot
+  status, unverified supplied identity and an unchanged store inventory.
+  Complete comparable manager coverage is a separate requirement.
+- Require an explicit owned output for batch attempts before touching the
+  shared Registry. A late 13F amendment for an earlier quarter must never
+  displace the latest report period for a current review.
+- Actual pending A3 references read back locally while the A0 lookup refused
+  the 46,345,847-byte Source receipt at its 4 MiB file cap. The original
+  generation carries a large replacement-scope proof. Preserve the original
+  hashes and validate a bounded filing projection before wiring scheduled
+  A0 transport.
+
 ## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
 
 - An observed 2026-01-05 cutoff replay changed a missing required BBB fill into
@@ -9688,6 +9711,24 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   catalog entries still pinned the old dependency. Rebind those exact Git
   bytes under the reviewed 43a00000 base and preserve historical source
   references, classifications, negative checks, and the failed CI record.
+
+
+## 2026-11-06 — Read the SEC raw 13F amendment cover
+
+- Run 41963243732 / artifact 13388404682 parsed at least one required-quarter
+  filing for 30 managers. Five of 34 satisfied the per-accession CUSIP mapping
+  thresholds. Keep source parsing, mapped coverage and weighted publication
+  distinct. The due-period parse failure was accession 0001104659-26-104387.
+- SEC presents the same cover as rendered HTML at the xslForm13F_X02 path and
+  as a separate raw XML document. Resolve the raw URL first, preserve any
+  historical viewer cache, and restore both explicitly named cache paths.
+  For a viewer alias, validate complete XML and bind filer, quarter and form
+  before caching. Independent review reproduced truncated XML and viewer HTML
+  containing the type tag, which passed the legacy type-only regex.
+- SEC's filing page identifies this amendment as a restatement. Local direct
+  raw and complete-submission requests returned HTTP 404. The isolated cache
+  recovery and standalone reader tests do not certify hosted SEC retrieval
+  or repair the independent CUSIP coverage gate.
 
 
 ## 2026-11-05 — Separate daily rotation review from the After-Close Paper result

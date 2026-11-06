@@ -363,6 +363,49 @@ class StandaloneDisclosureTests(unittest.TestCase):
         self.assertFalse(manifest["aggregate_analysis_admitted"])
         self.assertFalse(manifest["orders_allowed"])
 
+    def test_main_reads_one_exact_disclosed_holding_without_writing(self):
+        from tools import run_sec_research_consumption as consumer
+
+        late_amendment = dict(accession="0000000001-26-000002", period="2025-09-30",
+                              accepted="2026-02-17T15:00:00Z", form="13F-HR/A",
+                              amendment="RESTATEMENT", positions=[("000000001", 110, 1100)])
+        self.options = standalone_fixture(self.root / "source", standalone_filings() + [late_amendment])
+        self.assertEqual(self.execute()["status"], "COMPLETED_DISCLOSURE_STORAGE")
+        manifest = self.read()
+        events = [json.loads(disclosure_builder._disclosure_ref(self.store, row["ref"]))
+                  for row in manifest["events"]]
+        event = next(e for e in events if e["accession"] == "0000000001-26-000001"
+                     and e["source_row"]["cusip"] == "000000001")
+        prior = next(e for e in events if e["accession"] == late_amendment["accession"]
+                     and e["source_row"]["cusip"] == "000000001")
+        security_id = "US:AAA:COMMON"
+        identity = consumer.encoded(dict(scope="SUPPLIED_US_IDENTITY_ASSERTIONS", rows=[
+            dict(security_id=security_id, issuer_id="CIK:0000000002", tickers=["AAA"],
+                 country="US", currency="USD")]))
+        params = dict(event_id=event["event_id"], cusip="000000001", security_id=security_id,
+                      identities=identity, decision_at=datetime.now(timezone.utc).isoformat())
+        before = {p.relative_to(self.store): p.read_bytes() for p in self.store.rglob("*") if p.is_file()}
+        proof = consumer.prepare_13f_filing_review(self.store, **params)
+        reference = proof["reference"]
+        self.assertEqual(proof["generation_id"], manifest["generation_id"])
+        self.assertEqual(proof["identity_authentication"], "NOT_VERIFIED")
+        self.assertEqual(reference["status"], "FILING_CONTENT_REVIEW_PENDING")
+        self.assertEqual(reference["raw_sha256"], event["document_sha256"])
+        self.assertEqual(reference["asset_id"], security_id)
+        self.assertFalse(reference["used_for_assessment"])
+        self.assertFalse(reference["investment_score_contribution_allowed"])
+        self.assertIsNone(reference["validated_er_ref"])
+        for changed, reason in (
+            (dict(cusip="000000002"), "13F_REVIEW_CUSIP_BINDING"),
+            (dict(event_id=prior["event_id"]), "13F_REVIEW_LATEST_FILING_REQUIRED"),
+            (dict(security_id="US:UNSUPPLIED:COMMON"), "13F_REVIEW_SECURITY_REQUIRED"),
+            (dict(decision_at=event["accepted_at"]), "13F_REVIEW_DECISION_CLOCK"),
+        ):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, reason):
+                consumer.prepare_13f_filing_review(self.store, **{**params, **changed})
+        self.assertEqual({p.relative_to(self.store): p.read_bytes()
+                          for p in self.store.rglob("*") if p.is_file()}, before)
+
     def test_incremental_full_prefix_matches_one_pass(self):
         self.options = standalone_fixture(self.root / "source", standalone_filings()[:1])
         self.assertEqual(self.execute()["new_events"], 2)
