@@ -9678,6 +9678,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Require an explicit owned output for batch attempts before touching the
   shared Registry. A late 13F amendment for an earlier quarter must never
   displace the latest report period for a current review.
+- Actual pending A3 references read back locally while the A0 lookup refused
+  the 46,345,847-byte Source receipt at its 4 MiB file cap. The original
+  generation carries a large replacement-scope proof. Preserve the original
+  hashes and validate a bounded filing projection before wiring scheduled
+  A0 transport.
 
 ## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
 

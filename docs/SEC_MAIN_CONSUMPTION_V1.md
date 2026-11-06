@@ -100,8 +100,14 @@ The 2026-11-05 Drive generation was verified through the original manifest,
 CSV and Parquet hashes. A local run read back 39 A3 filing review references
 for five recent Form 4 accessions, using five matches in the existing supplied
 identity assertions. This proves the batch route to pending filing review.
+The same checked Source carried 15 Form 3 rows. One original Form 3 XML
+passed the read-only pending reference check. The checked generation had
+zero original Form 5 rows, so Form 5 remains verified by fixtures.
 Scheduled use still requires a current, authorized identity input and an
-existing private research destination. The explicit single-accession route
+existing private research destination. The existing A0 readiness snapshot
+refused the actual batch's 46,345,847-byte Source receipt at its 4 MiB per-file
+budget. A compact, verifiable filing projection needs to retain the immutable
+full Source receipt and raw XML bindings. The explicit single-accession route
 continues to handle amendments with a supplied original accession.
 
 ### Read-only 13F filing reference
