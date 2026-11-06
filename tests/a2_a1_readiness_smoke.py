@@ -850,6 +850,20 @@ class Post669CompatibilityTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'LOOKUP_SEC_RECEIPT_COMPRESSION'):
                     run(inventory, values)
 
+            # An archive read can occur after expiry. Its original decision must be timely.
+            expiry = h.stamp(receipt['last_successful_source_check']) + timedelta(hours=36)
+            self.assertLess(expiry, cutoff)
+            request = manifest['requests'][request_id]
+            request['decision_at'] = request['created_at'] = expiry.isoformat()
+            late = h.canonical(manifest)
+            altered = copy.deepcopy(inventory)
+            altered['artifacts']['REGISTRY']['sha256'] = h.digest(late)
+            with self.assertRaisesRegex(ValueError, 'LOOKUP_SEC_RECEIPT_CLOCK'):
+                run(altered, {**values, 'REGISTRY': late})
+            invalid = c.encoded({**receipt, 'current_eligible': False})
+            with self.assertRaisesRegex(ValueError, 'LOOKUP_SEC_RECEIPT_STATE'):
+                live.unpack_sec_receipt([live.zlib.compress(invalid)], h.digest(invalid))
+
     def test_M3_pending_filing_V0_cannot_create_positive_OHLCV(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);self.pending_three(root)

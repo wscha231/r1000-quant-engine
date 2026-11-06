@@ -87,7 +87,7 @@ def registry_requests(store, ids):
     return {key: requests[key] for key in sorted(selected)}
 
 
-def unpack_sec_receipt(parts, expected_sha256, as_of):
+def unpack_sec_receipt(parts, expected_sha256):
     from tools.run_sec_research_consumption import source_state
 
     inflater = zlib.decompressobj()
@@ -101,9 +101,11 @@ def unpack_sec_receipt(parts, expected_sha256, as_of):
     receipt = h._decode_json(raw, max_bytes=MAX_SEC_RECEIPT_BYTES)
     h.need(receipt.get('status') == 'CHECKED_NEW_OR_EXISTING'
            and type(receipt.get('event_scope')) is dict, 'LOOKUP_SEC_RECEIPT_STATE')
-    h.need(source_state(receipt, as_of, historical_readback=True) in {'CHECKED_NEW_OR_EXISTING', 'STALE'},
+    generated = receipt['generated_at']
+    h.need(source_state(receipt, generated, historical_readback=True) == 'CHECKED_NEW_OR_EXISTING',
            'LOOKUP_SEC_RECEIPT_STATE')
-    return receipt['event_scope'], h.stamp(receipt['generated_at'])
+    expiry = h.stamp(receipt['last_successful_source_check']) + timedelta(hours=36)
+    return receipt['event_scope'], h.stamp(generated), expiry
 
 
 def lookup(value, memory, *, cutoff):
@@ -158,11 +160,11 @@ def lookup(value, memory, *, cutoff):
                            and 1 <= len(aids) <= MAX_SEC_RECEIPT_PARTS
                            and all(type(aid) is str for aid in aids) and len(set(aids)) == len(aids),
                            'LOOKUP_SEC_RECEIPT_PACK_SCOPE')
-                    unpacked[receipt_sha] = unpack_sec_receipt(
-                        [raw(aid) for aid in aids], receipt_sha, value['as_of'])
-                event_scope, generated = unpacked[receipt_sha]
-                h.need(generated <= h.stamp(request.get('decision_at', request['created_at']))
-                       <= h.stamp(request['created_at']), 'LOOKUP_SEC_RECEIPT_CLOCK')
+                    unpacked[receipt_sha] = unpack_sec_receipt([raw(aid) for aid in aids], receipt_sha)
+                event_scope, generated, expiry = unpacked[receipt_sha]
+                decision = h.stamp(request.get('decision_at', request['created_at']))
+                h.need(generated <= decision <= h.stamp(request['created_at']) and decision < expiry,
+                       'LOOKUP_SEC_RECEIPT_CLOCK')
             else:
                 event_scope = ref_object(request['source_receipt_ref'])['event_scope']
             ref_object(request['bridge_ref'])
