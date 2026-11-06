@@ -7,9 +7,11 @@ Registry request manifest. Its successful readback proves local research storage
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
 import os
+import re
 from pathlib import Path
 import sys
 import subprocess
@@ -256,15 +258,18 @@ def verify_ownership_generation(pit_root, *, decision_at):
     need(manifest.get("schema_version") == "sec-form4-merge-shards-v2" and
          manifest.get("status") == "completed", "SOURCE_GENERATION_NOT_COMPLETED")
     for name in ("form4_transactions", "sec_filings_index"):
-        for suffix in ("csv", "parquet"):
-            path = root / (name + "." + suffix)
-            need(digest(path.read_bytes()) == manifest["output_sha256"][path.name], "SOURCE_FORMAT_HASH")
-        parquet = pd.read_parquet(root / (name + ".parquet"))
-        csv = pd.read_csv(root / (name + ".csv"), low_memory=False)
+        csv_path = root / (name + ".csv")
+        parquet_path = root / (name + ".parquet")
+        csv_raw, parquet_raw = csv_path.read_bytes(), parquet_path.read_bytes()
+        need(digest(csv_raw) == manifest["output_sha256"][csv_path.name]
+             and digest(parquet_raw) == manifest["output_sha256"][parquet_path.name], "SOURCE_FORMAT_HASH")
+        parquet = pd.read_parquet(io.BytesIO(parquet_raw))
+        csv = pd.read_csv(io.BytesIO(csv_raw), low_memory=False)
         summary = json.loads((root / (name + "_summary.json")).read_bytes())
         need(len(parquet) == len(csv) == summary["row_count"], "SOURCE_FORMAT_ROW_COUNT")
         need(summary["generation_id"] == manifest["generation_id"], "SOURCE_GENERATION_MISMATCH")
-    frame = pd.read_parquet(root / "form4_transactions.parquet")
+        if name == "form4_transactions":
+            frame = parquet
     need(len(frame) == manifest["transaction_rows"], "SOURCE_TRANSACTION_COUNT")
     receipt = dict(schema="sec-research-consumption-source-v1", original_manifest_sha256=digest(raw),
         original_manifest_utf8=raw.decode("utf-8"),
@@ -594,41 +599,197 @@ def consume(events, *, receipt, raw_by_hash, identities, output_root, decision_a
         lock.unlink()
 
 
+def pinned_identity_file(path, expected_sha256):
+    need(re.fullmatch(r"[0-9a-f]{64}", expected_sha256 or "") is not None,
+         "IDENTITY_SHA256_REQUIRED")
+    limit = 2 * 1024 * 1024
+    with Path(path).open("rb") as stream:
+        raw = stream.read(limit + 1)
+    need(0 < len(raw) <= limit, "IDENTITY_FILE_BUDGET")
+    need(digest(raw) == expected_sha256, "IDENTITY_SHA256_MISMATCH")
+    return raw
+
+
+def prepare_13f_filing_review(root, *, event_id, cusip, security_id, identities, decision_at):
+    """Read a verified disclosed holding into the existing pending A3 reference."""
+    from tools import run_13f_position_event_builder as disclosure
+
+    root = Path(root)
+    manifest = disclosure.read_disclosure_generation(root)
+    decision = bridge.stamp(decision_at)
+    need(bridge.stamp(manifest["generated_at"]) <= decision <= bridge.stamp(actual_utc_now()),
+         "13F_REVIEW_DECISION_CLOCK")
+    selected = [row for row in manifest["events"] if row["event_id"] == event_id]
+    need(len(selected) == 1, "13F_REVIEW_EVENT_SCOPE")
+    event = json.loads(disclosure._disclosure_ref(root, selected[0]["ref"]))
+    row = event["source_row"]
+    need(bridge.stamp(event["available_at"]) <= decision, "13F_REVIEW_EVENT_CLOCK")
+    need(event["family"] == "13F" and event["shares"] is not None and event["shares"] > 0
+         and event["source_row_accession"] == event["accession"]
+         and not row["put_call"] and row["share_type"] == "SH", "13F_REVIEW_DIRECT_DISCLOSED_SHARES")
+    need(re.fullmatch(r"[A-Z0-9]{9}", cusip or "") is not None and row["cusip"] == cusip
+         and event["constituent_identity"]["cusip"] == cusip, "13F_REVIEW_CUSIP_BINDING")
+    latest = max((f for f in manifest["filing_prefix"] if f["manager_cik"] == event["manager_cik"]),
+                 key=lambda f: (f["report_period"], bridge.stamp(f["accepted_at"]), f["accession"]))
+    need(latest["accession"] == event["accession"], "13F_REVIEW_LATEST_FILING_REQUIRED")
+
+    subjects = intake._identities(identities)
+    need(security_id in subjects, "13F_REVIEW_SECURITY_REQUIRED")
+    issuer_id, tickers = subjects[security_id]
+    ticker = event["ticker"]
+    need(ticker and ticker == row["ticker_mapped"] and ticker in tickers
+         and sum(ticker in aliases for _, aliases in subjects.values()) == 1
+         and re.fullmatch(r"CIK:[0-9]{10}", issuer_id) is not None
+         and event.get("issuer_cik10") in (None, "", issuer_id.removeprefix("CIK:")), "13F_REVIEW_IDENTITY_BINDING")
+    receipt = manifest["filing_receipts"][event["accession"]]
+    raw = disclosure._disclosure_ref(root, manifest["source_refs"][receipt["raw_role"]])
+    reference = a3.filing_review_reference(event, security_id=security_id, issuer_id=issuer_id, raw=raw,
+                                          source_receipt_sha256=digest(encoded(manifest)))
+    return dict(reference=reference, generation_id=manifest["generation_id"],
+                disclosure_event_type=event["event_type"],
+                reported_snapshot_complete=event["denominator_complete"],
+                identity_authentication="NOT_VERIFIED")
+
+
+def prepare_recent_ownership_batch(frame, *, identities, raw_dir, decision_at):
+    """Select recent original filings with one explicitly supplied US identity."""
+    supplied = intake._identities(identities)
+    subjects = {}
+    for sid, (issuer, tickers) in supplied.items():
+        for ticker in tickers:
+            subjects.setdefault((issuer, ticker), set()).add(sid)
+
+    cutoff = bridge.stamp(decision_at)
+    earliest = cutoff - timedelta(hours=36)
+    grouped = {}
+    for event in build_ownership_research_events(frame):
+        grouped.setdefault(event["accession"], []).append(event)
+    recent = {accession: rows for accession, rows in grouped.items()
+              if any(earliest <= bridge.stamp(row["available_at"]) <= cutoff for row in rows)}
+
+    held = dict(amendment_lineage=0, clock=0, identity=0, raw_documents=0)
+    pending = []
+    raw_by_hash = {}
+    total_bytes = 0
+    root = Path(raw_dir)
+    for accession, events in sorted(recent.items()):
+        if not all(earliest <= bridge.stamp(event["available_at"]) <= cutoff for event in events):
+            held["clock"] += 1
+            continue
+        need(re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession) is not None,
+             "BATCH_ACCESSION_IDENTITY")
+        if any(event["is_amendment"] for event in events):
+            held["amendment_lineage"] += 1
+            continue
+        keys = {("CIK:" + event["issuer_cik10"], event["ticker"]) for event in events}
+        if len(keys) != 1 or len(subjects.get(next(iter(keys)), ())) != 1:
+            held["identity"] += 1
+            continue
+
+        required = {event["document_sha256"] for event in events}
+        paths = list(root.glob(accession.replace("-", "") + "_*.xml"))
+        found = {}
+        if len(paths) <= 20:
+            for path in paths:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                size = path.stat().st_size
+                if size > 2 * 1024 * 1024:
+                    continue
+                need(total_bytes + size <= 16 * 1024 * 1024, "BATCH_RAW_DOCUMENT_BUDGET")
+                with path.open("rb") as stream:
+                    raw = stream.read(size + 1)
+                need(len(raw) == size, "BATCH_RAW_DOCUMENT_CHANGED")
+                total_bytes += size
+                sha = digest(raw)
+                if sha in required:
+                    found[sha] = raw
+        if set(found) != required:
+            held["raw_documents"] += 1
+            continue
+        pending.append(events)
+        raw_by_hash.update(found)
+        need(len(pending) <= 32, "BATCH_ACCESSION_BUDGET")
+    return ([event for group in pending for event in group], raw_by_hash,
+            dict(recent_accessions=len(recent), selected_accessions=len(pending),
+                 held_accessions=held, identity_assertions_sha256=digest(identities)))
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pit-root", required=True)
-    parser.add_argument("--raw-dir", required=True, help="Existing Form345 XML cache; read only")
+    parser.add_argument("--pit-root")
+    parser.add_argument("--raw-dir", help="Existing Form345 XML cache; read only")
     parser.add_argument("--identities", required=True, help="Explicit existing US identity assertions JSON")
-    parser.add_argument("--accession", required=True, help="One exact filing accession; no whole-universe inference")
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--accession", help="One exact filing accession")
+    selection.add_argument("--recent-batch", action="store_true",
+                           help="Review original filings available in the past 36 hours within supplied identities")
+    selection.add_argument("--13f-event-id", dest="disclosure_event_id",
+                           help="One verified current 13F disclosure event for pending A3 review")
+    parser.add_argument("--13f-disclosure-root", dest="disclosure_root",
+                        help="Existing verified standalone 13F research store")
+    parser.add_argument("--13f-cusip", dest="disclosure_cusip", help="Exact CUSIP for this event")
+    parser.add_argument("--13f-security-id", dest="disclosure_security_id",
+                        help="Explicit supplied security ID for this CUSIP")
+    parser.add_argument("--identities-sha256", help="Required exact identity file SHA256 for batch or 13F review")
     parser.add_argument("--amendment-parent-accession", default="", help="Explicit original accession for the selected Form3/4/5 amendment")
-    parser.add_argument("--output-dir", default="outputs/agent_board")
+    parser.add_argument("--output-dir")
     parser.add_argument("--decision-at", required=True)
     parser.add_argument("--clock-correction", action="store_true", help="Explicit immutable clock-only derivation; never an SEC amendment")
     parser.add_argument("--clock-correction-old-submissions", default="")
     parser.add_argument("--clock-correction-current-submissions", default="")
     parser.add_argument("--clock-correction-expected-parent-sha256", default="")
     args = parser.parse_args()
+    disclosure_args = (args.disclosure_root, args.disclosure_cusip, args.disclosure_security_id)
+    correction_args = (args.clock_correction_old_submissions, args.clock_correction_current_submissions,
+                       args.clock_correction_expected_parent_sha256)
+    if args.disclosure_event_id is not None:
+        if (not args.disclosure_event_id or not all(disclosure_args)
+            or any((args.pit_root, args.raw_dir, args.amendment_parent_accession, args.clock_correction,
+                    *correction_args)) or args.output_dir is not None):
+            parser.error("13F review requires only the disclosure store, exact CUSIP, and supplied security ID")
+        try:
+            identities = pinned_identity_file(args.identities, args.identities_sha256)
+            result = prepare_13f_filing_review(
+                args.disclosure_root, event_id=args.disclosure_event_id, cusip=args.disclosure_cusip,
+                security_id=args.disclosure_security_id, identities=identities, decision_at=args.decision_at,
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            print(json.dumps({"status": "13F_REVIEW_BLOCKED", "research_only": True}))
+            return 2
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    if not args.pit_root or not args.raw_dir or any(value is not None for value in disclosure_args):
+        parser.error("Form345 consumption requires --pit-root and --raw-dir")
+    if args.recent_batch and not args.output_dir:
+        parser.error("Form345 recent batch requires an explicit owned --output-dir")
+    output_root = Path("outputs/agent_board" if args.output_dir is None else args.output_dir)
     # Revoke prior current success before *any* source, identity or raw-file read.
     # A hash-valid old Registry remains historical after a failed CLI attempt.
     def refused(status):
         return consume([], receipt=dict(schema="sec-research-consumption-source-v1", status=status),
-            raw_by_hash={}, identities=b"{}", output_root=Path(args.output_dir), decision_at=args.decision_at)
+            raw_by_hash={}, identities=b"{}", output_root=output_root, decision_at=args.decision_at)
     refused("PREREQUISITE_FAILED")
     correction = None
+    batch_identities = None
     try:
-        supplied = [args.clock_correction_old_submissions, args.clock_correction_current_submissions,
-                    args.clock_correction_expected_parent_sha256]
-        need((args.clock_correction and all(supplied)) or (not args.clock_correction and not any(supplied)),
+        need((args.clock_correction and all(correction_args))
+             or (not args.clock_correction and not any(correction_args)),
              "CLOCK_CORRECTION_EXPLICIT_ARGUMENTS")
+        if args.recent_batch:
+            need(not args.clock_correction and not args.amendment_parent_accession,
+                 "BATCH_ORIGINAL_FILINGS_ONLY")
+            batch_identities = pinned_identity_file(args.identities, args.identities_sha256)
+        else:
+            need(args.identities_sha256 is None, "BATCH_IDENTITY_SHA256_MODE")
         if args.clock_correction:
-            import re
             need(re.fullmatch(r"[0-9a-f]{64}", args.clock_correction_expected_parent_sha256) is not None,
                  "CLOCK_CORRECTION_PARENT_HASH")
-            paths = [Path(p) for p in supplied[:2]]
+            paths = [Path(p) for p in correction_args[:2]]
             need(all(p.is_file() and p.stat().st_size <= 2 * 1024 * 1024 for p in paths),
                  "CLOCK_CORRECTION_SUBMISSIONS_BUDGET")
-            correction = dict(expected_original_request_sha256=supplied[2], old_submissions=paths[0].read_bytes(),
+            correction = dict(expected_original_request_sha256=correction_args[2], old_submissions=paths[0].read_bytes(),
                               current_submissions=paths[1].read_bytes())
     except (OSError, ValueError, KeyError, TypeError):
         print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
@@ -640,12 +801,33 @@ def main():
         print(json.dumps(result, sort_keys=True))
         return 2
     if receipt["status"] == "CHECKED_NO_NEW":
-        if correction is not None:
+        try:
+            need(correction is None, "CLOCK_CORRECTION_REQUIRES_CURRENT_FILING")
+            if batch_identities is not None:
+                intake._identities(batch_identities)
+        except (KeyError, TypeError, ValueError):
             print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
             return 2
         result = consume([], receipt=receipt, raw_by_hash={}, identities=b"{}",
-            output_root=Path(args.output_dir), decision_at=args.decision_at)
+            output_root=output_root, decision_at=args.decision_at)
         print(json.dumps(result, sort_keys=True))
+        return 0 if result["current_eligible"] else 2
+    if args.recent_batch:
+        try:
+            status = source_state(receipt, actual_utc_now())
+            events, raw_by_hash, batch = [], {}, None
+            if status == "CHECKED_NEW_OR_EXISTING":
+                events, raw_by_hash, batch = prepare_recent_ownership_batch(
+                    frame, identities=batch_identities, raw_dir=args.raw_dir, decision_at=args.decision_at)
+        except (OSError, ValueError, KeyError, TypeError):
+            print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
+            return 2
+        if batch and batch["recent_accessions"] and not events:
+            result = refused("PREREQUISITE_FAILED")
+        else:
+            result = consume(events, receipt=receipt, raw_by_hash=raw_by_hash, identities=batch_identities,
+                             output_root=output_root, decision_at=args.decision_at)
+        print(json.dumps({**result, "recent_batch": batch}, sort_keys=True))
         return 0 if result["current_eligible"] else 2
     try:
         selected = frame[frame["accession_number"] == args.accession].copy()
@@ -656,7 +838,6 @@ def main():
         need(not is_amendment or parent, "AMENDMENT_LINEAGE_REQUIRED")
         need(not parent or is_amendment, "PARENT_FOR_NON_AMENDMENT")
         if parent:
-            import re
             need(re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", parent) is not None
                  and parent != args.accession, "AMENDMENT_PARENT_ACCESSION_INVALID")
         parents = {args.accession: parent} if parent else {}
@@ -673,7 +854,7 @@ def main():
         print(json.dumps(refused("PREREQUISITE_FAILED"), sort_keys=True))
         return 2
     result = consume(events, receipt=receipt, raw_by_hash=raw_by_hash,
-        identities=identity_bytes, output_root=Path(args.output_dir), decision_at=args.decision_at,
+        identities=identity_bytes, output_root=output_root, decision_at=args.decision_at,
         amendment_parents=parents, clock_correction=correction)
     print(json.dumps(result, sort_keys=True))
     return 0 if result["current_eligible"] else 2

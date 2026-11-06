@@ -80,6 +80,62 @@ Example (actual caller paths and aware current time are required):
 python tools/run_sec_research_consumption.py --pit-root <verified-pit> --raw-dir <existing-xml-cache> --identities <supplied-identity-json> --accession <exact-accession> --decision-at <actual-aware-UTC>
 ```
 
+### Bounded recent ownership batch
+
+The existing consumer also accepts a single verified Source generation and an
+explicit identity assertions file pinned by SHA-256. It selects original Form
+3, 4 and 5 filings with complete accession scope in the preceding 36 hours and
+one supplied issuer/ticker relationship. The caller must name the owned output
+directory explicitly. The consumer commits eligible requests in one local
+research transaction and preserves the existing request IDs on
+replay. Hold missing raw documents, ambiguous identities and amendments
+requiring an explicit original accession. Hold mixed availability clocks
+instead of writing an incomplete request.
+
+```text
+python tools/run_sec_research_consumption.py --pit-root <verified-pit> --raw-dir <existing-xml-cache> --identities <supplied-identity-json> --identities-sha256 <exact-identity-sha256> --recent-batch --decision-at <actual-aware-UTC> --output-dir <owned-research-root>
+```
+
+The 2026-11-05 Drive generation was verified through the original manifest,
+CSV and Parquet hashes. A local run read back 39 A3 filing review references
+for five recent Form 4 accessions, using five matches in the existing supplied
+identity assertions. This proves the batch route to pending filing review.
+The same checked Source carried 15 Form 3 rows. One original Form 3 XML
+passed the read-only pending reference check. The checked generation had
+zero original Form 5 rows, so Form 5 remains verified by fixtures.
+Scheduled use still requires a current, authorized identity input and an
+existing private research destination. The existing A0 readiness snapshot
+refused the actual batch's 46,345,847-byte Source receipt at its 4 MiB per-file
+budget. A compact, verifiable filing projection needs to retain the immutable
+full Source receipt and raw XML bindings. The explicit single-accession route
+continues to handle amendments with a supplied original accession.
+
+### Read-only 13F filing reference
+
+Read one current disclosed share position from the existing standalone store.
+The store readback verifies Source, the current attempt, exact derivation
+code, filing lineage and row parity. The selected event must contain positive
+shares from the latest observed filing for the latest report period, carry
+the exact caller-pinned CUSIP and map to one supplied US ticker relationship.
+A later amendment to an older period keeps its original period. A supplied issuer
+assertion must agree with any issuer CIK carried by the event.
+
+```text
+python tools/run_sec_research_consumption.py --13f-disclosure-root <verified-store> --13f-event-id <exact-event-id> --13f-cusip <exact-cusip> --13f-security-id <supplied-security-id> --identities <supplied-identity-json> --identities-sha256 <exact-identity-sha256> --decision-at <actual-aware-UTC>
+```
+
+The command emits the existing pending A3 filing reference to stdout. Keep
+the output within the approved research boundary. It retains the exact raw
+XML hash, event, filing and SEC acceptance clock. The response carries the
+snapshot completeness flag and marks identity authentication unverified.
+Full comparison and persistent Registry admission retain their existing gates.
+
+An isolated November 5 Source readback verified 179 disclosure events across
+two quarters for one manager. The adapter returned one current disclosed
+holding reference from that store and its file inventory stayed byte-identical.
+The associated snapshot was incomplete. The weighted manager-wide score
+and the scheduled A3 connection require separate evidence.
+
 ## Standalone 13F management (2026-10-24)
 
 Per the user's separation from the ongoing 7.1 integration, this stage completes
