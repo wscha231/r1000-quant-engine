@@ -9683,6 +9683,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   generation carries a large replacement-scope proof. Preserve the original
   hashes and validate a bounded filing projection before wiring scheduled
   A0 transport.
+- Scope A0 readback to the exact request IDs, so older receipt chains do not
+  consume the current batch's memory. Pack the original Source leaf in
+  bounded compressed parts. Verify both transport and original hashes,
+  the original Source clock and per-event XML binding on readback. Validate
+  eligibility at the recorded Source generation and require the original
+  request decision to precede expiry, even when the later read is historical.
 
 ## 2026-11-04 — Bind Forward replay to the scheduled NYSE close
 

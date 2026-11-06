@@ -103,11 +103,25 @@ identity assertions. This proves the batch route to pending filing review.
 The same checked Source carried 15 Form 3 rows. One original Form 3 XML
 passed the read-only pending reference check. The checked generation had
 zero original Form 5 rows, so Form 5 remains verified by fixtures.
+The existing A0 readiness snapshot accepts the batch's exact request IDs via
+repeated `--registry-request-id` arguments. It carries the original Registry
+manifest and only those requests' immutable references. Explicit selection
+holds requests with recorded clock corrections for their existing review path.
+The original 46,345,847-byte Source receipt exceeded the 4 MiB per-file limit.
+Oversized SEC Source receipt leaves can now travel as a bounded zlib stream
+split into ordinary artifacts. A0 checks every part's hash, inflates the
+receipt within 64 MiB, rechecks the original receipt hash and Source clock,
+and verifies each filing's scope and XML hash. Other inputs retain the
+existing per-file and aggregate limits.
+
+A local readback of scheduled Source run 42156777868 recovered three requests
+and six pending A3 references through the existing A0 planner. The
+46,344,796-byte receipt traveled as 3,583,257 bytes with the same original hash.
+The prior Source batch also read back all 39 references. Both used supplied
+identity assertions and an isolated research store.
+
 Scheduled use still requires a current, authorized identity input and an
-existing private research destination. The existing A0 readiness snapshot
-refused the actual batch's 46,345,847-byte Source receipt at its 4 MiB per-file
-budget. A compact, verifiable filing projection needs to retain the immutable
-full Source receipt and raw XML bindings. The explicit single-accession route
+existing private research destination. The explicit single-accession route
 continues to handle amendments with a supplied original accession.
 
 ### Read-only 13F filing reference

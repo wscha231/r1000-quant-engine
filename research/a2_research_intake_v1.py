@@ -84,7 +84,11 @@ def decode(raw, *, max_entries=1000):
     Tokens include object keys and containers: intentionally stricter than
     A3's post-decode value-node budget. Escaped quotes do not add depth/tokens.
     """
-    need(type(raw) is bytes and 0 < len(raw) <= MAX_BYTES, 'BYTE_BUDGET')
+    return _decode_json(raw, max_bytes=MAX_BYTES, max_entries=max_entries)
+
+
+def _decode_json(raw, *, max_bytes, max_entries=1000):
+    need(type(raw) is bytes and 0 < len(raw) <= max_bytes, 'BYTE_BUDGET')
     need(type(max_entries) is int and 0 < max_entries <= 10000, 'ENTRY_BUDGET')
     depth = tokens = 0
     string = escaped = scalar = False

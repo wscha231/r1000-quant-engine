@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import zlib
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -24,6 +25,9 @@ h = handoff.h
 SCHEMA = 'a2-a1-readiness-lookup-v1'
 REFRESH_MARKER = 'refresh_failed.json'
 REFRESH_BLOCKED = b'{"schema":"a2-readiness-refresh-failed-v1","status":"BLOCKED"}\n'
+MAX_SEC_RECEIPT_BYTES = 64 * 1024 * 1024
+MAX_SEC_RECEIPT_PACKS = 4
+MAX_SEC_RECEIPT_PARTS = 4
 
 
 def read_bytes(path, *, limit=None):
@@ -62,12 +66,55 @@ def block_refresh(path):
     return marker
 
 
+def stored_digest(ref):
+    h.need(type(ref) is dict and set(ref) == {'path', 'sha256'}
+           and type(ref['sha256']) is str and re.fullmatch(r'[0-9a-f]{64}', ref['sha256'])
+           and ref['path'] == 'artifacts/' + ref['sha256'], 'LOOKUP_STORED_REFERENCE')
+    return ref['sha256']
+
+
+def registry_requests(store, ids):
+    requests = store.get('requests')
+    h.need(store.get('schema') == 'sec-research-request-store-v1'
+           and type(requests) is dict and len(requests) <= 1000, 'LOOKUP_REGISTRY_SCHEMA')
+    if ids is None:
+        return requests
+    h.need(type(ids) is list and 1 <= len(ids) <= 32, 'LOOKUP_REGISTRY_SCOPE')
+    selected = {h.identifier(key) for key in ids}
+    corrections = store.get('clock_corrections', {})
+    h.need(type(corrections) is dict and len(selected) == len(ids)
+           and selected <= requests.keys() and not selected.intersection(corrections), 'LOOKUP_REGISTRY_SCOPE')
+    return {key: requests[key] for key in sorted(selected)}
+
+
+def unpack_sec_receipt(parts, expected_sha256):
+    from tools.run_sec_research_consumption import source_state
+
+    inflater = zlib.decompressobj()
+    try:
+        raw = inflater.decompress(b''.join(parts), MAX_SEC_RECEIPT_BYTES + 1)
+    except zlib.error:
+        raise h.IntakeError('LOOKUP_SEC_RECEIPT_COMPRESSION') from None
+    h.need(0 < len(raw) <= MAX_SEC_RECEIPT_BYTES and inflater.eof
+           and not inflater.unused_data and not inflater.unconsumed_tail, 'LOOKUP_SEC_RECEIPT_COMPRESSION')
+    h.need(h.digest(raw) == expected_sha256, 'LOOKUP_STORED_HASH')
+    receipt = h._decode_json(raw, max_bytes=MAX_SEC_RECEIPT_BYTES)
+    h.need(receipt.get('status') == 'CHECKED_NEW_OR_EXISTING'
+           and type(receipt.get('event_scope')) is dict, 'LOOKUP_SEC_RECEIPT_STATE')
+    generated = receipt['generated_at']
+    h.need(source_state(receipt, generated, historical_readback=True) == 'CHECKED_NEW_OR_EXISTING',
+           'LOOKUP_SEC_RECEIPT_STATE')
+    expiry = h.stamp(receipt['last_successful_source_check']) + timedelta(hours=36)
+    return receipt['event_scope'], h.stamp(generated), expiry
+
+
 def lookup(value, memory, *, cutoff):
     """Observe actual sealed references; never translate presence to admission."""
     h._memory(memory)
     fields=('schema', 'as_of', 'subjects', 'registry_manifest_id',
         'capture_inventory_id', 'checkpoint_ids', 'ohlcv_inventory_id', 'artifacts')
-    h.need(set(value) in (set(fields),set(fields)|{'chatgpt_report_id'}), 'FIELDS')
+    optional = {'chatgpt_report_id', 'registry_request_ids', 'packed_sec_receipts'}
+    h.need(set(fields) <= value.keys() <= set(fields) | optional, 'FIELDS')
     h.need(value['schema'] == SCHEMA and h.stamp(value['as_of']) <= h.stamp(cutoff)
            <= datetime.now(timezone.utc),
            'LOOKUP_CLOCK')
@@ -81,18 +128,19 @@ def lookup(value, memory, *, cutoff):
         return h.decode(raw(aid),max_entries=max_entries)
     by_hash = {ref['sha256']: aid for aid, ref in value['artifacts'].items()}
     def ref_object(ref):
-        h.need(type(ref) is dict and set(ref) == {'path', 'sha256'}
-               and re.fullmatch(r'artifacts/[0-9a-f]{64}', ref['path'])
-               and ref['path'].split('/')[-1] == ref['sha256']
-               and ref['sha256'] in by_hash, 'LOOKUP_STORED_REFERENCE')
-        return obj(by_hash[ref['sha256']])
+        sha = stored_digest(ref)
+        h.need(sha in by_hash, 'LOOKUP_STORED_REFERENCE')
+        return obj(by_hash[sha])
+    scope_ids = value.get('registry_request_ids')
+    packed = value.get('packed_sec_receipts', {})
+    h.need(type(packed) is dict and len(packed) <= MAX_SEC_RECEIPT_PACKS
+           and (value['registry_manifest_id'] is not None or (not packed and scope_ids is None)),
+           'LOOKUP_SEC_RECEIPT_PACK_SCOPE')
+    unpacked = {}
     records = []
     if value['registry_manifest_id'] is not None:
         store = obj(value['registry_manifest_id'])
-        h.need(store.get('schema') == 'sec-research-request-store-v1'
-               and type(store.get('requests')) is dict and len(store['requests']) <= 1000,
-               'LOOKUP_REGISTRY_SCHEMA')
-        for key, request in store['requests'].items():
+        for key, request in registry_requests(store, scope_ids).items():
             h.need(key == request['request_id'], 'LOOKUP_REQUEST_ID')
             record = ref_object(request['registry_ref'])
             h.need(record.get('schema') == 'candidate-registry-filing-request-v1'
@@ -104,17 +152,37 @@ def lookup(value, memory, *, cutoff):
                 'LOOKUP_EVENT_SET')
             a2 = ref_object(record['a2_intake_ref'])
             a3 = [ref_object(ref) for ref in record['a3_filing_review_refs']]
-            receipt = ref_object(request['source_receipt_ref'])
+            receipt_sha = stored_digest(request['source_receipt_ref'])
+            if receipt_sha in packed:
+                if receipt_sha not in unpacked:
+                    aids = packed[receipt_sha]
+                    h.need(receipt_sha not in by_hash and type(aids) is list
+                           and 1 <= len(aids) <= MAX_SEC_RECEIPT_PARTS
+                           and all(type(aid) is str for aid in aids) and len(set(aids)) == len(aids),
+                           'LOOKUP_SEC_RECEIPT_PACK_SCOPE')
+                    unpacked[receipt_sha] = unpack_sec_receipt([raw(aid) for aid in aids], receipt_sha)
+                event_scope, generated, expiry = unpacked[receipt_sha]
+                decision = h.stamp(request.get('decision_at', request['created_at']))
+                h.need(generated <= decision <= h.stamp(request['created_at']) and decision < expiry,
+                       'LOOKUP_SEC_RECEIPT_CLOCK')
+            else:
+                event_scope = ref_object(request['source_receipt_ref'])['event_scope']
             ref_object(request['bridge_ref'])
             h.need([e['event_id'] for e in a2['input']['events']] == [e['event_id'] for e in events]
                    == [e['event_id'] for e in a3], 'LOOKUP_EVENT_BINDING')
             for event, review, original in zip(events, a3, request['raw_refs'], strict=True):
-                h.need(event['event_id'] in receipt['event_scope']
+                h.need(event['event_id'] in event_scope
                        and review['asset_id'] == record['asset_id']
                        and review['issuer_id'] == record['issuer_id']
                        and review['raw_sha256'] == original['sha256']
                        and review['source_receipt_sha256'] == request['source_receipt_ref']['sha256']
                        and original['sha256'] in by_hash, 'LOOKUP_SOURCE_BINDING')
+                if receipt_sha in packed:
+                    fields = ('document_sha256', 'issuer_cik10', 'accession', 'form_type',
+                              'ticker', 'accepted_at', 'available_at')
+                    h.need(event_scope[event['event_id']] == {k: event[k] for k in fields}
+                           and stored_digest(original) == event['document_sha256'],
+                           'LOOKUP_SEC_EVENT_BINDING')
                 raw(by_hash[original['sha256']])
                 h.need(h.stamp(event['available_at']) <= h.stamp(value['as_of']), 'LOOKUP_EVENT_CLOCK')
             levels = sorted({e['verification_level'] for e in a2['input']['events']})
@@ -122,6 +190,7 @@ def lookup(value, memory, *, cutoff):
                 levels=levels, record_sha256=request['registry_ref']['sha256'],
                 request_id=key, event_ids=[e['event_id'] for e in events],
                 a3_declared_states=sorted({r.get('status','UNKNOWN') for r in a3})))
+    h.need(packed.keys() == unpacked.keys(), 'LOOKUP_SEC_RECEIPT_PACK_SCOPE')
     holdings = {}
     if value['capture_inventory_id'] is not None:
         inventory = obj(value['capture_inventory_id'],max_entries=10000)
@@ -175,7 +244,8 @@ def lookup(value, memory, *, cutoff):
             for aid, cp in checkpoints if country == 'US' and ticker in cp['examined']]
         # A completed ticker may have no bars. Presence never proves row coverage.
         obs = dict(**subject, registry_state='STORED_RESEARCH_REQUEST' if matches
-            else 'NOT_FOUND_IN_INSPECTED_STORE' if value['registry_manifest_id'] else 'UNKNOWN',
+            else ('NOT_FOUND_IN_INSPECTED_SCOPE' if scope_ids is not None
+                  else 'NOT_FOUND_IN_INSPECTED_STORE' if value['registry_manifest_id'] else 'UNKNOWN'),
             identity_match='EXACT_SUPPLIED_KEYS_NOT_ADMISSION' if exact else 'TICKER_ONLY_NOT_VERIFIED',
             research_requests=[dict(request_id=r['request_id'],
                 registry_record_sha256=r['record_sha256'], event_ids=r['event_ids'],
@@ -237,6 +307,7 @@ def snapshot(args):
     """Trusted caller acquires explicit local sources; original times preserved."""
     out = Path(args.output_dir).resolve()
     registry_root = Path(args.registry_root).resolve() if args.registry_root else None
+    request_ids = getattr(args, 'registry_request_id', []) or None
     inputs = [Path(p).resolve() for p in [args.subjects, args.capture_inventory,
               *args.checkpoint, args.ohlcv_inventory, getattr(args,'chatgpt_report',None)] if p]
     h.need(not registry_root or (not out.is_relative_to(registry_root)
@@ -244,6 +315,7 @@ def snapshot(args):
     inner = inner_content = None
     try:
         h.need(all(not p.is_relative_to(out) for p in inputs), 'LOOKUP_OUTPUT_SCOPE')
+        h.need(request_ids is None or registry_root is not None, 'LOOKUP_REGISTRY_SCOPE')
         if args.ohlcv_inventory:
             path = Path(args.ohlcv_inventory).resolve()
             inner_content = read_bytes(path); inner = h.decode(inner_content)
@@ -275,23 +347,46 @@ def snapshot(args):
         refs[aid] = dict(path=name,sha256=h.digest(content),observed_at=at,
             available_at=at,collected_at=at,expires_at=expires,status='VERIFIED')
         return aid
+    packed = {}
     if registry_root:
         manifest = read_bytes(board.artifact_path(registry_root,
             'control_plane/candidate_registry/filing_requests.json'))
         add('REGISTRY', manifest)
-        pending = [h.decode(manifest)]; visited = set()
+        store = h.decode(manifest)
+        selected = registry_requests(store, request_ids)
+        receipt_shas = {stored_digest(r['source_receipt_ref']) for r in selected.values()}
+        pending = list(selected.values()) if request_ids is not None else [store]
+        visited = set()
         while pending:
             node = pending.pop()
             if type(node) is list: pending.extend(node)
             elif type(node) is dict:
                 if set(node) == {'path','sha256'}:
-                    h.need(re.fullmatch(r'artifacts/[0-9a-f]{64}',node['path'])
-                           and node['path'].split('/')[-1] == node['sha256'], 'LOOKUP_STORED_REFERENCE')
-                    if node['sha256'] in visited: continue
-                    content=read_bytes(board.artifact_path(registry_root,node['path']))
-                    h.need(h.digest(content)==node['sha256'], 'LOOKUP_STORED_HASH')
-                    visited.add(node['sha256']);add('B'+node['sha256'],content)
-                    if content.lstrip().startswith((b'{',b'[')): pending.append(h.decode(content))
+                    sha = stored_digest(node)
+                    if sha in visited:
+                        continue
+                    path = board.artifact_path(registry_root, node['path'])
+                    if sha in receipt_shas:
+                        with path.open('rb') as stream:
+                            content = stream.read(MAX_SEC_RECEIPT_BYTES + 1)
+                        h.need(len(content) <= MAX_SEC_RECEIPT_BYTES, 'LOOKUP_FILE_BUDGET')
+                    else:
+                        content = read_bytes(path)
+                    h.need(h.digest(content) == sha, 'LOOKUP_STORED_HASH')
+                    visited.add(sha)
+                    if len(content) > h.MAX_BYTES:
+                        compressed = zlib.compress(content)
+                        h.need(len(packed) < MAX_SEC_RECEIPT_PACKS
+                               and len(compressed) <= MAX_SEC_RECEIPT_PARTS * h.MAX_BYTES,
+                               'LOOKUP_SEC_RECEIPT_PACK_SCOPE')
+                        packed[sha] = [
+                            add(f'SEC{sha}.{part // h.MAX_BYTES}', compressed[part:part + h.MAX_BYTES])
+                            for part in range(0, len(compressed), h.MAX_BYTES)
+                        ]
+                    else:
+                        add('B' + sha, content)
+                        if content.lstrip().startswith((b'{', b'[')):
+                            pending.append(h.decode(content))
                 else: pending.extend(node.values())
         h.need(read_bytes(board.artifact_path(registry_root,
             'control_plane/candidate_registry/filing_requests.json')) == manifest, 'LOOKUP_STORE_CHANGED')
@@ -315,6 +410,10 @@ def snapshot(args):
         registry_manifest_id='REGISTRY' if registry_root else None,
         capture_inventory_id='CAPTURE' if args.capture_inventory else None,
         checkpoint_ids=cp_ids,ohlcv_inventory_id='OHLCV' if args.ohlcv_inventory else None,artifacts=refs)
+    if request_ids is not None:
+        value['registry_request_ids'] = sorted(request_ids)
+    if packed:
+        value['packed_sec_receipts'] = packed
     if getattr(args,'chatgpt_report',None):
         value['chatgpt_report_id']=add('CHATGPT_REPORT',read_bytes(args.chatgpt_report))
     report=lookup(value,h.MemoryArtifacts(values),cutoff=at)
@@ -507,6 +606,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--subjects')
     parser.add_argument('--registry-root')
+    parser.add_argument('--registry-request-id', action='append', default=[])
     parser.add_argument('--capture-inventory')
     parser.add_argument('--checkpoint',action='append',default=[])
     parser.add_argument('--ohlcv-inventory')
