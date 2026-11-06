@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from tools import run_run287_daily_research_monitor as monitor
+from tools import run287_etf_rotation as rotation
 from tools import run287_research_score_handoff as handoff
 from tools.run287_code_identity import IDENTITY_FILES, identity_sha256
 
@@ -642,6 +643,181 @@ class ForwardContextTests(unittest.TestCase):
         self.assertEqual(report["safety"], baseline["safety"])
 
 
+class RotationTests(unittest.TestCase):
+    now = monitor.timestamp("2026-11-05T04:00:00Z")
+    producer = {"run_id": 2, "run_attempt": 1, "head_sha": "a" * 40}
+
+    def fixture(self):
+        config, watch, _ = rotation.policy(CONTRACT)
+        sessions, _ = rotation.session_window(self.now)
+        history = {ticker: [(day, 100 + i) for i, day in enumerate(sessions)]
+                   for ticker in (*rotation.universe(config), *watch)}
+        for ticker, jump in (("NVDA", 1.10), ("XLE", 1.05), ("SMH", 1.06)):
+            history[ticker][-1] = sessions[-1], history[ticker][-1][1] * jump
+        return history
+
+    def analyze(self, history, now=None):
+        return rotation.analyze(history, CONTRACT, now=now or self.now, price_basis="SYNTHETIC_ADJUSTED_CLOSE")
+
+    def test_all_42_comparable_and_one_request_per_stock_session(self):
+        history = self.fixture()
+        result = self.analyze(history)
+        rows = result["rows"]
+        self.assertEqual((result["status"], result["counts"]["etfs_compared"]), ("CURRENT", 42))
+        self.assertEqual((rows["XLE"]["rank5"]["current"], rows["SMH"]["rank5"]["current"]), (1, 1))
+        self.assertEqual(rows["NVDA"]["relative_strength"], {"1": 0.1, "5": 0.1, "20": 0.1})
+        self.assertEqual(rows["NVDA"]["peer_relative_strength"]["current"]["5"], 0.0377358491)
+        self.assertIsNone(rows["QQQ"]["rank5"])
+        requests = {row["subject"]["ticker"]: row for row in result["a3_review_requests"]}
+        self.assertEqual(len(requests), len(result["a3_review_requests"]))
+        self.assertEqual({trigger["scope"] for trigger in requests["NVDA"]["triggers"]},
+                         {"STOCK_VS_SPY", "STOCK_VS_REFERENCE", "REFERENCE_ETF_ROTATION"})
+        self.assertTrue(all(request["agent"] == "A3" and request["execute"] is False
+                            for request in requests.values()))
+        replay = self.analyze(history, monitor.timestamp("2026-11-05T08:00:00Z"))
+        self.assertEqual(result["a3_review_requests"], replay["a3_review_requests"])
+
+    def test_partial_peer_or_stale_etf_never_looks_like_a_rank_change(self):
+        history = self.fixture()
+        history["SMH"].pop()
+        history["XLE"].pop(6)
+        history["QQQ"].append(history["QQQ"][-1])
+        result = self.analyze(history)
+        self.assertEqual(result["status"], "PARTIAL")
+        self.assertEqual(result["rows"]["SMH"]["gap"], "EXACT_SESSION_MISSING")
+        self.assertEqual(result["rows"]["XLE"]["gap"], "WINDOW_GAP")
+        self.assertEqual(result["rows"]["QQQ"]["gap"], "DUPLICATE_SESSION")
+        self.assertIsNone(result["rows"]["IGV"]["rank5"])
+        self.assertIsNone(result["rows"]["NVDA"]["peer_relative_strength"])
+        self.assertEqual([row["subject"]["ticker"] for row in result["a3_review_requests"]], ["NVDA"])
+        del history["SPY"]
+        blocked = self.analyze(history)
+        self.assertEqual(blocked["status"], "DATA_BLOCKED")
+        self.assertEqual(blocked["counts"]["etfs_compared"], 0)
+        self.assertEqual(blocked["a3_review_requests"], [])
+
+    def test_exact_session_and_future_prices_do_not_change_the_result(self):
+        history = self.fixture()
+        baseline = self.analyze(history)
+        for rows in history.values():
+            rows.append(("2026-11-05", 999999.0))
+        self.assertEqual(self.analyze(history), baseline)
+        self.assertEqual(rotation.session_window(monitor.timestamp("2026-11-27T19:29:59Z"))[0][-1],
+                         "2026-11-25")
+        self.assertEqual(rotation.session_window(monitor.timestamp("2026-11-27T19:30:00Z"))[0][-1],
+                         "2026-11-27")
+
+    def test_scheduled_stage_reuses_legacy_frame_and_requires_adjusted_batch(self):
+        import pandas as pd
+        history = self.fixture()
+        stage = rotation.ScheduledRotation(CONTRACT, self.now)
+        calls = []
+
+        def frame(symbol, column):
+            return pd.DataFrame({column: [value for _, value in history[symbol]]},
+                                index=pd.DatetimeIndex([day for day, _ in history[symbol]]))
+
+        fresh = frame("SMH", "Close")
+        stale = frame("XLK", "Close").iloc[:-1]
+
+        def fetch(ticker):
+            calls.append(ticker)
+            return {"SMH": fresh, "XLK": stale}[ticker]
+
+        self.assertIs(stage.legacy_history(fetch, "SMH"), fresh)
+        self.assertIs(stage.legacy_history(fetch, "XLK"), stale)
+        self.assertEqual(calls, ["SMH", "XLK"])
+        requested = []
+
+        def download(tickers, start, end):
+            self.assertLessEqual(len(tickers), 20)
+            self.assertEqual((start, end), (history["SPY"][0][0], "2026-11-05"))
+            requested.extend(tickers)
+            return {t: frame(t, "Close" if t == "QQQ" else "Adj Close") for t in tickers}, {}
+
+        result = stage.finish(download)
+        self.assertEqual(len(requested), 65)
+        self.assertNotIn("SMH", requested)
+        self.assertIn("XLK", requested)
+        self.assertEqual(result["rows"]["QQQ"]["gap"], "EXACT_SESSION_MISSING")
+        self.assertEqual(result["counts"]["etfs_compared"], 41)
+
+    def test_private_binding_and_failed_parent_preserve_different_statuses(self):
+        result = self.analyze(self.fixture())
+        objects = {}
+
+        class IsolatedTransport:
+            def write(self, path, raw):
+                objects[path] = raw
+                if rotation.sha256(objects[path]) != path.rsplit("/", 1)[-1]:
+                    raise ValueError("readback_failed")
+
+        receipt = rotation.publish_private(result, self.producer, self.now, IsolatedTransport())
+        run = sample_run(conclusion="failure")
+        run["created_at"] = "2026-11-05T03:00:00Z"
+        monitor_now = monitor.timestamp("2026-11-05T08:00:00Z")
+        self.assertNotIn("NVDA", json.dumps(receipt))
+        self.assertNotIn("relative_strength", json.dumps(receipt))
+        spec = CONTRACT["sources"]["tactical"]
+
+        class Feed:
+            def __init__(self, rotation_raw):
+                data = io.BytesIO()
+                with zipfile.ZipFile(data, "w") as archive:
+                    archive.writestr(spec["members"]["summary"], '{"data_as_of":"2026-11-04"}')
+                    archive.writestr(spec["members"]["etf_rotation"], rotation_raw)
+                self.raw = data.getvalue()
+                self.artifact = {"id": 1, "name": spec["artifact_prefix"] + "2",
+                                 "digest": "sha256:" + rotation.sha256(self.raw),
+                                 "workflow_run": {"id": 2, "head_sha": "a" * 40},
+                                 "size_in_bytes": len(self.raw), "expired": False,
+                                 "created_at": "2026-11-05T04:15:00Z"}
+
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [self.artifact]}
+
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(self.raw)
+                return self.artifact["digest"]
+
+        def read(feed, session="2026-11-04"):
+            return monitor.collect_source(feed, "tactical", spec, CONTRACT, now=monitor_now, session=session)
+
+        source = read(Feed(rotation.canonical(receipt)))
+        self.assertEqual(source["status"], "UPSTREAM_FAILED")
+        self.assertTrue(source["artifact_hash_verified"])
+        observation = source["data"]["etf_rotation"]
+        self.assertEqual(observation["a3_handoff_status"], "REVIEW_REQUESTS_READY")
+        combined = evidence()
+        combined["tactical"] = source
+        report = monitor.evaluate(combined, "2026-11-04", monitor_now, CONTRACT)
+        stock = next(row for row in report["watchlist"] if row["ticker"] == "NVDA")
+        self.assertEqual(stock["a3_rotation_batch_sha256"], observation["private_payload_sha256"])
+        self.assertEqual(stock["a3_rotation_batch_status"], "REVIEW_REQUESTS_READY")
+        self.assertFalse(report["current_portfolio_ready"])
+        self.assertIn("tactical:UPSTREAM_FAILED", report["alerts"])
+        raw = objects[rotation.PRIVATE_PREFIX + receipt["private_payload_sha256"]]
+        self.assertEqual(rotation.decode_a3_review_requests(observation, raw, CONTRACT)[0]["agent"], "A3")
+        with self.assertRaisesRegex(ValueError, "rotation_private_binding"):
+            rotation.decode_a3_review_requests(observation, raw + b" ", CONTRACT)
+        self.assertEqual(read(Feed(rotation.canonical(receipt)), "2026-11-05")["data"]["etf_rotation"]["status"],
+                         "SESSION_MISMATCH")
+        for raw in (b"{not-json", rotation.canonical({**receipt, "producer": {**self.producer, "run_attempt": 2}})):
+            blocked = read(Feed(raw))
+            self.assertEqual(blocked["data"]["etf_rotation"]["status"], "UNVERIFIED_RECEIPT")
+            self.assertEqual(blocked["data"]["summary"]["data_as_of"], "2026-11-04")
+
+        class UnavailableTransport:
+            def write(self, path, raw):
+                raise ValueError("unavailable")
+
+        failed = rotation.publish_private(result, self.producer, self.now, UnavailableTransport())
+        observed = read(Feed(rotation.canonical(failed)))["data"]["etf_rotation"]
+        self.assertEqual(observed["a3_handoff_status"], "PRIVATE_HANDOFF_BLOCKED")
+        self.assertIsNone(observed["private_payload_sha256"])
+
+
+
 def main() -> int:
     # This existing CI path also exercises the optional strict Theme/ETF reader.
     # No frozen Tier-1 registry or gate definition is changed.
@@ -649,6 +825,7 @@ def main() -> int:
     suite = unittest.TestSuite([
         unittest.defaultTestLoader.loadTestsFromTestCase(MonitorTests),
         unittest.defaultTestLoader.loadTestsFromTestCase(ForwardContextTests),
+        unittest.defaultTestLoader.loadTestsFromTestCase(RotationTests),
         unittest.defaultTestLoader.loadTestsFromModule(theme_etf_source_bridge_smoke),
     ])
     result = unittest.TextTestRunner(verbosity=1).run(suite)

@@ -138,13 +138,39 @@ jobs:
           python tools/macro_daily_snapshot.py --telegram || \
             echo "::warning::macro snapshot failed"
 
+      - name: Configure private ETF rotation transport
+        if: github.event_name == 'schedule' && github.ref == 'refs/heads/master'
+        continue-on-error: true
+        env:
+          MACRO_RESEARCH_LANE: scheduled
+          MACRO_DRIVE_CONFIG: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          MACRO_DRIVE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
+          MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          MACRO_RCLONE_RELEASE: 1.75.0
+          MACRO_RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --max-time 90 "https://downloads.rclone.org/v${MACRO_RCLONE_RELEASE}/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64.zip" -o "$RUNNER_TEMP/rotation-rclone.zip"
+          printf '%s  %s\n' "$MACRO_RCLONE_SHA256" "$RUNNER_TEMP/rotation-rclone.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/rotation-rclone.zip" -d "$RUNNER_TEMP/rotation-rclone-bin"
+          echo "MACRO_RCLONE_BIN=$RUNNER_TEMP/rotation-rclone-bin/rclone-v${MACRO_RCLONE_RELEASE}-linux-amd64/rclone" >> "$GITHUB_ENV"
+          python tools/configure_macro_research_drive.py
+
       - name: ETF leadership snapshot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python tools/etf_leadership_snapshot.py --telegram || \
+          ROTATION=()
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ "$GITHUB_REF" = "refs/heads/master" ]; then
+            ROTATION=(--scheduled-rotation)
+          fi
+          python tools/etf_leadership_snapshot.py --telegram "${ROTATION[@]}" || \
             echo "::warning::ETF leadership snapshot failed"
+
+      - name: Remove temporary ETF rotation credentials
+        if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/master'
+        run: rm -f "$RUNNER_TEMP/macro-rclone.conf" "$RUNNER_TEMP/macro-drive-account.json"
 
       - name: Theme leadership tape
         run: |
@@ -321,6 +347,7 @@ jobs:
             outputs/paper_runs/
             outputs/regime_snapshot.txt
             outputs/after_close_daily/publication_status.json
+            outputs/after_close_daily/etf_rotation_receipt.json
           if-no-files-found: error
           retention-days: 90
 
