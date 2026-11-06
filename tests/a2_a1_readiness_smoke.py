@@ -801,6 +801,55 @@ class Post669CompatibilityTests(unittest.TestCase):
         self.assertEqual(len(result['created_requests']),3)
         return c,events,raws,receipt,identities
 
+    def test_exact_packed_sec_receipt_survives_scoped_board_readback(self):
+        import sec_research_consumption_smoke as sec
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store, out = root / 'existing', root / 'lookup'
+            c, events, raws, receipt, identities = sec_pending_fixture(store)
+            receipt['transport_fixture'] = 'A' * h.MAX_BYTES
+            with mock.patch.object(c, 'actual_utc_now', return_value=sec.NOW):
+                result = c.consume(events, receipt=receipt, raw_by_hash=raws, identities=identities,
+                                   output_root=store, decision_at=sec.NOW)
+            request_id, = result['created_requests']
+            manifest_path = store / 'control_plane/candidate_registry/filing_requests.json'
+            manifest = h.decode(manifest_path.read_bytes())
+            manifest['requests']['OTHER'] = {'request_id': 'OTHER', 'source_receipt_ref': None}
+            original = h.canonical(manifest)
+            manifest_path.write_bytes(original)
+            subjects = root / 'subjects.json'
+            subjects.write_bytes(h.canonical({'subjects': fixture()[0]['subjects']}))
+            args = argparse.Namespace(subjects=str(subjects), registry_root=str(store),
+                registry_request_id=[request_id], capture_inventory=None, checkpoint=[],
+                ohlcv_inventory=None, output_dir=str(out))
+            report = live.snapshot(args)
+            inventory = h.decode((out / 'source_inventory.json').read_bytes())
+            request = h.decode((out / 'request_fragment.json').read_bytes())
+            cutoff = h.stamp(inventory['as_of'])
+            self.assertEqual(board.ohlcv_parameters(request, out, cutoff, datetime.now(timezone.utc)), report)
+            self.assertEqual(manifest_path.read_bytes(), original)
+            found = report['readiness_observations'][0]['research_requests']
+            self.assertEqual([r['request_id'] for r in found], [request_id])
+            self.assertEqual(found[0]['a3_declared_states'], ['FILING_CONTENT_REVIEW_PENDING'])
+            self.assertFalse(any(report['authority'].values()))
+
+            sha, = inventory['packed_sec_receipts']
+            aid, = inventory['packed_sec_receipts'][sha]
+            self.assertEqual(sha, c.digest(c.encoded(receipt)))
+            self.assertGreater(len(c.encoded(receipt)), h.MAX_BYTES)
+            values = {k: (out / v['path']).read_bytes() for k, v in inventory['artifacts'].items()}
+            for corrupt, error in ((values[aid] + b'extra', 'LOOKUP_SEC_RECEIPT_COMPRESSION'),
+                                   (live.zlib.compress(c.encoded({**receipt, 'transport_fixture': 'changed'})),
+                                    'LOOKUP_STORED_HASH')):
+                altered = copy.deepcopy(inventory)
+                altered['artifacts'][aid]['sha256'] = h.digest(corrupt)
+                with self.subTest(error=error), self.assertRaisesRegex(ValueError, error):
+                    run(altered, {**values, aid: corrupt})
+            with mock.patch.object(live, 'MAX_SEC_RECEIPT_BYTES', 1024):
+                with self.assertRaisesRegex(ValueError, 'LOOKUP_SEC_RECEIPT_COMPRESSION'):
+                    run(inventory, values)
+
     def test_M3_pending_filing_V0_cannot_create_positive_OHLCV(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);self.pending_three(root)
