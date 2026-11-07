@@ -439,6 +439,160 @@ class HistoryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'execution_receipt_missing_or_ambiguous'):
             reader.verified_execution()
 
+    def finalization_source(self):
+        from tools import long_history_lake as history
+        self.lake.dataset('current/UNRATE',[b'original-current-source'],
+            [dict(series='UNRATE',observation_date='2026-09-01',value=4.2,
+                  evidence='current_only',published_at=None,vintage_date=None)],
+            dict(series='UNRATE',evidence='current_only',rows=1,
+                 retrieved_at='2026-11-07T00:00:00+00:00',latest='2026-09-01'))
+        config=dict(macro_start='1996-01-01',through='2026-11-07')
+        with patch.dict('os.environ',{'GITHUB_SHA':'a'*40}):
+            return self.lake.publish('history-100-1',config)
+
+    def run_finalization(self, source_result, name='finalize', *, study=None, pins=None):
+        import io
+        from contextlib import redirect_stdout
+        from tools import long_history_lake as history
+        pins=pins or (source_result['commit_sha256'],source_result['catalog_sha256'],'a'*40)
+        workspace=self.root/name
+        reports=workspace/'reports'
+        argv=['long_history_lake','--remote','SYNTHETIC_LOCAL_ONLY','--workspace',str(workspace/'read'),
+              '--cohort',str(workspace/'missing-cohort'),'--run-id','history-200-1',
+              '--report-dir',str(reports),'--finalize-commit-sha256',pins[0],
+              '--finalize-catalog-sha256',pins[1],'--source-head-sha',pins[2]]
+        quality=dict(schema='long-history-quality-v1',status='COLLECTED_NOT_PIT_CERTIFIED',
+                     eligible_for_selector=False,financial_issuers=0,financial_fact_rows=0)
+        study=study or (lambda *a: (dict(tests_declared=1),dict(eligible_for_selector=False)))
+        output=io.StringIO()
+        with redirect_stdout(output),patch.object(sys,'argv',argv), \
+             patch.object(history,'RcloneTransport',return_value=self.t), \
+             patch.object(self.t,'call',create=True),patch.object(self.t,'path',side_effect=lambda x:x,create=True), \
+             patch.object(history,'diagnostics',return_value=quality), \
+             patch.object(history,'analyze_restored',side_effect=study) as analyzed, \
+             patch.object(history,'collect_macros',side_effect=AssertionError('collection forbidden')) as macros, \
+             patch.object(history,'collect_financials',side_effect=AssertionError('collection forbidden')) as financials, \
+             patch.object(history.Lake,'publish',side_effect=AssertionError('new commit forbidden')), \
+             patch.dict('os.environ',{'GITHUB_SHA':'b'*40,'GITHUB_RUN_ID':'200','GITHUB_RUN_ATTEMPT':'1'}):
+            result=history.main()
+        macros.assert_not_called();financials.assert_not_called()
+        return result,reports,analyzed.call_count,output.getvalue()
+
+    def test_finalization_pins_are_all_or_none_before_source_access(self):
+        from tools import long_history_lake as history
+        self.assertFalse(history.finalization_mode('','',''))
+        self.assertTrue(history.finalization_mode('a'*64,'b'*64,'c'*40))
+        for pins in (('a'*64,'',''),('','b'*64,''),('','','c'*40),
+                     ('A'*64,'b'*64,'c'*40),('a'*64,'b'*63,'c'*40),
+                     ('a'*64,'b'*64,'private-secret')):
+            with self.subTest(pins=pins),self.assertRaisesRegex(ValueError,'^finalization_pins_required$'):
+                history.finalization_mode(*pins)
+        argv=['history','--remote','unused','--workspace',str(self.root/'unused'),
+              '--cohort','unused','--run-id','history-200-1','--report-dir',str(self.root/'reports'),
+              '--source-head-sha','c'*40]
+        with patch.object(sys,'argv',argv),patch.object(history,'RcloneTransport') as transport:
+            with self.assertRaisesRegex(ValueError,'^finalization_pins_required$'):
+                history.main()
+            transport.assert_not_called()
+
+    def test_finalization_reads_existing_generation_and_records_separate_actual_runner(self):
+        source_result=self.finalization_source()
+        before_commits=self.t.names(PREFIX+'/commits')
+        before_packs={n:self.t.read(PREFIX+'/packs/'+n) for n in self.t.names(PREFIX+'/packs')}
+        result,reports,studies,output=self.run_finalization(source_result)
+        self.assertEqual(result,0);self.assertEqual(studies,1)
+        self.assertEqual(self.t.names(PREFIX+'/commits'),before_commits)
+        self.assertEqual({n:self.t.read(PREFIX+'/packs/'+n) for n in before_packs},before_packs)
+        readback=Lake(self.t,self.root/'finalized-readback').verified_execution()
+        self.assertEqual(readback['run_id'],'history-100-1')
+        self.assertTrue(readback['study_recomputed_from_drive'])
+        self.assertEqual(readback['consumer_rows'],1)
+        self.assertEqual(readback['recovery']['source_head_sha'],'a'*40)
+        self.assertEqual(readback['recovery']['finalizer_head_sha'],'b'*40)
+        self.assertEqual(readback['recovery']['finalization_run_id'],'history-200-1')
+        self.assertEqual(readback['recovery']['provider_requests_executed'],0)
+        self.assertEqual(readback['recovery']['new_data_commits'],0)
+        self.assertFalse(readback['eligible_for_selector'])
+        publication=json.loads((reports/'publication.json').read_bytes())
+        self.assertEqual(publication['execution_receipt_sha256'],readback['execution_receipt_sha256'])
+        self.assertIn('FINALIZATION_RECHECK',output)
+        self.assertNotIn('MACRO_COLLECTION',output)
+
+    def test_finalization_repeat_reuses_one_receipt_and_retains_existing_identity(self):
+        source_result=self.finalization_source()
+        self.run_finalization(source_result)
+        receipts=self.t.names(PREFIX+'/executions')
+        reports=self.t.names(PREFIX+'/reports')
+        result,out,studies,_=self.run_finalization(source_result,'repeat')
+        self.assertEqual((result,studies),(0,0))
+        self.assertEqual(self.t.names(PREFIX+'/executions'),receipts)
+        self.assertEqual(self.t.names(PREFIX+'/reports'),reports)
+        self.assertEqual(json.loads((out/'publication.json').read_bytes())['status'],'ALREADY_FINALIZED')
+
+    def test_finalization_wrong_generation_catalog_source_code_or_corrupt_pack_stops(self):
+        source_result=self.finalization_source()
+        good=(source_result['commit_sha256'],source_result['catalog_sha256'],'a'*40)
+        for offset,pins in enumerate((('c'*64,good[1],good[2]),(good[0],'d'*64,good[2]),(good[0],good[1],'e'*40))):
+            with self.subTest(pins=pins),self.assertRaisesRegex(ValueError,'finalization_.*mismatch'):
+                self.run_finalization(source_result,'mismatch-'+str(offset),pins=pins)
+        pack=self.t.names(PREFIX+'/packs')[0]
+        self.t.read=lambda name: b'corrupt' if name==PREFIX+'/packs/'+pack else self.t.__class__.read(self.t,name)
+        with self.assertRaisesRegex(ValueError,'remote_hash'):
+            self.run_finalization(source_result,'corrupt')
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertEqual(self.t.names(PREFIX+'/reports'),[])
+
+    def test_finalization_study_failure_or_cancellation_never_publishes_execution(self):
+        from tools.twelve_private_capture import Refused
+        source_result=self.finalization_source()
+        for offset,failure in enumerate((ValueError('PUBLIC_PRIVATE_SENTINEL'),Refused('CAMPAIGN_DEADLINE'),
+                                         TimeoutError('CAMPAIGN_DEADLINE'),InterruptedError('CAMPAIGN_DEADLINE'))):
+            def study(*unused):raise failure
+            with self.subTest(kind=type(failure)),self.assertRaises(ValueError if type(failure) is ValueError else type(failure)):
+                self.run_finalization(source_result,'study-'+str(offset),study=study)
+            self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+            self.assertEqual(self.t.names(PREFIX+'/reports'),[])
+
+    def test_finalization_recheck_refuses_another_writer_before_reports(self):
+        from tools import long_history_lake as history
+        source_result=self.finalization_source()
+        publish=history.Lake.publish
+        def study(*unused):
+            other=history.Lake(self.t,self.root/'other-writer')
+            other.dataset('current/OTHER',[b'other'],[dict(value=1)],dict(evidence='current_only',rows=1))
+            publish(other,'history-300-1',dict(macro_start='1996-01-01',through='2026-11-07'))
+            return dict(tests_declared=1),dict(eligible_for_selector=False)
+        with self.assertRaisesRegex(ValueError,'finalization_head_changed'):
+            self.run_finalization(source_result,study=study)
+        self.assertEqual(self.t.names(PREFIX+'/executions'),[])
+        self.assertEqual(self.t.names(PREFIX+'/reports'),[])
+
+    def test_finalization_ambiguous_execution_is_never_missing(self):
+        source_result=self.finalization_source()
+        self.run_finalization(source_result)
+        name=self.t.names(PREFIX+'/executions')[0]
+        duplicate=json.loads(self.t.read(PREFIX+'/executions/'+name));duplicate['created_at']='2026-11-07T12:00:00Z'
+        raw=encoded(duplicate);self.t.write(PREFIX+'/executions/'+digest(raw),raw)
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing_or_ambiguous'):
+            self.run_finalization(source_result,'ambiguous')
+        self.assertEqual(len(self.t.names(PREFIX+'/executions')),2)
+
+    def test_finalization_workflow_uses_existing_serial_writer_and_omits_collection_credentials(self):
+        import yaml
+        workflow=yaml.safe_load((ROOT/'.github/workflows/long_history_research.yml').read_text())
+        job=workflow['jobs']['history'];self.assertEqual(job['concurrency']['group'],'durable-long-history-single-writer')
+        self.assertEqual(job['timeout-minutes'],120)
+        steps=job['steps'];guard=next(s for s in steps if s.get('name')=='Validate pinned finalization inputs before Source access')
+        configure=next(s for s in steps if s.get('name')=='Configure isolated history namespace')
+        self.assertLess(steps.index(guard),steps.index(configure))
+        finalize=next(s for s in steps if s.get('name')=='Finalize one pinned stored generation without collection')
+        self.assertEqual(finalize['if'],"${{ inputs.finalize_commit_sha256 != '' }}")
+        self.assertNotIn('FRED_API_KEY',finalize.get('env',{}))
+        self.assertIn('--source-head-sha',finalize['run'])
+        for step in steps:
+            if step.get('name') in ('Restore durable cohort if already archived','Collect full history, persist changes, verify clean consumption'):
+                self.assertEqual(step['if'],'${{ !inputs.finalize_commit_sha256 }}')
+
     def test_execution_requires_matching_catalog_and_latest_commit(self):
         self.put(); published=self.lake.publish('one',{})
         self.execution(published,catalog_sha256='0'*64)
