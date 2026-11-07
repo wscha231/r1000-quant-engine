@@ -9799,3 +9799,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Keep missing, invalid, ambiguous and existing incomplete executions distinct.
   An already completed receipt is reusable, while a second receipt would make
   the generation ambiguous. Preserve cancellation and partial-quality exits.
+
+## 2026-11-07 - Parallelize the existing four-pack read stage
+
+- Actual Source run 42356911398 spent about 18 to 20 minutes in each full
+  retained-pack verification. It stored generation 30, then timed out during
+  post-commit verification. Provider collection and remote read time differ.
+- Use four read transfers and checkers inside the existing four-pack fresh
+  stage. Preserve TPS 2, the 80M/HARD setting, per-file and stage size checks,
+  full remote pack/member hashes, independent publication rechecks and one writer.
+- Completion order cannot affect acceptance. Keep partial-file costs and cleanup
+  on errors, timeouts and cancellation. Concurrent buffers and internal retries
+  leave wire bytes unknown. Offline tests do not establish an actual speedup.

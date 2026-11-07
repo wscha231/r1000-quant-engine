@@ -224,7 +224,7 @@ this by allowing a warm local cache to conceal deleted or corrupt remote packs.
 
 Pack dependency restores use fresh, disposable staging for at most four named
 SHA256 packs per copy, with an 80 MiB transfer ceiling. The existing rclone
-copy/files-from-raw/immutable/checksum path uses transfers=1, checkers=1 and the
+copy/files-from-raw/immutable/checksum path uses transfers=4, checkers=4 and the
 unchanged TPS=2, timeout, retry and fixed error grammar. A fresh remote inventory
 must contain every referenced pack before copying. The stage must contain exactly
 the requested regular, nonempty files, each at most 20 MiB; pack SHA256, ZIP member
@@ -249,6 +249,11 @@ failure never makes an attempted transfer free or refunds a campaign budget.
 This changes process grouping, not the bytes that integrity verification requires.
 Offline regressions are not evidence of measured speedup, reduced network bytes,
 a completed history execution, or a guarantee that a real run fits 120 minutes.
+
+The four named downloads may finish in any order inside the same fresh stage.
+The 80M/HARD rclone setting and the validated 80 MiB staged-file limit remain.
+Concurrent buffers and internal retries make actual wire bytes a separate,
+unmeasured quantity. `wire_bytes` stays unknown, including on partial failure.
 
 
 ## Prepared phase diagnostics — 2026-10-29 (not deployed)
