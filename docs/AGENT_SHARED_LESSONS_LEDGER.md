@@ -9850,3 +9850,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The private-backfill module's `load_tests` also adds the campaign suite.
   Normal discovery therefore runs that larger registered set. Select named
   archive/identity classes for the optimized check instead of repeating it.
+- PR731 CI at c653b768 passed 235 of 236 files. The registered agent-board
+  failure came from a bootstrap mock lambda rejecting the helper's new explicit
+  identity keywords, reproduced in the focused 70-case managed control suite.
+  Accept and assert those arguments in that mock while preserving its coverage,
+  tail selection, update and provider-call expectations. Keep runtime unchanged
+  and revalidate the registered control-plane main plus focused normal/-O suites.
+- The first local registered-main check hit checkout ownership errors in child
+  Git commands. Preserve that failed log and pass safe.directory through the
+  test process environment only; do not change persistent Git settings or
+  product checks to repair the local validation harness.
