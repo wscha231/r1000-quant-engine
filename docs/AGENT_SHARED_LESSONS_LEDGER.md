@@ -9753,6 +9753,24 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   do not change capture code or weaken the test. The required hosted Linux
   validation remains the integration gate.
 
+## 2026-11-07 - Reuse frozen FRED recovery on current Main
+
+- The existing Source owner froze 30385b1f on November 5 and released its
+  Native slot with product writes disabled. Reconstruct that reviewed causal
+  change on current Main without modifying the Source worktree or its lease.
+- Use authenticated current FRED JSON when a key exists, retain keyless graph
+  CSV and immutable archived CSV reads, and reject keyed HTTP 200 CSV early.
+  Original current-vintage rows retain the actual retrieval availability clock.
+- Refresh only the two current-equivalent Reader/Lake catalog dependency sets.
+  Historical test bytes and pins remain isolated temporary fixtures. A local
+  POSIX 0600 permission assertion also failed on the protected Windows base.
+- This parser repair leaves the missing A4 request producer, current coverage,
+  JSON-to-CSV derivative lineage and completed Drive execution verification
+  to separate actual evidence. Stored history alone is not current admission.
+- Manual Foundation's script entry ignores unittest name arguments and starts
+  its entire suite. One unintended local full run was stopped and preserved.
+  Load the six selected methods explicitly for focused verification.
+
 
 ## 2026-11-07 — Retry only incomplete daily rotation windows
 
