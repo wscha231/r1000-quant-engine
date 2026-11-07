@@ -9752,3 +9752,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   (test line 2381: Bash / versus pathlib backslash). Keep this local failure;
   do not change capture code or weaken the test. The required hosted Linux
   validation remains the integration gate.
+
+
+## 2026-11-07 — Retry only incomplete daily rotation windows
+
+- Scheduled run 42328840376 persisted its exact private ETF object and three
+  A3 review requests. The actual scope was 37/42 ETFs and 17/24 watch stocks.
+  Preserve that PARTIAL receipt and the separate parent Paper failure.
+- One bounded local lookup of the 12 held symbols returned complete 22-session
+  adjusted windows. Local yfinance was 1.2.2 and hosted was 1.8.0, so the probe
+  proves a current scoped recovery and leaves hosted recovery unverified.
+- Reuse the existing download-batch helper for one missing-only retry in small
+  batches. Recheck exact sessions and adjusted values after every attempt.
+  Valid windows stay reused and persistent gaps stay explicit.

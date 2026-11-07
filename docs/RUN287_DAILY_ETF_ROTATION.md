@@ -3,7 +3,10 @@
 The existing scheduled After-Close job reuses its Yahoo ETF history for overlap.
 For the remaining symbols and uncovered windows it calls the existing batch
 downloader for the shortest required date range, and only uses adjusted USD
-closes. The old ETF snapshot retains its prior date boundary and output. Manual
+closes. The existing batch helper retries only incomplete symbols once in
+batches of at most five, retaining the same dates and adjusted-close basis.
+A complete window is reused. A still-incomplete window remains held.
+The old ETF snapshot retains its prior date boundary and output. Manual
 After-Close runs do not activate the new research collection.
 
 The monitor's configured scope is 3 comparison ETFs, 11 sector ETFs, 28 theme

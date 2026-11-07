@@ -278,17 +278,24 @@ class ScheduledRotation:
         return frame
 
     def finish(self, download=None) -> dict:
+        from tools.build_replay_price_cache import run_download_batches
+
         if download is None:
             from tools.build_replay_price_cache import download_yfinance as download
 
-        gaps = [t for t in sorted((*self.etfs, *self.watch))
-                if exact_closes(self.histories.get(t, ()), self.sessions)[1] is not None]
+        symbols = sorted((*self.etfs, *self.watch))
         end = (datetime.fromisoformat(self.sessions[-1]).date() + timedelta(days=1)).isoformat()
-        for start in range(0, len(gaps), 20):
-            batch = gaps[start:start + 20]
-            frames, _ = download(batch, self.sessions[0], end)
-            for ticker in batch:
-                rows = frame_rows(frames.get(ticker), "Adj Close")  # never fall back to unadjusted Close
+        for attempt, batch_size in enumerate((20, 5), start=1):
+            gaps = [t for t in symbols
+                    if exact_closes(self.histories.get(t, ()), self.sessions)[1] is not None]
+            if not gaps:
+                break
+            frames, _ = run_download_batches(
+                gaps, start=self.sessions[0], end=end, batch_size=batch_size,
+                attempt=attempt, download_fn=download,
+            )
+            for ticker in gaps:
+                rows = frame_rows(frames.get(ticker), "Adj Close")
                 if exact_closes(rows, self.sessions)[1] is None or not self.histories.get(ticker):
                     self.histories[ticker] = rows
         return analyze(self.histories, self.contract, now=self.now, price_basis="YAHOO_ADJUSTED_DAILY_CLOSE_USD")
