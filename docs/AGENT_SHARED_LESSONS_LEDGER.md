@@ -9889,3 +9889,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   rebinding its synthetic identity evidence. Rebind that honest QQQ fixture and
   keep its Nasdaq/SPY substitution refusal; do not weaken global identity checks.
   Preserve the failed receipt separately from the corrected HEAD's checks.
+- PR732's first full required CI passed 235/236 suites; the registered Agent
+  Board wrapper failed because the extended Shared Reader document's catalog
+  dependency digest still named the prior bytes. Reconcile the exact document
+  pin in the existing reuse catalog, preserve all runtime/safety pins, and test
+  the full current REUSE_NOW inventory plus the original missing/changed-byte
+  refusals. Focused feature tests alone do not check this shared dependency.

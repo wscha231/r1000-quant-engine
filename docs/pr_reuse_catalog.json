@@ -1101,7 +1101,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "docs/SHARED_RESEARCH_READER_V1.md": "a86ea8e26fc99f5505c70269d5793f862ccc692d9ebac16e6377e080353c6083",
+        "docs/SHARED_RESEARCH_READER_V1.md": "83ce0b9dc10559892916bfda39bf89ef16fd05e4fe6358208ccba4917a2a4ac4",
         "docs/research_dataset_generation_v1.schema.json": "4255e49583b0c0cde8e48711a4a5d50ad126104add32a9534aecce00cdef64c8",
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
