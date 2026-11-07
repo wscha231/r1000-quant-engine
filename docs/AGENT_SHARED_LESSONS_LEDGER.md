@@ -9887,3 +9887,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   fixture. Avoid changing that anchor for this adapter; extend the already
   registered standalone multi-asset normal/-O matrix. Any later Tier-1 change
   needs its own exact fixture and verifier-pin update, without weakening guards.
+- Native Windows validation exposed a source-closure path bug: Git object paths
+  use forward slashes, whereas `str(relative_path)` supplies backslashes. Use
+  `as_posix()` for exact Git blob lookups and receipt keys on every platform;
+  retain the byte-for-byte claimed-commit check. Preserve the failed receipt.

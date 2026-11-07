@@ -156,7 +156,7 @@ def verified_source_hashes(code_sha):
     paths.update(p for p in (ROOT/"research/__init__.py",ROOT/"tools/__init__.py",ROOT/"research/theme_etf_runtime_v1/__init__.py") if p.exists())
     hashes={}
     for path in sorted(paths):
-        relative=str(path.relative_to(ROOT));raw=path.read_bytes()
+        relative=path.relative_to(ROOT).as_posix();raw=path.read_bytes()
         try:
             expected=subprocess.check_output(["git","show",code_sha+":"+relative],cwd=ROOT,stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError:
