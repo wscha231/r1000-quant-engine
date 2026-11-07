@@ -76,6 +76,58 @@ Evaluator/model/risk/holdings approvals live in a separately
 reviewed policy; an input cannot approve itself. These pins still depend on
 reviewed producers: byte hashes alone do not authenticate economic claims.
 
+### Original A3/ER input binding (2026-11-08)
+
+The existing `--input` path accepts a frozen `requested_security_ids` list,
+`a3_reference_entries` in the existing Candidate Registry reference format,
+and `artifact_files` descriptors (`artifact_id`, relative `path`, exact `sha256`).
+Use `--artifact-root` for the already held private evidence tree. The existing
+A2 `Files` and sealed `MemoryArtifacts` loaders enforce bounded local reads and
+hashes. There is no collector, second Registry, URL resolver or account writer.
+The full requested list can come from the existing retain-missing candidate
+queue. It is bound into feature identity and must equal the submitted base
+universe; it must not be reduced to the currently mapped/complete subset.
+
+The runtime replays original A3 packet/result bytes through
+`candidate_registry_v1.build_reference_index`, resolves `validated_er_ref`, and
+passes the complete original ER object to the existing policy evaluation
+validator for diagnosis/preparation. The summarized A3 result is never
+substituted for a model input.
+Original issuer, current market session, thesis, currency, price, return basis
+and four price/RS horizons must agree with the actual runtime observations.
+Model/validation pins, feature identity, clocks, costs, scenarios, label maturity
+and the rest of normal price/fundamental/risk admission remain mandatory.
+Missing cost/model/issuer data is not fabricated, defaulted to zero or repaired
+by rewriting the original artifact. Policy pins are never added by this path.
+
+`a3_reference_coverage` preserves each requested security and distinguishes
+unmapped identity, missing reference, failed A3 replay, absent original ER,
+original evaluation contract failure and later runtime admission. A reference
+replay alone does not authenticate current reference selection or an independent
+review. Those producer decisions remain outside this adapter. In particular,
+an original ER/model policy pin does not admit its current A3 packet or thesis.
+The reference index's unresolved A0/independent-review/domain blockers are
+preserved even after the original ER and runtime feature contracts pass.
+`a3_model_input_candidates` stores the complete original objects for the next
+explicit domain-review connection; they cannot enter admitted ER/rank/weights
+or advance `last_success`. A missing/unmapped or
+blocked requested security suppresses global rank and a portfolio proposal.
+The reference index's closed authorities are not promoted by copying its flags.
+
+For this path an empty positions input is explicitly `proposal_context.mode=MODEL`.
+It does not need an Actual Broker/Paper book and writes no accepted book. A
+supplied book still needs the original reviewed book receipt and is identified
+as `ACCOUNT_RESEARCH_COMPARISON`. Legacy inputs without this scope retain the
+existing behavior. Existing scheduled capture still supplies no reviewed ER and
+therefore stays blocked until the real producer inputs are connected.
+
+The source-identity receipt includes the reused A3/Registry/intake code. Existing
+PR regression jobs install the same JSON-schema dependency range as the repository
+requirements. New cases use the existing normal/-O, Python 3.11/3.13 standalone
+PR workflow. Tier-1's exact 236-case publication anchor is preserved. A source push
+runs checks but no provider capture; the existing daily-monitor completion or
+explicit manual workflow remains the capture parent. No new schedule is added.
+
 Candidate discovery and expected-return rank have different columns. Incomplete
 base-universe coverage suppresses global rank. A proposal requires admitted
 existing equity comparisons, reviewed net expected returns for every selected
