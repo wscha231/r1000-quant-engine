@@ -736,11 +736,49 @@ class RotationTests(unittest.TestCase):
             return {t: frame(t, "Close" if t == "QQQ" else "Adj Close") for t in tickers}, {}
 
         result = stage.finish(download)
-        self.assertEqual(len(requested), 65)
+        self.assertEqual(len(requested), 66)
+        self.assertEqual(requested.count("QQQ"), 2)
+        self.assertTrue(all(requested.count(t) == 1 for t in set(requested) - {"QQQ"}))
         self.assertNotIn("SMH", requested)
         self.assertIn("XLK", requested)
         self.assertEqual(result["rows"]["QQQ"]["gap"], "EXACT_SESSION_MISSING")
         self.assertEqual(result["counts"]["etfs_compared"], 41)
+
+    def test_scheduled_stage_retries_only_incomplete_windows_once(self):
+        import pandas as pd
+        from collections import Counter
+
+        history = self.fixture()
+        failed = set(sorted(history)[:12])
+        stage = rotation.ScheduledRotation(CONTRACT, self.now)
+        counts = Counter()
+        batches = []
+
+        def download(tickers, start, end):
+            batches.append(list(tickers))
+            self.assertEqual((start, end), (stage.sessions[0], "2026-11-05"))
+            output = {}
+            for ticker in tickers:
+                values = [value for _, value in history[ticker]]
+                if ticker in failed and counts[ticker] == 0:
+                    values[5] = float("nan")
+                counts[ticker] += 1
+                output[ticker] = pd.DataFrame(
+                    {"Adj Close": values},
+                    index=pd.DatetimeIndex([day for day, _ in history[ticker]]),
+                )
+            return output, {}
+
+        result = stage.finish(download)
+        self.assertEqual(result["status"], "CURRENT")
+        self.assertEqual(result["counts"]["etfs_compared"], 42)
+        self.assertEqual(result["counts"]["stocks_compared"], 24)
+        self.assertEqual({t for t, n in counts.items() if n == 2}, failed)
+        self.assertTrue(all(n in {1, 2} for n in counts.values()))
+        self.assertEqual(sum(map(len, batches)), len(history) + len(failed))
+        self.assertEqual(set(t for batch in batches[4:] for t in batch), failed)
+        self.assertTrue(all(len(batch) <= 5 for batch in batches[4:]))
+        self.assertEqual(len(batches), 7)
 
     def test_private_binding_and_failed_parent_preserve_different_statuses(self):
         result = self.analyze(self.fixture())
