@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Bounded FRED/ALFRED research collection; immutable raw objects, no trading state.
 
-Graph history is current_only. ALFRED real-time dates are date-level archive
-evidence, admitted only after that New York date ends, never as intraday news.
+Graph and authenticated current history are current_only. ALFRED real-time
+dates are archive evidence, admitted only after that New York date ends.
 The collection receipt is not evidence of remote persistence or PIT prices.
 """
 from __future__ import annotations
@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "docs/macro_indicator_registry.json"
 MAX_BYTES = 16 * 1024 * 1024
 MAX_PAGES = 20
+CURRENT_API_ROW_LIMIT = 50_000
 ALFRED_PAGE_SIZE = 50_000
 ALFRED_MAX_ROWS = MAX_PAGES * ALFRED_PAGE_SIZE
 PUBLIC_ERRORS = frozenset({"fred_key_unavailable", "alfred_output_contract", "alfred_page_offset",
@@ -33,7 +34,9 @@ PUBLIC_ERRORS = frozenset({"fred_key_unavailable", "alfred_output_contract", "al
     "alfred_duplicate_vintage", "alfred_incomplete_pagination", "alfred_overlapping_vintages",
     "alfred_page_limit", "graph_schema", "graph_row", "duplicate_or_future_observation",
     "nonfinite_value", "empty_series", "source_bounds", "observation_window",
-    "credential_echo_rejected", "redirect_rejected", "response_size"})
+    "credential_echo_rejected", "redirect_rejected", "response_size", "current_page_count",
+    "current_api_contract", "current_api_count", "current_api_date", "current_api_row",
+    "current_api_json"})
 
 
 def require(condition, reason):
@@ -84,6 +87,12 @@ def number(value):
     return result
 
 
+def _current_record(series, day, value, retrieved):
+    return dict(series=series, observation_date=day.isoformat(), value=value,
+                available_at=retrieved, published_at=None, vintage_date=None,
+                evidence="current_only", retrieved_at=retrieved)
+
+
 def parse_graph(raw, series, start, through, retrieved):
     first, last = date.fromisoformat(start), date.fromisoformat(through)
     require(first <= last <= stamp(retrieved).date(), "observation_window")
@@ -102,9 +111,85 @@ def parse_graph(raw, series, start, through, retrieved):
         if value is None:
             missing.append(day.isoformat())
             continue
-        records.append(dict(series=series, observation_date=day.isoformat(), value=value,
-                            available_at=retrieved, published_at=None, vintage_date=None,
-                            evidence="current_only", retrieved_at=retrieved))
+        records.append(_current_record(series, day, value, retrieved))
+    require(bool(records), "empty_series")
+    return records, missing
+
+
+def _current_api_date(value):
+    require(type(value) is str, "current_api_date")
+    try:
+        day = date.fromisoformat(value)
+    except ValueError:
+        raise ValueError("current_api_date") from None
+    require(day.isoformat() == value, "current_api_date")
+    return day
+
+
+def _current_api_json(raw):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "current_api_json")
+            result[key] = value
+        return result
+
+    def reject_constant(_):
+        raise ValueError("current_api_json")
+
+    try:
+        return json.loads(raw, object_pairs_hook=unique_object, parse_float=number,
+                          parse_constant=reject_constant)
+    except (ValueError, RecursionError):
+        raise ValueError("current_api_json") from None
+
+
+def _is_current_api_object(raw):
+    return raw.removeprefix(b"\xef\xbb\xbf").lstrip().startswith(b"{")
+
+
+def parse_current(pages, series, start, through, retrieved):
+    """Read one exact current response, including archived graph CSV."""
+    require(len(pages) == 1, "current_page_count")
+    raw = pages[0]
+    require(0 < len(raw) <= MAX_BYTES, "source_bounds")
+    if not _is_current_api_object(raw):
+        return parse_graph(raw, series, start, through, retrieved)
+    now = stamp(retrieved)
+    first, last = date.fromisoformat(start), date.fromisoformat(through)
+    require(first <= last <= now.date(), "observation_window")
+    payload = _current_api_json(raw)
+    # FRED need not echo the series ID. The authenticated request and its
+    # receipt bind the bytes to the series; an echoed ID must still agree.
+    require(type(payload) is dict and payload.get("file_type") == "json"
+            and payload.get("units") == "lin"
+            and type(payload.get("output_type")) is int and payload["output_type"] == 1
+            and type(payload.get("offset")) is int and payload["offset"] == 0
+            and type(payload.get("limit")) is int and payload["limit"] == CURRENT_API_ROW_LIMIT
+            and payload.get("observation_start") == start and payload.get("observation_end") == through
+            and payload.get("series_id", series) == series, "current_api_contract")
+    vintage = payload.get("realtime_start")
+    # FRED defaults to its current real-time date. A US local date can lag UTC.
+    vintage_day = _current_api_date(vintage)
+    require(vintage == payload.get("realtime_end") and vintage_day in
+            (now.date(), now.astimezone(ZoneInfo("America/Chicago")).date()), "current_api_date")
+    count, observations = payload.get("count"), payload.get("observations")
+    require(type(count) is int and 0 < count <= CURRENT_API_ROW_LIMIT
+            and type(observations) is list and len(observations) == count, "current_api_count")
+    seen, records, missing = set(), [], []
+    for row in observations:
+        require(type(row) is dict and row.get("realtime_start") == vintage
+                and row.get("realtime_end") == vintage and "value" in row
+                and (row["value"] is None or type(row["value"]) is str), "current_api_row")
+        day = _current_api_date(row.get("date"))
+        require(day not in seen and first <= day <= min(last, vintage_day),
+                "duplicate_or_future_observation")
+        seen.add(day)
+        value = number(row["value"])
+        if value is None:
+            missing.append(day.isoformat())
+        else:
+            records.append(_current_record(series, day, value, retrieved))
     require(bool(records), "empty_series")
     return records, missing
 
@@ -168,11 +253,29 @@ def request_bytes(url, *, secret=None):
 
 
 def fetch(series, start, through, mode):
-    if mode == "current":
-        url = "https://fred.stlouisfed.org/graph/fredgraph.csv?" + urlencode(
-            dict(id=series, cosd=start, coed=through))
-        return [request_bytes(url)], utc_now()
     key = os.environ.get("FRED_API_KEY")
+    if mode == "current":
+        if not key:
+            url = "https://fred.stlouisfed.org/graph/fredgraph.csv?" + urlencode(
+                dict(id=series, cosd=start, coed=through))
+            return [request_bytes(url)], utc_now()
+        url = "https://api.stlouisfed.org/fred/series/observations?" + urlencode(dict(
+            series_id=series, api_key=key, file_type="json", units="lin", output_type=1,
+            observation_start=start, observation_end=through, limit=CURRENT_API_ROW_LIMIT, offset=0))
+        try:
+            raw = request_bytes(url, secret=key)
+        except HTTPError as exc:
+            code = exc.code
+            exc.close()
+            raise HTTPError("", code, "FRED current API request failed", None, None) from None
+        except TimeoutError:
+            raise TimeoutError("FRED current API request timed out") from None
+        except URLError:
+            raise URLError("FRED current API transport failed") from None
+        except OSError:
+            raise OSError("FRED current API transport failed") from None
+        require(_is_current_api_object(raw), "current_api_json")
+        return [raw], utc_now()
     require(bool(key), "fred_key_unavailable")
     pages, offset = [], 0
     for _ in range(MAX_PAGES):
@@ -220,8 +323,7 @@ def collect(store, series_ids, start, through, mode="current", fetcher=fetch):
             pages, retrieved = fetcher(series, start, through, mode)
             require(0 < len(pages) <= MAX_PAGES and all(0 < len(p) <= MAX_BYTES for p in pages), "source_bounds")
             if mode == "current":
-                require(len(pages) == 1, "graph_page_count")
-                records, missing = parse_graph(pages[0], series, start, through, retrieved)
+                records, missing = parse_current(pages, series, start, through, retrieved)
             else:
                 records = parse_alfred(pages, series, start, through, retrieved)
                 missing = [r["observation_date"] for r in records if r["value"] is None]

@@ -74,6 +74,93 @@ HISTORICAL_LAKE_SHA256 = 'fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4
 # Immutable historical test inputs, not current-source reuse certification.
 # These exact Git-LF bytes are bound by the unchanged historical catalog.
 HISTORICAL_READER_INPUTS = {
+    'tools/macro_history_sources.py': ('84a958b3c6aaf6e6e6c3133eceed8326aff768f1f24ca050fa3fa06b54f281c8', 20361,
+        b'H4sIAAAAAAACCs08/XPbtpK/66/AY+bmyIT6sF/a3rnlu1EdpfXUjf1k5/VanYZDi5DFmiJVgrSjZvK/3+4CIAGSUtzeu5vztLFE'
+        b'AIvFYr936Rd/GVeiGN8l2Zhnj2y3Lzd59teB4zjf5lUW85i9nc/ejKeX+IsVXPCoWG3YKk9TviqTPPuaJdttVUZ3KWdF9MTyu19h'
+        b'QPgsy1lZRHGS3TNRRiUfDQbfFdFuwzaJKPNizxLBVlVR8KwM8yzdj1i9SZQOy2TLWQzLBIsK+WmY8keeMtw/eeQD/pjEPFtxn0Xx'
+        b'NilLQBXBsGhd8oKVm6hk7/gT+zkvHmg541mMaAGQgkWCJRmiF+3hyZMYDW433DgVILHiya5EJLO8ZHozlq9haJsDuB0vBJxEPi3Y'
+        b'9cUt2xXJigMsoN5gXeRbFobrqqwKHoZApV1elCzKAFyEW4jBQD8r7ndRIbj+vhKPcjmiTYRQA/jdr5/6rPk35mkZyY+/51kNaROJ'
+        b'TZrc6a9Jrj/9KvJMf95G5UZ/zoXceQfPYKHe+NqYUnA5pSpSmDHiRQGnV2Pf395ez/CBz97PL+mTNZmOqSfDMyBeHtvwCv5bxUVp'
+        b'QpzzOIH7KL+PsjjlAHsu5/jsrkrSOMx3PONqIzx9kq1zvf4X+H4B3weD+dXVLQvoKC7cS5LCrXiwncjTR+56iBuwolicLAfz2XcX'
+        b'N7fzn2E6rRozJ85XYryNVkUeJlmcrCJg4bDg98ABxX6E5HQGP07/M/z259vZDaw7+ZK9ZCeT09fqFw1eT7+jwdPJQPI6PQlvLn6Z'
+        b'wdMvJuFkUo/g/PnVTzi9WfqStdcNrt9/e3lxHs7m86s5TgYq/M4zwUv3o7MueBw+8H1YZdFjlKQopI7PnCilkbwqd1UZrnKUhFVp'
+        b'jOyiex7m6zWAcfwBgx89sgKtYM6k7+FqE2X3PDae8+2u3BMc4yFybniHekW0wMbVLkWi8vAR5NJelQCTbHcph0GAl2QkPeYxQKDT'
+        b'aLcDTaNXt8HTedIE1ASuu0c1FIrVhm+j5nuRP+GXBhO4YCW9+Z3gxaPaVwLO8mydZAkiHKUVoSuPDDMT3J85Iq+KVXNe5hhgwifg'
+        b'ItxQQlsBksB8SZSGfLXJgbFQiUqCFor7Ww/FDlQID0XyO3c+eYPBIOaomn6rYLILVxonuI+P2hSY0zujjZI1abN6WD7FnyJKQDL/'
+        b'gWchsXXVOgW4Kldhlj+5Ck7BgS5ZrYlGOKR1zwjmeqNE5Ou8ANXiahBgBLY7l6hVQxFVWgLP1nBQhJuVNBckdJdGK+46v+DBX00m'
+        b'Z5OJ43kKgjyvhDQqf5eiL3X2O0AGVmi8QjU5djzzDGppJPQ8+yAKeamo4hb6BMBF4R/F1XYn5LDPBGgelDsR3Bb4HeQR2SgSqyQJ'
+        b'3kapQKOVpvlTmEWZelDfROtHcFBMqG1E4Do+kuAMTs9eMee/MscbScRqIscJMH/pgiG2kVSGYCQ20ekXX9L4aMM/qOn1KT+s0kqA'
+        b'cXVR//usAQMW7acCuB1M7IqP2OwD6D207Amx7SpKtd0naw1PQfuCaSy/Rl5bg0DByBo00AhNIwLEDbQ2xs/2feL1Rdne3QEfhWK/'
+        b'TZPswfUY8AXbgeFmC4nfS/ylFffSQ5mTc0McUPdszBltH0CWXLVAXw6eJcwf6KtcAiq9kYynBDAlIGhnXOfDneOh/7Aha3Rm3Zt8'
+        b'NnpCUhGRaRTIysGVeAsmhwgnSMIM2VOnpk1A7uLwbg+ODxw4CPAO4Fy1j0UnCzVRnUbwpSVqCSixZppHsXC1TbM20MuzanvHC4u7'
+        b'QVXQVyS364yQ8eB/lCnPxJy2wae2RK9hUyXA9s2iswGXKnWnklu8uLY+7ZFRhSv5ECHpbJeIIzWujwqmAJ+g3BR5dY/cy0sYeOSx'
+        b'QnidFOgzpCDqSue09A0B8Py+IQXUPgsBZN8EEiT8liqu2XeEkFyvX/VrWFEM/miATt/oDVzpnB64ST66ATDZ/cUVnnIUc5JzpyrX'
+        b'w38biuQelEBbB+LC0TrhaZxFWy7o5hbW1oiPoym29NnCeTO9nTVPvLZ1lFsIzsmSrPICXWigi0DhhwODmwFrFghqKYkMIgqWFPeW'
+        b'CHXZHBfBFOJu+txG3LNsslcDQGe99+Jg2qIDZTFZLr3O5uTwg3YB/PBUoGVigqtu8RkOQAMTAYyiOEagzdMXFDGBV73X7BthrJDk'
+        b'MWwGxr1gdxzwxmhDxCN2UccYEcxPwepCpKRhgRAScpJ3bV2DbluSVbx+KMU10MKMRNHXagJUUi1Iam2Q6mJH4ExBsITHMu24d3x7'
+        b'xR71YuBlV+4faAlts2LQ2sGXyAXSjB6yiPRT+7NhVAa1xPlsV92lidiAzwfPpQegfEK5Iz06ClmHeoFjRqeOoU+sLVtSeJfnqatI'
+        b'4bWdwpZSs8XJUm/Sb3XRbxXP13BgXK8pwtIOM1Mufrnf8eCEEbiv2QPnO4ZhMHLoYyIw3kU5QEsXg7KJGjP9/1JnttQR/7Ajv1gF'
+        b'LEAfiLBTWztN/MZIkYqKSEURQRoZ2EV7NJaw1DCctRm3TTXNHN3DFk4FdgsuF/WZA96HQ8S0ZhjXIOeddHnwUFT2mc1VlEZQO5To'
+        b'i+caeBS7wWEteDLA624KbJLBXYFguDTFxwSKR0edgIKSsOA+W+FrK1LsASxvS+kjzKQotAJ5j4dCzQaQvm4ab8DnT6J9NoOjMCBb'
+        b'LI8eEyEA64NfJY8pRRseer1hbgPLtIEw3daxR42YQwZ6aWtapb+OrMKMGUYtIUljez1o4+eshWntldK7LxFhNAa1KrVndUTbsKem'
+        b'fdXnMIcQt7/VQ/2KuS970I9Bja9h4f0jOQYbSm3ONRh7+AUwqLbQTGbl0MVaczASMaPkU8S2ILWbIV2Dae3gwHc8HQ16LZgZAIPi'
+        b'vksgBtW0etVk9/AGRHDiySwfKLajVsz60Ukw15luwZSsovE7/hRiZhS8yMOhr03i/7l17yAsrb3hrzjS+Uc/1LLa6stxaCYnB/C/'
+        b'7VlYDkP95TjEHmei8Q5MrlQ56c85CTIYtHQ0ewXSAGEl6ZVBVy8e0+r9iTEJ5QW7atJiqKrxalLBnvIqjWXygZVPubwCAToUvFKI'
+        b'e8EzjIBzQRFDwEGegWTaO1By0ocN2MdPjRklriBRywtA0a2N8gPfB2m0vYvBqz1jbtETh4BZhsfmPcPFG8HlDp2TvEItXm9Pelxu'
+        b'0gexx1ZqIIaBqZ99wzQoG4vP5BabXWq8FodxWgL+etRWtj3eIDiBK1COiKvOers9KXBFJRn51+lBSoqDVKZrn72Minu4hpcvH57w'
+        b'k3ck09eTYTTziQBTpQuqAqzxS3RHV4B1YOQCKEdiJuNdA39QMZQ5UVl7CWZD4ZoIPtZ4Oe+BcsPpPehe54w5lGsfanEb6srT+GQ0'
+        b'wVzEdIU5FZwIt0NqHSg+RrfNL/mHcgzhtPNJ6UrwqILTCSVtdN60G5XqkREWq5DpME0PbqOzK3JEogjlgOnBgBMZ1CApseI2NYBX'
+        b'7MQWaHSTSNTBoUQjWE/t5HO7yTBJcmRe+anO+2lTJ9NEB/PIduQRPan7XfNytXEPhRdb2KHJBuE3cnFVWOQ0NIQbBUI4m7LcibPx'
+        b'GCUHyJjmVSLW8DEv7scUz9MIfRrB/fyHAzSqi0Cu7SWhfUni2rZgrBwo/FY5jwMdXHjtXNSiw7MeyHOdv6bpoJwA31wAFR+TAnQc'
+        b'eYfkt06vL8IfZj87PVEdrELPr7eoolONFK4pzR7IyKNWlqG8J/Be3bqi4x0kYrRL2jTEnceSImPTlW0RkmjX8mxwTWjQE6DjGQL4'
+        b'32dUC6MQ0aFCFpALI5qAghnfjiFtI2lqO7odfUfmAJpjI2Q1XdXAOfnqqy+Hk6+Gk9eOPzhozevlVMMJ2kUwTfJA/vK6ItpRY0qH'
+        b'4Z0a+aUyOhL76XAJp/0fx0rEWNr3sgNSGeY0OD0jxnl2IHPIRVEaQfN5D0nOWndJoqnEw5ZFEzEF8JsOPBAjr586XWvWLflpayZN'
+        b'dXgf7UTjqKyJObLVXttU8LIxdyD9mY+9jov0fWSOk8AgNYraezULUJ88rT/rjdhfQMwpUEj3zuFcOs1AVD4C87jx4uz10nt5cgqi'
+        b'Lr9/cfbV0mNDdkLYkBOGuH8yNf1i7XzMxuOT07PJ6/jT8GP2Lyenr07OJqfxJ4eWZY1O2iaZK/cEUm+jD/rLqxOP6oba0sjHS2kS'
+        b'CEWewhUslorKqonCxSYP7je654CBqdNscMlkjngR0G91Hy/YNWxabjgTEcRcutDBSJZZJTD2IrOoOzdQyuruDRXJjRQobAiRCLFt'
+        b'BSEoHmkbPYDTm6L13g83HLzjuwqdLACe4UMK0WRTSUTVrOReQat2siEDtgcnHKO/JB4WVdYgCS4QNkwMKfyThyA8OV4XKFUxUrcl'
+        b'54dSXfWWamTmCyIBYgmxcBLwIM+YkKfHizH1lgHQWzgq/bj8ZJdi0KBTdae5ASU9TqOsUPKbOyTH5TW6RU2vTChW+a7ttLSXBYGC'
+        b'VJqP5Tath5QVxEd4WBT7KnsAfZG1s6g6oX8gJykzEQezkk3usdZHRu7ROJ2dekSm1nVL+uLZN4iFVtTHqg5r3oOuBaoSqwQ1xjwn'
+        b'VU4d+GyB8Vl3eVLyrSDPonYrFD9TukPTsNEqVinT8FHq0BSLdVLsjvuBvQkXzSAEtHZqZa8K3izEmc0c2+ltirlycadhopWKOuqA'
+        b'tvEycKJkq64nkVFoG9dWisOsb5m1RoK3mCyfk46382+p4GeHdqs3+aMZ/w7ABuvFnzVaaHuWrYK22HBiOKOzoJNBt9eoUUB+E+GU'
+        b'35OdPpYE53WpcVwsAJBsRmhlUsld060ZuujSmdOSSXzUuqCjm9cgqMjRWorySKC76TAZLgbO+dXl5ez8dvbGqWsWoWzDCBrQXfaI'
+        b'nvQsSTTsKiHxqIokOBpqqQjBeaUw6cIGRy4gj66uU5nsIt0kOeOZ/s+nnuQZhOspbF8G6Fg8D0xfCk5H31INq7ABQT6Ty5evlGD0'
+        b'AFcjYRsMXKJ0/9AM6eU961OcC9iAs/TcAx5IEPaQTyca1VLQPAtHP8QUlUae5FcqNbqyw8elLGAWpaFeKv23oNcvJuurC8gLp/Ze'
+        b'MUfXEYE6NsEvZq6TGl/qrlDMwMCzs8PrjwnSt5dX5z8oMcLetMBBwCHweVm4AHaEesDzOtu7uhXVZ7cyG6S+Xd3QB++fhs/tfPru'
+        b'5vpqfhtezcOb26v5TPZlOj1INSELoAWhtfr4A9/rBtoswQOpb9geIrHtJeILNi3ukrKI0OmkHdAV3nIhUPGSLZ5eX2BTruH5cuQH'
+        b'QB4bZcWoHX3DiTAOkrSlEKD5nDG77ZQiAOfm6v38fBaeX70DQpwTETCV8k+irmpI1P6WdPC16qVulUAlDVWD+VD68cPHE0eFGviP'
+        b'r7MBIIFmysIKRuWwsrpN9mEFOJRScmun0fDSlL62nbimW4TUtwiIAmBLqoKqEbKbPHyE468THuv2QHkG7KwLqas83CVla5IOgJ9s'
+        b'I4h08cweu9qoqUGyaq5hz185soG57aE2TYCtTDVC8Qm8ivkw6ggluXXcp6aFqlPPdmbN3LHjONjzRNGRWvSvyOHRqmwCqUdstsd2'
+        b'VtW+j037knexN3SLvX0DgoYRno7fAOFIxo5J0YAC8aE4DtsTh1EcFyAk+O4AWfwR+74mvCp8lFx1Mgnq6RHVbpfuIeZLsOKStgNS'
+        b'/gGz0UmJ7zPgKwVAnQh716jiB/P3Al97AL8YsBdlkqbaZ4Wlv1VRitVLyqYjOZSjW++BPgCLCJYqgzdZhTHm7MYyPoUNMsoaJ2AQ'
+        b'ABUAQLp/hznkKGN5HeRKqZ8CPYqiAnmiy4OILANbsMmpNanga4yyNekVyQHAvsaPji5B3W4SqrXgozEab55hHgzrTEkcyZZkRO2G'
+        b'pGGMb02AXQCjk0GQtqJXOURTdtJtKJLJKegy+crrRsg6AuiZK8hXC8weWb8WChJWp61c+lKBTcGAZkF0LVvllhSbHNZA9U5Wa50u'
+        b'7skikQTYUih1oaiTXNSLUWsWnsp8jNZVmkKku9q4zmIy/PdouF5+/PL1J6fplPGsFmlLPzeb69yJjnw1S1jBb8tX1hvonJeV2Oi0'
+        b'nD077VGXRMFO2jG1ZjVh5SvsKWbUaVfgsTehJ1A3i66+QRG79QQNoqLJiHqIheu1uobrcdk5XKjOYQDGo61twJXgBWrwYDHJSn1I'
+        b'3OXSg1hrJEwOV+q0xeGdbIPeSE2XGVnNvga712/EDDUMZPkOrQ3OtSGqvI5qtrGQN2VFPuWSTh+pXwCTYGa/jYJ7KOXVMAfXJMNH'
+        b'nVUWDk3fSCsBpT1l7CPFsrgvO86azAzpOOX+K10hnQBn2dMWS0MNDnJdfWJKlLWnmH0u3YayhooycjTzdFbDSxuuleWvB2X5c0np'
+        b'6yao/UxTap1A0GCawBZAvWKL+rkVGjvLpdVOpVIJEtpZby7qqOaD9V7rvRCpttpqrpVccA1dN6413RjBddXUAfmkrAE1O2MaQ+9r'
+        b'SKPBTYv2VSxtGW0yEG1vrGkgoPd1KDUdgqnO3EiE+dqvux583cQUgj3PStG4YdNVCR6I9HDAy6ybnaTUloLFBbiF4Lly9pQXD18b'
+        b'JY26hZkyrtpsr6oyX6+ZTrQSInYiu3lvoTmy/SaBmemERcTuuLhhAkoO40y5C/GSPGCEvXC0VEmheW7kbVOW8IIAsNQpDfep1ldN'
+        b'PdJYzTyjVkbRv1LhiAcuRFSacB+RgU0JIkVMda2HOI6at/GtF6oNKtqh2Ls1bKOJpWR/q/eUZyRVQMQwWhGpfx2JU7bmICYIQ+7T'
+        b'nFe3PzDn2+n5D28vLi/D+ezv7y/mIOv6/bHmBHad2ZnPLmfTm1n45v2MJuOZZGz40/TiNlTDNKQwk6Pn08vZuzfTOcx4O5/dfN9s'
+        b'aUqIfFGrJ3Ssr6MOH+UvWydm/AO2uGjWoCSSxMJ6Xa2NXNdHwuN3ckYBPpX2TKaFnJ7Lbpe4JS66iyuDSCRw1NFvwjqc/sdsjpXu'
+        b'8+9n5z+0quQQSQA1oiKsilTRwXxEPVaqxVv3Mqlp7ccwtYUcx8wSHTBwqP4VUr5SekEhMGYI9MK3I6i6JVqYYaydhkaAFtCWELbF'
+        b'CAICIIBSyN567/DbPlSbCPWZ3MPVxEaNvcUlWJyGOIwCNKnFNAzxtXybnF4WR/8irjBYhJvDV9aTDJUDiBq1Y2pF1q67NUW3PgVm'
+        b'+xx91S0Ch6J9sLqmL7GvtjbBae6R2tbwYFEMS1x7Ibex9rGqXP9b/TFS8dYGSKgWGaOh8Hgx64+1yKhdPttm9Ae7Y4xc3paXUU/T'
+        b'yNFuE1OhSfFXLRwamCS2JtGBFg7pyDbr6zqXOowe6/FumiGyvw0MyjAnui/xUFN8vdpoajFA/g1ftXCaB47lSxoTdd+aOqft0z3z'
+        b'otXiMeXsP9sFZR8+ME/ymXaoVtNSK2F4vGMpyVZpFfP6RgjXEMPDMMtJowYO9t06urnpZDKZtFLs/e+lPJPNzGPLP6jReivCGmzx'
+        b'28HXTlQRVUdQFgzUAkZvstYxTi9OYtFcxNLgSILU+0pFz7oDEYF8v6FmRfLxzGtv1N/BKOCPvqzxzLaE/We6E0zcaJvWy3cbvnro'
+        b'e28AIL/qvjGgXhg4+hqAXRElRX0sTW9e0+cb/Q2vi1A/+M6B3bNP0gSet+xED4jg5DGgiEEsAbtjVgYAOt09n1su1WaiAJ0ga0kN'
+        b'i3i2Z9JTa1Bzh/q2ZK7PKvIZpQJJ10AFXsrF2UbgiCr3ZYchgPpzMKNpcV+h50Tv9BVuzMWqSKiyE4RhnK/CUOX5MYgPIzXbdYbD'
+        b'aKX+RsZqk+OfpAkWuqPFMTgLP2OEiF6iylMH9bxDoCkWPjKKLyAZ4E5Bmw0nJ/DfwTWK5x1fC09svIrfs4X+Axv1HjfXX4Az8256'
+        b'82b69/OrH/03392c4j8nE//9u/n0duZfT3+e/Xjjn19fTN+f31z6P00vz+Hf2/nsu9k7fz6/vnp3e/PzG//m6u3c//H05vIgsujW'
+        b'2nTt9E5Z1FSjh8DJ4ttzj66ZTfLPQaA6Vh2q5ICaiO8BoO4fqYYT+OrWqUz8NpJsI3tsNI+cDbptEjRZou7XpaeWp05z5F2NxC5N'
+        b'SvzrFfgeDj2Xrjt9rju5O63ck0PIEdN2M2gKLTvIt3I+dcSldWvrb4KYIZVtbSkP1LOB1/p7Cj0vryj31jyLHg3VDfXbL0UqrN7Z'
+        b'x6Bnfbgb1QufhbC3WZhrwPn9WLScDuMEogluzoQZ/LTTmpQwNHKFgZUr/PRcXiJFS+kiU3s2QZFqn5H5Nb1ID7c7NX6FUD0wE2IG'
+        b'yCYppldjkwVJFyaBdXgYY+r3Ecuw5AiDhtQ12ENc++fu0Kqt0iutspe2c3V/QLDUt6aJT1TbLfYJqNq52jOgvz6CfzkB3xqyOOIz'
+        b'l6XgKUrsCmxPNv4mjrUJmleqxvn6bEBJAOAaTBOYPVPHmO3oK5B1GV93OrUXt2z7hIQzTf8cJjLFcwoWHaCEIZIxDIn7wxDtexgq'
+        b'fSX71W/2WIycfYDLk9bfG/w3Wmos1YlPAAA='),
     'tools/research_data_access.py': ('6b702ebc2a328ab4f830c486a9a911b6ea67b4e1a0641733deff0b9e6243ad9f', 35058,
         b'H4sIAAAAAAAC/7VdbXPjNpL+7l/B23yQlMiyPXmpOyfaO42tmfHGlrySnWRWq2LREm1zRxIVURrbmfN/v6e7ARAASVkzm0tVEpkE'
         b'Gg2g0e8NfvUfB5tsdXCTLA7ixcdg+bS+Txff7v3lL3/pPi5nySRZB7er9I94EaziLI5Wk3v8iKZZK+ilwSSdzeLJOl1lzWAWreMM'
@@ -556,9 +643,6 @@ class ManualTests(unittest.TestCase):
             # Sparse CI omits some tracked proof inputs. Reconstruct only this
             # temporary fixture from one immutable checked-out Git snapshot.
             target.write_bytes(fixture_dependency_bytes(name, source_commit))
-        # Historical catalog positives must not silently follow later code.
-        # Restore only the exact reviewed Lake bytes inside this temporary root.
-        # Current-source refusal is tested separately; production lookup is intact.
         catalog = manual.load_catalog(self.root)
         for row in catalog['entries']:
             if row['entry_id'] == 'group_577' and row['classification'] == 'REUSE_NOW':
@@ -577,17 +661,6 @@ class ManualTests(unittest.TestCase):
                     if len(raw) != size or hashlib.sha256(raw).hexdigest() != expected_sha:
                         raise ValueError('historical_feature_fixture_hash:' + name)
                     (self.root / name).write_bytes(raw)
-        if any(row['classification'] == 'REUSE_NOW' and
-               row['dependency_hashes'].get('tools/long_history_lake.py') == HISTORICAL_LAKE_SHA256
-               for row in catalog['entries']):
-            (self.root / 'tools/long_history_lake.py').write_bytes(historical_lake_fixture_bytes())
-        for name, (expected_sha, _, _) in HISTORICAL_READER_INPUTS.items():
-            if any(row['classification'] == 'REUSE_NOW' and
-                   row['dependency_hashes'].get(name) == expected_sha
-                   for row in catalog['entries']):
-                # Restore only the temporary historical positive, never the
-                # checked-out source or the catalog's reviewed dependency pins.
-                (self.root / name).write_bytes(historical_reader_fixture_bytes(name))
         for row in catalog['entries']:
             if row['entry_id'] in {'group_423_574', 'group_591'} and row['classification'] == 'REUSE_NOW':
                 for name, expected_sha in row['dependency_hashes'].items():
@@ -612,6 +685,19 @@ class ManualTests(unittest.TestCase):
 
     def write(self, name, value):
         (self.root / name).write_text(json.dumps(value, indent=2) + '\n')
+
+    def use_historical_reader_catalog(self):
+        """Keep reviewed Reader/Lake inputs in the historical test root only."""
+        historical = {name: historical_reader_fixture_bytes(name) for name in HISTORICAL_READER_INPUTS}
+        historical['tools/long_history_lake.py'] = historical_lake_fixture_bytes()
+        catalog = manual.load_catalog(self.root)
+        for row in catalog['entries']:
+            if row['entry_id'] in {'group_423_574', 'group_591'}:
+                for name in row['dependency_hashes'].keys() & historical.keys():
+                    row['dependency_hashes'][name] = hashlib.sha256(historical[name]).hexdigest()
+        for name, raw in historical.items():
+            (self.root / name).write_bytes(raw)
+        self.write(manual.CATALOG, catalog)
 
     def reconciled_main_proof_paths(self):
         programs = {
@@ -2189,6 +2275,7 @@ class ManualTests(unittest.TestCase):
                     process.stdout.close.assert_called_once_with()
 
     def test_historical_catalog_fixture_only_reverses_exact_checkout_conversion(self):
+        self.use_historical_reader_catalog()
         frozen = b'# synthetic historical fixture\noriginal bytes\n'
         expected = hashlib.sha256(frozen).hexdigest()
         self.assertEqual(historical_catalog_fixture_bytes(frozen, expected), frozen)
@@ -2211,12 +2298,15 @@ class ManualTests(unittest.TestCase):
                 target.write_bytes(original)
 
     def test_historical_reader_positives_keep_original_catalog_pins(self):
+        active = (ROOT / manual.CATALOG).read_bytes()
+        self.use_historical_reader_catalog()
         before = (self.root / manual.CATALOG).read_bytes()
         for name, (expected, _, _) in HISTORICAL_READER_INPUTS.items():
             self.assertEqual(hashlib.sha256((self.root / name).read_bytes()).hexdigest(), expected)
         for entry in ('group_423_574', 'group_591'):
             self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
         self.assertEqual((self.root / manual.CATALOG).read_bytes(), before)
+        self.assertEqual((ROOT / manual.CATALOG).read_bytes(), active)
 
     def test_historical_reader_archive_hash_and_size_are_bounded(self):
         for name, (expected, size, archive) in HISTORICAL_READER_INPUTS.items():
@@ -2230,6 +2320,7 @@ class ManualTests(unittest.TestCase):
                             historical_reader_fixture_bytes(name)
 
     def test_historical_reader_positives_do_not_recertify_changed_inputs(self):
+        self.use_historical_reader_catalog()
         catalog_before = (self.root / manual.CATALOG).read_bytes()
         for name in HISTORICAL_READER_INPUTS:
             frozen = historical_reader_fixture_bytes(name)
@@ -2251,6 +2342,7 @@ class ManualTests(unittest.TestCase):
                         target.write_bytes(frozen)
 
     def test_historical_lake_positive_does_not_recertify_changed_source(self):
+        self.use_historical_reader_catalog()
         name = 'tools/long_history_lake.py'
         frozen = historical_lake_fixture_bytes()
         target = self.root / name
@@ -2364,7 +2456,20 @@ class ManualTests(unittest.TestCase):
                 historical_a3_fixture_bytes()
 
     def test_reuse_now_requires_actual_current_bytes(self):
-        self.assertTrue(manual.lookup_reuse('group_591', self.root)['allowed'])
+        for entry in ('group_423_574', 'group_591'):
+            self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
+        for name, old in (('tools/long_history_lake.py', historical_lake_fixture_bytes()),
+                          ('tools/macro_history_sources.py',
+                           historical_reader_fixture_bytes('tools/macro_history_sources.py'))):
+            target = self.root / name
+            original = target.read_bytes()
+            target.write_bytes(old)
+            try:
+                for entry in ('group_423_574', 'group_591'):
+                    with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed:' + re.escape(name)):
+                        manual.lookup_reuse(entry, self.root)
+            finally:
+                target.write_bytes(original)
         (self.root / 'tools/research_data_access.py').write_text('CHANGED')
         with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed'):
             manual.lookup_reuse('group_591', self.root)
