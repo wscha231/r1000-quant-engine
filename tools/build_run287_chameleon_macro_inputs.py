@@ -231,7 +231,9 @@ def build_calendar(as_of: pd.Timestamp, contract: Mapping[str, Any]) -> pd.DataF
     )
 
 
-def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
+def normalize_fred(
+    raw: bytes, expected_series_id: str, *, preserve_missing: bool = False
+) -> pd.DataFrame:
     validate_csv_header_identity(raw, source="fred", uppercase=False)
     frame = pd.read_csv(io.BytesIO(raw))
     columns = {
@@ -263,7 +265,9 @@ def normalize_fred(raw: bytes, expected_series_id: str) -> pd.DataFrame:
             ),
             "value": values,
         }
-    ).dropna(subset=["observation_date", "value"])
+    ).dropna(subset=["observation_date"])
+    if not preserve_missing:
+        output = output.dropna(subset=["value"])
     return output.sort_values("observation_date").reset_index(drop=True)
 
 
@@ -425,13 +429,21 @@ def align_releases(
     calendar: pd.DataFrame,
     observations: pd.DataFrame,
     available_from: pd.Series,
+    *,
+    preserve_missing: bool = False,
 ) -> pd.DataFrame:
     left = calendar[["decision_date", "decision_time_utc"]].copy()
     left["decision_date"] = pd.to_datetime(left["decision_date"])
     left["decision_time_utc"] = pd.to_datetime(left["decision_time_utc"], utc=True)
     right = observations[["observation_date", "value"]].copy()
     right["available_from"] = pd.to_datetime(available_from, utc=True)
-    right = right.dropna().sort_values("available_from")
+    right = right.dropna(subset=["observation_date", "available_from"])
+    sort_columns = ["available_from"]
+    if preserve_missing:
+        sort_columns.append("observation_date")
+    else:
+        right = right.dropna(subset=["value"])
+    right = right.sort_values(sort_columns)
     if right.empty:
         return pd.DataFrame(
             index=pd.DatetimeIndex(left["decision_date"]),
@@ -916,17 +928,18 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                     )
                     continue
                 raw_sha = bind_raw_copy(raw, destination, consumed_inputs)
-                observations = normalize_fred(raw, series_id)
+                observations = normalize_fred(raw, series_id, preserve_missing=True)
                 aligned[name] = align_releases(
                     calendar,
                     observations,
                     fred_available_from(observations["observation_date"], spec["availability"]),
+                    preserve_missing=True,
                 )
                 source_rows.append(
                     source_record(
                         name=name,
                         provider="FRED graph current vintage",
-                        status="ready" if not observations.empty else "empty",
+                        status="ready" if observations["value"].notna().any() else "empty",
                         mode=mode,
                         path=destination,
                         row_count=len(observations),
@@ -1402,7 +1415,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 rolling_low = spy_close.rolling(252, min_periods=200).min().loc[date]
                 if pd.notna(rolling_low):
                     row["market_new_low"] = bool(spy_close.loc[date] <= rolling_low)
-            if hy is not None and date in hy.index:
+            if hy is not None and date in hy.index and pd.notna(hy.loc[date, "value"]):
                 hy_history = hy.loc[:date].dropna(subset=["value", "source_observation_date"])
                 if len(hy_history) >= 2:
                     latest = hy_history.iloc[-1]

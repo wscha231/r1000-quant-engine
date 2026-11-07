@@ -578,10 +578,90 @@ def test_empty_context_header_engine_propagation_and_input_limits() -> None:
         ]
 
 
+def test_explicit_missing_release_blocks_prior_value_until_next_release() -> None:
+    raw = (
+        b"observation_date,DGS10\n2026-11-03,4.2\n"
+        b"2026-11-04,.\n2026-11-05,4.4\n"
+    )
+    legacy = inputs.normalize_fred(raw, "DGS10")
+    observations = inputs.normalize_fred(raw, "DGS10", preserve_missing=True)
+    if len(legacy) != 2 or len(observations) != 3:
+        raise AssertionError("Explicit missing preservation changed the default reader")
+    calendar = inputs.build_calendar(
+        pd.Timestamp("2026-11-10"), inputs.load_contract(inputs.DEFAULT_CONTRACT)
+    )
+    aligned = inputs.align_releases(
+        calendar,
+        observations,
+        inputs.fred_available_from(
+            observations["observation_date"], "NEXT_BUSINESS_DAY_END_UTC"
+        ),
+        preserve_missing=True,
+    )
+    before = aligned.loc[pd.Timestamp("2026-11-05")]
+    missing = aligned.loc[pd.Timestamp("2026-11-06")]
+    after = aligned.loc[pd.Timestamp("2026-11-09")]
+    if before["value"] != 4.2 or not pd.isna(missing["value"]) or after["value"] != 4.4:
+        raise AssertionError("Explicit missing release resurrected the previous value")
+    if missing["source_observation_date"] != pd.Timestamp("2026-11-04"):
+        raise AssertionError("Missing release lost its original observation date")
+    if aligned.loc[pd.Timestamp("2026-11-10"), "value"] != 4.4:
+        raise AssertionError("Ordinary gaps between releases changed")
+    tied = inputs.align_releases(
+        calendar,
+        observations.iloc[:2].iloc[::-1],
+        pd.Series(pd.to_datetime(["2026-11-05T00:00:00Z"] * 2), index=[1, 0]),
+        preserve_missing=True,
+    )
+    if not pd.isna(tied.loc[pd.Timestamp("2026-11-06"), "value"]):
+        raise AssertionError("Equal availability clocks resurrected an older release")
+    reversed_values = observations.iloc[:2].iloc[::-1].copy()
+    reversed_values["value"] = [4.4, 4.2]
+    default_tied = inputs.align_releases(
+        calendar,
+        reversed_values,
+        pd.Series(pd.to_datetime(["2026-11-05T00:00:00Z"] * 2), index=[1, 0]),
+    )
+    if default_tied.loc[pd.Timestamp("2026-11-06"), "value"] != 4.2:
+        raise AssertionError("Default aligner tie behavior changed")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        bundle, _ = write_source_bundle(root, "2026-11-09")
+        path = bundle / "fred" / "DGS10.csv"
+        frame = pd.read_csv(path)
+        frame.loc[frame["observation_date"] == "2026-11-04", "DGS10"] = np.nan
+        frame.to_csv(path, index=False)
+        (bundle / "fred" / "BAMLH0A0HYM2.csv").write_bytes(
+            b"observation_date,BAMLH0A0HYM2\n2026-11-02,3.8\n"
+            b"2026-11-03,4.2\n2026-11-04,.\n2026-11-05,4.4\n"
+        )
+        args = build_args(root, bundle, "missing_release", "2026-11-09")
+        args.run_engine = False
+        result = inputs.build(args)
+        if result["status"] != inputs.READY_STATUS:
+            raise AssertionError("Bounded missing source blocked unrelated inputs")
+        metrics = pd.read_csv(root / "missing_release" / "input_metrics.csv")
+        current = metrics[metrics["decision_date"] == "2026-11-06"]
+        blocked_components = {"curve_2y10y_stress", "curve_3m10y_stress"}
+        if blocked_components.intersection(current["component"]):
+            raise AssertionError("Normal build emitted a current curve from a missing yield")
+        if current.empty:
+            raise AssertionError("Unrelated current metrics were removed")
+        context = pd.read_csv(root / "missing_release" / "input_context.csv").set_index("decision_date")
+        if not pd.isna(context.loc["2026-11-06", "hy_spread_widening"]):
+            raise AssertionError("Missing current HY resurrected an older widening flag")
+        if context.loc["2026-11-05", "hy_spread_widening"] != True:
+            raise AssertionError("Valid current HY widening changed")
+        if context.loc["2026-11-09", "hy_spread_widening"] != True:
+            raise AssertionError("New valid HY release did not resume context")
+
+
 def main() -> int:
     test_normalizer_is_free_proxy_report_only_and_fail_closed()
     test_source_identity_date_and_cross_section_guards()
     test_empty_context_header_engine_propagation_and_input_limits()
+    test_explicit_missing_release_blocks_prior_value_until_next_release()
     print("run287_chameleon_macro_inputs_smoke: PASS")
     return 0
 

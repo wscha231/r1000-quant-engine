@@ -9811,3 +9811,20 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Completion order cannot affect acceptance. Keep partial-file costs and cleanup
   on errors, timeouts and cancellation. Concurrent buffers and internal retries
   leave wire bytes unknown. Offline tests do not establish an actual speedup.
+
+## 2026-11-07 - Preserve explicit missing releases in current A4 inputs
+
+- A synthetic DGS10 source with November 3 valid and November 4 missing selected
+  the November 3 value for the November 6 decision. The normalizer and release
+  aligner both discarded explicit nulls before backward alignment.
+- Preserve missing rows in the normal A4 build. After their proxy availability
+  clock, omit affected metrics until a new valid release. Keep ordinary gaps
+  between releases and the public helper's default nonmissing reader behavior.
+- Independent QA also found HY context dropping the current null and comparing
+  two earlier values. Require a valid current HY observation before widening.
+- Resolve equal availability clocks by observation date. Retain current-vintage
+  FREE_PROXY, actual Source collection clocks and the historical-AB prohibition.
+- The first private gen30 A4 read reached the public consumer with twelve macro
+  inputs but lacked one sparse-checkout contract file. Materialize only its
+  unchanged protected Git bytes and repeat the consumer on the same request.
+  Keep the failed attempt; do not rerun provider collection or the Source restore.

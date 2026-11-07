@@ -875,7 +875,7 @@
         "r1000_signals.py": "b2c1b23dca33ca9e1620153ae713c670a58bb60bf883b8baefbb9d4ebb0fe3a3",
         "r1000_themes.py": "e563ad66fc86491dbb6d0b211ea501e66bb1d1b27f13fa434581a49199596561",
         "r1000_trade_journal.py": "40de0697e923306c80111e06e30c46fd36f42e7c237df587a16319ef9012d56f",
-        "tools/build_run287_chameleon_macro_inputs.py": "3f3a46d0a7d03a8ceec4721236da9d055a80377a3d881acbe8b32ab071d81812",
+        "tools/build_run287_chameleon_macro_inputs.py": "86e42fd0191e3823b327170332356b5927fce03c80040bf5f8aff13e66b2be1b",
         "tools/build_run287_chameleon_macro_risk.py": "5de7373a04097ae7c396d107a65da76ec5a578c75a8fa4563c3a740ced8ed024",
         "tools/chameleon_market_context_v2.py": "dc6079008a0aa591286969d88819163a3c8365663b749e56b6d9c48ae888066d",
         "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
