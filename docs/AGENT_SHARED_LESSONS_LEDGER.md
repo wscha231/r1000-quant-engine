@@ -11,6 +11,9 @@
   closes, DST and expiry while a browser tab stays open.
 - A model hash identifies a model; it does not validate its predictive value or
   create ER, a full-universe ranking, independent holdings or performance.
+- The legacy public wrapper passed on Python3.14 but mocked HTTPError cleanup
+  printed unraisable ResourceWarnings despite warnings-as-errors and exit0.
+  Preserve that caveat; a successful exit is not warning-free validation.
 
 ## 2026-10-31 - Sparse workflow closure includes deferred test file reads
 
