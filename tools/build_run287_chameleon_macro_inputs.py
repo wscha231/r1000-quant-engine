@@ -438,9 +438,12 @@ def align_releases(
     right = observations[["observation_date", "value"]].copy()
     right["available_from"] = pd.to_datetime(available_from, utc=True)
     right = right.dropna(subset=["observation_date", "available_from"])
-    if not preserve_missing:
+    sort_columns = ["available_from"]
+    if preserve_missing:
+        sort_columns.append("observation_date")
+    else:
         right = right.dropna(subset=["value"])
-    right = right.sort_values(["available_from", "observation_date"])
+    right = right.sort_values(sort_columns)
     if right.empty:
         return pd.DataFrame(
             index=pd.DatetimeIndex(left["decision_date"]),
@@ -1412,7 +1415,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
                 rolling_low = spy_close.rolling(252, min_periods=200).min().loc[date]
                 if pd.notna(rolling_low):
                     row["market_new_low"] = bool(spy_close.loc[date] <= rolling_low)
-            if hy is not None and date in hy.index:
+            if hy is not None and date in hy.index and pd.notna(hy.loc[date, "value"]):
                 hy_history = hy.loc[:date].dropna(subset=["value", "source_observation_date"])
                 if len(hy_history) >= 2:
                     latest = hy_history.iloc[-1]

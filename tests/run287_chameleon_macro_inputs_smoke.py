@@ -615,15 +615,28 @@ def test_explicit_missing_release_blocks_prior_value_until_next_release() -> Non
     )
     if not pd.isna(tied.loc[pd.Timestamp("2026-11-06"), "value"]):
         raise AssertionError("Equal availability clocks resurrected an older release")
+    reversed_values = observations.iloc[:2].iloc[::-1].copy()
+    reversed_values["value"] = [4.4, 4.2]
+    default_tied = inputs.align_releases(
+        calendar,
+        reversed_values,
+        pd.Series(pd.to_datetime(["2026-11-05T00:00:00Z"] * 2), index=[1, 0]),
+    )
+    if default_tied.loc[pd.Timestamp("2026-11-06"), "value"] != 4.2:
+        raise AssertionError("Default aligner tie behavior changed")
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        bundle, _ = write_source_bundle(root, "2026-11-06")
+        bundle, _ = write_source_bundle(root, "2026-11-09")
         path = bundle / "fred" / "DGS10.csv"
         frame = pd.read_csv(path)
         frame.loc[frame["observation_date"] == "2026-11-04", "DGS10"] = np.nan
         frame.to_csv(path, index=False)
-        args = build_args(root, bundle, "missing_release", "2026-11-06")
+        (bundle / "fred" / "BAMLH0A0HYM2.csv").write_bytes(
+            b"observation_date,BAMLH0A0HYM2\n2026-11-02,3.8\n"
+            b"2026-11-03,4.2\n2026-11-04,.\n2026-11-05,4.4\n"
+        )
+        args = build_args(root, bundle, "missing_release", "2026-11-09")
         args.run_engine = False
         result = inputs.build(args)
         if result["status"] != inputs.READY_STATUS:
@@ -635,6 +648,13 @@ def test_explicit_missing_release_blocks_prior_value_until_next_release() -> Non
             raise AssertionError("Normal build emitted a current curve from a missing yield")
         if current.empty:
             raise AssertionError("Unrelated current metrics were removed")
+        context = pd.read_csv(root / "missing_release" / "input_context.csv").set_index("decision_date")
+        if not pd.isna(context.loc["2026-11-06", "hy_spread_widening"]):
+            raise AssertionError("Missing current HY resurrected an older widening flag")
+        if context.loc["2026-11-05", "hy_spread_widening"] != True:
+            raise AssertionError("Valid current HY widening changed")
+        if context.loc["2026-11-09", "hy_spread_widening"] != True:
+            raise AssertionError("New valid HY release did not resume context")
 
 
 def main() -> int:

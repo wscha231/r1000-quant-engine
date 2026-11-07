@@ -9820,6 +9820,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Preserve missing rows in the normal A4 build. After their proxy availability
   clock, omit affected metrics until a new valid release. Keep ordinary gaps
   between releases and the public helper's default nonmissing reader behavior.
+- Independent QA also found HY context dropping the current null and comparing
+  two earlier values. Require a valid current HY observation before widening.
 - Resolve equal availability clocks by observation date. Retain current-vintage
   FREE_PROXY, actual Source collection clocks and the historical-AB prohibition.
 - The first private gen30 A4 read reached the public consumer with twelve macro
