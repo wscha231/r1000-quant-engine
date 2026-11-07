@@ -11,6 +11,10 @@ on:
       - 'research/theme_etf_runtime_v1/**'
       - 'r1000_legacy_input_guard.py'
       - 'tools/macro_history_sources.py'
+      - 'tools/run_a2_research_intake.py'
+      - 'research/a2_research_intake_v1.py'
+      - 'research/a3_candidate_packet_v1.py'
+      - 'research/candidate_registry_v1.py'
   workflow_dispatch:
   push:
     branches: [master]
@@ -22,6 +26,10 @@ on:
       - 'research/theme_etf_runtime_v1/**'
       - 'r1000_legacy_input_guard.py'
       - 'tools/macro_history_sources.py'
+      - 'tools/run_a2_research_intake.py'
+      - 'research/a2_research_intake_v1.py'
+      - 'research/a3_candidate_packet_v1.py'
+      - 'research/candidate_registry_v1.py'
   workflow_run:
     workflows: ['Run287 Daily Research Monitor']
     types: [completed]
@@ -55,7 +63,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
       - name: Synthetic contract regressions
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
@@ -64,7 +72,7 @@ jobs:
   capture:
     needs: contract
     # Public, bounded, credential-free source diagnostics. Never runs from PR code.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
+    if: github.event_name != 'pull_request' && github.event_name != 'push' && github.ref == 'refs/heads/master' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'schedule' || github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -80,7 +88,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
       - name: Capture current research prices and explicit blocked inputs
         run: >-
           python tools/run_multi_asset_leadership.py --capture

@@ -994,4 +994,181 @@ class FundamentalSources(unittest.TestCase):
                 self.assertIn('MISSING',report)
 
 
+class A3OriginalInputs(unittest.TestCase):
+    """Real A3 replay and runtime contracts over synthetic local evidence only."""
+    def setUp(self):
+        self.p,self.r,self.policy=fixture()
+        self.p['requested_security_ids']=['US:FTI']
+        reviewed(self.p,self.r,self.policy)
+        risk(self.p,self.r,self.policy)
+        self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+        self.original['issuer_id']='CIK:1'
+        self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+        self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+        with patch.object(sys,'path',[str(ROOT/'tests'),str(ROOT/'research'),*sys.path]):
+            import candidate_registry_v1_smoke as reference_fixture
+        self.refs=reference_fixture.RegistryTests('runTest');self.refs.setUp()
+        self.entry=self.refs.fixture(asset='US:FTI',issuer='CIK:1')
+        self.packet=self.refs.read(self.entry['a3_packet_ref'])
+        self.packet.update(as_of=CUTOFF,reviewed_at=CUTOFF)
+        self.packet['thesis']['status']='POSITIVE'
+        market_ref=self.packet['artifacts']['market_valuation']
+        market=self.refs.read(market_ref)
+        prices={s['session']:s for s in self.p['prices'] if s['asset_id']=='US:FTI'}
+        benchmark={s['session']:s for s in self.p['prices'] if s['asset_id']=='US:SPY'}
+        market['price']=prices[list(SESSIONS)[-1]]['price']
+        for h in (20,60,120,240):
+            end,start=list(SESSIONS)[-1],list(SESSIONS)[-1-h]
+            ret=prices[end]['total_return_index']/prices[start]['total_return_index']-1
+            bench=benchmark[end]['total_return_index']/benchmark[start]['total_return_index']-1
+            market[f'return_{h}d']=ret;market[f'benchmark_return_{h}d']=bench
+            market[f'rs_{h}d']=math.log1p(ret)-math.log1p(bench)
+        self.market=market
+        self.reseal()
+
+    def reseal(self, *, include_er=True):
+        from research.a3_candidate_packet_v1 import evaluate_packet
+        def reference(kind,aid,value):
+            ref=self.refs.put(aid,value,at=CUTOFF)
+            return dict(kind=kind,**{k:v for k,v in ref.items()
+                                   if k not in {'collected_at','expires_at'}},review_status='REVIEWED')
+        self.packet['artifacts']['market_valuation']=reference('MARKET_VALUATION_SNAPSHOT','BIND:MKT',self.market)
+        if include_er:
+            self.packet['artifacts']['validated_er']=reference('VALIDATED_ER_EVALUATION','BIND:ER',self.original)
+        else:self.packet['artifacts'].pop('validated_er',None)
+        result=evaluate_packet(self.packet,CUTOFF,self.refs.resolve)
+        self.entry['a3_packet_ref']=self.refs.put('BIND:PACKET',self.packet,at=CUTOFF)
+        self.entry['a3_result_ref']=self.refs.put('BIND:RESULT',result,at=CUTOFF)
+        self.p['a3_reference_entries']=[self.entry]
+
+    def memory(self):
+        from research.a2_research_intake_v1 import MemoryArtifacts
+        return MemoryArtifacts({aid:raw for (aid,_),raw in self.refs.raw.items()})
+
+    def execute(self):
+        return run(self.p,self.r,self.policy,artifact_resolver=self.memory())
+
+    def test_original_full_er_is_prepared_for_model_without_claiming_current_review(self):
+        result=self.execute()
+        coverage=result['a3_reference_coverage']
+        self.assertEqual(coverage['original_er_verified_count'],1)
+        self.assertTrue(coverage['records'][0]['original_runtime_contract_verified'])
+        self.assertFalse(coverage['records'][0]['runtime_evaluation_admitted'])
+        self.assertIn('INDEPENDENT_REVIEW_NOT_AUTHENTICATED',coverage['records'][0]['consumption_blockers'])
+        self.assertEqual(result['a3_model_input_candidates'][0],self.original)
+        self.assertEqual(coverage['records'][0]['original_er_ref']['sha256'],
+                         self.packet['artifacts']['validated_er']['sha256'])
+        self.assertEqual(result['proposal_context']['mode'],'MODEL')
+        self.assertFalse(result['global_ranking_ready'])
+        self.assertEqual(result['proposal']['status'],'BLOCKED')
+        self.assertFalse(result['accepted_target_written'])
+        self.assertFalse(result['orders_generated'])
+
+    def test_missing_and_unmapped_requested_stocks_remain_visible(self):
+        self.p['requested_security_ids']=['US:FTI','US:CCJ','US:UNMAPPED']
+        self.p['base_equity_ids']=list(self.p['requested_security_ids'])
+        self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:CCJ']
+        result=self.execute()
+        records=result['a3_reference_coverage']['records']
+        self.assertEqual([r['asset_id'] for r in records],self.p['requested_security_ids'])
+        self.assertEqual(records[1]['blocker'],'MISSING_A3_REFERENCE')
+        self.assertEqual(records[2]['blocker'],'REGISTRY_ASSET_UNMAPPED')
+        self.assertIn('unmapped_base_equity',result['base_universe_blockers'])
+        self.assertFalse(result['global_ranking_ready'])
+        self.assertIsNone(result['proposal']['proposed_weights'])
+
+    def test_scenario_only_a3_never_becomes_expected_return(self):
+        self.reseal(include_er=False)
+        result=self.execute()
+        self.assertEqual(result['a3_reference_coverage']['records'][0]['blocker'],'VALIDATED_ER_NOT_LINKED')
+        row=next(r for r in result['multi_asset_leadership_latest'] if r['asset_id']=='US:FTI')
+        self.assertIsNone(row['expected_return_12m'])
+        self.assertFalse(result['global_ranking_ready'])
+
+    def test_no_repair_or_default_costs_and_model_feature_clocks_stay_bound(self):
+        original=copy.deepcopy(self.original)
+        for change in (lambda e:e.pop('cost_assumptions'),
+                       lambda e:e.update(model_id='UNKNOWN'),
+                       lambda e:e.update(feature_sha256='e'*64),
+                       lambda e:e.update(training_labels_available_before='2026-10-01T00:00:00Z'),
+                       lambda e:e.update(issuer_id='CIK:OTHER')):
+            self.original=copy.deepcopy(original);change(self.original)
+            self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.reseal()
+            result=self.execute()
+            record=result['a3_reference_coverage']['records'][0]
+            self.assertEqual(record['blocker'],'ORIGINAL_ER_EVALUATION_CONTRACT_BLOCKED')
+            self.assertFalse(record['runtime_evaluation_admitted'])
+            self.assertFalse(result['global_ranking_ready'])
+
+    def test_market_price_and_relative_features_must_match_actual_runtime_inputs(self):
+        original=copy.deepcopy(self.market)
+        for key in ('price','return_20d','rs_60d'):
+            self.market=copy.deepcopy(original);self.market[key]+=.01
+            if key=='return_20d':
+                self.market['rs_20d']=math.log1p(self.market[key])-math.log1p(self.market['benchmark_return_20d'])
+            if key=='rs_60d':
+                self.market['benchmark_return_60d']=math.expm1(math.log1p(self.market['return_60d'])-self.market[key])
+            self.reseal()
+            result=self.execute()
+            row=next(r for r in result['multi_asset_leadership_latest'] if r['asset_id']=='US:FTI')
+            self.assertIsNone(row['expected_return_12m'])
+            self.assertTrue(any('a3_market_' in b for b in row['blockers']))
+            self.assertFalse(result['a3_reference_coverage']['records'][0]['runtime_evaluation_admitted'])
+
+    def test_manual_replacement_and_duplicate_roster_cannot_bypass_references(self):
+        self.p['evaluations'].append(self.original)
+        with self.assertRaisesRegex(ContractError,'a3_duplicate_evaluation_input'):self.execute()
+        self.p['evaluations'].pop()
+        self.p['requested_security_ids']*=2
+        with self.assertRaisesRegex(ContractError,'a3_duplicate_requested_security'):self.execute()
+
+    def test_local_cli_artifact_loader_is_bounded_and_hash_verified(self):
+        from tools.run_multi_asset_leadership import a3_artifacts
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);raw=b'synthetic';(root/'evidence').write_bytes(raw)
+            payload={'artifact_files':[dict(artifact_id='TEST',path='evidence',sha256=hashlib.sha256(raw).hexdigest())]}
+            self.assertEqual(a3_artifacts(payload,root).read('TEST',hashlib.sha256(raw).hexdigest()),raw)
+            (root/'evidence').write_bytes(b'tampered')
+            with self.assertRaisesRegex(ContractError,'a3_artifact_input:FILE_HASH'):a3_artifacts(payload,root)
+            payload['artifact_files'][0]['path']='../escape'
+            with self.assertRaisesRegex(ContractError,'a3_artifact_input:FILE_PATH'):a3_artifacts(payload,root)
+
+    def test_actual_cli_consumes_original_refs_and_revokes_tampered_followup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out=Path(tmp);artifacts=out/'evidence';artifacts.mkdir()
+            self.p['artifact_files']=[]
+            values={aid:raw for (aid,_),raw in self.refs.raw.items()}
+            for i,(aid,raw) in enumerate(sorted(values.items())):
+                name=f'object-{i}.json';(artifacts/name).write_bytes(raw)
+                self.p['artifact_files'].append(dict(artifact_id=aid,path=name,sha256=hashlib.sha256(raw).hexdigest()))
+            payload=encoded(self.p)
+            (out/'input.json').write_bytes(payload)
+            (out/'registry.json').write_bytes(encoded(self.r))
+            (out/'policy.json').write_bytes(encoded(self.policy))
+            def execute(attempt):
+                return subprocess.run([sys.executable,'-B',str(ROOT/'tools/run_multi_asset_leadership.py'),
+                    '--input',str(out/'input.json'),'--expected-input-sha256',hashlib.sha256(payload).hexdigest(),
+                    '--artifact-root',str(artifacts),'--registry',str(out/'registry.json'),
+                    '--policy',str(out/'policy.json'),'--output-dir',str(out/'result'),
+                    '--attempt-id',attempt,*configuration_args(out)],capture_output=True,text=True,timeout=60)
+            success=execute('a3-original')
+            self.assertEqual(success.returncode,2,success.stdout+success.stderr)
+            result=load_json((out/'result/attempts/a3-original/result.json').read_bytes())
+            self.assertTrue(result['a3_reference_coverage']['records'][0]['original_runtime_contract_verified'])
+            self.assertFalse(result['a3_reference_coverage']['records'][0]['runtime_evaluation_admitted'])
+            self.assertFalse(result['global_ranking_ready'])
+            self.assertEqual(result['proposal_context']['mode'],'MODEL')
+            self.assertIn('research/a3_candidate_packet_v1.py',
+                          {key.replace('\\','/') for key in result['code_file_sha256']})
+            self.assertFalse((out/'result/last_success.json').exists())
+            prior=b'prior synthetic success must survive'
+            (out/'result/last_success.json').write_bytes(prior)
+            (artifacts/self.p['artifact_files'][0]['path']).write_bytes(b'corrupt')
+            failed=execute('a3-tampered')
+            self.assertEqual(failed.returncode,2)
+            self.assertEqual(load_json((out/'result/latest_attempt.json').read_bytes())['status'],'BLOCKED')
+            self.assertEqual((out/'result/last_success.json').read_bytes(),prior)
+
+
 if __name__=="__main__":unittest.main()
