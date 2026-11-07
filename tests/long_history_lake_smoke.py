@@ -1522,7 +1522,7 @@ class HistoryTest(unittest.TestCase):
         from tools.macro_research_checkpoint import RcloneTransport
         remote=RcloneTransport.__new__(RcloneTransport)
         remote.root='gdrive:'
-        remote.calls=[];remote.stages=[];remote.inventories=[]
+        remote.calls=[];remote.stages=[];remote.inventories=[];remote.completed=[]
         remote.read=self.t.read
         def names(prefix):
             remote.inventories.append(prefix)
@@ -1536,12 +1536,13 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(hashes,sorted(set(hashes)))
             self.assertLessEqual(len(hashes),4)
             self.assertIn('--immutable',args);self.assertIn('--checksum',args)
-            for key,value in [('--transfers','1'),('--checkers','1'),
+            for key,value in [('--transfers','4'),('--checkers','4'),
                               ('--max-transfer','80M'),('--cutoff-mode','HARD')]:
                 self.assertEqual(args[args.index(key)+1],value)
             remote.calls.append(tuple(hashes))
-            for sha in hashes:
+            for sha in reversed(hashes):
                 (stage/sha).write_bytes(self.t.read(PREFIX+'/packs/'+sha))
+                remote.completed.append(sha)
             if fault:fault(stage,hashes)
             return b''
         remote.names=names;remote.call=call
@@ -1556,6 +1557,8 @@ class HistoryTest(unittest.TestCase):
                 self.assertEqual(len(transport.calls),(count+3)//4)
                 self.assertEqual(transport.inventories,([PREFIX+'/packs'] if count else []))
                 self.assertEqual([sha for group in transport.calls for sha in group],sorted(dependencies))
+                self.assertEqual(transport.completed,
+                                 [sha for group in transport.calls for sha in reversed(group)])
                 self.assertTrue(all(not p.exists() for p in transport.stages))
 
     def test_pack_batch_and_legacy_restore_same_multi_generation_catalog(self):

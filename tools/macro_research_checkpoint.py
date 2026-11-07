@@ -319,7 +319,7 @@ class RcloneTransport:
             # Match the existing bounded copy path; no additional Python retry.
             self.call('copy', self.path(PACK_PREFIX), stage,
                       '--files-from-raw', listing, '--immutable', '--checksum',
-                      '--transfers', '1', '--checkers', '1',
+                      '--transfers', str(PACK_BATCH_FILES), '--checkers', str(PACK_BATCH_FILES),
                       '--max-transfer', '80M', '--cutoff-mode', 'HARD')
         return _pack_stage(hashes, copy_group, observation)
 
