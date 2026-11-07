@@ -457,9 +457,21 @@ class IncompleteBootstrapCoverage(Refused):
         self.coverage, self.held = dict(coverage), dict(held)
 
 
-def bootstrap_coverage(drive, control, bootstrap, targets):
-    """Validate only retained groups needed by this run; never recensus the Lake."""
+def bootstrap_coverage(drive, control, bootstrap, targets, *, asset_identities=None,
+                       identity_targets=None):
+    """Validate selected archives; optionally return their original asset IDs.
+
+    Identity-only targets include restored coverage without recertifying its
+    grid. The sink is published only after all selected archives pass integrity;
+    coverage-held targets contribute no identity. Default callers keep the
+    strict coverage-only return/refusal contract.
+    """
     found, held = {}, {}
+    identity_targets = (set(targets) if identity_targets is None else set(identity_targets))
+    if asset_identities is None:
+        identity_targets = set()
+    archive_targets = set(targets) | identity_targets
+    verified_identities = {}
     seen = set()
     for group in bootstrap["groups"]:
         names = group.get("symbols") if isinstance(group, dict) else None
@@ -469,7 +481,7 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
                 "MANAGED_BOOTSTRAP_GROUP")
         require(not (seen & set(names)), "MANAGED_BOOTSTRAP_DUPLICATE")
         seen.update(names)
-        if not (set(names) & targets):
+        if not (set(names) & archive_targets):
             continue
         if group.get("provider") != "alpaca_sip":
             continue  # Twelve-only bytes remain preserved; no silent provider conversion.
@@ -478,6 +490,14 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
         raw = private_bytes(drive, control["private_data_folder_id"], receipt["raw_object"])
         norm = private_bytes(drive, control["private_data_folder_id"], receipt["normalized_object"])
         capture.verify_archived_group(raw, norm, receipt)
+        if receipt.get("cohort_scope") is not None:
+            for evidence in receipt["asset_precheck"]:
+                ticker = evidence["symbol"]
+                if ticker in identity_targets:
+                    verified_identities[ticker] = capture.asset_record(
+                        evidence["response_utf8"].encode(), ticker)["id"]
+        if not (set(names) & targets):
+            continue
         with gzip.GzipFile(fileobj=io.BytesIO(norm)) as gz:
             body = gz.read(32_000_001)
         require(len(body) <= 32_000_000, "MANAGED_NORMALIZED_LIMIT")
@@ -497,6 +517,8 @@ def bootstrap_coverage(drive, control, bootstrap, targets):
                     held[t] = "BASELINE_COVERAGE_OR_LIFECYCLE_REVIEW_REQUIRED"
     # Finish every selected group's integrity checks before offering either
     # partition. A later corrupt group must still block the whole run.
+    if asset_identities is not None:
+        asset_identities.update({t: value for t, value in verified_identities.items() if t not in held})
     if held:
         raise IncompleteBootstrapCoverage(found, held)
     return found
@@ -551,8 +573,10 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
     candidates = candidates[:control["max_symbols_per_run"]]
     needs = set(candidates) - set(prior_coverage)
     held = {t: prior_held[t] for t in set(tracked) & set(prior_held)}
+    identities = {}
     try:
-        coverage = bootstrap_coverage(drive, control, bootstrap, needs)
+        coverage = bootstrap_coverage(drive, control, bootstrap, needs,
+            asset_identities=identities, identity_targets=set(candidates))
     except IncompleteBootstrapCoverage as incomplete:
         coverage = incomplete.coverage
         held.update(incomplete.held)
@@ -563,16 +587,18 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
     held.update(missing)
     identity_refs = bootstrap.get("asset_identity_refs", {})
     require(isinstance(identity_refs, dict), "MANAGED_IDENTITY_MAP")
-    identities = {}
     for t in candidates:
         if t in held:
             continue
         ref = identity_refs.get(t)
         if ref is None:
-            held[t] = "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"
+            if t in identity_refs or t not in identities:
+                held[t] = "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"
             continue
         original = private_bytes(drive, control["evidence_folder_id"], ref, 65536)
-        identities[t] = capture.asset_record(original, t)["id"]
+        standalone_id = capture.asset_record(original, t)["id"]
+        require(t not in identities or identities[t] == standalone_id, "MANAGED_IDENTITY_CONFLICT")
+        identities[t] = standalone_id
     reused = [t for t in reused if t not in held]
     updates, receipts, rows = {}, [], 0
     for (start, end), names in sorted(windows.items()):

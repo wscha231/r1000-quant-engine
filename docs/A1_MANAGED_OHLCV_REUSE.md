@@ -244,7 +244,7 @@ values must come from actual owner receipts and separately reviewed permission:
 | Account and private storage | Actual credential binding, owner hash and distinct existing root/data/journal/evidence folder IDs, same OAuth owner, private permissions and at least2GiB verified free space. Nothing sensitive belongs in GitHub. |
 | Rights | `rights_ref`: `a1-reviewed-account-rights-v1`, exact binding, provider, personal noncommercial purpose, reviewed historical-SIP and private-retention permissions, actual source-document refs. Read back all bounded source documents. Supplier expiry is checked only if explicitly documented; execution expiry is not supplier expiry. |
 | Opening accounting | `opening_evidence_ref`: `a1-managed-opening-accounting-v1`, exact opening usage/binding, original-campaign preservation, unresolved costs reserved, actual source-document refs and the same `source_history_sha256` as the control. Hash the original Source workflow's complete bounded run prefix (ID/attempt/head/status/conclusion/created/updated; sorted by ID). Missing pages, active runs, added runs or older rerun attempts block maintenance pending reconciliation. Owner review is explicit; this adapter does not infer old platform cost from missing receipts. |
-| Original reuse | `bootstrap_ref`: `a1-managed-reuse-bootstrap-v1`, deployed inventory hash, opening-usage/evidence hash, existing provider groups/receipt refs and `asset_identity_refs` to actual retained provider-asset bytes. Reconcile only selected groups' actual bytes; compare stable asset IDs and hold missing/changed IDs. The separate2026-10-26 preparation supplied a selected MU binding with original clocks; it does not certify unrequested siblings or the whole roster. |
+| Original reuse | `bootstrap_ref`: `a1-managed-reuse-bootstrap-v1`, deployed inventory hash, opening-usage/evidence hash and existing provider groups/receipt refs. Reuse asset IDs from verified scoped archives or retained standalone `asset_identity_refs`, as described below. Reconcile only selected groups' actual bytes; compare stable asset IDs and hold missing/changed IDs. The separate2026-10-26 preparation supplied a selected MU binding with original clocks; it does not certify unrequested siblings or the whole roster. |
 | Protected deployment | Exact reviewed PR HEAD/merge, protected current master ancestry and LF-normalized `code_pins` for every runtime dependency listed in `PIN_PATHS`. A Draft is ineligible. |
 | Standing owner grant | An actual immutable OWNER comment on A0, created after deployment and within the execution window. Exactly one `A1_MANAGED_SIP_EXECUTION_V1 <JSON>` line binds `control_sha256`, `rights_sha256`, `opening_evidence_sha256`, expiry and explicit rights/budget review booleans. The control hash excludes only `approval_reference`, whose real comment ID is returned after posting; do not predict an ID or invent an auth hash. |
 
@@ -267,6 +267,27 @@ Twelve-only names remain held until
 an explicit provider-transition/backfill scope is reviewed. No old Twelve bytes
 are overwritten or silently represented as Alpaca coverage. Unsupported assets,
 no-data and incomplete session grids remain held with separate reasons.
+
+An original asset ID can be reused directly only after
+`verify_archived_group` validates the selected raw archive, normalized bytes
+and receipt, including a valid non-null `cohort_scope`, matching archived
+`asset_precheck`, response SHA256, URL, clock format, symbol, HTTP status and
+supported-asset state. No standalone copy of that same response is required.
+Legacy archives without a verified scope retain the standalone fallback.
+An explicitly supplied standalone reference is always checked; null still
+holds the security, malformed references refuse, and conflicting IDs refuse
+the run before provider requests. A later corrupt archive blocks the run even
+when earlier archives supplied valid IDs.
+
+Coverage needs and identity-proof needs are separate. Later sessions reverify
+the relevant original identity even when their coverage comes from the linked
+completed journal. Identity-only inspection does not certify a new historical
+grid or replace a newer journal cutoff. Coverage-held targets contribute no
+new identity. Every new missing window still requires the existing fresh,
+metered provider asset check and stable-ID comparison. The archived ID is an
+equality witness at its recorded collection, not current freshness, historical
+issuer identity, timestamp causality, supplier rights or PIT admission. This
+reuse changes no original full-grid, budget, lease, checkpoint or rights gate.
 
 Each run must publish/read back an immutable RESERVED checkpoint before provider
 I/O and a linked terminal checkpoint afterward. A later run requires both and

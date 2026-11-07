@@ -9828,3 +9828,25 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   inputs but lacked one sparse-checkout contract file. Materialize only its
   unchanged protected Git bytes and repeat the consumer on the same request.
   Keep the failed attempt; do not rerun provider collection or the Source restore.
+
+## 2026-11-08 - Reuse original scoped asset evidence during managed refresh
+
+- The managed bootstrap already verifies scoped capture archives, including
+  matching receipt/manifest asset responses. Reuse those verified original IDs
+  instead of requiring separately uploaded copies. Legacy archives still need
+  standalone evidence, and explicit null, malformed or conflicting references
+  retain their hold/refusal behavior.
+- Coverage restored from a completed journal does not establish identity.
+  Reverify selected original identity on later sessions without replacing the
+  newer cutoff or certifying another historical grid. Publish no partial ID
+  sink before all selected archives pass integrity. Keep incomplete-grid holds
+  and fresh metered provider-ID comparison for every missing window.
+- Clock-format validity is not timestamp causality, current freshness,
+  historical issuer identity, supplier rights or PIT admission. This offline
+  change grants no collection, upload, budget reset or activation authority.
+- The first synthetic consecutive-session test omitted required meter identity
+  fields and failed before its second session. Complete the fixture rather than
+  weakening the meter; verify linked final meters and journal state on retry.
+- The private-backfill module's `load_tests` also adds the campaign suite.
+  Normal discovery therefore runs that larger registered set. Select named
+  archive/identity classes for the optimized check instead of repeating it.
