@@ -984,13 +984,71 @@ class HistoryTest(unittest.TestCase):
                 fetch_fred_retry('NFCI','1996-01-01','2026-09-12','alfred')
             self.assertEqual(fetch.call_count,1)
 
+    def test_current_api_auth_failure_has_no_retry_or_secret_in_report(self):
+        from urllib.error import HTTPError
+        from tools import long_history_lake as history
+        from tools import macro_history_sources as fred
+        key = 'fixture-secret'
+        error = HTTPError('https://example.com/?api_key='+key, 403, key, {}, None)
+        with patch.dict('os.environ', {'FRED_API_KEY': key}), \
+             patch.object(fred, 'request_bytes', side_effect=error) as request, \
+             patch.object(history.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(ValueError, '^HTTP_403$') as caught:
+                history.fetch_fred_retry('UNRATE','2020-01-01','2020-03-31','current')
+            request.assert_called_once()
+            sleep.assert_not_called()
+        self.assertNotIn(key, repr(caught.exception))
+
     def test_fred_missing_dates_survive_parser(self):
-        from tools.long_history_lake import parse_graph,fred_missing
-        rows,missing=parse_graph(b'observation_date,UNRATE\n2025-09-01,4.4\n2025-10-01,.\n2025-11-01,4.5\n',
+        from tools.long_history_lake import parse_current,fred_missing
+        rows,missing=parse_current([b'observation_date,UNRATE\n2025-09-01,4.4\n2025-10-01,.\n2025-11-01,4.5\n'],
             'UNRATE','2025-01-01','2025-12-31','2026-09-12T00:00:00+00:00')
         result=fred_missing(rows,missing)
         self.assertEqual(result['missing_values'],1)
         self.assertEqual(result['missing_observation_dates'],['2025-10-01'])
+
+    def test_current_api_raw_bytes_survive_lake_collection_and_study_restore(self):
+        from tools import long_history_lake as history
+        from tools import macro_history_sources as fred
+        start, through, vintage = '2020-01-01', '2020-03-31', '2026-09-12'
+        retrieved = vintage + 'T12:00:00Z'
+        current = encoded(dict(file_type='json', units='lin', output_type=1, offset=0,
+            limit=fred.CURRENT_API_ROW_LIMIT, count=2, observation_start=start,
+            observation_end=through, realtime_start=vintage, realtime_end=vintage,
+            observations=[dict(date=day, value=value, realtime_start=vintage, realtime_end=vintage)
+                for day, value in ((start, '3.5'), ('2020-02-01', '.'))]))
+        archive = encoded(dict(units='lin', output_type=1, count=1, offset=0,
+            observations=[dict(date=start, value='3.0', realtime_start='2020-02-07', realtime_end='9999-12-31')]))
+        ids = ('UNRATE', 'PAYEMS', 'CPIAUCSL')
+        specs = [s for s in history.registry()['series'] if s['id'] in ids]
+        config = dict(registry_sha256=digest(encoded(history.registry())))
+        with patch.object(history, 'registry', return_value={'series': specs}), \
+             patch.object(history, 'WB_INDICATORS', ()), \
+             patch.object(history, 'fetch_fred_retry',
+                          side_effect=lambda sid, first, last, mode: ([current if mode == 'current' else archive], retrieved)):
+            history.collect_macros(self.lake, start, through)
+        self.lake.publish('current-api', config)
+        restored = Lake(self.t, self.root/'current-api-restore')
+        entry = restored.catalog['datasets']['current/UNRATE']
+        self.assertEqual(entry['status'], 'COLLECTED')
+        self.assertEqual(entry['missing_observation_dates'], ['2020-02-01'])
+        self.assertEqual(history.unpacked(restored.get_bytes(entry['raw_objects'][0])), current)
+
+        def inspect_study(store, path, cutoff, archive_paths):
+            receipt, rows = fred.load_bundle(store, path)
+            self.assertEqual(receipt['sources'][0]['raw_sha256'], [digest(current)])
+            self.assertEqual(rows['UNRATE'][0]['available_at'], retrieved)
+            self.assertEqual(rows['UNRATE'][0]['evidence'], 'current_only')
+            self.assertIsNone(rows['UNRATE'][0]['vintage_date'])
+            _, archives = fred.load_bundle(store, archive_paths[0])
+            self.assertEqual(archives['UNRATE'][0]['evidence'], 'alfred_date_archive')
+            return {}
+
+        with patch('tools.macro_research_cycle.CURRENT', ['UNRATE']), \
+             patch('tools.macro_technical_study.study', side_effect=inspect_study) as study, \
+             patch('tools.macro_research_cycle.engine_context', return_value={}):
+            history.analyze_restored(restored, self.root/'study', start, through)
+        study.assert_called_once()
 
     def test_current_mapping_excludes_retained_old_issuer(self):
         from tools.long_history_lake import diagnostics
