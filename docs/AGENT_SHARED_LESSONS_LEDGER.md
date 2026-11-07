@@ -1,5 +1,17 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-08 - Research freshness belongs to its original session
+
+- Public research scores were hidden when legacy account quotes were absent
+  or stale. Reuse the original score verifier and export its own source/model
+  clocks; keep legacy price and accepted-portfolio gates separate.
+- Compute expiry from the bound session's real close, never the build clock.
+  During the next close's settlement buffer the selected session is still old;
+  a rebuild must not extend it to another trading day. Verify holidays, early
+  closes, DST and expiry while a browser tab stays open.
+- A model hash identifies a model; it does not validate its predictive value or
+  create ER, a full-universe ranking, independent holdings or performance.
+
 ## 2026-10-31 - Sparse workflow closure includes deferred test file reads
 
 - Long-history run41063456778/job124088724339 failed before Source/Drive
