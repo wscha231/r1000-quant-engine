@@ -73,7 +73,7 @@ _PHASE_STAGES = frozenset({
     'INITIAL_RESTORE', 'MACRO_COLLECTION', 'FINANCIAL_COLLECTION', 'QUALITY_LOCAL',
     'PUBLICATION', 'CLEAN_CONSUMER_RESTORE', 'SQL_MATERIALIZATION', 'STUDY',
     'LOCAL_STUDY_REPORTS', 'REPORT_PUBLICATION', 'EXECUTION_RECEIPT_WRITE',
-    'LOCAL_PUBLICATION_WRITE', 'PACK_BATCH_READ',
+    'LOCAL_PUBLICATION_WRITE', 'PACK_BATCH_READ', 'FINALIZATION_RECHECK',
 })
 _PHASE_COUNTS = frozenset({'commits', 'packs', 'objects', 'index', 'total',
                            'application_bytes', 'datasets', 'rows', 'reports',
@@ -667,7 +667,7 @@ class Lake:
         raw=self.get_bytes(entry['normalized'])
         return [json.loads(line) for line in unpacked(raw).splitlines()]
 
-    def verified_execution(self):
+    def verified_execution(self, *, allow_missing=False):
         """Bind shared consumption to this restored commit's completed receipt.
 
         Writers still restore storage-only commits so an interrupted cycle can
@@ -684,6 +684,8 @@ class Lake:
                 continue
             require(receipt.get('catalog_sha256')==commit['catalog'],'execution_catalog_mismatch')
             matches.append((sha,receipt))
+        if not matches and allow_missing:
+            return None
         require(len(matches)==1,'execution_receipt_missing_or_ambiguous')
         sha,receipt=matches[0]
         require(receipt.get('schema')=='long-history-execution-v1' and
@@ -999,6 +1001,117 @@ def analyze_restored(lake, root, start, through):
     return result,engine_context(result)
 
 
+def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_start, through, report,
+                      recovery=None):
+    transport=consumer.transport
+    require(consumer.parent==result['commit_sha256'] and digest(encoded(consumer.catalog))==result['catalog_sha256'],
+            'consumer_generation_mismatch')
+    keys=[k for k,d in consumer.catalog['datasets'].items() if k.startswith(('current/','alfred/','worldbank/'))
+          and d['status'] in ('COLLECTED','UNCHANGED')]
+    with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
+        consumer_rows=materialize(consumer,Path(workspace)/'macro.sqlite',keys,through)
+        phase_counts['rows']=consumer_rows
+    try:
+        with _history_phase('STUDY'):
+            study_result,context=analyze_restored(consumer,Path(workspace)/'study',macro_start,through)
+        context['catalog_sha256']=result['catalog_sha256']
+        with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
+            (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
+            (reports/'engine-context.json').write_bytes(encoded(context))
+        result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+    except (Refused,TimeoutError,InterruptedError):
+        # Cancellation is not a partial study result and must not publish a receipt.
+        raise
+    except (ValueError,KeyError,TypeError,OSError) as exc:
+        result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
+    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
+    if recovery is not None:
+        require(result['study_recomputed_from_drive'],'finalization_study_not_complete')
+        with _history_phase('FINALIZATION_RECHECK', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256']):
+            require(consumer.restore_catalog()[0]==result['commit_sha256'],'finalization_head_changed')
+            require(consumer.verified_execution(allow_missing=True) is None,'finalization_execution_changed')
+    durable_reports={}
+    with _history_phase('REPORT_PUBLICATION') as phase_counts:
+        for path in sorted(reports.glob('*.json')):
+            raw=path.read_bytes(); sha=digest(raw)
+            require(len(raw)<=MAX_OBJECT,'report_size')
+            transport.write(f'{PREFIX}/reports/{sha}',raw)
+            durable_reports[path.name]=sha
+        phase_counts['reports']=len(durable_reports)
+    receipt=dict(schema='long-history-execution-v1',run_id=run_id,created_at=utc_now(),
+        catalog_sha256=result['catalog_sha256'],commit_sha256=result['commit_sha256'],
+        reports=durable_reports,consumer_rows=consumer_rows,
+        study_recomputed_from_drive=result['study_recomputed_from_drive'],
+        quality_status=report['status'],eligible_for_selector=False)
+    if recovery is not None:
+        receipt['recovery']=recovery
+    raw=encoded(receipt); receipt_sha=digest(raw)
+    with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
+        transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
+    if recovery is not None:
+        verified=consumer.verified_execution()
+        require(verified['execution_receipt_sha256']==receipt_sha and verified.get('recovery')==recovery,
+                'finalization_execution_readback')
+        result['recovery']=recovery
+    result['execution_receipt_sha256']=receipt_sha
+    with _history_phase('LOCAL_PUBLICATION_WRITE'):
+        (reports/'publication.json').write_bytes(encoded(result))
+    print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
+    if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
+    return 0
+
+
+def finalization_mode(commit_sha256, catalog_sha256, source_head_sha):
+    pins=(commit_sha256,catalog_sha256,source_head_sha)
+    if not any(pins):
+        return False
+    require(all(type(v) is str for v in pins) and all(pins)
+            and all(re.fullmatch('[a-f0-9]{64}',v) is not None for v in pins[:2])
+            and re.fullmatch('[a-f0-9]{40}',pins[2]) is not None,'finalization_pins_required')
+    return True
+
+
+def finalize_existing(lake, args, reports):
+    """Complete one already committed generation without collection or a new data commit."""
+    require(finalization_mode(args.finalize_commit_sha256,args.finalize_catalog_sha256,args.source_head_sha),
+            'finalization_pins_required')
+    require(not lake.pending,'finalization_requires_clean_consumer')
+    require(lake.parent==args.finalize_commit_sha256,'finalization_head_mismatch')
+    commit=json.loads(lake.read_hash('commits',lake.parent))
+    require(commit['catalog']==args.finalize_catalog_sha256,'finalization_catalog_mismatch')
+    require(lake.catalog.get('code_sha')==args.source_head_sha,'finalization_source_code_mismatch')
+    require(lake.catalog.get('run_id')==commit['run_id'],'finalization_source_run_mismatch')
+    config=lake.catalog['config']
+    require(lake.catalog.get('config_sha256')==digest(encoded(config)),'finalization_config_mismatch')
+    macro_start,through=config['macro_start'],config['through']
+    require(date.fromisoformat(macro_start).isoformat()==macro_start
+            and date.fromisoformat(through).isoformat()==through
+            and macro_start<=through<=date.today().isoformat(),'finalization_source_window')
+    require(not any(reports.iterdir()),'finalization_report_directory_not_empty')
+    code=os.environ.get('GITHUB_SHA','')
+    actual_run='history-'+os.environ.get('GITHUB_RUN_ID','')+'-'+os.environ.get('GITHUB_RUN_ATTEMPT','')
+    require(re.fullmatch('[a-f0-9]{40}',code) is not None and args.run_id==actual_run
+            and re.fullmatch('history-[1-9][0-9]*-[1-9][0-9]*',args.run_id) is not None
+            and args.run_id!=commit['run_id'],'finalization_run_identity')
+    existing=lake.verified_execution(allow_missing=True)
+    result=dict(commit_sha256=lake.parent,catalog_sha256=commit['catalog'],new_packs=0,
+                verified_new_bytes=0,remote_verified=lake.transport.remote_verified,eligible_for_selector=False)
+    if existing is not None:
+        require(existing['study_recomputed_from_drive'],'finalization_existing_incomplete_execution')
+        result.update(status='ALREADY_FINALIZED',execution_receipt_sha256=existing['execution_receipt_sha256'],
+                      quality_status=existing['quality_status'],consumer_rows=existing['consumer_rows'])
+        (reports/'publication.json').write_bytes(encoded(result))
+        print('LONG_HISTORY_SUMMARY '+json.dumps(result),flush=True)
+        return 2 if existing['quality_status'] in ('PARTIAL','PARTIAL_COVERAGE') else 0
+    recovery=dict(schema='long-history-finalization-v1',source_run_id=commit['run_id'],
+                  source_head_sha=args.source_head_sha,finalization_run_id=args.run_id,
+                  finalizer_head_sha=code,provider_requests_executed=0,new_data_commits=0)
+    report=diagnostics(lake)
+    (reports/'quality.json').write_bytes(encoded(report))
+    return complete_consumer(lake,result,reports,args.workspace,run_id=commit['run_id'],
+                             macro_start=macro_start,through=through,report=report,recovery=recovery)
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--remote',required=True)
@@ -1008,7 +1121,11 @@ def main():
     p.add_argument('--report-dir',required=True)
     p.add_argument('--macro-start',default='1996-01-01')
     p.add_argument('--financial-start',default='2016-01-01')
+    p.add_argument('--finalize-commit-sha256',default='')
+    p.add_argument('--finalize-catalog-sha256',default='')
+    p.add_argument('--source-head-sha',default='')
     args=p.parse_args()
+    finalizing=finalization_mode(args.finalize_commit_sha256,args.finalize_catalog_sha256,args.source_head_sha)
     reports=Path(args.report_dir); reports.mkdir(parents=True,exist_ok=True)
     # A separate local temp root avoids concurrent collection touching a previous
     # verified source bundle. Network destination is the configured research lane.
@@ -1016,6 +1133,8 @@ def main():
     transport.call('mkdir',transport.path(f'{PREFIX}/commits'))
     with _history_phase('INITIAL_RESTORE'):
         lake=Lake(transport,args.workspace)
+    if finalizing:
+        return finalize_existing(lake,args,reports)
     through=date.today().isoformat()
     config=dict(macro_start=args.macro_start,financial_start=args.financial_start,through=through,
         cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),countries=list(COUNTRIES),
@@ -1032,48 +1151,10 @@ def main():
     # Exercise the consumer with every macro dataset that passed. Full financial
     # SQL materialization is available on demand. Restore separately verifies
     # all retained pack dependencies, including financial and historical data.
-    keys=[k for k,d in lake.catalog['datasets'].items() if k.startswith(('current/','alfred/','worldbank/')) and d['status'] in ('COLLECTED','UNCHANGED')]
     with _history_phase('CLEAN_CONSUMER_RESTORE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256']):
         consumer=Lake(transport,Path(args.workspace)/'clean-consumer')
-    with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
-        consumer_rows=materialize(consumer,Path(args.workspace)/'macro.sqlite',keys,through)
-        phase_counts['rows']=consumer_rows
-    try:
-        with _history_phase('STUDY'):
-            study_result,context=analyze_restored(consumer,Path(args.workspace)/'study',args.macro_start,through)
-        context['catalog_sha256']=result['catalog_sha256']
-        with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
-            (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
-            (reports/'engine-context.json').write_bytes(encoded(context))
-        result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
-    except (Refused,TimeoutError,InterruptedError):
-        # Cancellation is not a partial study result and must not publish a receipt.
-        raise
-    except (ValueError,KeyError,TypeError,OSError) as exc:
-        result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
-    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
-    durable_reports={}
-    with _history_phase('REPORT_PUBLICATION') as phase_counts:
-        for path in sorted(reports.glob('*.json')):
-            raw=path.read_bytes(); sha=digest(raw)
-            require(len(raw)<=MAX_OBJECT,'report_size')
-            transport.write(f'{PREFIX}/reports/{sha}',raw)
-            durable_reports[path.name]=sha
-        phase_counts['reports']=len(durable_reports)
-    receipt=dict(schema='long-history-execution-v1',run_id=args.run_id,created_at=utc_now(),
-        catalog_sha256=result['catalog_sha256'],commit_sha256=result['commit_sha256'],
-        reports=durable_reports,consumer_rows=consumer_rows,
-        study_recomputed_from_drive=result['study_recomputed_from_drive'],
-        quality_status=report['status'],eligible_for_selector=False)
-    raw=encoded(receipt); receipt_sha=digest(raw)
-    with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
-        transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
-    result['execution_receipt_sha256']=receipt_sha
-    with _history_phase('LOCAL_PUBLICATION_WRITE'):
-        (reports/'publication.json').write_bytes(encoded(result))
-    print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
-    if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
-    return 0
+    return complete_consumer(consumer,result,reports,args.workspace,run_id=args.run_id,
+                             macro_start=args.macro_start,through=through,report=report)
 
 if __name__=='__main__':
     try: raise SystemExit(main())
