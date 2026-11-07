@@ -6,7 +6,7 @@ from datetime import timedelta
 import math
 
 from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, identifier,
-                        metadata, number, pinned, registry_rows, require, stamp, unique)
+                        load_json, metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
 from .decisions import COMPONENTS, classify, evaluation, event_memory, lookthrough, propose
 from .fundamentals import receipt_blockers
@@ -14,8 +14,85 @@ from .fundamentals import receipt_blockers
 
 def feature_identity(payload, registry):
     # Evaluator and risk pins bind exactly the same input snapshot without a cycle.
-    return digest({"registry":registry,"as_of":payload["as_of"],
-                   **{k:payload.get(k,[]) for k in ("prices","metrics","events","base_equity_ids","collection_receipts")}})
+    value={"registry":registry,"as_of":payload["as_of"],
+           **{k:payload.get(k,[]) for k in ("prices","metrics","events","base_equity_ids","collection_receipts")}}
+    if "requested_security_ids" in payload:
+        value["requested_security_ids"]=payload["requested_security_ids"]
+    return digest(value)
+
+
+def a3_evaluation_inputs(payload, assets, policy, cutoff, session, feature_hash,
+                         feature_time, artifact_resolver):
+    """Replay original A3 references, then validate original ER without repair."""
+    from research.a2_research_intake_v1 import MemoryArtifacts
+    from research.candidate_registry_v1 import build_reference_index, ReferenceIndexError
+    requested=payload.get("requested_security_ids")
+    entries=payload.get("a3_reference_entries",[])
+    require(type(requested) is list and 0<len(requested)<=1500,"a3_requested_universe")
+    for aid in requested: identifier(aid)
+    require(len(requested)==len(set(requested)),"a3_duplicate_requested_security")
+    require(type(entries) is list and len(entries)<=1000,"a3_reference_entries")
+    require(all(type(e) is dict and e.get("asset_id") in requested for e in entries),
+            "a3_unrequested_reference")
+    require(not entries or type(artifact_resolver) is MemoryArtifacts,"a3_memory_resolver_required")
+    memory=artifact_resolver if entries else MemoryArtifacts({})
+    try:
+        index=build_reference_index(entries,cutoff=cutoff,artifact_resolver=memory.read)
+    except ReferenceIndexError:
+        raise ContractError("a3_reference_set_refused") from None
+    by_asset={r["asset_id"]:r for r in index["records"]}
+    existing=unique(payload.get("evaluations",[]),"asset_id")
+    require(not set(existing).intersection(requested),"a3_duplicate_evaluation_input")
+    originals,coverage,markets=[],[],{}
+    for aid in requested:
+        record=dict(asset_id=aid,status="BLOCKED",blocker=None,original_er_ref=None,
+                    runtime_evaluation_admitted=False)
+        coverage.append(record)
+        reference=by_asset.get(aid)
+        if reference is not None:
+            record.update(consumption_blockers=list(reference["consumption_blockers"]),
+                review_authentication_status=reference["review_authentication_status"],
+                domain_admission_status=reference["domain_admission_status"])
+        if aid not in assets:
+            record["blocker"]="REGISTRY_ASSET_UNMAPPED"
+            continue
+        if reference is None:
+            record["blocker"]="MISSING_A3_REFERENCE"
+            continue
+        if reference["reference_status"]!="A3_REFERENCE_REPLAY_VERIFIED":
+            record.update(blocker="A3_REPLAY_BLOCKED",reference_blockers=reference["blockers"])
+            continue
+        ref=reference["validated_er_ref"]
+        record["original_er_ref"]=ref
+        if ref is None:
+            record["blocker"]="VALIDATED_ER_NOT_LINKED"
+            continue
+        try:
+            require(reference["declared_expiry_state"]=="UNEXPIRED","a3_reference_expired_or_unknown")
+            info=reference["metadata"]
+            require(info["market_session_date"]==session,"a3_market_session_mismatch")
+            original=load_json(memory.read(ref["artifact_id"],ref["sha256"]))
+            require(original.get("issuer_id")==reference["issuer_id"],"a3_er_issuer_identity")
+            require(original.get("thesis_status")==info["thesis_status"],"a3_er_thesis_mismatch")
+            require(info["currency"]==assets[aid]["currency"],"a3_market_currency_mismatch")
+            mref=reference["upstream_artifact_refs"]["market_valuation"]
+            market=load_json(memory.read(mref["artifact_id"],mref["sha256"]))
+            evaluation(original,assets[aid],cutoff,policy,feature_hash,feature_time)
+        except (ContractError,KeyError,ValueError) as exc:
+            record.update(blocker="ORIGINAL_ER_EVALUATION_CONTRACT_BLOCKED",contract_blocker=str(exc))
+            continue
+        # Preserve the complete original model/scenario/cost/clock object. Its
+        # independent policy digest is checked again by normal runtime admission.
+        originals.append(original)
+        markets[aid]=market
+        record["market_valuation_ref"]=mref
+        record["status"]="ORIGINAL_ER_CONTRACT_VERIFIED_RESEARCH_ONLY"
+        record["blocker"]="CURRENT_A3_REVIEW_ADMISSION_REQUIRED"
+    return originals,dict(requested_security_ids=list(requested),records=coverage,
+        requested_count=len(requested),original_er_verified_count=len(originals),
+        held_count=len(requested),reference_index_sha256=index["index_sha256"],
+        canonical_write_performed=False,source_admission_granted=False,
+        historical_pit_certified=False,portfolio_write_allowed=False),markets
 
 
 def feature_availability(payload):
@@ -62,7 +139,7 @@ def historical_readiness(payload):
             "net_cagr":None,"mdd":None,"fullrun_executed":False}
 
 
-def run(payload, registry, policy):
+def run(payload, registry, policy, *, artifact_resolver=None):
     require(payload.get("schema")=="multi-asset-input-v1","input_schema")
     require(policy.get("schema")=="multi-asset-policy-v1","policy_schema")
     require(policy.get("baseline_rs_weights")==BASE_RS_WEIGHTS,"unsupported_rs_baseline")
@@ -79,13 +156,27 @@ def run(payload, registry, policy):
         feature_time=None
     base_ids=payload.get("base_equity_ids",[])
     require(isinstance(base_ids,list) and len(base_ids)==len(set(base_ids)),"base_universe_identity")
+    a3_scope="requested_security_ids" in payload or "a3_reference_entries" in payload
+    if a3_scope:
+        requested=payload.get("requested_security_ids")
+        require(type(requested) is list and 0<len(requested)<=1500,"a3_requested_universe")
+        for aid in requested: identifier(aid)
+        require(len(requested)==len(set(requested)),"a3_duplicate_requested_security")
+    unresolved_base=[]
     for aid in base_ids:
-        require(aid in assets and assets[aid]["asset_class"] in {"US_EQUITY","COMMODITY_EQUITY","CRYPTO_EQUITY"},"missing_base_equity")
+        if a3_scope and aid not in assets:
+            identifier(aid)
+            unresolved_base.append(aid)
+        else:
+            require(aid in assets and assets[aid]["asset_class"] in {"US_EQUITY","COMMODITY_EQUITY","CRYPTO_EQUITY"},"missing_base_equity")
     base_pin=payload.get("base_universe_receipt")
     complete_base=False
     base_blockers=[]
     try:
         require(bool(base_ids) and base_pin is not None,"missing_base_universe")
+        require(not unresolved_base,"unmapped_base_equity")
+        if a3_scope:
+            require(set(payload.get("requested_security_ids",[]))==set(base_ids),"a3_requested_base_universe_mismatch")
         pinned(base_pin,policy,"base_universe",cutoff)
         require(base_pin.get("asset_ids")==sorted(base_ids) and base_pin.get("as_of")==as_of,"base_universe_receipt_mismatch")
         complete_base=True
@@ -95,7 +186,13 @@ def run(payload, registry, policy):
     for r in payload.get("prices",[]):
         require(r.get("asset_id") in assets,"unregistered_price_asset")
         groups[(r["asset_id"],r.get("clock"))].append(r)
+    a3_originals,a3_coverage,a3_markets=[],None,{}
+    if a3_scope:
+        a3_originals,a3_coverage,a3_markets=a3_evaluation_inputs(payload,assets,policy,cutoff,as_of,
+            identity,feature_time,artifact_resolver)
     by_eval=unique(payload.get("evaluations",[]),"asset_id")
+    a3_candidates={r["asset_id"]:r for r in a3_originals}
+    a3_records={r["asset_id"]:r for r in a3_coverage["records"]} if a3_coverage else {}
     require(set(by_eval)<=set(assets),"unknown_evaluation_asset")
     position_rows=payload.get("positions",[])
     require(not position_rows or payload.get("position_book_kind") in {"ACTUAL_BROKER","APPROVED_TARGET","PAPER"},"position_book_kind")
@@ -150,12 +247,29 @@ def run(payload, registry, policy):
         elif not row["blockers"]:
             row["blockers"].append(errors.get(aid,"benchmark_unavailable"))
         ev=None
-        if aid in by_eval:
+        if aid in by_eval or aid in a3_candidates:
             try:
                 require(row["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY","price_proxy_or_missing_cannot_admit_er")
                 require(not fundamental_collection_blocked,"fundamental_collection_incomplete")
                 require(all(metric["admission"]=="OBSERVED" for metric in metrics),"feature_metric_not_admitted")
-                ev=evaluation(by_eval[aid],a,cutoff,policy,identity,feature_time)
+                if aid in a3_markets:
+                    market=a3_markets[aid]
+                    require(market["return_basis"]==features["return_basis"],"a3_market_return_basis_mismatch")
+                    require(math.isclose(number(market["price"]),row["price"],rel_tol=1e-9,abs_tol=1e-9),
+                            "a3_market_price_mismatch")
+                    for h in HORIZONS:
+                        require(math.isclose(number(market[f"return_{h}d"]),features[f"ret{h}"],rel_tol=1e-9,abs_tol=1e-9)
+                                and math.isclose(number(market[f"rs_{h}d"]),features[f"RS{h}"],rel_tol=1e-9,abs_tol=1e-9),
+                                "a3_market_feature_mismatch")
+                checked=evaluation(a3_candidates[aid] if aid in a3_candidates else by_eval[aid],
+                                   a,cutoff,policy,identity,feature_time)
+                if aid in a3_candidates:
+                    a3_records[aid]["original_runtime_contract_verified"]=True
+                    # A reference index explicitly lacks current A0 selection,
+                    # independent review and domain admission. Preserve that
+                    # boundary even when the ER object has a reviewed model pin.
+                    raise ContractError("a3_current_reference_admission_required")
+                ev=checked
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
                 row.update({k:v for k,v in ev.items() if k in fields})
@@ -175,7 +289,8 @@ def run(payload, registry, policy):
     # Expected-return rank and discovery rank are separate columns.
     ranking=sorted([r for r in rows if "risk_adjusted_expected_alpha" in r and r["portfolio_status"] in {"CANDIDATE","HOLD","WATCH"}],
                    key=lambda r:(-r["risk_adjusted_expected_alpha"],r["asset_id"]))
-    global_ranking_ready=complete_base and bool(ranking) and all(
+    a3_complete=a3_coverage is None or a3_coverage["held_count"]==0
+    global_ranking_ready=complete_base and a3_complete and bool(ranking) and all(
         r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)
     if global_ranking_ready:
         for i,r in enumerate(ranking,1): r["rank"]=i
@@ -183,6 +298,7 @@ def run(payload, registry, policy):
     if payload.get("risk") is not None:
         try:
             require(complete_base,"incomplete_base_universe")
+            require(a3_complete,"incomplete_a3_reference_coverage")
             require(all(r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows if r["asset_id"] in base_ids),"incomplete_equity_comparison")
             require(global_ranking_ready,"incomplete_cross_asset_comparison")
             require(feature_time is not None and stamp(payload["risk"].get("observed_at"))>=stamp(feature_time),"risk_predates_feature_inputs")
@@ -287,6 +403,19 @@ def run(payload, registry, policy):
             "incremental_recompute_asset_ids":sorted({a for e in events for a in e["affected_asset_ids"]}),
             "historical_replay":historical_readiness(payload),"orders_generated":False,
             "accepted_target_written":False,"production_activation_allowed":False}
+    if a3_coverage is not None:
+        result["proposal_context"]=dict(mode="MODEL" if not positions else "ACCOUNT_RESEARCH_COMPARISON",
+            book_kind=payload.get("position_book_kind") if positions else None,
+            accepted_book_written=False,live_authority=False)
+        actual={r["asset_id"]:r for r in rows}
+        for record in a3_coverage["records"]:
+            row=actual.get(record["asset_id"],{})
+            record["runtime_evaluation_admitted"]="risk_adjusted_expected_alpha" in row
+            record["runtime_blockers"]=row.get("blockers",["REGISTRY_ASSET_UNMAPPED"])
+        result["a3_reference_coverage"]=a3_coverage
+        result["a3_model_input_candidates"]=a3_originals
+        if not a3_complete:
+            result["ranking_scope"]="INCOMPLETE_A3_REFERENCE_COVERAGE"
     result["status"]="PARTIAL_RESEARCH" if any(r["price"] is not None for r in rows) else "BLOCKED"
     result["result_sha256"]=digest(result)
     return result

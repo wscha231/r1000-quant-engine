@@ -9895,3 +9895,37 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   pin in the existing reuse catalog, preserve all runtime/safety pins, and test
   the full current REUSE_NOW inventory plus the original missing/changed-byte
   refusals. Focused feature tests alone do not check this shared dependency.
+
+### 2026-11-08 Original A3 ER to independent model inputs
+
+- A3's `validated_er` result is a horizon summary, not the original evaluator
+  object. Replay original packet/result references, resolve `validated_er_ref`
+  and preserve its full model/scenario/cost/clock object for separate policy
+  admission. A reference-only index never grants economic or A5 authority.
+- Keep the full requested security scope, including missing/unmapped rows, in
+  coverage and feature identity. Do not shrink it to registry intersections or
+  let an existing manual evaluation bypass a failed requested A3 reference.
+- A valid A3 snapshot can still disagree with current runtime prices/RS. Compare
+  actual session, price, return basis and horizons before using its ER. Negative
+  fixtures must remain internally consistent enough to reach this cross-edge
+  check; the original A3 RS formula and duplicate-input guards stay intact.
+- Reusing the A2 loader also adds its code and JSON-schema dependencies to the
+  executable closure. Cover that closure in source receipts and PR environments.
+  A code push must not implicitly collect providers; reuse the existing normal
+  daily-monitor or explicit manual capture path.
+- Independent draft review found a model ER pin cannot authenticate current A3
+  selection, thesis review or domain admission. Preserve the Registry's current
+  reference/independent-review blockers, expose original candidates separately,
+  and keep admitted ER/rank/proposal/last-success closed until that boundary is
+  actually connected. A caller boolean is not a substitute.
+- Tier-1's runner is a protected publication path with an exact 236-suite
+  fixture. Avoid changing that anchor for this adapter; extend the already
+  registered standalone multi-asset normal/-O matrix. Any later Tier-1 change
+  needs its own exact fixture and verifier-pin update, without weakening guards.
+- Native Windows validation exposed a source-closure path bug: Git object paths
+  use forward slashes, whereas `str(relative_path)` supplies backslashes. Use
+  `as_posix()` for exact Git blob lookups and receipt keys on every platform;
+  retain the byte-for-byte claimed-commit check. Preserve the failed receipt.
+- Reconcile accepted-master lesson additions by preserving both causal sections.
+  Windows Git capture needs explicit UTF-8 and per-command author identity for
+  merge preparation too; keep failed harness output and persistent settings intact.

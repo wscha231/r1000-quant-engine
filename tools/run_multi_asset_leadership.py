@@ -29,6 +29,26 @@ from research.multi_asset_v1.fundamentals import capture_fundamentals
 from tools.macro_history_sources import request_bytes, exclusive
 
 
+def a3_artifacts(payload, artifact_root):
+    """Load existing caller-held evidence through the bounded A2 file loader."""
+    from tools.run_a2_research_intake import Files
+    from research.a2_research_intake_v1 import MemoryArtifacts, IntakeError, MAX_ARTIFACTS
+    entries=payload.get("artifact_files",[])
+    require(type(entries) is list and len(entries)<=MAX_ARTIFACTS,"a3_artifact_files")
+    require(artifact_root is not None or not entries,"a3_artifact_root_required")
+    files=Files(artifact_root) if artifact_root is not None else None
+    values={}
+    try:
+        for row in entries:
+            require(type(row) is dict and set(row)=={"artifact_id","path","sha256"},"a3_artifact_file_fields")
+            aid=row["artifact_id"]
+            require(type(aid) is str and aid not in values,"a3_duplicate_artifact_id")
+            values[aid]=files.read({"path":row["path"],"sha256":row["sha256"]},"artifact",aid)
+        return MemoryArtifacts(values)
+    except IntakeError as exc:
+        raise ContractError("a3_artifact_input:"+str(exc)) from None
+
+
 def atomic(path, raw):
     require(not any(p.is_symlink() for p in (path,*path.parents)),"symlink_output")
     path.parent.mkdir(parents=True,exist_ok=True)
@@ -130,11 +150,13 @@ def verified_source_hashes(code_sha):
     require(isinstance(code_sha,str) and re.fullmatch(r"[a-f0-9]{40}",code_sha),"commit_identity_required")
     paths={*sorted((ROOT/"research/multi_asset_v1").glob("*.py")),ROOT/"tools/run_multi_asset_leadership.py",
            ROOT/"tools/macro_history_sources.py",ROOT/"research/theme_etf_runtime_v1/strict.py",
-           ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py"}
+           ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py",
+           ROOT/"tools/run_a2_research_intake.py",ROOT/"research/a2_research_intake_v1.py",
+           ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/candidate_registry_v1.py"}
     paths.update(p for p in (ROOT/"research/__init__.py",ROOT/"tools/__init__.py",ROOT/"research/theme_etf_runtime_v1/__init__.py") if p.exists())
     hashes={}
     for path in sorted(paths):
-        relative=str(path.relative_to(ROOT));raw=path.read_bytes()
+        relative=path.relative_to(ROOT).as_posix();raw=path.read_bytes()
         try:
             expected=subprocess.check_output(["git","show",code_sha+":"+relative],cwd=ROOT,stderr=subprocess.DEVNULL)
         except subprocess.CalledProcessError:
@@ -144,7 +166,8 @@ def verified_source_hashes(code_sha):
     return hashes
 
 
-def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None, configuration_sha256=None):
+def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None,
+            configuration_sha256=None, artifact_resolver=None):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
     atomic(out/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":attempt_id,"last_success_retained":True}))
@@ -152,7 +175,7 @@ def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha25
     target.mkdir(parents=True,exist_ok=False)
     try:
         source_hashes=verified_source_hashes(code_sha)
-        result=run(payload,registry,policy)
+        result=run(payload,registry,policy,artifact_resolver=artifact_resolver)
         result["code_sha"]=code_sha
         result["configuration_input_sha256"]=configuration_sha256
         require(verified_source_hashes(code_sha)==source_hashes,"source_changed_during_run")
@@ -205,6 +228,8 @@ def main():
     mode.add_argument("--input",type=Path)
     mode.add_argument("--capture",action="store_true")
     p.add_argument("--expected-input-sha256")
+    p.add_argument("--artifact-root",type=Path,
+                   help="Existing private A3 evidence tree for hash-pinned --input artifact_files; no collection")
     p.add_argument("--registry",type=Path,default=ROOT/"docs/multi_asset_registry_v1.json")
     p.add_argument("--policy",type=Path,default=ROOT/"docs/multi_asset_policy_v1.json")
     p.add_argument("--expected-registry-sha256")
@@ -221,6 +246,7 @@ def main():
         policy_raw=configuration_bytes(args.policy,args.expected_policy_sha256,"docs/multi_asset_policy_v1.json")
         registry=load_json(registry_raw)
         policy=load_json(policy_raw)
+        require(args.artifact_root is None or args.input is not None,"a3_artifacts_require_frozen_input")
         if args.input:
             raw=args.input.read_bytes()
             input_sha256=hashlib.sha256(raw).hexdigest()
@@ -232,8 +258,14 @@ def main():
             capture_dir.mkdir(parents=True,exist_ok=False)
             payload=capture(registry,capture_dir)
             input_sha256=hashlib.sha256((capture_dir/"input.json").read_bytes()).hexdigest()
+        resolver=None
+        if "requested_security_ids" in payload or "a3_reference_entries" in payload:
+            resolver=a3_artifacts(payload,args.artifact_root)
+        else:
+            require(args.artifact_root is None and "artifact_files" not in payload,"a3_artifacts_without_reference_scope")
         result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256,
-                       configuration_sha256={"registry":hashlib.sha256(registry_raw).hexdigest(),"policy":hashlib.sha256(policy_raw).hexdigest()})
+                       configuration_sha256={"registry":hashlib.sha256(registry_raw).hexdigest(),"policy":hashlib.sha256(policy_raw).hexdigest()},
+                       artifact_resolver=resolver)
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))
         return 0 if fully_admitted(result) else 2
     except Exception as exc:
