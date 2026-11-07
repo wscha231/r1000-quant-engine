@@ -9860,3 +9860,24 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Git commands. Preserve that failed log and pass safe.directory through the
   test process environment only; do not change persistent Git settings or
   product checks to repair the local validation harness.
+
+### 2026-11-08 Main cohort Reader consumption
+
+- Repeated one-security feature calls repeat generation validation and common
+  benchmark work. Use one invocation-local union component read per generation,
+  retain original per-security row hashes, and release decoded batches after
+  their last consumer. A cached transport alone is not a Reader consumer ACK.
+- Preserve the entire requested roster and explicit missing rows. One observed
+  technical feature is coverage, not ER eligibility or an investment score.
+  A later global hash/proof/resource failure must clear earlier cohort values.
+- The legacy transport read interface returns bytes before a caller can reject
+  their size. A strict cohort budget therefore needs a bounded-read transport;
+  use an exact local allowlist and pre-open size check rather than claiming a
+  post-read byte counter prevents I/O. Reader charge counters are not wire/RSS
+  measurements, and a failed operation may have unreturned decoded work.
+- Independent draft review found optional-benchmark identity conflicts outside
+  the global proof handler, post-read hash failures missing from byte counters,
+  and retained raw files omitted from resource charges. Treat proof conflicts
+  globally, meter reads in a finally block and reserve encoded plus decoded
+  work. A checkpoint reference without child-membership proof stays explicitly
+  unverified; it is not an accepted-cohort binding.

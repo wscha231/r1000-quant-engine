@@ -437,3 +437,69 @@ portfolio and order authority remain false. Code/CI tests use synthetic data
 and grant no actual Source preparation, publication, consumer call or current
 qualification. Both affected suites already run once through the registered
 `long_history_lake_smoke.load_tests`; do not add duplicate default entries.
+
+## Main technical feature cohort (2026-11-08)
+
+`research_feature_snapshots` in the existing OHLCV feature builder reuses
+`research_feature_snapshot` arithmetic and the public Reader component API for
+one explicitly requested cohort. It is a consumer adapter, without collection,
+portfolio, Registry, training or backtest authority. The single-security API
+keeps its existing signature. An identity/evidence content conflict is now a
+global proof-integrity failure even when discovered in an optional benchmark.
+
+The caller freezes the full list of security IDs, SPLIT_ADJUSTED generations,
+optional RAW companions, common completed NYSE session, decision cutoff and
+checkpoint reference. A missing generation is explicitly `None`; the requested
+security remains a BLOCKED row. A missing optional benchmark blocks its relative
+features without discarding the subject. Neither missing values nor losses are
+converted to zero, a rejection or a trading signal. Coverage counts requested,
+observed (at least one technical value), held and fully complete feature rows.
+These counts do not establish corporate research, ER or economic eligibility.
+
+Benchmark generations are explicit by label. Qualification inputs remain
+external `(expected_sha256, TrustedSourceBinding/TrustedCompositionBinding)`
+pairs for each referenced generation. A RAW companion must retain the subject's
+exact trust and source lineage. The checkpoint reference is recorded for the
+task as `source_checkpoint_reference_sha256`, with
+`checkpoint_binding_verified=false`; it is not proof of acceptance or child
+generation membership. A consumer requiring one accepted checkpoint must still
+verify its upstream exact child allowlist. All existing
+Source, identity, clock, basis and purpose checks still apply, including the
+current refusal of PIT_PROXY benchmarks for PIT-verified relative features.
+
+Each generation is read once using the union of requested instrument components
+and the same cutoff. Components are optional only to retain local missing-data
+rows; generation/proof/hash/resource errors block the entire cohort, including
+previously calculated values. Per-security row hashes and the real component
+batch receipts are returned. The invocation owns its cache and releases each
+decoded generation after its last consumer. There is no public prepared-cache
+input, persistent Reader cache or fake success receipt.
+
+An explicit limits mapping bounds encoded local reads, read attempts, cumulative
+Reader decoded bytes/rows/files, active Reader retained-byte charges plus its
+encoded files/cache, and elapsed time. Failed local hash reads retain their byte
+charges. Before decoding a generation the adapter reserves the Reader's existing
+256 MiB/one-million-row/256-file maximum, 128 MiB of encoded files and up to
+64 MiB of cache growth, so a smaller remaining allowance can
+stop before actual consumption reaches a nominal ceiling. Limits describe local
+Reader work, not network wire bytes or process RSS. A fatal Reader operation
+may not return decoded-work counters; counters describe completed batches only
+and must not be interpreted as a complete measurement of a failed operation.
+`decoded_counters_complete=false` marks that case. The cooperative deadline is
+checked between bounded operations; a caller needing a hard Native-process
+timeout must enforce its approved process budget as well.
+
+The transport must support bounded reads before I/O. `FrozenFeatureTransport`
+provides this for an already approved local private mirror and an explicit
+content-addressed path/byte-size allowlist. It checks size and remaining budget
+before opening, bounds the read, rejects path escapes and verifies the hash.
+It never creates a directory, downloads, updates Source or writes a restored
+object. The caller remains responsible for the approved mirror, rights and
+finite task budget. A plain unbounded transport is refused by this cohort API.
+
+The result is research context only. Source/PIT admission, selector/ranking,
+ER, portfolio and order authority remain false. A synthetic cohort test or a
+successful bytes read cannot certify a current Source generation, current A4
+regime, economically validated score or an independently approved A5 model.
+The registered technical-feature suite includes these regressions through its
+existing OHLCV wrapper; no duplicate PR validation entry is necessary.

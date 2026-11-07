@@ -10,10 +10,12 @@ policy.  Current observations are labelled for later forward resolution.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -764,6 +766,26 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                               raw_generation: str | None = None,
                               expected_qualification_sha256: str | None = None,
                               trusted_qualification_source=None) -> dict[str, Any]:
+    """Read one frozen security through the unchanged single-security contract."""
+    return _research_feature_snapshot(reader, generation, security_id=security_id,
+        session=session, as_of=as_of, benchmark_ids=benchmark_ids,
+        benchmark_generations=benchmark_generations,
+        benchmark_expected_qualification_sha256=benchmark_expected_qualification_sha256,
+        benchmark_trusted_qualification_sources=benchmark_trusted_qualification_sources,
+        raw_generation=raw_generation, expected_qualification_sha256=expected_qualification_sha256,
+        trusted_qualification_source=trusted_qualification_source)
+
+
+def _research_feature_snapshot(reader, generation: str, *, security_id: str,
+                              session: str, as_of: str,
+                              benchmark_ids: Mapping[str, str] | None = None,
+                              benchmark_generations: Mapping[str, str] | None = None,
+                              benchmark_expected_qualification_sha256: Mapping[str, str] | None = None,
+                              benchmark_trusted_qualification_sources: Mapping[str, Any] | None = None,
+                              raw_generation: str | None = None,
+                              expected_qualification_sha256: str | None = None,
+                              trusted_qualification_source=None,
+                              _cohort=None) -> dict[str, Any]:
     """One security/completed session, research only; no writes or collection.
 
     The Shared Reader authenticates frozen bytes, not Source/PIT admission.
@@ -828,6 +850,10 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
               "FEATURE_GENERATION_TRUST_CONFLICT")
         generation_trust[raw_generation] = subject_trust
         generation_ids.setdefault(raw_generation, set()).add(security_id)
+    if _cohort is not None:
+        check(all(_cohort.generation_trust[g] == pins
+                  for g, pins in generation_trust.items()), "FEATURE_GENERATION_TRUST_CONFLICT")
+        generation_ids = _cohort.generation_ids
     schedule = mcal.get_calendar("NYSE").schedule(start_date=session, end_date=session)
     check(len(schedule) == 1 and schedule["market_close"].iloc[0] <= decision,
           "FEATURE_SESSION_NOT_COMPLETED")
@@ -858,18 +884,19 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
         result["snapshot_sha256"] = digest(encoded(result))
         return result
 
-    # The cache is invocation-local: every snapshot revalidates its exact
-    # generation, clocks and rights through the public Source component API.
-    component_reads = {}
-    generation_qualifications = {}
+    # The public cohort owns this context. It cannot be supplied to the public
+    # single-security API. Cached batches always come from the real Reader.
+    component_reads = {} if _cohort is None else _cohort.component_reads
+    generation_qualifications = {} if _cohort is None else _cohort.qualifications
     global_refusals = []
-    session_closes = _SessionCloseMap(allow_batch=True)  # research-only snapshot
+    session_closes = (_SessionCloseMap(allow_batch=True) if _cohort is None
+                      else _cohort.session_closes)
 
     def generation_qualification(gen, manifest, spec, batch):
         # External generation provenance is global, including when every
         # requested optional component was absent. Do not defer it to a row.
         source = spec["source"]
-        expected, trust = generation_trust[gen]
+        expected, trust = (generation_trust if _cohort is None else _cohort.generation_trust)[gen]
         if gen in benchmark_gens.values() and gen != generation and source.get(
                 "provider_close_qualification_sha256") is not None:
             check(expected is not None, "QUALIFICATION_TRUST_REQUIRED")
@@ -896,6 +923,13 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
 
     def read_generation(gen, ids, required_ids):
         try:
+            if gen in component_reads:
+                return
+            if _cohort is not None:
+                _cohort.before_generation()
+                # Missing subjects stay visible as refused components. Invalid
+                # generation envelopes/proofs remain global, as in the Reader.
+                required_ids = set()
             manifest_raw = read_object(reader.transport, f"{PREFIX_V1}/generations/{gen}",
                                        gen, 1024 * 1024)
             manifest = decode(manifest_raw)
@@ -922,11 +956,15 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
             batch = reader.read_components("ds.us.prices.daily", gen,
                 decision_time=as_of, purpose="research", components=components,
                 consumer_id="ohlcv-technical-feature-h1")
+            if _cohort is not None:
+                _cohort.charge(gen, batch)
             generation_qualifications[gen] = generation_qualification(gen, manifest, spec, batch)
             component_reads[gen] = (manifest, spec, batch)
         except ContractError as exc:
             # Reader exceptions are global; only batch.refusals are local.
             global_refusals.append(str(exc))
+            if _cohort is not None:
+                _cohort.fatal = str(exc)
             raise
 
     def read_one(gen, iid):
@@ -968,16 +1006,18 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                 check(identity_sha in trust.proof_sha256,
                       "QUALIFICATION_REVIEW_BINDING")
                 qualified = True
+            for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
+                        "market", "mic", "calendar", "timezone", "currency"):
+                text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
+                check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
+            check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
         except ContractError as exc:
             # Consumer proof integrity is global even for an optional benchmark
             # or RAW companion. It is distinct from the role checks below.
             global_refusals.append(str(exc))
+            if _cohort is not None:
+                _cohort.fatal = str(exc)
             raise
-        for key in ("instrument_id", "provider_security_id", "ticker", "asset_class",
-                    "market", "mic", "calendar", "timezone", "currency"):
-            text(identity.get(key), "FEATURE_IDENTITY_UNKNOWN")
-            check(evidence.get(key) == identity[key], "FEATURE_IDENTITY_SOURCE_MISMATCH")
-        check(evidence.get("provider") == source["provider"], "FEATURE_IDENTITY_PROVIDER")
         check(identity["asset_class"] in {"EQUITY", "ETF", "INDEX"}, "FEATURE_SECURITY_TYPE")
         # These venues share the supported US regular-session grid. The
         # source record must bind the actual MIC; ticker never supplies it.
@@ -1225,6 +1265,306 @@ def research_feature_snapshot(reader, generation: str, *, security_id: str,
                                else "RESEARCH_FEATURES_PARTIAL")
     result["snapshot_sha256"] = digest(encoded(result))
     return result
+
+
+class FrozenFeatureTransport:
+    """Read an explicit local content-addressed allowlist, without network/writes.
+
+    The caller resolves the already approved private mirror and exact byte-size
+    inventory. This is an I/O boundary, never a Source/rights/trust verifier.
+    """
+    def __init__(self, root: Path, object_sizes: Mapping[str, int]):
+        from tools.research_data_access import PREFIX_V1, check
+        self.root = Path(root).resolve(strict=True)
+        check(self.root.is_dir(), "FEATURE_LOCAL_ROOT")
+        self.object_sizes = dict(object_sizes)
+        self.bytes_read = 0
+        for path, size in self.object_sizes.items():
+            check(type(path) is str and re.fullmatch(
+                re.escape(PREFIX_V1) + r"/(?:objects|generations)/[a-f0-9]{64}", path) is not None,
+                "FEATURE_LOCAL_ALLOWLIST")
+            check(type(size) is int and 0 < size <= 128 * 1024 * 1024,
+                  "FEATURE_LOCAL_ALLOWLIST")
+
+    def read_bounded(self, path: str, maximum_bytes: int) -> bytes:
+        from tools.research_data_access import check
+        check(path in self.object_sizes, "FEATURE_OBJECT_NOT_ALLOWLISTED")
+        expected = self.object_sizes[path]
+        check(expected <= maximum_bytes, "FEATURE_COHORT_ENCODED_LIMIT")
+        selected = (self.root / path).resolve(strict=True)
+        check(selected.is_relative_to(self.root), "FEATURE_LOCAL_PATH_ESCAPE")
+        with selected.open("rb") as stream:
+            check(os.fstat(stream.fileno()).st_size == expected, "FEATURE_LOCAL_SIZE")
+            raw = stream.read(expected)
+            self.bytes_read += len(raw)  # retain the charge even if hash/size fails.
+            check(os.fstat(stream.fileno()).st_size == expected, "FEATURE_LOCAL_SIZE")
+        check(len(raw) == expected, "FEATURE_LOCAL_SIZE")
+        check(hashlib.sha256(raw).hexdigest() == path.rsplit("/", 1)[-1], "HASH_MISMATCH")
+        return raw
+
+    def read(self, path: str) -> bytes:
+        return self.read_bounded(path, 128 * 1024 * 1024)
+
+
+class _FeatureCohortTransport:
+    def __init__(self, original, limits):
+        from tools.research_data_access import check
+        check(callable(getattr(original, "read_bounded", None)) and
+              type(getattr(original, "bytes_read", None)) is int and original.bytes_read >= 0,
+              "FEATURE_BOUNDED_TRANSPORT_REQUIRED")
+        self.original, self.limits = original, limits
+        self.cache, self.cache_bytes = {}, 0
+        self.encoded_bytes, self.read_calls, self.cache_hits = 0, 0, 0
+        self.started = time.monotonic()
+
+    def check_time(self):
+        from tools.research_data_access import check
+        check(time.monotonic() - self.started <= self.limits["elapsed_seconds"],
+              "FEATURE_COHORT_TIME_LIMIT")
+
+    def read(self, path):
+        from tools.research_data_access import check
+        self.check_time()
+        if path in self.cache:
+            self.cache_hits += 1
+            return self.cache[path]
+        check(self.read_calls < self.limits["read_calls"], "FEATURE_COHORT_READ_LIMIT")
+        remaining = self.limits["encoded_bytes"] - self.encoded_bytes
+        check(remaining > 0, "FEATURE_COHORT_ENCODED_LIMIT")
+        maximum_read = min(remaining, 1024**2 if "/generations/" in path else 128 * 1024**2)
+        self.read_calls += 1  # failed I/O also consumes an attempt.
+        before = self.original.bytes_read
+        try:
+            raw = self.original.read_bounded(path, maximum_read)
+        finally:
+            after = self.original.bytes_read
+            check(type(after) is int and 0 <= after - before <= remaining,
+                  "FEATURE_COHORT_TRANSPORT_ACCOUNTING")
+            self.encoded_bytes += after - before
+        check(type(raw) is bytes and len(raw) <= remaining, "FEATURE_COHORT_ENCODED_LIMIT")
+        check(after - before == len(raw), "FEATURE_COHORT_TRANSPORT_ACCOUNTING")
+        self.check_time()
+        cache_limit = min(self.limits["encoded_bytes"], 64 * 1024 * 1024)
+        if self.cache_bytes + len(raw) > cache_limit:
+            self.cache.clear()
+            self.cache_bytes = 0
+        if len(raw) <= cache_limit:
+            self.cache[path] = raw
+            self.cache_bytes += len(raw)
+        return raw
+
+
+class _FeatureCohort:
+    def __init__(self, transport, generation_ids, generation_trust):
+        from tools.research_data_access import _SessionCloseMap
+        self.transport = transport
+        self.generation_ids, self.generation_trust = generation_ids, generation_trust
+        self.component_reads, self.qualifications, self.charges = {}, {}, {}
+        self.receipts = {}
+        self.rows, self.decoded_bytes, self.files = 0, 0, 0
+        self.fatal = None
+        self.session_closes = _SessionCloseMap(allow_batch=True)
+
+    def before_generation(self):
+        from tools.research_data_access import (
+            check, MAX_GENERATION_DECOMPRESSED_BYTES, MAX_GENERATION_ROWS)
+        self.transport.check_time()
+        limits = self.transport.limits
+        # Reserve the Reader's existing worst-case single-batch allowance before
+        # decoding. Reader counters are charged once after successful validation.
+        check(self.decoded_bytes + MAX_GENERATION_DECOMPRESSED_BYTES <= limits["decoded_bytes"],
+              "FEATURE_COHORT_DECODED_LIMIT")
+        check(self.rows + MAX_GENERATION_ROWS <= limits["rows"], "FEATURE_COHORT_ROW_LIMIT")
+        check(self.files + 256 <= limits["files"], "FEATURE_COHORT_FILE_LIMIT")
+        check(sum(self.charges.values()) + self.transport.cache_bytes +
+              MAX_GENERATION_DECOMPRESSED_BYTES + 128 * 1024**2 + 64 * 1024**2 <= limits["retained_bytes"],
+              "FEATURE_COHORT_RETAINED_LIMIT")
+
+    def charge(self, generation, batch):
+        from tools.research_data_access import check
+        receipt = batch.receipt
+        charge = receipt["decoded_retained_bytes_charged"]
+        self.rows += receipt["decoded_rows_charged"]
+        self.decoded_bytes += charge
+        self.files += len(receipt["declared_file_sha256"])
+        # ReadResult.files retains encoded bytes even after transport eviction.
+        # Count unique files within this batch and conservatively count shared
+        # bytes again across live batches and the bounded transport cache.
+        file_bytes = {h: len(raw) for result in batch.results.values() for h, raw in result.files}
+        self.charges[generation] = charge + sum(file_bytes.values())
+        self.receipts[generation] = json.loads(batch.receipt_bytes)
+        limits = self.transport.limits
+        for value, key, code in ((self.rows, "rows", "ROW"),
+                (self.decoded_bytes, "decoded_bytes", "DECODED"), (self.files, "files", "FILE"),
+                (sum(self.charges.values()) + self.transport.cache_bytes, "retained_bytes", "RETAINED")):
+            check(value <= limits[key], f"FEATURE_COHORT_{code}_LIMIT")
+
+    def release(self, generation):
+        self.component_reads.pop(generation, None)
+        self.qualifications.pop(generation, None)
+        self.charges.pop(generation, None)
+
+
+def research_feature_snapshots(reader, requests, *, session: str, as_of: str,
+                               source_checkpoint_sha256: str, limits: Mapping[str, int],
+                               generation_bindings: Mapping[str, tuple] | None = None,
+                               benchmark_ids: Mapping[str, str] | None = None,
+                               benchmark_generations: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """One frozen cohort, one public component read per generation, full roster.
+
+    requests contain security_id, generation (None for unavailable data), and
+    optional raw_generation. Bindings are externally verified (qualification
+    digest, typed Source trust) pairs, never derived from incoming manifests.
+    Limits are explicit approved-packet ceilings, not authority to expand them.
+    The checkpoint is a task reference; it does not confer Source admission.
+    """
+    started = time.monotonic()
+    from tools.research_data_access import ContractError, ResearchDataReader, check, sha, day, clock
+    from tools.prepare_a1_reader_generation import TrustedSourceBinding, TrustedCompositionBinding
+    from tools.macro_history_sources import digest, encoded
+    check(type(reader) is ResearchDataReader, "FEATURE_READER_REQUIRED")
+    check(type(requests) in (list, tuple) and 0 < len(requests) <= 1024,
+          "FEATURE_COHORT_REQUESTS")
+    sha(source_checkpoint_sha256)
+    day(session)
+    decision = clock(as_of)
+    check(decision <= current_utc().to_pydatetime(), "FEATURE_FUTURE_AS_OF")
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=session, end_date=session)
+    check(len(schedule) == 1 and schedule["market_close"].iloc[0] <= decision,
+          "FEATURE_SESSION_NOT_COMPLETED")
+    ceiling = dict(encoded_bytes=1024**3, decoded_bytes=4 * 1024**3, rows=12_000_000,
+                   files=4096, read_calls=32768, elapsed_seconds=1800, retained_bytes=512 * 1024**2)
+    check(isinstance(limits, Mapping) and set(limits) == set(ceiling) and
+          all(type(limits[k]) is int and 0 < limits[k] <= ceiling[k] for k in ceiling),
+          "FEATURE_COHORT_LIMITS")
+    frozen_limits = dict(limits)
+    check(benchmark_ids is None or isinstance(benchmark_ids, Mapping), "FEATURE_BENCHMARK_REFS")
+    refs = dict(benchmark_ids or {})
+    check(set(refs) <= {"SPY", "NASDAQ_COMPOSITE"} and
+          all(type(v) is str and v for v in refs.values()), "FEATURE_BENCHMARK_REFS")
+    check(benchmark_generations is None or isinstance(benchmark_generations, Mapping),
+          "FEATURE_BENCHMARK_GENERATIONS")
+    benchmarks = dict(benchmark_generations or {})
+    check(set(benchmarks) == set(refs), "FEATURE_BENCHMARK_GENERATIONS")
+    ids, normalized, seen = {}, [], set()
+    for label, iid in refs.items():
+        sha(benchmarks[label])
+        ids.setdefault(benchmarks[label], set()).add(iid)
+    roles = []
+    for item in requests:
+        check(type(item) is dict and set(item) <= {"security_id", "generation", "raw_generation"},
+              "FEATURE_COHORT_REQUESTS")
+        iid, gen, raw = item.get("security_id"), item.get("generation"), item.get("raw_generation")
+        check(type(iid) is str and iid and iid not in seen, "FEATURE_COHORT_DUPLICATE_SECURITY")
+        seen.add(iid)
+        check(gen is not None or raw is None, "FEATURE_COHORT_REQUESTS")
+        used = set(benchmarks.values()) if gen is not None else set()
+        for value in (gen, raw):
+            if value is not None:
+                sha(value)
+                ids.setdefault(value, set()).add(iid)
+                used.add(value)
+        roles.append(used)
+        normalized.append(dict(security_id=iid, generation=gen, raw_generation=raw))
+    check(all(len(v) <= 256 for v in ids.values()), "FEATURE_COHORT_GENERATION_COMPONENT_LIMIT")
+    check(generation_bindings is None or isinstance(generation_bindings, Mapping),
+          "FEATURE_COHORT_BINDINGS")
+    bindings = dict(generation_bindings or {})
+    check(set(bindings) <= set(ids), "FEATURE_COHORT_BINDINGS")
+    for gen, pair in bindings.items():
+        sha(gen)
+        check(type(pair) is tuple and len(pair) == 2 and pair[0] is not None,
+              "FEATURE_COHORT_BINDINGS")
+        sha(pair[0])
+        check(type(pair[1]) in (TrustedSourceBinding, TrustedCompositionBinding),
+              "QUALIFICATION_TRUST_REQUIRED")
+    trust = {g: bindings.get(g, (None, None)) for g in ids}
+    for row in normalized:
+        if row["raw_generation"] is not None:
+            check(trust[row["generation"]] == trust[row["raw_generation"]],
+                  "FEATURE_GENERATION_TRUST_CONFLICT")
+    transport = _FeatureCohortTransport(reader.transport, frozen_limits)
+    transport.started = started
+    cohort = _FeatureCohort(transport, ids, trust)
+    # Preserve the actual Reader implementation and validated registry. Only
+    # its I/O is bounded/cached for this invocation; the caller is unchanged.
+    bounded_reader = copy.copy(reader)
+    bounded_reader.transport = transport
+    snapshots, remaining = [], {g: sum(g in used for used in roles) for g in ids}
+
+    def blocked(iid, gen, code):
+        return dict(security_id=iid, source_generation=gen, session=session, as_of=as_of,
+            feature_state="BLOCKED_RESEARCH_FEATURES", features={k: None for k in TECH_FEATURE_NAMES},
+            feature_status={k: "BLOCKED" for k in TECH_FEATURE_NAMES},
+            blocker={k: code for k in TECH_FEATURE_NAMES},
+            coverage=dict(features_ready=0, features_total=len(TECH_FEATURE_NAMES)),
+            research_only=True, source_admitted=False, historical_pit_certified=False,
+            eligible_for_selector=False, ranking_allowed=False, ER_allowed=False,
+            portfolio_allowed=False, orders_generated=False)
+
+    try:
+        for row, used in zip(normalized, roles):
+            try:
+                transport.check_time()
+            except ContractError as exc:
+                cohort.fatal = str(exc)
+            gen, iid = row["generation"], row["security_id"]
+            if cohort.fatal or gen is None:
+                snapshot = blocked(iid, gen, cohort.fatal or "SOURCE_GENERATION_UNAVAILABLE")
+            else:
+                qsha, binding = trust[gen]
+                snapshot = _research_feature_snapshot(bounded_reader, gen, security_id=iid,
+                    session=session, as_of=as_of, raw_generation=row["raw_generation"],
+                    expected_qualification_sha256=qsha, trusted_qualification_source=binding,
+                    benchmark_ids=refs, benchmark_generations=benchmarks,
+                    benchmark_expected_qualification_sha256={k: trust[g][0] for k, g in benchmarks.items()
+                                                            if trust[g][0] is not None},
+                    benchmark_trusted_qualification_sources={k: trust[g][1] for k, g in benchmarks.items()
+                                                            if trust[g][0] is not None}, _cohort=cohort)
+            snapshots.append(snapshot)
+            for gen_used in used:
+                remaining[gen_used] -= 1
+                if remaining[gen_used] == 0:
+                    cohort.release(gen_used)
+        try:
+            transport.check_time()
+        except ContractError as exc:
+            cohort.fatal = str(exc)
+        if cohort.fatal:
+            snapshots = [blocked(r["security_id"], r["generation"], cohort.fatal) for r in normalized]
+        for snapshot in snapshots:
+            snapshot.pop("snapshot_sha256", None)
+            snapshot["snapshot_sha256"] = digest(encoded(snapshot))
+        observed = sum(s["coverage"]["features_ready"] > 0 for s in snapshots)
+        complete = sum(s["feature_state"] == "RESEARCH_FEATURES_COMPLETE" for s in snapshots)
+        result = dict(schema="run287-ohlcv-research-feature-cohort-h1-v1",
+            status="BLOCKED" if cohort.fatal else "RESEARCH_CONTEXT_COMPLETE" if complete == len(normalized)
+                   else "RESEARCH_CONTEXT_PARTIAL", session=session, as_of=as_of,
+            source_checkpoint_reference_sha256=source_checkpoint_sha256,
+            checkpoint_binding_verified=False,
+            request_sha256=digest(encoded(dict(requests=normalized, session=session, as_of=as_of,
+                benchmark_ids=refs, benchmark_generations=benchmarks,
+                generation_bindings={g: dict(qualification_sha256=trust[g][0],
+                    review_receipt_sha256=getattr(trust[g][1], "review_receipt_sha256", None),
+                    trust_type=type(trust[g][1]).__name__) for g in sorted(trust)}))),
+            requested_security_ids=[r["security_id"] for r in normalized], snapshots=snapshots,
+            coverage=dict(requested=len(normalized), observed=observed, held=len(normalized)-observed,
+                          complete=complete),
+            blocker=cohort.fatal, generation_receipts=cohort.receipts,
+            budget=dict(limits=frozen_limits, encoded_bytes=transport.encoded_bytes,
+                read_calls=transport.read_calls, cache_hits=transport.cache_hits,
+                decoded_bytes=cohort.decoded_bytes, decoded_rows=cohort.rows, files=cohort.files,
+                decoded_counters_complete=cohort.fatal is None,
+                measurement="LOCAL_READER_WORK_NOT_NETWORK_WIRE_OR_PROCESS_RSS"),
+            research_only=True, source_admitted=False, historical_pit_certified=False,
+            eligible_for_selector=False, ranking_allowed=False, ER_allowed=False,
+            portfolio_allowed=False, orders_generated=False, provider_refresh_count=0)
+        result["cohort_sha256"] = digest(encoded(result))
+        return result
+    finally:
+        cohort.component_reads.clear()
+        cohort.qualifications.clear()
+        transport.cache.clear()
 
 
 def vix_context(macro: pd.DataFrame, asof: pd.Timestamp) -> dict[str, Any]:

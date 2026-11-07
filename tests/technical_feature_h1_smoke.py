@@ -39,6 +39,7 @@ IDS = {'TEST': 'FIXTURE:US:TEST', 'SPY': 'FIXTURE:US:SPY', '^IXIC': 'FIXTURE:US:
 class MemoryTransport:
     def __init__(self):
         self.objects = {}
+        self.bytes_read = 0
 
     def read(self, path):
         if path not in self.objects:
@@ -47,6 +48,12 @@ class MemoryTransport:
 
     def write(self, *_args):
         raise AssertionError('SOURCE_WRITE_NOT_ALLOWED')
+
+    def read_bounded(self, path, maximum_bytes):
+        raw = self.read(path)
+        access.check(len(raw) <= maximum_bytes, 'FEATURE_COHORT_ENCODED_LIMIT')
+        self.bytes_read += len(raw)
+        return raw
 
 
 class FeatureTests(unittest.TestCase):
@@ -1179,11 +1186,252 @@ class CalendarBatchFeatureTests(unittest.TestCase):
                 self.compare(options={'session': session, 'as_of': cutoff})
 
 
+class CohortFeatureTests(unittest.TestCase):
+    """Synthetic inputs, real public Reader, no network or economic claims."""
+    def setUp(self):
+        self.network = patch.object(socket.socket, 'connect',
+            side_effect=AssertionError('NETWORK_NOT_ALLOWED'))
+        self.network.start()
+        self.addCleanup(self.network.stop)
+        self.calendar = patch.object(access, '_session_close',
+            lru_cache(maxsize=2048)(access._session_close))
+        self.calendar.start()
+        self.addCleanup(self.calendar.stop)
+        with patch(__name__+'.DAYS', DAYS[-21:]):
+            self.case = FeatureTests('runTest')
+            self.case.setUp()
+        self.limits = dict(encoded_bytes=8*1024**2, decoded_bytes=512*1024**2,
+            rows=2_000_000, files=1024, read_calls=128, elapsed_seconds=60,
+            retained_bytes=512*1024**2)
+
+    def store(self, manifest):
+        raw = encoded(manifest); generation = digest(raw)
+        self.case.transport.objects[f'{access.PREFIX_V1}/generations/{generation}'] = raw
+        return generation
+
+    def raw(self, manifest=None):
+        raw = copy.deepcopy(manifest or self.case.manifest)
+        for item in raw['datasets'][0]['files']:
+            item['instrument'].update(adjustment_basis='RAW', volume_basis='RAW')
+        return self.store(raw)
+
+    def call(self, requests=None, **kwargs):
+        gen = self.case.generation()
+        arguments = dict(session=SESSION, as_of=ASOF, source_checkpoint_sha256='c'*64,
+            limits=self.limits, benchmark_ids={'SPY': IDS['SPY']},
+            benchmark_generations={'SPY': gen})
+        arguments.update(kwargs)
+        if requests is None:
+            requests = [dict(security_id=IDS[t], generation=gen, raw_generation=self.raw())
+                        for t in ('TEST', 'SPY')]
+        return target.research_feature_snapshots(self.case.reader, requests, **arguments)
+
+    def test_real_component_batches_once_with_same_bytes_and_no_persistent_cache(self):
+        single = self.case.call(benchmark_ids={'SPY': IDS['SPY']})
+        original = access.ResearchDataReader.read_components
+        with patch.object(access.ResearchDataReader, 'read_components', autospec=True,
+                          side_effect=original) as calls:
+            result = self.call()
+        self.assertEqual(calls.call_count, 2)
+        self.assertEqual(result['coverage'], dict(requested=2, observed=2, held=0, complete=0))
+        self.assertEqual(result['snapshots'][0]['features'], single['features'])
+        refs = [s['source_ref'] for s in result['snapshots']]
+        self.assertEqual(refs[0]['component_batch_receipt_sha256'], refs[1]['component_batch_receipt_sha256'])
+        self.assertEqual(refs[0]['row_set_sha256'], single['source_ref']['row_set_sha256'])
+        for call in calls.call_args_list:
+            self.assertEqual(call.kwargs['decision_time'], ASOF)
+            self.assertEqual(call.kwargs['purpose'], 'research')
+            self.assertEqual(len(call.kwargs['components']), 2)
+            self.assertTrue(all(c['optional'] for c in call.kwargs['components']))
+        self.assertIs(self.case.reader.transport, self.case.transport)
+        self.assertEqual(result, self.call())
+        self.assertFalse(result['source_admitted'])
+        self.assertFalse(result['historical_pit_certified'])
+        self.assertFalse(result['ER_allowed'])
+        self.assertFalse(result['portfolio_allowed'])
+        self.assertEqual(result['provider_refresh_count'], 0)
+
+    def test_missing_unbound_and_optional_benchmark_preserve_denominator(self):
+        gen = self.case.generation()
+        missing = 'FIXTURE:US:UNAVAILABLE'
+        requests = [dict(security_id=IDS['TEST'], generation=gen, raw_generation=self.raw()),
+                    dict(security_id=missing, generation=None),
+                    dict(security_id='FIXTURE:US:MISSING_COMPONENT', generation=gen)]
+        result = self.call(requests, benchmark_ids={'SPY': missing})
+        self.assertEqual(result['requested_security_ids'], [r['security_id'] for r in requests])
+        self.assertEqual(result['coverage']['requested'], 3)
+        self.assertEqual(result['coverage']['observed'], 1)
+        self.assertEqual(result['coverage']['held'], 2)
+        first, unbound, absent = result['snapshots']
+        self.assertIsNotNone(first['features']['ret_5s'])
+        self.assertIsNone(first['features']['rs_log_spy_5s'])
+        self.assertEqual(first['blocker']['rs_log_spy_5s'], 'MISSING_INSTRUMENT')
+        self.assertTrue(all(v is None for v in unbound['features'].values()))
+        self.assertEqual(set(unbound['blocker'].values()), {'SOURCE_GENERATION_UNAVAILABLE'})
+        self.assertEqual(set(absent['blocker'].values()), {'MISSING_INSTRUMENT'})
+
+    def test_distinct_children_share_benchmark_and_release_reader_batches(self):
+        first = copy.deepcopy(self.case.manifest)
+        first['datasets'][0]['files'] = [f for f in first['datasets'][0]['files']
+                                       if f['instrument']['instrument_id'] == IDS['TEST']]
+        second = copy.deepcopy(self.case.manifest)
+        second['datasets'][0]['files'] = [f for f in second['datasets'][0]['files']
+                                        if f['instrument']['instrument_id'] == IDS['SPY']]
+        ga, gb = self.store(first), self.store(second)
+        requests = [dict(security_id=IDS['TEST'], generation=ga, raw_generation=self.raw(first)),
+                    dict(security_id=IDS['SPY'], generation=gb, raw_generation=self.raw(second))]
+        original = access.ResearchDataReader.read_components
+        with patch.object(access.ResearchDataReader, 'read_components', autospec=True,
+                          side_effect=original) as calls:
+            result = self.call(requests, benchmark_generations={'SPY': gb})
+        self.assertEqual(calls.call_count, 4)
+        self.assertEqual(result['coverage']['observed'], 2)
+        self.assertEqual(len(result['generation_receipts']), 4)
+        self.assertEqual(result['snapshots'][0]['benchmark_ref']['SPY']['generation'], gb)
+        self.assertEqual(result['snapshots'][1]['source_ref']['generation'], gb)
+
+    def test_late_global_hash_failure_clears_earlier_success(self):
+        first = copy.deepcopy(self.case.manifest)
+        first['datasets'][0]['files'] = [f for f in first['datasets'][0]['files']
+                                       if f['instrument']['instrument_id'] == IDS['TEST']]
+        second = copy.deepcopy(self.case.manifest)
+        second['datasets'][0]['files'] = [f for f in second['datasets'][0]['files']
+                                        if f['instrument']['instrument_id'] == IDS['SPY']]
+        gb = self.store(second)
+        bad = second['datasets'][0]['files'][0]['sha256']
+        self.case.transport.objects[f'{access.PREFIX_V1}/objects/{bad}'] += b' '
+        result = self.call([dict(security_id=IDS['TEST'], generation=self.store(first)),
+                            dict(security_id=IDS['SPY'], generation=gb)],
+                           benchmark_ids={}, benchmark_generations={})
+        self.assertEqual(result['status'], 'BLOCKED')
+        self.assertEqual(result['blocker'], 'HASH_MISMATCH')
+        self.assertEqual(result['coverage']['observed'], 0)
+        self.assertTrue(all(all(v is None for v in s['features'].values()) for s in result['snapshots']))
+
+    def test_benchmark_identity_proof_conflict_is_global_not_missing_data(self):
+        self.case.identity(IDS['SPY'])['provider_security_id'] = 'CONFLICTING_PROVIDER_ID'
+        result = self.call()
+        self.assertEqual(result['status'], 'BLOCKED')
+        self.assertEqual(result['blocker'], 'FEATURE_IDENTITY_SOURCE_MISMATCH')
+        self.assertEqual(result['coverage']['observed'], 0)
+        self.assertFalse(result['checkpoint_binding_verified'])
+        self.assertFalse(result['budget']['decoded_counters_complete'])
+
+    def test_failed_local_hash_read_is_still_metered(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            raw = b'synthetic failed read'
+            path = f'{access.PREFIX_V1}/objects/{digest(raw)}'
+            destination = root/path
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(raw[:-1]+b'!')
+            local = target.FrozenFeatureTransport(root, {path: len(raw)})
+            transport = target._FeatureCohortTransport(local, self.limits)
+            with self.assertRaisesRegex(access.ContractError, '^HASH_MISMATCH$'):
+                transport.read(path)
+            self.assertEqual(transport.encoded_bytes, len(raw))
+            self.assertEqual(transport.read_calls, 1)
+
+    def test_retained_charge_includes_read_result_files_and_cache_growth_reserve(self):
+        gen = self.case.generation()
+        transport = target._FeatureCohortTransport(self.case.transport, self.limits)
+        cohort = target._FeatureCohort(transport, {}, {})
+        batch = self.case.reader.read_components('ds.us.prices.daily', gen,
+            decision_time=ASOF, purpose='research',
+            components=[dict(component_id=IDS['TEST'], instrument_id=IDS['TEST'],
+                required_start=DAYS[-21], required_end=SESSION, optional=True)],
+            consumer_id='ohlcv-technical-feature-h1')
+        cohort.charge(gen, batch)
+        encoded_files = sum(len(raw) for _, raw in batch.results[IDS['TEST']].files)
+        self.assertEqual(cohort.charges[gen], batch.receipt['decoded_retained_bytes_charged']+encoded_files)
+        transport.limits = dict(self.limits, retained_bytes=448*1024**2)
+        with self.assertRaisesRegex(access.ContractError, '^FEATURE_COHORT_RETAINED_LIMIT$'):
+            cohort.before_generation()
+        cohort.release(gen)
+        cohort.before_generation()
+
+    def test_invalid_scope_stops_before_any_read(self):
+        gen = self.case.generation()
+        normal = [dict(security_id=IDS['TEST'], generation=gen)]
+        invalid = [(normal*2, {}, 'FEATURE_COHORT_DUPLICATE_SECURITY'),
+            (normal, {'as_of': SESSION+'T19:59:59Z'}, 'FEATURE_SESSION_NOT_COMPLETED'),
+            (normal, {'session': '2026-07-04'}, 'FEATURE_SESSION_NOT_COMPLETED'),
+            (normal, {'source_checkpoint_sha256': 'x'*64}, 'INVALID_SHA256'),
+            (normal, {'generation_bindings': {'f'*64: ('e'*64, {})}}, 'FEATURE_COHORT_BINDINGS'),
+            (normal, {'generation_bindings': {gen: ('e'*64, {})}}, 'QUALIFICATION_TRUST_REQUIRED'),
+            (normal, {'limits': dict(self.limits, read_calls=True)}, 'FEATURE_COHORT_LIMITS')]
+        with patch.object(self.case.transport, 'read', side_effect=AssertionError('UNEXPECTED_IO')):
+            for requests, options, code in invalid:
+                with self.subTest(code=code), self.assertRaisesRegex(access.ContractError, '^'+code+'$'):
+                    self.call(requests, **options)
+
+    def test_cumulative_limits_block_without_silently_returning_partial_success(self):
+        for limits, reason in [(dict(self.limits, encoded_bytes=10), 'ENCODED'),
+                               (dict(self.limits, read_calls=1), 'READ'),
+                               (dict(self.limits, decoded_bytes=1), 'DECODED'),
+                               (dict(self.limits, rows=1), 'ROW'),
+                               (dict(self.limits, files=1), 'FILE'),
+                               (dict(self.limits, retained_bytes=1), 'RETAINED')]:
+            with self.subTest(reason=reason):
+                result = self.call(limits=limits)
+                self.assertEqual(result['status'], 'BLOCKED')
+                self.assertEqual(result['blocker'], 'FEATURE_COHORT_'+reason+'_LIMIT')
+                self.assertEqual(result['coverage']['observed'], 0)
+
+    def test_later_batch_is_charged_against_cumulative_rows_and_deadline(self):
+        result = self.call(limits=dict(self.limits, rows=1_000_000))
+        self.assertEqual(result['blocker'], 'FEATURE_COHORT_ROW_LIMIT')
+        self.assertGreater(result['budget']['decoded_rows'], 0)
+        self.assertEqual(result['coverage']['observed'], 0)
+        ticks = [0]
+        def monotonic():
+            ticks[0] += 61
+            return ticks[0]
+        with patch.object(target.time, 'monotonic', side_effect=monotonic), \
+                patch.object(self.case.transport, 'read', side_effect=AssertionError('EXPIRED_IO')):
+            result = self.call()
+        self.assertEqual(result['blocker'], 'FEATURE_COHORT_TIME_LIMIT')
+        self.assertEqual(result['budget']['read_calls'], 0)
+
+    def test_bounded_transport_required_and_internal_context_not_public(self):
+        with patch.object(self.case.transport, 'read_bounded', None), self.assertRaisesRegex(
+                access.ContractError, '^FEATURE_BOUNDED_TRANSPORT_REQUIRED$'):
+            self.call()
+        with self.assertRaises(TypeError):
+            target.research_feature_snapshot(self.case.reader, self.case.generation(),
+                security_id=IDS['TEST'], session=SESSION, as_of=ASOF, _cohort={})
+
+    def test_local_allowlist_size_hash_and_path_are_checked_before_returning_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            raw = b'private synthetic bytes'
+            path = f'{access.PREFIX_V1}/objects/{digest(raw)}'
+            destination = root/path
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(raw)
+            transport = target.FrozenFeatureTransport(root, {path: len(raw)})
+            self.assertEqual(transport.read_bounded(path, len(raw)), raw)
+            with patch.object(Path, 'open', side_effect=AssertionError('OPEN_BEFORE_LIMIT')):
+                with self.assertRaisesRegex(access.ContractError, '^FEATURE_COHORT_ENCODED_LIMIT$'):
+                    transport.read_bounded(path, len(raw)-1)
+                with self.assertRaisesRegex(access.ContractError, '^FEATURE_OBJECT_NOT_ALLOWLISTED$'):
+                    transport.read_bounded(path+'x', len(raw))
+            destination.write_bytes(raw+b'!')
+            with self.assertRaisesRegex(access.ContractError, '^FEATURE_LOCAL_SIZE$'):
+                transport.read_bounded(path, 100)
+            destination.write_bytes(raw[:-1]+b'!')
+            with self.assertRaisesRegex(access.ContractError, '^HASH_MISMATCH$'):
+                transport.read_bounded(path, 100)
+            with self.assertRaisesRegex(access.ContractError, '^FEATURE_LOCAL_ALLOWLIST$'):
+                target.FrozenFeatureTransport(root, {'../outside': 1})
+
+
 def run_contract_suite():
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(FeatureTests)
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(BenchmarkGenerationTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CompositionFeatureTests))
     suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CalendarBatchFeatureTests))
+    suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(CohortFeatureTests))
     outcome=unittest.TextTestRunner(verbosity=1).run(suite)
     if not outcome.wasSuccessful():raise RuntimeError('TECHNICAL_FEATURE_H1_CONTRACT_FAILED')
 
