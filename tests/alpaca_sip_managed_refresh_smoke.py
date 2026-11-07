@@ -55,12 +55,15 @@ class Reply:
 class Opener:
     def __init__(self):
         self.urls = []
+        self.asset_ids = {}
 
     def open(self, request, **_):
         self.urls.append(request.full_url)
         url = urlsplit(request.full_url)
         if "/assets/" in url.path:
-            return Reply(runtime.encoded(asset(url.path.rsplit("/", 1)[1])))
+            record = asset(url.path.rsplit("/", 1)[1])
+            record["id"] = self.asset_ids.get(record["symbol"], record["id"])
+            return Reply(runtime.encoded(record))
         query = parse_qs(url.query)
         end = (date.fromisoformat(query["end"][0][:10]) + timedelta(days=1)).isoformat()
         days = sorted(runtime.expected_sessions(query["start"][0][:10], end))
@@ -142,7 +145,8 @@ class ComponentHoldTests(unittest.TestCase):
         self.identities = {t: self.drive.seed(self.control["evidence_folder_id"], runtime.encoded(asset(t)))
                            for t in self.control["authorized_tickers"]}
 
-    def baseline(self, dates, *, split=None, start="2026-10-21", end="2026-10-24"):
+    def baseline(self, dates, *, split=None, start="2026-10-21", end="2026-10-24",
+                 scope=None, evidence=None):
         """Construct original response pages and matching normalized bytes."""
         names, members, pages, normalized = sorted(dates), {}, [], []
         for basis, grid in (("raw", dates), ("split", split if split is not None else dates)):
@@ -161,6 +165,8 @@ class ComponentHoldTests(unittest.TestCase):
             source_sha="2" * 40, pages=pages, raw_adjustments=["raw", "split"],
             historical_identity_verified=False, pit_verified=False,
             source_admission=False, commercial_use_authorized=False)
+        if scope is not None or evidence is not None:
+            meta.update(cohort_scope=scope, asset_precheck=evidence)
         members["capture.json"] = runtime.encoded(meta)
         folder = self.control["private_data_folder_id"]
         raw = self.drive.seed(folder, cap.zip_bytes(members), ".zip")
@@ -169,10 +175,24 @@ class ComponentHoldTests(unittest.TestCase):
         ref = self.drive.seed(folder, runtime.encoded(receipt))
         return dict(provider="alpaca_sip", symbols=names, receipt=ref)
 
-    def collect(self, groups, tracked=("AAPL", "MSFT"), prior=None, held=None):
+    def scoped_baseline(self, dates, **kwargs):
+        evidence = []
+        for ticker in sorted(dates):
+            raw = runtime.encoded(asset(ticker))
+            evidence.append(dict(symbol=ticker,
+                url="https://paper-api.alpaca.markets/v2/assets/" + ticker,
+                collected_at_utc="2026-10-24T00:00:00Z", http_status=200,
+                response_utf8=raw.decode(), sha256=runtime.digest(raw)))
+        scope = dict(task_key="R1000-SYNTHETIC-ARCHIVED-ASSET-ONLY",
+                     namespace="fixture-managed-source", input_sha256="a" * 64)
+        return self.baseline(dates, scope=kwargs.pop("scope", scope),
+                             evidence=kwargs.pop("evidence", evidence), **kwargs)
+
+    def collect(self, groups, tracked=("AAPL", "MSFT"), prior=None, held=None,
+                session="2026-10-23"):
         return runtime.collect_groups(self.drive, self.meter, self.control,
             dict(groups=groups, asset_identity_refs=self.identities), set(tracked), prior or {}, held or {},
-            "2026-10-23", "fixture-key", "fixture-secret", lambda: self.now)
+            session, "fixture-key", "fixture-secret", lambda: self.now)
 
     def execute(self, groups, tracked=("AAPL", "MSFT")):
         gate = runtime.managed.evaluate_market_session(now_utc=self.now, min_close_age_minutes=120)
@@ -230,6 +250,194 @@ class ComponentHoldTests(unittest.TestCase):
         self.assertEqual(result["session_coverage"], dict(policy_tracked=2, execution_scoped=2,
             current=2, held=0, pending=0, outside_scope=0, all_tracked_same_session=True))
         self.assertEqual(self.opener.urls, [])
+
+    def test_verified_embedded_identity_updates_without_standalone_copy(self):
+        self.identities = {}
+        group = self.scoped_baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        values = self.collect([group], tracked=("AAPL",))
+        self.assertEqual(values[:3], ({"AAPL": FULL[-1]}, {}, []))
+        self.assertEqual(self.meter.used["provider_gets"], 3)
+        self.assertIn("/assets/AAPL", self.opener.urls[0])
+        self.assertTrue(all("start=2026-10-23" in url for url in self.opener.urls[1:]))
+        self.assertTrue(all(r["public_available_at"] is None and not r["pit_verified"]
+                            and not r["historical_identity_verified"] for r in values[3]))
+
+    def test_embedded_matching_standalone_is_still_read_and_validated(self):
+        group = self.scoped_baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        values = self.collect([group], tracked=("AAPL",))
+        self.assertEqual(values[0], {"AAPL": FULL[-1]})
+        self.assertIn(self.identities["AAPL"]["file_id"], self.drive.checked)
+        self.assertEqual(self.meter.used["provider_gets"], 3)
+
+    def test_embedded_conflicting_standalone_refuses_before_provider(self):
+        group = self.scoped_baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        record = dict(asset("AAPL"), id="00000000-0000-0000-0000-000000000002")
+        self.identities["AAPL"] = self.drive.seed(self.control["evidence_folder_id"], runtime.encoded(record))
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_IDENTITY_CONFLICT$"):
+            self.collect([group], tracked=("AAPL",))
+        self.assertEqual(self.opener.urls, [])
+
+    def test_embedded_does_not_bypass_explicit_none_or_bad_standalone(self):
+        group = self.scoped_baseline(dict(AAPL=FULL), end="2026-10-24")
+        self.identities = {"AAPL": None}
+        values = self.collect([group], tracked=("AAPL",))
+        self.assertEqual(values[:3], ({}, {"AAPL": "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"}, []))
+        good = self.drive.seed(self.control["evidence_folder_id"], runtime.encoded(asset("AAPL")))
+        for ref in ({}, dict(good, sha256="0" * 64)):
+            with self.subTest(ref=ref):
+                self.identities = {"AAPL": ref}
+                with self.assertRaises(runtime.Refused):
+                    self.collect([group], tracked=("AAPL",))
+        self.assertEqual(self.opener.urls, [])
+
+    def test_legacy_embedded_fields_are_not_identity_proof(self):
+        scoped = self.scoped_baseline(dict(AAPL=FULL))
+        receipt = runtime.decode(self.drive.objects[scoped["receipt"]["file_id"]])
+        group = self.baseline(dict(AAPL=FULL), evidence=receipt["asset_precheck"])
+        self.identities = {}
+        self.assertEqual(self.collect([group], tracked=("AAPL",))[:3],
+                         ({}, {"AAPL": "MISSING_STABLE_PROVIDER_IDENTITY_PROOF"}, []))
+        # The legacy standalone fallback still supports an actual missing interval.
+        self.identities = {"AAPL": self.drive.seed(self.control["evidence_folder_id"], runtime.encoded(asset("AAPL")))}
+        legacy = self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        self.assertEqual(self.collect([legacy], tracked=("AAPL",))[0], {"AAPL": FULL[-1]})
+        self.assertEqual(self.meter.used["provider_gets"], 3)
+
+    def test_invalid_embedded_evidence_or_cohort_never_reaches_provider(self):
+        self.identities = {}
+        for case in ("hash", "clock", "symbol", "url", "http", "inactive", "scope", "manifest"):
+            with self.subTest(case=case):
+                original = self.scoped_baseline(dict(AAPL=FULL))
+                receipt = runtime.decode(self.drive.objects[original["receipt"]["file_id"]])
+                evidence, scope = receipt["asset_precheck"], receipt["cohort_scope"]
+                row = evidence[0]
+                if case == "hash":
+                    row["sha256"] = "0" * 64
+                elif case == "clock":
+                    row["collected_at_utc"] = "unknown"
+                elif case == "symbol":
+                    row["symbol"] = "MSFT"
+                elif case == "url":
+                    row["url"] += "?unverified"
+                elif case == "http":
+                    row["http_status"] = 403
+                elif case == "inactive":
+                    raw = runtime.encoded(dict(asset("AAPL"), status="inactive"))
+                    row.update(response_utf8=raw.decode(), sha256=runtime.digest(raw))
+                elif case == "scope":
+                    scope = {}
+                group = self.baseline(dict(AAPL=FULL), scope=scope, evidence=evidence)
+                if case == "manifest":
+                    def mutate(members):
+                        meta = runtime.decode(members["capture.json"])
+                        meta["asset_precheck"][0]["sha256"] = "0" * 64
+                        members["capture.json"] = runtime.encoded(meta)
+                    self.repack(group, mutate)
+                with self.assertRaises(runtime.Refused) as caught:
+                    self.collect([group], tracked=("AAPL",))
+                self.assertNotIsInstance(caught.exception, runtime.IncompleteBootstrapCoverage)
+        self.assertEqual(self.opener.urls, [])
+
+    def test_embedded_complete_partition_keeps_prefix_held(self):
+        self.identities = {}
+        group = self.scoped_baseline(dict(AAPL=FULL[:2], MSFT=FULL[1:2]), end=FULL[-1])
+        identities = {}
+        with self.assertRaises(runtime.IncompleteBootstrapCoverage) as caught:
+            runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[group]),
+                                       {"AAPL", "MSFT"}, asset_identities=identities)
+        self.assertEqual(identities, {"AAPL": asset("AAPL")["id"]})
+        self.assertEqual(caught.exception.held, {"MSFT": HELD})
+        values = self.collect([group])
+        self.assertEqual(values[:3], ({"AAPL": FULL[-1]}, {"MSFT": HELD}, []))
+        self.assertEqual(self.meter.used["provider_gets"], 3)
+        self.assertTrue(all("MSFT" not in url for url in self.opener.urls))
+
+    def test_late_corrupt_archive_leaves_identity_sink_unpublished(self):
+        self.identities = {}
+        first = self.scoped_baseline(dict(AAPL=FULL))
+        second = self.scoped_baseline(dict(MSFT=FULL))
+        receipt = runtime.decode(self.drive.objects[second["receipt"]["file_id"]])
+        receipt["raw_object"]["sha256"] = "0" * 64
+        second["receipt"] = self.drive.seed(self.control["private_data_folder_id"], runtime.encoded(receipt))
+        identities = {}
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_OBJECT_HASH$"):
+            runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[first, second]),
+                                       {"AAPL", "MSFT"}, asset_identities=identities)
+        self.assertEqual(identities, {})
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_OBJECT_HASH$"):
+            self.collect([first, second])
+        self.assertEqual(self.opener.urls, [])
+
+    def test_embedded_identity_still_requires_matching_fresh_provider_id(self):
+        self.identities = {}
+        group = self.scoped_baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        self.opener.asset_ids["AAPL"] = "00000000-0000-0000-0000-000000000002"
+        values = self.collect([group], tracked=("AAPL",))
+        self.assertEqual(values[:3], ({}, {"AAPL": "PROVIDER_SECURITY_ID_CHANGED"}, []))
+        self.assertEqual(self.meter.used["provider_gets"], 1)
+        self.assertEqual(len(self.opener.urls), 1)
+
+    def test_restored_coverage_cannot_replace_archive_identity_validation(self):
+        self.identities = {}
+        group = self.scoped_baseline(dict(AAPL=FULL))
+        group["receipt"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(runtime.Refused, "^MANAGED_OBJECT_HASH$"):
+            self.collect([group], tracked=("AAPL",), prior={"AAPL": FULL[-1]})
+        self.assertEqual(self.opener.urls, [])
+
+    def test_identity_only_targets_do_not_gain_new_coverage_or_holds(self):
+        group = self.scoped_baseline(dict(AAPL=FULL, MSFT=FULL[1:]))
+        identities = {}
+        coverage = runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[group]),
+            {"AAPL"}, asset_identities=identities, identity_targets={"AAPL", "MSFT"})
+        self.assertEqual(coverage, {"AAPL": FULL[-1]})
+        self.assertEqual(set(identities), {"AAPL", "MSFT"})
+        self.assertEqual(self.opener.urls, [])
+
+    def test_same_control_two_complete_sessions_then_current_reuse(self):
+        self.identities = {}
+        self.control.update(max_runs=3, expires_at="2026-10-28T00:30:00Z")
+        group = self.scoped_baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        bootstrap = dict(groups=[group], asset_identity_refs={})
+        history, meters, results = [], {}, []
+
+        def verify_meter(run, checkpoint):
+            return runtime.verify_final_meter(meters[run["id"]], run, checkpoint,
+                "b" * 64, self.control["per_run_allowance"])
+
+        for run_id, observed in enumerate(("2026-10-24T00:30:00Z",
+                "2026-10-27T00:30:00Z", "2026-10-27T00:31:00Z"), 1):
+            self.now = runtime.campaign.utc(observed)
+            if run_id > 1:
+                self.meter = runtime.campaign.RuntimeMeter(self.control["per_run_allowance"],
+                    self.root / ("meter" + str(run_id) + ".json"),
+                    (self.now + timedelta(seconds=300)).isoformat(),
+                    dict(run_id=run_id, run_attempt=1, source_sha="2" * 40,
+                         parent_checkpoint_sha256=None, examined_before=0),
+                    clock=lambda: self.now, opener=self.opener)
+                self.drive.meter = self.meter
+            self.meter.identity["managed_control_sha256"] = "b" * 64
+            history.append(dict(id=run_id, head_sha="2" * 40))
+            gate = runtime.managed.evaluate_market_session(now_utc=self.now, min_close_age_minutes=120)
+            result = runtime.execute(self.control, "b" * 64,
+                dict(active_tickers=["AAPL"], watch_tickers=[]), bootstrap, history,
+                self.drive, self.meter, dict(run_id=run_id, head="2" * 40),
+                "fixture-key", "fixture-secret", lambda: self.now,
+                meter_verifier=verify_meter, market_preflight=gate)
+            self.meter.finish("COMPLETE")
+            meters[run_id] = json.loads(self.meter.journal.read_text(encoding="utf-8"))
+            self.assertEqual(verify_meter(history[-1], result["checkpoint_sha256"])["provider_gets"],
+                             3 if run_id < 3 else 0)
+            self.assertTrue(result["session_coverage"]["all_tracked_same_session"])
+            results.append(result)
+        self.assertEqual([r["session"] for r in results], ["2026-10-23", "2026-10-26", "2026-10-26"])
+        self.assertEqual([r["valid_updated"] for r in results], [1, 1, 0])
+        self.assertEqual([r["reused"] for r in results], [0, 0, 1])
+        rows = runtime.journal_rows(self.drive, self.control)
+        self.assertEqual(sum(r["state"] == "COMPLETE" for _, r in rows), 3)
+        _, coverage, held = runtime.restore_journal(rows, history + [dict(id=4)], "b" * 64, verify_meter)
+        self.assertEqual((coverage, held), ({"AAPL": "2026-10-26"}, {}))
+        self.assertEqual(len(self.opener.urls), 6)
 
     def test_internal_hole_held_even_when_explicit_backfill_lists_it(self):
         self.control["backfill_tickers"] = ["MSFT"]

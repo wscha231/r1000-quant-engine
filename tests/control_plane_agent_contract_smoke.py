@@ -1533,7 +1533,16 @@ class ManagedExecutionTests(unittest.TestCase):
         self.control['max_symbols_per_run'] = 1
         bootstrap = dict(groups=[],asset_identity_refs=self.fixture_bindings)
         known = dict(AAPL='2026-10-23',MSFT='2026-10-22')
-        with patch.object(self.r,'bootstrap_coverage',side_effect=lambda d,c,b,n:{t:known[t] for t in n}), \
+        selected = []
+        def bootstrap_cutoff(d,c,b,n,*,asset_identities,identity_targets):
+            self.assertIs(d,drive)
+            self.assertIs(c,self.control)
+            self.assertIs(b,bootstrap)
+            self.assertEqual(asset_identities,{})
+            self.assertEqual(identity_targets,n)
+            selected.append(set(identity_targets))
+            return {t:known[t] for t in n}
+        with patch.object(self.r,'bootstrap_coverage',side_effect=bootstrap_cutoff), \
              patch.object(self.r.capture.time,'sleep',return_value=None):
             first = self.r.collect_groups(drive,meter,self.control,bootstrap,{'AAPL','MSFT'},
                 {},{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
@@ -1544,6 +1553,7 @@ class ManagedExecutionTests(unittest.TestCase):
                 first[0],{},'2026-10-23','fixture-api-key','fixture-api-secret',lambda:self.now)
         self.assertEqual(second[0],{'MSFT':'2026-10-23'})
         self.assertEqual(opener.calls,3)
+        self.assertEqual(selected,[{'AAPL'},{'MSFT'}])
 
 
     def test_managed_only_dispatch_isolates_legacy_validation_and_keeps_schedule(self):
