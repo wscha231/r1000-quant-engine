@@ -9783,3 +9783,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reuse the existing download-batch helper for one missing-only retry in small
   batches. Recheck exact sessions and adjusted values after every attempt.
   Valid windows stay reused and persistent gaps stay explicit.
+
+## 2026-11-07 - Finalize the committed Source generation after timeout
+
+- Actual Source run 42356911398 at c1796cff collected 1,155 datasets with no
+  provider failure, including all 13 A4 FRED identities. The quality report
+  retained two SEC coverage gaps and unverified historical PIT/completeness.
+- The run wrote generation 30 at commit 1b490a54 / catalog e5d7004f before
+  its 120-minute timeout during POST_COMMIT_RESTORE. Collection, commit,
+  completed readback and an execution receipt are separate facts.
+- Finalize the exact stored commit/catalog and original collector code through
+  the existing workflow. Preserve full remote pack checks, recheck before
+  receipt publication, and separate the actual finalizer run from the original
+  cancelled source run. Reuse data without another provider call or data commit.
+- Keep missing, invalid, ambiguous and existing incomplete executions distinct.
+  An already completed receipt is reusable, while a second receipt would make
+  the generation ambiguous. Preserve cancellation and partial-quality exits.
