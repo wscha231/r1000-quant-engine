@@ -897,7 +897,7 @@ def _research_feature_snapshot(reader, generation: str, *, security_id: str,
         # requested optional component was absent. Do not defer it to a row.
         source = spec["source"]
         expected, trust = (generation_trust if _cohort is None else _cohort.generation_trust)[gen]
-        if gen in benchmark_gens.values() and gen != generation and source.get(
+        if (_cohort is not None or gen in benchmark_gens.values() and gen != generation) and source.get(
                 "provider_close_qualification_sha256") is not None:
             check(expected is not None, "QUALIFICATION_TRUST_REQUIRED")
         if expected is None:

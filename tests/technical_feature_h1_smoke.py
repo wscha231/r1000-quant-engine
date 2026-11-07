@@ -229,6 +229,9 @@ class FeatureTests(unittest.TestCase):
 
     def test_qqq_never_substitutes_composite_or_spy(self):
         self.identity(IDS['^IXIC'])['ticker']='QQQ'
+        # This is an honestly identified QQQ used in the wrong role, not a
+        # forged Nasdaq identity. A source/evidence conflict is global.
+        self.bind_identity_evidence(self.identity(IDS['^IXIC']))
         for r in self.rows[IDS['^IXIC']]:r['ticker']='QQQ'
         self.add_file(IDS['^IXIC'],identity=self.identity(IDS['^IXIC']))
         o=self.call()
@@ -1331,6 +1334,44 @@ class CohortFeatureTests(unittest.TestCase):
                 transport.read(path)
             self.assertEqual(transport.encoded_bytes, len(raw))
             self.assertEqual(transport.read_calls, 1)
+
+    def test_qualified_generation_requires_external_pin_in_both_role_orders(self):
+        with patch.object(sys, 'path', [str(ROOT/'tests'), *sys.path]):
+            from a1_reader_generation_binding_smoke import provider_close_fixture
+        from tools import prepare_a1_reader_generation as binding
+        state = provider_close_fixture(names=('SPY',))
+        raw, norm, rec, evidence, trusted, objects = state
+        prepared = binding.prepare(raw, norm, rec, encoded(evidence),
+            decision_time='2026-10-24T09:00:00Z', trusted_source=trusted,
+            proof_objects=tuple(sorted(objects.items())))
+        self.assertEqual(prepared.status, 'REAL_SOURCE_PREPARED_UNADMITTED')
+        transport = MemoryTransport()
+        for base in prepared.bases:
+            transport.objects[f'{access.PREFIX_V1}/generations/{base.generation_id}'] = base.manifest
+            for h, payload in base.objects:
+                transport.objects[f'{access.PREFIX_V1}/objects/{h}'] = payload
+        split = prepared.bases[1]
+        grid = ['2016-01-04','2016-01-05','2016-01-06','2016-01-07',
+                '2016-01-08','2016-01-11','2016-01-12']
+        with patch(__name__+'.DAYS', grid):
+            legacy = FeatureTests('runTest'); legacy.setUp()
+        legacy.data_spec['source']['expires_at'] = '2026-10-30T00:00:00Z'
+        for item in legacy.data_spec['files']:
+            legacy.bind_identity_evidence(item['instrument'], valid_from=grid[0], valid_through=grid[-1],
+                expires_at='2026-10-30T00:00:00Z')
+        legacy_generation = legacy.generation()
+        transport.objects.update(legacy.transport.objects)
+        reader = access.ResearchDataReader(transport)
+        requests = [dict(security_id='US.TEST.SPY', generation=split.generation_id),
+                    dict(security_id=IDS['TEST'], generation=legacy_generation)]
+        for order in (requests, list(reversed(requests))):
+            result = target.research_feature_snapshots(reader, order, session='2016-01-12',
+                as_of='2026-10-24T09:00:00Z', source_checkpoint_sha256='c'*64,
+                limits=self.limits, benchmark_ids={'SPY': 'US.TEST.SPY'},
+                benchmark_generations={'SPY': split.generation_id})
+            self.assertEqual(result['status'], 'BLOCKED')
+            self.assertEqual(result['blocker'], 'QUALIFICATION_TRUST_REQUIRED')
+            self.assertEqual(result['coverage']['observed'], 0)
 
     def test_retained_charge_includes_read_result_files_and_cache_growth_reserve(self):
         gen = self.case.generation()

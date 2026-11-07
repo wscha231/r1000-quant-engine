@@ -9881,3 +9881,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   globally, meter reads in a finally block and reserve encoded plus decoded
   work. A checkpoint reference without child-membership proof stays explicitly
   unverified; it is not an accepted-cohort binding.
+- Exact-head review found qualified-generation pin validation depended on which
+  role first populated the cache. Require external qualification pins for every
+  qualified cohort generation before caching, independently of subject/benchmark
+  order. Synthetic subject-first and benchmark-first cases must both fail closed.
+- The first optimized suite caught a QQQ role fixture changing ticker without
+  rebinding its synthetic identity evidence. Rebind that honest QQQ fixture and
+  keep its Nasdaq/SPY substitution refusal; do not weaken global identity checks.
+  Preserve the failed receipt separately from the corrected HEAD's checks.
