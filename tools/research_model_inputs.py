@@ -99,7 +99,7 @@ def _validated_bundle(bundle):
               ('source_objects_copied', 'provider_refresh_count')), 'MODEL_INPUT_AUTHORITY')
     read = bundle.read
     check(len(read.receipt_bytes) <= MAX_METADATA_BYTES and
-          decode(read.receipt_bytes) == manifest['read_receipt'] and
+          read.receipt_bytes == _metadata(manifest['read_receipt']) and
           read.receipt == _freeze(manifest['read_receipt']), 'MODEL_INPUT_READ_BINDING')
     check(set(read.results) == set(manifest['component_receipts']), 'MODEL_INPUT_READ_BINDING')
     batch = manifest['read_receipt']
@@ -118,7 +118,8 @@ def _validated_bundle(bundle):
                 minimum_rows=c.get('minimum_rows', 1), optional=c.get('optional', False),
                 required_sessions_sha256=digest(encoded(c['required_sessions']))
                     if c.get('required_sessions') is not None else None))
-        check(normalized == batch['requests'] and batch['consumer_id'] == manifest['consumer_id'] and
+        check(_metadata(normalized) == _metadata(batch['requests']) and
+              batch['consumer_id'] == manifest['consumer_id'] and
               read.refusals == _freeze(batch['refusals']), 'MODEL_INPUT_CONTEXT_BINDING')
     else:
         check(manifest['dataset_id'] == 'ds.us.financials.sec.companyfacts' and
@@ -140,7 +141,7 @@ def _validated_bundle(bundle):
               receipt['consumer_id'] == manifest['consumer_id'] and receipt['purpose'] == 'research' and
               batch['component_receipts'][name] == receipt['receipt_sha256'], 'MODEL_INPUT_CONTEXT_BINDING')
         check(len(item.receipt_bytes) <= MAX_METADATA_BYTES and
-              decode(item.receipt_bytes) == receipt and item.receipt == _freeze(receipt),
+              item.receipt_bytes == _metadata(receipt) and item.receipt == _freeze(receipt),
               'MODEL_INPUT_READ_BINDING')
         # Stream the canonical row-set hash without constructing another full
         # price/fact array. A replaced dataclass cannot borrow genuine receipts.

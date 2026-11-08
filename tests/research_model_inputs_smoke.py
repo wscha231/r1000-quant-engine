@@ -270,6 +270,21 @@ class ModelInputsTest(unittest.TestCase):
                                self.fixture.root / 'must-not-write')
         self.assertFalse((self.fixture.root / 'must-not-write').exists())
 
+    def test_python_boolean_numeric_equality_cannot_weaken_request_types(self):
+        import json
+        bundle = self.prepare(components=[dict(self.components[0], minimum_rows=1)])
+        for key, value in (('minimum_rows', True), ('minimum_rows', 1.0), ('optional', 0)):
+            manifest = json.loads(bundle.input_bytes); manifest['components'][0][key] = value
+            raw = encoded(manifest); forged = replace(bundle, input_id=digest(raw), input_bytes=raw)
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(ContractError, 'MODEL_INPUT_CONTEXT_BINDING'):
+                store_model_inputs(forged, self.fixture.root / 'must-not-write')
+        manifest = json.loads(bundle.input_bytes)
+        manifest['read_receipt']['provider_refresh_count'] = False
+        raw = encoded(manifest)
+        with self.assertRaisesRegex(ContractError, 'MODEL_INPUT_READ_BINDING'):
+            store_model_inputs(replace(bundle, input_id=digest(raw), input_bytes=raw),
+                               self.fixture.root / 'must-not-write')
+
 
 if __name__ == '__main__':
     unittest.main()
