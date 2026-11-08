@@ -45,6 +45,15 @@
   ],
   "pit_policy": "Current revised histories and SEC filed-date filters alone do not certify historical PIT.",
   "refresh_policy": "Reuse verified objects; append source changes; resolve the latest verified commit on each new research run.",
+  "model_input_reuse": {
+    "adapter": "tools/research_model_inputs.py",
+    "input_path": "shared-research-v1/model-inputs/<sha256>",
+    "model_binding_path": "shared-research-v1/model-bindings/<sha256>",
+    "storage": "Explicit private local write-once metadata; original source objects remain in their existing archive",
+    "replay": "Original Reader revalidation with externally supplied trust; stored metadata is not admission",
+    "collection_policy": "Reuse verified session slices; expand Reader before declaring gaps; no provider calls or automatic collection approval",
+    "scope": "Existing price/financial component APIs; macro remains pinned Lake; research only"
+  },
   "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index",
   "frozen_generation_reader": {
     "reader": "tools/research_data_access.py",

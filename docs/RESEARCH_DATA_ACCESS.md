@@ -92,6 +92,66 @@ SEC의 filed 날짜와 ALFRED vintage 날짜는 실제 장중 공개시각과 �
 
 ## 다른 채팅에 전달할 짧은 요청
 
+### 모델 버전이 달라도 원본은 한 번 보관
+
+`tools/research_model_inputs.py`는 기존 Reader 위의 얇은 연구 입력 어댑터다.
+새 collector·scheduler·Registry·원본 저장소를 만들지 않는다. 같은 dataset,
+generation, 요청 범위, 소비 application, decision cutoff를 쓰는 모델은
+동일 `input_id`를 공유한다. 모델 ID/버전, 코드 SHA, 설정 SHA, feature 정의
+SHA는 별도 binding으로 남긴다. 투자 엔진 버전이나 AI 연구 클라이언트가
+바뀌어도 원본을 모델별로 복사하거나 provider에서 다시 받지 않는다.
+
+```python
+from tools.research_model_inputs import (
+    prepare_model_inputs, store_model_inputs, replay_model_inputs,
+    plan_model_input_reuse,
+)
+
+# reader, generation_sha, cutoff, components, models, private_root는 기존
+# 승인된 환경에서 고정한다. models에는 model_id, model_version, code_sha,
+# config_sha256, feature_recipe_sha256를 넣는다. 실제 평가 실행은 별도다.
+bundle = prepare_model_inputs(
+    reader, "ds.us.prices.daily", generation_sha,
+    decision_time=cutoff, components=components,
+    consumer_id="ohlcv-technical-feature-h1", models=models,
+)
+# 하나의 실제 read_components 호출 결과를 여러 모델 버전에 참조한다.
+# Source qualification의 consumer_id를 모델 이름으로 바꾸지 않는다.
+local_receipt = store_model_inputs(bundle, private_root)
+rows = bundle.read.results["company"].rows
+```
+
+기존 research transport 아래의 `shared-research-v1/model-inputs/<input_id>`와
+`shared-research-v1/model-bindings/<binding_sha256>` 형식을 사용한다.
+`store_model_inputs`는 명시한 private 로컬 경계에 메타데이터만 write-once로
+저장한다. raw 가격·재무 fact 값은 복사하지 않는다. 동일 쓰기는 재사용하고
+다른 바이트의 덮어쓰기는 거절한다. 이 로컬 결과는 Drive 저장·readback이나
+Source/PIT/ER/A5 승인 증거가 아니다. Drive에 이미 보관된 generation/object를
+기존 승인된 transport로 읽으며, 새로운 원격 연결·디렉터리를 만들지 않는다.
+
+다른 채팅/모델은 input manifest의 SHA를 고정한 뒤
+`replay_model_inputs(reader, manifest_bytes, expected_input_id=..., models=...,
+financial_trust=...)`를 호출한다. 저장된 영수증만 믿지 않고 원본 Reader로
+hash·권한·identity·clock을 재검증한다. 재무의 typed trust는 외부에서 다시
+제공하며 메타데이터에서 스스로 만들지 않는다. 과거 cutoff 재현과 최신
+재평가는 다르다. 최신 판단은 새 cutoff로 `prepare_model_inputs`를 호출하여
+현재 availability/expiry 검사를 통과해야 한다.
+
+가격의 `plan_model_input_reuse`는 같은 cutoff에서 실제 exact-session 검증을
+마친 부분집합만 `REUSE_EXISTING`으로 표시한다. 확인한 범위 밖은
+`REVALIDATION_REQUIRED`, session 증명이 없으면 `COVERAGE_UNKNOWN`이다.
+이는 결측 확정이 아니므로 재수집 목록을 자동 생성하지 않는다. 먼저 같은
+generation의 Reader 범위를 확장하고, 그 후에도 입증된 공백만 기존 Source
+owner의 `INCREMENTAL_ONLY`/`BACKFILL_REQUIRED` 계약으로 전달한다. 재무의
+분기·연간 기간과 거시 vintage를 거래일 session으로 바꾸지 않는다.
+모든 계획은 `collection_approved=false`, provider refresh 0을 유지한다.
+이 wrapper는 Reader의 byte-level 연구 의미를 보존한다. 기존 Feature의 별도
+외부 qualification tuple 검증이나 정식 Source/PIT 승인을 대신하지 않는다.
+
+거시 원본·vintage는 위의 기존 Lake commit/catalog/execution 참조를 사용한다.
+이 어댑터가 거시를 price/financial schema로 변환하거나 전체 820종목의 현재
+적격 입력·백테스트·모델 평가·투자 비중을 완성했다고 표시하지 않는다.
+
 > GitHub wscha231/r1000-quant-engine의 최신 기본 브랜치와 AGENTS.md,
 > docs/RESEARCH_DATA_ACCESS.md, docs/research_data_access.json을 읽고
 > 연결된 Google Drive의 검증된 장기 연구 데이터를 재사용하라.

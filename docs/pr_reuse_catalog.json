@@ -318,7 +318,7 @@
       "dependency_hashes": {
         "tools/long_history_lake.py": "263ff64c029e4d75c0eccf342525ed9518b90d1acb0562457f92ffc6a0653f76",
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
-        "docs/RESEARCH_DATA_ACCESS.md": "259a5f992b42eae0ff00ea97ae99378b0ed692500520d16ca2e2f81fc8cd99c4",
+        "docs/RESEARCH_DATA_ACCESS.md": "403680df3e2856e248a552687f776c10697d0951ce233ee78a3df7a7365beb3a",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
         "docs/macro_indicator_registry.json": "f381820d99962154f71a4f852a9ce37ae77ecdd570455b0e48e6e0ae27800b36",
         "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
@@ -372,7 +372,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "docs/RESEARCH_DATA_ACCESS.md": "de16d4908f5b6fb0a7b2a99db3f0a1196dc033da7dd6b954b23a5be3ca482e2f"
+        "docs/RESEARCH_DATA_ACCESS.md": "403680df3e2856e248a552687f776c10697d0951ce233ee78a3df7a7365beb3a"
       }
     },
     {
