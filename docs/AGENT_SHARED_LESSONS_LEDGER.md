@@ -9876,6 +9876,41 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   test process environment only; do not change persistent Git settings or
   product checks to repair the local validation harness.
 
+### 2026-11-08 Main cohort Reader consumption
+
+- Repeated one-security feature calls repeat generation validation and common
+  benchmark work. Use one invocation-local union component read per generation,
+  retain original per-security row hashes, and release decoded batches after
+  their last consumer. A cached transport alone is not a Reader consumer ACK.
+- Preserve the entire requested roster and explicit missing rows. One observed
+  technical feature is coverage, not ER eligibility or an investment score.
+  A later global hash/proof/resource failure must clear earlier cohort values.
+- The legacy transport read interface returns bytes before a caller can reject
+  their size. A strict cohort budget therefore needs a bounded-read transport;
+  use an exact local allowlist and pre-open size check rather than claiming a
+  post-read byte counter prevents I/O. Reader charge counters are not wire/RSS
+  measurements, and a failed operation may have unreturned decoded work.
+- Independent draft review found optional-benchmark identity conflicts outside
+  the global proof handler, post-read hash failures missing from byte counters,
+  and retained raw files omitted from resource charges. Treat proof conflicts
+  globally, meter reads in a finally block and reserve encoded plus decoded
+  work. A checkpoint reference without child-membership proof stays explicitly
+  unverified; it is not an accepted-cohort binding.
+- Exact-head review found qualified-generation pin validation depended on which
+  role first populated the cache. Require external qualification pins for every
+  qualified cohort generation before caching, independently of subject/benchmark
+  order. Synthetic subject-first and benchmark-first cases must both fail closed.
+- The first optimized suite caught a QQQ role fixture changing ticker without
+  rebinding its synthetic identity evidence. Rebind that honest QQQ fixture and
+  keep its Nasdaq/SPY substitution refusal; do not weaken global identity checks.
+  Preserve the failed receipt separately from the corrected HEAD's checks.
+- PR732's first full required CI passed 235/236 suites; the registered Agent
+  Board wrapper failed because the extended Shared Reader document's catalog
+  dependency digest still named the prior bytes. Reconcile the exact document
+  pin in the existing reuse catalog, preserve all runtime/safety pins, and test
+  the full current REUSE_NOW inventory plus the original missing/changed-byte
+  refusals. Focused feature tests alone do not check this shared dependency.
+
 ### 2026-11-08 Original A3 ER to independent model inputs
 
 - A3's `validated_er` result is a horizon summary, not the original evaluator
@@ -9906,3 +9941,6 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   use forward slashes, whereas `str(relative_path)` supplies backslashes. Use
   `as_posix()` for exact Git blob lookups and receipt keys on every platform;
   retain the byte-for-byte claimed-commit check. Preserve the failed receipt.
+- Reconcile accepted-master lesson additions by preserving both causal sections.
+  Windows Git capture needs explicit UTF-8 and per-command author identity for
+  merge preparation too; keep failed harness output and persistent settings intact.
