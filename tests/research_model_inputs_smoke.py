@@ -246,6 +246,30 @@ class ModelInputsTest(unittest.TestCase):
             and n.args and isinstance(n.args[0], ast.Name)]
         self.assertEqual(loaded.count('ModelInputsTest'), 1)
 
+    def test_manifest_only_rehash_cannot_relabel_old_context_or_authority(self):
+        import json
+        bundle = self.prepare()
+        for key, value in (('decision_time', '2026-10-10T08:00:00Z'),
+                           ('generation_id', 'f' * 64), ('consumer_id', 'another_model'),
+                           ('dataset_id', 'ds.us.financials.sec.companyfacts'),
+                           ('source_admission', True), ('eligible_for_economics', True),
+                           ('provider_refresh_count', 1), ('extra', 'unverified')):
+            manifest = json.loads(bundle.input_bytes); manifest[key] = value
+            raw = encoded(manifest); forged = replace(bundle, input_id=digest(raw), input_bytes=raw)
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ContractError, 'MODEL_INPUT_(CONTEXT_BINDING|AUTHORITY)'):
+                    plan_model_input_reuse(forged, [dict(component_id='spy', required_sessions=SESSIONS)],
+                                          decision_time=manifest['decision_time'])
+                with self.assertRaisesRegex(ContractError, 'MODEL_INPUT_(CONTEXT_BINDING|AUTHORITY)'):
+                    store_model_inputs(forged, self.fixture.root / 'must-not-write')
+        manifest = json.loads(bundle.input_bytes)
+        manifest['components'][0]['required_sessions'] = [SESSIONS[0], SESSIONS[-1]]
+        raw = encoded(manifest)
+        with self.assertRaisesRegex(ContractError, 'MODEL_INPUT_CONTEXT_BINDING'):
+            store_model_inputs(replace(bundle, input_id=digest(raw), input_bytes=raw),
+                               self.fixture.root / 'must-not-write')
+        self.assertFalse((self.fixture.root / 'must-not-write').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -88,14 +88,57 @@ def _validated_bundle(bundle):
     check(type(bundle) is ModelInputBundle and type(bundle.read) is ComponentReadResult,
           'MODEL_INPUT_BUNDLE')
     manifest = _input_manifest(bundle.input_bytes, bundle.input_id)
+    fields = {'schema', 'mode', 'dataset_id', 'generation_id', 'decision_time', 'consumer_id',
+              'components', 'read_receipt', 'component_receipts', 'source_objects_copied',
+              'provider_refresh_count', 'eligible_for_selector', 'eligible_for_economics',
+              'source_admission', 'historical_pit_admission', 'er_admission', 'a5_admission'}
+    check(set(manifest) == fields and manifest['mode'] == 'RESEARCH_ONLY' and
+          all(manifest[k] is False for k in ('eligible_for_selector', 'eligible_for_economics',
+              'source_admission', 'historical_pit_admission', 'er_admission', 'a5_admission')) and
+          all(type(manifest[k]) is int and manifest[k] == 0 for k in
+              ('source_objects_copied', 'provider_refresh_count')), 'MODEL_INPUT_AUTHORITY')
     read = bundle.read
     check(len(read.receipt_bytes) <= MAX_METADATA_BYTES and
           decode(read.receipt_bytes) == manifest['read_receipt'] and
           read.receipt == _freeze(manifest['read_receipt']), 'MODEL_INPUT_READ_BINDING')
     check(set(read.results) == set(manifest['component_receipts']), 'MODEL_INPUT_READ_BINDING')
+    batch = manifest['read_receipt']
+    check(batch['dataset_id'] == manifest['dataset_id'] and
+          batch['data_generation_id'] == manifest['generation_id'] and
+          batch['decision_time'] == manifest['decision_time'], 'MODEL_INPUT_CONTEXT_BINDING')
+    components = manifest['components']
+    check(type(components) is list and 0 < len(components) <= 256, 'MODEL_INPUT_CONTEXT_BINDING')
+    if manifest['dataset_id'] == 'ds.us.prices.daily':
+        normalized = []
+        for c in components:
+            check(type(c) is dict and set(c) <= {'component_id', 'instrument_id', 'required_start',
+                'required_end', 'minimum_rows', 'required_sessions', 'optional'}, 'MODEL_INPUT_CONTEXT_BINDING')
+            normalized.append(dict(component_id=c['component_id'], instrument_id=c['instrument_id'],
+                required_start=c['required_start'], required_end=c['required_end'],
+                minimum_rows=c.get('minimum_rows', 1), optional=c.get('optional', False),
+                required_sessions_sha256=digest(encoded(c['required_sessions']))
+                    if c.get('required_sessions') is not None else None))
+        check(normalized == batch['requests'] and batch['consumer_id'] == manifest['consumer_id'] and
+              read.refusals == _freeze(batch['refusals']), 'MODEL_INPUT_CONTEXT_BINDING')
+    else:
+        check(manifest['dataset_id'] == 'ds.us.financials.sec.companyfacts' and
+              len(components) == len(read.results) == 1 and not read.refusals,
+              'MODEL_INPUT_CONTEXT_BINDING')
+        c = components[0]; r = next(iter(manifest['component_receipts'].values()))
+        check(type(c) is dict and set(c) <= {'component_id', 'issuer_cik',
+              'required_period_end_start', 'required_period_end_end', 'optional'} and
+              c.get('optional', False) is False and c['component_id'] == r['component_id'] and
+              c['issuer_cik'] == r['issuer_cik'] and
+              c['required_period_end_start'] == r['requested_period_end_start'] and
+              c['required_period_end_end'] == r['requested_period_end_end'], 'MODEL_INPUT_CONTEXT_BINDING')
     charged_rows, charged_bytes = 0, 0
     for name, item in read.results.items():
         receipt = manifest['component_receipts'][name]
+        check(receipt['dataset_id'] == manifest['dataset_id'] and
+              receipt['data_generation_id'] == receipt['manifest_sha256'] == manifest['generation_id'] and
+              receipt['decision_time'] == manifest['decision_time'] and
+              receipt['consumer_id'] == manifest['consumer_id'] and receipt['purpose'] == 'research' and
+              batch['component_receipts'][name] == receipt['receipt_sha256'], 'MODEL_INPUT_CONTEXT_BINDING')
         check(len(item.receipt_bytes) <= MAX_METADATA_BYTES and
               decode(item.receipt_bytes) == receipt and item.receipt == _freeze(receipt),
               'MODEL_INPUT_READ_BINDING')

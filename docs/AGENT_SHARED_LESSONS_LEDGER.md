@@ -17,6 +17,10 @@
   compare manifest/receipts and stream row-set verification before reuse/write;
   preflight metadata and bound encoding before decoding or allocating results.
   The draft registered suite was interrupted for these corrections, not passed.
+- Rehashing only a wrapper cutoff must not renew the original read. Bind wrapper
+  dataset/generation/cutoff/application/requests and fixed false authority to the
+  actual aggregate/component receipts. Windows isolated-test subprocesses need
+  PYTHONUTF8=1 as well as PYTHONIOENCODING; preserve the cp949 harness failure.
 
 ## 2026-11-08 - Research freshness belongs to its original session
 
