@@ -22,6 +22,9 @@ from tools.run_run287_daily_research_monitor import (
     CONTRACT, GitHub, collect_source, completed_session, date_state, evaluate,
     latest_run, number,
 )
+from tools.run287_research_score_handoff import evaluate_score_handoff, utc
+from tools.refresh_public_market_quotes import freshness_deadline
+from tools.run_daily_market_session_gate import evaluate_market_session
 
 SCHEMA = 'run287-public-project-results-v1'
 REPO = 'wscha231/r1000-quant-engine'
@@ -61,6 +64,45 @@ def source_view(key, source):
             'artifact_sha256': sha(str(artifact.get('digest', '')).removeprefix('sha256:'))}
 
 
+def research_scores(report, sources, session, now):
+    """Use the original score verifier; never borrow a portfolio quote clock."""
+    result = {'status': 'UNAVAILABLE', 'ready': False, 'score_as_of': None,
+              'checked_at_utc': now.isoformat(), 'freshness_valid_until_utc': None,
+              'ranking_allowed': False, 'predictive_value_validated': False}
+    source = sources.get('operating', {})
+    verified, indexed = evaluate_score_handoff(source, session, now)
+    if not verified.get('ready'):
+        result['status'] = verified['status']
+        return result, {}
+    try:
+        if (report.get('expected_us_session') != session
+                or report.get('current_engine_scores_ready') is not True
+                or completed_session(now) != session):
+            raise ValueError('SCORE_SESSION_NOT_CURRENT')
+        identity = source_view('operating', source)
+        if (not identity['artifact_id'] or not identity['run_id']
+                or not re.fullmatch('[a-f0-9]{64}', identity['artifact_sha256'] or '')):
+            raise ValueError('SCORE_ARTIFACT_IDENTITY_MISSING')
+        gate = evaluate_market_session(now_utc=now, force=True, session_date=session)
+        close = utc(gate['market_close_utc'])
+        deadline = freshness_deadline(close.isoformat())
+        # During the next close's settlement buffer the monitor still selects
+        # the old session. Starting at now would incorrectly renew that session.
+        if not close <= utc(verified['decision_time_utc']) <= now < utc(deadline):
+            raise ValueError('SCORE_SESSION_EXPIRED_OR_CLOCK_INVALID')
+        result.update({k: verified[k] for k in (
+            'status', 'ready', 'score_as_of', 'verified_ticker_count',
+            'feature_available_from', 'decision_time_utc', 'executed_at_utc',
+            'engine_code_sha', 'model_anchor_sha256', 'model_meta_sha256')})
+        result.update(session_close_utc=close.isoformat(), freshness_valid_until_utc=deadline,
+                      source_artifact_sha256=identity['artifact_sha256'],
+                      source_run_id=identity['run_id'], source_artifact_id=identity['artifact_id'])
+        return result, indexed
+    except (ValueError, TypeError, KeyError):
+        result['status'] = 'SCORE_SESSION_OR_IDENTITY_UNVERIFIED'
+        return result, {}
+
+
 def build(report, sources, session, now, code_sha, contract_hash):
     if report.get('schema_version') != 'run287-daily-research-monitor-v1' or report.get('repository') != REPO:
         raise ValueError('invalid_research_report')
@@ -68,6 +110,7 @@ def build(report, sources, session, now, code_sha, contract_hash):
     if safety.get('research_only') is not True or any(safety.get(k) is not False for k in
             ['orders_allowed', 'target_book_write_allowed', 'ledger_write_allowed', 'production_activation_allowed']):
         raise ValueError('invalid_research_safety')
+    scores, score_rows = research_scores(report, sources, session, now)
     rows, seen = [], set()
     report_current = report.get('expected_us_session') == session
     for row in report.get('watchlist', []):
@@ -78,8 +121,11 @@ def build(report, sources, session, now, code_sha, contract_hash):
         if (market, ticker) in seen:
             raise ValueError('duplicate_public_identity')
         seen.add((market, ticker))
-        score_current = report_current and report.get('current_engine_scores_ready') is True and row.get('engine_score_as_of') == session
-        score = number(row.get('current_engine_score')) if score_current else None
+        original = score_rows.get(ticker) if market == 'US' else None
+        score_current = (scores['ready'] and original is not None
+                         and row.get('engine_score_as_of') == session
+                         and number(row.get('current_engine_score')) == original['score'])
+        score = original['score'] if score_current else None
         price_current = report_current and row.get('price_status') == 'CURRENT' and row.get('price_as_of') == session
         price = number(row.get('close')) if price_current else None
         rows.append({'ticker': ticker, 'market': market, 'close': price if price and price > 0 else None,
@@ -87,8 +133,8 @@ def build(report, sources, session, now, code_sha, contract_hash):
                      'score_as_of': day(row.get('engine_score_as_of')),
                      'status': ('KR_ADAPTER_REQUIRED' if market == 'KR' else
                                 'CURRENT_NONRANKING_DIAGNOSTIC' if score is not None else 'SCORE_UNAVAILABLE'),
-                     'eligible': row.get('engine_research_eligible') is True if score is not None else False,
-                     'quarantined': row.get('engine_corporate_action_quarantine') is True})
+                     'eligible': original['research_eligible_after_quarantine'] if score is not None else False,
+                     'quarantined': original['corporate_action_quarantine'] if score is not None else False})
     tactical = sources.get('tactical', {})
     # Failed producer artifacts can explain a failure, never supply active data.
     data = tactical.get('data', {}) if tactical.get('status') == 'VERIFIED_ARTIFACT' else {}
@@ -113,7 +159,8 @@ def build(report, sources, session, now, code_sha, contract_hash):
               'generated_at': now.isoformat(), 'expected_us_session': session,
               'source_commit': sha(code_sha), 'config_hash': sha(contract_hash),
               'scope': 'EXISTING_RESEARCH_WATCHLIST_NOT_FULL_UNIVERSE',
-              'ranking_ready': False, 'sources': [source_view(k, v) for k, v in sources.items() if k in SOURCE_LABELS],
+              'ranking_ready': False, 'research_scores': scores,
+              'sources': [source_view(k, v) for k, v in sources.items() if k in SOURCE_LABELS],
               'rows': rows, 'diagnostics': diagnostics}
     # Deterministic content identity; intentionally excludes its own hash.
     result['data_hash'] = hashlib.sha256(json.dumps(result, sort_keys=True, allow_nan=False).encode()).hexdigest()
