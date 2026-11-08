@@ -1,5 +1,23 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-08 - Share model inputs without duplicating sources
+
+- A model/version/config change does not require another provider collection.
+  Bind separate model metadata to the same exact Reader generation, rows and
+  decision cutoff. Keep the qualified application consumer ID unchanged.
+- Stored input metadata is a locator, never Source trust or current freshness.
+  Replay validates the original Reader again; a new decision needs a new cutoff.
+- A requested date outside a verified slice is not a proven provider gap. Expand
+  the Reader first; unknown session coverage must not trigger duplicate capture.
+- Initial synthetic validation used the Reader-reserved component name `missing`
+  and imported a TestCase directly, unintentionally running its suite too. Rename
+  the fixture and import its module; preserve the failure, keep the original guard.
+- Independent review found duck-typed Reader substitution, detached genuine
+  bundles and serialization-before-limit paths. Require the original Reader;
+  compare manifest/receipts and stream row-set verification before reuse/write;
+  preflight metadata and bound encoding before decoding or allocating results.
+  The draft registered suite was interrupted for these corrections, not passed.
+
 ## 2026-11-08 - Research freshness belongs to its original session
 
 - Public research scores were hidden when legacy account quotes were absent

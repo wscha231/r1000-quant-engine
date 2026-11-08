@@ -1855,6 +1855,8 @@ class HistoryTest(unittest.TestCase):
 
 def load_tests(loader, tests, pattern):
     # Keep the existing registered Tier-1 entry; avoid the shared runner/P0 lane.
+    from research_model_inputs_smoke import ModelInputsTest
+    tests.addTests(loader.loadTestsFromTestCase(ModelInputsTest))
     from research_data_access_smoke import ReaderTest
     tests.addTests(loader.loadTestsFromTestCase(ReaderTest))
     from a1_reader_generation_binding_smoke import BindingTest

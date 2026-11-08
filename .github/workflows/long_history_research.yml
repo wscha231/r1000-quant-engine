@@ -10,6 +10,7 @@ on:
       - 'tools/macro_research_checkpoint.py'
       - 'tools/configure_macro_research_drive.py'
       - 'tools/research_data_access.py'
+      - 'tools/research_model_inputs.py'
       - 'tools/run_data_freshness_contract.py'
       - 'tools/prepare_a1_reader_generation.py'
       - 'tools/alpaca_sip_private_backfill_v1.py'
@@ -22,6 +23,7 @@ on:
       - 'tools/run_pr_validation.py'
       - 'r1000_legacy_input_guard.py'
       - 'tests/research_data_access_smoke.py'
+      - 'tests/research_model_inputs_smoke.py'
       - 'tests/a1_reader_generation_binding_smoke.py'
       - 'tests/alpaca_sip_private_backfill_v1_smoke.py'
       - 'data_static/research_dataset_registry_v1.json'
@@ -77,6 +79,7 @@ jobs:
             /tools/macro_research_checkpoint.py
             /tools/configure_macro_research_drive.py
             /tools/research_data_access.py
+            /tools/research_model_inputs.py
             /tools/run_data_freshness_contract.py
             /tools/prepare_a1_reader_generation.py
             /tools/alpaca_sip_private_backfill_v1.py
@@ -89,6 +92,7 @@ jobs:
             /tools/run_pr_validation.py
             /r1000_legacy_input_guard.py
             /tests/research_data_access_smoke.py
+            /tests/research_model_inputs_smoke.py
             /tests/a1_reader_generation_binding_smoke.py
             /tests/alpaca_sip_private_backfill_v1_smoke.py
             /data_static/research_dataset_registry_v1.json
