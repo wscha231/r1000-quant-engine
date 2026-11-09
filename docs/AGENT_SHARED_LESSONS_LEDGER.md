@@ -10176,3 +10176,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - An explicitly disabled macro recipe preserves rows with every macro field
   unknown and clears stale macro provenance. It grants no admission and does
   not relax the fixed C0 profile's enabled-macro policy binding.
+- Independent verification found nonempty price frames with invalid indexes
+  reached upstream I/O before their later prefix check. Reuse the same index
+  contract in common preflight, and check the incumbent close-column selector
+  before any upstream work; retain the original failed run and valid spellings.

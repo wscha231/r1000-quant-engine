@@ -5617,7 +5617,7 @@ def _macro_feature_cutoff(feature_date):
     return stamp, cutoff
 
 
-def _macro_observation_prefix(value, feature_date):
+def _macro_observation_prefix(value, feature_date=None):
     if not isinstance(value, (pd.Series, pd.DataFrame)):
         raise ValueError("macro_observation_type_invalid")
     if value.empty:
@@ -5626,6 +5626,8 @@ def _macro_observation_prefix(value, feature_date):
             or value.index.hasnans or value.index.has_duplicates
             or not value.index.equals(value.index.normalize())):
         raise ValueError("macro_observation_index_invalid")
+    if feature_date is None:
+        return value  # preflight validates the same index without copying data
     return value.loc[value.index <= feature_date].sort_index().copy()
 
 
@@ -5731,6 +5733,13 @@ def _require_macro_feature_inputs(lake, price_history):
         if (ticker not in price_history or not isinstance(price_history[ticker], pd.DataFrame)
                 or price_history[ticker].empty):
             raise ValueError("historical_macro_price_prefix_missing:" + ticker)
+        frame = _macro_observation_prefix(price_history[ticker])
+        # Reuse the incumbent close selector's actual column precedence; a
+        # lower-priority Close must not replace an unusable Adj Close here.
+        if "Adj Close" not in frame.columns and "Close" not in frame.columns:
+            raise ValueError("historical_macro_price_columns_missing:" + ticker)
+        if price_close_series(frame).empty:
+            raise ValueError("historical_macro_price_values_missing:" + ticker)
     _macro_source_projection_api(lake)
 
 

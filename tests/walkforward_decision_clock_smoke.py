@@ -1011,6 +1011,40 @@ class MacroPrefixCausalityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "historical_macro_price_prefix_missing"):
                 pipeline.merge_macro_regime_features(cfg, {}, monthly, macro_lake=lake, macro_price_history={})
 
+    def test_price_schema_refuses_before_upstream_io_using_existing_prefix_contract(self):
+        cfg, _, series = self.fixture()
+        source, lake, calls = self.projected_source(series)
+        day = pd.DatetimeIndex(["2021-09-30"])
+        cases = ((pd.DataFrame({"Close": [100.]}, index=["2021-09-30"]), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=[0]), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=pd.DatetimeIndex(["2021-09-30T12:00:00"])), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100., 100.]}, index=day.repeat(2)), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=day.tz_localize("UTC")), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=pd.DatetimeIndex([pd.NaT])), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Open": [100.]}, index=day), "historical_macro_price_columns_missing"),
+                 (pd.DataFrame({"Close": [np.nan]}, index=day), "historical_macro_price_values_missing"),
+                 (pd.DataFrame({"Adj Close": [np.nan], "Close": [100.]}, index=day), "historical_macro_price_values_missing"))
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("UPSTREAM_IO_REACHED")) as io:
+            for frame, reason in cases:
+                invalid = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.subTest(index_type=type(frame.index).__name__, columns=tuple(frame.columns), build=build.__name__):
+                        with self.assertRaisesRegex(ValueError, "^" + reason + "(?::[A-Z]+)?$"):
+                            build(cfg, macro_lake=lake, macro_price_history=invalid)
+            self.assertEqual(io.call_count, 0)
+            self.assertEqual(calls, [])
+            # Both real column spellings remain accepted; only the sentinel,
+            # rather than any real get_paths/provider work, may run afterwards.
+            for column in ("Close", "Adj Close"):
+                valid = {ticker: pd.DataFrame({column: [100.]}, index=day)
+                         for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.assertRaisesRegex(RuntimeError, "^UPSTREAM_IO_REACHED$"):
+                        build(cfg, macro_lake=lake, macro_price_history=valid)
+            self.assertEqual(io.call_count, 4)
+            self.assertEqual(calls, [])
+
     def test_current_report_wrapper_preserves_unprefixed_math_and_io(self):
         cfg, prices, series = self.fixture()
         expected = pipeline.compute_macro_regime_frame(cfg, prices, series)
