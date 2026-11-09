@@ -659,10 +659,10 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
         cfg, frame, prices = c0_fixture()
         canonical = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
         self.assertIs(pipeline._causal_research_session(canonical, cfg), canonical)
-        # Nested numeric equality must not let false act as integer zero.
+        # Nested numeric equality must not bypass the canonical scalar type.
         changed_map = copy.deepcopy(cfg.manual_regime_conditioned_sleeve_map)
         first = next(iter(changed_map.values()))
-        first["months"] = False
+        first["core"] = np.float64(first["core"])
         cfg.manual_regime_conditioned_sleeve_map = changed_map
         with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:manual_regime_conditioned_sleeve_map"):
             pipeline._causal_research_session(canonical, cfg)
