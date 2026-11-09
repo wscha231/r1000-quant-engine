@@ -6052,9 +6052,7 @@ class ManualTests(unittest.TestCase):
 
     def test_selective_port_and_historical_are_not_automatic_reuse(self):
         live_catalog = (ROOT / manual.CATALOG).read_bytes()
-        for key, classification in (('group_400_405', 'SELECTIVE_PORT'),
-                                    ('group_586', 'SELECTIVE_PORT'),
-                                    ('group_267', 'HISTORICAL_LESSON')):
+        for key, classification in (('group_400_405', 'SELECTIVE_PORT'),):
             row = next(row for row in manual.load_catalog(self.root)['entries']
                        if row['entry_id'] == key)
             self.assertEqual(row['classification'], classification)
@@ -6069,6 +6067,27 @@ class ManualTests(unittest.TestCase):
             packet, scope = self.packet()
             packet['reuse_entries'] = [key]
             self.rejected(self.bind(packet), scope, 'catalog_reuse_not_allowed')
+
+        # The causal ledger extraction advances current source, not the old
+        # SELECTIVE_PORT/HISTORICAL_LESSON dependency authority. A precise
+        # stale-operand refusal is non-admission, never a reason to repin it.
+        for key, classification in (('group_586', 'SELECTIVE_PORT'),
+                                    ('group_267', 'HISTORICAL_LESSON'),
+                                    ('group_582_583_584', 'SELECTIVE_PORT')):
+            row = next(row for row in manual.load_catalog(self.root)['entries']
+                       if row['entry_id'] == key)
+            self.assertEqual(row['classification'], classification)
+            for name, expected_sha in row['dependency_hashes'].items():
+                target = self.root / name
+                target.write_bytes(historical_catalog_fixture_bytes(target.read_bytes(), expected_sha))
+            name = 'tools/run_broker_ledger_replay.py'
+            self.assertNotEqual(manual.board.file_hash(self.root / name), row['dependency_hashes'][name])
+            with self.assertRaisesRegex(manual.ContractError,
+                                        r'^catalog_dependency_changed:tools/run_broker_ledger_replay\.py$'):
+                manual.lookup_reuse(key, self.root)
+            packet, scope = self.packet()
+            packet['reuse_entries'] = [key]
+            self.rejected(self.bind(packet), scope, 'catalog_dependency_changed:' + name)
 
         # group_1 keeps its historical config pin when the current engine epoch
         # advances. Its earlier typed dependency refusal is also non-admission,

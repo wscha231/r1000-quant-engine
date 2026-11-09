@@ -494,6 +494,350 @@ class UniverseSizeCausalityTests(unittest.TestCase):
             self.assertEqual(unknown.iloc[0]['mktcap_px_shares_raw'],10000.)
             self.assertEqual(unknown.iloc[1]['mktcap'],5000.)
 
+from tools.run_broker_ledger_replay import ResearchNextCloseSession, NYSE_CALENDAR
 
-if __name__ == '__main__':
-    unittest.main()
+
+def c0_fixture():
+    cfg = EngineConfig()
+    cfg.end_date = "2026-04-30"
+    dates = pd.to_datetime(["2026-01-30", "2026-02-27", "2026-03-31", "2026-04-30"])
+    rows = []
+    for date in dates:
+        close = pipeline.decision_session_close_utc(pd.Series([date])).iloc[0]
+        for index in range(18):
+            row = dict.fromkeys(cfg.features, 0.2)
+            row.update(dict.fromkeys(pipeline.CORE_FUNDAMENTAL_MINIMUM_FIELDS, 0.2))
+            row.update(ticker=f"S{index:02}", Name=f"Synthetic {index}", sector=f"Sector{index % 6}",
+                       rebalance_date=date, feature_date=date, feature_available_from=close,
+                       score=(10.+index if date == dates[1] and index >= 9 else 4.0-index*.07),
+                       px=100., mktcap=1e8*(index+1), dollar_vol_20d=1e8,
+                       vol_6m=.2, mom_1m=.05, mom_3m=.1, mom_6m=.2, mom_12m=.3,
+                       dist_ma200=.1, selection_confirmation_score=.9,
+                       fundamental_presence_score=1., fundamental_reliability_score=1.,
+                       fundamental_history_coverage_score=1., entry_quality_score=.8,
+                       portfolio_sleeve_label=("core_compounder", "future_winner", "early_scout")[index % 3],
+                       portfolio_sleeve_label_raw=("core_compounder", "future_winner", "early_scout")[index % 3],
+                       revenues_ttm=1e9, net_income_ttm=1e8, ocf_ttm=1.5e8,
+                       assets=2e9, liabilities=1e9, risk_penalty=0., rs_acceleration_score=.1,
+                       revenue_growth_final=(.1 if index >= 13 else .5), roe_proxy=.25,
+                       net_margin=.2, op_margin_ttm=.2, mom_24m=.8, revision_blueprint_score=.8,
+                       fundamental_turnaround_acceleration_score=(.8 if index < 6 else .1),
+                       cashflow_inflection_under_loss_score=(.8 if index < 6 else .1),
+                       macro_risk_off_score=0., market_regime_score=1., spy_above_ma200=1.,
+                       bench_above_ma200=1., market_breadth_regime_score=.8,
+                       market_sector_participation=.7, systemic_crisis_score=0.,
+                       live_event_risk_score=0., liquidity_drain_score=0., inflation_pressure_score=0.,
+                       trend_template_full=1., price_above_ma50=1., price_above_ma200=1.,
+                       relative_strength_composite=2-index*.02, _is_speculative=0.,
+                       y_blend=999., r_6m=100., r_6m_label_end_date=date+pd.DateOffset(months=6))
+            rows.append(row)
+    sessions = NYSE_CALENDAR.schedule(start_date=dates[0].date(), end_date=cfg.end_date).index
+    prices = {f"S{index:02}": pd.DataFrame({"close": 100., "open": 99.}, index=sessions)
+              for index in range(18)}
+    return cfg, pd.DataFrame(rows), prices
+
+
+class CausalMonthlyDecisionTests(unittest.TestCase):
+    def main_result(self, cfg, frame, prices):
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        original = pipeline.build_target_portfolio
+        calls = []
+
+        def observe(*args, **kwargs):
+            result = original(*args, **kwargs)
+            calls.append((args[1].copy(deep=True), dict(kwargs.get("prev_w") or {}), result[0].copy()))
+            return result
+
+        with patch.object(pipeline, "build_target_portfolio", side_effect=observe), \
+             patch.object(pipeline, "merge_partial_sleeve_rebalance_state", wraps=pipeline.merge_partial_sleeve_rebalance_state) as partial, \
+             patch.object(pipeline, "month_forward_return_open", side_effect=AssertionError("future-return feedback")), \
+             patch.object(pipeline, "get_paths", side_effect=AssertionError("research output I/O")):
+            result = pipeline.backtest_portfolio(cfg, frame, research_session=session)
+            partial_calls = partial.call_count
+        return result, session, calls, partial_calls
+
+    def test_nonempty_original_main_future_open_and_tail_cannot_change_past_decisions(self):
+        cfg, frame, prices = c0_fixture()
+        first, session, calls, partial_calls = self.main_result(cfg, frame, prices)
+        self.assertGreater(len(session.trades), 0)
+        self.assertGreater(len(calls), 1)
+        self.assertTrue(any(not call[2].empty for call in calls))
+        self.assertTrue(any(call[1] for call in calls[1:]))
+        self.assertGreater(partial_calls, 0)
+        self.assertTrue(cfg.portfolio_position_risk_enabled)
+        self.assertTrue(cfg.portfolio_hold_policy_enabled)
+        self.assertTrue(cfg.sleeve_specific_rebalance_enabled)
+        self.assertTrue(any("portfolio_hold_policy_bonus" in call[2] for call in calls))
+        for call in calls:
+            self.assertNotIn("y_blend", call[0])
+            self.assertNotIn("r_6m", call[0])
+        poisoned = {ticker: price.copy() for ticker, price in prices.items()}
+        for price in poisoned.values():
+            price.loc[price.index >= "2026-03-02", "open"] = 1e9
+        changed = frame.copy()
+        changed.loc[changed.rebalance_date > "2026-02-27", ["y_blend", "r_6m"]] = -1e10
+        # An entirely later cohort must not add an evaluated current decision.
+        tail = changed.tail(18).copy()
+        tail["rebalance_date"] = tail["feature_date"] = pd.Timestamp("2027-01-29")
+        tail["feature_available_from"] = pd.Timestamp("2027-01-29T21:00:00Z")
+        second, other, _, _ = self.main_result(cfg, pd.concat([changed, tail], ignore_index=True), poisoned)
+        self.assertEqual(first.monthly_returns.to_dict("records"), second.monthly_returns.to_dict("records"))
+        pd.testing.assert_frame_equal(first.equity_curve, second.equity_curve)
+        self.assertEqual(session.trades, other.trades)
+        self.assertEqual(first.metrics["status"], "SYNTHETIC_ONLY_REAL_EXECUTION_BLOCKED")
+        self.assertFalse(first.metrics["source_admission"])
+
+    def test_future_close_changes_later_nav_but_not_prior_valid_targets(self):
+        cfg, frame, prices = c0_fixture()
+        first, session, _, _ = self.main_result(cfg, frame, prices)
+        poisoned = {ticker: price.copy() for ticker, price in prices.items()}
+        for price in poisoned.values():
+            price.loc[price.index >= "2026-03-02", "close"] = 40.
+        second, other, _, _ = self.main_result(cfg, frame, poisoned)
+        before = first.monthly_returns.loc[first.monthly_returns.rebalance_date <= "2026-02-27"]
+        after = second.monthly_returns.loc[second.monthly_returns.rebalance_date <= "2026-02-27"]
+        self.assertEqual(before.to_dict("records"), after.to_dict("records"))
+        self.assertNotEqual(first.metrics["ending_equity_usd"], second.metrics["ending_equity_usd"])
+        self.assertGreater(len(session.trades), 0)
+        self.assertGreater(len(other.trades), 0)
+        self.assertGreater(second.monthly_returns.dd_breaker_level.max(), 0)
+
+    def test_monthly_forced_exit_is_not_rebought_or_credited_a_stop_fill(self):
+        cfg, frame, prices = c0_fixture()
+        baseline, original_session, _, _ = self.main_result(cfg, frame, prices)
+        bought = next(row["ticker"] for row in original_session.trades if row["side"] == "BUY")
+        prices[bought].loc[prices[bought].index >= "2026-02-27", "close"] = 70.
+        prices[bought].loc[prices[bought].index >= "2026-03-02", "close"] = 40.
+        result, session, _, _ = self.main_result(cfg, frame, prices)
+        decision = result.monthly_returns.loc[result.monthly_returns.rebalance_date.eq(pd.Timestamp("2026-02-27"))].iloc[0]
+        self.assertIn(bought, dict(decision.risk_exits))
+        self.assertEqual(dict(decision.target_weights).get(bought, 0.), 0.)
+        fills = [row for row in session.trades if row["ticker"] == bought and row["date"] == "2026-03-02"]
+        self.assertTrue(fills)
+        self.assertEqual({row["side"] for row in fills}, {"SELL"})
+        self.assertTrue(all(row["fill_price"] == 40. for row in fills))
+        self.assertLess(result.metrics["ending_equity_usd"], baseline.metrics["ending_equity_usd"])
+
+    def test_concentrated_reuses_n3_score_power_monthly_and_same_ledger(self):
+        cfg, frame, prices = c0_fixture()
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        with patch.object(pipeline, "select_concentrated_portfolio_topk", wraps=pipeline.select_concentrated_portfolio_topk) as selector, \
+             patch.object(pipeline, "month_forward_return_open", side_effect=AssertionError("future outcome")), \
+             patch.object(pipeline, "get_paths", side_effect=AssertionError("output I/O")):
+            result = pipeline.backtest_concentrated_portfolio(cfg, frame, top_n=3, weighting_mode="score_power",
+                                                               rebalance_interval_months=1, research_session=session)
+        self.assertEqual(selector.call_count, 4)
+        self.assertTrue(all(call.kwargs["top_n"] == 3 for call in selector.call_args_list))
+        self.assertGreater(len(session.trades), 0)
+        self.assertFalse(result.metrics["valid_for_production"])
+        self.assertIsNotNone(result.metrics["pending_intent"])
+        self.assertEqual(result.metrics["pending_intent"]["due"], "2026-05-01")
+        self.assertEqual(result.metrics["ending_equity_usd"], session.nav_rows[-1]["equity_usd"])
+        wrong = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        with self.assertRaisesRegex(ValueError, "causal_concentrated_registered"):
+            pipeline.backtest_concentrated_portfolio(cfg, frame, weighting_mode="conviction_curve", research_session=wrong)
+
+    def test_fixed_c0_cannot_be_renamed_policy_off_or_override(self):
+        cfg, frame, prices = c0_fixture()
+        changes = (("portfolio_hold_policy_enabled", False),
+                   ("sleeve_specific_rebalance_enabled", False),
+                   ("portfolio_position_risk_enabled", False),
+                   ("drawdown_breaker_multilevel_enabled", False),
+                   ("sleeve_regime_apply_champion", False),
+                   ("manual_regime_conditioned_sleeve_map", {}),
+                   ("regime_conditioned_sleeve_map", {"balanced": {"cash": 1.0}}),
+                   ("regime_conditioned_min_learned_months", 0))
+        for field, value in changes:
+            with self.subTest(field=field):
+                cfg = EngineConfig()
+                cfg.end_date = "2026-04-30"
+                setattr(cfg, field, value)
+                session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+                with self.assertRaisesRegex(ValueError, "causal_c0_policy_override"):
+                    pipeline.backtest_portfolio(cfg, frame, research_session=session)
+        cfg, frame, prices = c0_fixture()
+        canonical = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        self.assertIs(pipeline._causal_research_session(canonical, cfg), canonical)
+        # Nested numeric equality must not bypass the canonical scalar type.
+        changed_map = copy.deepcopy(cfg.manual_regime_conditioned_sleeve_map)
+        first = next(iter(changed_map.values()))
+        first["core"] = np.float64(first["core"])
+        cfg.manual_regime_conditioned_sleeve_map = changed_map
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:manual_regime_conditioned_sleeve_map"):
+            pipeline._causal_research_session(canonical, cfg)
+        cfg, frame, prices = c0_fixture()
+        for override in ({"rebalance_interval_months_override": 2},
+                         {"adaptive_interval_policy_override": False},
+                         {"sleeve_override": {"cash": 1.0}}, {"cash_target_max": .5}):
+            session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+            with self.assertRaisesRegex(ValueError, "causal_c0_main_policy_override"):
+                pipeline.backtest_portfolio(cfg, frame, research_session=session, **override)
+
+    def test_consumed_policy_fields_are_explicit_and_reject_sizing_variants(self):
+        cfg, frame, prices = c0_fixture()
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        self.assertIs(pipeline._causal_research_session(session, cfg), session)
+        variants = (("min_dynamic_port_names", 100), ("partial_scout_total_weight_cap", 0.0),
+                    ("weight_score_power", -1.0), ("cash_buffer_enabled", not cfg.cash_buffer_enabled),
+                    ("partial_scout_gate_enabled", not cfg.partial_scout_gate_enabled),
+                    ("sector_adjusted_gate_enabled", not cfg.sector_adjusted_gate_enabled))
+        for field, value in variants:
+            with self.subTest(field=field):
+                changed = copy.deepcopy(cfg)
+                setattr(changed, field, value)
+                with self.assertRaisesRegex(ValueError, "^causal_c0_policy_override:" + field + "$"):
+                    pipeline._causal_research_session(session, changed)
+        changed = copy.deepcopy(cfg)
+        changed.min_dynamic_port_names = float(cfg.min_dynamic_port_names)
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:min_dynamic_port_names"):
+            pipeline._causal_research_session(session, changed)
+
+        # Audit literal reads in the actual consumer graph, including imports
+        # inside candidate-gate functions. Parse code, never execute providers.
+        modules = {}
+        for module in ("r1000_pipeline", "r1000_signals", "r1000_helpers", "r1000_market_leader_engine"):
+            tree = ast.parse((ROOT / (module + ".py")).read_bytes())
+            definitions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+            imports = {alias.asname or alias.name: (node.module, alias.name)
+                       for node in tree.body if isinstance(node, ast.ImportFrom) for alias in node.names}
+            modules[module] = definitions, imports
+        stack = [("r1000_pipeline", name) for name in
+                 ("backtest_portfolio", "backtest_concentrated_portfolio", "_causal_monthly_risk")]
+        stack += [("r1000_signals", name) for name in
+                  ("build_target_portfolio", "select_concentrated_portfolio_topk", "concentrated_weight_map")]
+        excluded = {"get_paths", "month_forward_return_open", "load_benchmark_price_series",
+                    "get_hist", "load_fred_series", "fetch_price_history"}
+        visited, reads, dynamic = set(), set(), set()
+        while stack:
+            module, name = stack.pop()
+            if (module, name) in visited or name in excluded:
+                continue
+            definitions, imports = modules.get(module, ({}, {}))
+            node = definitions.get(name)
+            if node is None:
+                continue
+            visited.add((module, name))
+            imports = dict(imports)
+            for child in ast.walk(node):
+                if isinstance(child, ast.ImportFrom):
+                    imports.update({alias.asname or alias.name: (child.module, alias.name)
+                                    for alias in child.names})
+            for child in ast.walk(node):
+                if (isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name)
+                        and child.value.id in {"cfg", "cfg_obj", "config"}):
+                    reads.add(child.attr)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    if (child.func.id == "getattr" and len(child.args) >= 2
+                            and isinstance(child.args[0], ast.Name)
+                            and child.args[0].id in {"cfg", "cfg_obj", "config"}):
+                        key = child.args[1]
+                        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                            reads.add(key.value)
+                        else:
+                            dynamic.add((name, ast.unparse(key)))
+                    target = ((module, child.func.id) if child.func.id in definitions
+                              else imports.get(child.func.id))
+                    if target and target[0] in modules:
+                        stack.append(target)
+                    elif target and any(isinstance(arg, ast.Name)
+                                        and arg.id in {"cfg", "cfg_obj", "config"}
+                                        for arg in list(child.args) + [kw.value for kw in child.keywords]):
+                        self.fail("unreviewed_external_policy_consumer:" + ":".join(target))
+        self.assertIn(("r1000_pipeline", "add_core_fundamental_minimum_flags"), visited)
+        self.assertFalse(reads - pipeline._CAUSAL_C0_POLICY_FIELDS
+                         - pipeline._CAUSAL_C0_NONPOLICY_REFERENCES.keys())
+        self.assertTrue(dynamic <= {("_causal_research_session", "name")} | {
+            ("_causal_monthly_risk", "prefix + " + repr("_position_risk_" + suffix))
+            for suffix in ("enabled", "hard_stop", "trailing_stop", "trailing_min_profit", "distribution_threshold")})
+        # Dynamic Main/Con risk keys also have explicit canonical bindings.
+        for prefix in ("portfolio", "concentrated"):
+            for suffix in ("enabled", "hard_stop", "trailing_stop", "trailing_min_profit", "distribution_threshold"):
+                self.assertIn(prefix + "_position_risk_" + suffix, pipeline._CAUSAL_C0_POLICY_FIELDS)
+
+    def test_filled_sleeve_controls_trailing_while_observable_risk_updates(self):
+        cfg, frame, prices = c0_fixture()
+        ticker = "S00"
+        prices[ticker].loc[pd.Timestamp("2026-02-03"), "close"] = 150.
+        prices[ticker].loc[pd.Timestamp("2026-02-27"), "close"] = 129.
+        session = ResearchNextCloseSession({ticker: prices[ticker]}, evidence_end_date=cfg.end_date)
+        initial = session.advance("2026-01-30")
+        session.queue("2026-01-30", {ticker: 1.0})
+        intended = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": "early_scout"}])
+        current = frame.iloc[:1].copy()
+        current["revision_score"] = .5
+        current["portfolio_sleeve_label"] = "core_compounder"
+        self.assertFalse(initial.positions)
+        self.assertEqual(pipeline._causal_monthly_risk(cfg, current, initial, {}, intended), {})
+        self.assertEqual(pipeline._causal_filled_sleeves(initial, (), None, {}), {})
+        snapshot = session.advance("2026-02-27")
+        self.assertEqual(len(snapshot.positions), 1)
+        self.assertEqual(snapshot.positions[0].gross_cost_basis, 100.)
+        self.assertEqual(snapshot.positions[0].peak_close, 150.)
+        pending = ("2026-01-30", {ticker: "early_scout"})
+        allocated = pipeline._causal_filled_sleeves(snapshot, session.trades, pending, {})
+        self.assertEqual(allocated[ticker][1], "early_scout")
+        for actual, raw, expected in (("early_scout", "core_compounder", {ticker: "sleeve_trailing_stop"}),
+                                      ("core_compounder", "early_scout", {})):
+            current["portfolio_sleeve_label"] = raw
+            previous = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": actual,
+                                      "revision_score": -100., "rs_acceleration_score": -100.}])
+            with patch.object(pipeline, "_managed_position_risk_exit_signal",
+                              wraps=pipeline._managed_position_risk_exit_signal) as observed:
+                exits = pipeline._causal_monthly_risk(cfg, current, snapshot, {}, previous)
+            self.assertEqual(exits, expected)
+            row = observed.call_args.args[0]
+            self.assertEqual(row["portfolio_sleeve_label"], actual)
+            self.assertEqual(row["revision_score"], .5)
+            self.assertEqual(row["rs_acceleration_score"], current.iloc[0].rs_acceleration_score)
+        # No actual trade: neither an unfilled intent nor an integer no-op may
+        # promote a different target sleeve into this existing holding.
+        changed_intent = ("2026-02-27", {ticker: "core_compounder"})
+        self.assertEqual(pipeline._causal_filled_sleeves(snapshot, (), changed_intent, allocated), allocated)
+        current["risk_penalty"] = 1.
+        current["rs_acceleration_score"] = -1.
+        current["portfolio_sleeve_label"] = "early_scout"
+        core = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": "core_compounder"}])
+        self.assertEqual(pipeline._causal_monthly_risk(cfg, current, snapshot, {}, core),
+                         {ticker: "distribution_risk_decay"})
+
+    def test_noop_proposed_sleeve_cannot_change_canonical_partial_hold_decision(self):
+        cfg, frame, prices = c0_fixture()
+        intervals = pipeline.resolve_sleeve_rebalance_interval_map(cfg)
+        self.assertEqual(intervals, {"core_compounder": 1, "future_winner": 2, "early_scout": 1})
+        due = [name for name, interval in intervals.items() if interval == 1]
+        self.assertEqual(set(due), {"core_compounder", "early_scout"})
+        for actual, proposed, retained in (("early_scout", "future_winner", False),
+                                           ("future_winner", "core_compounder", True)):
+            with self.subTest(actual=actual, proposed=proposed):
+                ticker = "S00"
+                session = ResearchNextCloseSession({ticker: prices[ticker]}, evidence_end_date=cfg.end_date)
+                session.advance("2026-01-30")
+                session.queue("2026-01-30", {ticker: 1.0})
+                first = session.advance("2026-02-27")
+                allocated = pipeline._causal_filled_sleeves(
+                    first, session.trades, ("2026-01-30", {ticker: actual}), {})
+                trades_before = len(session.trades)
+                session.queue("2026-02-27", {ticker: 1.0})
+                later = session.advance("2026-03-31")
+                self.assertTrue(later.positions)
+                self.assertEqual(len(session.trades), trades_before, "real integer sizing must be a no-op")
+                allocated = pipeline._causal_filled_sleeves(
+                    later, session.trades[trades_before:], ("2026-02-27", {ticker: proposed}), allocated)
+                current = frame.loc[frame.rebalance_date.eq(frame.rebalance_date.min())].copy()
+                current.loc[current.ticker.eq(ticker), "portfolio_sleeve_label"] = proposed
+                portfolio, weights, actual_map = pipeline._causal_actual_portfolio(current, later, allocated)
+                self.assertEqual(portfolio.portfolio_sleeve_label.tolist(), [actual])
+                self.assertEqual(actual_map, {ticker: actual})
+                target = current.loc[current.ticker.eq("S01")].copy()
+                target["portfolio_sleeve_label"] = "core_compounder"
+                _, correct, _ = pipeline.merge_partial_sleeve_rebalance_state(
+                    current, weights, actual_map, target, {"S01": 1.0}, due, cfg, interval_map=intervals)
+                _, poisoned, _ = pipeline.merge_partial_sleeve_rebalance_state(
+                    current, weights, {ticker: proposed}, target, {"S01": 1.0}, due, cfg, interval_map=intervals)
+                self.assertIs(ticker in correct, retained)
+                self.assertNotEqual(ticker in correct, ticker in poisoned,
+                                    "counterfactual proposed metadata must expose the old wrong hold decision")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

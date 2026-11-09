@@ -10105,3 +10105,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reindexing filtered outcomes by duplicated row labels can multiply rows.
   Use one eligibility mask with positional assignment; preserve valid zero,
   negative outcomes and duplicate-index generic API behavior.
+
+## 2026-11-10 - Causal next-close state is a synthetic rebaseline
+
+- Reuse one incumbent ledger for fills, strict marks, cash/NAV and immutable
+  monthly decision state. Following-session outcomes cannot update prior hold,
+  turnover, sleeve or risk decisions; later executed NAV must still respond.
+- Keep the fixed C0 policy binding explicit, including consumed sleeve regime
+  maps and strict nested types. Neither a policy-off result nor a later intended
+  weight is an actual filled holding. Synthetic basis grants no Source/PIT,
+  physical-share, account, historical-backtest or economic admission.
+- When the current broker dependency advances, preserve historical/selective
+  catalog pins. Test their exact typed stale-dependency refusal and the intact
+  classification refusal separately; update only current reuse pins.
+- Exact-head review found two sizing controls bypassed a prefix-based C0 guard.
+  Bind the actual consumed policy names explicitly and audit transitive/local
+  imports; distinguish source/report/runtime inputs and lexical comment hits.
+- A current raw signal sleeve must not overwrite a held allocation's risk
+  threshold. Advance allocation metadata only after its matching actual fill;
+  keep current risk observations, and do not promote pending or integer-no-op
+  target labels into holdings. Preserve full-exit/reentry episode identity.
+- The first sleeve fix protected risk but left proposed roles in partial-hold
+  state. Restore the same actual filled portfolio/map before every decision
+  and after queuing. Test the unchanged core1/future2/early1 cadence in both
+  directions: a no-fill label must neither preserve a due holding nor remove
+  an allocated sleeve whose rebalance is not yet due.
