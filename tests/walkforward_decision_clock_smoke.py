@@ -217,5 +217,98 @@ class WalkforwardDecisionClockTests(unittest.TestCase):
         self.assertTrue(baseline.loc[baseline['rebalance_date'].eq('2021-11-30'),'r_6m'].isna().all())
 
 
+class UniverseSizeCausalityTests(unittest.TestCase):
+    def monthly(self, dates=('2021-01-29', '2021-02-26')):
+        rows=[]
+        for month,date in enumerate(dates):
+            for name in range(8):
+                rows.append(dict(ticker=f'S{name}', rebalance_date=pd.Timestamp(date),
+                                 px=20., shares=np.nan, dollar_vol_20d=1e6+name*1e5,
+                                 vol_252d=.2, dd_1y=.2,
+                                 mktcap=(2000.+name if month==0 and name<2 else np.nan),
+                                 universe_source='historical_membership_file'))
+        frame=pd.DataFrame(rows)
+        frame['feature_available_from']=pipeline.decision_session_close_utc(frame['rebalance_date'])
+        return frame
+
+    def cfg(self):
+        cfg=EngineConfig()
+        cfg.min_mktcap=1000.
+        cfg.min_dollar_vol_20d=1.
+        cfg.universe_size=3
+        return cfg
+
+    def test_actual_monthly_selection_ignores_future_cohort_and_late_rows(self):
+        baseline=self.monthly()
+        before,ranked,expected=pipeline._causal_universe_size_rows(baseline,self.cfg())
+        future=pd.concat([self.monthly(('2026-01-30',)) for _ in range(10)],ignore_index=True)
+        future['ticker']=[f'F{i}' for i in range(len(future))]
+        future['mktcap']=1e12
+        late=self.monthly(('2021-01-29',))
+        late['ticker']='LATE:'+late['ticker']
+        late['feature_available_from']=pd.Timestamp('2025-01-01',tz='UTC')
+        changed=pd.concat([baseline,future,late],ignore_index=True)
+        self.assertGreater(changed['mktcap'].notna().mean(),.25)
+        actual_pre,actual_ranked,actual=pipeline._causal_universe_size_rows(changed,self.cfg())
+        for old,new in ((before,actual_pre),(ranked,actual_ranked),(expected,actual)):
+            new=new.loc[new['rebalance_date'].lt('2022-01-01')]
+            columns=['ticker','rebalance_date','mktcap','size_metric','mktcap_filter_used','mktcap_dollar_vol_fallback']
+            if 'rank_size' in old: columns.append('rank_size')
+            pd.testing.assert_frame_equal(old[columns].reset_index(drop=True),new[columns].reset_index(drop=True))
+        self.assertEqual(len(expected),5)
+        self.assertGreater(len(actual),len(expected))
+
+    def test_former_latest_fallback_stays_identical_after_append(self):
+        old=self.monthly(('2021-01-29',))
+        old['mktcap']=100.  # All caps fail the existing minimum.
+        before=pipeline._causal_universe_size_rows(old,self.cfg())[2]
+        later=self.monthly(('2021-02-26',))
+        later['mktcap']=1e12
+        after=pipeline._causal_universe_size_rows(pd.concat([old,later],ignore_index=True),self.cfg())[2]
+        pd.testing.assert_frame_equal(before.reset_index(drop=True),
+                                      after.loc[after['rebalance_date'].eq('2021-01-29')].reset_index(drop=True))
+        self.assertEqual(len(before),3)
+        self.assertTrue(before['mktcap'].isna().all())
+        self.assertTrue(before['mktcap_dollar_vol_fallback'].all())
+
+    def test_proxy_uses_original_clock_and_refuses_unknown_future_stale_conflict(self):
+        monthly=self.monthly(('2021-01-29',)).iloc[:1].copy()
+        close=pipeline.decision_session_close_utc(monthly['rebalance_date']).iloc[0]
+        good=pd.DataFrame([dict(ticker='S0',mktcap_proxy=5000.,updated_at=close,price_currency='USD')])
+        result=pipeline._mktcap_proxy_at_decisions(monthly,good)
+        self.assertEqual(float(result.iloc[0]['mktcap_proxy']),5000.)
+        for stamp in (None,'invalid',close+pd.Timedelta(seconds=1),close-pd.Timedelta(days=15)):
+            bad=good.copy();bad['updated_at']=stamp
+            self.assertTrue(pipeline._mktcap_proxy_at_decisions(monthly,bad)['mktcap_proxy'].isna().all())
+        future=good.copy();future['updated_at']=close+pd.Timedelta(days=365);future['mktcap_proxy']=9e15
+        pd.testing.assert_frame_equal(result,pipeline._mktcap_proxy_at_decisions(monthly,pd.concat([good,future],ignore_index=True)))
+        conflict=good.copy();conflict['mktcap_proxy']=6000.
+        self.assertTrue(pipeline._mktcap_proxy_at_decisions(monthly,pd.concat([good,conflict],ignore_index=True))['mktcap_proxy'].isna().all())
+        older=good.copy();older['updated_at']=close-pd.Timedelta(days=1)
+        for later in (good.assign(mktcap_proxy=np.nan),good.assign(mktcap_proxy=0.),
+                      pd.concat([good,conflict],ignore_index=True)):
+            self.assertTrue(pipeline._mktcap_proxy_at_decisions(monthly,pd.concat([older,later],ignore_index=True))['mktcap_proxy'].isna().all())
+
+    def test_adr_future_raw_or_proxy_cannot_rewrite_past_and_unknown_cap_is_not_zero(self):
+        frame=self.monthly(('2021-01-29',)).iloc[:2].copy()
+        frame.loc[frame.index[0],'universe_source']='adr_whitelist'
+        frame['mktcap']=[10000.,5000.]
+        clock=pipeline.decision_session_close_utc(frame['rebalance_date']).iloc[0]
+        proxy=pd.DataFrame([dict(ticker='S0',mktcap_proxy=2000.,updated_at=clock,price_currency='USD')])
+        expected=pipeline.apply_adr_usd_mktcap_proxy(frame,self.cfg(),{},proxy_snapshots=proxy)
+        self.assertEqual(expected['mktcap'].tolist(),[2000.,5000.])
+        future=frame.copy();future['rebalance_date']=pd.Timestamp('2026-01-30');future['mktcap']*=100
+        later=proxy.copy();later['updated_at']=pd.Timestamp('2026-01-30T21:00:00Z');later['mktcap_proxy']=1e7
+        actual=pipeline.apply_adr_usd_mktcap_proxy(pd.concat([frame,future],ignore_index=True),self.cfg(),{},
+                                                 proxy_snapshots=pd.concat([proxy,later],ignore_index=True))
+        pd.testing.assert_frame_equal(expected.reset_index(drop=True),actual.iloc[:2].reset_index(drop=True))
+        for change in ({'updated_at':None},{'updated_at':clock+pd.Timedelta(seconds=1)},{'price_currency':'TWD'}):
+            bad=proxy.assign(**change)
+            unknown=pipeline.apply_adr_usd_mktcap_proxy(frame,self.cfg(),{},proxy_snapshots=bad)
+            self.assertTrue(pd.isna(unknown.iloc[0]['mktcap']))
+            self.assertEqual(unknown.iloc[0]['mktcap_px_shares_raw'],10000.)
+            self.assertEqual(unknown.iloc[1]['mktcap'],5000.)
+
+
 if __name__ == '__main__':
     unittest.main()

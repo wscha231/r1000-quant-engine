@@ -913,9 +913,11 @@ def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
     import r1000_pipeline as pipe
 
     original = pipe.ensure_mktcap_proxy
+    original_cache = pipe.load_mktcap_proxy_cache
     try:
+        pipe.load_mktcap_proxy_cache = lambda paths: pd.DataFrame()
         pipe.ensure_mktcap_proxy = lambda cfg, paths, tickers, max_new=500: pd.DataFrame(
-            {"ticker": ["TSM"], "mktcap_proxy": [2.0e12], "updated_at": ["2026-04-29T00:00:00"]}
+            {"ticker": ["TSM"], "mktcap_proxy": [2.0e12], "updated_at": ["2026-04-29T00:00:00"], "price_currency": ["USD"]}
         )
         df = pd.DataFrame(
             {
@@ -928,6 +930,7 @@ def test_adr_mktcap_proxy_normalizes_adr_ratio() -> None:
         out = pipe.apply_adr_usd_mktcap_proxy(df, EngineConfig(), {})
     finally:
         pipe.ensure_mktcap_proxy = original
+        pipe.load_mktcap_proxy_cache = original_cache
 
     tsm = out.loc[out["ticker"].eq("TSM")].iloc[0]
     nvda = out.loc[out["ticker"].eq("NVDA")].iloc[0]

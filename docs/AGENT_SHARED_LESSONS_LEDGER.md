@@ -10044,3 +10044,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   boundary on a weekend/holiday to its actual prior completed NYSE close.
   Reusing a strict decision-date guard for final reporting can erase otherwise
   mature history; compare Friday/Saturday and pre-holiday/holiday outcomes.
+- The upstream universe builder also used full-window market-cap coverage and
+  discarded the original proxy collection clock. Evaluate the same cap/DV
+  fallback at each observable month; a later month must not change which old
+  month receives the degraded-latest fallback. Keep clocked proxy snapshots
+  separate from historical Source/PIT admission, and never renew their time.
+- An ADR ratio derived from the final raw price/share row cannot normalize all
+  earlier dates. Use only original USD operands observable at the row cutoff;
+  unknown ADR cap stays null and does not become a fabricated zero. Preserve
+  the candidate through the incumbent missing-cap route where applicable.
