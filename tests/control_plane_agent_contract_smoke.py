@@ -80,7 +80,7 @@ class ControlPlaneTests(unittest.TestCase):
     def tasks(self):
         return board._plan_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
 
-    def complete(self, agent='A1'):
+    def complete(self, agent='A1', output_payloads=None):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
         identity=packet['identity']
         hashes={role:item['sha256'] for role,item in packet['inputs'].items()}
@@ -108,6 +108,8 @@ class ControlPlaneTests(unittest.TestCase):
             self.set_payload(receipt['outputs']['qa_report'], {'schema_version':'qa-report-v2',
                 'review_bundle_sha256':request['inputs']['review_bundle']['sha256'],
                 'reviewed_artifacts':bundle['artifacts'],'verdict':'PASS'})
+        for role, payload in (output_payloads or {}).items():
+            self.set_payload(receipt['outputs'][role], payload)
         causal_ready=max(board.timestamp(a['collected_at']) for a in causal)
         output_ready=(causal_ready+timedelta(seconds=1)).isoformat()
         evidence_ready=(causal_ready+timedelta(milliseconds=1500)).isoformat()
@@ -131,6 +133,195 @@ class ControlPlaneTests(unittest.TestCase):
         board.write_json(path,self.state)
         return argparse.Namespace(latest_run=str(self.root), output_dir=str(self.root/'board'),
                                   run_url='', max_tasks=0)
+
+    def model_case(self, *, complete=True):
+        """Actual incumbent reference/risk verifiers over synthetic originals."""
+        from tests import candidate_registry_v1_smoke as refs
+        from tests import run287_chameleon_macro_risk_smoke as native
+        from tools import market_analysis_engine as market
+        self.now = board.timestamp(refs.CUTOFF) + timedelta(minutes=5)
+        self.state['as_of'], self.state['expires_at'] = self.at(-5), self.at(60)
+        for key in ('data_as_of', 'current_status_as_of'):
+            self.state['context'][key] = self.at(-10)
+        for request in self.state['requests']:
+            for artifact in request['inputs'].values():
+                artifact.update(observed_at=self.at(-30), available_at=self.at(-20),
+                                collected_at=self.at(-10), expires_at=self.at(50))
+        for agent in ('A2', 'A3', 'A4', 'A6', 'A5'):
+            self.add_request(agent)
+        req = next(r for r in self.state['requests'] if r['agent'] == 'A5')
+        req['parameters']['portfolio_mode'] = 'MODEL_PORTFOLIO'
+        original = refs.RegistryTests(); original.setUp()
+        entry = original.fixture(er=True)
+        index = original.build(entry)
+        inventory = {}
+        def put(path, raw):
+            target = self.root / path; target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+            return dict(path=path, sha256=board.file_hash(target), observed_at=self.at(-30),
+                available_at=self.at(-20), collected_at=self.at(-10), expires_at=self.at(50), status='VERIFIED')
+        for n, ((aid, sha), raw) in enumerate(original.raw.items()):
+            inventory[aid] = put('original/a3_' + str(n) + '.json', raw)
+        session = '2026-09-18'
+        # Cache only the immutable synthetic fixture bytes, not a verifier result.
+        if not hasattr(type(self), '_a5_native_bytes'):
+            dates = market.clock.mcal.get_calendar('NYSE').schedule(start_date='2025-01-01', end_date=session).index[-260:]
+            calendar = native.calendar_fixture(dates).to_csv(index=False).encode()
+            type(self)._a5_native_bytes = dict(risk_calendar=calendar,
+                risk_metrics=native.metric_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode(),
+                risk_context=native.context_fixture(dates, calendar_hash=market.sha(calendar)).to_csv(index=False).encode())
+        specs = []
+        for kind, raw in type(self)._a5_native_bytes.items():
+            inventory['A4:' + kind] = put('a4/' + kind + '.csv', raw)
+            specs.append(dict(kind=kind, path=kind + '.csv', sha256=market.sha(raw), status='COLLECTED',
+                              collected_at='2026-09-19T01:00:00Z'))
+        request = dict(schema=market.REQUEST_SCHEMA, market='US', session=session,
+            available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
+        request_ref = put('a4/request.json', json.dumps(request).encode())
+        risk = market.load_report(self.root / request_ref['path'], self.root / 'a4', request_ref['sha256'],
+                                  cutoff=refs.CUTOFF, session=session)
+        self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY', risk)
+        context = dict(schema_version='a5-portfolio-context-v1', portfolio_mode='MODEL_PORTFOLIO',
+            decision_time=refs.CUTOFF, market_session_date=session, requested_security_ids=[entry['asset_id']],
+            a3_reference_entries=[entry], artifact_inventory=inventory,
+            model_state=dict(kind='GENESIS', artifact=None), a4_request=request_ref, a4_source_root='a4')
+        self.set_payload(req['inputs']['portfolio_context'], context)
+        self.state['source_status'] = {r: dict(status='UNKNOWN', artifact_identity=None, sha256=None,
+            as_of=None, availability=None, reason='source_missing') for r in
+            ('actual_broker', 'approved_target', 'verified_paper', 'model_portfolio')}
+        self.state['context']['blockers'] = [r + ':source_missing' for r in self.state['source_status']]
+        if complete:
+            self.complete('A1'); self.complete('A2'); self.complete('A3', {'expected_return': index})
+            self.complete('A4', {'regime': risk}); self.bind_qa_scope()
+            qa = next(r for r in self.state['requests'] if r['agent'] == 'A6')
+            bundle = board.read_json(self.root / qa['inputs']['review_bundle']['path'])
+            bundle['artifacts'].update({'a3:' + aid: a for aid, a in inventory.items()})
+            bundle['artifacts']['a4:request'] = request_ref
+            self.set_payload(qa['inputs']['review_bundle'], bundle)
+            self.complete('A6')
+        return req, context
+
+    def test_a5_mode_default_strict_values_and_identity(self):
+        req = self.add_request('A5')
+        self.assertEqual(board.portfolio_mode(req), 'ACCOUNT_REBALANCE')
+        legacy = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertIn('PORTFOLIO_CONTEXT_NOT_VERIFIED', legacy['reasons'])
+        for bad in (None, True, 1, '', 'model_portfolio', 'MODEL_PORTFOLIO '):
+            req['parameters']['portfolio_mode'] = bad
+            with self.subTest(mode=bad), self.assertRaises(board.ContractError): self.tasks()
+        req['parameters']['portfolio_mode'] = 'ACCOUNT_REBALANCE'
+        current = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertNotEqual(legacy['task_key'], current['task_key'])
+
+    def test_model_genesis_prepares_without_account_but_never_admits_or_dispatches(self):
+        self.model_case()
+        task = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertEqual(task['status'], 'READY', (task['reasons'], task['identity']['parameters']))
+        self.assertFalse(task['dispatch_eligible'])
+        info = task['identity']['parameters']['a5_preparation']
+        self.assertEqual(info['economic_input_admission'], 'BLOCKED')
+        self.assertIn('A0_CURRENT_REFERENCE_AUTHENTICATION_REQUIRED', info['domain_blockers'])
+        self.assertFalse(info['current_a3_review_admitted'])
+        self.assertFalse(info['actual_holdings_claimed'])
+        self.assertTrue(all(value is False for key, value in task['authority'].items() if key != 'research_only'))
+        req = next(r for r in self.state['requests'] if r['agent'] == 'A5')
+        req['parameters']['portfolio_mode'] = 'ACCOUNT_REBALANCE'
+        account = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertEqual(account['status'], 'BLOCKED')
+        self.assertIn('PORTFOLIO_CONTEXT_NOT_VERIFIED', account['reasons'])
+
+    def test_model_does_not_suppress_unknown_data_g0_or_freshness_blockers(self):
+        self.model_case()
+        for reason in ('actual_broker:unrecognized', 'HISTORICAL_R1000_PIT_UNCERTIFIED', 'source:missing'):
+            self.state['context']['blockers'].append(reason)
+            self.state['context']['account_only_blockers'] = [reason]
+            task = next(t for t in self.tasks() if t['agent'] == 'A5')
+            self.assertIn('CONTEXT_BLOCKED', task['reasons'])
+            self.state['context']['blockers'].remove(reason)
+        self.state['g0']['status'] = 'BLOCKED'
+        self.assertIn('G0_NOT_PASS', next(t for t in self.tasks() if t['agent'] == 'A5')['reasons'])
+        self.state['g0']['status'] = 'PASS'; self.state['context']['current_status_freshness'] = 'UNKNOWN'
+        self.assertIn('CURRENT_STATUS_NOT_VERIFIED', next(t for t in self.tasks() if t['agent'] == 'A5')['reasons'])
+
+    def test_model_global_thesis_or_authority_cannot_replace_candidate_originals(self):
+        req = self.add_request('A5'); req['parameters']['portfolio_mode'] = 'MODEL_PORTFOLIO'
+        self.state['context']['thesis'] = 'VERIFIED'
+        self.assertEqual(next(t for t in self.tasks() if t['agent'] == 'A5')['status'], 'BLOCKED')
+        self.state['requests'].pop()
+        req, context = self.model_case()
+        # A changed original, despite an unchanged report-ready flag, is refused.
+        original = next(iter(context['artifact_inventory'].values()))
+        (self.root / original['path']).write_bytes(b'changed')
+        task = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertEqual(task['status'], 'BLOCKED')
+        self.assertTrue({'A5_MODEL_CONTEXT_NOT_VERIFIED', 'dependency_incomplete:A6'}.intersection(task['reasons']))
+
+    def test_model_a4_readiness_is_native_not_a_batch_or_summary_flag(self):
+        self.model_case()
+        from tools import market_analysis_engine as market
+        with patch.object(market, 'load_report', return_value={'status': 'DATA_BLOCKED'}):
+            task = next(t for t in self.tasks() if t['agent'] == 'A5')
+        self.assertIn('A5_MODEL_CONTEXT_NOT_VERIFIED', task['reasons'])
+
+    def test_model_candidate_scope_cutoff_and_independent_qa_are_required(self):
+        req, context = self.model_case()
+        for key, value in (('decision_time', self.at(-6)), ('requested_security_ids', ['US:FOREIGN']),
+                           ('model_state', dict(kind='INCUMBENTS', artifact=req['inputs']['portfolio_context']))):
+            changed = copy.deepcopy(context); changed[key] = value
+            self.set_payload(req['inputs']['portfolio_context'], changed)
+            self.assertEqual(next(t for t in self.tasks() if t['agent'] == 'A5')['status'], 'BLOCKED')
+        self.set_payload(req['inputs']['portfolio_context'], context)
+        for key, value in (('issuer_id', 'CIK:FOREIGN'), ('a3_result_ref', {
+                **context['a3_reference_entries'][0]['a3_result_ref'], 'expires_at': None})):
+            changed = copy.deepcopy(context); changed['a3_reference_entries'][0][key] = value
+            self.set_payload(req['inputs']['portfolio_context'], changed)
+            self.assertEqual(next(t for t in self.tasks() if t['agent'] == 'A5')['status'], 'BLOCKED')
+        changed = copy.deepcopy(context); changed['market_session_date'] = '2026-09-17'
+        self.set_payload(req['inputs']['portfolio_context'], changed)
+        self.assertEqual(next(t for t in self.tasks() if t['agent'] == 'A5')['status'], 'BLOCKED')
+        self.set_payload(req['inputs']['portfolio_context'], context)
+        qa = next(r for r in self.state['completed_tasks'] if r['agent'] == 'A6')
+        report = board.read_json(self.root / qa['outputs']['qa_report']['path'])
+        report['reviewed_artifacts'].pop(next(k for k in report['reviewed_artifacts'] if k.startswith('a3:')))
+        self.set_payload(qa['outputs']['qa_report'], report)
+        self.assertEqual(next(t for t in self.tasks() if t['agent'] == 'A5')['status'], 'BLOCKED')
+
+    def test_model_a4_large_native_budget_and_inventory_are_separate_from_a3(self):
+        from tools import market_analysis_engine as market
+        req, context = self.model_case()
+        artifact = context['artifact_inventory']['A4:risk_metrics']
+        path = self.root / artifact['path']
+        original = path.read_bytes()
+        expanded = original.replace(b',1.0,', b',1.' + b'0' * 500 + b',')
+        self.assertGreater(len(expanded), 5 * 1024 * 1024)
+        self.assertLess(len(expanded), market.MAX_NATIVE_METRIC_BYTES)
+        path.write_bytes(expanded); artifact['sha256'] = board.file_hash(path)
+        a4 = context['a4_request']; request = board.read_json(self.root / a4['path'])
+        next(s for s in request['inputs'] if s['kind'] == 'risk_metrics')['sha256'] = artifact['sha256']
+        self.set_payload(a4, request)
+        risk = market.load_report(self.root / a4['path'], self.root / 'a4', a4['sha256'],
+            cutoff=context['decision_time'], session=context['market_session_date'])
+        self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY')
+        self.set_payload(req['inputs']['regime'], risk)
+        self.set_payload(req['inputs']['portfolio_context'], context)
+        info, _ = board.a5_model_preparation(req, self.root, board.timestamp(self.state['as_of']), self.now)
+        self.assertEqual(info['economic_input_admission'], 'BLOCKED')
+        for duplicate in (False, True):
+            changed = copy.deepcopy(context)
+            if duplicate:
+                changed['artifact_inventory']['A4:duplicate'] = copy.deepcopy(artifact)
+            else:
+                changed['artifact_inventory'].pop('A4:risk_metrics')
+            self.set_payload(req['inputs']['portfolio_context'], changed)
+            with patch.object(market, 'load_report', side_effect=AssertionError('must refuse before calculation')):
+                with self.assertRaisesRegex(board.ContractError, 'a5_a4_original_not_in_review_inventory'):
+                    board.a5_model_preparation(req, self.root, board.timestamp(self.state['as_of']), self.now)
+        self.set_payload(req['inputs']['portfolio_context'], context)
+        with path.open('wb') as handle:
+            handle.truncate(market.MAX_NATIVE_METRIC_BYTES + 1)
+        with patch.object(market, 'load_report', side_effect=AssertionError('must refuse before calculation')):
+            with self.assertRaisesRegex(board.ContractError, 'a5_candidate_artifact_budget'):
+                board.a5_model_preparation(req, self.root, board.timestamp(self.state['as_of']), self.now)
 
     def test_nine_roles_and_current_mission_separate_from_operating_gate(self):
         self.assertEqual(set(self.contract['agents']), {f'A{i}' for i in range(9)})

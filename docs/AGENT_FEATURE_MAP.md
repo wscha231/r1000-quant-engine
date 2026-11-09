@@ -1,5 +1,13 @@
 # A0 Control Room feature map (AF01 / AF02)
 
+## A5 preparation modes (#537, 2026-11-09)
+
+`run_agent_board` separates explicit `MODEL_PORTFOLIO` preparation from legacy
+`ACCOUNT_REBALANCE` prerequisites. It replays original candidate Registry/A3/ER
+references and original A4 native inputs, while existing dependency/QA evidence
+remains mandatory. Preparation READY is neither dispatch nor current A3-domain,
+economic or book-write admission. See `CONTROL_PLANE_V2_PHASE1_20260920.md`.
+
 Status: event-driven **foundation**, `RESEARCH_ONLY`. The canonical entrypoint is
 `tools/run_agent_board.py`; `research/control_plane/agent_contracts_v2.yaml`
 keeps `specialist_dispatch_enabled=false`. A task packet is a proposal, not an

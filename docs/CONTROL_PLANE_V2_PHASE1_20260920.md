@@ -1,5 +1,47 @@
 # [PROJECT_HANDOFF] Control Plane v2 — Phase 1
 
+## 2026-11-09 - A5 model preparation and account prerequisites (#537)
+
+The existing A5 request accepts `parameters.portfolio_mode`: omitted means
+`ACCOUNT_REBALANCE`; explicit values are `ACCOUNT_REBALANCE` and
+`MODEL_PORTFOLIO`. Unknown, null and non-string values fail closed. The task's
+authority remains `PROPOSAL_ONLY`; A5 dispatch is always false.
+
+MODEL uses the existing `portfolio_context` role and the strict
+`a5-portfolio-context-v1` definition in `system_state_schema.json`. It binds one
+completed NYSE session/cutoff, the complete requested security roster, original
+A3 packet/result references, a bounded private artifact inventory and an explicit
+GENESIS. Existing model incumbents remain blocked until their domain verifier is
+bound; actual broker holdings cannot substitute for model state.
+
+Preparation replays the incumbent Candidate Registry, requires an unexpired A3
+reference and linked original ER for every requested candidate, and compares the
+rebuilt index with A3's exact `expected_return` output. The original A4 request
+and native inputs are consumed by `market_analysis_engine.load_report`; its
+current READY report must equal A4's exact `regime` output. Existing A3/A4/A6
+completion receipts and independent QA must cover the role inputs plus all
+original inventory members. A batch/performance receipt is not native risk-input
+readiness. A3 files keep4MiB each/32MiB total; only exact path/hash/kind matches in
+the pinned A4 request use the existing engine's kind-specific and64MiB aggregate
+limits. These separate bounds can total96MiB; hash verification and replay may
+read original files more than once. Provider/wire I/O is not measured by those
+limits. The256-entry inventory is not entire820-security readiness evidence.
+
+Only exact materializer-backed account-source reasons are scoped out of MODEL
+and its A2/A3/A4 research dependencies. Missing prior model data is optional only
+for an explicitly bound GENESIS. Unknown reasons, data/PIT/G0/freshness failures,
+candidate/reference failures and independent QA remain blocking. Canonical
+source/book statuses are retained; global thesis or model-allowed flags are not
+candidate evidence. ACCOUNT keeps its existing prerequisites and default path.
+
+`READY` means A0 task preparation only. Derived `parameters.a5_preparation` keeps
+`economic_input_admission=BLOCKED`, current-A3-review admission false and all
+dispatch/write/account authority false. The Registry's current-selection,
+independent-domain/economic blockers and runtime
+`CURRENT_A3_REVIEW_ADMISSION_REQUIRED` are unchanged. This slice does not compute
+weights, run a model/backtest, initialize a book or complete #499/#526/#537's
+remaining domain connection.
+
 Date: 2026-09-20 UTC. Repository: wscha231/r1000-quant-engine.
 Audited master: `3f8986dbad6d590ae97e7276e01f59766e91d8b0`.
 Branch: `codex/control-plane-v2-phase1-20260920`.

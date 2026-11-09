@@ -108,6 +108,22 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state['books']['verified_paper']['status'],'UNKNOWN')
         self.assertEqual(state['regime']['status'],'UNKNOWN')
 
+    def test_account_scope_classification_never_changes_source_or_domain_status(self):
+        state = self.state()
+        self.assertEqual(set(state['context']['account_only_blockers']), {
+            role + ':source_missing' for role in b.A5_ACCOUNT_SOURCE_ROLES})
+        self.assertIn('model_portfolio:source_missing', state['context']['blockers'])
+        self.assertIn('HISTORICAL_R1000_PIT_UNCERTIFIED', state['context']['blockers'])
+        self.assertEqual(state['context']['thesis'], 'UNKNOWN')
+        self.assertFalse(state['authority']['account_rebalance_allowed'])
+        state['context']['account_only_blockers'] = ['HISTORICAL_R1000_PIT_UNCERTIFIED']
+        self.assertNotIn('HISTORICAL_R1000_PIT_UNCERTIFIED', b.account_only_blockers(state))
+
+    def test_unknown_account_reason_is_not_filtered_as_a_known_missing_source(self):
+        state = self.state()
+        state['source_status']['actual_broker']['reason'] = 'unknown_domain_failure'
+        self.assertNotIn('actual_broker:unknown_domain_failure', b.account_only_blockers(state))
+
     def test_partial_readback_and_failure_are_independent(self):
         data=self.state()['data']
         self.assertEqual(data['g0_status'],'PARTIAL_COVERAGE')

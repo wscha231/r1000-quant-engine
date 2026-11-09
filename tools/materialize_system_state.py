@@ -295,6 +295,10 @@ def materialize(manifest, root, now=None, code_sha=None):
                               'mission_contract.py','r1000_config.py',
                               'research/control_plane/system_state_schema.json')}),
                          'research_scope':'ADMITTED_DATASETS_ONLY_NOT_RANKING_OR_A5_READINESS'})
+    # Classify account-only reasons without changing the canonical source/book
+    # statuses. A5 MODEL preparation may scope these exact reasons separately;
+    # this is not G0, current-reference, model-state or economic admission.
+    state['context']['account_only_blockers'] = sorted(board.account_only_blockers(state))
     state['state_sha256'] = semantic_hash(state)
     board.schema_validate(state, 'system_state_schema.json')
     return state
