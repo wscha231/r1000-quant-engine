@@ -15,6 +15,10 @@ on:
       - 'research/a2_research_intake_v1.py'
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
+      - 'tools/run_agent_board.py'
+      - 'research/control_plane/**'
+      - 'mission_contract.py'
+      - 'r1000_config.py'
   workflow_dispatch:
   push:
     branches: [master]
@@ -30,6 +34,10 @@ on:
       - 'research/a2_research_intake_v1.py'
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
+      - 'tools/run_agent_board.py'
+      - 'research/control_plane/**'
+      - 'mission_contract.py'
+      - 'r1000_config.py'
   workflow_run:
     workflows: ['Run287 Daily Research Monitor']
     types: [completed]
@@ -56,6 +64,7 @@ jobs:
           sparse-checkout: |
             research/multi_asset_v1
             research/theme_etf_runtime_v1
+            research/control_plane
             tools
             tests
             docs
@@ -83,6 +92,7 @@ jobs:
           sparse-checkout: |
             research/multi_asset_v1
             research/theme_etf_runtime_v1
+            research/control_plane
             tools
             docs
       - uses: actions/setup-python@v5

@@ -139,7 +139,7 @@ def historical_readiness(payload):
             "net_cagr":None,"mdd":None,"fullrun_executed":False}
 
 
-def run(payload, registry, policy, *, artifact_resolver=None):
+def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, code_sha=None):
     require(payload.get("schema")=="multi-asset-input-v1","input_schema")
     require(policy.get("schema")=="multi-asset-policy-v1","policy_schema")
     require(policy.get("baseline_rs_weights")==BASE_RS_WEIGHTS,"unsupported_rs_baseline")
@@ -193,6 +193,18 @@ def run(payload, registry, policy, *, artifact_resolver=None):
     by_eval=unique(payload.get("evaluations",[]),"asset_id")
     a3_candidates={r["asset_id"]:r for r in a3_originals}
     a3_records={r["asset_id"]:r for r in a3_coverage["records"]} if a3_coverage else {}
+    current_review=None
+    if a3_scope and payload.get("current_a3_review") is not None:
+        try:
+            from tools.run_agent_board import current_a3_reference_admission
+            binding=payload["current_a3_review"]
+            current_review=current_a3_reference_admission(binding,policy,review_root,stamp(cutoff),
+                code_sha,payload["requested_security_ids"],payload.get("a3_reference_entries",[]),
+                identity,payload.get("risk"))
+            a3_coverage["current_review"]=current_review
+        except (ContractError,OSError,KeyError,ValueError,TypeError) as exc:
+            a3_coverage["current_review"]={"status":"BLOCKED","reason":str(exc)
+                if isinstance(exc,ContractError) else type(exc).__name__}
     require(set(by_eval)<=set(assets),"unknown_evaluation_asset")
     position_rows=payload.get("positions",[])
     require(not position_rows or payload.get("position_book_kind") in {"ACTUAL_BROKER","APPROVED_TARGET","PAPER"},"position_book_kind")
@@ -265,10 +277,10 @@ def run(payload, registry, policy, *, artifact_resolver=None):
                                    a,cutoff,policy,identity,feature_time)
                 if aid in a3_candidates:
                     a3_records[aid]["original_runtime_contract_verified"]=True
-                    # A reference index explicitly lacks current A0 selection,
-                    # independent review and domain admission. Preserve that
-                    # boundary even when the ER object has a reviewed model pin.
-                    raise ContractError("a3_current_reference_admission_required")
+                    require(current_review is not None,"a3_current_reference_admission_required")
+                    a3_records[aid].update(runtime_evaluation_admitted=True,
+                        current_reference_review_status=current_review["status"],
+                        status="CURRENT_REVIEWED_ORIGINAL_ER_ADMITTED",blocker=None)
                 ev=checked
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
@@ -289,6 +301,8 @@ def run(payload, registry, policy, *, artifact_resolver=None):
     # Expected-return rank and discovery rank are separate columns.
     ranking=sorted([r for r in rows if "risk_adjusted_expected_alpha" in r and r["portfolio_status"] in {"CANDIDATE","HOLD","WATCH"}],
                    key=lambda r:(-r["risk_adjusted_expected_alpha"],r["asset_id"]))
+    if a3_coverage is not None:
+        a3_coverage["held_count"]=sum(not r["runtime_evaluation_admitted"] for r in a3_records.values())
     a3_complete=a3_coverage is None or a3_coverage["held_count"]==0
     global_ranking_ready=complete_base and a3_complete and bool(ranking) and all(
         r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)

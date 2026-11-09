@@ -134,12 +134,13 @@ class ControlPlaneTests(unittest.TestCase):
         return argparse.Namespace(latest_run=str(self.root), output_dir=str(self.root/'board'),
                                   run_url='', max_tasks=0)
 
-    def model_case(self, *, complete=True):
+    def model_case(self, *, complete=True, decision_cutoff=None):
         """Actual incumbent reference/risk verifiers over synthetic originals."""
         from tests import candidate_registry_v1_smoke as refs
         from tests import run287_chameleon_macro_risk_smoke as native
         from tools import market_analysis_engine as market
-        self.now = board.timestamp(refs.CUTOFF) + timedelta(minutes=5)
+        decision_cutoff = decision_cutoff or refs.CUTOFF
+        self.now = board.timestamp(decision_cutoff) + timedelta(minutes=5)
         self.state['as_of'], self.state['expires_at'] = self.at(-5), self.at(60)
         for key in ('data_as_of', 'current_status_as_of'):
             self.state['context'][key] = self.at(-10)
@@ -179,10 +180,11 @@ class ControlPlaneTests(unittest.TestCase):
             available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
         request_ref = put('a4/request.json', json.dumps(request).encode())
         risk = market.load_report(self.root / request_ref['path'], self.root / 'a4', request_ref['sha256'],
-                                  cutoff=refs.CUTOFF, session=session)
+                                  cutoff=decision_cutoff, session=session)
         self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY', risk)
+        self._model_case_risk = risk
         context = dict(schema_version='a5-portfolio-context-v1', portfolio_mode='MODEL_PORTFOLIO',
-            decision_time=refs.CUTOFF, market_session_date=session, requested_security_ids=[entry['asset_id']],
+            decision_time=decision_cutoff, market_session_date=session, requested_security_ids=[entry['asset_id']],
             a3_reference_entries=[entry], artifact_inventory=inventory,
             model_state=dict(kind='GENESIS', artifact=None), a4_request=request_ref, a4_source_root='a4')
         self.set_payload(req['inputs']['portfolio_context'], context)
@@ -200,6 +202,102 @@ class ControlPlaneTests(unittest.TestCase):
             self.set_payload(qa['inputs']['review_bundle'], bundle)
             self.complete('A6')
         return req, context
+
+    def current_review_case(self, candidate=None):
+        """Synthetic original producer receipts; no materializer/PIT approval."""
+        from research.candidate_registry_v1 import build_reference_index
+        req, context = self.model_case(complete=False, decision_cutoff=candidate.p['as_of'] if candidate else None)
+        if candidate is not None:
+            context['requested_security_ids'] = candidate.p['requested_security_ids']
+            context['a3_reference_entries'] = candidate.p['a3_reference_entries']
+            context['artifact_inventory'] = {k:v for k,v in context['artifact_inventory'].items() if k.startswith('A4:')}
+            for n, ((aid, _), raw) in enumerate(candidate.refs.raw.items()):
+                artifact = self.artifact('review_original_' + str(n))
+                artifact['available_at'] = artifact['collected_at']
+                (self.root / artifact['path']).write_bytes(raw)
+                artifact['sha256'] = board.file_hash(self.root / artifact['path'])
+                context['artifact_inventory'][aid] = artifact
+            index = build_reference_index(context['a3_reference_entries'], cutoff=self.state['as_of'],
+                                          artifact_resolver=candidate.refs.resolve)
+            self.set_payload(req['inputs']['portfolio_context'], context)
+        else:
+            values = {(aid, a['sha256']):(self.root/a['path']).read_bytes()
+                      for aid,a in context['artifact_inventory'].items()}
+            index = build_reference_index(context['a3_reference_entries'], cutoff=self.state['as_of'],
+                                          artifact_resolver=lambda aid,sha:values[(aid,sha)])
+        risk = self._model_case_risk
+        self.complete('A1'); self.complete('A2'); self.complete('A3', {'expected_return':index})
+        self.complete('A4', {'regime':risk}); self.bind_qa_scope()
+        qa = next(r for r in self.state['requests'] if r['agent']=='A6')
+        bundle = board.read_json(self.root/qa['inputs']['review_bundle']['path'])
+        bundle['artifacts'].update({'a3:'+aid:a for aid,a in context['artifact_inventory'].items()})
+        bundle['artifacts']['a4:request'] = context['a4_request']
+        for request in self.state['requests']:
+            if request['agent'] in ('A1','A2','A3','A4'):
+                bundle['artifacts'].update({request['agent']+':input:'+k:a for k,a in request['inputs'].items()})
+        for receipt in self.state['completed_tasks']:
+            bundle['artifacts'].update({receipt['agent']+':output:'+k:a for k,a in receipt['outputs'].items()})
+        self.set_payload(qa['inputs']['review_bundle'], bundle)
+        self.complete('A6')
+        principals = dict(A0='OWNER:SELECTION', A3='PRODUCER:ANALYST', A6='REVIEWER:INDEPENDENT')
+        graph = dict(schema_version='current-a3-review-graph-v1', state=self.state,
+                     task_packets=self.tasks(), principals=principals)
+        artifact = self.artifact('current_review_graph')
+        self.set_payload(artifact, graph)
+        artifact['available_at'] = artifact['collected_at'] = self.at(-5.5)
+        return dict(portfolio_context=req['inputs']['portfolio_context'], review_graph=artifact), graph, principals
+
+    def test_current_a3_review_replays_original_completions_and_full_qa(self):
+        binding, graph, principals = self.current_review_case()
+        policy = self.current_review_policy(binding, principals)
+        context = board.read_json(self.root/binding['portfolio_context']['path'])
+        result = board.current_a3_reference_admission(binding, policy, self.root,
+            board.timestamp(self.state['as_of']), self.sha, context['requested_security_ids'], context['a3_reference_entries'],
+            'f'*64, {'synthetic_risk':'ORIGINAL'})
+        self.assertEqual(result['status'], 'CURRENT_REFERENCE_REVIEW_VERIFIED')
+        self.assertFalse(result['historical_pit_certified'])
+        self.assertFalse(result['portfolio_write_allowed'])
+
+    def test_current_a3_review_refuses_original_change_and_partial_selection(self):
+        binding, graph, principals = self.current_review_case()
+        policy = self.current_review_policy(binding, principals)
+        context = board.read_json(self.root/binding['portfolio_context']['path'])
+        call = lambda ids: board.current_a3_reference_admission(binding, policy, self.root,
+            board.timestamp(self.state['as_of']), self.sha, ids, context['a3_reference_entries'],
+            'f'*64, {'synthetic_risk':'ORIGINAL'})
+        with self.assertRaisesRegex(board.ContractError, 'selection_or_clock'):
+            call(context['requested_security_ids']+['US:MISSING'])
+        original = next(iter(context['artifact_inventory'].values()))
+        (self.root/original['path']).write_bytes(b'tampered')
+        with self.assertRaisesRegex(board.ContractError, 'artifact_hash_mismatch'):
+            call(context['requested_security_ids'])
+
+    def current_review_policy(self, binding, principals):
+        from research.multi_asset_v1.contracts import digest
+        policy = {'synthetic_base':'EXTERNALLY_REVIEWED_TEST_ONLY'}
+        policy['current_a3_review_profile'] = dict(schema='current-a3-review-profile-v1',
+            purpose='CURRENT_RESEARCH_FORWARD_ONLY', context_sha256=binding['portfolio_context']['sha256'],
+            graph_sha256=binding['review_graph']['sha256'], policy_base_sha256=digest(policy),
+            feature_sha256='f'*64, risk_sha256=digest({'synthetic_risk':'ORIGINAL'}), code_sha=self.sha,
+            available_at=self.at(-5.25), expires_at=self.at(30), principals=principals)
+        return policy
+
+    def test_current_a3_review_rebound_graph_cannot_hide_g0_or_old_completion(self):
+        from research.multi_asset_v1.contracts import ContractError
+        binding, graph, principals = self.current_review_case()
+        original = copy.deepcopy(graph)
+        context = board.read_json(self.root/binding['portfolio_context']['path'])
+        for mutate in (lambda g:g['state']['g0'].update(status='BLOCKED', reasons=['SOURCE_UNKNOWN']),
+                       lambda g:g['state']['completed_tasks'][0]['focused_tests'].update(head_sha='0'*40),
+                       lambda g:g['state'].update(code_sha='0'*40),
+                       lambda g:g['principals'].update(A6='PRODUCER:ANALYST')):
+            graph=copy.deepcopy(original);mutate(graph)
+            self.set_payload(binding['review_graph'], graph)
+            policy=self.current_review_policy(binding, principals)
+            with self.assertRaises((board.ContractError, ContractError)):
+                board.current_a3_reference_admission(binding, policy, self.root,
+                    board.timestamp(self.state['as_of']), self.sha, context['requested_security_ids'],
+                    context['a3_reference_entries'], 'f'*64, {'synthetic_risk':'ORIGINAL'})
 
     def test_a5_mode_default_strict_values_and_identity(self):
         req = self.add_request('A5')

@@ -153,6 +153,14 @@ def verified_source_hashes(code_sha):
            ROOT/"research/theme_etf_runtime_v1/runtime.py",ROOT/"r1000_legacy_input_guard.py",
            ROOT/"tools/run_a2_research_intake.py",ROOT/"research/a2_research_intake_v1.py",
            ROOT/"research/a3_candidate_packet_v1.py",ROOT/"research/candidate_registry_v1.py"}
+    paths.update(ROOT/name for name in ("tools/run_agent_board.py", "mission_contract.py",
+        "r1000_config.py", "research/control_plane/agent_contracts_v2.yaml",
+        "research/control_plane/task_packet_schema.json", "research/control_plane/system_state_schema.json",
+        "tools/market_analysis_engine.py", "tools/free_market_context.py",
+        "tools/chameleon_market_context_v2.py", "tools/build_run287_chameleon_macro_risk.py",
+        "tools/daily_crisis_report_clock.py", "docs/market_analysis_contract_v1.json",
+        "tools/build_run287_chameleon_macro_inputs.py", "tools/candidate_reassessment_bridge.py",
+        "r1000_helpers.py", "docs/run287_chameleon_macro_risk_contract.json"))
     paths.update(p for p in (ROOT/"research/__init__.py",ROOT/"tools/__init__.py",ROOT/"research/theme_etf_runtime_v1/__init__.py") if p.exists())
     hashes={}
     for path in sorted(paths):
@@ -167,7 +175,7 @@ def verified_source_hashes(code_sha):
 
 
 def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha256=None,
-            configuration_sha256=None, artifact_resolver=None):
+            configuration_sha256=None, artifact_resolver=None, review_root=None):
     require(attempt_id and all(c.isalnum() or c in "-_" for c in attempt_id),"attempt_id")
     # Revoke consumption before validation, preserving last-success and its bytes.
     atomic(out/"latest_attempt.json",encoded({"status":"STARTED","attempt_id":attempt_id,"last_success_retained":True}))
@@ -175,7 +183,8 @@ def publish(payload, registry, policy, out, attempt_id, code_sha, *, input_sha25
     target.mkdir(parents=True,exist_ok=False)
     try:
         source_hashes=verified_source_hashes(code_sha)
-        result=run(payload,registry,policy,artifact_resolver=artifact_resolver)
+        result=run(payload,registry,policy,artifact_resolver=artifact_resolver,
+                   review_root=review_root,code_sha=code_sha)
         result["code_sha"]=code_sha
         result["configuration_input_sha256"]=configuration_sha256
         require(verified_source_hashes(code_sha)==source_hashes,"source_changed_during_run")
@@ -265,7 +274,7 @@ def main():
             require(args.artifact_root is None and "artifact_files" not in payload,"a3_artifacts_without_reference_scope")
         result=publish(payload,registry,policy,args.output_dir,args.attempt_id,sha,input_sha256=input_sha256,
                        configuration_sha256={"registry":hashlib.sha256(registry_raw).hexdigest(),"policy":hashlib.sha256(policy_raw).hexdigest()},
-                       artifact_resolver=resolver)
+                       artifact_resolver=resolver,review_root=args.artifact_root)
         print(json.dumps({"status":result["status"],"assets":len(result["multi_asset_leadership_latest"]),"global_ranking_ready":result["global_ranking_ready"]}))
         return 0 if fully_admitted(result) else 2
     except Exception as exc:

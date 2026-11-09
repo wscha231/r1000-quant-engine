@@ -694,6 +694,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "A0 canonical materialized state and internal proposal-planning fields",
   "$defs": {
+    "current_a3_review_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["portfolio_context", "review_graph"],
+      "properties": {
+        "portfolio_context": {"$ref": "#/$defs/artifact"},
+        "review_graph": {"$ref": "#/$defs/artifact"}
+      }
+    },
     "task_evidence": {
       "type": "object",
       "additionalProperties": false,

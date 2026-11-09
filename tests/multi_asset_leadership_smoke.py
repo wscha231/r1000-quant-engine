@@ -1048,6 +1048,69 @@ class A3OriginalInputs(unittest.TestCase):
     def execute(self):
         return run(self.p,self.r,self.policy,artifact_resolver=self.memory())
 
+    def current_review(self):
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        # Actual original evidence exists at 10:00; selection/review happens
+        # afterwards, before this later decision. Never backdate QA clocks.
+        self.p['as_of']='2026-09-19T10:10:00+00:00'
+        reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+        self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+        self.original['issuer_id']='CIK:1'
+        self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+        self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+        self.reseal()
+        case=ControlPlaneTests('runTest');case.setUp();self.addCleanup(case.doCleanups)
+        binding,graph,principals=case.current_review_case(self)
+        self.p['current_a3_review']=binding
+        self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+            purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
+            graph_sha256=binding['review_graph']['sha256'],policy_base_sha256=digest(self.policy),
+            feature_sha256=feature_identity(self.p,self.r),risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,
+            available_at=case.at(-5.25),expires_at=case.at(30),principals=principals)
+        return case,graph
+
+    def test_current_review_original_graph_can_conditionally_admit_without_registry_promotion(self):
+        case,_=self.current_review()
+        result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+        coverage=result['a3_reference_coverage']
+        self.assertEqual(coverage['held_count'],0,coverage)
+        self.assertTrue(coverage['records'][0]['runtime_evaluation_admitted'])
+        self.assertEqual(coverage['current_review']['purpose'],'CURRENT_RESEARCH_FORWARD_ONLY')
+        self.assertIn('INDEPENDENT_REVIEW_NOT_AUTHENTICATED',coverage['records'][0]['consumption_blockers'])
+        self.assertFalse(coverage['source_admission_granted'])
+        self.assertFalse(result['accepted_target_written'])
+        self.assertFalse(result['orders_generated'])
+
+    def test_current_review_missing_self_review_or_changed_policy_never_admits(self):
+        case,_=self.current_review()
+        original=copy.deepcopy(self.policy)
+        for change in (lambda p:p.pop('current_a3_review_profile'),
+                       lambda p:p['current_a3_review_profile']['principals'].update(A6='PRODUCER:ANALYST'),
+                       lambda p:p['current_a3_review_profile'].update(code_sha='0'*40),
+                       lambda p:p['current_a3_review_profile'].update(expires_at='2026-09-18T00:00:00Z'),
+                       lambda p:p['current_a3_review_profile'].update(available_at=None),
+                       lambda p:p['current_a3_review_profile'].update(feature_sha256='0'*64),
+                       lambda p:p['reviewed_pins']['risk'].clear(),
+                       lambda p:p['validated_models'].clear()):
+            self.policy=copy.deepcopy(original);change(self.policy)
+            result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+            self.assertEqual(result['a3_reference_coverage']['held_count'],1)
+            self.assertFalse(result['a3_reference_coverage']['records'][0]['runtime_evaluation_admitted'])
+            self.assertFalse(result['global_ranking_ready'])
+            self.assertIsNone(result['proposal']['proposed_weights'])
+
+    def test_current_review_does_not_override_final_market_or_partial_cohort_refusal(self):
+        self.market['price']+=1
+        case,_=self.current_review()
+        result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+        self.assertEqual(result['a3_reference_coverage']['current_review']['status'],'CURRENT_REFERENCE_REVIEW_VERIFIED')
+        self.assertEqual(result['a3_reference_coverage']['held_count'],1)
+        self.assertFalse(result['global_ranking_ready'])
+        self.p['requested_security_ids'].append('US:UNMAPPED')
+        result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+        self.assertEqual(result['a3_reference_coverage']['held_count'],2)
+        self.assertEqual(result['a3_reference_coverage']['records'][-1]['asset_id'],'US:UNMAPPED')
+
     def test_original_full_er_is_prepared_for_model_without_claiming_current_review(self):
         result=self.execute()
         coverage=result['a3_reference_coverage']

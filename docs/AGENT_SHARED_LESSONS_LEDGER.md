@@ -9981,3 +9981,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reconcile accepted-master lesson additions by preserving both causal sections.
   Windows Git capture needs explicit UTF-8 and per-command author identity for
   merge preparation too; keep failed harness output and persistent settings intact.
+
+## 2026-11-09 — Current A3 reference review is not replay or global readiness
+
+- Original Registry/ER replay does not authenticate current A0 selection or an
+  independent reviewer. Bind the complete original task/completion/QA graph and
+  principal identities in a separately reviewed policy; never derive trust from
+  incoming candidate flags, a summary-only QA artifact, or a model name.
+- A purpose-specific forward reference may reuse the existing completion and
+  original-domain verifiers while the global materializer remains BLOCKED.
+  Keep historical PIT, Source admission and account authority separate. Omit
+  only the review profile from its base-policy hash to avoid a pin cycle while
+  preserving all original model, cost and risk pins. Preserve every requested
+  stock and its held reason after final runtime price/ER refusal.
+- A branch switch can remove a manually hydrated tracked sparse dependency.
+  The first five synthetic checks stopped at the native A4 verifier because
+  its market contract was absent. Restore only the exact current Git blob
+  create-only, verify bytes/hash and diff zero, and preserve the failed log;
+  do not change DATA_BLOCKED or the positive test's expected native result.

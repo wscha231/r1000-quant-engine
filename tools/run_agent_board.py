@@ -148,6 +148,136 @@ def digest_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
+                                   cutoff: datetime, code_sha: str,
+                                   requested: list, entries: list,
+                                   feature_sha256: str, risk: dict) -> dict:
+    """Replay an externally reviewed, purpose-specific A0/A3/A6 graph.
+
+    This is deliberately not materializer.verify_state: its global canonical
+    readiness/PIT restrictions remain unchanged. An independently pinned policy
+    authenticates this exact forward-only selection and its principals. Existing
+    completion, QA, original A3/ER and native A4 verifiers still have to pass.
+    """
+    from research.multi_asset_v1.contracts import current_a3_profile
+    schema_validate(binding, 'system_state_schema.json', 'current_a3_review_binding')
+    profile = current_a3_profile(policy, binding, feature_sha256, risk, cutoff.isoformat(), code_sha)
+    if root is None:
+        raise ContractError('a3_review_original_root_required')
+    root = Path(root)
+    snapshots = {}
+    for role, artifact in binding.items():
+        schema_validate(artifact, 'task_packet_schema.json', 'artifact')
+        path = artifact_path(root, artifact['path'])
+        if path.stat().st_size > 4 * 1024 * 1024:
+            raise ContractError('a3_review_graph_budget')
+        verify_artifact(root, artifact, cutoff, cutoff)
+        with path.open('rb') as stream:
+            raw = stream.read(4 * 1024 * 1024 + 1)
+        if len(raw) > 4 * 1024 * 1024 or digest_bytes(raw) != artifact['sha256']:
+            raise ContractError('a3_review_graph_changed')
+        snapshots[role] = json.loads(raw, object_pairs_hook=_review_pairs,
+                                    parse_constant=_review_invalid)
+    context, graph = snapshots['portfolio_context'], snapshots['review_graph']
+    schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+    if (type(graph) is not dict or set(graph) != {'schema_version', 'state', 'task_packets', 'principals'}
+            or graph['schema_version'] != 'current-a3-review-graph-v1'
+            or graph['principals'] != profile['principals']):
+        raise ContractError('a3_review_graph_contract')
+    state = graph['state']
+    schema_validate(state, 'system_state_schema.json')
+    if (timestamp(state['as_of']) != cutoff or state['code_sha'] != code_sha
+            or state['master_sha'] != code_sha or timestamp(state['expires_at']) <= cutoff
+            or timestamp(profile['available_at']) < max(timestamp(a['collected_at']) for a in binding.values())
+            or context['requested_security_ids'] != requested
+            or context['a3_reference_entries'] != entries
+            or timestamp(context['decision_time']) != cutoff):
+        raise ContractError('a3_review_selection_or_clock')
+    requests = {r['agent']: r for r in state['requests']}
+    if set(requests) != {'A1', 'A2', 'A3', 'A4', 'A5', 'A6'}:
+        raise ContractError('a3_review_complete_graph_required')
+    request = requests['A5']
+    if (portfolio_mode(request) != 'MODEL_PORTFOLIO'
+            or request['inputs']['portfolio_context'] != binding['portfolio_context']):
+        raise ContractError('a3_review_selected_context_mismatch')
+    # Bound every original before the legacy planner's hash/read operations.
+    originals = list(context['artifact_inventory'].values()) + [context['a4_request']]
+    originals += [a for r in state['requests'] for a in r['inputs'].values()]
+    originals += [a for r in state['completed_tasks'] for a in r['outputs'].values()]
+    unique_originals = {}
+    for artifact in originals:
+        schema_validate(artifact, 'task_packet_schema.json', 'artifact')
+        key = artifact['path']
+        if key in unique_originals and unique_originals[key] != artifact:
+            raise ContractError('a3_review_conflicting_original')
+        unique_originals[key] = artifact
+    if len(unique_originals) > 256:
+        raise ContractError('a3_review_original_count')
+    # A4 kind budgets are checked by the incumbent preparation verifier below;
+    # this enclosing bound accounts for the entire transitive graph as well.
+    total = 0
+    for artifact in unique_originals.values():
+        size = artifact_path(root, artifact['path']).stat().st_size
+        total += size
+        if size > 32 * 1024 * 1024 or total > 96 * 1024 * 1024:
+            raise ContractError('a3_review_original_budget')
+        verify_artifact(root, artifact, cutoff, cutoff)
+    index = read_json(artifact_path(root, request['inputs']['expected_return']['path']))
+    refs = [entry[role] for entry in entries for role in ('a3_packet_ref', 'a3_result_ref')]
+    refs += [ref for row in index['records'] for ref in row['upstream_artifact_refs'].values() if ref is not None]
+    for ref in refs:
+        original = context['artifact_inventory'].get(ref['artifact_id'])
+        if (original is None or original['sha256'] != ref['sha256']
+                or timestamp(original['available_at']) < timestamp(ref['available_at'])
+                or timestamp(original['collected_at']) < timestamp(ref.get('collected_at', ref['available_at']))):
+            raise ContractError('a3_review_original_reference_clock_or_identity')
+    code_configs = {r['config_hash'] for r in state['completed_tasks']}
+    if len(code_configs) != 1:
+        raise ContractError('a3_review_config_conflict')
+    packets = _plan_tasks(state, root, contracts(), cutoff, code_sha, next(iter(code_configs)))
+    if digest(packets) != digest(graph['task_packets']):
+        raise ContractError('a3_review_original_task_packets_mismatch')
+    by_agent = {p['agent']: p for p in packets}
+    if (any(by_agent[a]['status'] != 'SKIP_UNCHANGED' for a in ('A1', 'A2', 'A3', 'A4', 'A6'))
+            or by_agent['A5']['status'] != 'READY'):
+        raise ContractError('a3_review_original_completion_blocked')
+    qa = next(r for r in state['completed_tasks'] if r['agent'] == 'A6')
+    report = read_json(artifact_path(root, qa['outputs']['qa_report']['path']))
+    # QA must cover the actual operands, not only the reference index/summary.
+    scope = {digest(a) for a in report['reviewed_artifacts'].values()}
+    # _plan_tasks already replayed a5_model_preparation and its QA scope.
+    # Reuse that original scope here; do not run the expensive A4 replay twice.
+    required = list(context['artifact_inventory'].values()) + [context['a4_request']]
+    for agent in ('A1', 'A2', 'A3', 'A4'):
+        required.extend(requests[agent]['inputs'].values())
+        required.extend(next(r for r in state['completed_tasks'] if r['agent'] == agent)['outputs'].values())
+    if not all(digest(a) in scope for a in required):
+        raise ContractError('a3_review_transitive_original_not_reviewed')
+    if timestamp(qa['available_at']) > timestamp(profile['available_at']):
+        raise ContractError('a3_review_profile_predates_qa')
+    for artifact in unique_originals.values():
+        verify_artifact(root, artifact, cutoff, cutoff)
+    return dict(status='CURRENT_REFERENCE_REVIEW_VERIFIED', purpose=profile['purpose'],
+        task_keys={a: by_agent[a]['task_key'] for a in ('A3', 'A5', 'A6')},
+        profile_sha256=digest(profile), graph_sha256=binding['review_graph']['sha256'],
+        context_sha256=binding['portfolio_context']['sha256'],
+        historical_pit_certified=False, source_admission_granted=False,
+        portfolio_write_allowed=False)
+
+
+def _review_pairs(rows):
+    result = {}
+    for key, value in rows:
+        if key in result:
+            raise ContractError('duplicate_json_key')
+        result[key] = value
+    return result
+
+
+def _review_invalid(_):
+    raise ContractError('nonfinite_json')
+
+
 class ContractError(ValueError):
     pass
 
