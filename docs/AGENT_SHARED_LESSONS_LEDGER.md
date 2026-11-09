@@ -10130,3 +10130,31 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   and after queuing. Test the unchanged core1/future2/early1 cadence in both
   directions: a no-fill label must neither preserve a due holding nor remove
   an allocated sleeve whose rebalance is not yet due.
+
+## 2026-11-09 - Scope ALFRED collection and project every feature at its own cutoff
+
+- Native's exact CPILFESL/PPIFDG/SAHMREALTIME IDs were absent from the protected
+  Source registry. Stop before implementation under a read-only registry scope;
+  register only the three separately approved official identities. Keep PPIFDG
+  unadjusted, unknown vintage coverage explicit, and old normal collection intact.
+- Reuse the existing bounded fetch/parse/Lake publication path. Its fetch has no
+  per-page injection hook, so reserve the full20-page/320MiB ceiling per series
+  before I/O, without retry/refund. Returned bodies are not failed wire usage.
+  Smaller grants must refuse rather than silently execute an unmetered fetch.
+- A later revision can shorten raw realtime_end before the successor becomes
+  available under the conservative next-New-York-midnight clock. Do not erase
+  earlier eligible features using that future end-date knowledge. Retain original
+  raw intervals and preserve null/withdrawal versions at the proper boundary.
+- A2026 as-of projection is not a historical feature panel. Query each feature
+  row at its own decision clock using the same immutable raw generation offline.
+  Observation-date resampling cannot prove historical publication. The Source
+  projection API does not connect the native Main adapter or grant PIT admission.
+- The first metadata packet exceeded its180-second bound (214.885s); preserve
+  that non-PASS and its costs. A later synthetic test allowance does not refund it.
+- The first commit stopped because this host had no Git author configured.
+  Reuse the existing Source author with command-local Git settings; preserve the
+  failed attempt and avoid changing global user settings or unrelated commits.
+- Hash current dependency pins from exact Git blob LF bytes, and record raw
+  Windows checkout hashes separately. A clean Git diff does not establish byte
+  equality across CRLF conversion. Preserve immutable historical fixture pins
+  and the production hash refusal; a timed-out optimized check is not a pass.

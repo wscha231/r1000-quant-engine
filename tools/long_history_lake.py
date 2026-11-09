@@ -32,6 +32,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener
 import zipfile
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -40,6 +41,7 @@ from tools.macro_history_sources import (NoRedirect, digest, encoded, exclusive,
 from tools.macro_research_checkpoint import (LocalTransport, RcloneTransport, relative,
     checked_bytes, is_safe_transport_failure, PACK_BATCH_FILES, PACK_BATCH_BYTES)
 from tools.twelve_private_capture import Refused
+from tools.macro_history_sources import MAX_BYTES as FRED_MAX_BYTES, MAX_PAGES as FRED_MAX_PAGES
 
 SCHEMA = 'long-history-catalog-v1'
 PREFIX = 'long-history-v1'
@@ -47,6 +49,9 @@ MAX_OBJECT = 18 * 1024 * 1024
 PACK_BYTES = 18 * 1024 * 1024
 COHORT_SHA = '4e1eb090f8137395603228dbc55c35907307ad6d049ec778f2722d1cbb87f4b4'
 ARCHIVES = ('UNRATE','PAYEMS','CPIAUCSL','PCEPILFE','RSAFS','DSPIC96','PSAVERT','M2SL','ICSA','NFCI','WALCL','WRESBAL')
+SCOPED_ALFRED_IDS = frozenset(('VIXCLS','DGS10','BAMLH0A0HYM2','DTWEXBGS',
+    'RRPTSYD','WDTGAL','CPILFESL','PPIFDG','SAHMREALTIME'))
+SCOPED_PAGE_RESERVATION_BYTES = FRED_MAX_BYTES + 1  # Existing oversized-body probe.
 COUNTRIES = ('USA','CHN','JPN','KOR','EMU')
 WB_INDICATORS = ('NY.GDP.MKTP.KD.ZG','FP.CPI.TOTL.ZG','SP.POP.TOTL','SP.POP.65UP.TO.ZS')
 FORMS = {'10-K','10-K/A','10-Q','10-Q/A','20-F','20-F/A','40-F','40-F/A','6-K','6-K/A'}
@@ -837,8 +842,188 @@ def collect_financials(lake,cohort,start,through):
         lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),missing=missing)
 
 
+def scoped_alfred_request(raw, expected_sha256):
+    """Validate the entire explicit request before transport/credential access."""
+    require(type(raw) is bytes and 0 < len(raw) <= 16384, 'scoped_request_size')
+    require(isinstance(expected_sha256,str) and re.fullmatch('[a-f0-9]{64}',expected_sha256)
+            and digest(raw)==expected_sha256, 'scoped_request_hash')
+    def unique(pairs):
+        result={}
+        for key,value in pairs:
+            require(key not in result,'scoped_request_duplicate_key')
+            result[key]=value
+        return result
+    try:
+        request=json.loads(raw,object_pairs_hook=unique)
+    except (UnicodeError,json.JSONDecodeError):
+        raise ValueError('scoped_request_json') from None
+    fields={'schema','request_id','mode','series','observation_start','through',
+            'expected_parent','expected_catalog','registry_sha256','budget'}
+    require(type(request) is dict and set(request)==fields,'scoped_request_fields')
+    require(request['schema']=='long-history-scoped-alfred-v1'
+            and request['mode']=='alfred_missing_only','scoped_request_mode')
+    require(isinstance(request['request_id'],str)
+            and re.fullmatch('[A-Za-z0-9_-]{1,100}',request['request_id']),'scoped_request_id')
+    for key in ('expected_parent','expected_catalog','registry_sha256'):
+        require(isinstance(request[key],str) and re.fullmatch('[a-f0-9]{64}',request[key]),
+                'scoped_request_pin')
+    ids=request['series']
+    require(type(ids) is list and 0<len(ids)<=len(SCOPED_ALFRED_IDS)
+            and all(type(s) is str and s in SCOPED_ALFRED_IDS for s in ids)
+            and len(ids)==len(set(ids)),'scoped_request_series')
+    require(request['registry_sha256']==digest((ROOT/'docs/macro_indicator_registry.json').read_bytes()),
+            'scoped_registry_changed')
+    require(set(ids)<={s['id'] for s in registry()['series']},'scoped_unknown_series')
+    try:
+        first=date.fromisoformat(request['observation_start'])
+        last=date.fromisoformat(request['through'])
+        require(first.isoformat()==request['observation_start'] and last.isoformat()==request['through']
+                and first<=last<=date.today(),'scoped_request_window')
+    except (TypeError,ValueError):
+        raise ValueError('scoped_request_window') from None
+    budget=request['budget']
+    require(type(budget) is dict and set(budget)=={'provider_gets','provider_bytes','pages_per_series'}
+            and all(type(v) is int and v>0 for v in budget.values()),'scoped_request_budget')
+    # The unchanged fetch primitive has no per-page injection hook. Reserve its
+    # full known ceiling before each call, with no retry and no refund. Smaller
+    # grants must fail before I/O rather than pretend to meter hidden requests.
+    require(FRED_MAX_PAGES==20 and FRED_MAX_BYTES==16*1024*1024
+            and budget['pages_per_series']==FRED_MAX_PAGES
+            and len(ids)*FRED_MAX_PAGES<=budget['provider_gets']<=180
+            and len(ids)*FRED_MAX_PAGES*SCOPED_PAGE_RESERVATION_BYTES<=budget['provider_bytes']
+            <=180*SCOPED_PAGE_RESERVATION_BYTES,
+            'scoped_fetch_reservation_budget')
+    return request
+
+
+def collect_scoped_alfred(lake, request):
+    """Only missing exact ALFRED keys; publication remains the caller's boundary."""
+    request=scoped_alfred_request(encoded(request),digest(encoded(request)))
+    require(not lake.pending and lake.catalog==lake.before,'scoped_unclean_lake')
+    require(lake.parent==request['expected_parent']
+            and digest(encoded(lake.before))==request['expected_catalog'],'scoped_parent_mismatch')
+    current_parent,current_catalog=lake.restore_catalog()
+    require(current_parent==lake.parent and digest(encoded(current_catalog))==request['expected_catalog'],
+            'scoped_parent_mismatch')
+    require(all('alfred/'+s not in lake.before['datasets'] for s in request['series']),
+            'scoped_dataset_already_present')
+    specs={s['id']:s for s in registry()['series']}
+    meter=dict(reserved_provider_gets=0,reserved_provider_bytes=0,
+               returned_pages=0,returned_body_bytes=0,actual_failed_request_count=None,
+               reservation_policy='FULL_FETCH_CEILING_NO_RETRY_NO_REFUND')
+    for sid in request['series']:
+        require(meter['reserved_provider_gets']+FRED_MAX_PAGES<=request['budget']['provider_gets']
+                and meter['reserved_provider_bytes']+FRED_MAX_PAGES*SCOPED_PAGE_RESERVATION_BYTES
+                <=request['budget']['provider_bytes'],'scoped_budget_exhausted')
+        meter['reserved_provider_gets']+=FRED_MAX_PAGES
+        meter['reserved_provider_bytes']+=FRED_MAX_PAGES*SCOPED_PAGE_RESERVATION_BYTES
+        try:
+            # One existing bounded fetch, never the retry wrapper or current fallback.
+            pages,retrieved=fetch_fred(sid,request['observation_start'],request['through'],'alfred')
+            require(0<len(pages)<=FRED_MAX_PAGES
+                    and all(type(p) is bytes and 0<len(p)<=FRED_MAX_BYTES for p in pages),
+                    'scoped_response_bounds')
+            meter['returned_pages']+=len(pages)
+            meter['returned_body_bytes']+=sum(map(len,pages))
+            rows=parse_alfred(pages,sid,request['observation_start'],request['through'],retrieved)
+            spec=specs[sid]
+            clean=[{k:v for k,v in r.items() if k!='retrieved_at'} for r in rows]
+            lake.dataset('alfred/'+sid,pages,clean,dict(series=sid,frequency=spec['frequency'],
+                group=spec['group'],unit=spec['unit'],rows=len(clean),
+                earliest=min(r['observation_date'] for r in rows),
+                latest=max((r['observation_date'] for r in rows if r['value'] is not None),default=None),
+                retrieved_at=retrieved,evidence='alfred_date_archive',
+                first_vintage_date=min(r['vintage_date'] for r in rows),
+                first_available_at=min(r['available_at'] for r in rows),
+                requested_start=request['observation_start'],requested_through=request['through'],
+                raw_redistribution=spec['raw_redistribution'],**fred_missing(rows,[])))
+        except (Refused,TimeoutError,InterruptedError):
+            print('SCOPED_ALFRED_STOP '+json.dumps(meter,sort_keys=True),flush=True)
+            raise
+        except (HTTPError,URLError,OSError,ValueError,TypeError,KeyError) as exc:
+            # No raw exception/credential URL and no partial publication. Full
+            # failed-call reservations remain visible; returned bytes are not wire.
+            if isinstance(exc,HTTPError):
+                exc.close()
+            print('SCOPED_ALFRED_STOP '+json.dumps(meter,sort_keys=True),flush=True)
+            raise ValueError('scoped_alfred_collection_blocked') from None
+    return meter
+
+
+def project_alfred_versions(rows, decision_at, archive_through):
+    """Conservative date-archive projection, not original intraday/PIT admission.
+
+    A future revision can shorten raw realtime_end retroactively. Its end is
+    retained as source evidence, never used to erase an earlier eligible value
+    before the successor's conservative availability boundary.
+    """
+    try:
+        cutoff=datetime.fromisoformat(decision_at.replace('Z','+00:00'))
+        require(cutoff.tzinfo is not None and cutoff.utcoffset() is not None,'alfred_decision_clock')
+        through=date.fromisoformat(archive_through)
+    except (AttributeError,TypeError,ValueError):
+        raise ValueError('alfred_decision_clock') from None
+    cutoff=cutoff.astimezone(timezone.utc)
+    local_day=cutoff.astimezone(ZoneInfo('America/New_York')).date()
+    require(through>=local_day-timedelta(days=1),'alfred_incomplete_asof_archive')
+    require(through.isoformat()==archive_through,'alfred_archive_clock')
+    require(type(rows) is list and bool(rows),'alfred_empty_archive')
+    selected={}; seen=set(); series=None
+    for row in rows:
+        try:
+            observed=date.fromisoformat(row['observation_date'])
+            vintage=date.fromisoformat(row['vintage_date'])
+            end=date.fromisoformat(row['realtime_end'])
+            boundary=datetime.combine(vintage+timedelta(days=1),datetime.min.time(),
+                                      ZoneInfo('America/New_York')).astimezone(timezone.utc)
+            available=datetime.fromisoformat(row['available_at'].replace('Z','+00:00'))
+        except (AttributeError,TypeError,KeyError,ValueError):
+            raise ValueError('alfred_archive_clock') from None
+        require(row.get('evidence')=='alfred_date_archive' and row.get('published_at') is None
+                and available.tzinfo is not None and available==boundary
+                and row['observation_date']==observed.isoformat()
+                and row['vintage_date']==vintage.isoformat() and row['realtime_end']==end.isoformat()
+                and observed<=vintage<=through and end>=vintage,'alfred_archive_clock')
+        value=row.get('value')
+        require('value' in row and (value is None or type(value) in (int,float) and math.isfinite(value)),
+                'alfred_archive_value')
+        require(type(row.get('series')) is str and row['series'],'alfred_archive_series')
+        series=series or row['series']
+        require(row['series']==series,'alfred_mixed_series')
+        identity=(observed,vintage)
+        require(identity not in seen,'alfred_duplicate_vintage')
+        seen.add(identity)
+        if observed>local_day or vintage>=local_day or available>cutoff:
+            continue
+        if observed not in selected or vintage>selected[observed][0]:
+            selected[observed]=(vintage,dict(series=series,observation_date=observed.isoformat(),
+                vintage_date=vintage.isoformat(),available_at=boundary.isoformat(),value=value))
+    return dict(status='DATE_ARCHIVE_RESEARCH_ONLY' if selected else 'NO_ELIGIBLE_VINTAGE',decision_at=cutoff.isoformat(),
+        archive_through=through.isoformat(),published_at_precision='DATE_ONLY',
+        completeness='CALLER_MUST_BIND_COMPLETE_ARCHIVE_RECEIPT',historical_pit_certified=False,
+        records=[selected[day][1] for day in sorted(selected)])
+
+
+def project_alfred_asof(lake, series, decision_at):
+    """Bind a conservative projection to the existing verified Lake receipt."""
+    require(type(series) is str and series,'alfred_archive_series')
+    require(not lake.pending and lake.catalog==lake.before,'scoped_unclean_lake')
+    entry=lake.catalog['datasets'].get('alfred/'+series,{})
+    require(entry.get('status') in ('COLLECTED','UNCHANGED')
+            and entry.get('evidence')=='alfred_date_archive','alfred_dataset_unavailable')
+    receipt=lake.verified_execution()
+    require(receipt.get('study_recomputed_from_drive') is True,'alfred_execution_incomplete')
+    rows=lake.get_records('alfred/'+series)
+    require(all(row.get('series')==series for row in rows),'alfred_archive_series')
+    result=project_alfred_versions(rows,decision_at,entry.get('requested_through'))
+    result.update(source_commit=lake.parent,execution_receipt_sha256=receipt['execution_receipt_sha256'])
+    return result
+
+
 def collect_macros(lake,start,through):
     for spec in registry()['series']:
+        if spec.get('collection_scope')=='scoped_alfred_only':
+            continue
         sid=spec['id']
         for mode in (['current','alfred'] if sid in ARCHIVES else ['current']):
             key=f'{mode}/{sid}'
@@ -1124,8 +1309,17 @@ def main():
     p.add_argument('--finalize-commit-sha256',default='')
     p.add_argument('--finalize-catalog-sha256',default='')
     p.add_argument('--source-head-sha',default='')
+    p.add_argument('--scoped-alfred-request',default='')
+    p.add_argument('--scoped-alfred-request-sha256',default='')
     args=p.parse_args()
     finalizing=finalization_mode(args.finalize_commit_sha256,args.finalize_catalog_sha256,args.source_head_sha)
+    scoped=bool(args.scoped_alfred_request or args.scoped_alfred_request_sha256)
+    require(not scoped or (args.scoped_alfred_request and args.scoped_alfred_request_sha256
+                          and not finalizing),'scoped_request_inputs')
+    request=None
+    if scoped:
+        with Path(args.scoped_alfred_request).open('rb') as stream:
+            request=scoped_alfred_request(stream.read(16385),args.scoped_alfred_request_sha256)
     reports=Path(args.report_dir); reports.mkdir(parents=True,exist_ok=True)
     # A separate local temp root avoids concurrent collection touching a previous
     # verified source bundle. Network destination is the configured research lane.
@@ -1135,6 +1329,24 @@ def main():
         lake=Lake(transport,args.workspace)
     if finalizing:
         return finalize_existing(lake,args,reports)
+    if scoped:
+        # The existing workflow's single-writer concurrency and full history
+        # verification also apply here. Publish independently rechecks staleness.
+        with _history_phase('MACRO_COLLECTION'):
+            meter=collect_scoped_alfred(lake,request)
+        config=copy.deepcopy(lake.before['config'])
+        config.update(registry_sha256=digest(encoded(registry())),
+            scoped_alfred_request_sha256=args.scoped_alfred_request_sha256,
+            scoped_alfred_request=request,scoped_alfred_reservations=meter)
+        with _history_phase('QUALITY_LOCAL'):
+            report=diagnostics(lake)
+            (reports/'quality.json').write_bytes(encoded(report))
+        with _history_phase('PUBLICATION'):
+            result=lake.publish(args.run_id,config)
+        with _history_phase('CLEAN_CONSUMER_RESTORE',commit_sha256=result['commit_sha256'],catalog_sha256=result['catalog_sha256']):
+            consumer=Lake(transport,Path(args.workspace)/'clean-consumer')
+        return complete_consumer(consumer,result,reports,args.workspace,run_id=args.run_id,
+            macro_start=config['macro_start'],through=config['through'],report=report)
     through=date.today().isoformat()
     config=dict(macro_start=args.macro_start,financial_start=args.financial_start,through=through,
         cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),countries=list(COUNTRIES),

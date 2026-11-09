@@ -49,6 +49,14 @@ on:
         description: Actual original collector Code HEAD from the catalog
         type: string
         default: ''
+      scoped_alfred_request_json:
+        description: Explicit missing-only ALFRED request; empty keeps normal collection
+        type: string
+        default: ''
+      scoped_alfred_request_sha256:
+        description: SHA256 of the exact request JSON bytes; not an execution approval
+        type: string
+        default: ''
   schedule:
     - cron: '37 6 * * 2-6'
 permissions:
@@ -113,13 +121,22 @@ jobs:
           FINALIZE_COMMIT: ${{ inputs.finalize_commit_sha256 }}
           FINALIZE_CATALOG: ${{ inputs.finalize_catalog_sha256 }}
           SOURCE_HEAD: ${{ inputs.source_head_sha }}
+          SCOPED_ALFRED_REQUEST: ${{ inputs.scoped_alfred_request_json }}
+          SCOPED_ALFRED_SHA: ${{ inputs.scoped_alfred_request_sha256 }}
         run: |
           python - <<'PY'
           import os
-          from tools.long_history_lake import finalization_mode,require
+          from pathlib import Path
+          from tools.long_history_lake import finalization_mode,require,scoped_alfred_request,exclusive
           finalizing=finalization_mode(os.environ['FINALIZE_COMMIT'],os.environ['FINALIZE_CATALOG'],os.environ['SOURCE_HEAD'])
           require(not finalizing or os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch','finalization_requires_dispatch')
-          print('FINALIZE_EXISTING_GENERATION' if finalizing else 'NORMAL_COLLECTION')
+          raw=os.environ['SCOPED_ALFRED_REQUEST'].encode('utf-8')
+          sha=os.environ['SCOPED_ALFRED_SHA']
+          if raw or sha:
+              require(bool(raw and sha) and not finalizing and os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch','scoped_request_inputs')
+              scoped_alfred_request(raw,sha)
+              exclusive(Path(os.environ['RUNNER_TEMP'])/'scoped-alfred-request.json',raw)
+          print('SCOPED_ALFRED_PREPARED' if raw else 'FINALIZE_EXISTING_GENERATION' if finalizing else 'NORMAL_COLLECTION')
           PY
       - name: Offline regressions before source or Drive access
         run: |
@@ -146,7 +163,7 @@ jobs:
           MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
         run: python tools/configure_macro_research_drive.py
       - name: Restore durable cohort if already archived
-        if: ${{ !inputs.finalize_commit_sha256 }}
+        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json }}
         id: cohort
         run: |
           python - <<'PY'
@@ -165,7 +182,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f: f.write('restored='+str(found).lower()+'\n')
           PY
       - name: Bootstrap exact whole-cohort artifact once
-        if: ${{ !inputs.finalize_commit_sha256 && steps.cohort.outputs.restored != 'true' }}
+        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json && steps.cohort.outputs.restored != 'true' }}
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -176,14 +193,20 @@ jobs:
         if: ${{ !inputs.finalize_commit_sha256 }}
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          SCOPED_ALFRED_SHA: ${{ inputs.scoped_alfred_request_sha256 }}
         run: |
+          set -euo pipefail
+          scoped=()
+          if [ -n "$SCOPED_ALFRED_SHA" ]; then
+            scoped=(--scoped-alfred-request "$RUNNER_TEMP/scoped-alfred-request.json" --scoped-alfred-request-sha256 "$SCOPED_ALFRED_SHA")
+          fi
           python tools/long_history_lake.py \
             --remote "$MACRO_RESEARCH_REMOTE" \
             --workspace "$RUNNER_TEMP/long-history" \
             --cohort "$RUNNER_TEMP/history-cohort/all_us_relative_strength.json" \
             --run-id "history-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --macro-start 1996-01-01 --financial-start 2016-01-01 \
-            --report-dir "$RUNNER_TEMP/history-reports"
+            --report-dir "$RUNNER_TEMP/history-reports" "${scoped[@]}"
       - name: Finalize one pinned stored generation without collection
         if: ${{ inputs.finalize_commit_sha256 != '' }}
         env:
