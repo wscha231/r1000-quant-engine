@@ -10076,3 +10076,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Preserve that failed run, then bind both fixed public originals explicitly,
   use no-lazy-fetch local Git or their bounded archives, and verify each
   missing-object positive without recertifying the current source.
+- The compatibility rerun's full local smoke was133/140, with seven unrelated
+  sparse-checkout failures (missing notebook/aggressive modules). Preserve it
+  as an environment-blocked full suite, not PASS. The current historical
+  positive/negative manual subset passed in both modes; keep that scope
+  distinct from hosted full CI and from the unchanged earlier engine tests.
