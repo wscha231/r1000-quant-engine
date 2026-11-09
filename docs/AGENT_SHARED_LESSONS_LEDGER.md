@@ -10066,3 +10066,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   fixed original Git bytes and their pins only in the temporary historical
   fixture. Verify current/modified bytes are refused there and the live catalog
   is unchanged. This does not admit new production or historical reuse inputs.
+- A shallow checkout may not contain an old pipeline object after its current
+  pin advances. Preserve only the exact public tracked original as a bounded
+  compressed test fixture, verify compressed and raw sizes/hashes, and test
+  the missing-object path plus corrupt/oversize refusals. Never substitute
+  current source for historical positive evidence or fetch missing history.
