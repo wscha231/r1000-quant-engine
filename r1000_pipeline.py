@@ -11966,6 +11966,19 @@ def _managed_position_risk_exit_signal(
     return False, "hold"
 
 
+def _causal_policy_equal(actual, expected):
+    """Compare only the bounded shape of canonical noncredential policy fields."""
+    if type(actual) is not type(expected):
+        return False
+    if type(expected) is dict:
+        return (actual.keys() == expected.keys()
+                and all(_causal_policy_equal(actual[key], value) for key, value in expected.items()))
+    if type(expected) in (list, tuple):
+        return (len(actual) == len(expected)
+                and all(_causal_policy_equal(a, b) for a, b in zip(actual, expected)))
+    return actual == expected
+
+
 def _causal_research_session(session, cfg):
     from tools.run_broker_ledger_replay import ResearchNextCloseSession
     if type(session) is not ResearchNextCloseSession:
@@ -11982,10 +11995,12 @@ def _causal_research_session(session, cfg):
                 "vol_", "volatility_targeting_", "conviction_hold_")
     names = {name for name in cfg.__dataclass_fields__ if name.startswith(prefixes)}
     names.update(("sleeve_specific_rebalance_enabled", "rebalance_interval_months",
-                  "adaptive_rebalance_enabled", "turnover_cap_monthly", "top_n"))
+                  "adaptive_rebalance_enabled", "turnover_cap_monthly", "top_n",
+                  "sleeve_regime_apply_champion", "manual_regime_conditioned_sleeve_map",
+                  "regime_conditioned_sleeve_map", "regime_conditioned_min_learned_months"))
     for name in names:
         actual, expected = getattr(cfg, name), getattr(defaults, name)
-        if type(actual) is not type(expected) or actual != expected:
+        if not _causal_policy_equal(actual, expected):
             raise ValueError("causal_c0_policy_override:" + name)
     if any(name.startswith("PHASE_") and value for name, value in os.environ.items()):
         raise ValueError("causal_c0_phase_environment_override")

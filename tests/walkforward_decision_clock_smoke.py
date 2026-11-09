@@ -6,6 +6,7 @@ import copy
 import ast
 import inspect
 from pathlib import Path
+import copy
 import sys
 import tempfile
 import unittest
@@ -639,15 +640,32 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
 
     def test_fixed_c0_cannot_be_renamed_policy_off_or_override(self):
         cfg, frame, prices = c0_fixture()
-        for field in ("portfolio_hold_policy_enabled", "sleeve_specific_rebalance_enabled",
-                      "portfolio_position_risk_enabled", "drawdown_breaker_multilevel_enabled"):
+        changes = (("portfolio_hold_policy_enabled", False),
+                   ("sleeve_specific_rebalance_enabled", False),
+                   ("portfolio_position_risk_enabled", False),
+                   ("drawdown_breaker_multilevel_enabled", False),
+                   ("sleeve_regime_apply_champion", False),
+                   ("manual_regime_conditioned_sleeve_map", {}),
+                   ("regime_conditioned_sleeve_map", {"balanced": {"cash": 1.0}}),
+                   ("regime_conditioned_min_learned_months", 0))
+        for field, value in changes:
             with self.subTest(field=field):
                 cfg = EngineConfig()
                 cfg.end_date = "2026-04-30"
-                setattr(cfg, field, False)
+                setattr(cfg, field, value)
                 session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
                 with self.assertRaisesRegex(ValueError, "causal_c0_policy_override"):
                     pipeline.backtest_portfolio(cfg, frame, research_session=session)
+        cfg, frame, prices = c0_fixture()
+        canonical = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        self.assertIs(pipeline._causal_research_session(canonical, cfg), canonical)
+        # Nested numeric equality must not let false act as integer zero.
+        changed_map = copy.deepcopy(cfg.manual_regime_conditioned_sleeve_map)
+        first = next(iter(changed_map.values()))
+        first["months"] = False
+        cfg.manual_regime_conditioned_sleeve_map = changed_map
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:manual_regime_conditioned_sleeve_map"):
+            pipeline._causal_research_session(canonical, cfg)
         cfg, frame, prices = c0_fixture()
         for override in ({"rebalance_interval_months_override": 2},
                          {"adaptive_interval_policy_override": False},
