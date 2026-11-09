@@ -10192,3 +10192,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   projection with disposable synthetic originals. An old missing-API refusal
   is not current integration evidence; retain null/vintage boundaries and
   reject missing or corrupted original receipts without granting PIT admission.
+- Full CI exposed a universe-only retry fixture that inherited enabled macro
+  defaults and stopped at the new input gate. Disable macro only in that
+  selection-boundary fixture; retain every retry/causality assertion and run
+  the registered aggregate, not only the new macro test class.

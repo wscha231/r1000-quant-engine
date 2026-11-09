@@ -372,6 +372,9 @@ class UniverseSizeCausalityTests(unittest.TestCase):
     def test_actual_universe_route_retains_bounded_starved_latest_retry(self):
         class SelectionBoundary(Exception):
             pass
+        cfg = self.cfg()
+        # This fixture ends at universe selection, before the macro join.
+        cfg.use_macro_regime_features = False
         dates=pd.to_datetime(['2021-01-29','2021-02-26'])
         names=[f'S{i:02d}' for i in range(25)]
         candidates=pd.DataFrame(dict(ticker=names,cik10=['0000000001']*25,
@@ -414,7 +417,7 @@ class UniverseSizeCausalityTests(unittest.TestCase):
                      patch.object(pipeline,'ensure_mktcap_proxy',side_effect=proxy), \
                      patch.object(pipeline,'write_leader_drop_diagnostics',side_effect=selected):
                     with self.assertRaises(SelectionBoundary):
-                        pipeline.build_universe_monthly(self.cfg())
+                        pipeline.build_universe_monthly(cfg)
                 self.assertEqual([cap for _,cap in calls],[600,1200] if historical_known else [600])
                 if historical_known:
                     self.assertEqual(len(calls[1][0]),25-latest_known)
