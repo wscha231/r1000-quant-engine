@@ -10158,3 +10158,18 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Windows checkout hashes separately. A clean Git diff does not establish byte
   equality across CRLF conversion. Preserve immutable historical fixture pins
   and the production hash refusal; a timed-out optimized check is not a pass.
+
+## 2026-11-10 - Native macro features require their own eligible prefix
+
+- A full-series robust median/MAD can change old feature values when future
+  observations arrive. Preserve the original mathematics on each feature's
+  same-cutoff observation window and attach only its final row; never join
+  earlier intermediate rows recalculated with later vintages.
+- Keep current-vintage reporting separate. A historical feature join, including
+  one past date, must block without explicit Lake projection and price prefixes;
+  current FRED or a stale cache is not its fallback. Preserve date-archive/PIT
+  limits, original lags/ffill/unknowns and all candidate rows. Computation alone
+  grants no Source, Reader, rights, historical-PIT or backtest admission.
+- Check missing historical inputs before other acquisition, and include the
+  macro-prefix policy in the incumbent cache fingerprint so an older feature
+  store cannot bypass the new join boundary. Retain old cache objects.
