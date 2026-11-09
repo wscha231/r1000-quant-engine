@@ -11966,6 +11966,137 @@ def _managed_position_risk_exit_signal(
     return False, "hold"
 
 
+def _causal_research_session(session, cfg):
+    from tools.run_broker_ledger_replay import ResearchNextCloseSession
+    if type(session) is not ResearchNextCloseSession:
+        raise ValueError("causal_session_type")
+    if (float(getattr(cfg, "starting_capital_usd", 100000.0)) != session.starting_capital
+            or int(cfg.focus_target_n) != 14 or int(cfg.focus_riskoff_target_n) != 7):
+        raise ValueError("causal_c0_profile_identity")
+    return session
+
+
+def _causal_decision_frame(frame, date):
+    """Use explicit feature availability; this is not historical Source admission."""
+    if "feature_available_from" not in frame:
+        raise ValueError("causal_feature_availability_missing")
+    available = pd.to_datetime(frame["feature_available_from"], errors="coerce", utc=True)
+    close = decision_session_close_utc(pd.Series([date])).iloc[0]
+    if pd.isna(close) or available.isna().any():
+        raise ValueError("causal_feature_clock_invalid")
+    out = frame.loc[available.le(close)].copy()
+    if out.empty or out["ticker"].duplicated().any():
+        raise ValueError("causal_feature_cohort_unavailable")
+    # Outcomes are retrospective only, even if a fuller input has finite labels.
+    labels = [column for column in out if column.startswith(("r_", "bench_r_", "y_"))
+              or "label_end_date" in column or column.endswith("forward_return")]
+    return out.drop(columns=labels)
+
+
+def _causal_observable_signals(frame, session):
+    if "feature_available_from" not in frame:
+        raise ValueError("causal_feature_availability_missing")
+    frame = frame.loc[frame["rebalance_date"].le(session.evidence_end)].copy()
+    available = pd.to_datetime(frame["feature_available_from"], errors="coerce", utc=True)
+    own_close = decision_session_close_utc(frame["rebalance_date"])
+    # A late-only historical cohort must not introduce a new decision month.
+    return frame.loc[available.notna() & own_close.notna() & available.le(own_close)].copy()
+
+
+def _causal_monthly_risk(cfg, frame, snapshot, policy_state, portfolio, *, concentrated=False):
+    """C0's explicit gross-basis monthly risk, using the original rule/thresholds.
+
+    No daily-risk proxy, synthetic stop fill, future period return, or new
+    cooldown. Episode identity changes only on an actual full exit/re-entry.
+    """
+    prefix = "concentrated" if concentrated else "portfolio"
+    if not bool(getattr(cfg, prefix + "_position_risk_enabled", False)):
+        raise ValueError("causal_c0_position_risk_must_remain_enabled")
+    rows = {str(row["ticker"]): row.to_dict() for _, row in frame.iterrows()}
+    previous = ({str(row["ticker"]): row.to_dict() for _, row in portfolio.iterrows()}
+                if not portfolio.empty and "ticker" in portfolio else {})
+    held = {position.ticker for position in snapshot.positions}
+    for ticker in list(policy_state):
+        if ticker not in held:
+            policy_state.pop(ticker)
+    rs = (pd.to_numeric(frame["relative_strength_composite"], errors="coerce").rank(pct=True)
+          if "relative_strength_composite" in frame else pd.Series(dtype=float))
+    rs_by_ticker = dict(zip(frame["ticker"].astype(str), rs))
+    exits = {}
+    for position in snapshot.positions:
+        ticker = position.ticker
+        if ticker not in rows:
+            raise ValueError("causal_held_feature_missing:" + ticker)
+        row = {**previous.get(ticker, {}), **rows[ticker], "ticker": ticker}
+        state = policy_state.setdefault(ticker, {})
+        if state.get("entry") != position.entry_session:
+            state.clear()
+            state["entry"] = position.entry_session
+        gross_return = position.close / position.gross_cost_basis - 1.0
+        gross_peak = position.peak_close / position.gross_cost_basis - 1.0
+        should_exit, reason = _managed_position_risk_exit_signal(
+            row, gross_return, gross_return, gross_peak,
+            hard_stop=_negative_stop_value(getattr(cfg, prefix + "_position_risk_hard_stop", -0.08), 0.08),
+            trailing_stop=_negative_stop_value(getattr(cfg, prefix + "_position_risk_trailing_stop", 0.0 if concentrated else -0.15), 0.0 if concentrated else 0.15),
+            trailing_min_profit=float(getattr(cfg, prefix + "_position_risk_trailing_min_profit", 0.15)),
+            distribution_threshold=float(getattr(cfg, prefix + "_position_risk_distribution_threshold", 2.0 if concentrated else 0.85)))
+        if not concentrated:
+            if (safe_float(row.get("_is_speculative"), 0.0) > 0.5
+                    and float(cfg.speculative_stop_loss_pct) > 0
+                    and gross_return <= -float(cfg.speculative_stop_loss_pct)):
+                should_exit, reason = True, "speculative_stop"
+            if phase_is_enabled("phase15_r1_trailing", default=bool(cfg.trailing_stop_enabled)):
+                sleeve = str(row.get("portfolio_sleeve_label", ""))
+                thresholds = {"early_scout": cfg.trailing_stop_early_scout_pct,
+                              "future_winner": cfg.trailing_stop_future_winner_pct,
+                              "core_compounder": cfg.trailing_stop_core_compounder_pct}
+                threshold = float(thresholds.get(sleeve, 0.0))
+                if (threshold > 0 and gross_peak > 1e-6
+                        and position.close / position.peak_close - 1.0 <= -threshold):
+                    should_exit, reason = True, "sleeve_trailing_stop"
+            if phase_is_enabled("phase15_r2_revision_break", default=bool(cfg.revision_break_exit_enabled)):
+                revision = safe_float(row.get("revision_score"), np.nan)
+                if np.isfinite(revision):
+                    state["revision_streak"] = (state.get("revision_streak", 0) + 1
+                                                if revision < cfg.revision_break_score_threshold else 0)
+                    if state["revision_streak"] >= max(1, cfg.revision_break_consecutive_months):
+                        should_exit, reason = True, "revision_break"
+            if phase_is_enabled("phase15_r3_rs_break", default=bool(cfg.rs_break_exit_enabled)):
+                current_rs = rs_by_ticker.get(ticker, np.nan)
+                if pd.notna(current_rs):
+                    state["rs_peak"] = max(state.get("rs_peak", 0.0), float(current_rs))
+                    if state["rs_peak"] >= cfg.rs_break_min_peak_pctile and current_rs <= cfg.rs_break_drop_to_pctile:
+                        should_exit, reason = True, "rs_break"
+        if should_exit:
+            exits[ticker] = reason
+    return exits
+
+
+def _causal_risk_priority(weights, exits):
+    """Required exits cannot be undone by turnover caps, partial sleeves or adds."""
+    out = dict(weights)
+    released = sum(out.pop(ticker, 0.0) for ticker in exits)
+    out[CASH_PROXY_TICKER] = out.get(CASH_PROXY_TICKER, 0.0) + released
+    return out
+
+
+def _causal_research_result(session, decisions, holdings):
+    terminal = session.finish()
+    curve = pd.DataFrame(session.nav_rows)
+    returns = pd.DataFrame(decisions)
+    metrics = dict(status="SYNTHETIC_ONLY_REAL_EXECUTION_BLOCKED", research_only=True,
+                   source_admission=False, pit_admission=False, physical_share_basis_verified=False,
+                   valid_for_production=False, accepted_write_allowed=False,
+                   causal_profile="C0_R3_RESEARCH_REBASELINE", cash_carry_mode="none",
+                   cost_bps_per_side=25.0, integer_shares=True, environment_cash_override=False,
+                   ending_equity_usd=terminal.equity,
+                   pending_intent=(None if session.pending is None else dict(
+                       signal_date=session.pending[0].date().isoformat(),
+                       due=session.pending[1].date().isoformat(), weights=session.pending[2])),
+                   trades=session.trades, equivalence_to_legacy_strategy=False)
+    return BacktestResult(pd.DataFrame(holdings), returns, metrics, curve)
+
+
 def backtest_portfolio(
     cfg: dict | EngineConfig,
     signals: pd.DataFrame,
@@ -11974,14 +12105,21 @@ def backtest_portfolio(
     adaptive_interval_policy_override: Optional[bool] = None,
     sleeve_override: Optional[dict] = None,
     cash_target_max: float = 1.0,
+    *,
+    research_session=None,
 ) -> BacktestResult:
     cfg = to_cfg(cfg)
-    paths = get_paths(cfg)
+    causal = _causal_research_session(research_session, cfg) if research_session is not None else None
+    if causal is not None and target_n_override is not None:
+        raise ValueError("causal_main_registered_target_count_required")
+    paths = {} if causal is not None else get_paths(cfg)
     log("Phase 5: running monthly portfolio backtest ...")
 
     d = signals.copy()
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     d = d.sort_values(["rebalance_date", "score"], ascending=[True, False]).reset_index(drop=True)
+    if causal is not None:
+        d = _causal_observable_signals(d, causal)
     fixed_interval_months = max(
         int(
             rebalance_interval_months_override
@@ -12150,6 +12288,8 @@ def backtest_portfolio(
     _p6c_floor = float(np.clip(safe_float(getattr(cfg, "vol_scale_floor", 0.50), 0.50), 0.0, 1.0))
     _p6c_ceiling = float(np.clip(safe_float(getattr(cfg, "vol_scale_ceiling", 1.0), 1.0), _p6c_floor, 1.0))
     recent_returns: list[float] = []  # trailing monthly net returns for vol calc
+    causal_decisions, causal_holdings, causal_policy_state = [], [], {}
+    causal_previous_equity = starting_capital_usd
 
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
         if month_df.empty or "live_event_alert_label" not in month_df.columns:
@@ -12204,10 +12344,22 @@ def backtest_portfolio(
             base_payload = {"core": 0.60, "future": 0.25, "early": 0.15, "cash": 0.0}
         return base_payload
 
-    for i in range(len(months) - 1):
+    for i in range(len(months) if causal is not None else len(months) - 1):
         dt = pd.Timestamp(months[i])
-        next_dt = pd.Timestamp(months[i + 1])
+        next_dt = pd.Timestamp(months[i + 1]) if i + 1 < len(months) else dt
         mm = d[d["rebalance_date"] == dt].copy()
+        causal_exits = {}
+        if causal is not None:
+            snapshot = causal.advance(dt)
+            mm = _causal_decision_frame(mm, dt)
+            current_w = dict(snapshot.weights) if i else {}
+            running_equity = snapshot.equity / starting_capital_usd
+            portfolio_peak = causal.peak_equity / starting_capital_usd
+            if i:
+                recent_returns.append(snapshot.equity / causal_previous_equity - 1.0)
+            causal_previous_equity = snapshot.equity
+            causal_exits = _causal_monthly_risk(cfg, mm, snapshot, causal_policy_state, current_portfolio)
+            mm = mm.loc[~mm["ticker"].astype(str).isin(causal_exits)].copy()
         drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         breaker_event = ""
         # Phase 6a: 3-level ladder with equity-based recovery hysteresis.
@@ -12412,6 +12564,21 @@ def backtest_portfolio(
                     rebalance_action = "hold_after_empty_rebalance" if current_w else "skip_empty_rebalance"
             else:
                 rebalance_action = "hold_missing_signals" if current_w else "skip_missing_signals"
+
+        if causal is not None:
+            intent = _causal_risk_priority(current_w or {CASH_PROXY_TICKER: 1.0}, causal_exits)
+            if rebalance_due or causal_exits:
+                causal.queue(dt, intent)
+            causal_decisions.append(dict(rebalance_date=dt, equity_usd=snapshot.equity,
+                                         actual_weights=snapshot.weights, target_weights=tuple(sorted(intent.items())),
+                                         risk_exits=tuple(sorted(causal_exits.items())),
+                                         rebalance_action=rebalance_action, due_sleeves=tuple(due_sleeves),
+                                         dd_breaker_level=dd_active_level,
+                                         drawdown_before_month=drawdown_before_month))
+            for ticker, weight in snapshot.weights:
+                causal_holdings.append(dict(rebalance_date=dt, ticker=ticker, weight=weight,
+                                            target_weight=intent.get(ticker, 0.0)))
+            continue  # no future Open return, synthetic clipping or journal writes
 
         if not current_w:
             continue
@@ -12804,6 +12971,8 @@ def backtest_portfolio(
             }
         )
 
+    if causal is not None:
+        return _causal_research_result(causal, causal_decisions, causal_holdings)
     ret_df = pd.DataFrame(ret_rows)
     if ret_df.empty:
         raise RuntimeError("Backtest produced no monthly returns.")
@@ -15374,9 +15543,13 @@ def backtest_concentrated_portfolio(
     top_n: int = 3,
     rebalance_interval_months: int = 1,
     weighting_mode: str = "conviction_curve",
+    research_session=None,
 ) -> BacktestResult:
     cfg_obj = to_cfg(cfg)
-    paths = get_paths(cfg_obj)
+    causal = _causal_research_session(research_session, cfg_obj) if research_session is not None else None
+    if causal is not None and (top_n != 3 or weighting_mode != "score_power" or rebalance_interval_months != 1):
+        raise ValueError("causal_concentrated_registered_n3_score_power_monthly_required")
+    paths = {} if causal is not None else get_paths(cfg_obj)
     # Phase 9 CE v2 (2026-04-18): inner clamp 3 -> 30 (second missed site).
     # Without this lift, every grid point with top_n>3 reports the N=3 backtest.
     top_n = max(1, min(int(top_n), 30))
@@ -15389,6 +15562,8 @@ def backtest_concentrated_portfolio(
             d["score"] = 0.0
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     d = d.dropna(subset=["rebalance_date"]).sort_values(["rebalance_date", "score"], ascending=[True, False]).reset_index(drop=True)
+    if causal is not None:
+        d = _causal_observable_signals(d, causal)
     months = sorted(pd.to_datetime(d["rebalance_date"].dropna().unique()).tolist())
     if len(months) < 2:
         raise RuntimeError("Need at least two months of OOS signals for concentrated backtest.")
@@ -15419,14 +15594,23 @@ def backtest_concentrated_portfolio(
     position_risk_state: dict[str, dict[str, float]] = {}
     position_risk_exit_count_total = 0
     position_risk_position_count_total = 0
+    causal_decisions, causal_holdings, causal_policy_state = [], [], {}
 
     def _month_gap(later: pd.Timestamp, earlier: pd.Timestamp) -> int:
         return int((later.year - earlier.year) * 12 + (later.month - earlier.month))
 
-    for i in range(len(months) - 1):
+    for i in range(len(months) if causal is not None else len(months) - 1):
         dt = pd.Timestamp(months[i])
-        next_dt = pd.Timestamp(months[i + 1])
+        next_dt = pd.Timestamp(months[i + 1]) if i + 1 < len(months) else dt
         mm = d[d["rebalance_date"] == dt].copy()
+        causal_exits = {}
+        if causal is not None:
+            snapshot = causal.advance(dt)
+            mm = _causal_decision_frame(mm, dt)
+            current_w = dict(snapshot.weights) if i else {}
+            causal_exits = _causal_monthly_risk(cfg_obj, mm, snapshot, causal_policy_state,
+                                                current_portfolio, concentrated=True)
+            mm = mm.loc[~mm["ticker"].astype(str).isin(causal_exits)].copy()
         rebalance_due = (not current_w) or pd.isna(next_scheduled_dt) or (dt >= pd.Timestamp(next_scheduled_dt))
         turn = 0.0
         cost = 0.0
@@ -15446,6 +15630,19 @@ def backtest_concentrated_portfolio(
             rebalance_action = "initial_rebalance" if not prev_w else "rebalance"
             rebalance_dates_taken.append(dt)
             next_scheduled_dt = next_rebalance_date_for_interval(dt, interval_months=interval_months)
+
+        if causal is not None:
+            intent = _causal_risk_priority(current_w or {CASH_PROXY_TICKER: 1.0}, causal_exits)
+            if rebalance_due or causal_exits:
+                causal.queue(dt, intent)
+            causal_decisions.append(dict(rebalance_date=dt, equity_usd=snapshot.equity,
+                                         actual_weights=snapshot.weights, target_weights=tuple(sorted(intent.items())),
+                                         risk_exits=tuple(sorted(causal_exits.items())),
+                                         rebalance_action=rebalance_action))
+            for ticker, weight in snapshot.weights:
+                causal_holdings.append(dict(rebalance_date=dt, ticker=ticker, weight=weight,
+                                            target_weight=intent.get(ticker, 0.0)))
+            continue
 
         if not current_w:
             current_w = {CASH_PROXY_TICKER: 1.0}
@@ -15586,6 +15783,8 @@ def backtest_concentrated_portfolio(
             }
         )
 
+    if causal is not None:
+        return _causal_research_result(causal, causal_decisions, causal_holdings)
     ret_df = pd.DataFrame(ret_rows)
     if ret_df.empty:
         raise RuntimeError("Concentrated backtest produced no monthly returns.")

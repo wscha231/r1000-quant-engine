@@ -2688,6 +2688,138 @@ class ResearchNavCallerTests(unittest.TestCase):
         self.assertTrue(failure["performance_fields_redacted"])
 
 
+class CausalLedgerSeamTests(unittest.TestCase):
+    def prices(self, end="2026-01-30"):
+        dates = broker.NYSE_CALENDAR.schedule(start_date="2026-01-02", end_date=end).index
+        return {"AAA": pd.DataFrame({"close": 100.0, "open": 99.0}, index=dates),
+                "BBB": pd.DataFrame({"close": 50.0, "open": 49.0}, index=dates)}
+
+    def session(self, prices=None, end="2026-01-30"):
+        return broker.ResearchNextCloseSession(self.prices(end) if prices is None else prices,
+                                               evidence_end_date=end, starting_capital=10000.0)
+
+    def test_actual_episode_basis_fees_and_cash_conservation(self):
+        from dataclasses import FrozenInstanceError
+        prices = self.prices()
+        prices["AAA"].loc["2026-01-06":, "close"] = 120.0
+        with patch.dict(os.environ, {"R1000_BROKER_CASH_CARRY_ENABLED": "1"}):
+            session = self.session(prices)
+            first = session.advance("2026-01-02")
+            with self.assertRaises(FrozenInstanceError):
+                first.cash = 0.0
+            intent = {"AAA": 0.5, "CASH": 0.5}
+            session.queue("2026-01-02", intent)
+            intent["AAA"] = 0.0
+            self.assertEqual(dict(session.pending[2])["AAA"], 0.5)
+            self.assertEqual(session.advance("2026-01-02"), first)
+            entered = session.advance("2026-01-05")
+            self.assertEqual(entered.positions[0].shares, 50)
+            self.assertEqual(entered.positions[0].gross_cost_basis, 100)
+            self.assertEqual(entered.cash, 4987.5)
+            session.queue("2026-01-05", {"AAA": 0.75, "CASH": 0.25})
+            added = session.advance("2026-01-06")
+            self.assertEqual(added.positions[0].entry_session, "2026-01-05")
+            self.assertEqual(added.positions[0].peak_close, 120)
+            self.assertGreater(added.positions[0].gross_cost_basis, 100)
+            basis = added.positions[0].gross_cost_basis
+            session.queue("2026-01-06", {"AAA": 0.2, "CASH": 0.8})
+            trimmed = session.advance("2026-01-07")
+            self.assertEqual(trimmed.positions[0].gross_cost_basis, basis)
+            self.assertEqual(trimmed.positions[0].entry_session, "2026-01-05")
+            session.queue("2026-01-07", {"CASH": 1.0})
+            exited = session.advance("2026-01-08")
+            self.assertEqual(exited.positions, ())
+            session.queue("2026-01-08", {"AAA": 0.5, "CASH": 0.5})
+            reentered = session.advance("2026-01-09")
+            self.assertEqual(reentered.positions[0].entry_session, "2026-01-09")
+            self.assertEqual(reentered.positions[0].gross_cost_basis, 120)
+            buys = sum(row["gross_value"] for row in session.trades if row["side"] == "BUY")
+            sells = sum(row["gross_value"] for row in session.trades if row["side"] == "SELL")
+            fees = sum(row["fee_usd"] for row in session.trades)
+            self.assertAlmostEqual(reentered.cash + buys - sells + fees, 10000.0)
+            self.assertTrue(all(row["quantity"] == int(row["quantity"]) for row in session.trades))
+            self.assertAlmostEqual(fees, (buys + sells) * 0.0025)
+            copied_trade = session.trades[0]
+            copied_trade["quantity"] = -1000
+            self.assertGreater(session.trades[0]["quantity"], 0)
+
+    def test_exact_due_transition_is_atomic_and_never_skips_an_exit(self):
+        for flaw in ("missing", "duplicate", "nan", "zero", "infinite"):
+            with self.subTest(flaw=flaw):
+                prices = self.prices()
+                date = pd.Timestamp("2026-01-06")
+                if flaw == "missing":
+                    prices["AAA"] = prices["AAA"].drop(date)
+                elif flaw == "duplicate":
+                    prices["AAA"] = pd.concat([prices["AAA"], prices["AAA"].loc[[date]]]).sort_index()
+                else:
+                    prices["AAA"].loc[date, "close"] = {"nan": np.nan, "zero": 0., "infinite": np.inf}[flaw]
+                session = self.session(prices)
+                session.advance("2026-01-02")
+                session.queue("2026-01-02", {"AAA": 0.5, "CASH": 0.5})
+                before = session.advance("2026-01-05")
+                session.queue("2026-01-05", {"BBB": 0.5, "CASH": 0.5})
+                trades = session.trades
+                with self.assertRaisesRegex(ValueError, "causal_.*exact_close"):
+                    session.advance("2026-01-06")
+                self.assertEqual(session.trades, trades)
+                self.assertEqual(session.advance("2026-01-05"), before)
+
+    def test_missing_held_mark_and_unknown_basis_cannot_use_native_fallback(self):
+        for corrupt_basis in (False, True):
+            prices = self.prices()
+            if not corrupt_basis:
+                prices["AAA"] = prices["AAA"].drop(pd.Timestamp("2026-01-06"))
+            session = self.session(prices)
+            session.advance("2026-01-02")
+            session.queue("2026-01-02", {"AAA": 0.5, "CASH": 0.5})
+            session.advance("2026-01-05")
+            if corrupt_basis:
+                session._state.cost_basis["AAA"] = np.nan  # adversarial internal corruption
+            with self.assertRaisesRegex(ValueError, "causal_(unknown_position_basis|missing_or_duplicate_exact_close)"):
+                session.advance("2026-01-06")
+
+    def test_pending_and_unadmitted_real_basis(self):
+        session = self.session(end="2026-01-02")
+        initial = session.advance("2026-01-02")
+        session.queue("2026-01-02", {"AAA": 1.0})
+        self.assertEqual(session.finish(), initial)
+        self.assertEqual(session.trades, ())
+        self.assertEqual(session.pending[1], pd.Timestamp("2026-01-05"))
+        with self.assertRaisesRegex(ValueError, "causal_real_price_source_ca_admission_required"):
+            broker.ResearchNextCloseSession(self.prices(), evidence_end_date="2026-01-30",
+                                           price_basis="RAW_EXECUTABLE")
+
+    def test_shared_transition_preserves_static_replay_results(self):
+        prices = self.prices()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cache, out = root / "cache", root / "out"
+            cache.mkdir()
+            for ticker, frame in prices.items():
+                frame.rename(columns={"close": "Close", "open": "Open"}).to_parquet(cache / px_cache_name(ticker))
+            target = root / "targets.csv"
+            pd.DataFrame([dict(rebalance_date=date, ticker=ticker, weight=weight)
+                          for date, weights in (("2026-01-02", {"AAA": .5, "CASH": .5}),
+                                                ("2026-01-20", {"BBB": .6, "CASH": .4}))
+                          for ticker, weight in weights.items()]).to_csv(target, index=False)
+            result = replay(target_book=target, price_cache=cache, output_dir=out,
+                            portfolio_kind="main", starting_capital=10000.0,
+                            cash_carry_config=CashCarryConfig(mode="none"))
+            self.assertEqual(result["status"], "completed")
+            session = self.session(prices)
+            session.advance("2026-01-02")
+            session.queue("2026-01-02", {"AAA": .5, "CASH": .5})
+            session.advance("2026-01-20")
+            session.queue("2026-01-20", {"BBB": .6, "CASH": .4})
+            terminal = session.finish()
+            actual = pd.read_csv(out / "trades.csv")
+            for key in ("quantity", "gross_value", "fee_usd", "cash_after", "shares_after"):
+                np.testing.assert_allclose(actual[key], [row[key] for row in session.trades])
+            self.assertAlmostEqual(float(pd.read_csv(out / "equity_curve.csv").equity_usd.iloc[-1]), terminal.equity)
+            self.assertNotIn("causal_profile", result)
+
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -2701,6 +2833,7 @@ def main() -> int:
         for case in (
             ForwardNextCloseClockTests, OpeningClockAdmissionTests, GeneratedOutputLifecycleTests,
             CallerInputCollisionTests, ResearchNavCallerTests,
+            CausalLedgerSeamTests,
         )
     )
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():

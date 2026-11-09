@@ -1330,6 +1330,257 @@ def execute_order(
     return order
 
 
+@dataclass(frozen=True)
+class ResearchPositionSnapshot:
+    ticker: str
+    shares: float
+    gross_cost_basis: float
+    close: float
+    entry_session: str
+    peak_close: float
+
+
+@dataclass(frozen=True)
+class ResearchDecisionSnapshot:
+    session: str
+    cash: float
+    equity: float
+    positions: tuple[ResearchPositionSnapshot, ...]
+    weights: tuple[tuple[str, float], ...]
+
+
+class ResearchNextCloseSession:
+    """Incremental synthetic research use of the incumbent ledger primitives.
+
+    This is an accounting seam, not Source/CA/PIT admission. There is no real
+    input adapter yet: a caller cannot obtain it by supplying a bool or a
+    declared physical-price basis. All results remain explicitly unadmitted.
+    No loaders, publishers, accepted files or environment overrides are used.
+    """
+
+    def __init__(self, prices, *, evidence_end_date, starting_capital=100000.0,
+                 price_basis="SYNTHETIC_UNADMITTED"):
+        if price_basis != "SYNTHETIC_UNADMITTED":
+            raise ValueError("causal_real_price_source_ca_admission_required")
+        end = _parse_forward_close_date(evidence_end_date)
+        if end is None:
+            raise ValueError("causal_invalid_evidence_end")
+        if (type(starting_capital) not in (int, float) or
+                not math.isfinite(starting_capital) or starting_capital <= 0):
+            raise ValueError("causal_initial_capital")
+        if type(prices) is not dict:
+            raise ValueError("causal_prices")
+        self._prices = {}
+        for ticker, frame in prices.items():
+            if (type(ticker) is not str or not ticker or ticker != ticker.upper().strip()
+                    or ticker in CASH_TICKERS or type(frame) is not pd.DataFrame
+                    or not isinstance(frame.index, pd.DatetimeIndex)
+                    or frame.index.tz is not None or frame.index.hasnans
+                    or not frame.index.equals(frame.index.normalize())
+                    or not frame.index.is_monotonic_increasing):
+                raise ValueError("causal_price_shape")
+            self._prices[ticker] = frame.rename(columns={"Close": "close"}).copy(deep=True)
+        self._evidence_end = end
+        self._starting_capital = float(starting_capital)
+        self._state = LedgerState(cash=self.starting_capital)
+        self._cash_config = CashCarryConfig(mode=CASH_CARRY_MODE_NONE)
+        self._episodes = {}
+        self._pending = None
+        self._last_date = None
+        self._snapshot = None
+        self._trade_rows = []
+        self._nav_rows = []
+        self._intent_rows = []
+        self._peak_equity = self.starting_capital
+
+    @property
+    def evidence_end(self):
+        return self._evidence_end
+
+    @property
+    def starting_capital(self):
+        return self._starting_capital
+
+    @property
+    def peak_equity(self):
+        return self._peak_equity
+
+    @property
+    def trades(self):
+        return tuple(dict(row) for row in self._trade_rows)
+
+    @property
+    def nav_rows(self):
+        return tuple(dict(row) for row in self._nav_rows)
+
+    @property
+    def intents(self):
+        return tuple(dict(row) for row in self._intent_rows)
+
+    @property
+    def pending(self):
+        return self._pending  # dates + tuple of weights; no mutable account state
+
+    def _exact_close(self, ticker, session):
+        frame = self._prices.get(ticker)
+        if frame is None:
+            raise ValueError("causal_missing_exact_close:" + ticker)
+        rows = frame.loc[frame.index.normalize() == session]
+        if len(rows) != 1:
+            raise ValueError("causal_missing_or_duplicate_exact_close:" + ticker)
+        columns = [column for column in ("close", "Close") if column in rows]
+        if len(columns) != 1 or rows.columns.duplicated().any():
+            raise ValueError("causal_close_basis_unknown:" + ticker)
+        value = rows.iloc[0][columns[0]]
+        if (isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, float, np.integer, np.floating))
+                or not math.isfinite(float(value)) or float(value) <= 0):
+            raise ValueError("causal_invalid_exact_close:" + ticker)
+        return float(value)
+
+    def _validate_state(self):
+        state = self._state
+        if not math.isfinite(state.cash) or state.cash < -1e-8:
+            raise ValueError("causal_cash_state")
+        for ticker, shares in state.shares.items():
+            basis = state.cost_basis.get(ticker)
+            if (not math.isfinite(shares) or shares <= 0 or shares != math.floor(shares)
+                    or basis is None or not math.isfinite(basis) or basis <= 0
+                    or ticker not in self._episodes):
+                raise ValueError("causal_unknown_position_basis:" + ticker)
+
+    def _snapshot_at(self, session):
+        self._validate_state()
+        # Admit exact marks BEFORE the incumbent at-or-before/cost-basis helper.
+        marks = {ticker: self._exact_close(ticker, session) for ticker in self._state.shares}
+        equity, values = account_equity(self._state, self._prices, session)
+        if not math.isfinite(equity) or equity <= 0:
+            raise ValueError("causal_equity_state")
+        if any(not math.isclose(values[ticker], self._state.shares[ticker] * mark,
+                                rel_tol=1e-12, abs_tol=1e-8) for ticker, mark in marks.items()):
+            raise ValueError("causal_mark_fallback_forbidden")
+        positions = []
+        for ticker in sorted(marks):
+            entry, peak = self._episodes[ticker]
+            peak = max(peak, marks[ticker])
+            self._episodes[ticker] = (entry, peak)
+            positions.append(ResearchPositionSnapshot(
+                ticker, self._state.shares[ticker], self._state.cost_basis[ticker],
+                marks[ticker], entry, peak))
+        weights = tuple(sorted([(ticker, values[ticker] / equity) for ticker in marks]
+                               + [("CASH", self._state.cash / equity)]))
+        return ResearchDecisionSnapshot(session.date().isoformat(), self._state.cash,
+                                        equity, tuple(positions), weights)
+
+    def _fill_pending(self, session):
+        signal, due, weights = self._pending
+        if session != due:
+            raise ValueError("causal_due_session_mismatch")
+        self._validate_state()
+        target = {ticker: weight for ticker, weight in weights if ticker not in CASH_TICKERS}
+        transition = set(target) | set(self._state.shares)
+        # All exits, holds and entries are checked before a single order mutates.
+        fill_prices = {ticker: self._exact_close(ticker, due) for ticker in transition}
+        for ticker in transition:
+            actual, price = fill_price(self._prices, ticker, signal, "next_close", 0,
+                                       exact_next_close_end=self.evidence_end)
+            if actual is None or pd.Timestamp(actual).normalize() != due or price != fill_prices[ticker]:
+                raise ValueError("causal_exact_due_fill:" + ticker)
+        trial = LedgerState(self._state.cash, dict(self._state.shares),
+                            dict(self._state.cost_basis), dict(self._state.realized_pnl),
+                            self._state.cash_interest_accrued, self._state.last_cash_accrual_date,
+                            self._state.cash_rate_future_use_count)
+        trades = []
+        _execute_transition_orders(
+            state=trial, prices=self._prices, fill_dt=due, target_weights=target,
+            fill_px_by_ticker=fill_prices, fill_dt_by_ticker={ticker: due for ticker in transition},
+            signal_dt=signal, cost_bps=25.0, integer_shares=True,
+            execution_cost_model=None, partial_resize_two_signal_confirmation=False,
+            risk_gross_reduction=False, pending_partial_resizes={}, signal_index=0,
+            trade_rows=trades, partial_resize_rows=[])
+        episodes = {}
+        for ticker in trial.shares:
+            episodes[ticker] = self._episodes.get(ticker, (due.date().isoformat(), fill_prices[ticker]))
+        self._state, self._episodes = trial, episodes
+        self._trade_rows.extend(trades)
+        self._pending = None
+
+    def advance(self, as_of_date):
+        # A failed multi-session advance must not leak partial fills/marks into
+        # a retry or the next decision. Only the incumbent LedgerState is copied.
+        state = self._state
+        backup = (LedgerState(state.cash, dict(state.shares), dict(state.cost_basis),
+                              dict(state.realized_pnl), state.cash_interest_accrued,
+                              state.last_cash_accrual_date, state.cash_rate_future_use_count),
+                  dict(self._episodes), self._pending, self._last_date, self._snapshot,
+                  list(self._trade_rows), list(self._nav_rows), self._peak_equity)
+        try:
+            return self._advance(as_of_date)
+        except Exception:
+            (self._state, self._episodes, self._pending, self._last_date, self._snapshot,
+             self._trade_rows, self._nav_rows, self._peak_equity) = backup
+            raise
+
+    def _advance(self, as_of_date):
+        """Advance actual fills and marks only through an explicit NYSE close."""
+        date = _parse_forward_close_date(as_of_date)
+        if date is None or date > self.evidence_end or (self._last_date is not None and date < self._last_date):
+            raise ValueError("causal_invalid_decision_clock")
+        schedule = NYSE_CALENDAR.schedule(start_date=date.date(), end_date=date.date())
+        if schedule.empty:
+            raise ValueError("causal_decision_not_nyse_session")
+        if date == self._last_date:
+            return self._snapshot
+        start = date if self._last_date is None else self._last_date + pd.Timedelta(days=1)
+        sessions = NYSE_CALENDAR.schedule(start_date=start.date(), end_date=date.date()).index
+        for raw in sessions:
+            session = pd.Timestamp(raw).tz_localize(None).normalize()
+            # C0 explicitly disables cash carry and all environment overrides.
+            accrue_cash_interest(state=self._state, mark_date=session,
+                                 cash_carry_config=self._cash_config, cash_rate_table=pd.DataFrame())
+            if self._pending is not None and self._pending[1] <= session:
+                self._fill_pending(session)
+            snapshot = self._snapshot_at(session)
+            self._peak_equity = max(self._peak_equity, snapshot.equity)
+            self._nav_rows.append(dict(date=snapshot.session, equity_usd=snapshot.equity,
+                                       cash_usd=snapshot.cash))
+            self._last_date, self._snapshot = session, snapshot
+        if self._snapshot is None:
+            raise ValueError("causal_snapshot_unavailable")
+        return self._snapshot
+
+    def queue(self, signal_date, weights):
+        signal = _parse_forward_close_date(signal_date)
+        if signal is None or self._snapshot is None or signal != self._last_date or self._pending is not None:
+            raise ValueError("causal_intent_clock")
+        if type(weights) is not dict:
+            raise ValueError("causal_target_weights")
+        normalized = {}
+        for ticker, value in weights.items():
+            if (type(ticker) is not str or not ticker or ticker != ticker.upper().strip()
+                    or type(value) not in (int, float) or not math.isfinite(value) or value < 0):
+                raise ValueError("causal_target_weights")
+            name = "CASH" if ticker in CASH_TICKERS else ticker
+            if name in normalized:
+                raise ValueError("causal_duplicate_target")
+            if value > 0:
+                normalized[name] = float(value)
+        total = sum(normalized.values())
+        if total > 1.0 + 1e-8:
+            raise ValueError("causal_target_leverage")
+        normalized["CASH"] = normalized.get("CASH", 0.0) + max(0.0, 1.0 - total)
+        due = earliest_nyse_fill_date(signal.date().isoformat(), "next_close")
+        self._pending = (signal, due, tuple(sorted(normalized.items())))
+        self._intent_rows.append(dict(signal_date=signal.date().isoformat(), due=due.date().isoformat(),
+                                      weights=tuple(sorted(normalized.items()))))
+
+    def finish(self):
+        schedule = NYSE_CALENDAR.schedule(start_date=(self._last_date or self.evidence_end).date(),
+                                          end_date=self.evidence_end.date())
+        if schedule.empty:
+            raise ValueError("causal_terminal_session_unavailable")
+        return self.advance(pd.Timestamp(schedule.index[-1]).tz_localize(None).normalize())
+
+
 def _execute_transition_orders(
     *, state, prices, fill_dt, target_weights, fill_px_by_ticker,
     fill_dt_by_ticker, signal_dt, cost_bps, integer_shares,

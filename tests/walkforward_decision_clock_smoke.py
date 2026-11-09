@@ -494,6 +494,140 @@ class UniverseSizeCausalityTests(unittest.TestCase):
             self.assertEqual(unknown.iloc[0]['mktcap_px_shares_raw'],10000.)
             self.assertEqual(unknown.iloc[1]['mktcap'],5000.)
 
+from tools.run_broker_ledger_replay import ResearchNextCloseSession, NYSE_CALENDAR
 
-if __name__ == '__main__':
-    unittest.main()
+
+def c0_fixture():
+    cfg = EngineConfig()
+    cfg.end_date = "2026-04-30"
+    dates = pd.to_datetime(["2026-01-30", "2026-02-27", "2026-03-31", "2026-04-30"])
+    rows = []
+    for date in dates:
+        close = pipeline.decision_session_close_utc(pd.Series([date])).iloc[0]
+        for index in range(18):
+            row = dict.fromkeys(cfg.features, 0.2)
+            row.update(dict.fromkeys(pipeline.CORE_FUNDAMENTAL_MINIMUM_FIELDS, 0.2))
+            row.update(ticker=f"S{index:02}", Name=f"Synthetic {index}", sector=f"Sector{index % 6}",
+                       rebalance_date=date, feature_date=date, feature_available_from=close,
+                       score=4.0-index*.07, px=100., mktcap=1e10, dollar_vol_20d=1e8,
+                       vol_6m=.2, mom_1m=.05, mom_3m=.1, mom_6m=.2, mom_12m=.3,
+                       dist_ma200=.1, selection_confirmation_score=.9,
+                       fundamental_presence_score=1., fundamental_reliability_score=1.,
+                       fundamental_history_coverage_score=1., entry_quality_score=.8,
+                       portfolio_sleeve_label=("core_compounder", "future_winner", "early_scout")[index % 3],
+                       portfolio_sleeve_label_raw=("core_compounder", "future_winner", "early_scout")[index % 3],
+                       revenues_ttm=1e9, net_income_ttm=1e8, ocf_ttm=1.5e8,
+                       assets=2e9, liabilities=1e9, risk_penalty=0., rs_acceleration_score=.1,
+                       trend_template_full=1., price_above_ma50=1., price_above_ma200=1.,
+                       relative_strength_composite=2-index*.02, _is_speculative=0.,
+                       y_blend=999., r_6m=100., r_6m_label_end_date=date+pd.DateOffset(months=6))
+            rows.append(row)
+    sessions = NYSE_CALENDAR.schedule(start_date=dates[0].date(), end_date=cfg.end_date).index
+    prices = {f"S{index:02}": pd.DataFrame({"close": 100., "open": 99.}, index=sessions)
+              for index in range(18)}
+    return cfg, pd.DataFrame(rows), prices
+
+
+class CausalMonthlyDecisionTests(unittest.TestCase):
+    def main_result(self, cfg, frame, prices):
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        original = pipeline.build_target_portfolio
+        calls = []
+
+        def observe(*args, **kwargs):
+            result = original(*args, **kwargs)
+            calls.append((args[1].copy(deep=True), dict(kwargs.get("prev_w") or {}), result[0].copy()))
+            return result
+
+        with patch.object(pipeline, "build_target_portfolio", side_effect=observe), \
+             patch.object(pipeline, "merge_partial_sleeve_rebalance_state", wraps=pipeline.merge_partial_sleeve_rebalance_state) as partial, \
+             patch.object(pipeline, "month_forward_return_open", side_effect=AssertionError("future-return feedback")), \
+             patch.object(pipeline, "get_paths", side_effect=AssertionError("research output I/O")):
+            result = pipeline.backtest_portfolio(cfg, frame, research_session=session)
+            partial_calls = partial.call_count
+        return result, session, calls, partial_calls
+
+    def test_nonempty_original_main_future_open_and_tail_cannot_change_past_decisions(self):
+        cfg, frame, prices = c0_fixture()
+        first, session, calls, partial_calls = self.main_result(cfg, frame, prices)
+        self.assertGreater(len(session.trades), 0)
+        self.assertGreater(len(calls), 1)
+        self.assertTrue(any(not call[2].empty for call in calls))
+        self.assertTrue(any(call[1] for call in calls[1:]))
+        self.assertGreater(partial_calls, 0)
+        self.assertTrue(cfg.portfolio_position_risk_enabled)
+        self.assertTrue(cfg.portfolio_hold_policy_enabled)
+        self.assertTrue(cfg.sleeve_specific_rebalance_enabled)
+        self.assertTrue(any("portfolio_hold_policy_bonus" in call[2] for call in calls))
+        for call in calls:
+            self.assertNotIn("y_blend", call[0])
+            self.assertNotIn("r_6m", call[0])
+        poisoned = {ticker: price.copy() for ticker, price in prices.items()}
+        for price in poisoned.values():
+            price.loc[price.index >= "2026-03-02", "open"] = 1e9
+        changed = frame.copy()
+        changed.loc[changed.rebalance_date > "2026-02-27", ["y_blend", "r_6m"]] = -1e10
+        # An entirely later cohort must not add an evaluated current decision.
+        tail = changed.tail(18).copy()
+        tail["rebalance_date"] = tail["feature_date"] = pd.Timestamp("2027-01-29")
+        tail["feature_available_from"] = pd.Timestamp("2027-01-29T21:00:00Z")
+        second, other, _, _ = self.main_result(cfg, pd.concat([changed, tail], ignore_index=True), poisoned)
+        self.assertEqual(first.monthly_returns.to_dict("records"), second.monthly_returns.to_dict("records"))
+        pd.testing.assert_frame_equal(first.equity_curve, second.equity_curve)
+        self.assertEqual(session.trades, other.trades)
+        self.assertEqual(first.metrics["status"], "SYNTHETIC_ONLY_REAL_EXECUTION_BLOCKED")
+        self.assertFalse(first.metrics["source_admission"])
+
+    def test_future_close_changes_later_nav_but_not_prior_valid_targets(self):
+        cfg, frame, prices = c0_fixture()
+        first, session, _, _ = self.main_result(cfg, frame, prices)
+        poisoned = {ticker: price.copy() for ticker, price in prices.items()}
+        for price in poisoned.values():
+            price.loc[price.index >= "2026-03-02", "close"] = 40.
+        second, other, _, _ = self.main_result(cfg, frame, poisoned)
+        before = first.monthly_returns.loc[first.monthly_returns.rebalance_date <= "2026-02-27"]
+        after = second.monthly_returns.loc[second.monthly_returns.rebalance_date <= "2026-02-27"]
+        self.assertEqual(before.to_dict("records"), after.to_dict("records"))
+        self.assertNotEqual(first.metrics["ending_equity_usd"], second.metrics["ending_equity_usd"])
+        self.assertGreater(len(session.trades), 0)
+        self.assertGreater(len(other.trades), 0)
+        self.assertGreater(second.monthly_returns.dd_breaker_level.max(), 0)
+
+    def test_monthly_forced_exit_is_not_rebought_or_credited_a_stop_fill(self):
+        cfg, frame, prices = c0_fixture()
+        baseline, original_session, _, _ = self.main_result(cfg, frame, prices)
+        bought = next(row["ticker"] for row in original_session.trades if row["side"] == "BUY")
+        prices[bought].loc[prices[bought].index >= "2026-02-27", "close"] = 70.
+        prices[bought].loc[prices[bought].index >= "2026-03-02", "close"] = 40.
+        result, session, _, _ = self.main_result(cfg, frame, prices)
+        decision = result.monthly_returns.loc[result.monthly_returns.rebalance_date.eq(pd.Timestamp("2026-02-27"))].iloc[0]
+        self.assertIn(bought, dict(decision.risk_exits))
+        self.assertEqual(dict(decision.target_weights).get(bought, 0.), 0.)
+        fills = [row for row in session.trades if row["ticker"] == bought and row["date"] == "2026-03-02"]
+        self.assertTrue(fills)
+        self.assertEqual({row["side"] for row in fills}, {"SELL"})
+        self.assertTrue(all(row["fill_price"] == 40. for row in fills))
+        self.assertLess(result.metrics["ending_equity_usd"], baseline.metrics["ending_equity_usd"])
+
+    def test_concentrated_reuses_n3_score_power_monthly_and_same_ledger(self):
+        cfg, frame, prices = c0_fixture()
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        with patch.object(pipeline, "select_concentrated_portfolio_topk", wraps=pipeline.select_concentrated_portfolio_topk) as selector, \
+             patch.object(pipeline, "month_forward_return_open", side_effect=AssertionError("future outcome")), \
+             patch.object(pipeline, "get_paths", side_effect=AssertionError("output I/O")):
+            result = pipeline.backtest_concentrated_portfolio(cfg, frame, top_n=3, weighting_mode="score_power",
+                                                               rebalance_interval_months=1, research_session=session)
+        self.assertEqual(selector.call_count, 4)
+        self.assertTrue(all(call.kwargs["top_n"] == 3 for call in selector.call_args_list))
+        self.assertGreater(len(session.trades), 0)
+        self.assertFalse(result.metrics["valid_for_production"])
+        self.assertIsNotNone(result.metrics["pending_intent"])
+        self.assertEqual(result.metrics["pending_intent"]["due"], "2026-05-01")
+        self.assertEqual(result.metrics["ending_equity_usd"], session.nav_rows[-1]["equity_usd"])
+        wrong = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        with self.assertRaisesRegex(ValueError, "causal_concentrated_registered"):
+            pipeline.backtest_concentrated_portfolio(cfg, frame, weighting_mode="conviction_curve", research_session=wrong)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
