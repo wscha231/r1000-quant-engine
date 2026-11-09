@@ -12130,7 +12130,8 @@ def backtest_portfolio(
         raise ValueError("causal_main_registered_target_count_required")
     if causal is not None and (rebalance_interval_months_override is not None
                               or adaptive_interval_policy_override is not None
-                              or sleeve_override is not None or cash_target_max != 1.0):
+                              or sleeve_override is not None
+                              or type(cash_target_max) is not float or cash_target_max != 1.0):
         raise ValueError("causal_c0_main_policy_override")
     paths = {} if causal is not None else get_paths(cfg)
     log("Phase 5: running monthly portfolio backtest ...")
@@ -15567,7 +15568,9 @@ def backtest_concentrated_portfolio(
 ) -> BacktestResult:
     cfg_obj = to_cfg(cfg)
     causal = _causal_research_session(research_session, cfg_obj) if research_session is not None else None
-    if causal is not None and (top_n != 3 or weighting_mode != "score_power" or rebalance_interval_months != 1):
+    if causal is not None and (type(top_n) is not int or top_n != 3
+                              or type(rebalance_interval_months) is not int
+                              or rebalance_interval_months != 1 or weighting_mode != "score_power"):
         raise ValueError("causal_concentrated_registered_n3_score_power_monthly_required")
     paths = {} if causal is not None else get_paths(cfg_obj)
     # Phase 9 CE v2 (2026-04-18): inner clamp 3 -> 30 (second missed site).

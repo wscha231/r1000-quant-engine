@@ -523,6 +523,10 @@ def c0_fixture():
                        net_margin=.2, op_margin_ttm=.2, mom_24m=.8, revision_blueprint_score=.8,
                        fundamental_turnaround_acceleration_score=(.8 if index < 6 else .1),
                        cashflow_inflection_under_loss_score=(.8 if index < 6 else .1),
+                       macro_risk_off_score=0., market_regime_score=1., spy_above_ma200=1.,
+                       bench_above_ma200=1., market_breadth_regime_score=.8,
+                       market_sector_participation=.7, systemic_crisis_score=0.,
+                       live_event_risk_score=0., liquidity_drain_score=0., inflation_pressure_score=0.,
                        trend_template_full=1., price_above_ma50=1., price_above_ma200=1.,
                        relative_strength_composite=2-index*.02, _is_speculative=0.,
                        y_blend=999., r_6m=100., r_6m_label_end_date=date+pd.DateOffset(months=6))
