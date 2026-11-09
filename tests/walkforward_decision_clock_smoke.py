@@ -800,6 +800,44 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
         self.assertEqual(pipeline._causal_monthly_risk(cfg, current, snapshot, {}, core),
                          {ticker: "distribution_risk_decay"})
 
+    def test_noop_proposed_sleeve_cannot_change_canonical_partial_hold_decision(self):
+        cfg, frame, prices = c0_fixture()
+        intervals = pipeline.resolve_sleeve_rebalance_interval_map(cfg)
+        self.assertEqual(intervals, {"core_compounder": 1, "future_winner": 2, "early_scout": 1})
+        due = [name for name, interval in intervals.items() if interval == 1]
+        self.assertEqual(set(due), {"core_compounder", "early_scout"})
+        for actual, proposed, retained in (("early_scout", "future_winner", False),
+                                           ("future_winner", "core_compounder", True)):
+            with self.subTest(actual=actual, proposed=proposed):
+                ticker = "S00"
+                session = ResearchNextCloseSession({ticker: prices[ticker]}, evidence_end_date=cfg.end_date)
+                session.advance("2026-01-30")
+                session.queue("2026-01-30", {ticker: 1.0})
+                first = session.advance("2026-02-27")
+                allocated = pipeline._causal_filled_sleeves(
+                    first, session.trades, ("2026-01-30", {ticker: actual}), {})
+                trades_before = len(session.trades)
+                session.queue("2026-02-27", {ticker: 1.0})
+                later = session.advance("2026-03-31")
+                self.assertTrue(later.positions)
+                self.assertEqual(len(session.trades), trades_before, "real integer sizing must be a no-op")
+                allocated = pipeline._causal_filled_sleeves(
+                    later, session.trades[trades_before:], ("2026-02-27", {ticker: proposed}), allocated)
+                current = frame.loc[frame.rebalance_date.eq(frame.rebalance_date.min())].copy()
+                current.loc[current.ticker.eq(ticker), "portfolio_sleeve_label"] = proposed
+                portfolio, weights, actual_map = pipeline._causal_actual_portfolio(current, later, allocated)
+                self.assertEqual(portfolio.portfolio_sleeve_label.tolist(), [actual])
+                self.assertEqual(actual_map, {ticker: actual})
+                target = current.loc[current.ticker.eq("S01")].copy()
+                target["portfolio_sleeve_label"] = "core_compounder"
+                _, correct, _ = pipeline.merge_partial_sleeve_rebalance_state(
+                    current, weights, actual_map, target, {"S01": 1.0}, due, cfg, interval_map=intervals)
+                _, poisoned, _ = pipeline.merge_partial_sleeve_rebalance_state(
+                    current, weights, {ticker: proposed}, target, {"S01": 1.0}, due, cfg, interval_map=intervals)
+                self.assertIs(ticker in correct, retained)
+                self.assertNotEqual(ticker in correct, ticker in poisoned,
+                                    "counterfactual proposed metadata must expose the old wrong hold decision")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

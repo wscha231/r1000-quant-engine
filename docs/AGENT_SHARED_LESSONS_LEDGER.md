@@ -10125,3 +10125,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   threshold. Advance allocation metadata only after its matching actual fill;
   keep current risk observations, and do not promote pending or integer-no-op
   target labels into holdings. Preserve full-exit/reentry episode identity.
+- The first sleeve fix protected risk but left proposed roles in partial-hold
+  state. Restore the same actual filled portfolio/map before every decision
+  and after queuing. Test the unchanged core1/future2/early1 cadence in both
+  directions: a no-fill label must neither preserve a due holding nor remove
+  an allocated sleeve whose rebalance is not yet due.

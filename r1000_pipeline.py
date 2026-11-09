@@ -12161,6 +12161,15 @@ def _causal_filled_sleeves(snapshot, fills, pending, allocated):
     return out
 
 
+def _causal_actual_portfolio(frame, snapshot, allocated):
+    """One actual holding state for risk, hold and partial-sleeve consumers."""
+    sleeves = {position.ticker: allocated[position.ticker][1]
+               for position in snapshot.positions}
+    portfolio = frame.loc[frame["ticker"].astype(str).isin(sleeves)].copy()
+    portfolio["portfolio_sleeve_label"] = portfolio["ticker"].astype(str).map(sleeves)
+    return portfolio, dict(snapshot.weights), sleeves
+
+
 def _causal_monthly_risk(cfg, frame, snapshot, policy_state, portfolio, *, concentrated=False):
     """C0's explicit gross-basis monthly risk, using the original rule/thresholds.
 
@@ -12523,6 +12532,7 @@ def backtest_portfolio(
         if causal is not None:
             snapshot = causal.advance(dt)
             mm = _causal_decision_frame(mm, dt)
+            causal_observed_frame = mm.copy()
             current_w = dict(snapshot.weights) if i else {}
             running_equity = snapshot.equity / starting_capital_usd
             portfolio_peak = causal.peak_equity / starting_capital_usd
@@ -12533,10 +12543,9 @@ def backtest_portfolio(
             causal_sleeves = _causal_filled_sleeves(
                 snapshot, fills[causal_trade_cursor:], causal_pending_sleeves, causal_sleeves)
             causal_trade_cursor = len(fills)
-            allocated_portfolio = pd.DataFrame([
-                {"ticker": ticker, "portfolio_sleeve_label": value[1]}
-                for ticker, value in causal_sleeves.items()])
-            causal_exits = _causal_monthly_risk(cfg, mm, snapshot, causal_policy_state, allocated_portfolio)
+            current_portfolio, _, current_sleeve_map = _causal_actual_portfolio(
+                mm, snapshot, causal_sleeves)
+            causal_exits = _causal_monthly_risk(cfg, mm, snapshot, causal_policy_state, current_portfolio)
             mm = mm.loc[~mm["ticker"].astype(str).isin(causal_exits)].copy()
         drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         breaker_event = ""
@@ -12763,6 +12772,11 @@ def backtest_portfolio(
             for ticker, weight in snapshot.weights:
                 causal_holdings.append(dict(rebalance_date=dt, ticker=ticker, weight=weight,
                                             target_weight=intent.get(ticker, 0.0)))
+            # Proposed metadata belongs only to the queued intent. A pending
+            # or integer-no-op target must not become next month's holding
+            # state or change which allocated sleeve is due for replacement.
+            current_portfolio, current_w, current_sleeve_map = _causal_actual_portfolio(
+                causal_observed_frame, snapshot, causal_sleeves)
             continue  # no future Open return, synthetic clipping or journal writes
 
         if not current_w:
