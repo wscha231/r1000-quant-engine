@@ -5150,6 +5150,12 @@ def compute_macro_price_block(hist: pd.DataFrame, prefix: str) -> pd.DataFrame:
     return out
 
 
+_NATIVE_MACRO_FRED_NAMES = (
+    "vix", "dgs10", "hy_oas", "dxy", "m2", "fed_assets", "reverse_repo", "tga",
+    "cpi", "core_cpi", "ppi", "unrate", "sahm",
+)
+
+
 def compute_macro_regime_frame(
     cfg: EngineConfig,
     price_history: Mapping[str, pd.DataFrame],
@@ -5648,7 +5654,7 @@ def compute_macro_regime_prefix(
     prices = {ticker: _macro_observation_prefix(price_history[ticker], date)
               for ticker in MACRO_PRICE_TICKERS.values() if ticker in price_history}
     series = {name: _macro_observation_prefix(fred_series[name], date)
-              for name in MACRO_FRED_SERIES if name in fred_series}
+              for name in _NATIVE_MACRO_FRED_NAMES if name in fred_series}
     fg = fear_greed
     if fg is not None and not fg.empty:
         dates = pd.to_datetime(fg["date"], errors="coerce")
@@ -5697,7 +5703,8 @@ def load_macro_series(lake, decision_at):
         raise ValueError("historical_macro_source_cutoff")
     series, through = {}, {}
     binding = None
-    for name, series_id in MACRO_FRED_SERIES.items():
+    for name in _NATIVE_MACRO_FRED_NAMES:
+        series_id = MACRO_FRED_SERIES[name]
         try:
             projection = project_alfred_asof(lake, series_id, cutoff.isoformat())
         except Exception:

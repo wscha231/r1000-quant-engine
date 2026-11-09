@@ -10184,3 +10184,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   nonmissing selected ETF close is a finite positive real price before I/O;
   never hide invalid values through coercion, dropping, a zero fill or a
   lower-priority column. Preserve genuine NaN alongside usable observations.
+- Bind historical acquisition to the native formula's actual consumed series,
+  not a broader current-report registry. Assert the13-name set against pure
+  calculation reads so unused archives cannot become false prerequisites;
+  keep the existing current-report15-series wrapper separate.

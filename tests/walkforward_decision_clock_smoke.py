@@ -983,7 +983,7 @@ class MacroPrefixCausalityTests(unittest.TestCase):
              patch.object(pipeline, "build_macro_regime_table", side_effect=AssertionError("CURRENT_FALLBACK")):
             result = pipeline.merge_macro_regime_features(cfg, {}, monthly, macro_lake=lake, macro_price_history=prices)
         self.assertEqual(result.ticker.tolist(), monthly.ticker.tolist())
-        self.assertEqual(len(calls), 2 * len(pipeline.MACRO_FRED_SERIES))
+        self.assertEqual(len(calls), 2 * len(pipeline._NATIVE_MACRO_FRED_NAMES))
         earlier = pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, series).iloc[0]
         later = pipeline.compute_macro_regime_prefix(cfg, "2021-10-29", prices, changed).iloc[0]
         for index, expected in ((0, earlier), (1, earlier), (2, later)):
@@ -1099,6 +1099,41 @@ class MacroPrefixCausalityTests(unittest.TestCase):
                 self.assertTrue(pd.isna(frame.iloc[0][column]))
             self.assertEqual(io.call_count, 4)
             self.assertEqual(calls, [])
+
+    def test_historical_projection_requires_only_the_thirteen_consumed_fred_series(self):
+        cfg, prices, series = self.fixture()
+        body = ast.parse(inspect.getsource(pipeline.compute_macro_regime_frame))
+        consumed = {node.args[0].value for node in ast.walk(body)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "fred_series"
+                    and node.func.attr == "get" and node.args and isinstance(node.args[0], ast.Constant)}
+        self.assertEqual(set(pipeline._NATIVE_MACRO_FRED_NAMES), consumed)
+        self.assertEqual(len(consumed), 13)
+        unused = set(pipeline.MACRO_FRED_SERIES) - consumed
+        self.assertEqual(unused, {"dgs3mo", "sp500"})
+        bound = {name: values for name, values in series.items() if name in consumed}
+        source, lake, calls = self.projected_source(bound)
+        original_project = source.project_alfred_asof
+        unused_ids = {pipeline.MACRO_FRED_SERIES[name] for name in unused}
+        def project(lake, series_id, decision_at):
+            if series_id in unused_ids:
+                raise ValueError("UNUSED_ARCHIVE_DOES_NOT_EXIST")
+            return original_project(lake, series_id, decision_at)
+        source.project_alfred_asof = project
+        cutoff = pipeline.decision_session_close_utc(pd.Series([pd.Timestamp("2021-09-30")])).iloc[0]
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}):
+            loaded, context = pipeline.load_macro_series(lake, cutoff)
+        self.assertEqual(set(loaded), consumed)
+        self.assertEqual(len(calls), 13)
+        self.assertEqual({sid for sid, _ in calls}, {pipeline.MACRO_FRED_SERIES[name] for name in consumed})
+        self.assertEqual(set(context["archive_through"]), {sid for sid, _ in calls})
+        self.assertEqual(context["source_commit"], "a" * 64)
+        self.assertEqual(context["execution_receipt_sha256"], "b" * 64)
+        self.assertIs(context["historical_pit_certified"], False)
+        # Irrelevant malformed series must not become new math prerequisites.
+        extras = dict(bound, **{name: pd.Series([1.], index=["unusable-unused-index"]) for name in unused})
+        pd.testing.assert_frame_equal(pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, loaded),
+                                      pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, extras))
 
 
 if __name__ == "__main__":
