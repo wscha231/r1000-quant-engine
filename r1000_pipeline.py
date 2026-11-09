@@ -1611,6 +1611,9 @@ _REUSE_FINGERPRINT_EXCLUDE: set[str] = {
 }
 
 
+MACRO_FEATURE_PREFIX_POLICY = "native-macro-feature-cutoff-prefix-tail-v1"
+
+
 def reuse_fingerprint(cfg: EngineConfig, scope: str) -> str:
     cfg_dict = asdict(cfg)
     # Strip runtime-only fields so adding/changing them does not invalidate
@@ -1618,6 +1621,7 @@ def reuse_fingerprint(cfg: EngineConfig, scope: str) -> str:
     cfg_dict = {k: v for k, v in cfg_dict.items() if k not in _REUSE_FINGERPRINT_EXCLUDE}
     payload = {
         "engine_version": ENGINE_REUSE_VERSION,
+        "macro_feature_policy": MACRO_FEATURE_PREFIX_POLICY,
         "scope": str(scope),
         "config": cfg_dict,
     }
@@ -5146,23 +5150,35 @@ def compute_macro_price_block(hist: pd.DataFrame, prefix: str) -> pd.DataFrame:
     return out
 
 
-def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
-    macro_path = paths["feature_store"] / "macro_regime_latest.parquet"
-    if not cfg.use_macro_regime_features:
-        empty = pd.DataFrame(columns=["macro_date"] + MACRO_REGIME_COLUMNS)
-        empty.to_parquet(macro_path, index=False)
-        return empty
+_NATIVE_MACRO_FRED_NAMES = (
+    "vix", "dgs10", "hy_oas", "dxy", "m2", "fed_assets", "reverse_repo", "tga",
+    "cpi", "core_cpi", "ppi", "unrate", "sahm",
+)
 
-    ensure_prices_cached_incremental(cfg, paths, list(MACRO_PRICE_TICKERS.values()))
+
+def compute_macro_regime_frame(
+    cfg: EngineConfig,
+    price_history: Mapping[str, pd.DataFrame],
+    fred_series: Mapping[str, pd.Series],
+    fear_greed: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Original native macro mathematics over explicitly supplied observations.
+
+    This pure calculation grants no Source, vintage or historical-PIT admission.
+    Historical callers must provide one eligible cutoff-prefix, keep only its
+    tail, and must not reuse intermediate rows for earlier feature cutoffs.
+    """
+    if not cfg.use_macro_regime_features:
+        return pd.DataFrame(columns=["macro_date"] + MACRO_REGIME_COLUMNS)
     frames: list[pd.DataFrame] = []
 
     for name, ticker in MACRO_PRICE_TICKERS.items():
-        hist = load_px(paths, ticker)
+        hist = price_history.get(ticker, pd.DataFrame())
         block = compute_macro_price_block(hist, name)
         if not block.empty:
             frames.append(block)
 
-    vix = load_fred_series(cfg, paths, "vix", MACRO_FRED_SERIES["vix"])
+    vix = fred_series.get("vix", pd.Series(dtype=float))
     if not vix.empty:
         vix_df = pd.DataFrame(index=vix.index)
         vix_df["vix_level"] = vix
@@ -5170,28 +5186,28 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         vix_df["vix_change_1m"] = vix.diff(21)
         frames.append(vix_df)
 
-    dgs10 = load_fred_series(cfg, paths, "dgs10", MACRO_FRED_SERIES["dgs10"])
+    dgs10 = fred_series.get("dgs10", pd.Series(dtype=float))
     if not dgs10.empty:
         dgs_df = pd.DataFrame(index=dgs10.index)
         dgs_df["dgs10_level"] = dgs10
         dgs_df["dgs10_change_1m"] = dgs10.diff(21)
         frames.append(dgs_df)
 
-    hy_oas = load_fred_series(cfg, paths, "hy_oas", MACRO_FRED_SERIES["hy_oas"])
+    hy_oas = fred_series.get("hy_oas", pd.Series(dtype=float))
     if not hy_oas.empty:
         hy_df = pd.DataFrame(index=hy_oas.index)
         hy_df["hy_oas_level"] = hy_oas
         hy_df["hy_oas_change_1m"] = hy_oas.diff(21)
         frames.append(hy_df)
 
-    dxy = load_fred_series(cfg, paths, "dxy", MACRO_FRED_SERIES["dxy"])
+    dxy = fred_series.get("dxy", pd.Series(dtype=float))
     if not dxy.empty:
         dxy_df = pd.DataFrame(index=dxy.index)
         dxy_df["dxy_level"] = dxy
         dxy_df["dxy_ret_1m"] = dxy.pct_change(21)
         frames.append(dxy_df)
 
-    m2 = load_fred_series(cfg, paths, "m2", MACRO_FRED_SERIES["m2"])
+    m2 = fred_series.get("m2", pd.Series(dtype=float))
     if not m2.empty:
         m2 = m2.sort_index().resample("MS").last().ffill(limit=3)
         if cfg.macro_m2_release_lag_months > 0:
@@ -5200,9 +5216,9 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         m2_df["m2_yoy_lag1m"] = m2.pct_change(12)
         frames.append(m2_df)
 
-    fed_assets = load_fred_series(cfg, paths, "fed_assets", MACRO_FRED_SERIES["fed_assets"])
-    reverse_repo = load_fred_series(cfg, paths, "reverse_repo", MACRO_FRED_SERIES["reverse_repo"])
-    tga = load_fred_series(cfg, paths, "tga", MACRO_FRED_SERIES["tga"])
+    fed_assets = fred_series.get("fed_assets", pd.Series(dtype=float))
+    reverse_repo = fred_series.get("reverse_repo", pd.Series(dtype=float))
+    tga = fred_series.get("tga", pd.Series(dtype=float))
     if (not fed_assets.empty) or (not reverse_repo.empty) or (not tga.empty):
         liq_df = pd.DataFrame(index=pd.Index([], dtype="datetime64[ns]"))
         if not fed_assets.empty:
@@ -5223,7 +5239,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
             )
             frames.append(liq_df)
 
-    cpi = load_fred_series(cfg, paths, "cpi", MACRO_FRED_SERIES["cpi"])
+    cpi = fred_series.get("cpi", pd.Series(dtype=float))
     if not cpi.empty:
         cpi = cpi.sort_index().resample("MS").last().ffill(limit=3)
         if cfg.macro_slow_release_lag_months > 0:
@@ -5233,7 +5249,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         cpi_df["cpi_3m_ann"] = np.power((cpi / cpi.shift(3)).replace(0, np.nan), 4) - 1.0
         frames.append(cpi_df)
 
-    core_cpi = load_fred_series(cfg, paths, "core_cpi", MACRO_FRED_SERIES["core_cpi"])
+    core_cpi = fred_series.get("core_cpi", pd.Series(dtype=float))
     if not core_cpi.empty:
         core_cpi = core_cpi.sort_index().resample("MS").last().ffill(limit=3)
         if cfg.macro_slow_release_lag_months > 0:
@@ -5242,7 +5258,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         core_cpi_df["core_cpi_yoy"] = core_cpi.pct_change(12)
         frames.append(core_cpi_df)
 
-    ppi = load_fred_series(cfg, paths, "ppi", MACRO_FRED_SERIES["ppi"])
+    ppi = fred_series.get("ppi", pd.Series(dtype=float))
     if not ppi.empty:
         ppi = ppi.sort_index().resample("MS").last().ffill(limit=3)
         if cfg.macro_slow_release_lag_months > 0:
@@ -5251,7 +5267,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         ppi_df["ppi_yoy"] = ppi.pct_change(12)
         frames.append(ppi_df)
 
-    unrate = load_fred_series(cfg, paths, "unrate", MACRO_FRED_SERIES["unrate"])
+    unrate = fred_series.get("unrate", pd.Series(dtype=float))
     if not unrate.empty:
         unrate = unrate.sort_index().resample("MS").last()
         if cfg.macro_slow_release_lag_months > 0:
@@ -5261,7 +5277,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         unrate_df["unrate_3m_change"] = unrate.diff(3)
         frames.append(unrate_df)
 
-    sahm = load_fred_series(cfg, paths, "sahm", MACRO_FRED_SERIES["sahm"])
+    sahm = fred_series.get("sahm", pd.Series(dtype=float))
     if not sahm.empty:
         sahm = sahm.sort_index().resample("MS").last()
         if cfg.macro_slow_release_lag_months > 0:
@@ -5270,7 +5286,7 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
         sahm_df["sahm_realtime"] = sahm
         frames.append(sahm_df)
 
-    fear_greed = load_cnn_fear_greed_table(cfg, paths)
+    fear_greed = pd.DataFrame() if fear_greed is None else fear_greed.copy()
     if not fear_greed.empty:
         fg = fear_greed.copy()
         fg["date"] = pd.to_datetime(fg["date"], errors="coerce")
@@ -5281,7 +5297,6 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
 
     if not frames:
         empty = pd.DataFrame(columns=["macro_date"] + MACRO_REGIME_COLUMNS)
-        empty.to_parquet(macro_path, index=False)
         return empty
 
     macro = pd.concat(frames, axis=1).sort_index()
@@ -5590,43 +5605,235 @@ def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.Da
     if "macro_date" not in macro.columns:
         macro.insert(0, "macro_date", pd.to_datetime(macro.index, errors="coerce"))
     macro["macro_date"] = pd.to_datetime(macro["macro_date"], errors="coerce")
-    macro.to_parquet(macro_path, index=False)
-    write_stage_coverage_report(paths, "macro_regime", macro, MACRO_REGIME_COLUMNS)
     return macro
 
 
-def merge_macro_regime_features(cfg: EngineConfig, paths: dict[str, Path], monthly: pd.DataFrame) -> pd.DataFrame:
+def _macro_feature_cutoff(feature_date):
+    try:
+        if isinstance(feature_date, (int, float, np.integer, np.floating, bool, np.bool_)):
+            raise ValueError("numeric_date")
+        stamp = pd.Timestamp(feature_date)
+    except (ValueError, TypeError, OverflowError):
+        raise ValueError("macro_feature_date_invalid") from None
+    if pd.isna(stamp) or stamp.tzinfo is not None or stamp != stamp.normalize():
+        raise ValueError("macro_feature_date_invalid")
+    cutoff = decision_session_close_utc(pd.Series([stamp])).iloc[0]
+    if pd.isna(cutoff):
+        raise ValueError("macro_feature_date_not_nyse_session")
+    return stamp, cutoff
+
+
+def _macro_observation_prefix(value, feature_date=None):
+    if not isinstance(value, (pd.Series, pd.DataFrame)):
+        raise ValueError("macro_observation_type_invalid")
+    if value.empty:
+        return value.copy()
+    if (not isinstance(value.index, pd.DatetimeIndex) or value.index.tz is not None
+            or value.index.hasnans or value.index.has_duplicates
+            or not value.index.equals(value.index.normalize())):
+        raise ValueError("macro_observation_index_invalid")
+    if feature_date is None:
+        return value  # preflight validates the same index without copying data
+    return value.loc[value.index <= feature_date].sort_index().copy()
+
+
+def compute_macro_regime_prefix(
+    cfg: EngineConfig,
+    feature_date,
+    price_history: Mapping[str, pd.DataFrame],
+    fred_series: Mapping[str, pd.Series],
+    fear_greed: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Calculate one feature's prefix tail; input eligibility is not certified.
+
+    In particular, slicing today's revised FRED series here does not make it
+    historical PIT. The historical consumer must obtain each same-cutoff
+    series from the incumbent Source projection API, never a current cache.
+    """
+    date, cutoff = _macro_feature_cutoff(feature_date)
+    prices = {ticker: _macro_observation_prefix(price_history[ticker], date)
+              for ticker in MACRO_PRICE_TICKERS.values() if ticker in price_history}
+    series = {name: _macro_observation_prefix(fred_series[name], date)
+              for name in _NATIVE_MACRO_FRED_NAMES if name in fred_series}
+    fg = fear_greed
+    if fg is not None and not fg.empty:
+        dates = pd.to_datetime(fg["date"], errors="coerce")
+        if dates.isna().any():
+            raise ValueError("macro_fear_greed_clock_invalid")
+        fg = fg.loc[dates <= date].copy()
+    full = compute_macro_regime_frame(cfg, prices, series, fg)
+    eligible = full.loc[pd.to_datetime(full["macro_date"], errors="coerce") <= date]
+    if eligible.empty:
+        row = {column: np.nan for column in MACRO_REGIME_COLUMNS}
+        row["macro_observation_date"] = pd.NaT
+    else:
+        tail = eligible.iloc[-1]
+        row = {column: tail[column] for column in MACRO_REGIME_COLUMNS}
+        row["macro_observation_date"] = tail["macro_date"]
+    row.update(macro_feature_date=date, macro_asof_cutoff_utc=cutoff)
+    result = pd.DataFrame([row])
+    result.attrs.update(scope="MACRO_PREFIX_CALCULATION_ONLY", historical_pit_certified=False,
+                        source_admission=False)
+    return result
+
+
+def _macro_source_projection_api(lake):
+    """Check the incumbent API/type before unrelated acquisition can start."""
+    if lake is None:
+        raise ValueError("historical_macro_source_unbound")
+    try:
+        from tools.long_history_lake import Lake, project_alfred_asof
+    except (ImportError, AttributeError):
+        raise ValueError("historical_macro_source_api_unavailable") from None
+    if type(lake) is not Lake:
+        raise ValueError("historical_macro_source_type")
+    return project_alfred_asof
+
+
+def load_macro_series(lake, decision_at):
+    """Use Source739's public projection, retaining its date-archive limits.
+
+    No caller receipt or boolean replaces that API's original Lake replay.
+    An absent/unintegrated API, dirty/unbound Lake or missing archive blocks;
+    there is deliberately no current FRED, provider or stale-cache fallback.
+    """
+    project_alfred_asof = _macro_source_projection_api(lake)
+    cutoff = pd.Timestamp(decision_at)
+    if pd.isna(cutoff) or cutoff.tzinfo is None:
+        raise ValueError("historical_macro_source_cutoff")
+    series, through = {}, {}
+    binding = None
+    for name in _NATIVE_MACRO_FRED_NAMES:
+        series_id = MACRO_FRED_SERIES[name]
+        try:
+            projection = project_alfred_asof(lake, series_id, cutoff.isoformat())
+        except Exception:
+            raise ValueError("historical_macro_projection_blocked:" + series_id) from None
+        if (projection.get("status") not in ("DATE_ARCHIVE_RESEARCH_ONLY", "NO_ELIGIBLE_VINTAGE")
+                or projection.get("historical_pit_certified") is not False
+                or projection.get("published_at_precision") != "DATE_ONLY"
+                or pd.Timestamp(projection.get("decision_at")) != cutoff):
+            raise ValueError("historical_macro_projection_contract")
+        pair = (projection.get("source_commit"), projection.get("execution_receipt_sha256"))
+        if any(type(value) is not str or not re.fullmatch(r"[0-9a-f]{64}", value) for value in pair):
+            raise ValueError("historical_macro_source_binding_missing")
+        binding = pair if binding is None else binding
+        if pair != binding:
+            raise ValueError("historical_macro_source_generation_mismatch")
+        records = projection["records"]
+        series[name] = pd.Series([row["value"] for row in records], dtype=float,
+                                 index=pd.DatetimeIndex([row["observation_date"] for row in records]))
+        through[series_id] = projection["archive_through"]
+    context = dict(source_commit=binding[0], execution_receipt_sha256=binding[1],
+                   archive_through=through, scope="DATE_ARCHIVE_RESEARCH_ONLY",
+                   historical_pit_certified=False, source_admission=False)
+    return series, context
+
+
+def _require_macro_feature_inputs(lake, price_history):
+    """Stop unbound historical feature builds before other acquisition/I/O."""
+    if lake is None or price_history is None:
+        raise ValueError("historical_macro_inputs_unbound")
+    if not isinstance(price_history, Mapping):
+        raise ValueError("historical_macro_prices_unbound")
+    for ticker in MACRO_PRICE_TICKERS.values():
+        if (ticker not in price_history or not isinstance(price_history[ticker], pd.DataFrame)
+                or price_history[ticker].empty):
+            raise ValueError("historical_macro_price_prefix_missing:" + ticker)
+        frame = _macro_observation_prefix(price_history[ticker])
+        # Reuse the incumbent close selector's actual column precedence; a
+        # lower-priority Close must not replace an unusable Adj Close here.
+        if "Adj Close" not in frame.columns and "Close" not in frame.columns:
+            raise ValueError("historical_macro_price_columns_missing:" + ticker)
+        raw_close = squeeze_series(frame["Adj Close"] if "Adj Close" in frame.columns else frame["Close"])
+        numeric = pd.to_numeric(raw_close, errors="coerce")
+        if ((raw_close.notna() & numeric.isna()).any()
+                or raw_close.dropna().map(lambda value: isinstance(value, (bool, np.bool_))).any()
+                or pd.api.types.is_datetime64_any_dtype(raw_close.dtype)
+                or pd.api.types.is_timedelta64_dtype(raw_close.dtype)
+                or np.iscomplexobj(numeric.to_numpy())):
+            raise ValueError("historical_macro_price_values_invalid:" + ticker)
+        close = price_close_series(frame)
+        if close.empty:
+            raise ValueError("historical_macro_price_values_missing:" + ticker)
+        if not np.isfinite(close.to_numpy()).all() or close.le(0).any():
+            raise ValueError("historical_macro_price_values_invalid:" + ticker)
+    _macro_source_projection_api(lake)
+
+
+def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
+    """Incumbent forward/current-vintage I/O wrapper; not historical admission."""
+    macro_path = paths["feature_store"] / "macro_regime_latest.parquet"
+    if not cfg.use_macro_regime_features:
+        empty = pd.DataFrame(columns=["macro_date"] + MACRO_REGIME_COLUMNS)
+        empty.to_parquet(macro_path, index=False)
+        return empty
+    ensure_prices_cached_incremental(cfg, paths, list(MACRO_PRICE_TICKERS.values()))
+    prices = {ticker: load_px(paths, ticker) for ticker in MACRO_PRICE_TICKERS.values()}
+    series = {name: load_fred_series(cfg, paths, name, series_id)
+              for name, series_id in MACRO_FRED_SERIES.items()}
+    fear_greed = load_cnn_fear_greed_table(cfg, paths)
+    macro = compute_macro_regime_frame(cfg, prices, series, fear_greed)
+    macro.to_parquet(macro_path, index=False)
+    if not macro.empty:
+        write_stage_coverage_report(paths, "macro_regime", macro, MACRO_REGIME_COLUMNS)
+    return macro
+
+def merge_macro_regime_features(
+    cfg: EngineConfig,
+    paths: dict[str, Path],
+    monthly: pd.DataFrame,
+    *,
+    macro_lake=None,
+    macro_price_history: Optional[Mapping[str, pd.DataFrame]] = None,
+) -> pd.DataFrame:
+    """Historical feature join: require explicit same-cutoff Source inputs.
+
+    The current-vintage report wrapper remains available separately. It is
+    never a fallback here, including for a single past feature date.
+    """
     d = monthly.copy()
+    if not cfg.use_macro_regime_features:
+        for column in MACRO_REGIME_COLUMNS:
+            d[column] = np.nan
+        for column in ("macro_observation_date", "macro_asof_cutoff_utc", "macro_feature_date"):
+            if column in d.columns:
+                d[column] = pd.NaT
+        d.attrs.pop("macro_sources", None)
+        d.attrs.update(macro_scope="DISABLED", historical_pit_certified=False, source_admission=False)
+        return d
     if d.empty:
         for c in MACRO_REGIME_COLUMNS:
             if c not in d.columns:
                 d[c] = np.nan
+        d.attrs.update(macro_scope="EMPTY_NO_INPUTS", historical_pit_certified=False, source_admission=False)
         return d
 
-    macro = build_macro_regime_table(cfg, paths)
-    if macro.empty:
-        for c in MACRO_REGIME_COLUMNS:
-            if c not in d.columns:
-                d[c] = np.nan
-        return d
-
-    if "macro_date" not in macro.columns:
-        if "date" in macro.columns:
-            macro = macro.rename(columns={"date": "macro_date"})
-        else:
-            macro = macro.reset_index().rename(columns={"index": "macro_date", "date": "macro_date"})
-
-    macro = macro.sort_values("macro_date").drop_duplicates("macro_date", keep="last")
+    _require_macro_feature_inputs(macro_lake, macro_price_history)
+    dates = dict(_macro_feature_cutoff(value) for value in d["rebalance_date"].unique())
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
-    d = d.sort_values("rebalance_date")
-    d = pd.merge_asof(
-        d,
-        macro[["macro_date"] + MACRO_REGIME_COLUMNS].sort_values("macro_date"),
-        left_on="rebalance_date",
-        right_on="macro_date",
-        direction="backward",
-    )
-    d = d.drop(columns=["macro_date"], errors="ignore")
+    snapshots, bindings = [], {}
+    generation = None
+    for date, cutoff in sorted(dates.items()):
+        for ticker in MACRO_PRICE_TICKERS.values():
+            if (ticker not in macro_price_history
+                    or _macro_observation_prefix(macro_price_history[ticker], date).empty):
+                raise ValueError("historical_macro_price_prefix_missing:" + ticker)
+        series, context = load_macro_series(macro_lake, cutoff)
+        pair = (context["source_commit"], context["execution_receipt_sha256"])
+        generation = pair if generation is None else generation
+        if pair != generation:
+            raise ValueError("historical_macro_source_generation_mismatch")
+        snapshots.append(compute_macro_regime_prefix(cfg, date, macro_price_history, series))
+        bindings[cutoff.isoformat()] = context
+    macro = pd.concat(snapshots, ignore_index=True)
+    # Never let an older cached/current macro column survive missing as-of data.
+    old_macro_columns = list(MACRO_REGIME_COLUMNS) + ["macro_observation_date", "macro_asof_cutoff_utc", "macro_feature_date"]
+    d = d.drop(columns=[c for c in old_macro_columns if c in d.columns])
+    d = d.merge(macro, left_on="rebalance_date", right_on="macro_feature_date",
+                how="left", sort=False, validate="many_to_one").drop(columns=["macro_feature_date"])
+    d.attrs.update(macro_scope="DATE_ARCHIVE_RESEARCH_ONLY", macro_sources=bindings,
+                   historical_pit_certified=False, source_admission=False)
     return d
 
 
@@ -7697,8 +7904,11 @@ def _causal_universe_size_rows(monthly: pd.DataFrame, cfg: EngineConfig
     return before_filter, ranked, selected
 
 
-def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
+def build_universe_monthly(cfg: dict | EngineConfig, *, macro_lake=None,
+                           macro_price_history: Optional[Mapping[str, pd.DataFrame]] = None) -> pd.DataFrame:
     cfg = to_cfg(cfg)
+    if cfg.use_macro_regime_features:
+        _require_macro_feature_inputs(macro_lake, macro_price_history)
     paths = get_paths(cfg)
     log("Phase 1/2: building monthly universe ...")
 
@@ -7992,7 +8202,8 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     monthly = merge_sec_actual_snapshots(monthly, sec13f, form345)
     monthly = compute_live_factor_columns(monthly, cfg)
     monthly = compute_latest_flow_factor_columns(monthly)
-    monthly = merge_macro_regime_features(cfg, paths, monthly)
+    monthly = merge_macro_regime_features(cfg, paths, monthly, macro_lake=macro_lake,
+                                          macro_price_history=macro_price_history)
     monthly = merge_benchmark_relative_features(cfg, paths, monthly)
     monthly = merge_live_event_alert_features(cfg, paths, monthly)
     monthly = apply_latest_only_signal_guard(monthly)
@@ -8577,12 +8788,19 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
     return output
 
 
-def build_feature_store(cfg: dict | EngineConfig) -> pd.DataFrame:
+def build_feature_store(cfg: dict | EngineConfig, *, macro_lake=None,
+                        macro_price_history: Optional[Mapping[str, pd.DataFrame]] = None) -> pd.DataFrame:
     cfg = to_cfg(cfg)
+    if cfg.use_macro_regime_features:
+        _require_macro_feature_inputs(macro_lake, macro_price_history)
     paths = get_paths(cfg)
     log("Phase 3: building feature store ...")
 
-    universe = build_universe_monthly(cfg)
+    if macro_lake is None and macro_price_history is None:
+        universe = build_universe_monthly(cfg)
+    else:
+        universe = build_universe_monthly(cfg, macro_lake=macro_lake,
+                                          macro_price_history=macro_price_history)
     write_fundamental_join_diagnostics(paths, universe)
     if "rebalance_date" not in universe.columns and "Date" in universe.columns:
         universe = universe.rename(columns={"Date": "rebalance_date"})

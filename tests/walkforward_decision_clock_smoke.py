@@ -372,6 +372,9 @@ class UniverseSizeCausalityTests(unittest.TestCase):
     def test_actual_universe_route_retains_bounded_starved_latest_retry(self):
         class SelectionBoundary(Exception):
             pass
+        cfg = self.cfg()
+        # This fixture ends at universe selection, before the macro join.
+        cfg.use_macro_regime_features = False
         dates=pd.to_datetime(['2021-01-29','2021-02-26'])
         names=[f'S{i:02d}' for i in range(25)]
         candidates=pd.DataFrame(dict(ticker=names,cik10=['0000000001']*25,
@@ -414,7 +417,7 @@ class UniverseSizeCausalityTests(unittest.TestCase):
                      patch.object(pipeline,'ensure_mktcap_proxy',side_effect=proxy), \
                      patch.object(pipeline,'write_leader_drop_diagnostics',side_effect=selected):
                     with self.assertRaises(SelectionBoundary):
-                        pipeline.build_universe_monthly(self.cfg())
+                        pipeline.build_universe_monthly(cfg)
                 self.assertEqual([cap for _,cap in calls],[600,1200] if historical_known else [600])
                 if historical_known:
                     self.assertEqual(len(calls[1][0]),25-latest_known)
@@ -837,6 +840,367 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
                 self.assertIs(ticker in correct, retained)
                 self.assertNotEqual(ticker in correct, ticker in poisoned,
                                     "counterfactual proposed metadata must expose the old wrong hold decision")
+
+
+class MacroPrefixCausalityTests(unittest.TestCase):
+    def fixture(self):
+        cfg = EngineConfig()
+        dates = pd.bdate_range("2016-01-01", "2026-11-06")
+        x = np.arange(len(dates), dtype=float)
+        prices = {ticker: pd.DataFrame({"Close": 100. + x * .03 + np.sin(x / 31.)}, index=dates)
+                  for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+        series = {name: pd.Series(20. + x * .002 + np.sin(x / 23.), index=dates)
+                  for name in pipeline.MACRO_FRED_SERIES}
+        months = pd.date_range("2016-01-01", "2026-11-01", freq="MS")
+        y = np.arange(len(months), dtype=float)
+        series["m2"] = pd.Series(100. + y * .3 + y ** 2 * .005 + np.sin(y / 3.), index=months)
+        return cfg, prices, series
+
+    def test_single_and_multiple_past_dates_never_use_current_or_cache_fallback(self):
+        cfg, prices, _ = self.fixture()
+        for dates in (["2021-09-30"], ["2021-09-30", "2021-10-29"]):
+            original = pd.DataFrame({"ticker": ["S00"] * len(dates), "rebalance_date": dates})
+            with patch.object(pipeline, "build_macro_regime_table", side_effect=AssertionError("CURRENT_FALLBACK")), \
+                 patch.object(pipeline, "load_fred_series", side_effect=AssertionError("CURRENT_FRED")), \
+                 patch.object(pipeline, "ensure_prices_cached_incremental", side_effect=AssertionError("PROVIDER")):
+                with self.assertRaisesRegex(ValueError, "historical_macro_inputs_unbound"):
+                    pipeline.merge_macro_regime_features(cfg, {}, original)
+                with self.assertRaisesRegex(ValueError, "historical_macro_inputs_unbound"):
+                    pipeline.merge_macro_regime_features(cfg, {}, original, macro_price_history=prices)
+            self.assertEqual(original.columns.tolist(), ["ticker", "rebalance_date"])
+        with patch.object(pipeline, "get_paths", side_effect=AssertionError("IO_BEFORE_BINDING")):
+            for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                with self.assertRaisesRegex(ValueError, "historical_macro_inputs_unbound"):
+                    build(cfg)
+
+    def test_macro_policy_is_part_of_existing_cache_identity_without_config_dump(self):
+        cfg = EngineConfig()
+        # Replace serialization with a synthetic noncredential mapping; this
+        # tests the real fingerprint policy boundary without copying cfg values.
+        with patch.object(pipeline, "asdict", return_value={"synthetic_feature_recipe": "same"}):
+            current = pipeline.reuse_fingerprint(cfg, "phase1_to_phase3_data")
+            with patch.object(pipeline, "MACRO_FEATURE_PREFIX_POLICY", "old-global-normalization"):
+                old = pipeline.reuse_fingerprint(cfg, "phase1_to_phase3_data")
+        self.assertNotEqual(current, old)
+
+    def test_disabled_macro_keeps_rows_unknown_and_cannot_relabel_fixed_c0(self):
+        cfg, prices, _ = self.fixture()
+        cfg.use_macro_regime_features = False
+        cached = pd.DataFrame({"ticker": ["S00"], "rebalance_date": ["2021-09-30"],
+                               **{name: [999.] for name in pipeline.MACRO_REGIME_COLUMNS},
+                               "macro_asof_cutoff_utc": [pd.Timestamp("2026-11-06T21:00:00Z")]})
+        cached.attrs.update(historical_pit_certified=True, source_admission=True, macro_sources={"stale": "not reused"})
+        with patch.object(pipeline, "load_macro_series", side_effect=AssertionError("DISABLED_SOURCE_READ")), \
+             patch.object(pipeline, "build_macro_regime_table", side_effect=AssertionError("DISABLED_CURRENT_READ")):
+            result = pipeline.merge_macro_regime_features(cfg, {}, cached)
+        self.assertEqual(result.ticker.tolist(), cached.ticker.tolist())
+        self.assertTrue(result[pipeline.MACRO_REGIME_COLUMNS].isna().all().all())
+        self.assertTrue(result.macro_asof_cutoff_utc.isna().all())
+        self.assertEqual(result.attrs["macro_scope"], "DISABLED")
+        self.assertIs(result.attrs["historical_pit_certified"], False)
+        self.assertIs(result.attrs["source_admission"], False)
+        self.assertNotIn("macro_sources", result.attrs)
+        with patch.object(pipeline, "_require_macro_feature_inputs", side_effect=AssertionError("DISABLED_BINDING")), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("LEGACY_ENTRY_REACHED")):
+            for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                with self.assertRaisesRegex(RuntimeError, "LEGACY_ENTRY_REACHED"):
+                    build(cfg)
+        session = ResearchNextCloseSession(prices, evidence_end_date="2026-11-06")
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:use_macro_regime_features"):
+            pipeline._causal_research_session(session, cfg)
+
+    def test_future_extremes_cannot_rewrite_prefix_but_later_features_respond(self):
+        cfg, prices, series = self.fixture()
+        date, later = pd.Timestamp("2021-09-30"), pd.Timestamp("2026-10-30")
+        baseline = pipeline.compute_macro_regime_prefix(cfg, date, prices, series)
+        changed = {key: value.copy() for key, value in series.items()}
+        future = changed["m2"].index > date
+        changed["m2"].loc[future] *= np.linspace(2., 200., int(future.sum()))
+        poisoned_prices = {key: value.copy() for key, value in prices.items()}
+        for price in poisoned_prices.values():
+            price.loc[price.index > date, "Close"] *= 10.
+        actual = pipeline.compute_macro_regime_prefix(cfg, date, poisoned_prices, changed)
+        pd.testing.assert_frame_equal(baseline, actual)
+        old_later = pipeline.compute_macro_regime_prefix(cfg, later, prices, series)
+        new_later = pipeline.compute_macro_regime_prefix(cfg, later, poisoned_prices, changed)
+        self.assertFalse(old_later[pipeline.MACRO_REGIME_COLUMNS].equals(new_later[pipeline.MACRO_REGIME_COLUMNS]))
+        # The old full-window normalization is demonstrably sensitive at this
+        # past anchor; only the prefix tail is eligible as the feature value.
+        full = pipeline.compute_macro_regime_frame(cfg, prices, series)
+        altered = pipeline.compute_macro_regime_frame(cfg, poisoned_prices, changed)
+        before = full.loc[full.macro_date.le(date), pipeline.MACRO_REGIME_COLUMNS].tail(1)
+        after = altered.loc[altered.macro_date.le(date), pipeline.MACRO_REGIME_COLUMNS].tail(1)
+        self.assertFalse(before.equals(after))
+
+    def test_same_cutoff_prefix_tail_keeps_native_math_and_missing_rules(self):
+        cfg, prices, series = self.fixture()
+        date = pd.Timestamp("2021-09-30")
+        p = {key: value.loc[value.index <= date].copy() for key, value in prices.items()}
+        s = {key: value.loc[value.index <= date].copy() for key, value in series.items()}
+        expected = pipeline.compute_macro_regime_frame(cfg, p, s).iloc[-1]
+        result = pipeline.compute_macro_regime_prefix(cfg, date, prices, series).iloc[0]
+        np.testing.assert_allclose(result[pipeline.MACRO_REGIME_COLUMNS].to_numpy(dtype=float),
+                                   expected[pipeline.MACRO_REGIME_COLUMNS].to_numpy(dtype=float), equal_nan=True)
+        self.assertEqual(result.macro_asof_cutoff_utc, pipeline.decision_session_close_utc(pd.Series([date])).iloc[0])
+        self.assertEqual(cfg.macro_m2_release_lag_months, 1)
+        self.assertEqual(cfg.macro_slow_release_lag_months, 1)
+        empty = pipeline.compute_macro_regime_prefix(cfg, date, {}, {})
+        self.assertTrue(empty[pipeline.MACRO_REGIME_COLUMNS].isna().all().all())
+        self.assertIs(empty.attrs["historical_pit_certified"], False)
+        with self.assertRaisesRegex(ValueError, "macro_feature_date_not_nyse_session"):
+            pipeline.compute_macro_regime_prefix(cfg, "2021-10-02", prices, series)
+
+    def projected_source(self, series, *, changed=None, revision_at=None, mismatch=False):
+        import types
+        module = types.ModuleType("tools.long_history_lake")
+        class Lake:
+            pass
+        module.Lake = Lake
+        calls = []
+        ids = {series_id: name for name, series_id in pipeline.MACRO_FRED_SERIES.items()}
+        def project(lake, series_id, decision_at):
+            cutoff = pd.Timestamp(decision_at)
+            calls.append((series_id, cutoff))
+            name = ids[series_id]
+            values = changed[name] if changed is not None and cutoff >= revision_at else series[name]
+            values = values.loc[values.index <= cutoff.tz_convert("America/New_York").tz_localize(None).normalize()]
+            return dict(status="DATE_ARCHIVE_RESEARCH_ONLY", decision_at=cutoff.isoformat(),
+                        archive_through="2026-11-06", published_at_precision="DATE_ONLY",
+                        historical_pit_certified=False, source_commit=("c" * 64 if mismatch and len(calls) == 2 else "a" * 64),
+                        execution_receipt_sha256="b" * 64,
+                        records=[dict(observation_date=stamp.date().isoformat(), value=None if pd.isna(value) else float(value))
+                                 for stamp, value in values.items()])
+        module.project_alfred_asof = project
+        return module, Lake(), calls
+
+    def test_each_feature_uses_its_own_projected_vintage_and_only_its_tail(self):
+        cfg, prices, series = self.fixture()
+        changed = {name: values.copy() for name, values in series.items()}
+        changed["m2"] *= np.linspace(1., 50., len(changed["m2"]))
+        source, lake, calls = self.projected_source(series, changed=changed,
+                                                   revision_at=pd.Timestamp("2021-10-01T00:00:00Z"))
+        monthly = pd.DataFrame({"ticker": ["S00", "S01", "S00"],
+                                "rebalance_date": ["2021-09-30", "2021-09-30", "2021-10-29"],
+                                "liquidity_regime_score": [999., 999., 999.]})
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}), \
+             patch.object(pipeline, "build_macro_regime_table", side_effect=AssertionError("CURRENT_FALLBACK")):
+            result = pipeline.merge_macro_regime_features(cfg, {}, monthly, macro_lake=lake, macro_price_history=prices)
+        self.assertEqual(result.ticker.tolist(), monthly.ticker.tolist())
+        self.assertEqual(len(calls), 2 * len(pipeline._NATIVE_MACRO_FRED_NAMES))
+        earlier = pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, series).iloc[0]
+        later = pipeline.compute_macro_regime_prefix(cfg, "2021-10-29", prices, changed).iloc[0]
+        for index, expected in ((0, earlier), (1, earlier), (2, later)):
+            np.testing.assert_allclose(result.iloc[index][pipeline.MACRO_REGIME_COLUMNS].to_numpy(dtype=float),
+                                       expected[pipeline.MACRO_REGIME_COLUMNS].to_numpy(dtype=float), equal_nan=True)
+        self.assertEqual(result.attrs["macro_scope"], "DATE_ARCHIVE_RESEARCH_ONLY")
+        self.assertIs(result.attrs["historical_pit_certified"], False)
+        self.assertIs(result.attrs["source_admission"], False)
+
+    def test_unavailable_api_mixed_generation_and_missing_price_prefix_block(self):
+        import types
+        cfg, prices, series = self.fixture()
+        monthly = pd.DataFrame({"ticker": ["S00"], "rebalance_date": ["2021-09-30"]})
+        absent = types.ModuleType("tools.long_history_lake")
+        with patch.dict(sys.modules, {"tools.long_history_lake": absent}):
+            with self.assertRaisesRegex(ValueError, "historical_macro_source_api_unavailable"):
+                pipeline.load_macro_series(object(), pd.Timestamp("2021-09-30T20:00:00Z"))
+            with patch.object(pipeline, "get_paths", side_effect=AssertionError("IO_BEFORE_API_BINDING")):
+                with self.assertRaisesRegex(ValueError, "historical_macro_source_api_unavailable"):
+                    pipeline.build_feature_store(cfg, macro_lake=object(), macro_price_history=prices)
+        source, lake, _ = self.projected_source(series, mismatch=True)
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}):
+            with self.assertRaisesRegex(ValueError, "historical_macro_source_generation_mismatch"):
+                pipeline.merge_macro_regime_features(cfg, {}, monthly, macro_lake=lake, macro_price_history=prices)
+            with self.assertRaisesRegex(ValueError, "historical_macro_price_prefix_missing"):
+                pipeline.merge_macro_regime_features(cfg, {}, monthly, macro_lake=lake, macro_price_history={})
+
+    def test_price_schema_refuses_before_upstream_io_using_existing_prefix_contract(self):
+        cfg, _, series = self.fixture()
+        source, lake, calls = self.projected_source(series)
+        day = pd.DatetimeIndex(["2021-09-30"])
+        cases = ((pd.DataFrame({"Close": [100.]}, index=["2021-09-30"]), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=[0]), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=pd.DatetimeIndex(["2021-09-30T12:00:00"])), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100., 100.]}, index=day.repeat(2)), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=day.tz_localize("UTC")), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Close": [100.]}, index=pd.DatetimeIndex([pd.NaT])), "macro_observation_index_invalid"),
+                 (pd.DataFrame({"Open": [100.]}, index=day), "historical_macro_price_columns_missing"),
+                 (pd.DataFrame({"Close": [np.nan]}, index=day), "historical_macro_price_values_missing"),
+                 (pd.DataFrame({"Adj Close": [np.nan], "Close": [100.]}, index=day), "historical_macro_price_values_missing"))
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("UPSTREAM_IO_REACHED")) as io:
+            for frame, reason in cases:
+                invalid = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.subTest(index_type=type(frame.index).__name__, columns=tuple(frame.columns), build=build.__name__):
+                        with self.assertRaisesRegex(ValueError, "^" + reason + "(?::[A-Z]+)?$"):
+                            build(cfg, macro_lake=lake, macro_price_history=invalid)
+            self.assertEqual(io.call_count, 0)
+            self.assertEqual(calls, [])
+            # Both real column spellings remain accepted; only the sentinel,
+            # rather than any real get_paths/provider work, may run afterwards.
+            for column in ("Close", "Adj Close"):
+                valid = {ticker: pd.DataFrame({column: [100.]}, index=day)
+                         for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.assertRaisesRegex(RuntimeError, "^UPSTREAM_IO_REACHED$"):
+                        build(cfg, macro_lake=lake, macro_price_history=valid)
+            self.assertEqual(io.call_count, 4)
+            self.assertEqual(calls, [])
+
+    def test_current_report_wrapper_preserves_unprefixed_math_and_io(self):
+        cfg, prices, series = self.fixture()
+        expected = pipeline.compute_macro_regime_frame(cfg, prices, series)
+        by_id = {series_id: series[name] for name, series_id in pipeline.MACRO_FRED_SERIES.items()}
+        with tempfile.TemporaryDirectory() as temp, \
+             patch.object(pipeline, "ensure_prices_cached_incremental") as ensure, \
+             patch.object(pipeline, "load_px", side_effect=lambda paths, ticker: prices[ticker]), \
+             patch.object(pipeline, "load_fred_series", side_effect=lambda cfg, paths, name, sid: by_id[sid]) as fred, \
+             patch.object(pipeline, "load_cnn_fear_greed_table", return_value=pd.DataFrame()), \
+             patch.object(pipeline, "load_macro_series", side_effect=AssertionError("HISTORICAL_API_IN_CURRENT_REPORT")), \
+             patch.object(pipeline, "write_stage_coverage_report") as coverage:
+            actual = pipeline.build_macro_regime_table(cfg, {"feature_store": Path(temp)})
+            saved = pd.read_parquet(Path(temp) / "macro_regime_latest.parquet")
+        pd.testing.assert_frame_equal(expected, actual)
+        pd.testing.assert_frame_equal(expected, saved)
+        self.assertEqual(ensure.call_count, 1)
+        self.assertEqual(fred.call_count, len(pipeline.MACRO_FRED_SERIES))
+        self.assertEqual(coverage.call_count, 1)
+
+    def test_nonfinite_nonpositive_prices_block_without_dropping_or_replacing_values(self):
+        cfg, _, series = self.fixture()
+        source, lake, calls = self.projected_source(series)
+        invalids = ([np.inf], [-np.inf], [0.], [-1.], [100., np.inf], [100., "invalid"],
+                    [True], [1. + 2.j], [pd.Timestamp("2021-09-30")])
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("UPSTREAM_IO_REACHED")) as io:
+            for values in invalids:
+                days = pd.bdate_range("2021-09-29", periods=len(values))
+                for column in ("Close", "Adj Close"):
+                    frame = pd.DataFrame({column: values}, index=days)
+                    # Keep the preferred-column rule even when a valid lower
+                    # priority Close exists alongside an invalid Adj Close.
+                    if column == "Adj Close":
+                        frame["Close"] = 100.
+                    original = frame.copy(deep=True)
+                    prices = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                    for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                        with self.subTest(values_type=str(frame[column].dtype), column=column, build=build.__name__):
+                            with self.assertRaisesRegex(ValueError, "^historical_macro_price_values_invalid:[A-Z]+$"):
+                                build(cfg, macro_lake=lake, macro_price_history=prices)
+                    pd.testing.assert_frame_equal(frame, original)
+            self.assertEqual(io.call_count, 0)
+            self.assertEqual(calls, [])
+            for column in ("Close", "Adj Close"):
+                frame = pd.DataFrame({column: [np.nan, 100.]}, index=pd.bdate_range("2021-09-29", periods=2))
+                original = frame.copy(deep=True)
+                prices = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.assertRaisesRegex(RuntimeError, "^UPSTREAM_IO_REACHED$"):
+                        build(cfg, macro_lake=lake, macro_price_history=prices)
+                pd.testing.assert_frame_equal(frame, original)
+                self.assertTrue(pd.isna(frame.iloc[0][column]))
+            self.assertEqual(io.call_count, 4)
+            self.assertEqual(calls, [])
+
+    def test_historical_projection_requires_only_the_thirteen_consumed_fred_series(self):
+        cfg, prices, series = self.fixture()
+        body = ast.parse(inspect.getsource(pipeline.compute_macro_regime_frame))
+        consumed = {node.args[0].value for node in ast.walk(body)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "fred_series"
+                    and node.func.attr == "get" and node.args and isinstance(node.args[0], ast.Constant)}
+        self.assertEqual(set(pipeline._NATIVE_MACRO_FRED_NAMES), consumed)
+        self.assertEqual(len(consumed), 13)
+        unused = set(pipeline.MACRO_FRED_SERIES) - consumed
+        self.assertEqual(unused, {"dgs3mo", "sp500"})
+        bound = {name: values for name, values in series.items() if name in consumed}
+        source, lake, calls = self.projected_source(bound)
+        original_project = source.project_alfred_asof
+        unused_ids = {pipeline.MACRO_FRED_SERIES[name] for name in unused}
+        def project(lake, series_id, decision_at):
+            if series_id in unused_ids:
+                raise ValueError("UNUSED_ARCHIVE_DOES_NOT_EXIST")
+            return original_project(lake, series_id, decision_at)
+        source.project_alfred_asof = project
+        cutoff = pipeline.decision_session_close_utc(pd.Series([pd.Timestamp("2021-09-30")])).iloc[0]
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}):
+            loaded, context = pipeline.load_macro_series(lake, cutoff)
+        self.assertEqual(set(loaded), consumed)
+        self.assertEqual(len(calls), 13)
+        self.assertEqual({sid for sid, _ in calls}, {pipeline.MACRO_FRED_SERIES[name] for name in consumed})
+        self.assertEqual(set(context["archive_through"]), {sid for sid, _ in calls})
+        self.assertEqual(context["source_commit"], "a" * 64)
+        self.assertEqual(context["execution_receipt_sha256"], "b" * 64)
+        self.assertIs(context["historical_pit_certified"], False)
+        # Irrelevant malformed series must not become new math prerequisites.
+        extras = dict(bound, **{name: pd.Series([1.], index=["unusable-unused-index"]) for name in unused})
+        pd.testing.assert_frame_equal(pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, loaded),
+                                      pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, extras))
+
+    def test_integrated_source_api_replays_local_original_receipt_and_vintages(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools import long_history_lake as history
+        cutoff = pd.Timestamp("2021-09-30T20:00:00Z")
+        later = pd.Timestamp("2021-10-29T20:00:00Z")
+        # All bytes and receipts below are a disposable synthetic local fixture.
+        # The real Lake, verified_execution and public projection stay unmocked.
+        with tempfile.TemporaryDirectory() as temp, redirect_stdout(io.StringIO()):
+            root = Path(temp)
+            transport = history.LocalTransport(root / "synthetic-remote")
+            writer = history.Lake(transport, root / "writer")
+            for name in pipeline._NATIVE_MACRO_FRED_NAMES:
+                sid = pipeline.MACRO_FRED_SERIES[name]
+                rows = []
+                for observed, vintage, value in (("2021-09-01", "2021-09-01", 10.),
+                                                  ("2021-09-02", "2021-09-02", None),
+                                                  ("2021-09-01", "2021-10-01", 99.)):
+                    available = (pd.Timestamp(vintage) + pd.Timedelta(days=1)).tz_localize(
+                        "America/New_York").tz_convert("UTC")
+                    rows.append(dict(series=sid, observation_date=observed, vintage_date=vintage,
+                                     realtime_end="9999-12-31", available_at=available.isoformat(),
+                                     published_at=None, evidence="alfred_date_archive", value=value))
+                writer.dataset("alfred/" + sid, [history.encoded(rows)], rows,
+                               dict(rows=len(rows), evidence="alfred_date_archive",
+                                    requested_through="2021-10-29"))
+            publication = writer.publish("synthetic-macro-shape", {})
+            reader = history.Lake(transport, root / "reader")
+            with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                pipeline.load_macro_series(reader, cutoff)
+            quality = history.encoded(dict(schema="long-history-quality-v1", status="PARTIAL",
+                                           eligible_for_selector=False))
+            quality_sha = history.digest(quality)
+            transport.write(history.PREFIX + "/reports/" + quality_sha, quality)
+            receipt = history.encoded(dict(schema="long-history-execution-v1",
+                run_id="synthetic-macro-shape", commit_sha256=publication["commit_sha256"],
+                catalog_sha256=publication["catalog_sha256"], reports={"quality.json": quality_sha},
+                consumer_rows=39, study_recomputed_from_drive=True, quality_status="PARTIAL",
+                eligible_for_selector=False))
+            receipt_sha = history.digest(receipt)
+            transport.write(history.PREFIX + "/executions/" + receipt_sha, receipt)
+            self.assertIs(pipeline._macro_source_projection_api(reader), history.project_alfred_asof)
+            loaded, context = pipeline.load_macro_series(reader, cutoff)
+            newer, later_context = pipeline.load_macro_series(reader, later)
+            self.assertEqual(set(loaded), set(pipeline._NATIVE_MACRO_FRED_NAMES))
+            self.assertEqual(context["source_commit"], publication["commit_sha256"])
+            self.assertEqual(context["execution_receipt_sha256"], receipt_sha)
+            self.assertEqual(context, later_context)
+            self.assertIs(context["historical_pit_certified"], False)
+            self.assertIs(context["source_admission"], False)
+            for name in loaded:
+                self.assertEqual(loaded[name].loc["2021-09-01"], 10.)
+                self.assertTrue(pd.isna(loaded[name].loc["2021-09-02"]))
+                self.assertEqual(newer[name].loc["2021-09-01"], 99.)
+            original_read = transport.read
+            def corrupted_report(path):
+                return b"corrupt-original-report" if path.endswith("/reports/" + quality_sha) else original_read(path)
+            with patch.object(transport, "read", side_effect=corrupted_report):
+                with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                    pipeline.load_macro_series(reader, cutoff)
+            reader.catalog["datasets"]["alfred/VIXCLS"]["status"] = "STALE_RETAINED"
+            with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                pipeline.load_macro_series(reader, cutoff)
 
 
 if __name__ == "__main__":

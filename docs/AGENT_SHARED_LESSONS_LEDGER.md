@@ -10158,3 +10158,41 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Windows checkout hashes separately. A clean Git diff does not establish byte
   equality across CRLF conversion. Preserve immutable historical fixture pins
   and the production hash refusal; a timed-out optimized check is not a pass.
+
+## 2026-11-10 - Native macro features require their own eligible prefix
+
+- A full-series robust median/MAD can change old feature values when future
+  observations arrive. Preserve the original mathematics on each feature's
+  same-cutoff observation window and attach only its final row; never join
+  earlier intermediate rows recalculated with later vintages.
+- Keep current-vintage reporting separate. A historical feature join, including
+  one past date, must block without explicit Lake projection and price prefixes;
+  current FRED or a stale cache is not its fallback. Preserve date-archive/PIT
+  limits, original lags/ffill/unknowns and all candidate rows. Computation alone
+  grants no Source, Reader, rights, historical-PIT or backtest admission.
+- Check missing historical inputs before other acquisition, and include the
+  macro-prefix policy in the incumbent cache fingerprint so an older feature
+  store cannot bypass the new join boundary. Retain old cache objects.
+- An explicitly disabled macro recipe preserves rows with every macro field
+  unknown and clears stale macro provenance. It grants no admission and does
+  not relax the fixed C0 profile's enabled-macro policy binding.
+- Independent verification found nonempty price frames with invalid indexes
+  reached upstream I/O before their later prefix check. Reuse the same index
+  contract in common preflight, and check the incumbent close-column selector
+  before any upstream work; retain the original failed run and valid spellings.
+- A second independent case showed `dropna` retains infinity. Check every
+  nonmissing selected ETF close is a finite positive real price before I/O;
+  never hide invalid values through coercion, dropping, a zero fill or a
+  lower-priority column. Preserve genuine NaN alongside usable observations.
+- Bind historical acquisition to the native formula's actual consumed series,
+  not a broader current-report registry. Assert the13-name set against pure
+  calculation reads so unused archives cannot become false prerequisites;
+  keep the existing current-report15-series wrapper separate.
+- After Source integration, test the real Lake receipt replay and public
+  projection with disposable synthetic originals. An old missing-API refusal
+  is not current integration evidence; retain null/vintage boundaries and
+  reject missing or corrupted original receipts without granting PIT admission.
+- Full CI exposed a universe-only retry fixture that inherited enabled macro
+  defaults and stopped at the new input gate. Disable macro only in that
+  selection-boundary fixture; retain every retry/causality assertion and run
+  the registered aggregate, not only the new macro test class.
