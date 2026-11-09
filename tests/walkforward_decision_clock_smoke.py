@@ -673,6 +673,133 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "causal_c0_main_policy_override"):
                 pipeline.backtest_portfolio(cfg, frame, research_session=session, **override)
 
+    def test_consumed_policy_fields_are_explicit_and_reject_sizing_variants(self):
+        cfg, frame, prices = c0_fixture()
+        session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+        self.assertIs(pipeline._causal_research_session(session, cfg), session)
+        variants = (("min_dynamic_port_names", 100), ("partial_scout_total_weight_cap", 0.0),
+                    ("weight_score_power", -1.0), ("cash_buffer_enabled", not cfg.cash_buffer_enabled),
+                    ("partial_scout_gate_enabled", not cfg.partial_scout_gate_enabled),
+                    ("sector_adjusted_gate_enabled", not cfg.sector_adjusted_gate_enabled))
+        for field, value in variants:
+            with self.subTest(field=field):
+                changed = copy.deepcopy(cfg)
+                setattr(changed, field, value)
+                with self.assertRaisesRegex(ValueError, "^causal_c0_policy_override:" + field + "$"):
+                    pipeline._causal_research_session(session, changed)
+        changed = copy.deepcopy(cfg)
+        changed.min_dynamic_port_names = float(cfg.min_dynamic_port_names)
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:min_dynamic_port_names"):
+            pipeline._causal_research_session(session, changed)
+
+        # Audit literal reads in the actual consumer graph, including imports
+        # inside candidate-gate functions. Parse code, never execute providers.
+        modules = {}
+        for module in ("r1000_pipeline", "r1000_signals", "r1000_helpers", "r1000_market_leader_engine"):
+            tree = ast.parse((ROOT / (module + ".py")).read_bytes())
+            definitions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+            imports = {alias.asname or alias.name: (node.module, alias.name)
+                       for node in tree.body if isinstance(node, ast.ImportFrom) for alias in node.names}
+            modules[module] = definitions, imports
+        stack = [("r1000_pipeline", name) for name in
+                 ("backtest_portfolio", "backtest_concentrated_portfolio", "_causal_monthly_risk")]
+        stack += [("r1000_signals", name) for name in
+                  ("build_target_portfolio", "select_concentrated_portfolio_topk", "concentrated_weight_map")]
+        excluded = {"get_paths", "month_forward_return_open", "load_benchmark_price_series",
+                    "get_hist", "load_fred_series", "fetch_price_history"}
+        visited, reads, dynamic = set(), set(), set()
+        while stack:
+            module, name = stack.pop()
+            if (module, name) in visited or name in excluded:
+                continue
+            definitions, imports = modules.get(module, ({}, {}))
+            node = definitions.get(name)
+            if node is None:
+                continue
+            visited.add((module, name))
+            imports = dict(imports)
+            for child in ast.walk(node):
+                if isinstance(child, ast.ImportFrom):
+                    imports.update({alias.asname or alias.name: (child.module, alias.name)
+                                    for alias in child.names})
+            for child in ast.walk(node):
+                if (isinstance(child, ast.Attribute) and isinstance(child.value, ast.Name)
+                        and child.value.id in {"cfg", "cfg_obj", "config"}):
+                    reads.add(child.attr)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                    if (child.func.id == "getattr" and len(child.args) >= 2
+                            and isinstance(child.args[0], ast.Name)
+                            and child.args[0].id in {"cfg", "cfg_obj", "config"}):
+                        key = child.args[1]
+                        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                            reads.add(key.value)
+                        else:
+                            dynamic.add((name, ast.unparse(key)))
+                    target = ((module, child.func.id) if child.func.id in definitions
+                              else imports.get(child.func.id))
+                    if target and target[0] in modules:
+                        stack.append(target)
+                    elif target and any(isinstance(arg, ast.Name)
+                                        and arg.id in {"cfg", "cfg_obj", "config"}
+                                        for arg in list(child.args) + [kw.value for kw in child.keywords]):
+                        self.fail("unreviewed_external_policy_consumer:" + ":".join(target))
+        self.assertIn(("r1000_pipeline", "add_core_fundamental_minimum_flags"), visited)
+        self.assertFalse(reads - pipeline._CAUSAL_C0_POLICY_FIELDS
+                         - pipeline._CAUSAL_C0_NONPOLICY_REFERENCES.keys())
+        self.assertTrue(dynamic <= {("_causal_research_session", "name")} | {
+            ("_causal_monthly_risk", "prefix + " + repr("_position_risk_" + suffix))
+            for suffix in ("enabled", "hard_stop", "trailing_stop", "trailing_min_profit", "distribution_threshold")})
+        # Dynamic Main/Con risk keys also have explicit canonical bindings.
+        for prefix in ("portfolio", "concentrated"):
+            for suffix in ("enabled", "hard_stop", "trailing_stop", "trailing_min_profit", "distribution_threshold"):
+                self.assertIn(prefix + "_position_risk_" + suffix, pipeline._CAUSAL_C0_POLICY_FIELDS)
+
+    def test_filled_sleeve_controls_trailing_while_observable_risk_updates(self):
+        cfg, frame, prices = c0_fixture()
+        ticker = "S00"
+        prices[ticker].loc[pd.Timestamp("2026-02-03"), "close"] = 150.
+        prices[ticker].loc[pd.Timestamp("2026-02-27"), "close"] = 129.
+        session = ResearchNextCloseSession({ticker: prices[ticker]}, evidence_end_date=cfg.end_date)
+        initial = session.advance("2026-01-30")
+        session.queue("2026-01-30", {ticker: 1.0})
+        intended = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": "early_scout"}])
+        current = frame.iloc[:1].copy()
+        current["revision_score"] = .5
+        current["portfolio_sleeve_label"] = "core_compounder"
+        self.assertFalse(initial.positions)
+        self.assertEqual(pipeline._causal_monthly_risk(cfg, current, initial, {}, intended), {})
+        self.assertEqual(pipeline._causal_filled_sleeves(initial, (), None, {}), {})
+        snapshot = session.advance("2026-02-27")
+        self.assertEqual(len(snapshot.positions), 1)
+        self.assertEqual(snapshot.positions[0].gross_cost_basis, 100.)
+        self.assertEqual(snapshot.positions[0].peak_close, 150.)
+        pending = ("2026-01-30", {ticker: "early_scout"})
+        allocated = pipeline._causal_filled_sleeves(snapshot, session.trades, pending, {})
+        self.assertEqual(allocated[ticker][1], "early_scout")
+        for actual, raw, expected in (("early_scout", "core_compounder", {ticker: "sleeve_trailing_stop"}),
+                                      ("core_compounder", "early_scout", {})):
+            current["portfolio_sleeve_label"] = raw
+            previous = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": actual,
+                                      "revision_score": -100., "rs_acceleration_score": -100.}])
+            with patch.object(pipeline, "_managed_position_risk_exit_signal",
+                              wraps=pipeline._managed_position_risk_exit_signal) as observed:
+                exits = pipeline._causal_monthly_risk(cfg, current, snapshot, {}, previous)
+            self.assertEqual(exits, expected)
+            row = observed.call_args.args[0]
+            self.assertEqual(row["portfolio_sleeve_label"], actual)
+            self.assertEqual(row["revision_score"], .5)
+            self.assertEqual(row["rs_acceleration_score"], current.iloc[0].rs_acceleration_score)
+        # No actual trade: neither an unfilled intent nor an integer no-op may
+        # promote a different target sleeve into this existing holding.
+        changed_intent = ("2026-02-27", {ticker: "core_compounder"})
+        self.assertEqual(pipeline._causal_filled_sleeves(snapshot, (), changed_intent, allocated), allocated)
+        current["risk_penalty"] = 1.
+        current["rs_acceleration_score"] = -1.
+        current["portfolio_sleeve_label"] = "early_scout"
+        core = pd.DataFrame([{"ticker": ticker, "portfolio_sleeve_label": "core_compounder"}])
+        self.assertEqual(pipeline._causal_monthly_risk(cfg, current, snapshot, {}, core),
+                         {ticker: "distribution_risk_decay"})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

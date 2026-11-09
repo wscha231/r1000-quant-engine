@@ -11979,6 +11979,116 @@ def _causal_policy_equal(actual, expected):
     return actual == expected
 
 
+# Explicit consumption map: original Main/Con target, hold, sleeve and risk
+# call graph, including local imports. New policy reads require coverage review;
+# no complete configuration or credential value is serialized here.
+_CAUSAL_C0_POLICY_FIELDS = frozenset("""
+    adaptive_rebalance_balanced_months adaptive_rebalance_enabled adaptive_rebalance_growth_months
+    adaptive_rebalance_growth_threshold adaptive_rebalance_risk_threshold adaptive_rebalance_riskoff_months
+    adr_global_alpha_confirmation_min adr_global_alpha_fallback_enabled adr_global_alpha_score_floor
+    adr_global_alpha_score_quantile_floor benchmark_hugging_penalty cap_base_weight
+    cap_lagger_weight cap_leader_weight cap_overheated_weight
+    cash_buffer_enabled cash_release_max_per_rebalance cash_target_balanced_cap
+    cash_target_growth_cap cash_target_mild_risk_cap cash_weight_max
+    concentrated_allowed_sleeves concentrated_entry_quality_continuation_max_broken concentrated_entry_quality_continuation_max_exit_risk
+    concentrated_entry_quality_continuation_min_confirmation concentrated_entry_quality_continuation_override concentrated_entry_quality_continuation_quantile
+    concentrated_entry_quality_monster_early_min concentrated_entry_quality_monster_early_override concentrated_leader_allowed_tiers
+    concentrated_leader_gate_enabled concentrated_max_single_name_weight concentrated_min_confirmation
+    concentrated_min_entry_quality concentrated_min_production_names concentrated_monster_early_min_slots
+    concentrated_position_risk_distribution_threshold concentrated_position_risk_enabled concentrated_position_risk_hard_stop
+    concentrated_position_risk_trailing_min_profit concentrated_position_risk_trailing_stop concentrated_risk_candidate_block_threshold
+    concentrated_risk_candidate_filter_enabled concentrated_score_breakout_weight concentrated_score_confirmation_weight
+    concentrated_score_cycle_recovery_weight concentrated_score_early_inflection_weight concentrated_score_early_weight
+    concentrated_score_entry_quality_weight concentrated_score_exit_risk_penalty concentrated_score_future_weight
+    concentrated_score_momentum_weight concentrated_score_monster_early_weight concentrated_score_risk_entry_penalty_weight
+    concentrated_score_sage_weight conviction_hold_seed_bonus conviction_hold_utility_bonus
+    core_compounder_rebalance_interval_months core_compounder_sleeve_base_weight defensive_rotation_strength
+    drawdown_breaker_level_1_cash_floor drawdown_breaker_level_1_scale drawdown_breaker_level_1_threshold
+    drawdown_breaker_level_2_cash_floor drawdown_breaker_level_2_scale drawdown_breaker_level_2_threshold
+    drawdown_breaker_level_3_cash_floor drawdown_breaker_level_3_scale drawdown_breaker_level_3_threshold
+    drawdown_breaker_multilevel_enabled drawdown_breaker_recovery_buffer drawdown_circuit_breaker_cash_target
+    drawdown_circuit_breaker_recovery drawdown_circuit_breaker_threshold early_scout_breakout_min_score
+    early_scout_candidate_floor_min_share early_scout_confirmation_min early_scout_drift_weight_cap
+    early_scout_entry_weight_cap early_scout_fundamental_presence_min early_scout_fundamental_reliability_min
+    early_scout_growth_floor_max_risk early_scout_growth_floor_min_signal early_scout_growth_floor_weight
+    early_scout_hard_weight_cap early_scout_min_fundamental_fields_required early_scout_promotion_confidence_max
+    early_scout_promotion_edge_max early_scout_promotion_min_score early_scout_rebalance_interval_months
+    early_scout_sleeve_base_weight early_scout_sleeve_max_weight early_scout_sleeve_min_weight
+    event_regime_sensitivity focus_direct_ticker_tiebreak focus_missing_fundamental_penalty
+    focus_negative_momentum_emergence_penalty focus_optional_tickers focus_primary_tickers
+    focus_riskoff_target_n focus_sector_crowding_penalty focus_target_n
+    future_winner_confirmation_min future_winner_drift_weight_cap future_winner_entry_weight_cap
+    future_winner_fundamental_presence_min future_winner_fundamental_reliability_min future_winner_hard_weight_cap
+    future_winner_min_fundamental_fields_required future_winner_rebalance_interval_months future_winner_sleeve_base_weight
+    future_winner_sleeve_max_weight future_winner_sleeve_min_weight growth_history_confidence_min_for_full_sleeve
+    growth_history_confidence_penalty_weight growth_reentry_strength lagger_n_sectors
+    leader_n_sectors live_event_alert_strength live_event_growth_threshold
+    live_event_risk_threshold manual_regime_conditioned_sleeve_map max_names_per_cik
+    min_core_fundamental_fields_required min_dynamic_port_names min_port_names
+    minervini_broken_trend_penalty_weight minervini_future_engine_weight minervini_portfolio_seed_weight
+    optimizer_regime_sensitivity overheat_thr partial_scout_confirmation_min
+    partial_scout_gate_enabled partial_scout_min_fields partial_scout_score_floor
+    partial_scout_total_weight_cap phase_t3_broken_replace_sigma phase_t3_conviction_hold_bonus_multiplier
+    phase_t3_leader_hysteresis_enabled phase_t3_new_entry_sigma phase_t3_sigma_gate
+    phase11_allocation_pct phase11_multibagger_sleeve_enabled phase11_p_entry_threshold
+    phase11_p_stoploss_select_threshold phase11_p_takeprofit_threshold phase11_quality_min_mcap
+    phase11_quality_min_revenue phase11_sleeve_size phase15_a1_drop_negative_features_enabled
+    phase15_s1a_future_prune_enabled phase7a_accruals_core_weight phase7a_insider_accruals_enabled
+    phase7a_insider_early_weight phase7a_insider_future_weight phase8a_hold_persistence_enabled
+    phase8a_hold_persistence_weight phase8b_long_lookback_enabled phase8b_multi_year_core_weight
+    phase8b_multi_year_early_weight phase8b_multi_year_future_weight phase8b_persistence_trend_core_weight
+    phase8b_persistence_trend_future_weight phase8c_megacap_future_override_enabled phase8c_megacap_min_multi_year_score
+    phase8c_megacap_min_revenue_growth phase8c_megacap_threshold_usd phase8d_ic_reweight_enabled
+    phase8d_long_horizon_alpha_core_weight phase8d_long_horizon_alpha_early_weight phase8d_long_horizon_alpha_enabled
+    phase8d_long_horizon_alpha_future_weight phase9_c1_multi_year_core_weight phase9_c1_multi_year_early_weight
+    phase9_c1_multi_year_future_weight phase9_c1_rebalance_enabled phase9_c3_loss_narrowing_threshold
+    phase9_c3_turnaround_enabled phase9_core_megacap_percentile phase9_core_quality_min_margin
+    phase9_core_quality_min_roe phase9_core_quality_rev_growth_max phase9_core_quality_rev_growth_min
+    phase9_core_quality_size_percentile phase9_early_breakout_threshold phase9_early_golden_cross_threshold
+    phase9_early_inflection_threshold phase9_early_size_upper_percentile phase9_early_value_inflection_threshold
+    phase9_future_min_mom_24m phase9_future_min_rev_growth phase9_future_size_lower_percentile
+    phase9_future_size_upper_percentile phase9_thesis_gate_enabled portfolio_defensive_rotation_enabled
+    portfolio_fill_monster_early_weight portfolio_hold_policy_enabled portfolio_hold_policy_exit_penalty_weight
+    portfolio_hold_policy_prev_weight_bonus portfolio_hold_policy_seed_weight portfolio_hold_policy_weight
+    portfolio_monster_early_min_score portfolio_monster_early_min_slots portfolio_monster_early_weight
+    portfolio_monster_promote_unassigned_to_future portfolio_position_risk_distribution_threshold portfolio_position_risk_enabled
+    portfolio_position_risk_hard_stop portfolio_position_risk_trailing_min_profit portfolio_position_risk_trailing_stop
+    portfolio_stale_leader_group_strength_max portfolio_stale_leader_mcap_min portfolio_stale_leader_near_high_max
+    portfolio_stale_leader_require_broken_ma portfolio_stale_leader_rs_accel_max portfolio_stale_leader_rs_level_max
+    portfolio_stale_mega_leader_penalty_weight portfolio_stale_mega_mcap_min portfolio_stale_mega_near_high_max
+    portfolio_stale_mega_rs_accel_max portfolio_stale_mega_rs_level_max portfolio_utility_monster_early_weight
+    rebalance_interval_comparison_months rebalance_interval_months regime_conditioned_min_learned_months
+    regime_conditioned_sleeve_map regime_dynamic_sleeve_weights_enabled regime_sleeve_multiplier_table
+    revision_break_consecutive_months revision_break_exit_enabled revision_break_score_threshold
+    revision_seed_score_weight  rs_break_drop_to_pctile
+    rs_break_exit_enabled rs_break_min_peak_pctile sector_adjusted_financial_min_fields
+    sector_adjusted_gate_enabled sector_adjusted_realasset_min_fields sector_adjusted_resource_min_fields
+    sleeve_drift_headroom_pct sleeve_regime_apply_champion sleeve_specific_rebalance_enabled
+    sleeve_weight_l1_target sleeve_weight_renorm_enabled speculative_stop_loss_pct
+    speculative_total_weight_max speculative_weight_max starting_capital_usd
+    stock_weight_max stock_weight_max_high_conviction stock_weight_max_no_ttm
+    stock_weight_max_no_ttm_confirmed stock_weight_max_partial_scout stock_weight_max_sector_adjusted
+    stock_weight_min sub_industry_cap_enabled sub_industry_cap_sectors
+    sub_industry_max_per_sector  top_n
+     trailing_stop_core_compounder_pct trailing_stop_early_scout_pct
+    trailing_stop_enabled trailing_stop_future_winner_pct turnover_cap_monthly
+    use_macro_regime_features valuation_extreme_pe_threshold valuation_extreme_penalty_weight
+    vix_level_guard_enabled vix_level_tier1_cash_floor vix_level_tier1_threshold
+    vix_level_tier2_cash_floor vix_level_tier2_threshold vix_level_tier3_cash_floor
+    vix_level_tier3_threshold vix_level_tier4_cash_floor vix_level_tier4_threshold
+    vol_lookback_months vol_scale_ceiling vol_scale_floor
+    vol_target_annualized volatility_targeting_enabled weight_invvol_power
+    weight_score_power winner_scale_bottom_quartile_cut winner_scale_top_quartile_boost
+""".split())
+_CAUSAL_C0_NONPOLICY_REFERENCES = {
+    "__dataclass_fields__": "implementation introspection, not a configuration field",
+    "items": "to_cfg dictionary method, not a configuration field",
+    "benchmark_history_source": "legacy report source label; opt-in returns before reporting",
+    "benchmark_ticker": "legacy report identity; original Source input binding is separate",
+    "roundtrip_cost_bps": "legacy monthly-return cost branch; opt-in ledger has fixed C0 fees",
+    "trade_cost_bps_per_side": "legacy monthly-return cost branch; opt-in ledger has fixed C0 fees",
+}
+
 def _causal_research_session(session, cfg):
     from tools.run_broker_ledger_replay import ResearchNextCloseSession
     if type(session) is not ResearchNextCloseSession:
@@ -11987,18 +12097,10 @@ def _causal_research_session(session, cfg):
             or int(cfg.focus_target_n) != 14 or int(cfg.focus_riskoff_target_n) != 7):
         raise ValueError("causal_c0_profile_identity")
     # A fixed named C0 kernel cannot silently become a policy-OFF challenger.
-    # Inspect strategy fields only: never serialize config/credential values.
+    # Freeze the explicit, audited consumption map, not a name-prefix guess.
+    # Source/window/runtime inputs stay separate from policy identity.
     defaults = EngineConfig()
-    prefixes = ("portfolio_", "concentrated_", "focus_", "stock_weight_", "sector_weight_",
-                "drawdown_", "speculative_", "trailing_stop_", "revision_break_", "rs_break_",
-                "core_compounder_", "future_winner_", "early_scout_", "phase9_", "phase11_",
-                "vol_", "volatility_targeting_", "conviction_hold_")
-    names = {name for name in cfg.__dataclass_fields__ if name.startswith(prefixes)}
-    names.update(("sleeve_specific_rebalance_enabled", "rebalance_interval_months",
-                  "adaptive_rebalance_enabled", "turnover_cap_monthly", "top_n",
-                  "sleeve_regime_apply_champion", "manual_regime_conditioned_sleeve_map",
-                  "regime_conditioned_sleeve_map", "regime_conditioned_min_learned_months"))
-    for name in names:
+    for name in sorted(_CAUSAL_C0_POLICY_FIELDS):
         actual, expected = getattr(cfg, name), getattr(defaults, name)
         if not _causal_policy_equal(actual, expected):
             raise ValueError("causal_c0_policy_override:" + name)
@@ -12034,6 +12136,31 @@ def _causal_observable_signals(frame, session):
     return frame.loc[available.notna() & own_close.notna() & available.le(own_close)].copy()
 
 
+def _causal_filled_sleeves(snapshot, fills, pending, allocated):
+    """Advance strategy allocation metadata only with an actual matching fill.
+
+    Intents, raw signal labels and integer no-ops cannot reclassify holdings.
+    Entry identity comes from the same immutable executed-position snapshot.
+    """
+    out = {}
+    for position in snapshot.positions:
+        previous = allocated.get(position.ticker)
+        if previous is not None and previous[0] == position.entry_session:
+            out[position.ticker] = previous
+        trades = [row for row in fills if row["ticker"] == position.ticker
+                  and float(row["quantity"]) > 0]
+        if trades:
+            if pending is None or any(row["signal_date"] != pending[0] for row in trades):
+                raise ValueError("causal_allocation_fill_binding")
+            sleeve = pending[1].get(position.ticker)
+            if sleeve not in ("core_compounder", "future_winner", "early_scout"):
+                raise ValueError("causal_filled_allocation_missing:" + position.ticker)
+            out[position.ticker] = (position.entry_session, sleeve)
+        elif position.ticker not in out:
+            raise ValueError("causal_filled_allocation_missing:" + position.ticker)
+    return out
+
+
 def _causal_monthly_risk(cfg, frame, snapshot, policy_state, portfolio, *, concentrated=False):
     """C0's explicit gross-basis monthly risk, using the original rule/thresholds.
 
@@ -12059,6 +12186,13 @@ def _causal_monthly_risk(cfg, frame, snapshot, policy_state, portfolio, *, conce
         if ticker not in rows:
             raise ValueError("causal_held_feature_missing:" + ticker)
         row = {**previous.get(ticker, {}), **rows[ticker], "ticker": ticker}
+        if not concentrated:
+            # Only the filled allocation is authoritative for this policy.
+            # Current observable revision/RS/exit-risk fields remain current.
+            sleeve = previous.get(ticker, {}).get("portfolio_sleeve_label")
+            if sleeve not in ("core_compounder", "future_winner", "early_scout"):
+                raise ValueError("causal_filled_allocation_missing:" + ticker)
+            row["portfolio_sleeve_label"] = sleeve
         state = policy_state.setdefault(ticker, {})
         if state.get("entry") != position.entry_session:
             state.clear()
@@ -12325,6 +12459,7 @@ def backtest_portfolio(
     _p6c_ceiling = float(np.clip(safe_float(getattr(cfg, "vol_scale_ceiling", 1.0), 1.0), _p6c_floor, 1.0))
     recent_returns: list[float] = []  # trailing monthly net returns for vol calc
     causal_decisions, causal_holdings, causal_policy_state = [], [], {}
+    causal_sleeves, causal_pending_sleeves, causal_trade_cursor = {}, None, 0
     causal_previous_equity = starting_capital_usd
 
     def _live_label_for_month(month_df: pd.DataFrame) -> str:
@@ -12394,7 +12529,14 @@ def backtest_portfolio(
             if i:
                 recent_returns.append(snapshot.equity / causal_previous_equity - 1.0)
             causal_previous_equity = snapshot.equity
-            causal_exits = _causal_monthly_risk(cfg, mm, snapshot, causal_policy_state, current_portfolio)
+            fills = causal.trades
+            causal_sleeves = _causal_filled_sleeves(
+                snapshot, fills[causal_trade_cursor:], causal_pending_sleeves, causal_sleeves)
+            causal_trade_cursor = len(fills)
+            allocated_portfolio = pd.DataFrame([
+                {"ticker": ticker, "portfolio_sleeve_label": value[1]}
+                for ticker, value in causal_sleeves.items()])
+            causal_exits = _causal_monthly_risk(cfg, mm, snapshot, causal_policy_state, allocated_portfolio)
             mm = mm.loc[~mm["ticker"].astype(str).isin(causal_exits)].copy()
         drawdown_before_month = float((running_equity - portfolio_peak) / max(portfolio_peak, 1e-8))
         breaker_event = ""
@@ -12604,7 +12746,14 @@ def backtest_portfolio(
         if causal is not None:
             intent = _causal_risk_priority(current_w or {CASH_PROXY_TICKER: 1.0}, causal_exits)
             if rebalance_due or causal_exits:
+                pending_sleeves = {ticker: current_sleeve_map.get(ticker)
+                                   for ticker, weight in intent.items()
+                                   if ticker != CASH_PROXY_TICKER and weight > 0}
+                if any(sleeve not in ("core_compounder", "future_winner", "early_scout")
+                       for sleeve in pending_sleeves.values()):
+                    raise ValueError("causal_target_allocation_missing")
                 causal.queue(dt, intent)
+                causal_pending_sleeves = (dt.date().isoformat(), pending_sleeves)
             causal_decisions.append(dict(rebalance_date=dt, equity_usd=snapshot.equity,
                                          actual_weights=snapshot.weights, target_weights=tuple(sorted(intent.items())),
                                          risk_exits=tuple(sorted(causal_exits.items())),

@@ -10118,3 +10118,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - When the current broker dependency advances, preserve historical/selective
   catalog pins. Test their exact typed stale-dependency refusal and the intact
   classification refusal separately; update only current reuse pins.
+- Exact-head review found two sizing controls bypassed a prefix-based C0 guard.
+  Bind the actual consumed policy names explicitly and audit transitive/local
+  imports; distinguish source/report/runtime inputs and lexical comment hits.
+- A current raw signal sleeve must not overwrite a held allocation's risk
+  threshold. Advance allocation metadata only after its matching actual fill;
+  keep current risk observations, and do not promote pending or integer-no-op
+  target labels into holdings. Preserve full-exit/reentry episode identity.

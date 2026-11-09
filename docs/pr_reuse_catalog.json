@@ -870,7 +870,7 @@
         "r1000_market_leader_engine.py": "2dcb02a7cc46a2728de81ecaf337c65530da4b08827819b9cd7e1e9566545160",
         "r1000_operator.py": "5953c5020ccaf9901cac8f9ed09e03de23b64f4a4f1a1de1b0256fcc5787f0c3",
         "r1000_orchestrator.py": "8f2e5a1a03bcead6ed9663d56f94e281b6f6a156af275afa9d46e68866237e64",
-        "r1000_pipeline.py": "f5e67f7e9012fde79afa9866cf8f1e0273c66c036c18125d91e2f1c85b09b70f",
+        "r1000_pipeline.py": "b866c495c4d485ebf7851169b95e2c637cc4aa6512324b76ea45459b11f3ec98",
         "r1000_portfolio_state.py": "8e3833327e23f1c0de001ab8fe124a27dfc05a0cfa19a778aedfc694c429f350",
         "r1000_signals.py": "b2c1b23dca33ca9e1620153ae713c670a58bb60bf883b8baefbb9d4ebb0fe3a3",
         "r1000_themes.py": "e563ad66fc86491dbb6d0b211ea501e66bb1d1b27f13fa434581a49199596561",
