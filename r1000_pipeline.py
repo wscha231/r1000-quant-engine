@@ -7792,7 +7792,9 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
         # output is consumed only at each row's own cutoff; it cannot license
         # a dataset-max-only historical fallback.
         latest_mask, latest_cov = latest_month_mktcap_coverage(monthly)
-        if 0.25 <= latest_cov < 0.30:
+        # This full-frame coverage is only the incumbent bounded fetch trigger.
+        # It never controls historical eligibility, size metrics or ranking.
+        if latest_cov < 0.30 and float(monthly["mktcap"].notna().mean()) >= 0.25:
             retry = monthly.loc[latest_mask & monthly["mktcap"].isna(), "ticker"].dropna().drop_duplicates().tolist()
             if retry:
                 extra = ensure_mktcap_proxy(cfg, paths, retry, max_new=1200)

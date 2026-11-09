@@ -10053,3 +10053,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   earlier dates. Use only original USD operands observable at the row cutoff;
   unknown ADR cap stays null and does not become a fabricated zero. Preserve
   the candidate through the incumbent missing-cap route where applicable.
+- Independent H1B review found a forward liveness regression: latest cap
+  coverage below 25% still needs the old bounded 1200-name retry when the
+  observed frame's cap-mode threshold was met. Keep whole-frame coverage only
+  for this fetch optimization, never for historical selection. Test the real
+  universe call trace at 0%/24% after an insufficient initial600, and reject
+  future proxy values even when the retry runs; all-history0% adds no retry.

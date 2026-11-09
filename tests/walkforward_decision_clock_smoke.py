@@ -238,6 +238,60 @@ class UniverseSizeCausalityTests(unittest.TestCase):
         cfg.universe_size=3
         return cfg
 
+    def test_actual_universe_route_retains_bounded_starved_latest_retry(self):
+        class SelectionBoundary(Exception):
+            pass
+        dates=pd.to_datetime(['2021-01-29','2021-02-26'])
+        names=[f'S{i:02d}' for i in range(25)]
+        candidates=pd.DataFrame(dict(ticker=names,cik10=['0000000001']*25,
+                                     Name=names,sector=['Synthetic']*25,
+                                     universe_source=['historical_membership_file']*25))
+        for latest_known,historical_known in ((0,True),(6,True),(0,False)):
+            with self.subTest(latest_coverage=latest_known/25,historical_known=historical_known):
+                calls=[]; observed={}
+                def prices(_paths,ticker):
+                    ordinal=names.index(ticker)
+                    return pd.DataFrame(dict(px=[20.,20.],dollar_vol_20d=[1e6+ordinal]*2,
+                        vol_252d=[.2,.2],dd_1y=[.2,.2],
+                        shares=[100. if historical_known else np.nan,
+                                100. if ordinal<latest_known else np.nan],
+                        feature_available_from=pipeline.decision_session_close_utc(pd.Series(dates)).to_numpy()),index=dates)
+                def proxy(_cfg,_paths,tickers,max_new=500):
+                    calls.append((list(tickers),max_new))
+                    if max_new==600:
+                        return pd.DataFrame()  # Initial batch is not the retry.
+                    return pd.DataFrame(dict(ticker=tickers,mktcap_proxy=[1e12]*len(tickers),
+                        updated_at=['2021-03-01T00:00:00Z']*len(tickers),price_currency=['USD']*len(tickers)))
+                def selected(*args,**kwargs):
+                    observed['rows']=args[5].copy()
+                    raise SelectionBoundary()
+                with patch.object(pipeline,'get_paths',return_value={}), \
+                     patch.object(pipeline,'load_historical_universe_membership',return_value=pd.DataFrame()), \
+                     patch.object(pipeline,'build_candidate_universe',return_value=candidates), \
+                     patch.object(pipeline,'ensure_prices_cached_incremental',return_value=None), \
+                     patch.object(pipeline,'load_or_update_fund_panel',return_value=pd.DataFrame()), \
+                     patch.object(pipeline,'write_fund_panel_recent_flow_report',return_value=None), \
+                     patch.object(pipeline,'month_end_trading_days',return_value=list(dates)), \
+                     patch.object(pipeline,'load_px',side_effect=prices), \
+                     patch.object(pipeline,'compute_daily_tech_table',side_effect=lambda frame:frame), \
+                     patch.object(pipeline,'apply_leader_rescue_backtest_mode_filter',side_effect=lambda cfg,paths,frame:frame), \
+                     patch.object(pipeline,'asof_join_fundamentals',side_effect=lambda frame,*args:frame), \
+                     patch.object(pipeline,'merge_trend_features_into_monthly',side_effect=lambda frame,*args:frame), \
+                     patch.object(pipeline,'attach_fund_panel_join_diagnostics',side_effect=lambda frame,*args:frame), \
+                     patch.object(pipeline,'write_stage_coverage_report',return_value=None), \
+                     patch.object(pipeline,'load_mktcap_proxy_cache',return_value=pd.DataFrame()), \
+                     patch.object(pipeline,'ensure_mktcap_proxy',side_effect=proxy), \
+                     patch.object(pipeline,'write_leader_drop_diagnostics',side_effect=selected):
+                    with self.assertRaises(SelectionBoundary):
+                        pipeline.build_universe_monthly(self.cfg())
+                self.assertEqual([cap for _,cap in calls],[600,1200] if historical_known else [600])
+                if historical_known:
+                    self.assertEqual(len(calls[1][0]),25-latest_known)
+                latest=observed['rows'].loc[observed['rows']['rebalance_date'].eq(dates[-1])]
+                self.assertGreater(len(latest),0)
+                self.assertTrue(latest['mktcap'].dropna().le(2000.).all())
+                self.assertFalse(latest['mktcap_proxy'].notna().any())
+
     def test_actual_monthly_selection_ignores_future_cohort_and_late_rows(self):
         baseline=self.monthly()
         before,ranked,expected=pipeline._causal_universe_size_rows(baseline,self.cfg())
