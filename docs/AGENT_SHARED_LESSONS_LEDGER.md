@@ -10004,3 +10004,6 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   graph creation after original QA/completion and expiry within original bounds.
   Reuse the original context's cutoff string when replaying a byte-bound report;
   equivalent Z/+00:00 timestamps do not make its raw content hash identical.
+- Include optional artifacts nested in the original QA bundle in the same
+  transitive count/byte/identity preflight before the planner hashes them.
+  A bounded top-level inventory alone does not bound the reviewer's operands.

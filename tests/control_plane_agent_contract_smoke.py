@@ -307,6 +307,36 @@ class ControlPlaneTests(unittest.TestCase):
                     board.timestamp(self.state['as_of']), self.sha, context['requested_security_ids'],
                     context['a3_reference_entries'], 'f'*64, {'synthetic_risk':'ORIGINAL'})
 
+    def test_current_review_bounds_optional_qa_operand_before_hash_or_planner(self):
+        req, context = self.model_case(complete=False)
+        extra = self.artifact('optional_qa_oversized')
+        extra_path = self.root/extra['path']
+        with extra_path.open('wb') as stream:
+            stream.truncate(32*1024*1024+1)
+        # Deliberately no body hash: rejecting size must precede that read.
+        extra['sha256'] = 'f'*64
+        qa = next(r for r in self.state['requests'] if r['agent']=='A6')
+        self.set_payload(qa['inputs']['review_bundle'], dict(schema_version='qa-review-bundle-v2',
+                                                          artifacts={'optional':extra}))
+        principals = dict(A0='OWNER:SELECTION',A3='PRODUCER:ANALYST',A6='REVIEWER:INDEPENDENT')
+        graph = dict(schema_version='current-a3-review-graph-v1',state=self.state,
+                     task_packets=[],principals=principals)
+        artifact = self.artifact('budget_graph');self.set_payload(artifact,graph)
+        artifact['observed_at']=artifact['available_at']=artifact['collected_at']=self.at(-5.5)
+        binding = dict(portfolio_context=req['inputs']['portfolio_context'],review_graph=artifact)
+        policy = self.current_review_policy(binding,principals)
+        actual_hash = board.file_hash
+        def bounded_hash(path):
+            if path == extra_path:
+                self.fail('oversized optional QA body was read')
+            return actual_hash(path)
+        with patch.object(board,'file_hash',bounded_hash), patch.object(board,'_plan_tasks',
+                side_effect=AssertionError('planner entered before optional QA preflight')):
+            with self.assertRaisesRegex(board.ContractError,'a3_review_original_budget'):
+                board.current_a3_reference_admission(binding,policy,self.root,
+                    board.timestamp(self.state['as_of']),self.sha,context['requested_security_ids'],
+                    context['a3_reference_entries'],'f'*64,{'synthetic_risk':'ORIGINAL'})
+
     def test_a5_mode_default_strict_values_and_identity(self):
         req = self.add_request('A5')
         self.assertEqual(board.portfolio_mode(req), 'ACCOUNT_REBALANCE')

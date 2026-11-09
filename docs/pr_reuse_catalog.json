@@ -465,7 +465,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/run_agent_board.py": "92d8612226083d9b71815e77c8015f6c93bdead92fe82400a5af2ac1d60ca964",
+        "tools/run_agent_board.py": "61146792cdf59c2fc8c79189c35e2753cafd3addb98467dd8a472c2df6773f67",
         "research/control_plane/task_packet_schema.json": "0e055984f97158fe01511cc70b7a19a9bf9c5abe6e8c9427fa2d192e2d714255",
         "research/control_plane/system_state_schema.json": "0268c6ef56872aca22337e37085825e407e759b4ebbe6eea7fb22a024fda340c"
       }

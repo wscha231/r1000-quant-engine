@@ -204,6 +204,22 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
     originals = list(context['artifact_inventory'].values()) + [context['a4_request']]
     originals += [a for r in state['requests'] for a in r['inputs'].values()]
     originals += [a for r in state['completed_tasks'] for a in r['outputs'].values()]
+    # The planner hashes every QA operand, including optional extra evidence.
+    # Inspect its bounded original bundle before any transitive body hash/read.
+    bundle_ref = requests['A6']['inputs']['review_bundle']
+    bundle_path = artifact_path(root, bundle_ref['path'])
+    if bundle_path.stat().st_size > 4 * 1024 * 1024:
+        raise ContractError('a3_review_qa_bundle_budget')
+    with bundle_path.open('rb') as stream:
+        bundle_raw = stream.read(4 * 1024 * 1024 + 1)
+    if len(bundle_raw) > 4 * 1024 * 1024 or digest_bytes(bundle_raw) != bundle_ref['sha256']:
+        raise ContractError('a3_review_qa_bundle_changed')
+    bundle = json.loads(bundle_raw, object_pairs_hook=_review_pairs, parse_constant=_review_invalid)
+    if (type(bundle) is not dict or type(bundle.get('artifacts')) is not dict
+            or len(bundle['artifacts']) > 256):
+        raise ContractError('a3_review_original_count')
+    schema_validate(bundle, 'system_state_schema.json', 'qa_bundle')
+    originals += list(bundle['artifacts'].values())
     unique_originals = {}
     for artifact in originals:
         schema_validate(artifact, 'task_packet_schema.json', 'artifact')
@@ -221,6 +237,7 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
         total += size
         if size > 32 * 1024 * 1024 or total > 96 * 1024 * 1024:
             raise ContractError('a3_review_original_budget')
+    for artifact in unique_originals.values():
         verify_artifact(root, artifact, cutoff, cutoff)
     index = read_json(artifact_path(root, request['inputs']['expected_return']['path']))
     refs = [entry[role] for entry in entries for role in ('a3_packet_ref', 'a3_result_ref')]
