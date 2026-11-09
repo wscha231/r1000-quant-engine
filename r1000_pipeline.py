@@ -10162,6 +10162,15 @@ def compute_adaptive_ensemble_state(
     if d.empty or "y_blend" not in d.columns:
         return state
 
+    # Scored decision output intentionally retains unknown future outcomes.
+    # Such rows cannot count toward activation or displace usable months in
+    # an adaptive lookback, including both latest-recommendation consumers.
+    outcomes = pd.to_numeric(d["y_blend"], errors="coerce")
+    d = d.loc[np.isfinite(outcomes)].copy()
+    d["y_blend"] = outcomes.loc[d.index]
+    if d.empty:
+        return state
+
     months = sorted(pd.Series(d["rebalance_date"].dropna().unique()).tolist())
     if not months:
         return state
@@ -13113,6 +13122,11 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         except Exception:
             adaptive_history = pd.DataFrame()
     adaptive_as_of = pd.to_datetime(latest_df["rebalance_date"], errors="coerce").max()
+    # A finite retrospective outcome alone is not availability evidence at an
+    # earlier live cutoff. Reuse the same strict label-endpoint gate as training
+    # before either the reused-model or refit-model adaptive consumer.
+    adaptive_history = (_walkforward_mature_history(adaptive_history, cfg, adaptive_as_of)
+                        if pd.notna(adaptive_as_of) else pd.DataFrame())
 
     reuse_meta = None
     if bool(getattr(cfg, "reuse_phase4_models_for_latest_recommendations", True)):

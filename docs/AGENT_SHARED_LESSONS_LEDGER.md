@@ -10083,6 +10083,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   distinct from hosted full CI and from the unchanged earlier engine tests.
 - After exact sparse-input restoration, full local smoke was139/140: the
   untouched G6 executor test's frozen AST digest differed on Python3.14.
-  Preserve the failure and version; earlier b86 hosted3.11 G6 success is a
+  Preserve the failure and version; earlier b86 hosted3.12.16 G6 success is a
   clue, not proof of environment causality. Do not change the protected
   executor/digest or label the full suite PASS; require current hosted CI.
+- Label-free scored rows must not count toward downstream adaptive activation
+  or displace mature target months from its lookback. Apply the outcome gate
+  in the existing shared helper before month selection, covering both latest
+  consumers while keeping recent decision rows intact. Test5mature+7unknown
+  inactive and6mature positive weights invariant under unknown-tail append.
+- Runtime attribution correction: the original b86 validate used CPython3.12.16,
+  not the separate3.11 contract job. Keep old receipts immutable and the local
+  3.14.4 G6 failure distinct; a version clue alone does not waive current CI.

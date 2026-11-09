@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import ast
+import inspect
 from pathlib import Path
 import sys
 import tempfile
@@ -215,6 +217,105 @@ class WalkforwardDecisionClockTests(unittest.TestCase):
         # outcomes while the two independent fit/predict runs remained valid.
         self.assertTrue(actual.loc[actual['rebalance_date'].eq('2021-11-30'),'r_6m'].eq(99).all())
         self.assertTrue(baseline.loc[baseline['rebalance_date'].eq('2021-11-30'),'r_6m'].isna().all())
+
+
+class LatestAdaptiveOutcomeTests(unittest.TestCase):
+    def history(self, mature_months):
+        rows=[]
+        sessions=pipeline.month_end_trading_days('2019-01-01','2020-12-31')
+        for month,date in enumerate(sessions[:12]):
+            for name in range(20):
+                row=dict(ticker=f'S{name}',rebalance_date=date,feature_date=date,
+                         y_blend=(name-10)/20 if month<mature_months else np.nan,
+                         score_linear=name,score_cat=20-name,score_ranker=(name*7)%20)
+                for label,months in (('1m',1),('3m',3),('6m',6)):
+                    row[f'r_{label}']=(name-10)/20 if month<mature_months else np.nan
+                    row[f'bench_r_{label}']=.01 if month<mature_months else np.nan
+                    row[f'r_{label}_label_end_date']=sessions[month+months]
+                    row[f'bench_r_{label}_label_end_date']=sessions[month+months]
+                rows.append(row)
+        return pd.DataFrame(rows)
+
+    def state(self, history, cfg=None):
+        return pipeline.compute_adaptive_ensemble_state(history,cfg or EngineConfig(),as_of_date='2020-01-31')
+
+    def test_five_mature_plus_seven_unlabelled_never_activates(self):
+        history=self.history(5)
+        original=history.copy(deep=True)
+        state=self.state(history)
+        self.assertFalse(state['active'])
+        self.assertEqual(state['history_months'],5)
+        self.assertEqual(state['weights'],self.state(history.loc[history.y_blend.notna()])['weights'])
+        pd.testing.assert_frame_equal(history,original)
+
+    def test_six_mature_weights_and_lookback_ignore_unknown_tail(self):
+        history=self.history(6)
+        mature=history.loc[history.y_blend.notna()].copy()
+        original=self.state(mature)
+        actual=self.state(history)
+        self.assertTrue(actual['active'])
+        self.assertEqual(actual,original)
+        self.assertEqual(actual['history_months'],6)
+        cfg=EngineConfig();cfg.adaptive_ensemble_lookback_months=3;cfg.adaptive_ensemble_min_months=3
+        bounded=self.state(history,cfg)
+        self.assertTrue(bounded['active'])
+        self.assertEqual(bounded['history_months'],3)
+        pd.testing.assert_series_equal(pd.Series(bounded['weights']),pd.Series(self.state(mature,cfg)['weights']))
+        invalid=history.copy();invalid.loc[invalid.y_blend.isna(),'y_blend']=np.inf
+        self.assertEqual(self.state(invalid,cfg),bounded)
+
+    def test_both_latest_consumers_execute_the_shared_outcome_gate(self):
+        # Execute the real call expression from each incumbent branch against
+        # the same real helper, without running a model fit or provider path.
+        tree=ast.parse(inspect.getsource(pipeline.build_latest_recommendations))
+        calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
+               and isinstance(node.func,ast.Name) and node.func.id=='compute_adaptive_ensemble_state']
+        self.assertEqual(len(calls),2)
+        gates=[node for node in ast.walk(tree) if isinstance(node,ast.Assign)
+               and any(isinstance(target,ast.Name) and target.id=='adaptive_history' for target in node.targets)
+               and any(isinstance(call,ast.Call) and isinstance(call.func,ast.Name)
+                       and call.func.id=='_walkforward_mature_history' for call in ast.walk(node.value))]
+        self.assertEqual(len(gates),1)
+        self.assertLess(gates[0].lineno,min(call.lineno for call in calls))
+        history=self.history(5)
+        # Poison a recent month with finite targets whose six-month endpoint
+        # is still in the future. Both consumers must reject that outcome.
+        poison=history['rebalance_date'].eq(sorted(history['rebalance_date'].unique())[6])
+        history.loc[poison,'y_blend']=99.
+        for label in ('1m','3m','6m'):
+            history.loc[poison,f'r_{label}']=99.
+            history.loc[poison,f'bench_r_{label}']=.01
+        history.loc[poison,'r_6m_label_end_date']=pd.Timestamp('2022-01-31')
+        history.loc[poison,'bench_r_6m_label_end_date']=pd.Timestamp('2022-01-31')
+        original=history.copy(deep=True)
+        namespace=dict(compute_adaptive_ensemble_state=pipeline.compute_adaptive_ensemble_state,
+                       _walkforward_mature_history=pipeline._walkforward_mature_history,
+                       pd=pd,adaptive_history=history,cfg=EngineConfig(),adaptive_as_of=pd.Timestamp('2020-01-31'))
+        namespace['adaptive_history']=eval(compile(ast.Expression(gates[0].value),'<actual-latest-maturity-gate>','eval'),namespace)
+        for call in calls:
+            result=eval(compile(ast.Expression(call),'<actual-latest-adaptive-consumer>','eval'),namespace)
+            self.assertFalse(result['active'])
+            self.assertEqual(result['history_months'],5)
+        pd.testing.assert_frame_equal(history,original)
+
+    def test_strict_mature_six_positive_ignores_finite_future_endpoint(self):
+        history=self.history(6)
+        cfg=EngineConfig()
+        expected=pipeline._walkforward_mature_history(history,cfg,'2020-01-31')
+        poison=history.loc[history['rebalance_date'].eq(sorted(history['rebalance_date'].unique())[6])].copy()
+        for label in ('1m','3m','6m'):
+            poison[f'r_{label}']=99.
+            poison[f'bench_r_{label}']=.01
+        poison['y_blend']=99.
+        poison['r_6m_label_end_date']=poison['bench_r_6m_label_end_date']=pd.Timestamp('2022-01-31')
+        actual=pipeline._walkforward_mature_history(pd.concat([history,poison],ignore_index=True),cfg,'2020-01-31')
+        pd.testing.assert_frame_equal(expected.reset_index(drop=True),actual.reset_index(drop=True))
+        self.assertTrue(self.state(actual)['active'])
+        self.assertEqual(self.state(actual)['history_months'],6)
+        eligible=poison.copy()
+        eligible['r_6m_label_end_date']=eligible['bench_r_6m_label_end_date']=pd.Timestamp('2020-01-30')
+        control=pipeline._walkforward_mature_history(pd.concat([history,eligible],ignore_index=True),cfg,'2020-01-31')
+        self.assertEqual(self.state(control)['history_months'],7)
 
 
 class UniverseSizeCausalityTests(unittest.TestCase):
