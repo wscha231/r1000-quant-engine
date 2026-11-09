@@ -10188,3 +10188,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   not a broader current-report registry. Assert the13-name set against pure
   calculation reads so unused archives cannot become false prerequisites;
   keep the existing current-report15-series wrapper separate.
+- After Source integration, test the real Lake receipt replay and public
+  projection with disposable synthetic originals. An old missing-API refusal
+  is not current integration evidence; retain null/vintage boundaries and
+  reject missing or corrupted original receipts without granting PIT admission.

@@ -1135,6 +1135,70 @@ class MacroPrefixCausalityTests(unittest.TestCase):
         pd.testing.assert_frame_equal(pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, loaded),
                                       pipeline.compute_macro_regime_prefix(cfg, "2021-09-30", prices, extras))
 
+    def test_integrated_source_api_replays_local_original_receipt_and_vintages(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools import long_history_lake as history
+        cutoff = pd.Timestamp("2021-09-30T20:00:00Z")
+        later = pd.Timestamp("2021-10-29T20:00:00Z")
+        # All bytes and receipts below are a disposable synthetic local fixture.
+        # The real Lake, verified_execution and public projection stay unmocked.
+        with tempfile.TemporaryDirectory() as temp, redirect_stdout(io.StringIO()):
+            root = Path(temp)
+            transport = history.LocalTransport(root / "synthetic-remote")
+            writer = history.Lake(transport, root / "writer")
+            for name in pipeline._NATIVE_MACRO_FRED_NAMES:
+                sid = pipeline.MACRO_FRED_SERIES[name]
+                rows = []
+                for observed, vintage, value in (("2021-09-01", "2021-09-01", 10.),
+                                                  ("2021-09-02", "2021-09-02", None),
+                                                  ("2021-09-01", "2021-10-01", 99.)):
+                    available = (pd.Timestamp(vintage) + pd.Timedelta(days=1)).tz_localize(
+                        "America/New_York").tz_convert("UTC")
+                    rows.append(dict(series=sid, observation_date=observed, vintage_date=vintage,
+                                     realtime_end="9999-12-31", available_at=available.isoformat(),
+                                     published_at=None, evidence="alfred_date_archive", value=value))
+                writer.dataset("alfred/" + sid, [history.encoded(rows)], rows,
+                               dict(rows=len(rows), evidence="alfred_date_archive",
+                                    requested_through="2021-10-29"))
+            publication = writer.publish("synthetic-macro-shape", {})
+            reader = history.Lake(transport, root / "reader")
+            with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                pipeline.load_macro_series(reader, cutoff)
+            quality = history.encoded(dict(schema="long-history-quality-v1", status="PARTIAL",
+                                           eligible_for_selector=False))
+            quality_sha = history.digest(quality)
+            transport.write(history.PREFIX + "/reports/" + quality_sha, quality)
+            receipt = history.encoded(dict(schema="long-history-execution-v1",
+                run_id="synthetic-macro-shape", commit_sha256=publication["commit_sha256"],
+                catalog_sha256=publication["catalog_sha256"], reports={"quality.json": quality_sha},
+                consumer_rows=39, study_recomputed_from_drive=True, quality_status="PARTIAL",
+                eligible_for_selector=False))
+            receipt_sha = history.digest(receipt)
+            transport.write(history.PREFIX + "/executions/" + receipt_sha, receipt)
+            self.assertIs(pipeline._macro_source_projection_api(reader), history.project_alfred_asof)
+            loaded, context = pipeline.load_macro_series(reader, cutoff)
+            newer, later_context = pipeline.load_macro_series(reader, later)
+            self.assertEqual(set(loaded), set(pipeline._NATIVE_MACRO_FRED_NAMES))
+            self.assertEqual(context["source_commit"], publication["commit_sha256"])
+            self.assertEqual(context["execution_receipt_sha256"], receipt_sha)
+            self.assertEqual(context, later_context)
+            self.assertIs(context["historical_pit_certified"], False)
+            self.assertIs(context["source_admission"], False)
+            for name in loaded:
+                self.assertEqual(loaded[name].loc["2021-09-01"], 10.)
+                self.assertTrue(pd.isna(loaded[name].loc["2021-09-02"]))
+                self.assertEqual(newer[name].loc["2021-09-01"], 99.)
+            original_read = transport.read
+            def corrupted_report(path):
+                return b"corrupt-original-report" if path.endswith("/reports/" + quality_sha) else original_read(path)
+            with patch.object(transport, "read", side_effect=corrupted_report):
+                with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                    pipeline.load_macro_series(reader, cutoff)
+            reader.catalog["datasets"]["alfred/VIXCLS"]["status"] = "STALE_RETAINED"
+            with self.assertRaisesRegex(ValueError, "^historical_macro_projection_blocked:VIXCLS$"):
+                pipeline.load_macro_series(reader, cutoff)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
