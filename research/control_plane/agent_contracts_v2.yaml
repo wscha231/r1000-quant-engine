@@ -133,7 +133,13 @@
       "can_call_agents": false,
       "reuse_candidates": [
         "research/multi_asset_v1/decisions.py"
-      ]
+      ],
+      "portfolio_modes": [
+        "ACCOUNT_REBALANCE",
+        "MODEL_PORTFOLIO"
+      ],
+      "default_portfolio_mode": "ACCOUNT_REBALANCE",
+      "preparation_boundary": "MODE_SEPARATION_ONLY_NOT_CURRENT_A3_OR_ECONOMIC_ADMISSION"
     },
     "A6": {
       "name": "Independent QA",

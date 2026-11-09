@@ -1,5 +1,20 @@
 # Agent Shared Lessons Ledger
 
+## 2026-11-09 - Separate A5 preparation from economic admission
+
+- Missing actual/approved account state must not masquerade as a missing model
+  research input. Scope only exact canonical account-source reasons; keep all
+  unknown, data/PIT/G0/freshness and candidate-domain failures blocking. A global
+  thesis or model-allowed flag is not per-candidate A3/ER evidence.
+- Original A3 packet/result replay and A4 native request/report parity can prepare
+  a proposal task without authenticating current A3/economic admission. Keep
+  dispatch and writes false. Batch/performance receipt counts are not current
+  input/axis readiness; consume the actual original native artifacts.
+- The Main sparse checkout omitted the tracked A4 request contract. Preserve the
+  failed fixture runs and hydrate only its exact approved Git blob, without
+  changing sparse settings or weakening the original loader. Preserve the bound
+  original cutoff spelling when comparing canonical reports (Z versus +00:00).
+
 ## 2026-11-08 - Share model inputs without duplicating sources
 
 - A model/version/config change does not require another provider collection.

@@ -28,6 +28,124 @@ from mission_contract import mission_identity
 CONTRACT_DIR = REPO_ROOT / 'research/control_plane'
 AUTHORITY = dict(research_only=True, execute=False, target=False, broker=False,
                  scheduler=False, promotion=False, peer_dispatch=False)
+A5_PORTFOLIO_MODES = ('ACCOUNT_REBALANCE', 'MODEL_PORTFOLIO')
+A5_ACCOUNT_SOURCE_ROLES = ('actual_broker', 'approved_target', 'verified_paper')
+
+
+def portfolio_mode(request: dict) -> str:
+    """The task's proposal mode is separate from its immutable authority."""
+    value = request['parameters'].get('portfolio_mode', 'ACCOUNT_REBALANCE')
+    if type(value) is not str or value not in A5_PORTFOLIO_MODES:
+        raise ContractError('invalid_portfolio_mode')
+    return value
+
+
+def account_only_blockers(state: dict) -> set[str]:
+    """Classify only exact reasons backed by canonical account-source states."""
+    known = {'source_missing', 'source_expired', 'conflicting_sources', 'hash_mismatch',
+             'source_time_conflict', 'source_expiry_conflict', 'malformed_or_unavailable_source',
+             'accepted_domain_receipt_verifier_not_bound'}
+    result = set()
+    for role in A5_ACCOUNT_SOURCE_ROLES:
+        for section in ('source_status', 'books'):
+            value = state.get(section, {}).get(role, {})
+            if value.get('status') in ('UNKNOWN', 'STALE', 'BLOCKED') and value.get('reason') in known:
+                result.add(role + ':' + value['reason'])
+    return result
+
+
+def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datetime):
+    """Replay candidate references for task preparation, never domain admission.
+
+    The existing Registry deliberately keeps current selection, independent
+    review and economic admission closed. A READY A0 task cannot override it.
+    """
+    from research.candidate_registry_v1 import build_reference_index
+    context = read_json(artifact_path(root, request['inputs']['portfolio_context']['path']))
+    schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+    if context['portfolio_mode'] != 'MODEL_PORTFOLIO' or timestamp(context['decision_time']) != cutoff:
+        raise ContractError('a5_context_mode_or_cutoff_mismatch')
+    requested = context['requested_security_ids']
+    entries = context['a3_reference_entries']
+    if set(requested) != {entry['asset_id'] for entry in entries} or len(entries) != len(requested):
+        raise ContractError('a5_candidate_roster_mismatch')
+    if context['model_state']['kind'] != 'GENESIS':
+        # Existing model incumbents need their own accepted model-state verifier;
+        # an Actual Broker Book or caller declaration is not a substitute.
+        raise ContractError('a5_model_incumbent_verifier_not_bound')
+    from tools import market_analysis_engine as market
+    a4 = context['a4_request']
+    request_path = artifact_path(root, a4['path'])
+    if request_path.stat().st_size > 256 * 1024:
+        raise ContractError('a5_a4_request_budget')
+    verify_artifact(root, a4, cutoff, now)
+    with request_path.open('rb') as handle:
+        request_raw = handle.read(256 * 1024 + 1)
+    a4_request = market.verify_request(request_raw, a4['sha256'], context['decision_time'],
+                                       context['market_session_date'])
+    artifacts = context['artifact_inventory']
+    a4_sources = {}
+    for spec in a4_request['inputs']:
+        path = (Path(context['a4_source_root']) / market.safe_path(spec['path'])).as_posix()
+        matches = [a for a in artifacts.values() if a['path'] == path and a['sha256'] == spec['sha256']]
+        if len(matches) != 1:
+            raise ContractError('a5_a4_original_not_in_review_inventory')
+        a4_sources[(path, spec['sha256'])] = spec
+    values, a3_total, a4_total = {}, 0, 0
+    for aid, artifact in artifacts.items():
+        path = artifact_path(root, artifact['path'])
+        size = path.stat().st_size
+        spec = a4_sources.get((artifact['path'], artifact['sha256']))
+        limit = market.input_limit(spec) if spec is not None else 4 * 1024 * 1024
+        if spec is None:
+            a3_total += size
+        else:
+            a4_total += size
+        if size > limit or a3_total > 32 * 1024 * 1024 or a4_total > market.MAX_TOTAL_BYTES:
+            raise ContractError('a5_candidate_artifact_budget')
+        verify_artifact(root, artifact, cutoff, now)
+        with path.open('rb') as handle:
+            raw = handle.read(limit + 1)
+        if len(raw) > limit or digest_bytes(raw) != artifact['sha256']:
+            raise ContractError('a5_candidate_artifact_changed')
+        values[(aid, artifact['sha256'])] = raw
+    def resolve(aid, sha):
+        try:
+            return values[(aid, sha)]
+        except KeyError:
+            raise ContractError('a5_original_artifact_missing') from None
+    index = build_reference_index(entries, cutoff=context['decision_time'], artifact_resolver=resolve)
+    if any(row['reference_status'] != 'A3_REFERENCE_REPLAY_VERIFIED'
+           or row['declared_expiry_state'] != 'UNEXPIRED'
+           or row['validated_er_ref'] is None for row in index['records']):
+        raise ContractError('a5_candidate_reference_or_er_blocked')
+    sessions = {row['metadata']['market_session_date'] for row in index['records']}
+    if sessions != {context['market_session_date']}:
+        raise ContractError('a5_candidate_session_mismatch')
+    from r1000_legacy_input_guard import latest_completed_close
+    if latest_completed_close(cutoff)[0] != context['market_session_date']:
+        raise ContractError('a5_session_not_current_completed_close')
+    original = read_json(artifact_path(root, request['inputs']['expected_return']['path']))
+    if digest(original) != digest(index):
+        raise ContractError('a5_expected_return_reference_set_mismatch')
+    risk = market.load_report(artifact_path(root, a4['path']), artifact_path(root, context['a4_source_root']),
+                       a4['sha256'], cutoff=context['decision_time'], session=context['market_session_date'])
+    if risk.get('status') != 'READY_RESEARCH_ONLY':
+        raise ContractError('a5_a4_native_inputs_not_ready')
+    if digest(read_json(artifact_path(root, request['inputs']['regime']['path']))) != digest(risk):
+        raise ContractError('a5_a4_original_report_mismatch')
+    reviewed = {'a3:' + aid: artifact for aid, artifact in artifacts.items()}
+    reviewed['a4:request'] = a4
+    return dict(portfolio_mode='MODEL_PORTFOLIO', preparation_scope='A0_TASK_PREPARATION_ONLY',
+        requested_security_ids=requested, reference_index_sha256=index['index_sha256'],
+        economic_input_admission='BLOCKED', domain_blockers=sorted({reason for row in index['records']
+            for reason in row['consumption_blockers']}), current_a3_review_admitted=False,
+        dispatch_allowed=False, target_write_allowed=False, account_rebalance_allowed=False,
+        actual_holdings_claimed=False), reviewed
+
+
+def digest_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
 
 
 class ContractError(ValueError):
@@ -377,6 +495,9 @@ def contracts() -> dict:
         raise ContractError('contract_authority')
     if value['orchestrator'] != 'A0' or value['specialist_dispatch_enabled'] is not False:
         raise ContractError('contract_dispatch')
+    if (agents['A5'].get('portfolio_modes') != list(A5_PORTFOLIO_MODES)
+            or agents['A5'].get('default_portfolio_mode') != 'ACCOUNT_REBALANCE'):
+        raise ContractError('contract_portfolio_modes')
     seen = set()
     def visit(agent):
         if agent in seen:
@@ -489,6 +610,18 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
     requests = {r['agent']: r for r in state['requests']}
     if len(requests) != len(state['requests']):
         raise ContractError('duplicate_agent_request')
+    model_research = 'A5' in requests and portfolio_mode(requests['A5']) == 'MODEL_PORTFOLIO'
+    model_genesis = False
+    if model_research:
+        try:
+            artifact = requests['A5']['inputs']['portfolio_context']
+            verify_artifact(root, artifact, cutoff, now)
+            context = read_json(artifact_path(root, artifact['path']))
+            schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+            model_genesis = (context['model_state']['kind'] == 'GENESIS'
+                             and timestamp(context['decision_time']) == cutoff)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
     receipts = {r['agent']: r for r in state['completed_tasks']}
     mission_hash = mission_targets()['mission_contract_sha256']
     if len(receipts) != len(state['completed_tasks']):
@@ -501,6 +634,7 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
             raise ContractError('task_cycle')
         visiting.add(agent)
         spec, request = contract['agents'][agent], requests[agent]
+        a5_mode = portfolio_mode(request) if agent == 'A5' else None
         reasons = []
         if set(request['inputs']) != set(spec['inputs']):
             raise ContractError('input_roles_mismatch:' + agent)
@@ -526,13 +660,30 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
             reasons.append('DATA_AS_OF_MISSING')
         if state['g0']['status'] != 'PASS' and agent not in ('A1', 'A6'):
             reasons.append('G0_NOT_PASS')
-        if state['context']['blockers'] and agent not in ('A1', 'A6'):
+        context_reasons = state['context']['blockers']
+        if model_research and agent in ('A2', 'A3', 'A4', 'A5'):
+            context_reasons = [r for r in context_reasons if r not in account_only_blockers(state)]
+            prior = state.get('source_status', {}).get('model_portfolio', {})
+            if model_genesis and prior.get('status') == 'UNKNOWN' and prior.get('reason') == 'source_missing':
+                context_reasons = [r for r in context_reasons if r != 'model_portfolio:source_missing']
+        if context_reasons and agent not in ('A1', 'A6'):
             reasons.append('CONTEXT_BLOCKED')
         if state['context']['current_status_freshness'] != 'VERIFIED' and agent not in ('A1', 'A6'):
             reasons.append('CURRENT_STATUS_NOT_VERIFIED')
-        if agent == 'A5' and any(state['context'][k] != 'VERIFIED' for k in ('actual_book', 'approved_target', 'thesis')):
+        if a5_mode == 'ACCOUNT_REBALANCE' and any(state['context'][k] != 'VERIFIED' for k in ('actual_book', 'approved_target', 'thesis')):
             reasons.append('PORTFOLIO_CONTEXT_NOT_VERIFIED')
         parameters = dict(request['parameters'])
+        a5_reviewed = {}
+        if 'a5_preparation' in parameters:
+            raise ContractError('reserved_a5_preparation_parameter')
+        if agent == 'A5':
+            try:
+                context = read_json(artifact_path(root, request['inputs']['portfolio_context']['path']))
+                if 'portfolio_mode' in context and context['portfolio_mode'] != a5_mode:
+                    raise ContractError('a5_context_mode_mismatch')
+            except (OSError, ValueError, KeyError, TypeError):
+                reasons.append('A5_MODEL_CONTEXT_NOT_VERIFIED' if a5_mode == 'MODEL_PORTFOLIO'
+                               else 'A5_CONTEXT_MODE_NOT_VERIFIED')
         ohlcv = None
         if 'a2_a1_ohlcv' in parameters:
             raise ContractError('reserved_ohlcv_parameter')
@@ -555,12 +706,24 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 for role, artifact in completed[dep]['outputs'].items():
                     if request['inputs'].get(role) != artifact:
                         reasons.append('dependency_input_mismatch:' + dep + ':' + role)
+        if a5_mode == 'MODEL_PORTFOLIO' and not reasons:
+            try:
+                parameters['a5_preparation'], a5_reviewed = a5_model_preparation(request, root, cutoff, now)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                reasons.append('A5_MODEL_CONTEXT_NOT_VERIFIED')
+                reason = str(exc) if re.fullmatch(r'a5_[a-z_]+', str(exc)) else type(exc).__name__
+                parameters['a5_preparation'] = dict(preparation_scope='A0_TASK_PREPARATION_ONLY',
+                    preparation_status='BLOCKED', reason=reason, economic_input_admission='BLOCKED',
+                    current_a3_review_admitted=False, dispatch_allowed=False)
         if 'A6' in spec['dependencies'] and 'A6' in completed:
             report = qa_reports['A6']
             if report['verdict'] != 'PASS':
                 reasons.append('QA_NOT_PASS')
             for role, artifact in request['inputs'].items():
                 if role != 'qa_report' and report['reviewed_artifacts'].get(role) != artifact:
+                    reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
+            for role, artifact in a5_reviewed.items():
+                if report['reviewed_artifacts'].get(role) != artifact:
                     reasons.append('QA_INPUT_NOT_REVIEWED:' + role)
         identity = {'input_hash': digest({'inputs': request['inputs'],
                     'dependencies': receipt_dependencies(dependencies),
@@ -608,7 +771,7 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                                     'pr_number': state['review_pr_number']}
                                    if state.get('review_pr_number') is not None else None),
                   'dispatch_eligible': agent in ('A1', 'A2', 'A4', 'A6') and status == 'READY'
-                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY') and ohlcv is None}
+                      and spec['mode'] in ('READ_ONLY', 'PROPOSAL_ONLY') and ohlcv is None and agent != 'A5'}
         schema_validate(packet, 'task_packet_schema.json')
         tasks[agent] = packet
         visiting.remove(agent)
