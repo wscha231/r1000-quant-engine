@@ -9981,3 +9981,29 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reconcile accepted-master lesson additions by preserving both causal sections.
   Windows Git capture needs explicit UTF-8 and per-command author identity for
   merge preparation too; keep failed harness output and persistent settings intact.
+
+## 2026-11-09 — Current A3 reference review is not replay or global readiness
+
+- Original Registry/ER replay does not authenticate current A0 selection or an
+  independent reviewer. Bind the complete original task/completion/QA graph and
+  principal identities in a separately reviewed policy; never derive trust from
+  incoming candidate flags, a summary-only QA artifact, or a model name.
+- A purpose-specific forward reference may reuse the existing completion and
+  original-domain verifiers while the global materializer remains BLOCKED.
+  Keep historical PIT, Source admission and account authority separate. Omit
+  only the review profile from its base-policy hash to avoid a pin cycle while
+  preserving all original model, cost and risk pins. Preserve every requested
+  stock and its held reason after final runtime price/ER refusal.
+- A branch switch can remove a manually hydrated tracked sparse dependency.
+  The first five synthetic checks stopped at the native A4 verifier because
+  its market contract was absent. Restore only the exact current Git blob
+  create-only, verify bytes/hash and diff zero, and preserve the failed log;
+  do not change DATA_BLOCKED or the positive test's expected native result.
+- Independent review found that pinning raw review bytes alone left descriptor
+  clocks/expiry caller-renewable. Pin the entire binding as well, then check
+  graph creation after original QA/completion and expiry within original bounds.
+  Reuse the original context's cutoff string when replaying a byte-bound report;
+  equivalent Z/+00:00 timestamps do not make its raw content hash identical.
+- Include optional artifacts nested in the original QA bundle in the same
+  transitive count/byte/identity preflight before the planner hashes them.
+  A bounded top-level inventory alone does not bound the reviewer's operands.

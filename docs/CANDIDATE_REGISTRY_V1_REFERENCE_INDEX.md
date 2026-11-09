@@ -255,3 +255,41 @@ current pointer. Do not map a local reference pass to A5 readiness. Preserve
 expired/unknown and rejected records, and keep raw hashes separate from
 semantic packet hashes. Reuse the existing A3 smoke route rather than modifying
 protected runner/economic gates to accommodate a plumbing change.
+
+### Conditional current-reference consumption (2026-11-09)
+
+The standalone reference index remains proposal-only. The existing multi-asset
+input may additionally supply `current_a3_review` with the original
+`portfolio_context` and `review_graph` artifact descriptors, resolved under its
+existing private `--artifact-root`. The graph holds the original system-state-v2,
+task-packet-v2 list and A0/A3/A6 principal bindings; it is not a new Registry or
+an accepted-state writer.
+
+Admission requires an independently reviewed external policy with an explicit
+`current_a3_review_profile` (schema `current-a3-review-profile-v1`, purpose
+`CURRENT_RESEARCH_FORWARD_ONLY`). It pins both original byte hashes, exact
+feature and risk identities, current code, expiry, and distinct reviewer and
+producer/selector principals. `policy_base_sha256` hashes the policy excluding
+only this profile; model/evaluation/risk pins remain covered without a cycle.
+Incoming candidates cannot create this trust. The CLI still requires a byte pin
+for any external policy, and its claimed-commit code closure includes the board,
+control-plane schemas, mission and native A4 verifiers.
+`binding_sha256` additionally fixes both complete original descriptors, including
+their collection clocks and expiry. Graph creation follows all original
+completion/QA clocks, and its expiry cannot outlive its transitive originals.
+
+`run_agent_board.current_a3_reference_admission` replays the existing completion
+and QA contracts and original A3/ER/native A4 preparation validators. The exact
+selected roster, original task identities, same completed session and transitive
+original QA scope must match. Missing, changed, expired, partial or unreviewed
+graphs retain the previous held state. Runtime price/return-basis/RS, original
+model/scenario/cost and risk checks run separately and cannot be bypassed by a
+review profile. A failure on any requested name prevents global completeness.
+
+This purpose-specific forward reference does not call itself global canonical
+state certification: materializer readiness, Source admission, historical PIT,
+economic validation and accepted account authority remain unchanged. The default
+tracked policy has no such profile or validated model pins. No actual current
+review chain, Source consumption or portfolio execution is certified by these
+synthetic regressions. Calendar 1/3/6/12-month ER requirements stay in their
+incumbent domain validator; no trading-session horizon conversion is introduced.

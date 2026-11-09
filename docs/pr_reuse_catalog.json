@@ -465,9 +465,9 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/run_agent_board.py": "a64b1fc64e98b447119fa2d1ddd0d53349002897e1b03100e9e4e381e465afe2",
+        "tools/run_agent_board.py": "61146792cdf59c2fc8c79189c35e2753cafd3addb98467dd8a472c2df6773f67",
         "research/control_plane/task_packet_schema.json": "0e055984f97158fe01511cc70b7a19a9bf9c5abe6e8c9427fa2d192e2d714255",
-        "research/control_plane/system_state_schema.json": "07e2fd9619e4e0377ccad3a76d8dd955d97804e3f80232b773e9b4b545c51f38"
+        "research/control_plane/system_state_schema.json": "0268c6ef56872aca22337e37085825e407e759b4ebbe6eea7fb22a024fda340c"
       }
     },
     {
@@ -560,7 +560,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "e9944846aeb74aa760aa5307ce571c2061b71b46e8f80c255eeaf74a51e1d0b6",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "f81afad3317cc2fb06b411bc30846eb6b618678a08809d33b4dbd6ddc7dc3033",
         "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf",
         "research/a3_candidate_packet_v1.py": "c477f7323814b2f980449da3db6e238b8416c5644d151bda4e3e4790eb3b003e"
       }
@@ -803,7 +803,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "e9944846aeb74aa760aa5307ce571c2061b71b46e8f80c255eeaf74a51e1d0b6",
+        "docs/CANDIDATE_REGISTRY_V1_REFERENCE_INDEX.md": "f81afad3317cc2fb06b411bc30846eb6b618678a08809d33b4dbd6ddc7dc3033",
         "research/candidate_registry_v1.py": "9659fe6afa3f6a85a7524fc369bb984ba22693b3101ecabe9daddbff413e47bf",
         "research/a3_candidate_packet_v1.py": "c477f7323814b2f980449da3db6e238b8416c5644d151bda4e3e4790eb3b003e"
       }

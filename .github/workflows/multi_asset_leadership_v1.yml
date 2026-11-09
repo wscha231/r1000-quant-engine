@@ -15,6 +15,10 @@ on:
       - 'research/a2_research_intake_v1.py'
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
+      - 'tools/run_agent_board.py'
+      - 'research/control_plane/**'
+      - 'mission_contract.py'
+      - 'r1000_config.py'
   workflow_dispatch:
   push:
     branches: [master]
@@ -30,6 +34,10 @@ on:
       - 'research/a2_research_intake_v1.py'
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
+      - 'tools/run_agent_board.py'
+      - 'research/control_plane/**'
+      - 'mission_contract.py'
+      - 'r1000_config.py'
   workflow_run:
     workflows: ['Run287 Daily Research Monitor']
     types: [completed]
@@ -56,6 +64,7 @@ jobs:
           sparse-checkout: |
             research/multi_asset_v1
             research/theme_etf_runtime_v1
+            research/control_plane
             tools
             tests
             docs
@@ -63,7 +72,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
       - name: Synthetic contract regressions
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
@@ -83,12 +92,13 @@ jobs:
           sparse-checkout: |
             research/multi_asset_v1
             research/theme_etf_runtime_v1
+            research/control_plane
             tools
             docs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
       - name: Capture current research prices and explicit blocked inputs
         run: >-
           python tools/run_multi_asset_leadership.py --capture
