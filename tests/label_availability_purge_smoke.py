@@ -123,7 +123,7 @@ def test_training_source_is_fail_closed() -> None:
     assert 'label_ready_before(hist, "short", latest_dt)' in source
     assert 'label_ready_before(train_df, "future", latest_dt)' in source
     assert "phase4_artifact_matches_decision_cutoff(reuse_meta, latest_dt)" in source
-    assert ENGINE_REUSE_VERSION == "2026-11-09-causal-walkforward-universe-adaptive-v6"
+    assert ENGINE_REUSE_VERSION == "2026-11-09-causal-walkforward-universe-adaptive-v7"
 
 
 def test_label_provenance_is_not_orderable_output() -> None:

@@ -268,38 +268,65 @@ class LatestAdaptiveOutcomeTests(unittest.TestCase):
         self.assertEqual(self.state(invalid,cfg),bounded)
 
     def test_both_latest_consumers_execute_the_shared_outcome_gate(self):
-        # Execute the real call expression from each incumbent branch against
-        # the same real helper, without running a model fit or provider path.
         tree=ast.parse(inspect.getsource(pipeline.build_latest_recommendations))
-        calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
-               and isinstance(node.func,ast.Name) and node.func.id=='compute_adaptive_ensemble_state']
-        self.assertEqual(len(calls),2)
+        assignments={name:[node for node in ast.walk(tree) if isinstance(node,ast.Assign)
+                           and any(isinstance(target,ast.Name) and target.id==name for target in node.targets)]
+                     for name in ('latest_adaptive_state','_regime_w')}
+        for nodes in assignments.values():
+            self.assertEqual(len(nodes),1,'No later bundle fallback may replace the as-of state')
         gates=[node for node in ast.walk(tree) if isinstance(node,ast.Assign)
                and any(isinstance(target,ast.Name) and target.id=='adaptive_history' for target in node.targets)
                and any(isinstance(call,ast.Call) and isinstance(call.func,ast.Name)
                        and call.func.id=='_walkforward_mature_history' for call in ast.walk(node.value))]
-        self.assertEqual(len(gates),1)
-        self.assertLess(gates[0].lineno,min(call.lineno for call in calls))
-        history=self.history(5)
-        # Poison a recent month with finite targets whose six-month endpoint
-        # is still in the future. Both consumers must reject that outcome.
-        poison=history['rebalance_date'].eq(sorted(history['rebalance_date'].unique())[6])
-        history.loc[poison,'y_blend']=99.
-        for label in ('1m','3m','6m'):
-            history.loc[poison,f'r_{label}']=99.
-            history.loc[poison,f'bench_r_{label}']=.01
-        history.loc[poison,'r_6m_label_end_date']=pd.Timestamp('2022-01-31')
-        history.loc[poison,'bench_r_6m_label_end_date']=pd.Timestamp('2022-01-31')
-        original=history.copy(deep=True)
-        namespace=dict(compute_adaptive_ensemble_state=pipeline.compute_adaptive_ensemble_state,
-                       _walkforward_mature_history=pipeline._walkforward_mature_history,
-                       pd=pd,adaptive_history=history,cfg=EngineConfig(),adaptive_as_of=pd.Timestamp('2020-01-31'))
-        namespace['adaptive_history']=eval(compile(ast.Expression(gates[0].value),'<actual-latest-maturity-gate>','eval'),namespace)
-        for call in calls:
-            result=eval(compile(ast.Expression(call),'<actual-latest-adaptive-consumer>','eval'),namespace)
-            self.assertFalse(result['active'])
-            self.assertEqual(result['history_months'],5)
-        pd.testing.assert_frame_equal(history,original)
+        applies=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
+                 and isinstance(node.func,ast.Name) and node.func.id=='apply_adaptive_ensemble_state']
+        self.assertEqual((len(gates),len(applies)),(1,2))
+        future_bundle=type('FutureBundle',(),dict(adaptive_ensemble_weights={'linear':1.,'catboost':0.,'ranker':0.},
+            adaptive_ensemble_diagnostics={'active':True,'history_months':99},
+            regime_ensemble_weights={'balanced':{'linear':1.,'catboost':0.,'ranker':0.}}))()
+        for mature in (5,6):
+            history=self.history(mature)
+            if mature==6:
+                history['live_event_alert_label']='balanced'
+            poison=history['rebalance_date'].eq(sorted(history['rebalance_date'].unique())[6])
+            history.loc[poison,'y_blend']=99.
+            for label in ('1m','3m','6m'):
+                history.loc[poison,f'r_{label}']=99.
+                history.loc[poison,f'bench_r_{label}']=.01
+            history.loc[poison,'r_6m_label_end_date']=pd.Timestamp('2022-01-31')
+            history.loc[poison,'bench_r_6m_label_end_date']=pd.Timestamp('2022-01-31')
+            original=history.copy(deep=True)
+            namespace=dict(compute_adaptive_ensemble_state=pipeline.compute_adaptive_ensemble_state,
+                compute_regime_conditional_ensemble_weights=pipeline.compute_regime_conditional_ensemble_weights,
+                _walkforward_mature_history=pipeline._walkforward_mature_history,
+                apply_adaptive_ensemble_state=pipeline.apply_adaptive_ensemble_state,
+                pd=pd,adaptive_history=history,cfg=EngineConfig(),adaptive_as_of=pd.Timestamp('2020-01-31'),
+                model_bundle=future_bundle,latest_df=pd.DataFrame({'ticker':[f'N{i}' for i in range(20)],
+                                                               'live_event_alert_label':['balanced']*20}))
+            namespace['adaptive_history']=eval(compile(ast.Expression(gates[0].value),'<actual-latest-maturity-gate>','eval'),namespace)
+            for name in ('latest_adaptive_state','_regime_w'):
+                node=assignments[name][0]
+                self.assertLess(node.lineno,min(call.lineno for call in applies))
+                namespace[name]=eval(compile(ast.Expression(node.value),'<actual-current-weight-state>','eval'),namespace)
+            state=namespace['latest_adaptive_state']
+            self.assertEqual(state['active'],mature==6)
+            self.assertEqual(state['history_months'],mature)
+            expected=namespace['_regime_w'].get('balanced',state['weights'])
+            for call in applies:
+                result=eval(compile(ast.Expression(call),'<actual-latest-downstream-apply>','eval'),namespace)
+                self.assertEqual(len(result),20)
+                self.assertTrue(result['adaptive_ensemble_active'].eq(mature==6).all())
+                for key in ('linear','catboost','ranker'):
+                    np.testing.assert_allclose(result['ensemble_weight_'+key],expected[key])
+            pd.testing.assert_frame_equal(history,original)
+
+    def test_duplicate_index_keeps_nonempty_mature_adaptive_state(self):
+        history=self.history(6)
+        expected=self.state(history)
+        history.index=[0]*len(history)
+        self.assertTrue(expected['active'])
+        self.assertEqual(self.state(history),expected)
+        self.assertEqual(len(history),240)
 
     def test_strict_mature_six_positive_ignores_finite_future_endpoint(self):
         history=self.history(6)

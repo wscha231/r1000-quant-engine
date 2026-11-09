@@ -10098,3 +10098,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   provenance columns and the existing F0 gate refused it. Preserve the failed
   two-case result and declare unavailable long outcomes null/NaT in the fixture;
   do not weaken the full provenance contract to make a short-history test pass.
+- Independent review found a later unclocked bundle fallback could undo the
+  latest maturity gate. Compute current adaptive/regime weights once from the
+  same strict mature history and share them across both apply paths; a cached
+  future-active snapshot is not evidence to reactivate a five-month history.
+- Reindexing filtered outcomes by duplicated row labels can multiply rows.
+  Use one eligibility mask with positional assignment; preserve valid zero,
+  negative outcomes and duplicate-index generic API behavior.

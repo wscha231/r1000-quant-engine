@@ -10166,8 +10166,9 @@ def compute_adaptive_ensemble_state(
     # Such rows cannot count toward activation or displace usable months in
     # an adaptive lookback, including both latest-recommendation consumers.
     outcomes = pd.to_numeric(d["y_blend"], errors="coerce")
-    d = d.loc[np.isfinite(outcomes)].copy()
-    d["y_blend"] = outcomes.loc[d.index]
+    eligible_outcome = np.isfinite(outcomes)
+    d = d.loc[eligible_outcome].copy()
+    d["y_blend"] = outcomes.loc[eligible_outcome].to_numpy()
     if d.empty:
         return state
 
@@ -13127,6 +13128,8 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
     # before either the reused-model or refit-model adaptive consumer.
     adaptive_history = (_walkforward_mature_history(adaptive_history, cfg, adaptive_as_of)
                         if pd.notna(adaptive_as_of) else pd.DataFrame())
+    latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
+    _regime_w = compute_regime_conditional_ensemble_weights(adaptive_history, cfg, as_of_date=adaptive_as_of)
 
     reuse_meta = None
     if bool(getattr(cfg, "reuse_phase4_models_for_latest_recommendations", True)):
@@ -13182,15 +13185,6 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             },
             cfg=cfg,
         )
-        latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
-        if (not latest_adaptive_state.get("active")) and model_bundle is not None:
-            latest_adaptive_state = {
-                "weights": dict(getattr(model_bundle, "adaptive_ensemble_weights", {}) or {}),
-                "quality": dict((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("quality", {}) or {}),
-                "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
-                "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
-            }
-        _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
         latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
         # SEC evidence overlay merge (2026-05-20) — LATEST-only enrichment from
         # 13F (sec_13f_quarterly_refresh.yml) + Form 4 (sec_form4_daily_refresh
@@ -13367,15 +13361,6 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         },
         cfg=cfg,
     )
-    latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
-    if (not latest_adaptive_state.get("active")) and model_bundle is not None:
-        latest_adaptive_state = {
-            "weights": dict(getattr(model_bundle, "adaptive_ensemble_weights", {}) or {}),
-            "quality": dict((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("quality", {}) or {}),
-            "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
-            "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
-        }
-    _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
     latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
     latest_df = add_total_score_columns(
         latest_df,
