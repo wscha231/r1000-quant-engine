@@ -6051,11 +6051,40 @@ class ManualTests(unittest.TestCase):
             manual.lookup_reuse('group_591', self.root)
 
     def test_selective_port_and_historical_are_not_automatic_reuse(self):
-        for key in ('group_400_405', 'group_586', 'group_1'):
-            self.assertFalse(manual.lookup_reuse(key, self.root)['allowed'])
+        live_catalog = (ROOT / manual.CATALOG).read_bytes()
+        for key, classification in (('group_400_405', 'SELECTIVE_PORT'),
+                                    ('group_586', 'SELECTIVE_PORT'),
+                                    ('group_267', 'HISTORICAL_LESSON')):
+            row = next(row for row in manual.load_catalog(self.root)['entries']
+                       if row['entry_id'] == key)
+            self.assertEqual(row['classification'], classification)
+            # Reverse checkout newlines only when the original, unchanged pin
+            # proves the exact historical bytes; never rebind a catalog pin.
+            for name, expected_sha in row['dependency_hashes'].items():
+                target = self.root / name
+                target.write_bytes(historical_catalog_fixture_bytes(target.read_bytes(), expected_sha))
+            result = manual.lookup_reuse(key, self.root)
+            self.assertIs(result['allowed'], False)
+            self.assertIs(result['economic_authority'], False)
             packet, scope = self.packet()
             packet['reuse_entries'] = [key]
             self.rejected(self.bind(packet), scope, 'catalog_reuse_not_allowed')
+
+        # group_1 keeps its historical config pin when the current engine epoch
+        # advances. Its earlier typed dependency refusal is also non-admission,
+        # not an allowed=false result that this test can index into.
+        historical = next(row for row in manual.load_catalog(self.root)['entries']
+                          if row['entry_id'] == 'group_1')
+        self.assertEqual(historical['classification'], 'HISTORICAL_LESSON')
+        self.assertNotEqual(manual.board.file_hash(self.root / 'r1000_config.py'),
+                            historical['dependency_hashes']['r1000_config.py'])
+        with self.assertRaisesRegex(manual.ContractError,
+                                    r'^catalog_dependency_changed:r1000_config\.py$'):
+            manual.lookup_reuse('group_1', self.root)
+        packet, scope = self.packet()
+        packet['reuse_entries'] = ['group_1']
+        self.rejected(self.bind(packet), scope, 'catalog_dependency_changed:r1000_config.py')
+        self.assertEqual((ROOT / manual.CATALOG).read_bytes(), live_catalog)
 
     def test_superseded_catalog_usage_refused(self):
         catalog = manual.load_catalog(self.root)
