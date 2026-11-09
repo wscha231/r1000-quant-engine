@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -117,12 +118,12 @@ def test_training_source_is_fail_closed() -> None:
         'hist[(hist["feature_date"] >= train_start) & (hist["rebalance_date"] < latest_dt)]'
         not in source
     )
-    assert 'label_ready_before(d, "short", anchor_dt)' in source
+    assert 'label_ready_before(past, "short", date)' in source
     assert 'label_ready_before(fit_df, "future", model_decision_cutoff)' in source
     assert 'label_ready_before(hist, "short", latest_dt)' in source
     assert 'label_ready_before(train_df, "future", latest_dt)' in source
     assert "phase4_artifact_matches_decision_cutoff(reuse_meta, latest_dt)" in source
-    assert ENGINE_REUSE_VERSION == "2026-07-27-exact-label-availability-v2"
+    assert ENGINE_REUSE_VERSION == "2026-11-09-causal-walkforward-decisions-v3"
 
 
 def test_label_provenance_is_not_orderable_output() -> None:
@@ -156,6 +157,10 @@ def main() -> None:
     test_training_source_is_fail_closed()
     test_label_provenance_is_not_orderable_output()
     test_phase4_reuse_requires_exact_live_cutoff()
+    from tests import walkforward_decision_clock_smoke
+    result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromModule(walkforward_decision_clock_smoke))
+    if not result.wasSuccessful():
+        raise SystemExit(1)
     print("label_availability_purge_smoke: ok")
 
 

@@ -10367,6 +10367,97 @@ def add_model_score_columns(month_df: pd.DataFrame, pred_cols: dict[str, str], c
     return d
 
 
+def _walkforward_asof_rows(frame: pd.DataFrame, decision_date: Any) -> pd.DataFrame:
+    """Use only rows observable at this decision's completed close.
+
+    Missing historical provenance remains a separate Source/PIT preflight
+    obligation. When an availability column is supplied, missing/invalid/future
+    timestamps cannot silently become observable; collection time is not
+    backdated or substituted for historical publication availability.
+    """
+    date = pd.Timestamp(decision_date).normalize()
+    close = decision_session_close_utc(pd.Series([date])).iloc[0]
+    mask = pd.to_datetime(frame["feature_date"], errors="coerce").le(date)
+    mask &= pd.to_datetime(frame["rebalance_date"], errors="coerce").le(date)
+    if pd.isna(close):
+        return frame.iloc[:0].copy()
+    for column in ("feature_available_from", "available_from", "membership_available_from", "universe_available_from"):
+        if column in frame.columns:
+            available = pd.to_datetime(frame[column], errors="coerce", utc=True)
+            mask &= available.notna() & available.le(close)
+    return frame.loc[mask].copy()
+
+
+def _walkforward_eligible_rows(frame: pd.DataFrame, cfg: EngineConfig,
+                               context: dict[str, Any]) -> pd.DataFrame:
+    keep = pd.to_numeric(frame["px"], errors="coerce").ge(cfg.min_price)
+    keep &= pd.to_numeric(frame["dollar_vol_20d"], errors="coerce").ge(context["min_dollar_vol_20d"])
+    if context["require_mktcap"]:
+        keep &= frame["mktcap"].notna()
+    return frame.loc[keep].copy()
+
+
+def _walkforward_decision_dates(frame: pd.DataFrame, evaluation_start_date: Any) -> list[pd.Timestamp]:
+    # A late-only past month must not shift a later idx-based retrain anchor.
+    # Preserve the incumbent observed-month cadence, not a future-row census.
+    return [date for date in monthly_test_dates(frame, evaluation_start_date)
+            if not _walkforward_asof_rows(frame.loc[frame["rebalance_date"].eq(date)], date).empty]
+
+
+def _walkforward_training_pool(frame: pd.DataFrame, cfg: EngineConfig,
+                               decision_date: Any) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Derive eligibility, sample requirements and labels from past rows only."""
+    date = pd.Timestamp(decision_date)
+    start = date - pd.DateOffset(years=cfg.train_lookback_years)
+    past = frame.loc[frame["feature_date"].ge(start) & frame["feature_date"].lt(date)
+                     & frame["rebalance_date"].lt(date)].copy()
+    past = _walkforward_asof_rows(past, date)
+    past = derive_label_availability(past, cfg)
+    past = past.loc[label_ready_before(past, "short", date)].copy()
+    coverage = float(past["mktcap"].notna().mean()) if len(past) else 0.0
+    dv = pd.to_numeric(past["dollar_vol_20d"], errors="coerce")
+    dv_max = float(dv.max()) if dv.notna().any() else np.nan
+    minimum_dv = cfg.min_dollar_vol_20d
+    if pd.notna(dv_max) and dv_max <= 1_100_000 and minimum_dv > dv_max:
+        minimum_dv = 500_000.0
+    context = dict(decision_date=str(date.date()), require_mktcap=coverage >= 0.25,
+                   mktcap_coverage=coverage, min_dollar_vol_20d=float(minimum_dv),
+                   effective_min_train_samples=int(cfg.min_train_samples))
+    past = _walkforward_eligible_rows(past, cfg, context)
+    counts = past.groupby("rebalance_date")["ticker"].nunique().astype(float)
+    median = float(counts.median()) if len(counts) else 0.0
+    if (bool(getattr(cfg, "compact_universe_train_sample_relax_enabled", True))
+            and 0 < median <= float(getattr(cfg, "compact_universe_max_median_tickers", 250))):
+        floor = max(int(getattr(cfg, "compact_universe_min_train_samples", 800)), 100)
+        context["effective_min_train_samples"] = min(int(cfg.min_train_samples),
+                                                     max(floor, int(np.ceil(median * 12.0))))
+    context["median_monthly_tickers"] = median
+    context["max_monthly_tickers"] = float(counts.max()) if len(counts) else 0.0
+    # Label targets are built only on the original strict-maturity training set.
+    past["y_blend"], past["y_bin"] = make_targets(past.reset_index(drop=True), cfg)
+    past["future_winner_y"], past["future_winner_bin"] = np.nan, np.nan
+    past["future_winner_available"] = False
+    future_mask = label_ready_before(past, "future", date)
+    if future_mask.any():
+        values, classes, available = make_future_winner_targets(past.loc[future_mask].reset_index(drop=True), cfg)
+        past.loc[future_mask, "future_winner_y"] = values
+        past.loc[future_mask, "future_winner_bin"] = classes
+        past.loc[future_mask, "future_winner_available"] = available
+    return past, context
+
+
+def _walkforward_mature_history(frame: pd.DataFrame, cfg: EngineConfig,
+                                decision_date: Any) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    history = _walkforward_asof_rows(frame, decision_date)
+    history = history.loc[history["rebalance_date"].lt(pd.Timestamp(decision_date))].copy()
+    history = derive_label_availability(history, cfg)
+    history = history.loc[label_ready_before(history, "short", decision_date)].copy()
+    history["y_blend"], history["y_bin"] = make_targets(history.reset_index(drop=True), cfg)
+    return history
+
+
 def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> ModelBundle:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -10392,6 +10483,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     d["feature_date"] = pd.to_datetime(d["feature_date"], errors="coerce")
     if d["feature_date"].notna().sum() == 0 and d["rebalance_date"].notna().sum() > 0:
         d["feature_date"] = d["rebalance_date"]
+    evidence_end = pd.Timestamp(cfg.end_date).normalize()
+    d = d.loc[d["rebalance_date"].le(evidence_end) & d["feature_date"].le(evidence_end)].copy()
     d = clear_latest_only_signal_columns(d)
     d = d.sort_values(["rebalance_date", "ticker"]).reset_index(drop=True)
 
@@ -10399,24 +10492,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         if f not in d.columns:
             d[f] = 0.0
 
-    mktcap_cov = float(d["mktcap"].notna().mean()) if len(d) else 0.0
-    if mktcap_cov >= 0.25:
-        d = d[d["mktcap"].notna()]
-    else:
-        log(f"[WARN] train mktcap coverage too low ({mktcap_cov:.2%}); skipping mktcap-notna filter.")
-    d = d[d["px"].fillna(0) >= cfg.min_price]
-    dv = pd.to_numeric(d["dollar_vol_20d"], errors="coerce")
-    min_dv = cfg.min_dollar_vol_20d
-    dv_max = float(np.nanmax(dv.values)) if len(dv.dropna()) else np.nan
-    if pd.notna(dv_max) and dv_max <= 1_100_000 and cfg.min_dollar_vol_20d > dv_max:
-        log(
-            "[WARN] dollar_vol_20d appears clipped/low-scale. "
-            f"Auto-relaxing min_dollar_vol_20d from {cfg.min_dollar_vol_20d:,.0f} to 500,000."
-        )
-        min_dv = 500_000.0
-    d = d[dv.fillna(0) >= min_dv]
     d = d[d["feature_date"].notna()]
-    d = d[d["r_1m"].notna() | d["r_3m"].notna() | d["r_6m"].notna()]
     d = hard_sanitize(
         d,
         model_features
@@ -10424,45 +10500,14 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         clip=1e14,
     )
     d = derive_label_availability(d, cfg)
-    d = d[d["short_label_complete"].fillna(False).astype(bool)].copy()
-
-    y_all, ybin_all = make_targets(d, cfg)
-    d["y_blend"] = y_all
-    d["y_bin"] = ybin_all
-    future_y_all, future_ybin_all, future_avail_all = make_future_winner_targets(d, cfg)
-    d["future_winner_y"] = future_y_all
-    d["future_winner_bin"] = future_ybin_all
-    d["future_winner_available"] = (
-        future_avail_all
-        & d["future_label_complete"].fillna(False).astype(bool).to_numpy()
-    )
-
-    monthly_ticker_counts = (
-        d.dropna(subset=["rebalance_date"])
-        .groupby("rebalance_date")["ticker"]
-        .nunique()
-        .astype(float)
-    )
-    median_monthly_tickers = float(monthly_ticker_counts.median()) if len(monthly_ticker_counts) else 0.0
-    max_monthly_tickers = float(monthly_ticker_counts.max()) if len(monthly_ticker_counts) else 0.0
+    # The decision pool is label-free. Outcome targets are attached only to a
+    # past training/evaluation snapshot after the strict maturity gate.
+    for column in ("y_blend", "y_bin", "future_winner_y", "future_winner_bin"):
+        d[column] = np.nan
+    d["future_winner_available"] = False
     effective_min_train_samples = int(cfg.min_train_samples)
-    if (
-        bool(getattr(cfg, "compact_universe_train_sample_relax_enabled", True))
-        and 0 < median_monthly_tickers <= float(getattr(cfg, "compact_universe_max_median_tickers", 250))
-    ):
-        compact_floor = max(int(getattr(cfg, "compact_universe_min_train_samples", 800)), 100)
-        dynamic_min = max(compact_floor, int(np.ceil(median_monthly_tickers * 12.0)))
-        dynamic_min = min(int(cfg.min_train_samples), dynamic_min)
-        if dynamic_min < effective_min_train_samples:
-            log(
-                "Phase 4: compact-universe train threshold relaxed "
-                f"from {effective_min_train_samples} to {dynamic_min} "
-                f"(median_monthly_tickers={median_monthly_tickers:.0f}, "
-                f"max_monthly_tickers={max_monthly_tickers:.0f})."
-            )
-            effective_min_train_samples = dynamic_min
 
-    dates = monthly_test_dates(d, getattr(cfg, "evaluation_start_date", ""))
+    dates = _walkforward_decision_dates(d, getattr(cfg, "evaluation_start_date", ""))
     if not dates:
         raise RuntimeError(
             "No test months available for walk-forward training. "
@@ -10530,6 +10575,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     current_cbrk: Optional[Any] = None
     current_rank_enabled = bool(cfg.ranking_enabled and catboost_available)
     current_model_decision_cutoff: Optional[pd.Timestamp] = None
+    current_eligibility: Optional[dict[str, Any]] = None
+    median_monthly_tickers = max_monthly_tickers = 0.0
     skip_stats = {
         "completed": 0,
         "empty_test": 0,
@@ -10546,33 +10593,29 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         if test_mask.sum() == 0:
             skip_stats["empty_test"] += 1
             continue
-        test_df = d[test_mask].copy()
+        test_df = _walkforward_asof_rows(d[test_mask], test_dt)
+        if test_df.empty:
+            skip_stats["empty_test"] += 1
+            continue
         anchor_idx = walkforward_anchor_index(idx, retrain_every)
         need_retrain = current_scaler is None or current_anchor_idx != anchor_idx
         if need_retrain:
             anchor_dt = pd.Timestamp(dates[anchor_idx])
             model_decision_cutoff = anchor_dt
-            anchor_train_start = anchor_dt - pd.DateOffset(years=cfg.train_lookback_years)
-            anchor_train_mask = (
-                (d["feature_date"] >= anchor_train_start)
-                & (d["feature_date"] < anchor_dt)
-                & label_ready_before(d, "short", anchor_dt)
-            )
-            anchor_train_df = d[anchor_train_mask].copy()
+            anchor_train_df, eligibility = _walkforward_training_pool(d, cfg, anchor_dt)
+            effective_min_train_samples = eligibility["effective_min_train_samples"]
 
             if len(anchor_train_df) < effective_min_train_samples:
                 model_decision_cutoff = pd.Timestamp(test_dt)
-                current_train_start = test_dt - pd.DateOffset(years=cfg.train_lookback_years)
-                current_train_mask = (
-                    (d["feature_date"] >= current_train_start)
-                    & (d["feature_date"] < test_dt)
-                    & label_ready_before(d, "short", test_dt)
-                )
-                anchor_train_df = d[current_train_mask].copy()
+                anchor_train_df, eligibility = _walkforward_training_pool(d, cfg, test_dt)
+                effective_min_train_samples = eligibility["effective_min_train_samples"]
+            median_monthly_tickers = eligibility["median_monthly_tickers"]
+            max_monthly_tickers = eligibility["max_monthly_tickers"]
             train_sample_sizes.append(int(len(anchor_train_df)))
             if len(anchor_train_df) < effective_min_train_samples:
                 skip_stats["min_train_samples"] += 1
                 continue
+            current_eligibility = eligibility
 
             fit_df, valid_df = split_walkforward_train_valid(anchor_train_df, cfg.cat_validation_months)
             current_scaler = fit_scaler(fit_df, model_features)
@@ -10700,8 +10743,13 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
                     current_cbrk = None
             current_anchor_idx = anchor_idx
 
-        if current_scaler is None or current_reg is None:
+        if current_scaler is None or current_reg is None or current_eligibility is None:
             skip_stats["missing_model"] += 1
+            continue
+
+        test_df = _walkforward_eligible_rows(test_df, cfg, current_eligibility)
+        if test_df.empty:
+            skip_stats["empty_test"] += 1
             continue
 
         X_test = apply_scaler(test_df, current_scaler, model_features)
@@ -10743,6 +10791,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             cfg=cfg,
         )
         adaptive_history = pd.concat(oos_rows, ignore_index=True) if oos_rows else pd.DataFrame()
+        adaptive_history = _walkforward_mature_history(adaptive_history, cfg, test_dt)
         adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=test_dt)
         month_regime_weights = (
             compute_regime_conditional_ensemble_weights(adaptive_history, cfg, as_of_date=test_dt)
@@ -10796,6 +10845,9 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     scored = pd.concat(oos_rows, ignore_index=True)
     scored = scored.sort_values(["rebalance_date", "score"], ascending=[True, False])
     scored = scored.drop_duplicates(["rebalance_date", "ticker"], keep="last")
+    mature_scored = _walkforward_mature_history(scored, cfg, cfg.end_date)
+    for column in ("y_blend", "y_bin"):
+        scored.loc[mature_scored.index, column] = mature_scored[column]
     scored.to_parquet(paths["feature_store"] / "scored_oos_latest.parquet", index=False)
     if cfg.resume_partial_walkforward:
         save_walkforward_progress(
@@ -10808,9 +10860,9 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
                 "fingerprint": phase4_fp,
             },
         )
-    ranking_metrics = evaluate_ranking_quality(scored, score_col="score", target_col="y_blend", k=cfg.rank_eval_top_k)
-    adaptive_state_latest = compute_adaptive_ensemble_state(scored, cfg)
-    regime_ens_weights = compute_regime_conditional_ensemble_weights(scored, cfg)
+    ranking_metrics = evaluate_ranking_quality(mature_scored, score_col="score", target_col="y_blend", k=cfg.rank_eval_top_k)
+    adaptive_state_latest = compute_adaptive_ensemble_state(mature_scored, cfg)
+    regime_ens_weights = compute_regime_conditional_ensemble_weights(mature_scored, cfg)
 
     coef = np.nanmean(np.vstack(lin_coef_acc), axis=0) if lin_coef_acc else np.zeros(len(model_features))
     coef_map = {f: float(c) for f, c in zip(model_features, coef.tolist())}

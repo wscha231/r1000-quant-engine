@@ -10007,3 +10007,36 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Include optional artifacts nested in the original QA bundle in the same
   transitive count/byte/identity preflight before the planner hashes them.
   A bounded top-level inventory alone does not bound the reviewer's operands.
+
+## 2026-11-09 — Label maturity belongs to training, not the decision universe
+
+- The existing walk-forward kernel filtered the entire frame by complete
+  forward labels before enumerating test months. This silently removed recent
+  valid feature rows and could make stale holdings appear to be a current
+  reevaluation. Keep label-free decisions separate from strictly matured
+  training rows; unknown future outcomes are not zero or a reason to invent
+  a future price. Keep performance labels out of adaptive learning until mature.
+- Full-period market-cap coverage, dollar-volume maxima and compact-universe
+  sample thresholds can let future cohorts change old eligibility and fits.
+  Derive those statistics from the actual anchor-as-of training snapshot and
+  freeze them for its predictions. Test independent nonempty fit/predict runs
+  after future feature/label/coverage mutation, not two blocked runs or reused
+  caches. Preserve explicit availability and the evidence-end boundary.
+- Bump the incumbent reuse epoch for the changed modeling contract. Keep raw
+  sources and old artifacts intact; code tests do not certify their historical
+  PIT, authorize a Fullrun, or change the registered Main/Concentrated policy.
+- A late-published row for a previously absent historical month can shift an
+  index-based retraining anchor even when its own prediction is refused.
+  Determine observable decision months at their own cutoff before assigning
+  anchors; test the real fit/predict schedule after inserting a late-only month.
+- The separate legacy `9b23` audit found that a fixed 126-day separation alone
+  cannot prove maturity of 12/24/36-month targets, including latest-model
+  fallback paths. Preserve the newer exact-endpoint F0 maturity policy; the
+  effect on any historical published CAGR has not been measured. Independent
+  current-kernel audit receipt SHA-256:
+  `410dfadf83454644c991db654ac1d4a29e9d0ba959f83c20ac367c7a2d4f4a5a`.
+- A present-day 820-stock roster, current YF market-cap history fallback, and
+  adjusted-close absolute price/liquidity filters do not prove historical
+  membership, valuation or execution PIT. Those Source/basis holds remain
+  separate from this H1; use identical integer-share/DGS3MO cash contracts for
+  both portfolios, with no claim of actual backtest readiness or returns.
