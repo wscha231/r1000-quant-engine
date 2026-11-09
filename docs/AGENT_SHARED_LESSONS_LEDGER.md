@@ -10105,3 +10105,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Reindexing filtered outcomes by duplicated row labels can multiply rows.
   Use one eligibility mask with positional assignment; preserve valid zero,
   negative outcomes and duplicate-index generic API behavior.
+
+## 2026-11-10 - Causal next-close state is a synthetic rebaseline
+
+- Reuse one incumbent ledger for fills, strict marks, cash/NAV and immutable
+  monthly decision state. Following-session outcomes cannot update prior hold,
+  turnover, sleeve or risk decisions; later executed NAV must still respond.
+- Keep the fixed C0 policy binding explicit, including consumed sleeve regime
+  maps and strict nested types. Neither a policy-off result nor a later intended
+  weight is an actual filled holding. Synthetic basis grants no Source/PIT,
+  physical-share, account, historical-backtest or economic admission.
+- When the current broker dependency advances, preserve historical/selective
+  catalog pins. Test their exact typed stale-dependency refusal and the intact
+  classification refusal separately; update only current reuse pins.

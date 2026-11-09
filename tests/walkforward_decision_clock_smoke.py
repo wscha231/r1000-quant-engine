@@ -6,7 +6,6 @@ import copy
 import ast
 import inspect
 from pathlib import Path
-import copy
 import sys
 import tempfile
 import unittest
