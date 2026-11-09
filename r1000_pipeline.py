@@ -11973,6 +11973,22 @@ def _causal_research_session(session, cfg):
     if (float(getattr(cfg, "starting_capital_usd", 100000.0)) != session.starting_capital
             or int(cfg.focus_target_n) != 14 or int(cfg.focus_riskoff_target_n) != 7):
         raise ValueError("causal_c0_profile_identity")
+    # A fixed named C0 kernel cannot silently become a policy-OFF challenger.
+    # Inspect strategy fields only: never serialize config/credential values.
+    defaults = EngineConfig()
+    prefixes = ("portfolio_", "concentrated_", "focus_", "stock_weight_", "sector_weight_",
+                "drawdown_", "speculative_", "trailing_stop_", "revision_break_", "rs_break_",
+                "core_compounder_", "future_winner_", "early_scout_", "phase9_", "phase11_",
+                "vol_", "volatility_targeting_", "conviction_hold_")
+    names = {name for name in cfg.__dataclass_fields__ if name.startswith(prefixes)}
+    names.update(("sleeve_specific_rebalance_enabled", "rebalance_interval_months",
+                  "adaptive_rebalance_enabled", "turnover_cap_monthly", "top_n"))
+    for name in names:
+        actual, expected = getattr(cfg, name), getattr(defaults, name)
+        if type(actual) is not type(expected) or actual != expected:
+            raise ValueError("causal_c0_policy_override:" + name)
+    if any(name.startswith("PHASE_") and value for name, value in os.environ.items()):
+        raise ValueError("causal_c0_phase_environment_override")
     return session
 
 
@@ -12087,7 +12103,7 @@ def _causal_research_result(session, decisions, holdings):
     metrics = dict(status="SYNTHETIC_ONLY_REAL_EXECUTION_BLOCKED", research_only=True,
                    source_admission=False, pit_admission=False, physical_share_basis_verified=False,
                    valid_for_production=False, accepted_write_allowed=False,
-                   causal_profile="C0_R3_RESEARCH_REBASELINE", cash_carry_mode="none",
+                   causal_profile="C0_R3_SYNTHETIC_KERNEL_ONLY", cash_carry_mode="none",
                    cost_bps_per_side=25.0, integer_shares=True, environment_cash_override=False,
                    ending_equity_usd=terminal.equity,
                    pending_intent=(None if session.pending is None else dict(
@@ -12112,6 +12128,10 @@ def backtest_portfolio(
     causal = _causal_research_session(research_session, cfg) if research_session is not None else None
     if causal is not None and target_n_override is not None:
         raise ValueError("causal_main_registered_target_count_required")
+    if causal is not None and (rebalance_interval_months_override is not None
+                              or adaptive_interval_policy_override is not None
+                              or sleeve_override is not None or cash_target_max != 1.0):
+        raise ValueError("causal_c0_main_policy_override")
     paths = {} if causal is not None else get_paths(cfg)
     log("Phase 5: running monthly portfolio backtest ...")
 

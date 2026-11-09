@@ -509,7 +509,8 @@ def c0_fixture():
             row.update(dict.fromkeys(pipeline.CORE_FUNDAMENTAL_MINIMUM_FIELDS, 0.2))
             row.update(ticker=f"S{index:02}", Name=f"Synthetic {index}", sector=f"Sector{index % 6}",
                        rebalance_date=date, feature_date=date, feature_available_from=close,
-                       score=4.0-index*.07, px=100., mktcap=1e10, dollar_vol_20d=1e8,
+                       score=(10.+index if date == dates[1] and index >= 9 else 4.0-index*.07),
+                       px=100., mktcap=1e8*(index+1), dollar_vol_20d=1e8,
                        vol_6m=.2, mom_1m=.05, mom_3m=.1, mom_6m=.2, mom_12m=.3,
                        dist_ma200=.1, selection_confirmation_score=.9,
                        fundamental_presence_score=1., fundamental_reliability_score=1.,
@@ -518,6 +519,10 @@ def c0_fixture():
                        portfolio_sleeve_label_raw=("core_compounder", "future_winner", "early_scout")[index % 3],
                        revenues_ttm=1e9, net_income_ttm=1e8, ocf_ttm=1.5e8,
                        assets=2e9, liabilities=1e9, risk_penalty=0., rs_acceleration_score=.1,
+                       revenue_growth_final=(.1 if index >= 13 else .5), roe_proxy=.25,
+                       net_margin=.2, op_margin_ttm=.2, mom_24m=.8, revision_blueprint_score=.8,
+                       fundamental_turnaround_acceleration_score=(.8 if index < 6 else .1),
+                       cashflow_inflection_under_loss_score=(.8 if index < 6 else .1),
                        trend_template_full=1., price_above_ma50=1., price_above_ma200=1.,
                        relative_strength_composite=2-index*.02, _is_speculative=0.,
                        y_blend=999., r_6m=100., r_6m_label_end_date=date+pd.DateOffset(months=6))
@@ -627,6 +632,25 @@ class CausalMonthlyDecisionTests(unittest.TestCase):
         wrong = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
         with self.assertRaisesRegex(ValueError, "causal_concentrated_registered"):
             pipeline.backtest_concentrated_portfolio(cfg, frame, weighting_mode="conviction_curve", research_session=wrong)
+
+    def test_fixed_c0_cannot_be_renamed_policy_off_or_override(self):
+        cfg, frame, prices = c0_fixture()
+        for field in ("portfolio_hold_policy_enabled", "sleeve_specific_rebalance_enabled",
+                      "portfolio_position_risk_enabled", "drawdown_breaker_multilevel_enabled"):
+            with self.subTest(field=field):
+                cfg = EngineConfig()
+                cfg.end_date = "2026-04-30"
+                setattr(cfg, field, False)
+                session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+                with self.assertRaisesRegex(ValueError, "causal_c0_policy_override"):
+                    pipeline.backtest_portfolio(cfg, frame, research_session=session)
+        cfg, frame, prices = c0_fixture()
+        for override in ({"rebalance_interval_months_override": 2},
+                         {"adaptive_interval_policy_override": False},
+                         {"sleeve_override": {"cash": 1.0}}, {"cash_target_max": .5}):
+            session = ResearchNextCloseSession(prices, evidence_end_date=cfg.end_date)
+            with self.assertRaisesRegex(ValueError, "causal_c0_main_policy_override"):
+                pipeline.backtest_portfolio(cfg, frame, research_session=session, **override)
 
 
 if __name__ == "__main__":
