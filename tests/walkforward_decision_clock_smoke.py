@@ -880,6 +880,32 @@ class MacroPrefixCausalityTests(unittest.TestCase):
                 old = pipeline.reuse_fingerprint(cfg, "phase1_to_phase3_data")
         self.assertNotEqual(current, old)
 
+    def test_disabled_macro_keeps_rows_unknown_and_cannot_relabel_fixed_c0(self):
+        cfg, prices, _ = self.fixture()
+        cfg.use_macro_regime_features = False
+        cached = pd.DataFrame({"ticker": ["S00"], "rebalance_date": ["2021-09-30"],
+                               **{name: [999.] for name in pipeline.MACRO_REGIME_COLUMNS},
+                               "macro_asof_cutoff_utc": [pd.Timestamp("2026-11-06T21:00:00Z")]})
+        cached.attrs.update(historical_pit_certified=True, source_admission=True, macro_sources={"stale": "not reused"})
+        with patch.object(pipeline, "load_macro_series", side_effect=AssertionError("DISABLED_SOURCE_READ")), \
+             patch.object(pipeline, "build_macro_regime_table", side_effect=AssertionError("DISABLED_CURRENT_READ")):
+            result = pipeline.merge_macro_regime_features(cfg, {}, cached)
+        self.assertEqual(result.ticker.tolist(), cached.ticker.tolist())
+        self.assertTrue(result[pipeline.MACRO_REGIME_COLUMNS].isna().all().all())
+        self.assertTrue(result.macro_asof_cutoff_utc.isna().all())
+        self.assertEqual(result.attrs["macro_scope"], "DISABLED")
+        self.assertIs(result.attrs["historical_pit_certified"], False)
+        self.assertIs(result.attrs["source_admission"], False)
+        self.assertNotIn("macro_sources", result.attrs)
+        with patch.object(pipeline, "_require_macro_feature_inputs", side_effect=AssertionError("DISABLED_BINDING")), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("LEGACY_ENTRY_REACHED")):
+            for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                with self.assertRaisesRegex(RuntimeError, "LEGACY_ENTRY_REACHED"):
+                    build(cfg)
+        session = ResearchNextCloseSession(prices, evidence_end_date="2026-11-06")
+        with self.assertRaisesRegex(ValueError, "causal_c0_policy_override:use_macro_regime_features"):
+            pipeline._causal_research_session(session, cfg)
+
     def test_future_extremes_cannot_rewrite_prefix_but_later_features_respond(self):
         cfg, prices, series = self.fixture()
         date, later = pd.Timestamp("2021-09-30"), pd.Timestamp("2026-10-30")
@@ -975,6 +1001,9 @@ class MacroPrefixCausalityTests(unittest.TestCase):
         with patch.dict(sys.modules, {"tools.long_history_lake": absent}):
             with self.assertRaisesRegex(ValueError, "historical_macro_source_api_unavailable"):
                 pipeline.load_macro_series(object(), pd.Timestamp("2021-09-30T20:00:00Z"))
+            with patch.object(pipeline, "get_paths", side_effect=AssertionError("IO_BEFORE_API_BINDING")):
+                with self.assertRaisesRegex(ValueError, "historical_macro_source_api_unavailable"):
+                    pipeline.build_feature_store(cfg, macro_lake=object(), macro_price_history=prices)
         source, lake, _ = self.projected_source(series, mismatch=True)
         with patch.dict(sys.modules, {"tools.long_history_lake": source}):
             with self.assertRaisesRegex(ValueError, "historical_macro_source_generation_mismatch"):

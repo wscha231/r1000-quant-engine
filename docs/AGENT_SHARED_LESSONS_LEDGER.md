@@ -10173,3 +10173,6 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Check missing historical inputs before other acquisition, and include the
   macro-prefix policy in the incumbent cache fingerprint so an older feature
   store cannot bypass the new join boundary. Retain old cache objects.
+- An explicitly disabled macro recipe preserves rows with every macro field
+  unknown and clears stale macro provenance. It grants no admission and does
+  not relax the fixed C0 profile's enabled-macro policy binding.

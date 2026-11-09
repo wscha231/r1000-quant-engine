@@ -5669,13 +5669,8 @@ def compute_macro_regime_prefix(
     return result
 
 
-def load_macro_series(lake, decision_at):
-    """Use Source739's public projection, retaining its date-archive limits.
-
-    No caller receipt or boolean replaces that API's original Lake replay.
-    An absent/unintegrated API, dirty/unbound Lake or missing archive blocks;
-    there is deliberately no current FRED, provider or stale-cache fallback.
-    """
+def _macro_source_projection_api(lake):
+    """Check the incumbent API/type before unrelated acquisition can start."""
     if lake is None:
         raise ValueError("historical_macro_source_unbound")
     try:
@@ -5684,6 +5679,17 @@ def load_macro_series(lake, decision_at):
         raise ValueError("historical_macro_source_api_unavailable") from None
     if type(lake) is not Lake:
         raise ValueError("historical_macro_source_type")
+    return project_alfred_asof
+
+
+def load_macro_series(lake, decision_at):
+    """Use Source739's public projection, retaining its date-archive limits.
+
+    No caller receipt or boolean replaces that API's original Lake replay.
+    An absent/unintegrated API, dirty/unbound Lake or missing archive blocks;
+    there is deliberately no current FRED, provider or stale-cache fallback.
+    """
+    project_alfred_asof = _macro_source_projection_api(lake)
     cutoff = pd.Timestamp(decision_at)
     if pd.isna(cutoff) or cutoff.tzinfo is None:
         raise ValueError("historical_macro_source_cutoff")
@@ -5725,6 +5731,7 @@ def _require_macro_feature_inputs(lake, price_history):
         if (ticker not in price_history or not isinstance(price_history[ticker], pd.DataFrame)
                 or price_history[ticker].empty):
             raise ValueError("historical_macro_price_prefix_missing:" + ticker)
+    _macro_source_projection_api(lake)
 
 
 def build_macro_regime_table(cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
@@ -5759,6 +5766,15 @@ def merge_macro_regime_features(
     never a fallback here, including for a single past feature date.
     """
     d = monthly.copy()
+    if not cfg.use_macro_regime_features:
+        for column in MACRO_REGIME_COLUMNS:
+            d[column] = np.nan
+        for column in ("macro_observation_date", "macro_asof_cutoff_utc", "macro_feature_date"):
+            if column in d.columns:
+                d[column] = pd.NaT
+        d.attrs.pop("macro_sources", None)
+        d.attrs.update(macro_scope="DISABLED", historical_pit_certified=False, source_admission=False)
+        return d
     if d.empty:
         for c in MACRO_REGIME_COLUMNS:
             if c not in d.columns:
@@ -5767,8 +5783,6 @@ def merge_macro_regime_features(
         return d
 
     _require_macro_feature_inputs(macro_lake, macro_price_history)
-    if not cfg.use_macro_regime_features:
-        raise ValueError("historical_macro_disabled")
     dates = dict(_macro_feature_cutoff(value) for value in d["rebalance_date"].unique())
     d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
     snapshots, bindings = [], {}
@@ -7866,7 +7880,8 @@ def _causal_universe_size_rows(monthly: pd.DataFrame, cfg: EngineConfig
 def build_universe_monthly(cfg: dict | EngineConfig, *, macro_lake=None,
                            macro_price_history: Optional[Mapping[str, pd.DataFrame]] = None) -> pd.DataFrame:
     cfg = to_cfg(cfg)
-    _require_macro_feature_inputs(macro_lake, macro_price_history)
+    if cfg.use_macro_regime_features:
+        _require_macro_feature_inputs(macro_lake, macro_price_history)
     paths = get_paths(cfg)
     log("Phase 1/2: building monthly universe ...")
 
@@ -8749,7 +8764,8 @@ def project_feature_store_frame(universe: pd.DataFrame, keep_cols: list[str]) ->
 def build_feature_store(cfg: dict | EngineConfig, *, macro_lake=None,
                         macro_price_history: Optional[Mapping[str, pd.DataFrame]] = None) -> pd.DataFrame:
     cfg = to_cfg(cfg)
-    _require_macro_feature_inputs(macro_lake, macro_price_history)
+    if cfg.use_macro_regime_features:
+        _require_macro_feature_inputs(macro_lake, macro_price_history)
     paths = get_paths(cfg)
     log("Phase 3: building feature store ...")
 
