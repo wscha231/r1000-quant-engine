@@ -1330,6 +1330,197 @@ def execute_order(
     return order
 
 
+def _execute_transition_orders(
+    *, state, prices, fill_dt, target_weights, fill_px_by_ticker,
+    fill_dt_by_ticker, signal_dt, cost_bps, integer_shares,
+    execution_cost_model, partial_resize_two_signal_confirmation,
+    risk_gross_reduction, pending_partial_resizes, signal_index,
+    trade_rows, partial_resize_rows,
+):
+    """Incumbent sell-before-buy/order-sizing body, shared by both replay paths."""
+    current_equity, current_values = account_equity(state, prices, fill_dt)
+    for ticker in sorted(set(state.shares.keys()) - set(target_weights.keys())):
+        px = fill_px_by_ticker.get(ticker)
+        if px is None:
+            continue
+        ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
+        pending_partial_resizes.pop(ticker, None)
+        order = execute_order(
+            state=state,
+            ticker=ticker,
+            side="SELL",
+            desired_qty=float(state.shares.get(ticker, 0.0)),
+            price=px,
+            cost_bps=cost_bps,
+            integer_shares=integer_shares,
+            fill_date=ticker_fill_dt,
+            execution_cost_model=execution_cost_model,
+        )
+        if order:
+            order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
+            trade_rows.append(order)
+            if partial_resize_two_signal_confirmation:
+                partial_resize_rows.append(
+                    {
+                        "date": ticker_fill_dt.date().isoformat(),
+                        "signal_date": signal_dt.date().isoformat(),
+                        "ticker": ticker,
+                        "action": "execute",
+                        "reason": "target_exit_immediate",
+                        "side": "SELL",
+                        "target_weight": 0.0,
+                        "current_weight": np.nan,
+                        "diff_value_usd": float(order.get("gross_value", 0.0)) * -1.0,
+                        "risk_gross_reduction": risk_gross_reduction,
+                    }
+                )
+    current_equity, current_values = account_equity(state, prices, fill_dt)
+    adjustments: list[
+        tuple[str, float, float, float, float, str, pd.Timestamp]
+    ] = []
+    observed_partial_resize_tickers: set[str] = set()
+    for ticker, target_weight in target_weights.items():
+        px = fill_px_by_ticker.get(ticker)
+        if px is None:
+            continue
+        ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
+        current_qty = float(state.shares.get(ticker, 0.0))
+        current_value = current_qty * px
+        target_value = max(0.0, float(target_weight) * current_equity)
+        diff_value = target_value - current_value
+        if abs(diff_value) < max(25.0, current_equity * 0.0005):
+            continue
+        reason = "target_rebalance"
+        if partial_resize_two_signal_confirmation:
+            side = "BUY" if diff_value > 0 else "SELL"
+            current_weight = float(current_value / current_equity) if current_equity > 0 else 0.0
+            if current_qty <= 1e-12:
+                pending_partial_resizes.pop(ticker, None)
+                reason = "target_entry_immediate"
+                partial_resize_rows.append(
+                    {
+                        "date": ticker_fill_dt.date().isoformat(),
+                        "signal_date": signal_dt.date().isoformat(),
+                        "ticker": ticker,
+                        "action": "execute",
+                        "reason": reason,
+                        "side": side,
+                        "target_weight": float(target_weight),
+                        "current_weight": current_weight,
+                        "diff_value_usd": float(diff_value),
+                        "risk_gross_reduction": risk_gross_reduction,
+                    }
+                )
+            elif side == "SELL" and risk_gross_reduction:
+                pending_partial_resizes.pop(ticker, None)
+                reason = "partial_resize_risk_cut_immediate"
+                partial_resize_rows.append(
+                    {
+                        "date": ticker_fill_dt.date().isoformat(),
+                        "signal_date": signal_dt.date().isoformat(),
+                        "ticker": ticker,
+                        "action": "execute",
+                        "reason": reason,
+                        "side": side,
+                        "target_weight": float(target_weight),
+                        "current_weight": current_weight,
+                        "diff_value_usd": float(diff_value),
+                        "risk_gross_reduction": True,
+                    }
+                )
+            else:
+                observed_partial_resize_tickers.add(ticker)
+                pending = pending_partial_resizes.get(ticker)
+                confirmed = bool(
+                    pending
+                    and pending.get("side") == side
+                    and int(pending.get("signal_index", -2)) == signal_index - 1
+                )
+                if not confirmed:
+                    pending_partial_resizes[ticker] = {
+                        "side": side,
+                        "signal_index": signal_index,
+                        "signal_date": signal_dt.date().isoformat(),
+                    }
+                    partial_resize_rows.append(
+                        {
+                            "date": ticker_fill_dt.date().isoformat(),
+                            "signal_date": signal_dt.date().isoformat(),
+                            "ticker": ticker,
+                            "action": "defer",
+                            "reason": "partial_resize_first_signal",
+                            "side": side,
+                            "target_weight": float(target_weight),
+                            "current_weight": current_weight,
+                            "diff_value_usd": float(diff_value),
+                            "risk_gross_reduction": risk_gross_reduction,
+                        }
+                    )
+                    continue
+                pending_partial_resizes.pop(ticker, None)
+                reason = "partial_resize_second_signal_confirmed"
+                partial_resize_rows.append(
+                    {
+                        "date": ticker_fill_dt.date().isoformat(),
+                        "signal_date": signal_dt.date().isoformat(),
+                        "ticker": ticker,
+                        "action": "execute",
+                        "reason": reason,
+                        "side": side,
+                        "target_weight": float(target_weight),
+                        "current_weight": current_weight,
+                        "diff_value_usd": float(diff_value),
+                        "risk_gross_reduction": risk_gross_reduction,
+                    }
+                )
+        adjustments.append(
+            (
+                ticker,
+                float(target_weight),
+                float(diff_value),
+                float(px),
+                float(current_value),
+                reason,
+                ticker_fill_dt,
+            )
+        )
+    if partial_resize_two_signal_confirmation:
+        stale_pending = [
+            ticker
+            for ticker, pending in pending_partial_resizes.items()
+            if int(pending.get("signal_index", -2)) < signal_index
+            and ticker not in observed_partial_resize_tickers
+        ]
+        for ticker in stale_pending:
+            pending_partial_resizes.pop(ticker, None)
+    adjustments = sorted(adjustments, key=lambda row: (row[2] > 0, abs(row[2])))
+    for (
+        ticker,
+        target_weight,
+        diff_value,
+        px,
+        _current_value,
+        reason,
+        ticker_fill_dt,
+    ) in adjustments:
+        side = "BUY" if diff_value > 0 else "SELL"
+        qty = abs(diff_value) / px
+        order = execute_order(
+            state=state,
+            ticker=ticker,
+            side=side,
+            desired_qty=qty,
+            price=px,
+            cost_bps=cost_bps,
+            integer_shares=integer_shares,
+            fill_date=ticker_fill_dt,
+            execution_cost_model=execution_cost_model,
+        )
+        if order:
+            order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
+            trade_rows.append(order)
+
+
 def _finite_research_diagnostics(payload):
     """Redact unavailable diagnostic numbers without inventing zero-cost evidence."""
     unavailable = []
@@ -2422,187 +2613,16 @@ def replay(
                 cash_carry_config=cash_carry_config,
                 cash_rate_table=cash_rate_table,
             )
-        current_equity, current_values = account_equity(state, prices, fill_dt)
-        for ticker in sorted(set(state.shares.keys()) - set(target_weights.keys())):
-            px = fill_px_by_ticker.get(ticker)
-            if px is None:
-                continue
-            ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
-            pending_partial_resizes.pop(ticker, None)
-            order = execute_order(
-                state=state,
-                ticker=ticker,
-                side="SELL",
-                desired_qty=float(state.shares.get(ticker, 0.0)),
-                price=px,
-                cost_bps=cost_bps,
-                integer_shares=integer_shares,
-                fill_date=ticker_fill_dt,
-                execution_cost_model=execution_cost_model,
-            )
-            if order:
-                order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": "target_exit", "fill_mode": fill_mode})
-                trade_rows.append(order)
-                if partial_resize_two_signal_confirmation:
-                    partial_resize_rows.append(
-                        {
-                            "date": ticker_fill_dt.date().isoformat(),
-                            "signal_date": signal_dt.date().isoformat(),
-                            "ticker": ticker,
-                            "action": "execute",
-                            "reason": "target_exit_immediate",
-                            "side": "SELL",
-                            "target_weight": 0.0,
-                            "current_weight": np.nan,
-                            "diff_value_usd": float(order.get("gross_value", 0.0)) * -1.0,
-                            "risk_gross_reduction": risk_gross_reduction,
-                        }
-                    )
-        current_equity, current_values = account_equity(state, prices, fill_dt)
-        adjustments: list[
-            tuple[str, float, float, float, float, str, pd.Timestamp]
-        ] = []
-        observed_partial_resize_tickers: set[str] = set()
-        for ticker, target_weight in target_weights.items():
-            px = fill_px_by_ticker.get(ticker)
-            if px is None:
-                continue
-            ticker_fill_dt = fill_dt_by_ticker.get(ticker, fill_dt)
-            current_qty = float(state.shares.get(ticker, 0.0))
-            current_value = current_qty * px
-            target_value = max(0.0, float(target_weight) * current_equity)
-            diff_value = target_value - current_value
-            if abs(diff_value) < max(25.0, current_equity * 0.0005):
-                continue
-            reason = "target_rebalance"
-            if partial_resize_two_signal_confirmation:
-                side = "BUY" if diff_value > 0 else "SELL"
-                current_weight = float(current_value / current_equity) if current_equity > 0 else 0.0
-                if current_qty <= 1e-12:
-                    pending_partial_resizes.pop(ticker, None)
-                    reason = "target_entry_immediate"
-                    partial_resize_rows.append(
-                        {
-                            "date": ticker_fill_dt.date().isoformat(),
-                            "signal_date": signal_dt.date().isoformat(),
-                            "ticker": ticker,
-                            "action": "execute",
-                            "reason": reason,
-                            "side": side,
-                            "target_weight": float(target_weight),
-                            "current_weight": current_weight,
-                            "diff_value_usd": float(diff_value),
-                            "risk_gross_reduction": risk_gross_reduction,
-                        }
-                    )
-                elif side == "SELL" and risk_gross_reduction:
-                    pending_partial_resizes.pop(ticker, None)
-                    reason = "partial_resize_risk_cut_immediate"
-                    partial_resize_rows.append(
-                        {
-                            "date": ticker_fill_dt.date().isoformat(),
-                            "signal_date": signal_dt.date().isoformat(),
-                            "ticker": ticker,
-                            "action": "execute",
-                            "reason": reason,
-                            "side": side,
-                            "target_weight": float(target_weight),
-                            "current_weight": current_weight,
-                            "diff_value_usd": float(diff_value),
-                            "risk_gross_reduction": True,
-                        }
-                    )
-                else:
-                    observed_partial_resize_tickers.add(ticker)
-                    pending = pending_partial_resizes.get(ticker)
-                    confirmed = bool(
-                        pending
-                        and pending.get("side") == side
-                        and int(pending.get("signal_index", -2)) == signal_index - 1
-                    )
-                    if not confirmed:
-                        pending_partial_resizes[ticker] = {
-                            "side": side,
-                            "signal_index": signal_index,
-                            "signal_date": signal_dt.date().isoformat(),
-                        }
-                        partial_resize_rows.append(
-                            {
-                                "date": ticker_fill_dt.date().isoformat(),
-                                "signal_date": signal_dt.date().isoformat(),
-                                "ticker": ticker,
-                                "action": "defer",
-                                "reason": "partial_resize_first_signal",
-                                "side": side,
-                                "target_weight": float(target_weight),
-                                "current_weight": current_weight,
-                                "diff_value_usd": float(diff_value),
-                                "risk_gross_reduction": risk_gross_reduction,
-                            }
-                        )
-                        continue
-                    pending_partial_resizes.pop(ticker, None)
-                    reason = "partial_resize_second_signal_confirmed"
-                    partial_resize_rows.append(
-                        {
-                            "date": ticker_fill_dt.date().isoformat(),
-                            "signal_date": signal_dt.date().isoformat(),
-                            "ticker": ticker,
-                            "action": "execute",
-                            "reason": reason,
-                            "side": side,
-                            "target_weight": float(target_weight),
-                            "current_weight": current_weight,
-                            "diff_value_usd": float(diff_value),
-                            "risk_gross_reduction": risk_gross_reduction,
-                        }
-                    )
-            adjustments.append(
-                (
-                    ticker,
-                    float(target_weight),
-                    float(diff_value),
-                    float(px),
-                    float(current_value),
-                    reason,
-                    ticker_fill_dt,
-                )
-            )
-        if partial_resize_two_signal_confirmation:
-            stale_pending = [
-                ticker
-                for ticker, pending in pending_partial_resizes.items()
-                if int(pending.get("signal_index", -2)) < signal_index
-                and ticker not in observed_partial_resize_tickers
-            ]
-            for ticker in stale_pending:
-                pending_partial_resizes.pop(ticker, None)
-        adjustments = sorted(adjustments, key=lambda row: (row[2] > 0, abs(row[2])))
-        for (
-            ticker,
-            target_weight,
-            diff_value,
-            px,
-            _current_value,
-            reason,
-            ticker_fill_dt,
-        ) in adjustments:
-            side = "BUY" if diff_value > 0 else "SELL"
-            qty = abs(diff_value) / px
-            order = execute_order(
-                state=state,
-                ticker=ticker,
-                side=side,
-                desired_qty=qty,
-                price=px,
-                cost_bps=cost_bps,
-                integer_shares=integer_shares,
-                fill_date=ticker_fill_dt,
-                execution_cost_model=execution_cost_model,
-            )
-            if order:
-                order.update({"date": ticker_fill_dt.date().isoformat(), "signal_date": signal_dt.date().isoformat(), "reason": reason, "target_weight": target_weight, "fill_mode": fill_mode})
-                trade_rows.append(order)
+        _execute_transition_orders(
+            state=state, prices=prices, fill_dt=fill_dt, target_weights=target_weights,
+            fill_px_by_ticker=fill_px_by_ticker, fill_dt_by_ticker=fill_dt_by_ticker,
+            signal_dt=signal_dt, cost_bps=cost_bps, integer_shares=integer_shares,
+            execution_cost_model=execution_cost_model,
+            partial_resize_two_signal_confirmation=partial_resize_two_signal_confirmation,
+            risk_gross_reduction=risk_gross_reduction,
+            pending_partial_resizes=pending_partial_resizes, signal_index=signal_index,
+            trade_rows=trade_rows, partial_resize_rows=partial_resize_rows,
+        )
         equity_after, values_after = account_equity(state, prices, fill_dt)
         for ticker, target_weight in target_weights.items():
             px = price_at_or_before(prices, ticker, fill_dt)
