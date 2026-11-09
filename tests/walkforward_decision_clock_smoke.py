@@ -233,6 +233,9 @@ class LatestAdaptiveOutcomeTests(unittest.TestCase):
                     row[f'bench_r_{label}']=.01 if month<mature_months else np.nan
                     row[f'r_{label}_label_end_date']=sessions[month+months]
                     row[f'bench_r_{label}_label_end_date']=sessions[month+months]
+                for label in ('12m','24m','36m'):
+                    row[f'r_{label}']=row[f'bench_r_{label}']=np.nan
+                    row[f'r_{label}_label_end_date']=row[f'bench_r_{label}_label_end_date']=pd.NaT
                 rows.append(row)
         return pd.DataFrame(rows)
 

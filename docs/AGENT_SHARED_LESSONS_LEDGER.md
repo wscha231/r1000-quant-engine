@@ -10094,3 +10094,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Runtime attribution correction: the original b86 validate used CPython3.12.16,
   not the separate3.11 contract job. Keep old receipts immutable and the local
   3.14.4 G6 failure distinct; a version clue alone does not waive current CI.
+- The first adaptive-maturity fixture omitted required12/24/36-month label
+  provenance columns and the existing F0 gate refused it. Preserve the failed
+  two-case result and declare unavailable long outcomes null/NaT in the fixture;
+  do not weaken the full provenance contract to make a short-history test pass.
