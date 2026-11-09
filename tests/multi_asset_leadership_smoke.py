@@ -1064,7 +1064,7 @@ class A3OriginalInputs(unittest.TestCase):
         self.p['current_a3_review']=binding
         self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
             purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
-            graph_sha256=binding['review_graph']['sha256'],policy_base_sha256=digest(self.policy),
+            graph_sha256=binding['review_graph']['sha256'],binding_sha256=digest(binding),policy_base_sha256=digest(self.policy),
             feature_sha256=feature_identity(self.p,self.r),risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,
             available_at=case.at(-5.25),expires_at=case.at(30),principals=principals)
         return case,graph
@@ -1098,6 +1098,16 @@ class A3OriginalInputs(unittest.TestCase):
             self.assertFalse(result['a3_reference_coverage']['records'][0]['runtime_evaluation_admitted'])
             self.assertFalse(result['global_ranking_ready'])
             self.assertIsNone(result['proposal']['proposed_weights'])
+
+        self.policy=original
+        binding=copy.deepcopy(self.p['current_a3_review'])
+        for key,value in (('expires_at','2027-01-01T00:00:00Z'),
+                          ('collected_at','2026-09-19T09:00:00Z')):
+            self.p['current_a3_review']=copy.deepcopy(binding)
+            self.p['current_a3_review']['review_graph'][key]=value
+            result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+            self.assertEqual(result['a3_reference_coverage']['current_review']['reason'],'a3_current_review_pin')
+            self.assertEqual(result['a3_reference_coverage']['held_count'],1)
 
     def test_current_review_does_not_override_final_market_or_partial_cohort_refusal(self):
         self.market['price']+=1

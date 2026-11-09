@@ -244,7 +244,7 @@ class ControlPlaneTests(unittest.TestCase):
                      task_packets=self.tasks(), principals=principals)
         artifact = self.artifact('current_review_graph')
         self.set_payload(artifact, graph)
-        artifact['available_at'] = artifact['collected_at'] = self.at(-5.5)
+        artifact['observed_at'] = artifact['available_at'] = artifact['collected_at'] = self.at(-5.5)
         return dict(portfolio_context=req['inputs']['portfolio_context'], review_graph=artifact), graph, principals
 
     def test_current_a3_review_replays_original_completions_and_full_qa(self):
@@ -257,6 +257,14 @@ class ControlPlaneTests(unittest.TestCase):
         self.assertEqual(result['status'], 'CURRENT_REFERENCE_REVIEW_VERIFIED')
         self.assertFalse(result['historical_pit_certified'])
         self.assertFalse(result['portfolio_write_allowed'])
+        # Even a newly pinned descriptor must follow the original QA/completion
+        # clocks; caller rehashing cannot fabricate an earlier graph capture.
+        binding['review_graph']['observed_at']=self.at(-30)
+        policy=self.current_review_policy(binding, principals)
+        with self.assertRaisesRegex(board.ContractError,'graph_causal_or_expiry_boundary'):
+            board.current_a3_reference_admission(binding, policy, self.root,
+                board.timestamp(self.state['as_of']), self.sha, context['requested_security_ids'],
+                context['a3_reference_entries'], 'f'*64, {'synthetic_risk':'ORIGINAL'})
 
     def test_current_a3_review_refuses_original_change_and_partial_selection(self):
         binding, graph, principals = self.current_review_case()
@@ -277,7 +285,7 @@ class ControlPlaneTests(unittest.TestCase):
         policy = {'synthetic_base':'EXTERNALLY_REVIEWED_TEST_ONLY'}
         policy['current_a3_review_profile'] = dict(schema='current-a3-review-profile-v1',
             purpose='CURRENT_RESEARCH_FORWARD_ONLY', context_sha256=binding['portfolio_context']['sha256'],
-            graph_sha256=binding['review_graph']['sha256'], policy_base_sha256=digest(policy),
+            graph_sha256=binding['review_graph']['sha256'], binding_sha256=digest(binding), policy_base_sha256=digest(policy),
             feature_sha256='f'*64, risk_sha256=digest({'synthetic_risk':'ORIGINAL'}), code_sha=self.sha,
             available_at=self.at(-5.25), expires_at=self.at(30), principals=principals)
         return policy

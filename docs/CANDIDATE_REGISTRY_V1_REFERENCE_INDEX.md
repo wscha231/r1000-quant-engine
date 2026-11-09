@@ -274,6 +274,9 @@ only this profile; model/evaluation/risk pins remain covered without a cycle.
 Incoming candidates cannot create this trust. The CLI still requires a byte pin
 for any external policy, and its claimed-commit code closure includes the board,
 control-plane schemas, mission and native A4 verifiers.
+`binding_sha256` additionally fixes both complete original descriptors, including
+their collection clocks and expiry. Graph creation follows all original
+completion/QA clocks, and its expiry cannot outlive its transitive originals.
 
 `run_agent_board.current_a3_reference_admission` replays the existing completion
 and QA contracts and original A3/ER/native A4 preparation validators. The exact

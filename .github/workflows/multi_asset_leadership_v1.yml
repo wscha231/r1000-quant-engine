@@ -72,7 +72,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
       - name: Synthetic contract regressions
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
       - name: Capture current research prices and explicit blocked inputs
         run: >-
           python tools/run_multi_asset_leadership.py --capture

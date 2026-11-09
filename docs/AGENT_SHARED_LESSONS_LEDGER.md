@@ -9999,3 +9999,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   its market contract was absent. Restore only the exact current Git blob
   create-only, verify bytes/hash and diff zero, and preserve the failed log;
   do not change DATA_BLOCKED or the positive test's expected native result.
+- Independent review found that pinning raw review bytes alone left descriptor
+  clocks/expiry caller-renewable. Pin the entire binding as well, then check
+  graph creation after original QA/completion and expiry within original bounds.
+  Reuse the original context's cutoff string when replaying a byte-bound report;
+  equivalent Z/+00:00 timestamps do not make its raw content hash identical.

@@ -131,7 +131,7 @@ def current_a3_profile(policy, binding, feature_hash, risk, cutoff, code_sha):
     This does not certify historical PIT, Source admission or account authority.
     """
     profile=policy.get("current_a3_review_profile")
-    fields={"schema","purpose","context_sha256","graph_sha256","policy_base_sha256",
+    fields={"schema","purpose","context_sha256","graph_sha256","binding_sha256","policy_base_sha256",
             "feature_sha256","risk_sha256","code_sha","available_at","expires_at","principals"}
     require(type(profile) is dict and set(profile)==fields,"a3_current_review_profile_required")
     require(profile["schema"]=="current-a3-review-profile-v1" and
@@ -139,7 +139,7 @@ def current_a3_profile(policy, binding, feature_hash, risk, cutoff, code_sha):
     require(type(binding) is dict and set(binding)=={"portfolio_context","review_graph"},
             "a3_current_review_binding")
     require(all(type(value) is dict for value in binding.values()),"a3_current_review_binding")
-    for key in ("context_sha256","graph_sha256","policy_base_sha256","feature_sha256","risk_sha256"):
+    for key in ("context_sha256","graph_sha256","binding_sha256","policy_base_sha256","feature_sha256","risk_sha256"):
         require(type(profile[key]) is str and re.fullmatch(r"[0-9a-f]{64}",profile[key]) is not None,
                 "a3_current_review_hash")
     require(type(code_sha) is str and re.fullmatch(r"[0-9a-f]{40}",code_sha) is not None
@@ -147,7 +147,8 @@ def current_a3_profile(policy, binding, feature_hash, risk, cutoff, code_sha):
     require(profile["policy_base_sha256"]==digest({k:v for k,v in policy.items()
             if k!="current_a3_review_profile"}),"a3_current_review_policy_changed")
     require(profile["context_sha256"]==binding["portfolio_context"].get("sha256") and
-            profile["graph_sha256"]==binding["review_graph"].get("sha256"),"a3_current_review_pin")
+            profile["graph_sha256"]==binding["review_graph"].get("sha256") and
+            profile["binding_sha256"]==digest(binding),"a3_current_review_pin")
     require(profile["feature_sha256"]==feature_hash and risk is not None and
             profile["risk_sha256"]==digest(risk),"a3_current_review_feature_or_risk")
     require(type(profile["available_at"]) is str and type(profile["expires_at"]) is str,

@@ -255,6 +255,16 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
         raise ContractError('a3_review_transitive_original_not_reviewed')
     if timestamp(qa['available_at']) > timestamp(profile['available_at']):
         raise ContractError('a3_review_profile_predates_qa')
+    graph_ref = binding['review_graph']
+    causal_end = max([timestamp(r['available_at']) for r in state['completed_tasks']]
+                    + [timestamp(a['collected_at']) for a in unique_originals.values()])
+    if (timestamp(graph_ref['observed_at']) < causal_end
+            or timestamp(graph_ref['available_at']) < causal_end
+            or timestamp(graph_ref['collected_at']) < causal_end
+            or timestamp(graph_ref['expires_at']) > min(timestamp(state['expires_at']),
+                *(timestamp(a['expires_at']) for a in unique_originals.values()))
+            or timestamp(profile['expires_at']) > min(timestamp(a['expires_at']) for a in binding.values())):
+        raise ContractError('a3_review_graph_causal_or_expiry_boundary')
     for artifact in unique_originals.values():
         verify_artifact(root, artifact, cutoff, cutoff)
     return dict(status='CURRENT_REFERENCE_REVIEW_VERIFIED', purpose=profile['purpose'],
