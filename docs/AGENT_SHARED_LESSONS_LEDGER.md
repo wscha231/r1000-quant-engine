@@ -10071,3 +10071,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   compressed test fixture, verify compressed and raw sizes/hashes, and test
   the missing-object path plus corrupt/oversize refusals. Never substitute
   current source for historical positive evidence or fetch missing history.
+- The first shallow-fixture check wrongly assumed the reviewed feature module
+  still matched HEAD; the real current blob differed and seven setups failed.
+  Preserve that failed run, then bind both fixed public originals explicitly,
+  use no-lazy-fetch local Git or their bounded archives, and verify each
+  missing-object positive without recertifying the current source.
