@@ -1493,7 +1493,7 @@ class ResearchNextCloseSession:
         _execute_transition_orders(
             state=trial, prices=self._prices, fill_dt=due, target_weights=target,
             fill_px_by_ticker=fill_prices, fill_dt_by_ticker={ticker: due for ticker in transition},
-            signal_dt=signal, cost_bps=25.0, integer_shares=True,
+            signal_dt=signal, fill_mode="next_close", cost_bps=25.0, integer_shares=True,
             execution_cost_model=None, partial_resize_two_signal_confirmation=False,
             risk_gross_reduction=False, pending_partial_resizes={}, signal_index=0,
             trade_rows=trades, partial_resize_rows=[])
@@ -1583,7 +1583,7 @@ class ResearchNextCloseSession:
 
 def _execute_transition_orders(
     *, state, prices, fill_dt, target_weights, fill_px_by_ticker,
-    fill_dt_by_ticker, signal_dt, cost_bps, integer_shares,
+    fill_dt_by_ticker, signal_dt, fill_mode, cost_bps, integer_shares,
     execution_cost_model, partial_resize_two_signal_confirmation,
     risk_gross_reduction, pending_partial_resizes, signal_index,
     trade_rows, partial_resize_rows,
@@ -2867,7 +2867,7 @@ def replay(
         _execute_transition_orders(
             state=state, prices=prices, fill_dt=fill_dt, target_weights=target_weights,
             fill_px_by_ticker=fill_px_by_ticker, fill_dt_by_ticker=fill_dt_by_ticker,
-            signal_dt=signal_dt, cost_bps=cost_bps, integer_shares=integer_shares,
+            signal_dt=signal_dt, fill_mode=fill_mode, cost_bps=cost_bps, integer_shares=integer_shares,
             execution_cost_model=execution_cost_model,
             partial_resize_two_signal_confirmation=partial_resize_two_signal_confirmation,
             risk_gross_reduction=risk_gross_reduction,
