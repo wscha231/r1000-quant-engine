@@ -2638,6 +2638,10 @@ def test_latest_month_mktcap_starvation_guard() -> None:
         return
     import pandas as pd
     import r1000_pipeline as pipe
+    import unittest
+    from r1000_config import EngineConfig
+
+    check = unittest.TestCase()
 
     starved = pd.DataFrame(
         {
@@ -2659,15 +2663,21 @@ def test_latest_month_mktcap_starvation_guard() -> None:
     empty_mask, empty_cov = pipe.latest_month_mktcap_coverage(pd.DataFrame())
     assert empty_cov == 1.0 and int(empty_mask.sum()) == 0
 
-    # The guard must be wired into build_universe_monthly: proxy retry for the
-    # starved latest month plus a dollar-vol fallback that keeps the month
-    # rankable instead of dropping it.
-    src = (ROOT / "r1000_pipeline.py").read_text(encoding="utf-8")
-    assert "latest_month_mktcap_coverage(monthly)" in src, "guard not wired into build_universe_monthly"
-    assert "latest_month_dollar_vol_fallback" in src, "dollar-vol fallback for starved latest month missing"
-    assert "mktcap_available = mktcap_available | latest_month_mask" in src, (
-        "base_mask must keep latest-month rows when the dollar-vol fallback is active"
-    )
+    # Exercise the actual monthly size kernel instead of pinning local variable
+    # spellings. The old latest month must remain rankable after a later append.
+    cfg = EngineConfig()
+    cfg.min_mktcap, cfg.min_dollar_vol_20d, cfg.universe_size = 1e11, 1.0, 3
+    starved = starved.assign(px=20.0, vol_252d=.2, dd_1y=.1,
+                            dollar_vol_20d=[1e6, 2e6, 3e6, 4e6] * 2)
+    expected = pipe._causal_universe_size_rows(starved, cfg)[2]
+    latest = expected.loc[expected['rebalance_date'].eq('2026-06-11')]
+    check.assertEqual(latest['ticker'].tolist(), ['D', 'C', 'B'])
+    check.assertTrue(latest['mktcap_dollar_vol_fallback'].all())
+    check.assertTrue(latest['mktcap'].isna().all())
+    later = starved.iloc[4:].assign(rebalance_date='2026-06-30', mktcap=1e12)
+    observed = pipe._causal_universe_size_rows(pd.concat([starved, later], ignore_index=True), cfg)[2]
+    observed = observed.loc[observed['rebalance_date'].le('2026-06-11')]
+    pd.testing.assert_frame_equal(expected.reset_index(drop=True), observed.reset_index(drop=True))
 
 
 @_test("regression.paper_executor_advisor_path_fallbacks")

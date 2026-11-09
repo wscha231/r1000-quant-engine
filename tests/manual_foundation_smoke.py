@@ -655,12 +655,17 @@ class ManualTests(unittest.TestCase):
                         '8384a59befc11ebbb80fe9235e40dadc6fddefe3a8f2cf6adebf47621d1a3880'),
                 }
                 for name, (blob, size, expected_sha) in reviewed.items():
-                    if row['dependency_hashes'].get(name) != expected_sha:
+                    if name not in row['dependency_hashes']:
                         raise ValueError('unknown_historical_feature_pin:' + name)
                     raw = subprocess.check_output(['git', 'show', blob], cwd=ROOT, stderr=subprocess.PIPE)
                     if len(raw) != size or hashlib.sha256(raw).hexdigest() != expected_sha:
                         raise ValueError('historical_feature_fixture_hash:' + name)
                     (self.root / name).write_bytes(raw)
+                    # Explicit historical positive, not the current catalog's
+                    # newly reviewed source. Rebind only these fixed original
+                    # operands inside this temporary test snapshot.
+                    row['dependency_hashes'][name] = expected_sha
+        self.write(manual.CATALOG, catalog)
         for row in catalog['entries']:
             if row['entry_id'] in {'group_423_574', 'group_591'} and row['classification'] == 'REUSE_NOW':
                 for name, expected_sha in row['dependency_hashes'].items():
@@ -2307,6 +2312,34 @@ class ManualTests(unittest.TestCase):
             self.assertTrue(manual.lookup_reuse(entry, self.root)['allowed'])
         self.assertEqual((self.root / manual.CATALOG).read_bytes(), before)
         self.assertEqual((ROOT / manual.CATALOG).read_bytes(), active)
+
+    def test_historical_feature_positive_keeps_original_pins_and_refuses_current_bytes(self):
+        active = (ROOT / manual.CATALOG).read_bytes()
+        snapshot = (self.root / manual.CATALOG).read_bytes()
+        row = next(row for row in manual.load_catalog(self.root)['entries'] if row['entry_id'] == 'group_577')
+        originals = {
+            'r1000_features.py': '96decfe3eef4bfe7fc92e2419ffddf9d1ffc54be685c98d96f270a551cd568da',
+            'r1000_pipeline.py': '8384a59befc11ebbb80fe9235e40dadc6fddefe3a8f2cf6adebf47621d1a3880',
+        }
+        self.assertTrue(manual.lookup_reuse('group_577', self.root)['allowed'])
+        for name, expected in originals.items():
+            target = self.root / name
+            frozen = target.read_bytes()
+            self.assertEqual(row['dependency_hashes'][name], expected)
+            self.assertEqual(hashlib.sha256(frozen).hexdigest(), expected)
+            current = fixture_dependency_bytes(name, 'HEAD')
+            for changed in (current, frozen + b'\n# synthetic modified historical operand\n'):
+                target.write_bytes(changed)
+                try:
+                    if hashlib.sha256(changed).hexdigest() != expected:
+                        with self.assertRaisesRegex(manual.ContractError, 'catalog_dependency_changed:' + re.escape(name)):
+                            manual.lookup_reuse('group_577', self.root)
+                    else:
+                        self.assertTrue(manual.lookup_reuse('group_577', self.root)['allowed'])
+                    self.assertEqual((self.root / manual.CATALOG).read_bytes(), snapshot)
+                    self.assertEqual((ROOT / manual.CATALOG).read_bytes(), active)
+                finally:
+                    target.write_bytes(frozen)
 
     def test_historical_reader_archive_hash_and_size_are_bounded(self):
         for name, (expected, size, archive) in HISTORICAL_READER_INPUTS.items():

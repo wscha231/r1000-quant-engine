@@ -10059,3 +10059,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   for this fetch optimization, never for historical selection. Test the real
   universe call trace at 0%/24% after an insufficient initial600, and reject
   future proxy values even when the retry runs; all-history0% adds no retry.
+- The first combined H1 full CI passed234/236 suites. Its starvation test still
+  asserted removed local variable names, and its historical manual positive
+  demanded that a current catalog pin equal an old feature hash. Replace the
+  lexical guard with actual monthly selection/future-append behavior; reconstruct
+  fixed original Git bytes and their pins only in the temporary historical
+  fixture. Verify current/modified bytes are refused there and the live catalog
+  is unchanged. This does not admit new production or historical reuse inputs.
