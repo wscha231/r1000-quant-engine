@@ -1064,6 +1064,42 @@ class MacroPrefixCausalityTests(unittest.TestCase):
         self.assertEqual(fred.call_count, len(pipeline.MACRO_FRED_SERIES))
         self.assertEqual(coverage.call_count, 1)
 
+    def test_nonfinite_nonpositive_prices_block_without_dropping_or_replacing_values(self):
+        cfg, _, series = self.fixture()
+        source, lake, calls = self.projected_source(series)
+        invalids = ([np.inf], [-np.inf], [0.], [-1.], [100., np.inf], [100., "invalid"],
+                    [True], [1. + 2.j], [pd.Timestamp("2021-09-30")])
+        with patch.dict(sys.modules, {"tools.long_history_lake": source}), \
+             patch.object(pipeline, "get_paths", side_effect=RuntimeError("UPSTREAM_IO_REACHED")) as io:
+            for values in invalids:
+                days = pd.bdate_range("2021-09-29", periods=len(values))
+                for column in ("Close", "Adj Close"):
+                    frame = pd.DataFrame({column: values}, index=days)
+                    # Keep the preferred-column rule even when a valid lower
+                    # priority Close exists alongside an invalid Adj Close.
+                    if column == "Adj Close":
+                        frame["Close"] = 100.
+                    original = frame.copy(deep=True)
+                    prices = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                    for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                        with self.subTest(values_type=str(frame[column].dtype), column=column, build=build.__name__):
+                            with self.assertRaisesRegex(ValueError, "^historical_macro_price_values_invalid:[A-Z]+$"):
+                                build(cfg, macro_lake=lake, macro_price_history=prices)
+                    pd.testing.assert_frame_equal(frame, original)
+            self.assertEqual(io.call_count, 0)
+            self.assertEqual(calls, [])
+            for column in ("Close", "Adj Close"):
+                frame = pd.DataFrame({column: [np.nan, 100.]}, index=pd.bdate_range("2021-09-29", periods=2))
+                original = frame.copy(deep=True)
+                prices = {ticker: frame.copy() for ticker in pipeline.MACRO_PRICE_TICKERS.values()}
+                for build in (pipeline.build_feature_store, pipeline.build_universe_monthly):
+                    with self.assertRaisesRegex(RuntimeError, "^UPSTREAM_IO_REACHED$"):
+                        build(cfg, macro_lake=lake, macro_price_history=prices)
+                pd.testing.assert_frame_equal(frame, original)
+                self.assertTrue(pd.isna(frame.iloc[0][column]))
+            self.assertEqual(io.call_count, 4)
+            self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

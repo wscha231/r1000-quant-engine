@@ -5738,8 +5738,19 @@ def _require_macro_feature_inputs(lake, price_history):
         # lower-priority Close must not replace an unusable Adj Close here.
         if "Adj Close" not in frame.columns and "Close" not in frame.columns:
             raise ValueError("historical_macro_price_columns_missing:" + ticker)
-        if price_close_series(frame).empty:
+        raw_close = squeeze_series(frame["Adj Close"] if "Adj Close" in frame.columns else frame["Close"])
+        numeric = pd.to_numeric(raw_close, errors="coerce")
+        if ((raw_close.notna() & numeric.isna()).any()
+                or raw_close.dropna().map(lambda value: isinstance(value, (bool, np.bool_))).any()
+                or pd.api.types.is_datetime64_any_dtype(raw_close.dtype)
+                or pd.api.types.is_timedelta64_dtype(raw_close.dtype)
+                or np.iscomplexobj(numeric.to_numpy())):
+            raise ValueError("historical_macro_price_values_invalid:" + ticker)
+        close = price_close_series(frame)
+        if close.empty:
             raise ValueError("historical_macro_price_values_missing:" + ticker)
+        if not np.isfinite(close.to_numpy()).all() or close.le(0).any():
+            raise ValueError("historical_macro_price_values_invalid:" + ticker)
     _macro_source_projection_api(lake)
 
 

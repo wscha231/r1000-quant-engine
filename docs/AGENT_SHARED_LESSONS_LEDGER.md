@@ -10180,3 +10180,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   reached upstream I/O before their later prefix check. Reuse the same index
   contract in common preflight, and check the incumbent close-column selector
   before any upstream work; retain the original failed run and valid spellings.
+- A second independent case showed `dropna` retains infinity. Check every
+  nonmissing selected ETF close is a finite positive real price before I/O;
+  never hide invalid values through coercion, dropping, a zero fill or a
+  lower-priority column. Preserve genuine NaN alongside usable observations.
