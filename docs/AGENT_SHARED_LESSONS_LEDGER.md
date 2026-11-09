@@ -10081,3 +10081,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   as an environment-blocked full suite, not PASS. The current historical
   positive/negative manual subset passed in both modes; keep that scope
   distinct from hosted full CI and from the unchanged earlier engine tests.
+- After exact sparse-input restoration, full local smoke was139/140: the
+  untouched G6 executor test's frozen AST digest differed on Python3.14.
+  Preserve the failure and version; earlier b86 hosted3.11 G6 success is a
+  clue, not proof of environment causality. Do not change the protected
+  executor/digest or label the full suite PASS; require current hosted CI.
