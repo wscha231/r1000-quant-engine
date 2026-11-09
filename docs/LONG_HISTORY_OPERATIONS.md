@@ -319,3 +319,86 @@ This is an explicit cancellation behavior correction; ordinary collection,
 hash/restore, successful publication and non-cancellation partial-study I/O
 remain unchanged. The already-declared sparse checkout contains the existing
 Refused module and its dependencies; no new collector or dependency is added.
+
+## Scoped missing-only ALFRED preparation — 2026-11-09
+
+The existing Lake CLI and existing history workflow accept an optional exact
+request; empty inputs retain normal/finalize behavior. This is code preparation,
+not a provider grant, activated collection, Source/PIT admission or economic test.
+The three newly registered IDs CPILFESL, PPIFDG and SAHMREALTIME are
+`scoped_alfred_only`: the existing normal current-series denominator remains34
+and the original12 ALFRED archives remain unchanged. Official series metadata:
+[CPILFESL](https://fred.stlouisfed.org/series/CPILFESL),
+[PPIFDG](https://fred.stlouisfed.org/series/PPIFDG),
+[SAHMREALTIME](https://fred.stlouisfed.org/series/SAHMREALTIME).
+Their public-domain/citation labels establish no historical vintage coverage,
+original release clock, accepted generation or permission to substitute another
+series. PPIFDG is not seasonally adjusted. Sahm's historical observation label
+does not establish publication before the indicator's actual archived vintage.
+
+Provide `--scoped-alfred-request PATH --scoped-alfred-request-sha256 SHA256`,
+or existing workflow inputs `scoped_alfred_request_json` and its SHA256. Hash the
+exact UTF-8 JSON bytes, including any final newline. Neither option can be mixed
+with finalization. All fields are required; no latest/auto-pin/default budget:
+
+```json
+{
+  "schema": "long-history-scoped-alfred-v1",
+  "request_id": "BLOCKED_PREPARED_REPLACE_WITH_REVIEWED_REQUEST",
+  "mode": "alfred_missing_only",
+  "series": ["DGS10"],
+  "observation_start": "REQUIRES_FROZEN_NATIVE_WARMUP_DATE",
+  "through": "2026-11-06",
+  "expected_parent": "REQUIRES_ACTUAL_PARENT_SHA256",
+  "expected_catalog": "REQUIRES_ACTUAL_CATALOG_SHA256",
+  "registry_sha256": "REQUIRES_DEPLOYED_REGISTRY_BYTE_SHA256",
+  "budget": {"provider_gets": 20, "provider_bytes": 335544340, "pages_per_series": 20}
+}
+```
+
+This template deliberately refuses. Only a nonempty unique subset of
+VIXCLS/DGS10/BAMLH0A0HYM2/DTWEXBGS/RRPTSYD/WDTGAL/CPILFESL/PPIFDG/SAHMREALTIME
+is allowed, and every selected ALFRED key must be absent from the exact restored
+catalog. Existing CPIAUCSL/M2SL/UNRATE/WALCL, SEC, price/current-FRED and WorldBank
+are not collected by this path. Observation start needs the actual native
+lookback, not merely the evaluation start. Normal source-specific status/rights
+remain separate. No current fallback or alias supplies unsupported ALFRED.
+
+The unchanged fetch primitive has a20-page,16MiB-per-page bound and no injected
+per-page meter. Therefore reserve its entire ceiling before each single fetch:
+20 provider GETs and335544340B per series, including the existing one-byte
+oversized-response probe per page, no retry/refund. A smaller request
+fails before I/O. Nine series reserve180 GETs/3019899060B; these are conservative
+reservations, not measured requests, expected storage or an approved budget.
+Returned page/body counts exclude failed/partial socket bytes; actual wire usage
+is unknown. If smaller exact-page accounting is required, it needs a separately
+reviewed extension of the existing primitive, never a hidden uncapped fetch.
+Existing Drive/full-history verification costs require separate actual budgeting.
+
+Parent/catalog and registry are checked before provider work; publication retains
+independent stale-writer/history/hash checks. Scoped errors retain full fetch
+reservations, redact exception text and stop without publishing partial results.
+Untouched dataset entries remain identical. The usual clean-consumer restore,
+analysis and exact execution receipt still govern shared consumption. Missing
+receipts, Source permissions or expired authority never become data readiness.
+
+`project_alfred_versions(rows, decision_at, archive_through)` is a pure offline
+projection. It uses strict prior New York vintage day and exact UTC cutoff;
+available_at is the conservative next-NY-midnight boundary, not an original
+intraday release time. It retains null/withdrawal versions. A raw realtime_end
+shortened by a future revision cannot erase the preceding value before that
+successor becomes conservatively available. Raw intervals stay in Source; they
+are not rewritten. Original completeness must be proved by the archived receipt,
+not by a caller's date string. `project_alfred_asof(lake,series,decision_at)` adds
+the existing exact Lake execution/byte gate and binds commit/receipt lineage;
+neither API certifies historical PIT or economic eligibility.
+
+**Call the projection separately for each historical FEATURE row's own decision
+cutoff**, reusing the same immutable raw generation offline. Projecting at2026
+and distributing that vintage over2016–2021 leaks revisions and publication.
+Observation-date resampling is not historical availability. Regression tests
+cover per-row cutoffs, future revision/end-date invariance, withdrawals, DST,
+late-created indicator history, unsupported IDs and pre-I/O budget/parent refusal.
+The native Main feature-row adapter is not connected by this Source patch; a
+separate Main consumer packet must bind each row's cutoff and original recipe.
+No full Native engine, collection or backtest completion is claimed.

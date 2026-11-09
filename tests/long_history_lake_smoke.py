@@ -590,7 +590,9 @@ class HistoryTest(unittest.TestCase):
         self.assertNotIn('FRED_API_KEY',finalize.get('env',{}))
         self.assertIn('--source-head-sha',finalize['run'])
         for step in steps:
-            if step.get('name') in ('Restore durable cohort if already archived','Collect full history, persist changes, verify clean consumption'):
+            if step.get('name')=='Restore durable cohort if already archived':
+                self.assertEqual(step['if'],'${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json }}')
+            if step.get('name')=='Collect full history, persist changes, verify clean consumption':
                 self.assertEqual(step['if'],'${{ !inputs.finalize_commit_sha256 }}')
 
     def test_execution_requires_matching_catalog_and_latest_commit(self):
@@ -1851,6 +1853,307 @@ class HistoryTest(unittest.TestCase):
                 with self.assertRaisesRegex(AssertionError,'Unchecked dependency changes'):
                     self.test_push_filters_cover_all_consumed_source_paths()
 
+
+
+class ScopedAlfredTest(unittest.TestCase):
+    """Offline scoped-source and causal date-vintage boundaries."""
+    def setUp(self):
+        import io
+        from contextlib import redirect_stdout
+        from tools import long_history_lake as h
+        self.h=h
+        self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name); self.transport=LocalTransport(self.root/'remote')
+        self.output=io.StringIO()
+        with redirect_stdout(self.output):
+            lake=Lake(self.transport,self.root/'initial')
+            for sid in ('M2SL','WALCL','CPIAUCSL','UNRATE'):
+                lake.dataset('alfred/'+sid,[b'original-'+sid.encode()],
+                    [self.row('2021-01-05',10,series=sid)],
+                    dict(rows=1,evidence='alfred_date_archive',requested_through='2021-01-15'))
+            lake.dataset('current/SP500',[b'price'],[dict(value=1)],dict(rows=1,evidence='current_only'))
+            lake.dataset('sec/0000000001',[b'financial'],[dict(value=2)],dict(rows=1))
+            lake.publish('old',dict(macro_start='2020-01-01',financial_start='2016-01-01',
+                through='2021-01-15',registry_sha256=digest(encoded(h.registry()))))
+            self.lake=Lake(self.transport,self.root/'restored')
+        self.before=copy.deepcopy(self.lake.catalog['datasets'])
+
+    @staticmethod
+    def row(vintage,value,end='9999-12-31',observed='2020-12-01',series='DGS10'):
+        from datetime import date,timedelta
+        from zoneinfo import ZoneInfo
+        day=date.fromisoformat(vintage)
+        available=datetime.combine(day+timedelta(days=1),datetime.min.time(),
+            ZoneInfo('America/New_York')).astimezone(timezone.utc)
+        return dict(series=series,observation_date=observed,vintage_date=vintage,
+            realtime_end=end,available_at=available.isoformat(),published_at=None,
+            evidence='alfred_date_archive',value=value)
+
+    def request(self,ids=None):
+        ids=ids or ['DGS10']
+        return dict(schema='long-history-scoped-alfred-v1',request_id='synthetic-only',
+            mode='alfred_missing_only',series=ids,observation_start='2020-01-01',through='2021-01-15',
+            expected_parent=self.lake.parent,expected_catalog=digest(encoded(self.lake.before)),
+            registry_sha256=digest((ROOT/'docs/macro_indicator_registry.json').read_bytes()),
+            budget=dict(provider_gets=20*len(ids),provider_bytes=20*(16*1024*1024+1)*len(ids),pages_per_series=20))
+
+    def fetch(self,sid,start,through,mode):
+        self.assertEqual(mode,'alfred')
+        raw=encoded(dict(units='lin',output_type=1,offset=0,count=1,observations=[
+            dict(date='2020-12-01',realtime_start='2021-01-05',realtime_end='9999-12-31',value='3')]))
+        return [raw],'2021-01-16T12:00:00+00:00'
+
+    def test_exact_three_metadata_and_old_registry_entries_preserved(self):
+        specs={s['id']:s for s in self.h.registry()['series']}
+        self.assertEqual(len(specs),37)
+        for sid in ('CPILFESL','PPIFDG','SAHMREALTIME'):
+            self.assertEqual(specs[sid]['collection_scope'],'scoped_alfred_only')
+            self.assertEqual(specs[sid]['frequency'],'monthly')
+            self.assertEqual(specs[sid]['initial_inference'],'SHADOW_ONLY')
+            self.assertEqual(specs[sid]['raw_redistribution'],'source_terms_review_required')
+        self.assertEqual(specs['PPIFDG']['seasonal_adjustment'],'Not Seasonally Adjusted')
+        self.assertEqual(specs['SAHMREALTIME']['unit'],'percentage_points')
+
+    def test_manifest_hash_duplicate_unknown_mode_budget_and_window_refused_before_fetch(self):
+        raw=encoded(self.request())
+        with patch.object(self.h,'fetch_fred',side_effect=AssertionError('network forbidden')) as fetch:
+            self.assertEqual(self.h.scoped_alfred_request(raw,digest(raw)),self.request())
+            with self.assertRaisesRegex(ValueError,'scoped_request_hash'):
+                self.h.scoped_alfred_request(raw,'0'*64)
+            duplicate=raw.rstrip()[:-1]+b',"mode":"alfred_missing_only"}'
+            with self.assertRaisesRegex(ValueError,'duplicate_key'):
+                self.h.scoped_alfred_request(duplicate,digest(duplicate))
+            cases=[('mode','current'),('series',['UNKNOWN']),('series',['M2SL']),
+                ('series',['DGS10','DGS10']),('through','9999-01-01'),('expected_parent',None),
+                ('registry_sha256','0'*64),('extra','not allowed')]
+            for key,value in cases:
+                request=self.request(); request[key]=value
+                with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                    self.h.collect_scoped_alfred(self.lake,request)
+            for key,value in [('provider_gets',19),('provider_bytes',335544320),
+                              ('pages_per_series',1),('provider_gets',True)]:
+                request=self.request(); request['budget'][key]=value
+                with self.subTest(budget=key),self.assertRaises(ValueError):
+                    self.h.collect_scoped_alfred(self.lake,request)
+            fetch.assert_not_called()
+
+    def test_missing_only_fetches_exact_alfred_and_preserves_all_old_entries(self):
+        from contextlib import redirect_stdout
+        with redirect_stdout(self.output),patch.object(self.h,'fetch_fred',side_effect=self.fetch) as fetch, \
+             patch.object(self.h,'collect_financials',side_effect=AssertionError('SEC forbidden')), \
+             patch.object(self.h,'get_public',side_effect=AssertionError('public fetch forbidden')):
+            meter=self.h.collect_scoped_alfred(self.lake,self.request(['CPILFESL','PPIFDG','SAHMREALTIME']))
+            self.assertEqual([c.args[0] for c in fetch.call_args_list],['CPILFESL','PPIFDG','SAHMREALTIME'])
+            self.assertTrue(all(c.args[-1]=='alfred' for c in fetch.call_args_list))
+            self.assertEqual(meter['returned_pages'],3)
+            self.assertEqual(meter['reserved_provider_gets'],60)
+            self.assertEqual(meter['reserved_provider_bytes'],60*(16*1024*1024+1))
+            for key,value in self.before.items():
+                self.assertEqual(self.lake.catalog['datasets'][key],value)
+            parent=self.lake.parent
+            result=self.lake.publish('scoped',dict(self.lake.before['config'],scoped=True))
+            commit=json.loads(self.lake.read_hash('commits',result['commit_sha256']))
+            self.assertEqual(commit['parent'],parent)
+            restored=Lake(self.transport,self.root/'consumer')
+            for key,value in self.before.items():
+                self.assertEqual(restored.catalog['datasets'][key],value)
+            self.assertEqual(restored.get_records('alfred/PPIFDG')[0]['value'],3)
+            with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
+                restored.verified_execution()
+
+    def test_parent_catalog_and_existing_key_refuse_before_provider(self):
+        from contextlib import redirect_stdout
+        with patch.object(self.h,'fetch_fred',side_effect=AssertionError('forbidden')) as fetch:
+            for key in ('expected_parent','expected_catalog'):
+                request=self.request();request[key]='0'*64
+                with self.assertRaisesRegex(ValueError,'scoped_parent_mismatch'):
+                    self.h.collect_scoped_alfred(self.lake,request)
+            with redirect_stdout(self.output):
+                self.lake.dataset('alfred/DGS10',[b'held'],[self.row('2021-01-05',1)],dict(rows=1))
+                self.lake.publish('held',self.lake.before['config'])
+                self.lake=Lake(self.transport,self.root/'held-consumer')
+            request=self.request()
+            with self.assertRaisesRegex(ValueError,'already_present'):
+                self.h.collect_scoped_alfred(self.lake,request)
+            fetch.assert_not_called()
+
+    def test_remote_stale_parent_refuses_before_provider(self):
+        from contextlib import redirect_stdout
+        request=self.request()
+        with redirect_stdout(self.output):
+            peer=Lake(self.transport,self.root/'peer')
+            peer.publish('peer',self.lake.before['config'])
+            with patch.object(self.h,'fetch_fred') as fetch:
+                with self.assertRaisesRegex(ValueError,'scoped_parent_mismatch'):
+                    self.h.collect_scoped_alfred(self.lake,request)
+                fetch.assert_not_called()
+
+    def test_provider_error_429_page_and_parser_failures_never_publish_or_retry(self):
+        from contextlib import redirect_stdout
+        from urllib.error import HTTPError
+        secret='https://invalid.test/?api_key=PRIVATE_SENTINEL'
+        errors=[HTTPError(secret,429,secret,None,None),OSError(secret)]
+        for error in errors:
+            with self.subTest(error=type(error).__name__),redirect_stdout(self.output), \
+                 patch.object(self.h,'fetch_fred',side_effect=error) as fetch:
+                with self.assertRaisesRegex(ValueError,'scoped_alfred_collection_blocked'):
+                    self.h.collect_scoped_alfred(self.lake,self.request())
+                self.assertEqual(fetch.call_count,1)
+                self.assertEqual(len(self.transport.names(PREFIX+'/commits')),1)
+                self.assertEqual(self.lake.catalog['datasets'],self.before)
+        self.assertNotIn('PRIVATE_SENTINEL',self.output.getvalue())
+        self.assertIn('reserved_provider_gets',self.output.getvalue())
+        for pages in ([b'{}']*21,[b'{}']):
+            with self.subTest(pages=len(pages)),redirect_stdout(self.output), \
+                 patch.object(self.h,'fetch_fred',return_value=(pages,'2021-01-16T00:00:00Z')):
+                with self.assertRaisesRegex(ValueError,'scoped_alfred_collection_blocked'):
+                    self.h.collect_scoped_alfred(self.lake,self.request())
+                self.assertEqual(len(self.transport.names(PREFIX+'/commits')),1)
+
+    def test_cancellation_keeps_full_reservation_and_propagates(self):
+        from contextlib import redirect_stdout
+        for error in (TimeoutError('deadline'),InterruptedError('cancel'),self.h.Refused('CAMPAIGN_DEADLINE')):
+            with self.subTest(error=type(error).__name__),redirect_stdout(self.output), \
+                 patch.object(self.h,'fetch_fred',side_effect=error):
+                with self.assertRaises(type(error)):
+                    self.h.collect_scoped_alfred(self.lake,self.request())
+        self.assertEqual(len(self.transport.names(PREFIX+'/commits')),1)
+
+    def test_default_full_collection_keeps_original_series_and_archive_set(self):
+        with patch.object(self.h,'fetch_fred_retry',side_effect=ValueError('synthetic')) as fetch, \
+             patch.object(self.h,'get_public',side_effect=ValueError('synthetic')):
+            self.h.collect_macros(self.lake,'2020-01-01','2021-01-15')
+        self.assertEqual({c.args[0] for c in fetch.call_args_list if c.args[-1]=='alfred'},set(self.h.ARCHIVES))
+        current={c.args[0] for c in fetch.call_args_list if c.args[-1]=='current'}
+        self.assertEqual(len(current),34)
+        self.assertFalse(current & {'CPILFESL','PPIFDG','SAHMREALTIME'})
+
+    def test_future_revision_shortened_end_cannot_erase_earlier_feature(self):
+        old=self.row('2021-01-05',10)
+        amended=dict(old,realtime_end='2021-01-07')
+        future=self.row('2021-01-08',20)
+        for cutoff in ('2021-01-06T05:00:00Z','2021-01-08T17:00:00Z'):
+            before=self.h.project_alfred_versions([old],cutoff,'2021-01-15')
+            after=self.h.project_alfred_versions([amended,future],cutoff,'2021-01-15')
+            self.assertEqual(before['records'],after['records'])
+            self.assertEqual(after['records'][0]['value'],10)
+        eligible=self.h.project_alfred_versions([amended,future],'2021-01-09T05:00:00Z','2021-01-15')
+        self.assertEqual(eligible['records'][0]['value'],20)
+        self.assertFalse(eligible['historical_pit_certified'])
+
+    def test_each_historical_feature_row_uses_its_own_cutoff_without_provider(self):
+        rows=[self.row('2021-01-05',10,end='2021-01-07'),self.row('2021-01-08',20)]
+        cutoffs=['2021-01-06T05:00:00Z','2021-01-08T17:00:00Z','2021-01-09T05:00:00Z']
+        with patch.object(self.h,'fetch_fred',side_effect=AssertionError('no provider')) as fetch:
+            features=[self.h.project_alfred_versions(rows,d,'2021-01-15')['records'][0]['value'] for d in cutoffs]
+            self.assertEqual(features,[10,10,20])
+            fetch.assert_not_called()
+        # A single latest projection would broadcast20 into both earlier rows.
+        self.assertNotEqual(features,[features[-1]]*len(features))
+
+    def test_withdrawal_preserved_only_at_conservative_successor_boundary(self):
+        rows=[self.row('2021-01-05',10,end='2021-01-07'),self.row('2021-01-08',None)]
+        before=self.h.project_alfred_versions(rows,'2021-01-09T04:59:59Z','2021-01-15')
+        after=self.h.project_alfred_versions(rows,'2021-01-09T05:00:00Z','2021-01-15')
+        self.assertEqual(before['records'][0]['value'],10)
+        self.assertIsNone(after['records'][0]['value'])
+
+    def test_new_york_midnight_dst_and_strict_prior_day(self):
+        for vintage,boundary,before in [('2021-03-13','2021-03-14T05:00:00Z','2021-03-14T04:59:59Z'),
+                ('2021-03-14','2021-03-15T04:00:00Z','2021-03-15T03:59:59Z'),
+                ('2021-11-06','2021-11-07T04:00:00Z','2021-11-07T03:59:59Z'),
+                ('2021-11-07','2021-11-08T05:00:00Z','2021-11-08T04:59:59Z')]:
+            rows=[self.row(vintage,1)]
+            with self.subTest(vintage=vintage):
+                self.assertEqual(self.h.project_alfred_versions(rows,before,'2021-11-09')['records'],[])
+                self.assertEqual(len(self.h.project_alfred_versions(rows,boundary,'2021-11-09')['records']),1)
+
+    def test_later_created_sahm_history_is_not_published_before_first_vintage(self):
+        row=self.row('2019-10-01',0.1,observed='2000-01-01',series='SAHMREALTIME')
+        result=self.h.project_alfred_versions([row],'2016-01-01T21:00:00Z','2021-01-15')
+        self.assertEqual(result['status'],'NO_ELIGIBLE_VINTAGE')
+        self.assertEqual(result['records'],[])
+
+    def test_unknown_clocks_missing_values_and_incomplete_archives_refused(self):
+        row=self.row('2021-01-05',1)
+        for change in ({'available_at':'2021-01-05T12:00:00Z'}, {'published_at':'2021-01-05T12:00:00Z'},
+                       {'evidence':'current_only'}, {'value':float('nan')}, {'value':True}):
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                self.h.project_alfred_versions([dict(row,**change)],'2021-01-09T05:00:00Z','2021-01-15')
+        missing=dict(row); missing.pop('value')
+        with self.assertRaises(ValueError):
+            self.h.project_alfred_versions([missing],'2021-01-09T05:00:00Z','2021-01-15')
+        with self.assertRaisesRegex(ValueError,'incomplete_asof'):
+            self.h.project_alfred_versions([row],'2021-01-09T05:00:00Z','2021-01-07')
+        with self.assertRaisesRegex(ValueError,'decision_clock'):
+            self.h.project_alfred_versions([row],'2021-01-09','2021-01-15')
+        with self.assertRaisesRegex(ValueError,'duplicate_vintage'):
+            self.h.project_alfred_versions([row,row],'2021-01-09T05:00:00Z','2021-01-15')
+
+    def test_lake_projection_requires_actual_execution_and_correct_series(self):
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
+            self.h.project_alfred_asof(self.lake,'M2SL','2021-01-09T05:00:00Z')
+        with patch.object(self.lake,'verified_execution',return_value={'execution_receipt_sha256':'a'*64,
+                'study_recomputed_from_drive':False}):
+            with self.assertRaisesRegex(ValueError,'alfred_execution_incomplete'):
+                self.h.project_alfred_asof(self.lake,'M2SL','2021-01-09T05:00:00Z')
+        with patch.object(self.lake,'verified_execution',return_value={'execution_receipt_sha256':'a'*64,
+                'study_recomputed_from_drive':True}):
+            result=self.h.project_alfred_asof(self.lake,'M2SL','2021-01-09T05:00:00Z')
+            self.assertEqual(result['source_commit'],self.lake.parent)
+            self.assertEqual(result['records'][0]['series'],'M2SL')
+            self.assertFalse(result['historical_pit_certified'])
+            with patch.object(self.lake,'get_records',return_value=[self.row('2021-01-05',1)]):
+                with self.assertRaisesRegex(ValueError,'alfred_archive_series'):
+                    self.h.project_alfred_asof(self.lake,'M2SL','2021-01-09T05:00:00Z')
+
+    def test_old_bundle_remains_readable_with_its_original_registry_snapshot(self):
+        from tools import macro_history_sources as m
+        legacy=copy.deepcopy(m.registry())
+        legacy['series']=[s for s in legacy['series'] if s.get('collection_scope')!='scoped_alfred_only']
+        original=encoded(legacy)
+        path=self.root/'original-registry.json'; path.write_bytes(original)
+        store=self.root/'bundle'
+        with patch.object(m,'REGISTRY',path):
+            receipt,receipt_path=m.collect(store,['M2SL'],'2020-01-01','2021-01-15','alfred',self.fetch)
+        self.assertEqual(receipt['registry_sha256'],digest(original))
+        _,rows=m.load_bundle(store,receipt_path,registry_raw=original)
+        self.assertEqual(rows['M2SL'][0]['value'],3)
+        with self.assertRaisesRegex(ValueError,'registry_changed'):
+            m.load_bundle(store,receipt_path)
+
+    def test_invalid_cli_scope_refused_before_transport_or_reports(self):
+        request=self.root/'invalid.json';request.write_bytes(b'{}')
+        args=['long_history_lake','--remote','synthetic','--workspace',str(self.root/'cli'),
+            '--cohort','unused','--run-id','synthetic','--report-dir',str(self.root/'reports'),
+            '--scoped-alfred-request',str(request),'--scoped-alfred-request-sha256','0'*64]
+        with patch.object(sys,'argv',args),patch.object(self.h,'RcloneTransport') as transport:
+            with self.assertRaisesRegex(ValueError,'scoped_request_hash'):
+                self.h.main()
+            transport.assert_not_called()
+        self.assertFalse((self.root/'reports').exists())
+
+    def test_scoped_cli_reuses_real_publish_without_full_collector(self):
+        from contextlib import redirect_stdout
+        request=self.root/'request.json';raw=encoded(self.request());request.write_bytes(raw)
+        args=['long_history_lake','--remote','synthetic','--workspace',str(self.root/'cli'),
+            '--cohort','unused-do-not-open','--run-id','scoped-cli','--report-dir',str(self.root/'reports'),
+            '--scoped-alfred-request',str(request),'--scoped-alfred-request-sha256',digest(raw)]
+        with redirect_stdout(self.output),patch.object(sys,'argv',args), \
+             patch.object(self.h,'RcloneTransport',return_value=self.transport), \
+             patch.object(self.transport,'call',create=True),patch.object(self.transport,'path',create=True), \
+             patch.object(self.h,'fetch_fred',side_effect=self.fetch), \
+             patch.object(self.h,'collect_macros',side_effect=AssertionError('broad collection forbidden')), \
+             patch.object(self.h,'collect_financials',side_effect=AssertionError('SEC forbidden')), \
+             patch.object(self.h,'complete_consumer',return_value=0) as complete:
+            self.assertEqual(self.h.main(),0)
+            complete.assert_called_once()
+            self.assertEqual(complete.call_args.kwargs['through'],'2021-01-15')
+            restored=Lake(self.transport,self.root/'cli-consumer')
+        self.assertIn('alfred/DGS10',restored.catalog['datasets'])
+        self.assertEqual(restored.catalog['config']['scoped_alfred_request_sha256'],digest(raw))
+        for key,value in self.before.items():
+            self.assertEqual(restored.catalog['datasets'][key],value)
 
 
 def load_tests(loader, tests, pattern):
