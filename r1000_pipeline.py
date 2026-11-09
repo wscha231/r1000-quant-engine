@@ -4208,7 +4208,8 @@ def write_leader_drop_diagnostics(
         failed_dollar_vol = bool(in_pre and _num(pre_row, "dollar_vol_20d") < float(getattr(cfg, "min_dollar_vol_20d", 20_000_000.0)))
         failed_vol_252 = bool(in_pre and _num(pre_row, "vol_252d") > float(getattr(cfg, "max_vol_252", 0.60)))
         failed_dd_1y = bool(in_pre and _num(pre_row, "dd_1y") > float(getattr(cfg, "max_dd_1y", 0.65)))
-        failed_mktcap = bool(use_mktcap_filter and in_pre and pd.isna(pre_row.get("mktcap")))
+        failed_mktcap = bool(in_pre and pre_row.get("mktcap_filter_used", use_mktcap_filter)
+                             and not pre_row.get("mktcap_dollar_vol_fallback", False) and pd.isna(pre_row.get("mktcap")))
         failed_rank_size = bool(in_ranked and not in_final and _num(ranked_row, "rank_size") > float(getattr(cfg, "universe_size", 1000)))
 
         if in_final:
@@ -5973,14 +5974,53 @@ def ensure_mktcap_proxy(cfg: EngineConfig, paths: dict[str, Path], tickers: list
     return cache
 
 
-def apply_adr_usd_mktcap_proxy(monthly: pd.DataFrame, cfg: EngineConfig, paths: dict[str, Path]) -> pd.DataFrame:
-    """Normalize ADR market cap to USD company market cap.
+def _mktcap_proxy_at_decisions(monthly: pd.DataFrame, proxy: pd.DataFrame) -> pd.DataFrame:
+    """Select observed snapshots; updated_at is not Source/PIT admission.
 
-    `px * shares` is valid for ordinary US shares, but ADR rows often combine a
-    USD ADR price with ordinary local shares from SEC companyfacts. TSM is the
-    canonical failure mode: ADR price * Taiwan ordinary shares inflated market
-    cap by ~5x. Use yfinance's USD company marketCap as the live anchor and
-    apply the resulting ADR-ratio factor to historical px*shares rows.
+    A current value is never projected backwards. Unknown clocks and
+    conflicting same-clock snapshots are refused, without rewriting clocks.
+    """
+    columns = ["mktcap_proxy", "updated_at", "price_currency", "financial_currency",
+               "shares_outstanding_proxy", "implied_shares_outstanding_proxy"]
+    result = pd.DataFrame(index=monthly.index, columns=columns)
+    if monthly.empty or proxy.empty or not {"ticker", "updated_at", "mktcap_proxy"}.issubset(proxy):
+        return result
+    source = proxy.copy()
+    source["updated_at"] = pd.to_datetime(source["updated_at"], errors="coerce", utc=True)
+    source["mktcap_proxy"] = pd.to_numeric(source["mktcap_proxy"], errors="coerce")
+    source = source.loc[source["updated_at"].notna()].copy()
+    source["mktcap_proxy"] = source["mktcap_proxy"].where(
+        np.isfinite(source["mktcap_proxy"]) & source["mktcap_proxy"].gt(0))
+    for column in columns:
+        if column not in source:
+            source[column] = np.nan
+    source = source[["ticker"] + columns].drop_duplicates()
+    conflict = source.duplicated(["ticker", "updated_at"], keep=False)
+    # Keep an invalid/ambiguous observation as a null at its actual clock.
+    # Removing it would resurrect an older apparently healthy cap.
+    source.loc[conflict, "mktcap_proxy"] = np.nan
+    source = source.drop_duplicates(["ticker", "updated_at"], keep="first")
+    closes = decision_session_close_utc(pd.to_datetime(monthly["rebalance_date"], errors="coerce"))
+    for ticker, rows in monthly.groupby("ticker", sort=False):
+        candidates = source.loc[source["ticker"].eq(ticker)].sort_values("updated_at")
+        if candidates.empty:
+            continue
+        left = pd.DataFrame({"_ordinal": np.arange(len(rows)), "_cutoff": closes.loc[rows.index].to_numpy()})
+        left = left.loc[left["_cutoff"].notna()].sort_values("_cutoff")
+        if left.empty:
+            continue
+        selected = pd.merge_asof(left, candidates, left_on="_cutoff", right_on="updated_at",
+                                 direction="backward", tolerance=pd.Timedelta(days=14)).sort_values("_ordinal")
+        result.loc[rows.index[selected["_ordinal"].to_numpy(dtype=int)], columns] = selected[columns].to_numpy()
+    return result
+
+
+def apply_adr_usd_mktcap_proxy(monthly: pd.DataFrame, cfg: EngineConfig, paths: dict[str, Path],
+                              *, proxy_snapshots: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """Use only an originally observed USD cap at each ADR row's cutoff.
+
+    No latest-row ratio propagates backwards. A timestamp is necessary for
+    causality but does not authenticate Source rights, identity or PIT basis.
     """
     if monthly is None or monthly.empty or "universe_source" not in monthly.columns or "ticker" not in monthly.columns:
         return monthly
@@ -5988,88 +6028,33 @@ def apply_adr_usd_mktcap_proxy(monthly: pd.DataFrame, cfg: EngineConfig, paths: 
     adr_mask = d["universe_source"].astype(str).str.contains("adr_whitelist", case=False, na=False)
     if not bool(adr_mask.any()):
         return d
-
     d["mktcap"] = pd.to_numeric(d.get("mktcap"), errors="coerce")
     d["mktcap_px_shares_raw"] = d["mktcap"]
     adr_tickers = sorted(d.loc[adr_mask, "ticker"].dropna().astype(str).unique().tolist())
-    proxy = ensure_mktcap_proxy(cfg, paths, adr_tickers, max_new=max(len(adr_tickers), 1))
-    if proxy.empty or "mktcap_proxy" not in proxy.columns:
-        log("[WARN] ADR mktcap USD proxy unavailable; retaining px*shares market cap.")
-        return d
-
-    keep_cols = [
-        c for c in [
-            "ticker",
-            "mktcap_proxy",
-            "price_currency",
-            "financial_currency",
-            "shares_outstanding_proxy",
-            "implied_shares_outstanding_proxy",
-        ]
-        if c in proxy.columns
-    ]
-    proxy = (
-        proxy[keep_cols]
-        .dropna(subset=["ticker"])
-        .drop_duplicates("ticker", keep="last")
-        .rename(
-            columns={
-                "mktcap_proxy": "adr_mktcap_proxy_usd",
-                "price_currency": "adr_price_currency",
-                "financial_currency": "adr_financial_currency",
-            }
-        )
-    )
-    d = d.drop(
-        columns=[
-            "adr_mktcap_proxy_usd",
-            "adr_price_currency",
-            "adr_financial_currency",
-            "adr_mktcap_adjustment_factor",
-        ],
-        errors="ignore",
-    ).merge(proxy, on="ticker", how="left")
-
-    latest_cols = ["ticker", "mktcap_px_shares_raw", "adr_mktcap_proxy_usd"]
-    if "rebalance_date" in d.columns:
-        latest_cols.append("rebalance_date")
-    latest = d.loc[adr_mask, latest_cols].copy()
-    latest["mktcap_px_shares_raw"] = pd.to_numeric(latest["mktcap_px_shares_raw"], errors="coerce")
-    latest["adr_mktcap_proxy_usd"] = pd.to_numeric(latest["adr_mktcap_proxy_usd"], errors="coerce")
-    latest = latest[(latest["mktcap_px_shares_raw"] > 0) & (latest["adr_mktcap_proxy_usd"] > 0)].copy()
-    if latest.empty:
-        return d
-    if "rebalance_date" in latest.columns:
-        latest["rebalance_date"] = pd.to_datetime(latest["rebalance_date"], errors="coerce")
-        latest = latest.sort_values(["ticker", "rebalance_date"])
-    latest = latest.drop_duplicates("ticker", keep="last")
-    latest["factor"] = latest["adr_mktcap_proxy_usd"] / latest["mktcap_px_shares_raw"]
-    latest = latest[latest["factor"].between(0.01, 100.0)].copy()
-    factors = latest.set_index("ticker")["factor"].to_dict()
-    if not factors:
-        return d
-
-    d["adr_mktcap_adjustment_factor"] = d["ticker"].map(factors)
+    if proxy_snapshots is None:
+        prior = load_mktcap_proxy_cache(paths)
+        proxy = ensure_mktcap_proxy(cfg, paths, adr_tickers, max_new=max(len(adr_tickers), 1))
+        proxy_snapshots = pd.concat([prior, proxy], ignore_index=True)
+    selected = _mktcap_proxy_at_decisions(d, proxy_snapshots)
+    d["adr_mktcap_proxy_usd"] = pd.to_numeric(selected["mktcap_proxy"], errors="coerce")
+    d["adr_proxy_updated_at"] = selected["updated_at"]
+    d["adr_price_currency"] = selected["price_currency"]
+    d["adr_financial_currency"] = selected["financial_currency"]
     raw = pd.to_numeric(d["mktcap_px_shares_raw"], errors="coerce")
-    factor = pd.to_numeric(d["adr_mktcap_adjustment_factor"], errors="coerce")
-    apply_mask = adr_mask & raw.notna() & factor.notna()
+    factor = d["adr_mktcap_proxy_usd"] / raw.where(raw.gt(0))
+    apply_mask = adr_mask & factor.between(0.01, 100.0) & d["adr_price_currency"].eq("USD")
+    d["adr_mktcap_adjustment_factor"] = factor.where(apply_mask)
     if "mktcap_source" not in d.columns:
         d["mktcap_source"] = "px_times_shares"
+    # Ordinary-share counts alone do not prove a USD ADR ratio. Leave valuation
+    # unknown; the incumbent missing-cap/DV route may still keep the candidate.
+    d.loc[adr_mask, "mktcap"] = np.nan
+    d.loc[adr_mask, "mktcap_source"] = "adr_usd_cap_unverified"
     d.loc[apply_mask, "mktcap"] = raw.loc[apply_mask] * factor.loc[apply_mask]
     d.loc[apply_mask, "mktcap_source"] = "adr_yf_usd_proxy_ratio"
     if "market_cap_live" not in d.columns:
         d["market_cap_live"] = np.nan
-    d.loc[adr_mask, "market_cap_live"] = pd.to_numeric(
-        d.loc[adr_mask, "market_cap_live"], errors="coerce"
-    ).fillna(pd.to_numeric(d.loc[adr_mask, "adr_mktcap_proxy_usd"], errors="coerce"))
-
-    adjusted = int(d.loc[apply_mask, "ticker"].nunique())
-    sample = latest.assign(raw_t=latest["mktcap_px_shares_raw"] / 1e12, proxy_t=latest["adr_mktcap_proxy_usd"] / 1e12)
-    sample_txt = ", ".join(
-        f"{r.ticker}:{r.factor:.3f}x ${r.raw_t:.2f}T->${r.proxy_t:.2f}T"
-        for r in sample.head(6).itertuples(index=False)
-    )
-    log(f"ADR USD mktcap normalization: adjusted={adjusted}/{len(adr_tickers)} via yfinance marketCap ratio. {sample_txt}")
+    d.loc[adr_mask, "market_cap_live"] = d.loc[adr_mask, "adr_mktcap_proxy_usd"].where(apply_mask)
     return d
 
 
@@ -7668,6 +7653,50 @@ def asof_join_fundamentals(
     return out
 
 
+def _observable_universe_months(monthly: pd.DataFrame) -> pd.DataFrame:
+    """Evaluate each source row at its own month, not at the dataset maximum."""
+    d = monthly.copy()
+    d["rebalance_date"] = pd.to_datetime(d["rebalance_date"], errors="coerce")
+    if "feature_date" not in d:
+        d["feature_date"] = d["rebalance_date"]
+    frames = [_walkforward_asof_rows(rows, date)
+              for date, rows in d.groupby("rebalance_date", sort=True)]
+    return pd.concat(frames, ignore_index=True) if frames else d.iloc[:0].copy()
+
+
+def _causal_universe_size_rows(monthly: pd.DataFrame, cfg: EngineConfig
+                               ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Incumbent size/price/liquidity filters, with month-local coverage.
+
+    Apply the old degraded-latest-month fallback at each month's own cutoff.
+    Adding a later observation cannot change which earlier month was latest.
+    This does not certify historical membership or adjusted-price/share basis.
+    """
+    d = _observable_universe_months(monthly)
+    if d.empty:
+        return d.copy(), d.copy(), d.copy()
+    d["mktcap"] = pd.to_numeric(d["mktcap"], errors="coerce")
+    coverage = d["mktcap"].notna().groupby(d["rebalance_date"]).transform("mean")
+    cap_mode = coverage.ge(0.25)
+    d.loc[cap_mode, "mktcap"] = d.loc[cap_mode, "mktcap"].where(d.loc[cap_mode, "mktcap"].ge(cfg.min_mktcap))
+    remaining_coverage = d["mktcap"].notna().groupby(d["rebalance_date"]).transform("mean")
+    fallback = cap_mode & remaining_coverage.lt(0.25)
+    d["mktcap_filter_used"] = cap_mode
+    d["mktcap_dollar_vol_fallback"] = fallback
+    d["size_metric"] = d["mktcap"].where(cap_mode & ~fallback,
+                                          pd.to_numeric(d["dollar_vol_20d"], errors="coerce"))
+    before_filter = d.copy()
+    keep = (pd.to_numeric(d["px"], errors="coerce").ge(cfg.min_price)
+            & pd.to_numeric(d["dollar_vol_20d"], errors="coerce").ge(cfg.min_dollar_vol_20d)
+            & pd.to_numeric(d["vol_252d"], errors="coerce").le(cfg.max_vol_252)
+            & pd.to_numeric(d["dd_1y"], errors="coerce").le(cfg.max_dd_1y))
+    keep &= ~cap_mode | fallback | d["mktcap"].notna()
+    ranked = d.loc[keep].sort_values(["rebalance_date", "size_metric"], ascending=[True, False]).copy()
+    ranked["rank_size"] = ranked.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
+    selected = ranked.loc[ranked["rank_size"].le(cfg.universe_size)].copy()
+    return before_filter, ranked, selected
+
+
 def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -7735,88 +7764,49 @@ def build_universe_monthly(cfg: dict | EngineConfig) -> pd.DataFrame:
     monthly = attach_fund_panel_join_diagnostics(monthly, panel)
     write_stage_coverage_report(paths, "fund_panel_latest", panel, CORE_FUNDAMENTAL_COLUMNS + ["sales_growth_yoy", "op_margin_ttm", "roe_proxy"])
 
+    monthly = _observable_universe_months(monthly)
+    if monthly.empty:
+        raise RuntimeError("No monthly universe rows observable at their decision closes.")
     monthly["mktcap"] = pd.to_numeric(monthly["px"], errors="coerce") * pd.to_numeric(monthly.get("shares"), errors="coerce")
+    # Preserve the invocation's original snapshots if a current refresh replaces
+    # the single-latest cache row. No retained source is rewritten/backdated.
+    original_proxy = load_mktcap_proxy_cache(paths)
     monthly = apply_adr_usd_mktcap_proxy(monthly, cfg, paths)
-    if monthly["mktcap"].notna().mean() < 0.30:
-        log("[WARN] FSDS shares coverage is low; applying bounded Yahoo marketCap proxy fallback.")
-        mc = ensure_mktcap_proxy(cfg, paths, monthly["ticker"].dropna().unique().tolist(), max_new=600)
-        if not mc.empty:
-            monthly = monthly.merge(mc[["ticker", "mktcap_proxy"]], on="ticker", how="left")
-            monthly["mktcap"] = monthly["mktcap"].fillna(pd.to_numeric(monthly["mktcap_proxy"], errors="coerce"))
-            if "market_cap_live" not in monthly.columns:
-                monthly["market_cap_live"] = np.nan
-            monthly["market_cap_live"] = pd.to_numeric(monthly["market_cap_live"], errors="coerce").fillna(
-                pd.to_numeric(monthly["mktcap_proxy"], errors="coerce")
-            )
-    mktcap_cov = float(monthly["mktcap"].notna().mean())
-    use_mktcap_filter = mktcap_cov >= 0.25
-    # Latest-month starvation guard (Full Rebuild 27337807588, 2026-06-11): a
-    # cold-cache run joined shares for history but left the latest snapshot
-    # ~98% NaN mktcap, so the overall-coverage fallback above never fired and
-    # the scored universe collapsed to 4 names (INVALID_UNIVERSE). Retry the
-    # bounded Yahoo proxy for just the starved latest-month names; if the
-    # month is still starved after the min-cap filter, rank it by dollar
-    # volume instead of dropping it. Healthy runs never enter either branch.
-    latest_month_mask, latest_month_cov = latest_month_mktcap_coverage(monthly)
-    latest_month_dollar_vol_fallback = False
-    if use_mktcap_filter and bool(latest_month_mask.any()) and latest_month_cov < 0.30:
-        log(
-            f"[WARN] latest-month mktcap coverage {latest_month_cov:.1%} vs overall {mktcap_cov:.1%}; "
-            "retrying bounded Yahoo marketCap proxy for the latest snapshot."
-        )
-        need = (
-            monthly.loc[latest_month_mask & monthly["mktcap"].isna(), "ticker"]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
-        )
-        mc = ensure_mktcap_proxy(cfg, paths, need, max_new=1200)
-        if not mc.empty and "mktcap_proxy" in mc.columns:
-            proxy_map = (
-                pd.to_numeric(mc.drop_duplicates("ticker", keep="last").set_index("ticker")["mktcap_proxy"], errors="coerce")
-                .dropna()
-                .to_dict()
-            )
-            fill = monthly.loc[latest_month_mask, "ticker"].astype(str).map(proxy_map)
-            monthly.loc[latest_month_mask, "mktcap"] = monthly.loc[latest_month_mask, "mktcap"].fillna(fill)
-    if use_mktcap_filter:
-        monthly["mktcap"] = monthly["mktcap"].where(monthly["mktcap"] >= cfg.min_mktcap, np.nan)
-        monthly["size_metric"] = monthly["mktcap"]
-        _, latest_month_cov_after = latest_month_mktcap_coverage(monthly)
-        if bool(latest_month_mask.any()) and latest_month_cov_after < 0.25:
-            latest_month_dollar_vol_fallback = True
-            monthly.loc[latest_month_mask, "size_metric"] = pd.to_numeric(
-                monthly.loc[latest_month_mask, "dollar_vol_20d"], errors="coerce"
-            )
-            log(
-                f"[WARN] latest-month mktcap still starved ({latest_month_cov_after:.1%}) after proxy retry; "
-                "ranking the latest month by dollar volume so the universe does not collapse. "
-                "The downstream INVALID_UNIVERSE floor still applies to the scored output."
-            )
-    else:
-        log(f"[WARN] mktcap coverage too low ({mktcap_cov:.2%}); falling back to dollar-vol size metric.")
-        monthly["size_metric"] = pd.to_numeric(monthly["dollar_vol_20d"], errors="coerce")
-
-    leader_diag_pre_filter = monthly.copy()
-    base_mask = (
-        (monthly["px"].fillna(0) >= cfg.min_price)
-        & (monthly["dollar_vol_20d"].fillna(0) >= cfg.min_dollar_vol_20d)
-        & (monthly["vol_252d"].fillna(9e9) <= cfg.max_vol_252)
-        & (monthly["dd_1y"].fillna(9e9) <= cfg.max_dd_1y)
-    )
-    if use_mktcap_filter:
-        mktcap_available = monthly["mktcap"].notna()
-        if latest_month_dollar_vol_fallback:
-            # Degraded latest snapshot: keep latest-month rows rankable by
-            # dollar volume instead of dropping the whole month on NaN mktcap.
-            mktcap_available = mktcap_available | latest_month_mask
-        base_mask &= mktcap_available
-    monthly = monthly[base_mask].copy()
-    monthly = monthly.sort_values(["rebalance_date", "size_metric"], ascending=[True, False])
-    monthly["rank_size"] = monthly.groupby("rebalance_date")["size_metric"].rank(method="first", ascending=False)
-    leader_diag_ranked = monthly.copy()
-    monthly = monthly[monthly["rank_size"] <= cfg.universe_size].copy()
+    coverage = monthly["mktcap"].notna().groupby(monthly["rebalance_date"]).transform("mean")
+    need_proxy = coverage.lt(0.30)
+    adr = monthly["universe_source"].astype(str).str.contains("adr_whitelist", case=False, na=False)
+    if bool(need_proxy.any()):
+        need = monthly.loc[need_proxy, "ticker"].dropna().drop_duplicates().tolist()
+        mc = ensure_mktcap_proxy(cfg, paths, need, max_new=600)
+        snapshots = pd.concat([original_proxy, mc], ignore_index=True)
+        selected_proxy = _mktcap_proxy_at_decisions(monthly, snapshots)
+        proxy_value = pd.to_numeric(selected_proxy["mktcap_proxy"], errors="coerce")
+        monthly["mktcap_proxy"] = proxy_value
+        monthly["mktcap_proxy_updated_at"] = selected_proxy["updated_at"]
+        fill = need_proxy & ~adr & monthly["mktcap"].isna()
+        monthly.loc[fill, "mktcap"] = proxy_value.loc[fill]
+        if "market_cap_live" not in monthly:
+            monthly["market_cap_live"] = np.nan
+        monthly.loc[fill, "market_cap_live"] = proxy_value.loc[fill]
+        # Keep the existing bounded latest refresh optimization. Its clocked
+        # output is consumed only at each row's own cutoff; it cannot license
+        # a dataset-max-only historical fallback.
+        latest_mask, latest_cov = latest_month_mktcap_coverage(monthly)
+        # This full-frame coverage is only the incumbent bounded fetch trigger.
+        # It never controls historical eligibility, size metrics or ranking.
+        if latest_cov < 0.30 and float(monthly["mktcap"].notna().mean()) >= 0.25:
+            retry = monthly.loc[latest_mask & monthly["mktcap"].isna(), "ticker"].dropna().drop_duplicates().tolist()
+            if retry:
+                extra = ensure_mktcap_proxy(cfg, paths, retry, max_new=1200)
+                selected_proxy = _mktcap_proxy_at_decisions(monthly, pd.concat([snapshots, extra], ignore_index=True))
+                retry_value = pd.to_numeric(selected_proxy["mktcap_proxy"], errors="coerce")
+                fill = need_proxy & ~adr & monthly["mktcap"].isna()
+                monthly.loc[fill, "mktcap"] = retry_value.loc[fill]
+                monthly.loc[fill, "mktcap_proxy"] = retry_value.loc[fill]
+                monthly.loc[fill, "mktcap_proxy_updated_at"] = selected_proxy.loc[fill, "updated_at"]
+                monthly.loc[fill, "market_cap_live"] = retry_value.loc[fill]
+    leader_diag_pre_filter, leader_diag_ranked, monthly = _causal_universe_size_rows(monthly, cfg)
+    use_mktcap_filter = bool(leader_diag_pre_filter.get("mktcap_filter_used", pd.Series(dtype=bool)).any())
     write_leader_drop_diagnostics(
         cfg,
         paths,
@@ -10172,6 +10162,16 @@ def compute_adaptive_ensemble_state(
     if d.empty or "y_blend" not in d.columns:
         return state
 
+    # Scored decision output intentionally retains unknown future outcomes.
+    # Such rows cannot count toward activation or displace usable months in
+    # an adaptive lookback, including both latest-recommendation consumers.
+    outcomes = pd.to_numeric(d["y_blend"], errors="coerce")
+    eligible_outcome = np.isfinite(outcomes)
+    d = d.loc[eligible_outcome].copy()
+    d["y_blend"] = outcomes.loc[eligible_outcome].to_numpy()
+    if d.empty:
+        return state
+
     months = sorted(pd.Series(d["rebalance_date"].dropna().unique()).tolist())
     if not months:
         return state
@@ -10367,6 +10367,105 @@ def add_model_score_columns(month_df: pd.DataFrame, pred_cols: dict[str, str], c
     return d
 
 
+def _walkforward_asof_rows(frame: pd.DataFrame, decision_date: Any) -> pd.DataFrame:
+    """Use only rows observable at this decision's completed close.
+
+    Missing historical provenance remains a separate Source/PIT preflight
+    obligation. When an availability column is supplied, missing/invalid/future
+    timestamps cannot silently become observable; collection time is not
+    backdated or substituted for historical publication availability.
+    """
+    date = pd.Timestamp(decision_date).normalize()
+    close = decision_session_close_utc(pd.Series([date])).iloc[0]
+    mask = pd.to_datetime(frame["feature_date"], errors="coerce").le(date)
+    mask &= pd.to_datetime(frame["rebalance_date"], errors="coerce").le(date)
+    if pd.isna(close):
+        return frame.iloc[:0].copy()
+    for column in ("feature_available_from", "available_from", "membership_available_from", "universe_available_from"):
+        if column in frame.columns:
+            available = pd.to_datetime(frame[column], errors="coerce", utc=True)
+            mask &= available.notna() & available.le(close)
+    return frame.loc[mask].copy()
+
+
+def _walkforward_eligible_rows(frame: pd.DataFrame, cfg: EngineConfig,
+                               context: dict[str, Any]) -> pd.DataFrame:
+    keep = pd.to_numeric(frame["px"], errors="coerce").ge(cfg.min_price)
+    keep &= pd.to_numeric(frame["dollar_vol_20d"], errors="coerce").ge(context["min_dollar_vol_20d"])
+    if context["require_mktcap"]:
+        keep &= frame["mktcap"].notna()
+    return frame.loc[keep].copy()
+
+
+def _walkforward_decision_dates(frame: pd.DataFrame, evaluation_start_date: Any) -> list[pd.Timestamp]:
+    # A late-only past month must not shift a later idx-based retrain anchor.
+    # Preserve the incumbent observed-month cadence, not a future-row census.
+    return [date for date in monthly_test_dates(frame, evaluation_start_date)
+            if not _walkforward_asof_rows(frame.loc[frame["rebalance_date"].eq(date)], date).empty]
+
+
+def _walkforward_training_pool(frame: pd.DataFrame, cfg: EngineConfig,
+                               decision_date: Any) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Derive eligibility, sample requirements and labels from past rows only."""
+    date = pd.Timestamp(decision_date)
+    start = date - pd.DateOffset(years=cfg.train_lookback_years)
+    past = frame.loc[frame["feature_date"].ge(start) & frame["feature_date"].lt(date)
+                     & frame["rebalance_date"].lt(date)].copy()
+    past = _walkforward_asof_rows(past, date)
+    past = derive_label_availability(past, cfg)
+    past = past.loc[label_ready_before(past, "short", date)].copy()
+    coverage = float(past["mktcap"].notna().mean()) if len(past) else 0.0
+    dv = pd.to_numeric(past["dollar_vol_20d"], errors="coerce")
+    dv_max = float(dv.max()) if dv.notna().any() else np.nan
+    minimum_dv = cfg.min_dollar_vol_20d
+    if pd.notna(dv_max) and dv_max <= 1_100_000 and minimum_dv > dv_max:
+        minimum_dv = 500_000.0
+    context = dict(decision_date=str(date.date()), require_mktcap=coverage >= 0.25,
+                   mktcap_coverage=coverage, min_dollar_vol_20d=float(minimum_dv),
+                   effective_min_train_samples=int(cfg.min_train_samples))
+    past = _walkforward_eligible_rows(past, cfg, context)
+    counts = past.groupby("rebalance_date")["ticker"].nunique().astype(float)
+    median = float(counts.median()) if len(counts) else 0.0
+    if (bool(getattr(cfg, "compact_universe_train_sample_relax_enabled", True))
+            and 0 < median <= float(getattr(cfg, "compact_universe_max_median_tickers", 250))):
+        floor = max(int(getattr(cfg, "compact_universe_min_train_samples", 800)), 100)
+        context["effective_min_train_samples"] = min(int(cfg.min_train_samples),
+                                                     max(floor, int(np.ceil(median * 12.0))))
+    context["median_monthly_tickers"] = median
+    context["max_monthly_tickers"] = float(counts.max()) if len(counts) else 0.0
+    # Label targets are built only on the original strict-maturity training set.
+    past["y_blend"], past["y_bin"] = make_targets(past.reset_index(drop=True), cfg)
+    past["future_winner_y"], past["future_winner_bin"] = np.nan, np.nan
+    past["future_winner_available"] = False
+    future_mask = label_ready_before(past, "future", date)
+    if future_mask.any():
+        values, classes, available = make_future_winner_targets(past.loc[future_mask].reset_index(drop=True), cfg)
+        past.loc[future_mask, "future_winner_y"] = values
+        past.loc[future_mask, "future_winner_bin"] = classes
+        past.loc[future_mask, "future_winner_available"] = available
+    return past, context
+
+
+def _walkforward_mature_history(frame: pd.DataFrame, cfg: EngineConfig,
+                                decision_date: Any, *, end_of_evidence: bool = False) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    if end_of_evidence:
+        # The requested evidence boundary may be a weekend/holiday. It is not
+        # a new decision: evaluate at its latest actual completed NYSE close.
+        end = pd.Timestamp(decision_date).normalize()
+        closes = decision_session_close_utc(pd.Series(pd.date_range(end-pd.Timedelta(days=31), end)))
+        if mcal is None or closes.notna().sum() == 0:
+            return frame.iloc[:0].copy()
+        decision_date = closes.dropna().max().tz_convert(None).normalize()
+    history = _walkforward_asof_rows(frame, decision_date)
+    history = history.loc[history["rebalance_date"].lt(pd.Timestamp(decision_date))].copy()
+    history = derive_label_availability(history, cfg)
+    history = history.loc[label_ready_before(history, "short", decision_date)].copy()
+    history["y_blend"], history["y_bin"] = make_targets(history.reset_index(drop=True), cfg)
+    return history
+
+
 def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> ModelBundle:
     cfg = to_cfg(cfg)
     paths = get_paths(cfg)
@@ -10392,6 +10491,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     d["feature_date"] = pd.to_datetime(d["feature_date"], errors="coerce")
     if d["feature_date"].notna().sum() == 0 and d["rebalance_date"].notna().sum() > 0:
         d["feature_date"] = d["rebalance_date"]
+    evidence_end = pd.Timestamp(cfg.end_date).normalize()
+    d = d.loc[d["rebalance_date"].le(evidence_end) & d["feature_date"].le(evidence_end)].copy()
     d = clear_latest_only_signal_columns(d)
     d = d.sort_values(["rebalance_date", "ticker"]).reset_index(drop=True)
 
@@ -10399,24 +10500,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         if f not in d.columns:
             d[f] = 0.0
 
-    mktcap_cov = float(d["mktcap"].notna().mean()) if len(d) else 0.0
-    if mktcap_cov >= 0.25:
-        d = d[d["mktcap"].notna()]
-    else:
-        log(f"[WARN] train mktcap coverage too low ({mktcap_cov:.2%}); skipping mktcap-notna filter.")
-    d = d[d["px"].fillna(0) >= cfg.min_price]
-    dv = pd.to_numeric(d["dollar_vol_20d"], errors="coerce")
-    min_dv = cfg.min_dollar_vol_20d
-    dv_max = float(np.nanmax(dv.values)) if len(dv.dropna()) else np.nan
-    if pd.notna(dv_max) and dv_max <= 1_100_000 and cfg.min_dollar_vol_20d > dv_max:
-        log(
-            "[WARN] dollar_vol_20d appears clipped/low-scale. "
-            f"Auto-relaxing min_dollar_vol_20d from {cfg.min_dollar_vol_20d:,.0f} to 500,000."
-        )
-        min_dv = 500_000.0
-    d = d[dv.fillna(0) >= min_dv]
     d = d[d["feature_date"].notna()]
-    d = d[d["r_1m"].notna() | d["r_3m"].notna() | d["r_6m"].notna()]
     d = hard_sanitize(
         d,
         model_features
@@ -10424,45 +10508,14 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         clip=1e14,
     )
     d = derive_label_availability(d, cfg)
-    d = d[d["short_label_complete"].fillna(False).astype(bool)].copy()
-
-    y_all, ybin_all = make_targets(d, cfg)
-    d["y_blend"] = y_all
-    d["y_bin"] = ybin_all
-    future_y_all, future_ybin_all, future_avail_all = make_future_winner_targets(d, cfg)
-    d["future_winner_y"] = future_y_all
-    d["future_winner_bin"] = future_ybin_all
-    d["future_winner_available"] = (
-        future_avail_all
-        & d["future_label_complete"].fillna(False).astype(bool).to_numpy()
-    )
-
-    monthly_ticker_counts = (
-        d.dropna(subset=["rebalance_date"])
-        .groupby("rebalance_date")["ticker"]
-        .nunique()
-        .astype(float)
-    )
-    median_monthly_tickers = float(monthly_ticker_counts.median()) if len(monthly_ticker_counts) else 0.0
-    max_monthly_tickers = float(monthly_ticker_counts.max()) if len(monthly_ticker_counts) else 0.0
+    # The decision pool is label-free. Outcome targets are attached only to a
+    # past training/evaluation snapshot after the strict maturity gate.
+    for column in ("y_blend", "y_bin", "future_winner_y", "future_winner_bin"):
+        d[column] = np.nan
+    d["future_winner_available"] = False
     effective_min_train_samples = int(cfg.min_train_samples)
-    if (
-        bool(getattr(cfg, "compact_universe_train_sample_relax_enabled", True))
-        and 0 < median_monthly_tickers <= float(getattr(cfg, "compact_universe_max_median_tickers", 250))
-    ):
-        compact_floor = max(int(getattr(cfg, "compact_universe_min_train_samples", 800)), 100)
-        dynamic_min = max(compact_floor, int(np.ceil(median_monthly_tickers * 12.0)))
-        dynamic_min = min(int(cfg.min_train_samples), dynamic_min)
-        if dynamic_min < effective_min_train_samples:
-            log(
-                "Phase 4: compact-universe train threshold relaxed "
-                f"from {effective_min_train_samples} to {dynamic_min} "
-                f"(median_monthly_tickers={median_monthly_tickers:.0f}, "
-                f"max_monthly_tickers={max_monthly_tickers:.0f})."
-            )
-            effective_min_train_samples = dynamic_min
 
-    dates = monthly_test_dates(d, getattr(cfg, "evaluation_start_date", ""))
+    dates = _walkforward_decision_dates(d, getattr(cfg, "evaluation_start_date", ""))
     if not dates:
         raise RuntimeError(
             "No test months available for walk-forward training. "
@@ -10530,6 +10583,8 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     current_cbrk: Optional[Any] = None
     current_rank_enabled = bool(cfg.ranking_enabled and catboost_available)
     current_model_decision_cutoff: Optional[pd.Timestamp] = None
+    current_eligibility: Optional[dict[str, Any]] = None
+    median_monthly_tickers = max_monthly_tickers = 0.0
     skip_stats = {
         "completed": 0,
         "empty_test": 0,
@@ -10546,33 +10601,29 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
         if test_mask.sum() == 0:
             skip_stats["empty_test"] += 1
             continue
-        test_df = d[test_mask].copy()
+        test_df = _walkforward_asof_rows(d[test_mask], test_dt)
+        if test_df.empty:
+            skip_stats["empty_test"] += 1
+            continue
         anchor_idx = walkforward_anchor_index(idx, retrain_every)
         need_retrain = current_scaler is None or current_anchor_idx != anchor_idx
         if need_retrain:
             anchor_dt = pd.Timestamp(dates[anchor_idx])
             model_decision_cutoff = anchor_dt
-            anchor_train_start = anchor_dt - pd.DateOffset(years=cfg.train_lookback_years)
-            anchor_train_mask = (
-                (d["feature_date"] >= anchor_train_start)
-                & (d["feature_date"] < anchor_dt)
-                & label_ready_before(d, "short", anchor_dt)
-            )
-            anchor_train_df = d[anchor_train_mask].copy()
+            anchor_train_df, eligibility = _walkforward_training_pool(d, cfg, anchor_dt)
+            effective_min_train_samples = eligibility["effective_min_train_samples"]
 
             if len(anchor_train_df) < effective_min_train_samples:
                 model_decision_cutoff = pd.Timestamp(test_dt)
-                current_train_start = test_dt - pd.DateOffset(years=cfg.train_lookback_years)
-                current_train_mask = (
-                    (d["feature_date"] >= current_train_start)
-                    & (d["feature_date"] < test_dt)
-                    & label_ready_before(d, "short", test_dt)
-                )
-                anchor_train_df = d[current_train_mask].copy()
+                anchor_train_df, eligibility = _walkforward_training_pool(d, cfg, test_dt)
+                effective_min_train_samples = eligibility["effective_min_train_samples"]
+            median_monthly_tickers = eligibility["median_monthly_tickers"]
+            max_monthly_tickers = eligibility["max_monthly_tickers"]
             train_sample_sizes.append(int(len(anchor_train_df)))
             if len(anchor_train_df) < effective_min_train_samples:
                 skip_stats["min_train_samples"] += 1
                 continue
+            current_eligibility = eligibility
 
             fit_df, valid_df = split_walkforward_train_valid(anchor_train_df, cfg.cat_validation_months)
             current_scaler = fit_scaler(fit_df, model_features)
@@ -10700,8 +10751,13 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
                     current_cbrk = None
             current_anchor_idx = anchor_idx
 
-        if current_scaler is None or current_reg is None:
+        if current_scaler is None or current_reg is None or current_eligibility is None:
             skip_stats["missing_model"] += 1
+            continue
+
+        test_df = _walkforward_eligible_rows(test_df, cfg, current_eligibility)
+        if test_df.empty:
+            skip_stats["empty_test"] += 1
             continue
 
         X_test = apply_scaler(test_df, current_scaler, model_features)
@@ -10743,6 +10799,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
             cfg=cfg,
         )
         adaptive_history = pd.concat(oos_rows, ignore_index=True) if oos_rows else pd.DataFrame()
+        adaptive_history = _walkforward_mature_history(adaptive_history, cfg, test_dt)
         adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=test_dt)
         month_regime_weights = (
             compute_regime_conditional_ensemble_weights(adaptive_history, cfg, as_of_date=test_dt)
@@ -10796,6 +10853,9 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     scored = pd.concat(oos_rows, ignore_index=True)
     scored = scored.sort_values(["rebalance_date", "score"], ascending=[True, False])
     scored = scored.drop_duplicates(["rebalance_date", "ticker"], keep="last")
+    mature_scored = _walkforward_mature_history(scored, cfg, cfg.end_date, end_of_evidence=True)
+    for column in ("y_blend", "y_bin"):
+        scored.loc[mature_scored.index, column] = mature_scored[column]
     scored.to_parquet(paths["feature_store"] / "scored_oos_latest.parquet", index=False)
     if cfg.resume_partial_walkforward:
         save_walkforward_progress(
@@ -10808,9 +10868,9 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
                 "fingerprint": phase4_fp,
             },
         )
-    ranking_metrics = evaluate_ranking_quality(scored, score_col="score", target_col="y_blend", k=cfg.rank_eval_top_k)
-    adaptive_state_latest = compute_adaptive_ensemble_state(scored, cfg)
-    regime_ens_weights = compute_regime_conditional_ensemble_weights(scored, cfg)
+    ranking_metrics = evaluate_ranking_quality(mature_scored, score_col="score", target_col="y_blend", k=cfg.rank_eval_top_k)
+    adaptive_state_latest = compute_adaptive_ensemble_state(mature_scored, cfg)
+    regime_ens_weights = compute_regime_conditional_ensemble_weights(mature_scored, cfg)
 
     coef = np.nanmean(np.vstack(lin_coef_acc), axis=0) if lin_coef_acc else np.zeros(len(model_features))
     coef_map = {f: float(c) for f, c in zip(model_features, coef.tolist())}
@@ -13063,6 +13123,13 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         except Exception:
             adaptive_history = pd.DataFrame()
     adaptive_as_of = pd.to_datetime(latest_df["rebalance_date"], errors="coerce").max()
+    # A finite retrospective outcome alone is not availability evidence at an
+    # earlier live cutoff. Reuse the same strict label-endpoint gate as training
+    # before either the reused-model or refit-model adaptive consumer.
+    adaptive_history = (_walkforward_mature_history(adaptive_history, cfg, adaptive_as_of)
+                        if pd.notna(adaptive_as_of) else pd.DataFrame())
+    latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
+    _regime_w = compute_regime_conditional_ensemble_weights(adaptive_history, cfg, as_of_date=adaptive_as_of)
 
     reuse_meta = None
     if bool(getattr(cfg, "reuse_phase4_models_for_latest_recommendations", True)):
@@ -13118,15 +13185,6 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
             },
             cfg=cfg,
         )
-        latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
-        if (not latest_adaptive_state.get("active")) and model_bundle is not None:
-            latest_adaptive_state = {
-                "weights": dict(getattr(model_bundle, "adaptive_ensemble_weights", {}) or {}),
-                "quality": dict((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("quality", {}) or {}),
-                "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
-                "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
-            }
-        _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
         latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
         # SEC evidence overlay merge (2026-05-20) — LATEST-only enrichment from
         # 13F (sec_13f_quarterly_refresh.yml) + Form 4 (sec_form4_daily_refresh
@@ -13303,15 +13361,6 @@ def build_latest_recommendations(cfg: dict | EngineConfig, features: pd.DataFram
         },
         cfg=cfg,
     )
-    latest_adaptive_state = compute_adaptive_ensemble_state(adaptive_history, cfg, as_of_date=adaptive_as_of)
-    if (not latest_adaptive_state.get("active")) and model_bundle is not None:
-        latest_adaptive_state = {
-            "weights": dict(getattr(model_bundle, "adaptive_ensemble_weights", {}) or {}),
-            "quality": dict((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("quality", {}) or {}),
-            "history_months": int((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("history_months", 0)),
-            "active": bool((getattr(model_bundle, "adaptive_ensemble_diagnostics", {}) or {}).get("active", False)),
-        }
-    _regime_w = dict(getattr(model_bundle, "regime_ensemble_weights", {}) or {}) if model_bundle is not None else {}
     latest_df = apply_adaptive_ensemble_state(latest_df, latest_adaptive_state, regime_weights=_regime_w or None)
     latest_df = add_total_score_columns(
         latest_df,

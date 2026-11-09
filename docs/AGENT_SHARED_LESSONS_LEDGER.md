@@ -10007,3 +10007,101 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Include optional artifacts nested in the original QA bundle in the same
   transitive count/byte/identity preflight before the planner hashes them.
   A bounded top-level inventory alone does not bound the reviewer's operands.
+
+## 2026-11-09 — Label maturity belongs to training, not the decision universe
+
+- The existing walk-forward kernel filtered the entire frame by complete
+  forward labels before enumerating test months. This silently removed recent
+  valid feature rows and could make stale holdings appear to be a current
+  reevaluation. Keep label-free decisions separate from strictly matured
+  training rows; unknown future outcomes are not zero or a reason to invent
+  a future price. Keep performance labels out of adaptive learning until mature.
+- Full-period market-cap coverage, dollar-volume maxima and compact-universe
+  sample thresholds can let future cohorts change old eligibility and fits.
+  Derive those statistics from the actual anchor-as-of training snapshot and
+  freeze them for its predictions. Test independent nonempty fit/predict runs
+  after future feature/label/coverage mutation, not two blocked runs or reused
+  caches. Preserve explicit availability and the evidence-end boundary.
+- Bump the incumbent reuse epoch for the changed modeling contract. Keep raw
+  sources and old artifacts intact; code tests do not certify their historical
+  PIT, authorize a Fullrun, or change the registered Main/Concentrated policy.
+- A late-published row for a previously absent historical month can shift an
+  index-based retraining anchor even when its own prediction is refused.
+  Determine observable decision months at their own cutoff before assigning
+  anchors; test the real fit/predict schedule after inserting a late-only month.
+- The separate legacy `9b23` audit found that a fixed 126-day separation alone
+  cannot prove maturity of 12/24/36-month targets, including latest-model
+  fallback paths. Preserve the newer exact-endpoint F0 maturity policy; the
+  effect on any historical published CAGR has not been measured. Independent
+  current-kernel audit receipt SHA-256:
+  `410dfadf83454644c991db654ac1d4a29e9d0ba959f83c20ac367c7a2d4f4a5a`.
+- A present-day 820-stock roster, current YF market-cap history fallback, and
+  adjusted-close absolute price/liquidity filters do not prove historical
+  membership, valuation or execution PIT. Those Source/basis holds remain
+  separate from this H1; use identical integer-share/DGS3MO cash contracts for
+  both portfolios, with no claim of actual backtest readiness or returns.
+- Keep invalid/non-session decisions fail-closed, but resolve a final evidence
+  boundary on a weekend/holiday to its actual prior completed NYSE close.
+  Reusing a strict decision-date guard for final reporting can erase otherwise
+  mature history; compare Friday/Saturday and pre-holiday/holiday outcomes.
+- The upstream universe builder also used full-window market-cap coverage and
+  discarded the original proxy collection clock. Evaluate the same cap/DV
+  fallback at each observable month; a later month must not change which old
+  month receives the degraded-latest fallback. Keep clocked proxy snapshots
+  separate from historical Source/PIT admission, and never renew their time.
+- An ADR ratio derived from the final raw price/share row cannot normalize all
+  earlier dates. Use only original USD operands observable at the row cutoff;
+  unknown ADR cap stays null and does not become a fabricated zero. Preserve
+  the candidate through the incumbent missing-cap route where applicable.
+- Independent H1B review found a forward liveness regression: latest cap
+  coverage below 25% still needs the old bounded 1200-name retry when the
+  observed frame's cap-mode threshold was met. Keep whole-frame coverage only
+  for this fetch optimization, never for historical selection. Test the real
+  universe call trace at 0%/24% after an insufficient initial600, and reject
+  future proxy values even when the retry runs; all-history0% adds no retry.
+- The first combined H1 full CI passed234/236 suites. Its starvation test still
+  asserted removed local variable names, and its historical manual positive
+  demanded that a current catalog pin equal an old feature hash. Replace the
+  lexical guard with actual monthly selection/future-append behavior; reconstruct
+  fixed original Git bytes and their pins only in the temporary historical
+  fixture. Verify current/modified bytes are refused there and the live catalog
+  is unchanged. This does not admit new production or historical reuse inputs.
+- A shallow checkout may not contain an old pipeline object after its current
+  pin advances. Preserve only the exact public tracked original as a bounded
+  compressed test fixture, verify compressed and raw sizes/hashes, and test
+  the missing-object path plus corrupt/oversize refusals. Never substitute
+  current source for historical positive evidence or fetch missing history.
+- The first shallow-fixture check wrongly assumed the reviewed feature module
+  still matched HEAD; the real current blob differed and seven setups failed.
+  Preserve that failed run, then bind both fixed public originals explicitly,
+  use no-lazy-fetch local Git or their bounded archives, and verify each
+  missing-object positive without recertifying the current source.
+- The compatibility rerun's full local smoke was133/140, with seven unrelated
+  sparse-checkout failures (missing notebook/aggressive modules). Preserve it
+  as an environment-blocked full suite, not PASS. The current historical
+  positive/negative manual subset passed in both modes; keep that scope
+  distinct from hosted full CI and from the unchanged earlier engine tests.
+- After exact sparse-input restoration, full local smoke was139/140: the
+  untouched G6 executor test's frozen AST digest differed on Python3.14.
+  Preserve the failure and version; earlier b86 hosted3.12.16 G6 success is a
+  clue, not proof of environment causality. Do not change the protected
+  executor/digest or label the full suite PASS; require current hosted CI.
+- Label-free scored rows must not count toward downstream adaptive activation
+  or displace mature target months from its lookback. Apply the outcome gate
+  in the existing shared helper before month selection, covering both latest
+  consumers while keeping recent decision rows intact. Test5mature+7unknown
+  inactive and6mature positive weights invariant under unknown-tail append.
+- Runtime attribution correction: the original b86 validate used CPython3.12.16,
+  not the separate3.11 contract job. Keep old receipts immutable and the local
+  3.14.4 G6 failure distinct; a version clue alone does not waive current CI.
+- The first adaptive-maturity fixture omitted required12/24/36-month label
+  provenance columns and the existing F0 gate refused it. Preserve the failed
+  two-case result and declare unavailable long outcomes null/NaT in the fixture;
+  do not weaken the full provenance contract to make a short-history test pass.
+- Independent review found a later unclocked bundle fallback could undo the
+  latest maturity gate. Compute current adaptive/regime weights once from the
+  same strict mature history and share them across both apply paths; a cached
+  future-active snapshot is not evidence to reactivate a five-month history.
+- Reindexing filtered outcomes by duplicated row labels can multiply rows.
+  Use one eligibility mask with positional assignment; preserve valid zero,
+  negative outcomes and duplicate-index generic API behavior.
