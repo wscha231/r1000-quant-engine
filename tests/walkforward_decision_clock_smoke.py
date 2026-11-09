@@ -107,6 +107,19 @@ class WalkforwardDecisionClockTests(unittest.TestCase):
         self.assertNotIn(month.iloc[0]['ticker'], set(result['ticker']))
         self.assertNotIn(month.iloc[1]['ticker'], set(result['ticker']))
 
+    def test_final_weekend_or_holiday_uses_completed_close_without_new_decision(self):
+        cfg=configuration('unused-synthetic-no-io')
+        mature=self.frame.loc[self.frame['feature_date'].eq('2016-01-29')].copy()
+        friday=pipeline._walkforward_mature_history(mature,cfg,'2021-09-17',end_of_evidence=True)
+        saturday=pipeline._walkforward_mature_history(mature,cfg,'2021-09-18',end_of_evidence=True)
+        self.assertGreater(len(friday),0)
+        pd.testing.assert_frame_equal(friday,saturday)
+        wednesday=pipeline._walkforward_mature_history(mature,cfg,'2021-11-24',end_of_evidence=True)
+        thanksgiving=pipeline._walkforward_mature_history(mature,cfg,'2021-11-25',end_of_evidence=True)
+        pd.testing.assert_frame_equal(wednesday,thanksgiving)
+        # Non-session dates remain invalid as actual decisions.
+        self.assertTrue(pipeline._walkforward_mature_history(mature,cfg,'2021-09-18').empty)
+
     def run_core(self, frame, *, end='2022-03-31', evaluation_start='2021-09-01', retrain=3):
         trace = dict(scalers=[], fits=[], adaptive=[])
         with tempfile.TemporaryDirectory() as temporary:

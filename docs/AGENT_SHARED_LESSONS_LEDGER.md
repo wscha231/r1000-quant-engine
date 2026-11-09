@@ -10040,3 +10040,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   membership, valuation or execution PIT. Those Source/basis holds remain
   separate from this H1; use identical integer-share/DGS3MO cash contracts for
   both portfolios, with no claim of actual backtest readiness or returns.
+- Keep invalid/non-session decisions fail-closed, but resolve a final evidence
+  boundary on a weekend/holiday to its actual prior completed NYSE close.
+  Reusing a strict decision-date guard for final reporting can erase otherwise
+  mature history; compare Friday/Saturday and pre-holiday/holiday outcomes.

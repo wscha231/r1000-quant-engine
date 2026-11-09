@@ -10447,9 +10447,17 @@ def _walkforward_training_pool(frame: pd.DataFrame, cfg: EngineConfig,
 
 
 def _walkforward_mature_history(frame: pd.DataFrame, cfg: EngineConfig,
-                                decision_date: Any) -> pd.DataFrame:
+                                decision_date: Any, *, end_of_evidence: bool = False) -> pd.DataFrame:
     if frame.empty:
         return frame.copy()
+    if end_of_evidence:
+        # The requested evidence boundary may be a weekend/holiday. It is not
+        # a new decision: evaluate at its latest actual completed NYSE close.
+        end = pd.Timestamp(decision_date).normalize()
+        closes = decision_session_close_utc(pd.Series(pd.date_range(end-pd.Timedelta(days=31), end)))
+        if mcal is None or closes.notna().sum() == 0:
+            return frame.iloc[:0].copy()
+        decision_date = closes.dropna().max().tz_convert(None).normalize()
     history = _walkforward_asof_rows(frame, decision_date)
     history = history.loc[history["rebalance_date"].lt(pd.Timestamp(decision_date))].copy()
     history = derive_label_availability(history, cfg)
@@ -10845,7 +10853,7 @@ def train_walkforward(cfg: dict | EngineConfig, features: pd.DataFrame) -> Model
     scored = pd.concat(oos_rows, ignore_index=True)
     scored = scored.sort_values(["rebalance_date", "score"], ascending=[True, False])
     scored = scored.drop_duplicates(["rebalance_date", "ticker"], keep="last")
-    mature_scored = _walkforward_mature_history(scored, cfg, cfg.end_date)
+    mature_scored = _walkforward_mature_history(scored, cfg, cfg.end_date, end_of_evidence=True)
     for column in ("y_blend", "y_bin"):
         scored.loc[mature_scored.index, column] = mature_scored[column]
     scored.to_parquet(paths["feature_store"] / "scored_oos_latest.parquet", index=False)
