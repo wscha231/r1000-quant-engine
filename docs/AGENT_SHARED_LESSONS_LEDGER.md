@@ -10154,3 +10154,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The first commit stopped because this host had no Git author configured.
   Reuse the existing Source author with command-local Git settings; preserve the
   failed attempt and avoid changing global user settings or unrelated commits.
+- Hash current dependency pins from exact Git blob LF bytes, and record raw
+  Windows checkout hashes separately. A clean Git diff does not establish byte
+  equality across CRLF conversion. Preserve immutable historical fixture pins
+  and the production hash refusal; a timed-out optimized check is not a pass.
