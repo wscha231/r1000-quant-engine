@@ -672,8 +672,14 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                 else:
                     held[t] = "INCOMPLETE_REQUESTED_SESSION"
             held.update({t: "VERIFIED_NO_DATA_FOR_REQUESTED_WINDOW" for t in no_data})
+            # Locator only, copied after original archive/receipt readback. Consumers
+            # must reverify objects; this hint grants no identity, rights or PIT.
+            hint = dict(schema="a1-managed-capture-membership-hint-v1",
+                        capture_receipt_sha256=objects[-1]["sha256"],
+                        **{k: receipt[k] for k in ("symbols", "start", "end", "collected", "no_bars")})
             receipts.append(dict(objects=objects, collection_started_at=observed,
                                  collection_finished_at=clock().isoformat(), public_available_at=None,
+                                 capture_membership_hint=hint,
                                  historical_identity_verified=False, corporate_action_chain_verified=False,
                                  source_admission=False, pit_verified=False))
             rows += count

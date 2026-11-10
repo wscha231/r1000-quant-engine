@@ -210,6 +210,59 @@ class ComponentHoldTests(unittest.TestCase):
         self.assertEqual(caught.exception.coverage, {"AAPL": FULL[-1]})
         self.assertEqual(caught.exception.held, {"MSFT": HELD})
 
+    def test_new_locator_matches_actual_readback_receipt_and_preserves_exact_object_refs(self):
+        group = self.baseline(dict(AAPL=FULL[:2], MSFT=FULL[:2]), end=FULL[-1])
+        result = self.execute([group])
+        rows = runtime.journal_rows(self.drive, self.control)
+        terminal = next(r for h, r in rows if h == result["checkpoint_sha256"])
+        self.assertEqual(len(terminal["receipts"]), 1)
+        entry = terminal["receipts"][0]
+        self.assertEqual(len(entry["objects"]), 3)
+        self.assertTrue(all(set(r) == {"file_id", "sha256", "bytes"} for r in entry["objects"]))
+        ref = entry["objects"][-1]
+        original = self.drive.objects[ref["file_id"]]
+        self.assertEqual((runtime.digest(original), len(original)), (ref["sha256"], ref["bytes"]))
+        receipt = runtime.decode(original)
+        self.assertEqual(entry["capture_membership_hint"], dict(
+            schema="a1-managed-capture-membership-hint-v1", capture_receipt_sha256=ref["sha256"],
+            **{k: receipt[k] for k in ("symbols", "start", "end", "collected", "no_bars")}))
+        self.assertEqual(entry["capture_membership_hint"]["symbols"], ["AAPL", "MSFT"])
+        self.assertIsNone(entry["public_available_at"])
+        for key in ("historical_identity_verified", "corporate_action_chain_verified", "source_admission", "pit_verified"):
+            self.assertIs(entry[key], False)
+        self.assertEqual(self.meter.used["provider_gets"], 4)
+
+    def test_unverified_new_capture_cannot_publish_a_locator_or_complete_checkpoint(self):
+        group = self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        verify = cap.verify_archived_group
+        def refuse_new(raw, normalized, receipt):
+            if receipt["start"] == FULL[-1]:
+                raise runtime.Refused("FIXTURE_NEW_ARCHIVE_NOT_VERIFIED")
+            return verify(raw, normalized, receipt)
+        with patch.object(cap, "verify_archived_group", side_effect=refuse_new):
+            with self.assertRaisesRegex(runtime.Refused, "FIXTURE_NEW_ARCHIVE_NOT_VERIFIED"):
+                self.execute([group], tracked=("AAPL",))
+        rows = runtime.journal_rows(self.drive, self.control)
+        self.assertTrue(rows)
+        self.assertFalse(any(r["state"] == "COMPLETE" or r.get("receipts") for _, r in rows))
+
+    def test_legacy_checkpoint_without_locator_restores_without_rewriting_original_bytes(self):
+        group = self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        self.execute([group], tracked=("AAPL",))
+        rows = runtime.journal_rows(self.drive, self.control)
+        reserved = next(pair for pair in rows if pair[1]["state"] == "RESERVED")
+        terminal = next(r for _, r in rows if r["state"] == "COMPLETE")
+        # Construct separate hash-consistent legacy fixture; never rewrite a journal.
+        legacy = json.loads(runtime.encoded(terminal))
+        for entry in legacy["receipts"]:
+            del entry["capture_membership_hint"]
+        legacy_sha = runtime.sha(legacy); before = dict(self.drive.objects); checked = []
+        restored = runtime.restore_journal([reserved, (legacy_sha, legacy)],
+            [dict(id=1, head_sha="2" * 40), dict(id=2, head_sha="2" * 40)], "b" * 64,
+            lambda run, checkpoint: checked.append(checkpoint))
+        self.assertEqual(restored, (legacy_sha, {"AAPL": FULL[-1]}, {}))
+        self.assertEqual(checked, [legacy_sha]);self.assertEqual(self.drive.objects, before)
+
     def test_mixed_reuse_and_prefix_hold_no_identity_or_provider_for_held(self):
         result = self.execute([self.baseline(dict(AAPL=FULL, MSFT=FULL[1:]))])
         self.assertEqual((result["valid_updated"], result["reused"], result["held"], result["rows"]), (0, 1, 1, 0))

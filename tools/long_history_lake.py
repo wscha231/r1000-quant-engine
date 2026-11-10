@@ -1338,6 +1338,30 @@ class Lake:
                     and type(receipt.get('cycle_scope')) is dict
                     and digest(encoded(receipt['cycle_scope']))==self.catalog.get('config',{}).get(
                         'hybrid_refresh',{}).get('summary_sha256'),'hybrid_execution_scope_mismatch')
+        if ('materialization_clock' in receipt or 'materialization_prepublication_clock' in quality):
+            detail=self.catalog.get('config',{}).get('hybrid_refresh',{})
+            keys=[k for k in detail.get('checked_keys',[])
+                if k.startswith(('current/','alfred/','worldbank/'))
+                and self.catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
+            clock=receipt.get('materialization_clock')
+            require(type(clock) is dict and bool(keys),'materialization_execution_clock_missing')
+            require(clock==materialization_clock(self,keys,self.catalog['config']['through'],
+                    clock['consumption_cutoff_utc']) and
+                    json.loads(verified.get('materialization-clock.json',b'null'))==clock,
+                    'materialization_execution_clock_mismatch')
+            sql_at=hybrid_clock(clock['consumption_cutoff_utc']);created=hybrid_clock(receipt['created_at'])
+            require(sql_at<=created<=hybrid_clock(utc_now()),'materialization_execution_clock_order')
+            if 'materialization_prepublication_clock' in quality:
+                pre=quality['materialization_prepublication_clock']
+                require(pre==materialization_clock(self,keys,self.catalog['config']['through'],
+                            pre['consumption_cutoff_utc']) and
+                        hybrid_clock(pre['consumption_cutoff_utc'])<=sql_at,
+                        'materialization_prepublication_clock_order')
+            study=json.loads(verified.get('macro-evaluation.json',b'{}'))
+            if 'as_of' in study:
+                study_at=hybrid_clock(study['as_of'])
+                require(receipt.get('study_consumption_cutoff_utc')==study_at.isoformat()
+                        and sql_at<=study_at<=created,'materialization_study_clock_order')
         readback_verified=False;terminal_verified=False
         if 'source_cycle_readback' in receipt:
             require(receipt['source_cycle_readback']==hybrid_source_scope_readback(self,receipt['cycle_scope'])
@@ -1804,26 +1828,51 @@ def diagnostics(lake):
             if d['status']=='COVERAGE_GAP'})
 
 
-def materialize(lake,destination,keys,cutoff):
+def materialization_clock(lake,keys,through,decision_time):
+    """Observation bounds and knowledge clocks are independent; never infer PIT."""
+    decision=hybrid_clock(decision_time)
+    require(decision<=hybrid_clock(utc_now()),'materialization_future_consumption_clock')
+    require(type(through) is str and date.fromisoformat(through).isoformat()==through
+            and through<=decision.date().isoformat(),'materialization_observation_window')
+    for key in keys:
+        entry=lake.catalog['datasets'][key]
+        require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
+        require(entry.get('evidence')!='current_only' or hybrid_clock(entry['retrieved_at'])<=decision,
+                'current_vintage_historical_cutoff_forbidden')
+    return dict(schema='long-history-materialization-clock-v1',observation_through=through,
+        consumption_cutoff_utc=decision.isoformat(),selected_keys_sha256=digest(encoded(sorted(keys))),
+        historical_pit_certified=False)
+
+
+def materialize(lake,destination,keys,cutoff,*,decision_time=None):
     """Rebuildable SQL cache from pinned, verified versions. No PIT relabelling."""
     require(not Path(destination).exists(),'database_already_exists')
+    clock=(materialization_clock(lake,keys,cutoff,decision_time) if decision_time is not None else None)
+    decision=hybrid_clock(clock['consumption_cutoff_utc']) if clock else None
     conn=sqlite3.connect(destination)
     try:
         conn.execute('create table records(dataset text, observation_date text, filed_date text, concept text, unit text, value real, evidence text, payload text)')
         conn.execute('create table provenance(catalog_generation integer, cutoff text, historical_pit_certified integer)')
         conn.execute('insert into provenance values(?,?,0)',(lake.catalog['generation'],cutoff))
+        if clock:
+            conn.execute('create table consumption_context(observation_through text, consumption_cutoff_utc text, historical_pit_certified integer)')
+            conn.execute('insert into consumption_context values(?,?,0)',
+                         (cutoff,clock['consumption_cutoff_utc']))
         count=0
         with conn:
             for key in keys:
                 entry=lake.catalog['datasets'][key]
                 require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
-                require(entry.get('evidence')!='current_only' or cutoff>=entry['retrieved_at'][:10],
+                require(entry.get('evidence')!='current_only' or (
+                        cutoff>=entry['retrieved_at'][:10] if decision is None else
+                        hybrid_clock(entry['retrieved_at'])<=decision),
                         'current_vintage_historical_cutoff_forbidden')
                 for row in lake.get_records(key):
                     observed=row.get('observation_date',row.get('end'))
                     if observed and observed>cutoff: continue
                     if row.get('filed') and row['filed']>cutoff: continue
-                    if row.get('available_at') and row['available_at'][:10]>cutoff: continue
+                    if row.get('available_at') and (row['available_at'][:10]>cutoff if decision is None
+                            else hybrid_clock(row['available_at'])>decision): continue
                     conn.execute('insert into records values(?,?,?,?,?,?,?,?)',(key,observed,row.get('filed'),row.get('concept',row.get('series')),row.get('unit'),row.get('value'),row.get('evidence',entry['evidence']),json.dumps(row)))
                     count+=1
             conn.execute('create index lookup on records(dataset,observation_date,filed_date)')
@@ -1886,12 +1935,20 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
           and d['status'] in ('COLLECTED','UNCHANGED')]
     if cycle is not None:
         keys=[k for k in keys if k in cycle['checked_keys']]
+        require(not keys or through==consumer.catalog['config']['through'],
+                'materialization_observation_catalog_mismatch')
     source_only=cycle is not None and cycle['summary'].get('standing_auto',{}).get(
         'provider_scope',{}).get('fred') is False
+    consumption_at=utc_now() if cycle is not None and keys else None
+    sql_clock=(materialization_clock(consumer,keys,through,consumption_at) if consumption_at else None)
     with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
         consumer_rows=(0 if source_only and not keys else
-                       materialize(consumer,Path(workspace)/'macro.sqlite',keys,through))
+                       materialize(consumer,Path(workspace)/'macro.sqlite',keys,through,
+                           **(dict(decision_time=consumption_at) if consumption_at else {})))
         phase_counts['rows']=consumer_rows
+    if sql_clock is not None:
+        result['materialization_clock']=sql_clock
+        (reports/'materialization-clock.json').write_bytes(encoded(sql_clock))
     try:
         if source_only:
             proof=(hybrid_source_scope_readback(consumer,cycle['summary'])
@@ -1913,6 +1970,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
                 (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
                 (reports/'engine-context.json').write_bytes(encoded(context))
             result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+            if cycle is not None and 'as_of' in study_result:
+                result['study_consumption_cutoff_utc']=hybrid_clock(study_result['as_of']).isoformat()
             if cycle is not None and cycle['summary'].get('terminal_outcomes_complete') is True:
                 result['source_cycle_readback']=hybrid_source_scope_readback(consumer,cycle['summary'])
     except (Refused,TimeoutError,InterruptedError):
@@ -1941,6 +2000,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
         reports=durable_reports,consumer_rows=consumer_rows,
         study_recomputed_from_drive=result['study_recomputed_from_drive'],
         quality_status=report['status'],eligible_for_selector=False)
+    for key in ('materialization_clock','study_consumption_cutoff_utc'):
+        if key in result:receipt[key]=result[key]
     if recovery is not None:
         receipt['recovery']=recovery
     producer=False
@@ -2073,6 +2134,14 @@ def run_hybrid(args, request, request_sha256, *, auto=None):
                 status=('PARTIAL_COVERAGE' if summary.get('terminal_outcomes_complete',False) else 'PARTIAL')
                     if auto is not None else ('PARTIAL' if report['status']=='PARTIAL' else 'PARTIAL_COVERAGE'),
                 cycle_scope=summary)
+            sql_keys=[k for k in sorted(scope['checked_keys'])
+                if k.startswith(('current/','alfred/','worldbank/'))
+                and lake.catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
+            if sql_keys:
+                # Fail a predictable clock/window refusal before committing data.
+                # Consumption independently takes a new actual post-restore clock.
+                report['materialization_prepublication_clock']=materialization_clock(
+                    lake,sql_keys,request['through'],utc_now())
             (reports/'quality.json').write_bytes(encoded(report))
             config=dict(macro_start=request['macro_start'],financial_start=request['financial_start'],
                 through=request['through'],cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),

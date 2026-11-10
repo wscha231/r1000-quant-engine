@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fault-injection regressions for durable history; synthetic data is not coverage."""
 import copy
+from contextlib import closing
 from datetime import datetime,timezone
 import json
 from pathlib import Path
@@ -2374,7 +2375,7 @@ class HybridHistoryTest(unittest.TestCase):
         scope=self.scope(); self.run_daily(scope); summary=self.h.finish_hybrid_cycle(self.lake,scope)
         report=self.h.diagnostics(self.lake)
         report.update(status='PARTIAL_COVERAGE',cycle_scope=summary)
-        result=self.lake.publish('synthetic_scope_sql',dict(self.config,hybrid_refresh=scope['detail']))
+        result=self.lake.publish('synthetic_scope_sql',dict(self.config,through='2026-10-23',hybrid_refresh=scope['detail']))
         consumer=Lake(self.t,self.root/'sql-consumer')
         reports=self.root/'sql-reports'; reports.mkdir(); (reports/'quality.json').write_bytes(encoded(report))
         with patch.object(self.h,'materialize',return_value=34) as sql, \
@@ -2831,6 +2832,156 @@ class AutoHybridTest(unittest.TestCase):
         consumer=Lake(self.t,self.root/'interrupted-consumer')
         with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
             self.next_terminal_scope(p,sha,consumer)
+
+
+class MaterializationClockTest(unittest.TestCase):
+    """Real LocalTransport and SQLite; synthetic observations are not readiness."""
+    def setUp(self):
+        from tools import long_history_lake as h
+        self.h=h;self.tmp=self.enterContext(tempfile.TemporaryDirectory());self.root=Path(self.tmp)
+        self.transport=LocalTransport(self.root/'remote');self.lake=Lake(self.transport,self.root/'writer')
+        self.now='2026-11-10T06:40:00Z';self.through='2026-11-09'
+        self.enterContext(patch.object(h,'utc_now',return_value=self.now))
+
+    def put(self,key='current/UNRATE',retrieved='2026-11-10T06:38:00Z'):
+        rows=[dict(observation_date='2026-11-07',value=1,available_at='2026-11-10T06:39:00Z'),
+              dict(observation_date='2026-11-08',value=2,available_at='2026-11-10T06:41:00Z'),
+              dict(observation_date='2026-11-09',value=3),dict(observation_date='2026-11-10',value=4)]
+        self.lake.dataset(key,[encoded(dict(synthetic=True))],rows,dict(evidence='current_only',
+            retrieved_at=retrieved,rows=4,earliest='2026-11-07',latest='2026-11-10'))
+        return key
+
+    def publish(self,key,*,source_only=False):
+        summary=dict(schema='long-history-hybrid-cycle-scope-v1',requested_cycle_complete=True,
+                     full_universe_current=False,checked_scope_sha256=digest(encoded([key])))
+        if source_only:
+            summary['standing_auto']=dict(profile_sha256='f'*64,
+                provider_scope=dict(sec=False,fred=False,worldbank=True))
+        detail=dict(checked_keys=[key],summary_sha256=digest(encoded(summary)))
+        result=self.lake.publish('synthetic-real-sql',dict(through=self.through,hybrid_refresh=detail))
+        consumer=Lake(self.transport,self.root/'consumer');reports=self.root/'reports';reports.mkdir()
+        (self.root/'work').mkdir()
+        report=self.h.diagnostics(consumer);report.update(status='PARTIAL_COVERAGE',cycle_scope=summary)
+        report['materialization_prepublication_clock']=self.h.materialization_clock(
+            consumer,[key],self.through,self.now)
+        (reports/'quality.json').write_bytes(encoded(report))
+        return result,consumer,reports,report,dict(summary=summary,checked_keys={key})
+
+    def test_explicit_next_day_clock_keeps_observation_bound_and_full_availability_clock(self):
+        key=self.put();self.lake.publish('synthetic-clock',dict(through=self.through))
+        reader=Lake(self.transport,self.root/'sql-reader');database=self.root/'actual.sqlite'
+        count=self.h.materialize(reader,database,[key],self.through,decision_time=self.now)
+        self.assertEqual(count,2)
+        with closing(sqlite3.connect(database)) as conn:
+            self.assertEqual(conn.execute('select observation_date,value from records order by observation_date').fetchall(),
+                [('2026-11-07',1.0),('2026-11-09',3.0)])
+            self.assertEqual(conn.execute('select * from provenance').fetchall(),[(1,self.through,0)])
+            self.assertEqual(conn.execute('select * from consumption_context').fetchall(),
+                [(self.through,'2026-11-10T06:40:00+00:00',0)])
+
+    def test_future_retrieval_or_naive_decision_still_refuse_before_SQL_creation(self):
+        key=self.put(retrieved='2026-11-10T06:41:00Z')
+        for decision,reason in ((self.now,'current_vintage_historical_cutoff_forbidden'),
+                                ('2026-11-10T06:40:00','hybrid_explicit_clock')):
+            path=self.root/'refused.sqlite'
+            with self.subTest(decision=decision),self.assertRaisesRegex(ValueError,reason):
+                self.h.materialize(self.lake,path,[key],self.through,decision_time=decision)
+            self.assertFalse(path.exists())
+
+    def test_original_date_only_backdate_guard_remains_strict(self):
+        key=self.put()
+        for cutoff in ('2016-12-31',self.through):
+            path=self.root/(cutoff+'.sqlite')
+            with self.assertRaisesRegex(ValueError,'current_vintage_historical_cutoff_forbidden'):
+                self.h.materialize(self.lake,path,[key],cutoff)
+            with closing(sqlite3.connect(path)) as conn:
+                self.assertEqual(conn.execute("select count(*) from sqlite_master where name='consumption_context'").fetchone(),(0,))
+
+    def test_FRED_enabled_clean_consumer_uses_real_materialize_and_publishes_execution(self):
+        key=self.put();result,consumer,reports,report,cycle=self.publish(key)
+        def study(*args):
+            self.enterContext(patch.object(self.h,'utc_now',return_value='2026-11-10T06:43:00Z'))
+            return dict(tests_declared=[],as_of='2026-11-10T06:42:00Z'),{}
+        with patch.object(self.h,'analyze_restored',side_effect=study):
+            code=self.h.complete_consumer(consumer,result,reports,self.root/'work',run_id='synthetic-real-sql',
+                macro_start='1996-01-01',through=self.through,report=report,cycle=cycle)
+        self.assertEqual(code,0)
+        receipt=consumer.verified_execution()
+        self.assertEqual(receipt['consumer_rows'],2)
+        self.assertEqual(receipt['materialization_clock']['observation_through'],self.through)
+        self.assertEqual(receipt['materialization_clock']['consumption_cutoff_utc'],'2026-11-10T06:40:00+00:00')
+        self.assertEqual(receipt['study_consumption_cutoff_utc'],'2026-11-10T06:42:00+00:00')
+
+    def test_WB_only_real_materialize_does_not_call_FRED_study(self):
+        key=self.put('worldbank/NY.GDP.MKTP.KD.ZG')
+        result,consumer,reports,report,cycle=self.publish(key,source_only=True)
+        with patch.object(self.h,'analyze_restored',side_effect=AssertionError('FRED_STUDY_FORBIDDEN')) as study:
+            code=self.h.complete_consumer(consumer,result,reports,self.root/'work',run_id='synthetic-real-sql',
+                macro_start='1996-01-01',through=self.through,report=report,cycle=cycle)
+        self.assertEqual(code,0);study.assert_not_called()
+        receipt=consumer.verified_execution()
+        self.assertEqual(receipt['consumer_rows'],2);self.assertFalse(receipt['study_recomputed_from_drive'])
+        with closing(sqlite3.connect(self.root/'work'/'macro.sqlite')) as conn:
+            self.assertEqual(conn.execute('select observation_through from consumption_context').fetchone(),(self.through,))
+
+    def test_prepublication_context_refuses_predictable_future_retrieval_without_committing(self):
+        key=self.put(retrieved='2026-11-10T06:41:00Z')
+        before=self.transport.names(PREFIX+'/commits')
+        with self.assertRaisesRegex(ValueError,'current_vintage_historical_cutoff_forbidden'):
+            self.h.materialization_clock(self.lake,[key],self.through,self.now)
+        self.assertEqual(self.transport.names(PREFIX+'/commits'),before)
+
+    def test_consumer_observation_mismatch_refuses_before_SQL_or_execution_publication(self):
+        key=self.put();result,consumer,reports,report,cycle=self.publish(key)
+        with self.assertRaisesRegex(ValueError,'materialization_observation_catalog_mismatch'):
+            self.h.complete_consumer(consumer,result,reports,self.root/'work',run_id='synthetic-real-sql',
+                macro_start='1996-01-01',through='2026-11-08',report=report,cycle=cycle)
+        self.assertFalse((self.root/'work'/'macro.sqlite').exists())
+        self.assertEqual(self.transport.names(PREFIX+'/executions'),[])
+
+    def test_explicit_future_consumption_refuses_before_SQL(self):
+        key=self.put();database=self.root/'future.sqlite'
+        with self.assertRaisesRegex(ValueError,'materialization_future_consumption_clock'):
+            self.h.materialize(self.lake,database,[key],self.through,decision_time='2026-11-10T06:41:00Z')
+        self.assertFalse(database.exists())
+
+    def test_rehashed_clock_omission_and_noncausal_values_are_not_execution_evidence(self):
+        key=self.put('worldbank/NY.GDP.MKTP.KD.ZG')
+        result,consumer,reports,report,cycle=self.publish(key,source_only=True)
+        self.h.complete_consumer(consumer,result,reports,self.root/'work',run_id='synthetic-real-sql',
+            macro_start='1996-01-01',through=self.through,report=report,cycle=cycle)
+        name=self.transport.names(PREFIX+'/executions')[0]
+        original=json.loads(self.transport.read(PREFIX+'/executions/'+name))
+        def report_ref(receipt,name,value):
+            raw=encoded(value);sha=digest(raw);self.transport.write(PREFIX+'/reports/'+sha,raw)
+            receipt['reports'][name]=sha
+        def check(mutate,reason):
+            receipt=json.loads(encoded(original));mutate(receipt)
+            for name in self.transport.names(PREFIX+'/executions'):
+                (self.transport.root/PREFIX/'executions'/name).unlink()
+            raw=encoded(receipt);self.transport.write(PREFIX+'/executions/'+digest(raw),raw)
+            with self.assertRaisesRegex(ValueError,reason):consumer.verified_execution()
+        def omitted(receipt):
+            del receipt['materialization_clock'];del receipt['reports']['materialization-clock.json']
+        check(omitted,'materialization_execution_clock_missing')
+        def future(receipt):
+            receipt['materialization_clock']['consumption_cutoff_utc']='2026-11-10T06:45:00+00:00'
+            report_ref(receipt,'materialization-clock.json',receipt['materialization_clock'])
+        check(future,'materialization_future_consumption_clock')
+        with patch.object(self.h,'utc_now',return_value='2026-11-10T06:50:00Z'):
+            def reversed_pre(receipt):
+                quality=json.loads(encoded(report))
+                quality['materialization_prepublication_clock']['consumption_cutoff_utc']='2026-11-10T06:41:00+00:00'
+                report_ref(receipt,'quality.json',quality)
+            check(reversed_pre,'materialization_prepublication_clock_order')
+            check(lambda receipt:receipt.update(created_at='2026-11-10T06:39:00Z'),
+                  'materialization_execution_clock_order')
+            check(lambda receipt:receipt.update(created_at='2026-11-10T06:51:00Z'),
+                  'materialization_execution_clock_order')
+            def reversed_study(receipt):
+                receipt['study_consumption_cutoff_utc']='2026-11-10T06:41:00+00:00'
+                report_ref(receipt,'macro-evaluation.json',dict(as_of='2026-11-10T06:41:00Z'))
+            check(reversed_study,'materialization_study_clock_order')
 
 
 if __name__=='__main__': unittest.main()

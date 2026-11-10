@@ -10312,3 +10312,31 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   suite. Preserve47.1997829s as NOT_COMPLETE, with optimized not run. Use a
   proportional focused normal/-O suite within the remaining52.4248644s; never
   relabel the prior53-case head or the interrupted run as this head's full PASS.
+- A scheduled hybrid's previous NYSE session is an observation boundary, not
+  the knowledge time of a current FRED/WB snapshot fetched on the next UTC day.
+  Keep the legacy date-only guard and add an explicit actual SQL-consumption
+  clock, full retrieval/availability comparisons and observation filtering.
+  Preflight metadata clocks before publication, then independently recheck the
+  actual post-restore clock. Bind that clock in SQL/report/execution provenance.
+  Study bundles keep their real later creation/as-of times; never backdate them
+  to match SQL. Exercise actual LocalTransport/SQLite, not a mocked success.
+- The first clock regression run passed its SQL assertions but a new test left
+  a query connection open: SQLite's transaction context does not close its
+  handle, so Windows temporary-directory cleanup failed. Preserve2.0624963s
+  and use explicit closing in the fixture, without changing runtime guards.
+- The second clock run exposed an old mock fixture publishing an October22
+  catalog while requesting October23 SQL. Preserve8.5627141s, align the fixture
+  and reject mismatched observation bounds before SQL or execution publication;
+  do not weaken the new catalog-bound clock verification to accept it.
+- An explicit consumption clock must not certify its own future time. Validate
+  prepublication <= SQL <= study (when present) <= receipt <= verification now;
+  a new prepublication marker requires the matching SQL clock and report even
+  if both are omitted. Keep legacy receipts and date-only callers unchanged.
+- Anchor fixture edits to their unique consumer setup: a broad matching report
+  line placed the prepublication marker in a different fixture. The new omission
+  test caught this before publication; correct its location and retain1.5146252s.
+- Future managed checkpoints carry a locator hint copied only from an already
+  readback-verified capture receipt (symbols/window/collected/no-bars, bound to
+  its exact SHA). Keep object references as exactly file_id/sha256/bytes and all
+  qualification flags false. Consumers reverify originals; old checkpoints
+  remain readable and immutable. Do not infer membership from journal order.
