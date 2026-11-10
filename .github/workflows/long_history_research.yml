@@ -1,4 +1,5 @@
 name: Durable financial and macro history
+run-name: ${{ format('history-{0}-{1}', inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY', inputs.hybrid_request_sha256 || vars.LONG_HISTORY_HYBRID_REQUEST_SHA256 || 'legacy') }}
 on:
   push:
     branches: ['master']
@@ -57,11 +58,25 @@ on:
         description: SHA256 of the exact request JSON bytes; not an execution approval
         type: string
         default: ''
+      hybrid_refresh_mode:
+        description: Explicit approved hybrid scope; absent legacy behavior is unchanged
+        type: choice
+        options: [LEGACY, HYBRID_DAILY, HYBRID_WEEKLY]
+        default: LEGACY
+      hybrid_request_sha256:
+        description: Exact original private hybrid request SHA256, not an approval
+        type: string
+        default: ''
+      hybrid_approval_reference:
+        description: Immutable A0 OWNER approval for that exact request
+        type: string
+        default: ''
   schedule:
     - cron: '37 6 * * 2-6'
 permissions:
   contents: read
   actions: read
+  issues: read
 jobs:
   history:
     # A code merge must not implicitly launch a provider collection. Existing
@@ -72,6 +87,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      HYBRID_MODE: ${{ inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY' }}
+      HYBRID_SHA: ${{ inputs.hybrid_request_sha256 || vars.LONG_HISTORY_HYBRID_REQUEST_SHA256 }}
+      HYBRID_APPROVAL: ${{ inputs.hybrid_approval_reference || vars.LONG_HISTORY_HYBRID_APPROVAL_REFERENCE }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,20 +142,32 @@ jobs:
           SOURCE_HEAD: ${{ inputs.source_head_sha }}
           SCOPED_ALFRED_REQUEST: ${{ inputs.scoped_alfred_request_json }}
           SCOPED_ALFRED_SHA: ${{ inputs.scoped_alfred_request_sha256 }}
+          HYBRID_REQUEST: ${{ secrets.LONG_HISTORY_HYBRID_REQUEST_JSON }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import os
           from pathlib import Path
-          from tools.long_history_lake import finalization_mode,require,scoped_alfred_request,exclusive
+          from tools.long_history_lake import finalization_mode,require,scoped_alfred_request,exclusive,hybrid_request,authorize_hybrid,HYBRID_MODES
           finalizing=finalization_mode(os.environ['FINALIZE_COMMIT'],os.environ['FINALIZE_CATALOG'],os.environ['SOURCE_HEAD'])
           require(not finalizing or os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch','finalization_requires_dispatch')
           raw=os.environ['SCOPED_ALFRED_REQUEST'].encode('utf-8')
           sha=os.environ['SCOPED_ALFRED_SHA']
+          mode=os.environ['HYBRID_MODE']
+          require(mode=='LEGACY' or mode in HYBRID_MODES,'hybrid_mode')
+          if mode!='LEGACY':
+              require(not raw and not sha and not finalizing,'hybrid_mode_conflict')
+              private=os.environ['HYBRID_REQUEST'].encode('utf-8')
+              request=hybrid_request(private,os.environ['HYBRID_SHA'],mode)
+              authorize_hybrid(request,os.environ['HYBRID_SHA'],os.environ['HYBRID_APPROVAL'])
+              path=Path(os.environ['RUNNER_TEMP'])/'hybrid-history-request.json'
+              exclusive(path,private)
+              path.chmod(0o600)
           if raw or sha:
               require(bool(raw and sha) and not finalizing and os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch','scoped_request_inputs')
               scoped_alfred_request(raw,sha)
               exclusive(Path(os.environ['RUNNER_TEMP'])/'scoped-alfred-request.json',raw)
-          print('SCOPED_ALFRED_PREPARED' if raw else 'FINALIZE_EXISTING_GENERATION' if finalizing else 'NORMAL_COLLECTION')
+          print(mode+'_PREPARED' if mode!='LEGACY' else 'SCOPED_ALFRED_PREPARED' if raw else 'FINALIZE_EXISTING_GENERATION' if finalizing else 'NORMAL_COLLECTION')
           PY
       - name: Offline regressions before source or Drive access
         run: |
@@ -163,7 +194,7 @@ jobs:
           MACRO_DRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
         run: python tools/configure_macro_research_drive.py
       - name: Restore durable cohort if already archived
-        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json }}
+        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json && env.HYBRID_MODE == 'LEGACY' }}
         id: cohort
         run: |
           python - <<'PY'
@@ -182,7 +213,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f: f.write('restored='+str(found).lower()+'\n')
           PY
       - name: Bootstrap exact whole-cohort artifact once
-        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json && steps.cohort.outputs.restored != 'true' }}
+        if: ${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json && env.HYBRID_MODE == 'LEGACY' && steps.cohort.outputs.restored != 'true' }}
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
@@ -194,11 +225,15 @@ jobs:
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
           SCOPED_ALFRED_SHA: ${{ inputs.scoped_alfred_request_sha256 }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           scoped=()
           if [ -n "$SCOPED_ALFRED_SHA" ]; then
             scoped=(--scoped-alfred-request "$RUNNER_TEMP/scoped-alfred-request.json" --scoped-alfred-request-sha256 "$SCOPED_ALFRED_SHA")
+          fi
+          if [ "$HYBRID_MODE" != LEGACY ]; then
+            scoped=(--hybrid-mode "$HYBRID_MODE" --hybrid-request "$RUNNER_TEMP/hybrid-history-request.json" --hybrid-request-sha256 "$HYBRID_SHA" --hybrid-approval-reference "$HYBRID_APPROVAL")
           fi
           python tools/long_history_lake.py \
             --remote "$MACRO_RESEARCH_REMOTE" \

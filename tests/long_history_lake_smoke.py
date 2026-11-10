@@ -2167,4 +2167,269 @@ def load_tests(loader, tests, pattern):
     return tests
 
 
+class HybridHistoryTest(unittest.TestCase):
+    """Synthetic contracts and immutable LocalTransport; no real Source inputs."""
+    def setUp(self):
+        from tools import long_history_lake as h
+        self.h=h
+        self.tmp=self.enterContext(tempfile.TemporaryDirectory())
+        self.root=Path(self.tmp); self.t=LocalTransport(self.root/'remote')
+        self.now=datetime(2026,10,24,0,30,tzinfo=timezone.utc)
+        self.enterContext(patch.object(h,'utc_now',return_value=self.now.isoformat()))
+        self.enterContext(patch.dict('os.environ',{'GITHUB_SHA':'a'*40}))
+        self.members=[dict(ticker='AAPL'),dict(ticker='MSFT')]
+        self.cohort=encoded(dict(candidate_count=2,as_of='2026-10-01',rows=self.members))
+        self.enterContext(patch.object(h,'COHORT_SHA',digest(self.cohort)))
+        self.mapping=encoded({'0':dict(ticker='AAPL',cik_str=1),'1':dict(ticker='MSFT',cik_str=2)})
+        lake=Lake(self.t,self.root/'first')
+        lake.dataset('universe/cohort',[self.cohort,self.mapping],self.members,dict(
+            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',rows=2,requested_securities=2,
+            cohort_source_object_sha256=digest(h.packed(self.cohort)),
+            sec_ticker_mapping_object_sha256=digest(h.packed(self.mapping)),
+            sec_ticker_mapping_source_sha256=digest(self.mapping),
+            sec_ticker_mapping_retrieved_at='2026-10-01T00:00:00Z',
+            source_role_contract_version='cohort-sec-mapping-v1',
+            historical_sec_mapping_object_sha256s=[digest(h.packed(self.mapping))],
+            collection_issuer_keys=['sec/0000000001','sec/0000000002'],
+            current_mapping_issuer_keys=['sec/0000000001','sec/0000000002'],
+            history_retained_issuer_keys=[],missing=[],lifecycle_review_count=0))
+        for cik in (1,2):
+            body=source(); body['cik']=cik; raw=encoded(body)
+            rows,rejected=h.sec_rows(raw,str(cik).zfill(10),'2016-01-01','2026-10-22')
+            lake.dataset('sec/'+str(cik).zfill(10),[raw],rows,dict(cik=str(cik).zfill(10),
+                tickers=['AAPL' if cik==1 else 'MSFT'],start='2016-01-01',through='2026-10-22',
+                http=dict(etag='fixture',last_modified=None),deferred_until=None,
+                extraction_sha256=h.extraction_identity(),retrieved_at='2026-10-01T00:00:00Z',
+                evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT',rejected_rows=rejected,
+                **h.fact_coverage(rows,'2016-01-01','2026-10-22')))
+        for prefix,ids in (('current',[s['id'] for s in h.registry()['series']
+                                      if s.get('collection_scope')!='scoped_alfred_only']),
+                           ('alfred',h.ARCHIVES),('worldbank',h.WB_INDICATORS)):
+            for sid in ids:
+                row=dict(series=sid,observation_date='2026-10-22',value=1.0)
+                lake.dataset(prefix+'/'+sid,[encoded(dict(fixture=prefix,series=sid))],[row],dict(
+                    rows=1,earliest='2026-10-22',latest='2026-10-22',retrieved_at='2026-10-01T00:00:00Z',
+                    evidence='alfred_date_archive' if prefix=='alfred' else 'current_only'))
+        self.config=dict(macro_start='1996-01-01',financial_start='2016-01-01',through='2026-10-22',
+            cohort_sha256=h.COHORT_SHA,archives=list(h.ARCHIVES),countries=list(h.COUNTRIES),
+            worldbank_indicators=list(h.WB_INDICATORS),registry_sha256=digest(encoded(h.registry())))
+        result=lake.publish('synthetic_hybrid_baseline',self.config)
+        self.lake=Lake(self.t,self.root/'reader')
+        self.baseline=dict(commit=result['commit_sha256'],catalog=result['catalog_sha256'],
+                           execution=self.receipt(self.lake,result))
+
+    def receipt(self,lake,result,summary=None):
+        q=self.h.diagnostics(lake)
+        if summary is not None:
+            q.update(status='PARTIAL_COVERAGE',cycle_scope=summary)
+        qraw=encoded(q); qsha=digest(qraw); self.t.write(PREFIX+'/reports/'+qsha,qraw)
+        e=dict(schema='long-history-execution-v1',run_id=lake.catalog['run_id'],
+            created_at=self.now.isoformat(),catalog_sha256=result['catalog_sha256'],
+            commit_sha256=result['commit_sha256'],reports={'quality.json':qsha},
+            consumer_rows=0,study_recomputed_from_drive=True,quality_status=q['status'],eligible_for_selector=False)
+        if summary is not None: e['cycle_scope']=summary
+        raw=encoded(e); sha=digest(raw); self.t.write(PREFIX+'/executions/'+sha,raw)
+        return sha
+
+    def request(self,mode='HYBRID_DAILY'):
+        return dict(schema='long-history-hybrid-v1',request_id='synthetic-hybrid-only',mode=mode,
+            purpose='PRIVATE_NONCOMMERCIAL_RESEARCH',code_sha='a'*40,
+            registry_sha256=digest(encoded(self.h.registry())),roster_sha256='b'*64,
+            cohort_sha256=self.h.COHORT_SHA,mapping_object_sha256=digest(self.h.packed(self.mapping)),
+            mapping_source_sha256=digest(self.mapping),focus_pairs=[dict(ticker='AAPL',cik='0000000001')],
+            baseline=dict(self.baseline),macro_start='1996-01-01',financial_start='2016-01-01',
+            through='2026-10-23',decision_at=self.now.isoformat(),available_at='2026-10-23T20:01:00Z',
+            not_before='2026-10-23T00:00:00Z',expires_at='2026-10-25T00:00:00Z',
+            weekly=None if mode=='HYBRID_DAILY' else dict(week_start='2026-10-19',session='2026-10-23'),
+            rights_sha256=dict(fred='c'*64,sec='d'*64,worldbank='e'*64),
+            budget=dict(provider_gets=2000,provider_bytes=100*1024**3,transport_calls=2000,
+                transport_reserved_bytes=100*1024**3,write_bytes=1024**3,active_seconds=7200,
+                max_chain_commits=32,max_issuers=10))
+
+    def scope(self,r=None,request_hash=None):
+        r=self.request() if r is None else r
+        raw=encoded(r); sha=digest(raw) if request_hash is None else request_hash
+        self.h.hybrid_request(raw,sha,r['mode'],now=self.now)
+        budget=self.h.HybridBudget(r,live_transport=False)
+        return self.h.prepare_hybrid_scope(self.lake,r,sha,budget,dict(fixture_only=True))
+
+    def run_daily(self,scope):
+        def fetch(sid,start,through,mode):
+            return [encoded(dict(fixture_only=True,series=sid))],self.now.isoformat()
+        def rows(pages,sid,start,through,retrieved):
+            return [dict(series=sid,observation_date=through,value=2.0)],[]
+        with patch.object(self.h,'fetch_fred_retry',side_effect=fetch), \
+             patch.object(self.h,'parse_current',side_effect=rows), \
+             patch.object(self.h,'get_public',side_effect=lambda url,conditional=None:(None,conditional)):
+            self.h.collect_macros(self.lake,'1996-01-01','2026-10-23',_hybrid=scope)
+            self.h.collect_financials(self.lake,'unused','2016-01-01','2026-10-23',_hybrid=scope)
+
+    def test_request_rejects_missing_unknown_duplicate_future_and_insufficient_scope(self):
+        for key,bad,reason in (('purpose','TRAINING','hybrid_request_fields'),
+                ('code_sha','f'*40,'NEEDS_REBIND'),('expires_at','2026-10-23T00:00:00Z','hybrid_window'),
+                ('through','2026-10-22','hybrid_daily_session')):
+            r=self.request(); r[key]=bad; raw=encoded(r)
+            with self.subTest(key=key),self.assertRaisesRegex(ValueError,reason):
+                self.h.hybrid_request(raw,digest(raw),r['mode'],now=self.now)
+        r=self.request(); r['focus_pairs']*=2
+        with self.assertRaisesRegex(ValueError,'hybrid_focus_duplicate'): self.scope(r)
+        r=self.request(); r['budget']['provider_gets']=1
+        with self.assertRaisesRegex(ValueError,'hybrid_provider_budget_preflight'): self.scope(r)
+
+    def test_focus_ciK_proof_and_ambiguous_mapping_fail_before_provider(self):
+        r=self.request(); r['focus_pairs'][0]['cik']='0000000002'
+        with patch.object(self.h,'get_public',side_effect=AssertionError('provider')):
+            with self.assertRaisesRegex(ValueError,'hybrid_ticker_cik_proof'): self.scope(r)
+        original=self.h.sec_ticker_lookup
+        with patch.object(self.h,'sec_ticker_lookup',side_effect=lambda m:dict(original(m),AAPL={'0000000001','0000000002'})):
+            with self.assertRaisesRegex(ValueError,'hybrid_ticker_cik_proof'): self.scope()
+
+    def test_existing_ticker_class_normalization_keeps_unique_issuer_proof(self):
+        r=self.request(); r['focus_pairs']=[dict(ticker='AAP.L',cik='0000000001')]
+        original=self.h.sec_ticker_lookup
+        with patch.object(self.h,'verified_cohort_source',return_value=(
+                encoded(dict(candidate_count=2,rows=[dict(ticker='AAP-L'),dict(ticker='MSFT')])),
+                r['mapping_object_sha256'],json.loads(self.mapping))), \
+             patch.object(self.h,'sec_ticker_lookup',side_effect=lambda m:dict(original(m),**{'AAP-L':{'0000000001'}})):
+            scope=self.scope(r)
+        self.assertEqual(scope['selected'],{'0000000001'})
+
+    def test_daily_sec_queries_only_focus_and_preserves_unchecked_whole_entry(self):
+        scope=self.scope(); before=copy.deepcopy(self.lake.catalog['datasets'])
+        urls=[]
+        def public(url,conditional=None):
+            urls.append(url); self.assertEqual(conditional.get('etag'),'fixture')
+            return None,conditional
+        with patch.object(self.h,'get_public',side_effect=public):
+            self.h.collect_financials(self.lake,'unused',scope['request']['financial_start'],
+                                     scope['request']['through'],_hybrid=scope)
+        self.assertEqual(urls,['https://data.sec.gov/api/xbrl/companyfacts/CIK0000000001.json'])
+        self.assertEqual(self.lake.catalog['datasets']['sec/0000000001']['status'],'UNCHANGED')
+        self.assertEqual(self.lake.catalog['datasets']['sec/0000000002'],before['sec/0000000002'])
+        self.assertEqual(self.lake.catalog['datasets']['universe/cohort'],before['universe/cohort'])
+
+    def test_daily_macro_checks_current34_only_and_keeps_vintage_worldbank_clocks(self):
+        scope=self.scope(); before=copy.deepcopy(self.lake.catalog['datasets']); calls=[]
+        def fetch(sid,start,through,mode):
+            calls.append((mode,sid)); return [encoded(dict(sid=sid))],self.now.isoformat()
+        def current(pages,sid,*args):
+            return [dict(series=sid,observation_date='2026-10-22',value=2.0)],[]
+        with patch.object(self.h,'fetch_fred_retry',side_effect=fetch), \
+             patch.object(self.h,'parse_current',side_effect=current), \
+             patch.object(self.h,'get_public',side_effect=AssertionError('worldbank')):
+            self.h.collect_macros(self.lake,'1996-01-01','2026-10-23',_hybrid=scope)
+        self.assertEqual(len(calls),34); self.assertEqual({mode for mode,_ in calls},{'current'})
+        for key in before:
+            if key.startswith(('alfred/','worldbank/')): self.assertEqual(self.lake.catalog['datasets'][key],before[key])
+
+    def test_weekly_scope_selects_full_original_groups_and_due_archives(self):
+        scope=self.scope(self.request('HYBRID_WEEKLY'))
+        self.assertEqual(scope['selected'],{'0000000001','0000000002'})
+        self.assertEqual(len([k for k in scope['checked_keys'] if k.startswith('alfred/')]),12)
+        self.assertEqual(len([k for k in scope['checked_keys'] if k.startswith('worldbank/')]),4)
+
+    def test_rolling_current_parent_uses_exact_verified_descendant_and_refuses_replay(self):
+        scope=self.scope(); self.run_daily(scope); summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        config=dict(self.config,hybrid_refresh=scope['detail'])
+        result=self.lake.publish('synthetic_hybrid_child',config)
+        self.lake=Lake(self.t,self.root/'second'); self.receipt(self.lake,result,summary)
+        with self.assertRaisesRegex(ValueError,'hybrid_request_already_executed'): self.scope()
+        r=self.request(); r['request_id']='synthetic-next-approved-request'
+        next_scope=self.scope(r)
+        self.assertEqual(next_scope['resolved_parent'],result['commit_sha256'])
+        self.assertEqual(next_scope['descendants_verified'],1)
+        r['roster_sha256']='f'*64
+        with self.assertRaisesRegex(ValueError,'NEEDS_REBIND'): self.scope(r)
+
+    def test_foreign_legacy_descendant_requires_rebind_not_fallback(self):
+        result=self.lake.publish('synthetic_foreign_child',self.config)
+        self.lake=Lake(self.t,self.root/'foreign'); self.receipt(self.lake,result)
+        with self.assertRaisesRegex(ValueError,'NEEDS_REBIND'): self.scope()
+
+    def test_cycle_report_separates_inventory_and_unchecked_without_clock_renewal(self):
+        scope=self.scope(); before=copy.deepcopy(self.lake.catalog['datasets'])
+        self.run_daily(scope)
+        selected=self.lake.catalog['datasets']['sec/0000000001']
+        selected.update(status='COLLECTED',retrieved_at=self.now.isoformat())
+        summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        self.assertFalse(summary['full_universe_current'])
+        self.assertEqual(summary['retained_NOT_DUE'],16)
+        self.assertEqual(selected['status'],'UNCHANGED')
+        self.assertEqual(selected['retrieved_at'],before['sec/0000000001']['retrieved_at'])
+        self.lake.catalog['datasets']['sec/0000000002']['checked_at']='forged'
+        with self.assertRaisesRegex(ValueError,'hybrid_unchecked_dataset_changed'):
+            self.h.finish_hybrid_cycle(self.lake,scope)
+
+    def test_declaring_scope_without_actual_attempts_cannot_be_current(self):
+        scope=self.scope()
+        with self.assertRaisesRegex(ValueError,'hybrid_incomplete_request_scope'):
+            self.h.finish_hybrid_cycle(self.lake,scope)
+
+    def test_cycle_execution_receipt_binds_scope_and_SQL_excludes_not_due_inputs(self):
+        scope=self.scope(); self.run_daily(scope); summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        report=self.h.diagnostics(self.lake)
+        report.update(status='PARTIAL_COVERAGE',cycle_scope=summary)
+        result=self.lake.publish('synthetic_scope_sql',dict(self.config,hybrid_refresh=scope['detail']))
+        consumer=Lake(self.t,self.root/'sql-consumer')
+        reports=self.root/'sql-reports'; reports.mkdir(); (reports/'quality.json').write_bytes(encoded(report))
+        with patch.object(self.h,'materialize',return_value=34) as sql, \
+             patch.object(self.h,'analyze_restored',return_value=(dict(tests_declared=[]),{})):
+            code=self.h.complete_consumer(consumer,result,reports,self.root/'sql',run_id='synthetic_scope_sql',
+                macro_start='1996-01-01',through='2026-10-23',report=report,cycle=scope)
+        self.assertEqual(code,0)
+        self.assertTrue(all(k.startswith('current/') for k in sql.call_args.args[2]))
+        receipt=consumer.verified_execution()
+        self.assertEqual(receipt['cycle_scope'],summary)
+        self.assertFalse(receipt['cycle_scope']['full_universe_current'])
+
+    def test_broken_old_pack_blocks_even_small_focus_before_provider(self):
+        pack=self.t.names(PREFIX+'/packs')[0]
+        (self.t.root/PREFIX/'packs'/pack).unlink()
+        with patch.object(self.h,'get_public',side_effect=AssertionError('provider')):
+            with self.assertRaises((ValueError,OSError)): self.scope()
+
+    def test_budget_reservations_fail_before_call_and_never_refund(self):
+        r=self.request(); r['budget']['transport_calls']=1
+        b=self.h.HybridBudget(r,live_transport=False)
+        t=self.h.HybridTransport.__new__(self.h.HybridTransport); t.hybrid_budget=b
+        with patch.object(self.h.RcloneTransport,'call',return_value=b'{}') as call:
+            self.assertEqual(t.call('cat','fixture'),b'{}')
+            with self.assertRaisesRegex(ValueError,'hybrid_budget_exhausted'): t.call('cat','again')
+            self.assertEqual(call.call_count,1)
+        self.assertEqual(b.used['transport_calls'],1)
+        self.assertIsNone(b.summary()['actual_Drive_API_requests'])
+        with self.assertRaisesRegex(ValueError,'hybrid_existing_root_required'): t.call('mkdir','new')
+
+    def test_owner_exact_request_and_history_replay_are_independent_of_body_flags(self):
+        r=self.request(); sha=digest(encoded(r))
+        record=dict(schema='long-history-hybrid-owner-v1',request_sha256=sha,
+            producer_code_sha=r['code_sha'],purpose=r['purpose'],rights_sha256=r['rights_sha256'],
+            expires_at=r['expires_at'])
+        comment=dict(id=1,author_association='OWNER',user=dict(type='User'),
+            created_at='2026-10-23T22:00:00Z',updated_at='2026-10-23T22:00:00Z',
+            issue_url='https://api.github.com/repos/wscha231/r1000-quant-engine/issues/448',
+            body=self.h.HYBRID_OWNER_TAG+json.dumps(record))
+        ctx=dict(GITHUB_REPOSITORY='wscha231/r1000-quant-engine',GITHUB_REF='refs/heads/master',
+                 GITHUB_RUN_ID='77',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='a'*40)
+        runs=[dict(id=77,display_title='history-HYBRID_DAILY-'+sha,run_attempt=1,head_sha='a'*40)]
+        def gh(path):
+            return comment if '/issues/comments/' in path else dict(total_count=len(runs),workflow_runs=runs)
+        ref='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1'
+        self.assertEqual(self.h.authorize_hybrid(r,sha,ref,gh=gh,context=ctx)['run_id'],77)
+        runs.append(dict(runs[0],id=76))
+        with self.assertRaisesRegex(ValueError,'hybrid_request_replay_or_unknown'):
+            self.h.authorize_hybrid(r,sha,ref,gh=gh,context=ctx)
+        runs.pop(); comment['author_association']='CONTRIBUTOR'
+        with self.assertRaisesRegex(ValueError,'hybrid_owner_approval'):
+            self.h.authorize_hybrid(r,sha,ref,gh=gh,context=ctx)
+
+    def test_missing_optin_cli_request_never_constructs_transport_or_collects_all(self):
+        args=['lake','--remote','unused','--workspace',str(self.root/'cli'),'--cohort','unused',
+              '--run-id','fixture','--report-dir',str(self.root/'reports'),'--hybrid-mode','HYBRID_DAILY']
+        with patch.object(sys,'argv',args), patch.object(self.h,'HybridTransport') as transport, \
+             patch.object(self.h,'collect_financials') as collect:
+            with self.assertRaisesRegex(ValueError,'hybrid_explicit_inputs_required'): self.h.main()
+        transport.assert_not_called(); collect.assert_not_called()
+
+
 if __name__=='__main__': unittest.main()
