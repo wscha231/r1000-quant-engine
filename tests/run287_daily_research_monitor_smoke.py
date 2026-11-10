@@ -845,6 +845,24 @@ class RotationTests(unittest.TestCase):
             blocked = read(Feed(raw))
             self.assertEqual(blocked["data"]["etf_rotation"]["status"], "UNVERIFIED_RECEIPT")
             self.assertEqual(blocked["data"]["summary"]["data_as_of"], "2026-11-04")
+        baseline_sources = evidence()
+        baseline_sources["tactical"] = read(Feed(b"{}"))
+        baseline_report = monitor.evaluate(baseline_sources, "2026-11-04", monitor_now, CONTRACT)
+        legacy_rows = lambda report: [{k: v for k, v in row.items() if not k.startswith("a3_rotation_")}
+                                      for row in report["watchlist"]]
+        for value in (None, [], 42, "not-a-receipt", True):
+            with self.subTest(optional_etf_json=value):
+                isolated = read(Feed(rotation.canonical(value)))
+                self.assertEqual(isolated["status"], source["status"])
+                self.assertTrue(isolated["artifact_hash_verified"])
+                self.assertEqual(isolated["data"]["summary"], source["data"]["summary"])
+                self.assertEqual(isolated["data"]["etf_rotation"]["status"], "UNVERIFIED_RECEIPT")
+                combined = evidence(); combined["tactical"] = isolated
+                checked = monitor.evaluate(combined, "2026-11-04", monitor_now, CONTRACT)
+                self.assertEqual(legacy_rows(checked), legacy_rows(baseline_report))
+                self.assertEqual(checked["alerts"], baseline_report["alerts"])
+                self.assertFalse(any(r["agent"] == "A3" for r in checked["reassessment"]["review_requests"]))
+                self.assertNotIn("etf_safe_review", isolated["data"])
 
         class UnavailableTransport:
             def write(self, path, raw):

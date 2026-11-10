@@ -10251,3 +10251,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   successful decoding alone must not leave requests available after rejection.
   Preserve launcher parse failures separately from Python results and charge a
   conservative elapsed bound when the original shell timing is unavailable.
+- An optional ETF member may decode to valid JSON without being an object.
+  Keep its original missing/unverified receipt status and isolate it before
+  capsule access so the normal tactical summary, hash verification and research
+  queue survive. Register the existing monitor aggregate in the default PR
+  runner; a passing standalone workflow does not mean Tier-1 consumed it.
+- The real ZIP reader already refuses every nonobject JSON root before capsule
+  access. A new null fixture incorrectly expected missing-receipt status; retain
+  that failed run and the existing unverified status instead of weakening the
+  parser or claiming an unreachable static example was reproduced.

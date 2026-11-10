@@ -308,10 +308,11 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
                 try:
                     rotation, hashes = read_members(path, {"etf_rotation": rotation_member}, min(member_limit, 131_072))
                     rotation_now = now if now is not None else datetime.now(timezone.utc)
+                    raw_receipt = rotation.get("etf_rotation")
                     result["data"]["etf_rotation"] = run287_etf_rotation.receipt_observation(
-                        rotation.get("etf_rotation"), run, artifact, session or completed_session(rotation_now),
+                        raw_receipt, run, artifact, session or completed_session(rotation_now),
                         rotation_now, contract)
-                    capsule = rotation.get("etf_rotation", {}).get("safe_review_handoff")
+                    capsule = raw_receipt.get("safe_review_handoff") if isinstance(raw_receipt, dict) else None
                     if capsule is not None:
                         result["data"]["etf_safe_review"] = capsule
                     result["files"].update(hashes)
