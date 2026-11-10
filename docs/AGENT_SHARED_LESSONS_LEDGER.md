@@ -10369,3 +10369,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Git bytes and the accepted baseline; distinguish sparse missing files and
   CRLF from true stale pins. Bind only the explicitly reviewed current hashes,
   preserve historical references, and keep failed runs and costs visible.
+- Correction to the preceding current-pin reconciliation: group577's fixed
+  SEC/feature hashes are intentional historical exact-byte boundaries. The
+  author misclassified them and Root incorrectly approved their update; the
+  existing current-source-refusal regression caught it in235/236 CI. Restore
+  those3 pins. Accepted-current Git equality alone cannot recertify historical
+  Source; validate frozen positives and exact current/changed-source refusals.
+  The separately reviewed ETF pin covers producer review-handoff code only,
+  with Source/PIT/financial/ER admission still false. Keep all failed proofs.
