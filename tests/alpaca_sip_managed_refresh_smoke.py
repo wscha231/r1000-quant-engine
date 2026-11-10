@@ -583,6 +583,12 @@ class TieredCadenceTests(unittest.TestCase):
         self.now = runtime.campaign.utc("2026-10-24T00:30:00Z")
         self.monitor = (runtime.ROOT / runtime.managed.MONITOR_CONTRACT).read_bytes()
         self.monitor_sha = runtime.digest(self.monitor)
+        self.helper_path = runtime.ROOT / runtime.managed.MONITOR_HELPER
+        self.helper_raw = self.helper_path.read_bytes()
+        self.helper_sha = runtime.digest(self.helper_raw.replace(b"\r\n", b"\n"))
+        from tools import run287_etf_rotation as helper
+        self.etf_sha = runtime.digest(runtime.managed.encode(sorted(helper.universe(
+            helper.policy(json.loads(self.monitor))[0]))))
         self.proof = b'{"fixture_only":"independent Source review; not actual portfolio evidence"}'
         self.proof_sha = runtime.digest(self.proof)
         self.proofs = {self.proof_sha: self.proof}
@@ -606,6 +612,7 @@ class TieredCadenceTests(unittest.TestCase):
         return runtime.managed.priority_roster(raw,
             expected_sha256=runtime.digest(raw) if expected is None else expected,
             monitor_raw=self.monitor, monitor_sha256=self.monitor_sha if monitor_sha is None else monitor_sha,
+            monitor_helper_sha256=self.helper_sha, etf_universe_sha256=self.etf_sha,
             proof_objects=self.proofs, max_priority_candidates=limit, holdings_binding=binding,
             now_utc=self.now)
 
@@ -621,6 +628,7 @@ class TieredCadenceTests(unittest.TestCase):
         ref = dict(file_id="fixture-proof-123", sha256=self.proof_sha, bytes=len(self.proof))
         return dict(schema=runtime.managed.CADENCE_SCHEMA, roster_ref=ref, source_refs=[ref],
                     monitor_contract_sha256=self.monitor_sha, max_priority_candidates=60,
+                    monitor_helper_sha256=self.helper_sha, etf_universe_sha256=self.etf_sha,
                     holdings_binding=None, weekly_catchup=extra)
 
     def test_unknown_holdings_preserves_independent_etfs_and_candidate(self):
@@ -631,6 +639,73 @@ class TieredCadenceTests(unittest.TestCase):
         self.assertEqual(roster["daily"]["AAPL"], ["PRIORITY"])
         self.assertEqual((roster["holdings_status"], roster["holdings_completeness"],
                           roster["overall_status"]), ("UNKNOWN", "UNKNOWN", "PARTIAL_HOLDINGS"))
+
+    def test_helper_drift_refuses_before_import_or_provider(self):
+        original_open = Path.open
+        def changed(path, *args, **kwargs):
+            if path.resolve() == self.helper_path.resolve():
+                return io.BytesIO(self.helper_raw + b"\n# changed policy code\n")
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, "open", changed), self.assertRaisesRegex(ValueError, "CADENCE_HELPER_CODE_CHANGED"):
+            self.parse()
+
+    def test_imported_helper_replacement_cannot_add_or_swap_same_count_basket(self):
+        from tools import run287_etf_rotation as helper
+        original = helper.universe
+        for swap in (False, True):
+            def substituted(config):
+                result = original(config)
+                if swap:
+                    result.pop("SPY")
+                result["AAPL"] = dict(kind="THEME", group="changed", label="unreviewed")
+                return result
+            with self.subTest(swap=swap), patch.object(helper, "universe", substituted), \
+                    self.assertRaisesRegex(ValueError, "CADENCE_HELPER_EXECUTION_CHANGED"):
+                self.parse()
+
+    def test_monitor_and_external_same_count_basket_pins_both_refuse_drift(self):
+        monitor = json.loads(self.monitor)
+        rotation = monitor["etf_rotation"]
+        used = set(rotation["watch_reference"].values())
+        group = next(g for g in rotation["themes"].values() if set(g) - used)
+        old = next(t for t in group if t not in used)
+        group["AAPL"] = group.pop(old)
+        changed = runtime.encoded(monitor)
+        with self.assertRaisesRegex(ValueError, "CADENCE_MONITOR_HASH"):
+            runtime.managed.priority_roster(runtime.encoded(self.packet()),
+                expected_sha256=runtime.digest(runtime.encoded(self.packet())), monitor_raw=changed,
+                monitor_sha256=self.monitor_sha, monitor_helper_sha256=self.helper_sha,
+                etf_universe_sha256=self.etf_sha, proof_objects=self.proofs,
+                max_priority_candidates=60, holdings_binding=None, now_utc=self.now)
+        with self.assertRaisesRegex(ValueError, "CADENCE_ETF_UNIVERSE_CHANGED"):
+            runtime.managed.priority_roster(runtime.encoded(self.packet()),
+                expected_sha256=runtime.digest(runtime.encoded(self.packet())), monitor_raw=changed,
+                monitor_sha256=runtime.digest(changed), monitor_helper_sha256=self.helper_sha,
+                etf_universe_sha256=self.etf_sha, proof_objects=self.proofs,
+                max_priority_candidates=60, holdings_binding=None, now_utc=self.now)
+
+    def test_helper_git_lf_binding_preserves_observed_windows_crlf_hash(self):
+        canonical = self.helper_raw.replace(b"\r\n", b"\n")
+        crlf = canonical.replace(b"\n", b"\r\n")
+        original_open = Path.open
+        def windows_file(path, *args, **kwargs):
+            if path.resolve() == self.helper_path.resolve():
+                return io.BytesIO(crlf)
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, "open", windows_file):
+            roster = self.parse()
+        self.assertEqual(roster["etf_helper_binding"], dict(expected_GitLF_sha256=self.helper_sha,
+            observed_file_sha256=runtime.digest(crlf), normalization="CRLF_TO_LF_EXACT_MATCH"))
+        self.assertNotEqual(runtime.digest(crlf), self.helper_sha)
+
+    def test_wrong_helper_origin_and_legacy_no_cadence_compatibility(self):
+        from tools import run287_etf_rotation as helper
+        with patch.object(helper, "__file__", "other/helper.py"), \
+                self.assertRaisesRegex(ValueError, "CADENCE_HELPER_BINDING"):
+            self.parse()
+        with patch.object(runtime.managed, "verified_etf_helper", side_effect=AssertionError("legacy helper I/O")):
+            self.assertEqual(runtime.select_candidates({"AAPL", "MSFT"}, {}, {}, FULL[-1], 1), ["AAPL"])
+            self.assertTrue(runtime.managed.cadence_market_gate(now_utc=self.now)["ready"])
 
     def test_unknown_is_not_an_empty_portfolio(self):
         value = self.packet(); value["holdings"]["tickers"] = []

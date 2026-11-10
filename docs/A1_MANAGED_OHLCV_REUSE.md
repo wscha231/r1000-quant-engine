@@ -362,7 +362,8 @@ The five changed paths add no collector, scheduler, Registry or ledger.
 
 An optional control `cadence` has schema `a1-managed-tiered-cadence-v1`, an exact
 `roster_ref`, `source_refs`, the existing monitor file's exact
-`monitor_contract_sha256`, an explicit `max_priority_candidates` no greater
+`monitor_contract_sha256`, its separate `monitor_helper_sha256` and exact
+`etf_universe_sha256`, an explicit `max_priority_candidates` no greater
 than60, `holdings_binding`, and `weekly_catchup` (normally null). The existing
 OWNER approval binds every field through the control SHA; flags in the roster
 cannot approve themselves. Reference sizes/hashes are checked with the existing
@@ -371,6 +372,31 @@ at most32 distinct references/16MiB total, each at most2MB. The monitor source i
 `docs/run287_daily_research_monitor_contract.json`; reuse its exact42 ETF union
 through the existing rotation policy/universe API, not another ticker list.
 Expected pins refer to actual deployed bytes, including Git LF where deployed.
+
+The separate helper pin is mandatory only in an opt-in cadence. It does not
+extend or rewrite the legacy607 ten-path PIN_PATHS/control. Before importing the
+ETF helper, the caller reads its fixed existing repository path and checks its
+Git-LF code SHA against the externally approved control. It then binds the actual
+imported module origin and both pure functions' executable code to that same
+reviewed source (compiled with the current Python optimization mode). A replaced
+function or a stale/different imported implementation refuses before provider
+work. The sorted ETF ticker union's canonical `encode()` SHA must also equal the
+control's `etf_universe_sha256`; merely retaining42 names is insufficient.
+Monitor config drift, helper drift and same-count basket substitution are distinct
+refusals. Neither expected pin is learned from the untrusted roster or its flags.
+
+Only helper **code** may reverse CRLF to LF, and only when that exact canonical
+byte hash equals the external expected code pin. The result retains both
+`expected_GitLF_sha256` and `observed_file_sha256` plus the normalization method.
+This is execution-code compatibility, not rewriting an original observation,
+market-data hash, previous control, proof or historic receipt. Other code changes
+refuse. No global Git setting, source file or original fingerprint is rewritten.
+
+Independent A6 rejected e97's unpinned transitive helper with a counterexample:
+unchanged roster/monitor/proofs/control could add AAPL as an ETF by changing only
+the helper. That REQUEST_CHANGES evidence remains preserved. New helper-binding
+evidence must apply to the corrected HEAD; the earlier47×2 author passes and
+e97 counterexample do not certify the fix.
 
 The immutable roster schema is `a1-managed-priority-roster-v1`. It declares
 `usage=RESEARCH_ONLY`, aware `as_of`, `available_at`, `expires_at`, the existing

@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from types import CodeType, FunctionType
+import sys
 
 from tools.run_daily_market_session_gate import evaluate_market_session, utc_timestamp
 
@@ -24,6 +26,7 @@ A0 = "https://github.com/wscha231/r1000-quant-engine/issues/448"
 ORIGINAL = "ad60fb7c4f2b8c34b2aa23ab7505e83eefc681c3bc2c6d78f6f9187a4ae79924"
 CADENCE_SCHEMA = "a1-managed-tiered-cadence-v1"
 MONITOR_CONTRACT = Path("docs/run287_daily_research_monitor_contract.json")
+MONITOR_HELPER = Path("tools/run287_etf_rotation.py")
 
 
 def require(value, code):
@@ -85,10 +88,12 @@ def cadence_contract(value, *, not_before, expires_at):
     """Validate opt-in fields already covered by the immutable OWNER control hash."""
     require(isinstance(value, dict) and set(value) == {
         "schema", "roster_ref", "source_refs", "monitor_contract_sha256",
+        "monitor_helper_sha256", "etf_universe_sha256",
         "max_priority_candidates", "holdings_binding", "weekly_catchup"} and value["schema"] == CADENCE_SCHEMA,
         "CADENCE_CONTRACT")
-    require(isinstance(value["monitor_contract_sha256"], str)
-            and SHA.fullmatch(value["monitor_contract_sha256"]), "CADENCE_MONITOR_PIN")
+    require(all(isinstance(value[k], str) and SHA.fullmatch(value[k]) for k in
+                ("monitor_contract_sha256", "monitor_helper_sha256", "etf_universe_sha256")),
+            "CADENCE_MONITOR_PIN")
     require(type(value["max_priority_candidates"]) is int
             and 0 <= value["max_priority_candidates"] <= 60, "CADENCE_CANDIDATE_BOUND")
     require(isinstance(value["source_refs"], list) and 1 <= len(value["source_refs"]) <= 32,
@@ -135,7 +140,53 @@ def cadence_market_gate(*, now_utc, cadence=None):
                 weekly_contract_sha256=digest(encode(extra)))
 
 
+def _code_shape(code):
+    return (code.co_code, tuple(_code_shape(c) if isinstance(c, CodeType) else c
+                               for c in code.co_consts), code.co_names, code.co_varnames,
+            code.co_freevars, code.co_cellvars, code.co_argcount, code.co_posonlyargcount,
+            code.co_kwonlyargcount, code.co_flags, code.co_nlocals, code.co_stacksize,
+            code.co_exceptiontable)
+
+
+def verified_etf_helper(expected_sha256):
+    """Bind executable pure functions to externally pinned Git-LF source bytes.
+
+    Read/hash before import; never execute a mismatched file. Preserve the actual
+    checkout fingerprint separately. Only exact CRLF->LF matching is permitted;
+    no original code/data fingerprint is rewritten into a historical observation.
+    """
+    require(isinstance(expected_sha256, str) and SHA.fullmatch(expected_sha256),
+            "CADENCE_HELPER_PIN_REQUIRED")
+    path = Path(__file__).resolve().parents[1] / MONITOR_HELPER
+    require(not path.is_symlink(), "CADENCE_HELPER_BINDING")
+    with path.open("rb") as handle:
+        raw = handle.read(MAX_BYTES + 1)
+    require(0 < len(raw) <= MAX_BYTES, "CADENCE_HELPER_SIZE")
+    canonical = raw.replace(b"\r\n", b"\n")
+    require(digest(canonical) == expected_sha256, "CADENCE_HELPER_CODE_CHANGED")
+    from tools import run287_etf_rotation as helper
+    filename = getattr(helper, "__file__", None)
+    origin = getattr(getattr(helper, "__spec__", None), "origin", None)
+    require(isinstance(filename, str) and isinstance(origin, str)
+            and Path(filename).resolve() == path.resolve()
+            and Path(origin).resolve() == path.resolve(), "CADENCE_HELPER_BINDING")
+    reviewed = {c.co_name: c for c in compile(canonical, str(path), "exec",
+                dont_inherit=True, optimize=sys.flags.optimize).co_consts if isinstance(c, CodeType)}
+    for name in ("policy", "universe"):
+        fn = getattr(helper, name, None)
+        require(type(fn) is FunctionType and fn.__module__ == helper.__name__
+                and fn.__globals__ is vars(helper) and fn.__defaults__ is None
+                and fn.__kwdefaults__ is None
+                and Path(fn.__code__.co_filename).resolve() == path.resolve()
+                and name in reviewed and _code_shape(fn.__code__) == _code_shape(reviewed[name]),
+                "CADENCE_HELPER_EXECUTION_CHANGED")
+    return helper, dict(expected_GitLF_sha256=expected_sha256,
+                        observed_file_sha256=digest(raw),
+                        normalization="EXACT_BYTES" if raw == canonical else "CRLF_TO_LF_EXACT_MATCH")
+
+
 def priority_roster(raw, *, expected_sha256, monitor_raw, monitor_sha256,
+                    monitor_helper_sha256, etf_universe_sha256,
                     proof_objects, max_priority_candidates, holdings_binding, now_utc):
     """Parse externally hash-pinned evidence; never authenticate its own flags.
 
@@ -152,9 +203,11 @@ def priority_roster(raw, *, expected_sha256, monitor_raw, monitor_sha256,
                        parse_constant=lambda _: require(False, "NONFINITE_JSON"))
     monitor = json.loads(monitor_raw, object_pairs_hook=unique_object,
                          parse_constant=lambda _: require(False, "NONFINITE_JSON"))
-    from tools.run287_etf_rotation import policy as rotation_policy, universe
-    config, _, _ = rotation_policy(monitor)
-    etfs = set(universe(config))  # exact existing42, never a copied/invented list
+    helper, helper_binding = verified_etf_helper(monitor_helper_sha256)
+    config, _, _ = helper.policy(monitor)
+    etfs = set(helper.universe(config))  # exact existing42, never a copied/invented list
+    require(isinstance(etf_universe_sha256, str) and SHA.fullmatch(etf_universe_sha256)
+            and digest(encode(sorted(etfs))) == etf_universe_sha256, "CADENCE_ETF_UNIVERSE_CHANGED")
     require(isinstance(value, dict) and set(value) == {
         "schema", "usage", "as_of", "available_at", "expires_at", "source_reference",
         "holdings", "roles"} and value["schema"] == "a1-managed-priority-roster-v1"
@@ -248,6 +301,7 @@ def priority_roster(raw, *, expected_sha256, monitor_raw, monitor_sha256,
                 holdings_status=status, holdings_completeness=completeness,
                 overall_status="PARTIAL_HOLDINGS" if completeness != "VERIFIED" else "ROSTER_VERIFIED",
                 etf_monitor_sha256=monitor_sha256, etf_count=len(etfs),
+                etf_helper_binding=helper_binding, etf_universe_sha256=etf_universe_sha256,
                 source_authentication="EXTERNAL_OWNER_CONTROL_REQUIRED", source_admission=False)
 
 

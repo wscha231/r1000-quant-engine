@@ -691,6 +691,8 @@ def load_cadence_roster(control, drive, now):
         monitor = handle.read(managed.MAX_BYTES + 1)
     return managed.priority_roster(raw, expected_sha256=cadence["roster_ref"]["sha256"],
         monitor_raw=monitor, monitor_sha256=cadence["monitor_contract_sha256"],
+        monitor_helper_sha256=cadence["monitor_helper_sha256"],
+        etf_universe_sha256=cadence["etf_universe_sha256"],
         proof_objects=proofs, max_priority_candidates=cadence["max_priority_candidates"],
         holdings_binding=cadence["holdings_binding"], now_utc=now)
 
@@ -783,6 +785,8 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         result.update(cadence_binding_sha256=binding, tier_progress=terminal["tier_progress"],
                       holdings_status=roster["holdings_status"],
                       overall_status=roster["overall_status"],
+                      etf_helper_binding=roster["etf_helper_binding"],
+                      etf_universe_sha256=roster["etf_universe_sha256"],
                       roster_binding_policy="EXACT_OWNER_REBIND_REQUIRED",
                       automatic_roster_updates=False,
                       next_roster_packet="EXISTING_A0_OWNER_REBIND_PROPOSAL",

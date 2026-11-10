@@ -10217,3 +10217,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   than its fixture rows contained; the unchanged archive checker correctly held
   it. Bind fixture end-exclusive dates to their actual rows, retain the failure
   and cost, and never weaken the production coverage check to fix the test.
+- Independent A6 found that a pinned roster/config still drifted through an
+  unpinned ETF helper. Bind the actual helper file/module/functions and the exact
+  derived ticker union through separate external cadence pins. The same count
+  does not prove the same basket, and module caching/monkeypatches are not proof
+  that the inspected source bytes are the code being executed. Keep legacy pins
+  intact; retain observed Windows code hashes separately from reviewed Git-LF.
