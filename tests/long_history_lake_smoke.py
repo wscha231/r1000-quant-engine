@@ -14,6 +14,11 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from tools.long_history_lake import Lake,LocalTransport,SourceHTTPError,sec_rows,fact_coverage,issuer_queue,encoded,digest,materialize,wb_rows,PREFIX
 
+HISTORY_JOB_IF=("github.repository == 'wscha231/r1000-quant-engine' && "
+    "github.ref == 'refs/heads/master' && github.event_name != 'push' && "
+    "((inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY') "
+    "!= 'HYBRID_AUTO' || github.run_attempt == 1)")
+
 
 def source():
     base=dict(start='2016-01-01',end='2016-12-31',filed='2017-02-01',accn='0000000001-17-000001',form='10-K',val=100)
@@ -592,7 +597,8 @@ class HistoryTest(unittest.TestCase):
         self.assertIn('--source-head-sha',finalize['run'])
         for step in steps:
             if step.get('name')=='Restore durable cohort if already archived':
-                self.assertEqual(step['if'],'${{ !inputs.finalize_commit_sha256 && !inputs.scoped_alfred_request_json }}')
+                self.assertEqual(step['if'],"${{ !inputs.finalize_commit_sha256 && "
+                    "!inputs.scoped_alfred_request_json && env.HYBRID_MODE == 'LEGACY' }}")
             if step.get('name')=='Collect full history, persist changes, verify clean consumption':
                 self.assertEqual(step['if'],'${{ !inputs.finalize_commit_sha256 }}')
 
@@ -1002,9 +1008,7 @@ class HistoryTest(unittest.TestCase):
         import re
         workflow=(ROOT/'.github/workflows/long_history_research.yml').read_text()
         guards=re.findall(r'^    if: (.+)$',workflow,re.MULTILINE)
-        self.assertEqual(guards,[
-            "github.repository == 'wscha231/r1000-quant-engine' && "
-            "github.ref == 'refs/heads/master' && github.event_name != 'push'"])
+        self.assertEqual(guards,[HISTORY_JOB_IF])
         self.assertIn('  workflow_dispatch:',workflow)
         self.assertIn('  schedule:',workflow)
         self.assertIn('    - cron: \'37 6 * * 2-6\'',workflow)
@@ -1019,13 +1023,40 @@ class HistoryTest(unittest.TestCase):
         producer=workflow['jobs']['history']
         self.assertEqual(producer['concurrency'],{
             'group':'durable-long-history-single-writer','cancel-in-progress':'false'})
-        self.assertEqual(producer['if'],
-            "github.repository == 'wscha231/r1000-quant-engine' && "
-            "github.ref == 'refs/heads/master' && github.event_name != 'push'")
+        self.assertEqual(producer['if'],HISTORY_JOB_IF)
+        # Exercise this bounded boolean grammar; never execute workflow steps.
+        import ast
+        expression=producer['if']
+        for actual,local in (('github.repository','repository'),('github.ref','ref'),
+                ('github.event_name','event'),('inputs.hybrid_refresh_mode','input_mode'),
+                ('vars.LONG_HISTORY_REFRESH_MODE','variable_mode'),('github.run_attempt','attempt')):
+            expression=expression.replace(actual,local)
+        tree=ast.parse(expression.replace('&&',' and ').replace('||',' or '),mode='eval')
+        permitted=(ast.Expression,ast.BoolOp,ast.And,ast.Or,ast.Compare,ast.Eq,ast.NotEq,
+                   ast.Name,ast.Load,ast.Constant)
+        self.assertTrue(all(isinstance(node,permitted) for node in ast.walk(tree)))
+        code=compile(tree,'<history-job-guard>','eval')
+        def allowed(**changes):
+            context=dict(repository='wscha231/r1000-quant-engine',ref='refs/heads/master',
+                         event='schedule',input_mode='',variable_mode='',attempt=1)
+            context.update(changes)
+            return bool(eval(code,{'__builtins__':{}},context))
+        for mode in ('LEGACY','HYBRID_DAILY','HYBRID_AUTO'):
+            with self.subTest(push_mode=mode):
+                self.assertFalse(allowed(event='push',input_mode=mode))
+        for event in ('schedule','workflow_dispatch'):
+            with self.subTest(event=event):
+                self.assertTrue(allowed(event=event,input_mode='HYBRID_AUTO',attempt=1))
+                self.assertFalse(allowed(event=event,input_mode='HYBRID_AUTO',attempt=2))
+        self.assertFalse(allowed(variable_mode='HYBRID_AUTO',attempt=2))
+        self.assertTrue(allowed(input_mode='HYBRID_DAILY',variable_mode='HYBRID_AUTO',attempt=2))
+        self.assertTrue(allowed(attempt=2))  # LEGACY gate unchanged; not rerun authority.
+        self.assertFalse(allowed(repository='other/repository'))
+        self.assertFalse(allowed(ref='refs/heads/codex/test'))
         self.assertEqual(workflow['on']['push']['branches'],['master'])
         self.assertEqual(workflow['on']['schedule'],[{'cron':'37 6 * * 2-6'}])
         self.assertIn('workflow_dispatch',workflow['on'])
-        self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read'})
+        self.assertEqual(workflow['permissions'],{'contents':'read','actions':'read','issues':'read'})
 
     def test_fixed_transport_categories_survive_history_error_sanitization(self):
         from tools.macro_research_checkpoint import transport_failure, is_safe_transport_failure

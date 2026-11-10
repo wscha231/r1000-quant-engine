@@ -10345,3 +10345,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   IDs across code/config changes; no new event ID alone cannot suppress the
   changed contract's original proposals. Unchanged identities stay deduplicated,
   and every exported proposal still requires exact original-plan replay.
+- B9 Hosted CI ran403 Lake cases with3 failures; its runner retained only the
+  final15 lines, hiding two case names. Focused getTestCaseNames discovery and
+  actual execution reproduced three distinct HistoryTest failures, not inherited
+  repeats: code-push guard, finalization LEGACY-only cohort restore and writer
+  queue guard. Update the exact stronger workflow expectations, preserve
+  read-only issues permission for OWNER evidence, and exercise push exclusion,
+  AUTO attempt1/2 plus mode precedence. Do not change runtime/workflow or rerun
+  the other400 cases merely to repair stale test strings; charge the0.7740971s
+  reproduction and distinguish focused normal/-O from the prior Hosted result.
