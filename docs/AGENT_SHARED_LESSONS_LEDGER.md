@@ -10340,3 +10340,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   its exact SHA). Keep object references as exactly file_id/sha256/bytes and all
   qualification flags false. Consumers reverify originals; old checkpoints
   remain readable and immutable. Do not infer membership from journal order.
+- Generation and intake replay must share the same identity-aware review
+  suppression rule. Repeated same-session source failures retain their event
+  IDs across code/config changes; no new event ID alone cannot suppress the
+  changed contract's original proposals. Unchanged identities stay deduplicated,
+  and every exported proposal still requires exact original-plan replay.

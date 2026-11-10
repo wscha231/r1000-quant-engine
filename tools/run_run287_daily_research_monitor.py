@@ -659,6 +659,15 @@ def published_etf_reviews(source: dict, contract: dict, now: datetime) -> list[d
     return copy.deepcopy(requests)
 
 
+def _review_parameter_proposals(plan: dict, *, new_event_ids: list[str],
+                                contract_identity: dict, previous_contract_identity: dict | None) -> dict:
+    # Recollection alone is suppressed; a changed contract still needs its
+    # original review proposals even when persistent failure event IDs repeat.
+    if not new_event_ids and previous_contract_identity == contract_identity:
+        return {}
+    return reassessment.a0_parameter_proposals(plan)
+
+
 def reassessment_handoff(sources: dict, session: str, now: datetime, contract: dict, *,
                          previous: dict | None = None, private_etf_payload: bytes | None = None,
                          code_sha: str | None = None) -> dict:
@@ -752,18 +761,16 @@ def reassessment_handoff(sources: dict, session: str, now: datetime, contract: d
             plan = reassessment.plan_reassessment(prior, current, index, now=cutoff, contract_identity=identity,
                 previous_contract_identity=previous.get("contract_identity") if prior else None,
                 previous_index_sha256=previous.get("exposure_index", {}).get("content_sha256") if prior else None)
-            proposals = reassessment.a0_parameter_proposals(plan)
             result.update(plan=plan, proposal_plan=plan, current_snapshot=current, exposure_index=index,
-                          contract_identity=identity, parameter_proposals=proposals,
+                          contract_identity=identity,
                           comparison_snapshot=prior,
                           comparison_contract_identity=previous.get("contract_identity") if prior else None,
                           comparison_index_sha256=previous.get("exposure_index", {}).get("content_sha256") if prior else None)
             old_ids = {e["event_id"] for e in previous.get("plan", {}).get("events", [])} if previous else set()
             result["new_event_ids"] = sorted(e["event_id"] for e in plan["events"] if e["event_id"] not in old_ids)
-            if previous and not result["new_event_ids"] and previous.get("contract_identity") == identity:
-                # Do not submit a fresh A0 batch merely because collection time
-                # changed. Existing requests remain visible, never ACKed.
-                result["parameter_proposals"] = {}
+            result["parameter_proposals"] = _review_parameter_proposals(plan,
+                new_event_ids=result["new_event_ids"], contract_identity=identity,
+                previous_contract_identity=result["comparison_contract_identity"])
             for intent in plan["review_intents"]:
                 result["review_requests"].append({**intent, "request_id": reassessment.digest(intent),
                                                  "source_refs": refs, "authority": "REVIEW_ONLY"})
@@ -825,7 +832,9 @@ def export_review_intake(intake: dict, handoff: dict, evidence_root: Path, now: 
         handoff["exposure_index"], now=handoff["current_snapshot"]["cutoff"],
         contract_identity=handoff["contract_identity"], previous_contract_identity=handoff.get("comparison_contract_identity"),
         previous_index_sha256=handoff.get("comparison_index_sha256"))
-    expected = reassessment.a0_parameter_proposals(replay) if handoff.get("new_event_ids") else {}
+    expected = _review_parameter_proposals(replay, new_event_ids=handoff.get("new_event_ids"),
+        contract_identity=handoff["contract_identity"],
+        previous_contract_identity=handoff.get("comparison_contract_identity"))
     if replay != handoff["plan"] or expected != handoff["parameter_proposals"]:
         raise ValueError("intake_proposal_original_required")
     merged, missing = copy.deepcopy(intake), []

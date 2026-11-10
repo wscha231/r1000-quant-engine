@@ -1249,6 +1249,35 @@ class ReviewHandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "intake_etf_original_required"):
                 monitor.export_review_intake(intake, injected, root, NOW, "a" * 40)
 
+            # Persistent same-session failure IDs repeat even when the actual
+            # producer contract changes. Generation and original replay must
+            # suppress only the unchanged-identity batch, never its requests.
+            for change in ("unchanged", "code", "config"):
+                with self.subTest(persistent_failure_identity=change):
+                    prior_contract = copy.deepcopy(CONTRACT)
+                    if change == "config":
+                        prior_contract["reassessment"]["expiry_hours"] = 12
+                    failed = {"a4_forward": self.source(failed=True)}
+                    previous = monitor.reassessment_handoff(failed, self.session, NOW, prior_contract,
+                        code_sha="b" * 40 if change == "code" else "a" * 40)
+                    current = self.handoff(failed, previous=previous)
+                    self.assertEqual(current["new_event_ids"], [])
+                    self.assertTrue(current["review_requests"])
+                    self.assertEqual(bool(current["parameter_proposals"]), change != "unchanged")
+                    exported, checked = monitor.export_review_intake(intake, current, root, NOW, "a" * 40)
+                    for before, after in zip(intake["requests"], exported["requests"]):
+                        for key in ("agent", "inputs", "model"):
+                            self.assertEqual(before[key], after[key])
+                        expected_parameters = copy.deepcopy(before["parameters"])
+                        expected_parameters.update(current["parameter_proposals"].get(before["agent"], {}))
+                        self.assertEqual(after["parameters"], expected_parameters)
+                    self.assertFalse(checked["execute"])
+                    self.assertFalse(checked["consumption_ack"])
+                    forged_repeat = copy.deepcopy(current)
+                    forged_repeat["parameter_proposals"]["A5"] = {"injected": "not-an-original"}
+                    with self.assertRaisesRegex(ValueError, "intake_proposal_original_required"):
+                        monitor.export_review_intake(intake, forged_repeat, root, NOW, "a" * 40)
+
     def test_default_main_exports_real_bridge_and_missing_intake_packet(self):
         sources = evidence(); sources["a4_forward"] = self.source(failed=True)
         def collect(client, key, *args, **kwargs):
