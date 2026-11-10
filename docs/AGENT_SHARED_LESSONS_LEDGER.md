@@ -10354,3 +10354,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   AUTO attempt1/2 plus mode precedence. Do not change runtime/workflow or rerun
   the other400 cases merely to repair stale test strings; charge the0.7740971s
   reproduction and distinguish focused normal/-O from the prior Hosted result.
+
+- A dedicated monitor CI path does not authorize changing the protected236
+  program inventory. Preserve its237-vs236 and protected-delta failures, restore
+  the exact accepted runner blob, and rebind only actual current dependency
+  hashes; historical references and review gates remain unchanged.
+- An original mapping hash does not validate a derived identity table. Preserve
+  source buffers and record types, reuse the canonical SEC parser plus its
+  ticker normalization, and reject zero/first-character CIK outputs and false
+  unmapped dotted aliases. Retract dependent T2 templates until corrected;
+  no source/PIT, holdings or collection authority follows from a metadata join.
