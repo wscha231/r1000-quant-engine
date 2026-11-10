@@ -2177,13 +2177,14 @@ class HybridHistoryTest(unittest.TestCase):
         self.now=datetime(2026,10,24,0,30,tzinfo=timezone.utc)
         self.enterContext(patch.object(h,'utc_now',return_value=self.now.isoformat()))
         self.enterContext(patch.dict('os.environ',{'GITHUB_SHA':'a'*40}))
-        self.members=[dict(ticker='AAPL'),dict(ticker='MSFT')]
-        self.cohort=encoded(dict(candidate_count=2,as_of='2026-10-01',rows=self.members))
+        self.members=[dict(ticker='AAPL'),dict(ticker='MSFT')]+[dict(ticker='S'+str(i)) for i in range(998)]
+        self.cohort=encoded(dict(candidate_count=len(self.members),as_of='2026-10-01',rows=self.members))
         self.enterContext(patch.object(h,'COHORT_SHA',digest(self.cohort)))
-        self.mapping=encoded({'0':dict(ticker='AAPL',cik_str=1),'1':dict(ticker='MSFT',cik_str=2)})
+        self.mapping=encoded({str(i):dict(ticker=row['ticker'],cik_str=1 if i==0 else 2)
+                              for i,row in enumerate(self.members)})
         lake=Lake(self.t,self.root/'first')
         lake.dataset('universe/cohort',[self.cohort,self.mapping],self.members,dict(
-            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',rows=2,requested_securities=2,
+            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',rows=1000,requested_securities=1000,
             cohort_source_object_sha256=digest(h.packed(self.cohort)),
             sec_ticker_mapping_object_sha256=digest(h.packed(self.mapping)),
             sec_ticker_mapping_source_sha256=digest(self.mapping),
@@ -2288,7 +2289,7 @@ class HybridHistoryTest(unittest.TestCase):
         r=self.request(); r['focus_pairs']=[dict(ticker='AAP.L',cik='0000000001')]
         original=self.h.sec_ticker_lookup
         with patch.object(self.h,'verified_cohort_source',return_value=(
-                encoded(dict(candidate_count=2,rows=[dict(ticker='AAP-L'),dict(ticker='MSFT')])),
+                encoded(dict(candidate_count=1000,rows=[dict(ticker='AAP-L')]+self.members[1:])),
                 r['mapping_object_sha256'],json.loads(self.mapping))), \
              patch.object(self.h,'sec_ticker_lookup',side_effect=lambda m:dict(original(m),**{'AAP-L':{'0000000001'}})):
             scope=self.scope(r)
@@ -2430,6 +2431,207 @@ class HybridHistoryTest(unittest.TestCase):
              patch.object(self.h,'collect_financials') as collect:
             with self.assertRaisesRegex(ValueError,'hybrid_explicit_inputs_required'): self.h.main()
         transport.assert_not_called(); collect.assert_not_called()
+
+
+class AutoHybridTest(unittest.TestCase):
+    setUp=HybridHistoryTest.setUp
+    receipt=HybridHistoryTest.receipt
+    request=HybridHistoryTest.request
+    run_daily=HybridHistoryTest.run_daily
+
+    def profile(self):
+        r=self.request()
+        for k in ('request_id','weekly','through','decision_at','budget'):
+            r.pop(k)
+        r.update(schema='long-history-hybrid-auto-v1',profile_id='synthetic-auto',mode='HYBRID_AUTO',
+            expires_at='2026-11-02T12:00:00Z',repository_id=123,workflow_id=456,
+            workflow_path=self.h.AUTO_WORKFLOW,first_run_number=10,last_run_number=20,
+            code_pins={p:digest((ROOT/p).read_bytes().replace(b'\r\n',b'\n')) for p in self.h.AUTO_PINS},
+            per_run_allowance=copy.deepcopy(self.request()['budget']))
+        r['total_reservation']={k:11*r['per_run_allowance'][k] for k in self.h.AUTO_RESOURCES}
+        r['opening_floor']={k:7 for k in self.h.AUTO_RESOURCES}
+        return r
+
+    def live(self,p,number=10):
+        sha=digest(encoded(p)); repo='wscha231/r1000-quant-engine'
+        context=dict(GITHUB_REPOSITORY=repo,GITHUB_REPOSITORY_ID='123',GITHUB_REF='refs/heads/master',
+            GITHUB_RUN_ID='77',GITHUB_RUN_ATTEMPT='1',GITHUB_RUN_NUMBER=str(number),GITHUB_SHA='a'*40,
+            GITHUB_EVENT_NAME='schedule',GITHUB_JOB='history',GITHUB_ACTIONS='true',
+            GITHUB_WORKFLOW_REF=repo+'/'+self.h.AUTO_WORKFLOW+'@refs/heads/master',GITHUB_WORKFLOW_SHA='a'*40)
+        run=dict(id=77,run_number=number,run_attempt=1,workflow_id=456,path=self.h.AUTO_WORKFLOW,
+            repository=dict(id=123,full_name=repo),head_repository=dict(id=123,full_name=repo),
+            head_sha='a'*40,head_branch='master',event='schedule',created_at='2026-10-24T00:01:00Z')
+        record=dict(schema='long-history-auto-owner-v1',profile_sha256=sha,
+            code_pins_sha256=digest(encoded(p['code_pins'])),purpose=p['purpose'],
+            rights_sha256=p['rights_sha256'],expires_at=p['expires_at'])
+        comment=dict(id=1,author_association='OWNER',user=dict(type='User'),
+            created_at='2026-10-23T22:00:00Z',updated_at='2026-10-23T22:00:00Z',
+            issue_url='https://api.github.com/repos/'+repo+'/issues/448',
+            body=self.h.AUTO_OWNER_TAG+json.dumps(record))
+        def gh(path):
+            if '/actions/runs/' in path:return run
+            if '/actions/workflows/' in path:return dict(id=456,path=self.h.AUTO_WORKFLOW,state='active')
+            if '/issues/comments/' in path:return comment
+            if '/compare/' in path:return dict(status='ahead',merge_base_commit=dict(sha=p['code_sha']))
+            if '/contents/' in path:
+                import base64
+                relative=path.split('/contents/',1)[1].split('?',1)[0]
+                return dict(type='file',encoding='base64',content=base64.b64encode(
+                    (ROOT/relative).read_bytes().replace(b'\r\n',b'\n')).decode())
+            raise AssertionError('Unexpected GitHub path')
+        return sha,context,run,comment,gh
+
+    def authorize(self,p=None,number=10):
+        p=self.profile() if p is None else p
+        sha,ctx,run,c,gh=self.live(p,number)
+        return self.h.authorize_auto(p,sha,
+            'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1',gh=gh,context=ctx)
+
+    def test_failed_deleted_skipped_slots_all_charge_without_history_listing(self):
+        p=self.profile(); per=p['per_run_allowance']['provider_gets']
+        # No run history is supplied: failed N, deleted N, or unrelated/skip gap
+        # all consume precisely the same monotonic worst-case allocation.
+        for number,multiple in ((10,1),(11,2),(12,3),(15,6)):
+            a=self.authorize(p,number)['reservation']
+            self.assertEqual(a['reserved_allowance']['provider_gets'],multiple*per)
+            self.assertEqual(a['cumulative_with_opening_floor']['provider_gets'],7+multiple*per)
+        with self.assertRaisesRegex(ValueError,'outside_original_allocation'):self.authorize(p,21)
+        with self.assertRaisesRegex(ValueError,'outside_original_allocation'):self.authorize(p,9)
+
+    def test_original_profile_window_and_exact_total_not_reissued(self):
+        p=self.profile(); raw=encoded(p)
+        self.assertEqual(self.h.auto_profile(raw,digest(raw),now=self.now),p)
+        for key,bad,reason in (('expires_at','2026-12-24T00:00:00Z','original_window'),
+            ('first_run_number',True,'counter_identity'),('workflow_path','other.yml','counter_identity')):
+            badp=copy.deepcopy(p); badp[key]=bad; raw=encoded(badp)
+            with self.subTest(key=key),self.assertRaisesRegex(ValueError,reason):
+                self.h.auto_profile(raw,digest(raw),now=self.now)
+        p['total_reservation']['provider_gets']+=1; raw=encoded(p)
+        with self.assertRaisesRegex(ValueError,'total_not_full_slots'):
+            self.h.auto_profile(raw,digest(raw),now=self.now)
+        with self.assertRaisesRegex(ValueError,'original_profile_hash'):
+            self.h.auto_profile(raw,'0'*64,now=self.now)
+
+    def test_rest_context_attempt_id_path_drift_refuse_before_source(self):
+        p=self.profile()
+        for field,bad in (('run_attempt',2),('workflow_id',999),('path','different.yml'),
+                          ('head_sha','b'*40),('event','push'),('head_branch','other')):
+            sha,ctx,run,c,gh=self.live(p);run[field]=bad
+            with self.subTest(field=field),patch.object(self.h,'HybridTransport') as remote, \
+                 patch.object(self.h,'get_public') as source:
+                with self.assertRaisesRegex(ValueError,'rest_run_mismatch'):
+                    self.h.authorize_auto(p,sha,
+                        'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1',gh=gh,context=ctx)
+                remote.assert_not_called();source.assert_not_called()
+        sha,ctx,run,c,gh=self.live(p);ctx['GITHUB_RUN_ATTEMPT']='2'
+        with self.assertRaisesRegex(ValueError,'live_identity'):
+            self.h.authorize_auto(p,sha,'unused',gh=gh,context=ctx)
+
+    def test_same_attempt_second_invocation_refused_even_with_identical_bytes(self):
+        a=self.authorize()
+        with patch.dict('os.environ',RUNNER_TEMP=str(self.root)),patch.object(self.h,'HybridTransport') as source:
+            self.h.claim_auto_invocation(a)
+            with self.assertRaisesRegex(ValueError,'already_invoked'):self.h.claim_auto_invocation(a)
+            source.assert_not_called()
+        self.assertTrue((self.root/'history-auto-77-1.entry').is_file())
+
+    def test_unchanged_profile_next_trading_day_then_weekend_and_unrelated_head(self):
+        p=self.profile();sha=digest(encoded(p)); reservations=[]
+        for clock,mode,session in (('2026-10-27T00:30:00Z','HYBRID_DAILY','2026-10-26'),
+                                   ('2026-10-31T06:37:00Z','HYBRID_WEEKLY','2026-10-30')):
+            now=self.h.hybrid_clock(clock)
+            with patch.object(self.h,'utc_now',return_value=clock):
+                self.h.auto_profile(encoded(p),sha,now=now)
+                r=self.h.auto_request(p,sha,now=now,run=dict(run_number=11))
+            self.assertEqual((r['mode'],r['through']),(mode,session))
+            self.assertEqual(r['_auto']['original_expires_at'],p['expires_at'])
+            self.assertEqual(r['decision_at'],now.isoformat());reservations.append(r)
+        self.assertEqual(self.h.hybrid_continuation_identity(reservations[0]),
+                         self.h.hybrid_continuation_identity(reservations[1]))
+        _,ctx,_,_,gh=self.live(p);ctx['GITHUB_SHA']='b'*40
+        self.h.verify_auto_code(p,ctx,gh)  # Relevant bytes unchanged; ancestor retained.
+        p['code_pins']['tools/long_history_lake.py']='f'*64
+        with self.assertRaisesRegex(ValueError,'deployed_code_changed'):
+            self.h.verify_auto_code(p,ctx,gh)
+
+    def test_partial_latest_blocks_despite_available_slots(self):
+        p=self.profile();sha=digest(encoded(p));r=self.h.auto_request(p,sha,now=self.now)
+        self.authorize(p)
+        actual=self.lake.verified_execution
+        with patch.object(self.lake,'verified_execution',side_effect=lambda **kw:
+                dict(actual(**kw),quality_status='PARTIAL')), \
+             patch.object(self.h,'get_public') as provider:
+            with self.assertRaisesRegex(ValueError,'parent_execution_incomplete'):
+                self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+                    self.h.HybridBudget(r,live_transport=False),{})
+            provider.assert_not_called()
+
+    def test_same_profile_can_continue_verified_daily_to_weekly_without_rebinding(self):
+        p=self.profile();sha=digest(encoded(p))
+        # First synthetic approved run uses the fixed Friday scope, then the
+        # same original profile selects the next week's true terminal session.
+        r=self.request();r['_auto']=dict(profile_sha256=sha)
+        scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+            self.h.HybridBudget(r,live_transport=False),{})
+        self.run_daily(scope);summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        result=self.lake.publish('synthetic-auto-10',dict(self.config,hybrid_refresh=scope['detail']))
+        self.lake=Lake(self.t,self.root/'auto-next');self.receipt(self.lake,result,summary)
+        with patch.object(self.h,'utc_now',return_value='2026-10-31T06:37:00Z'):
+            r=self.h.auto_request(p,sha,run=dict(run_number=11))
+            scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+                self.h.HybridBudget(r,live_transport=False),{})
+        self.assertEqual(scope['descendants_verified'],1)
+        self.assertEqual(scope['selected'],{'0000000001','0000000002'})
+
+    def test_pinned_workflow_still_requires_one_job_no_matrix_and_one_collect_call(self):
+        import yaml
+        p=self.profile();_,ctx,_,_,gh=self.live(p)
+        original=yaml.safe_load((ROOT/self.h.AUTO_WORKFLOW).read_text())
+        for kind in ('matrix','extra_job','duplicate_call'):
+            w=copy.deepcopy(original)
+            if kind=='matrix':w['jobs']['history']['strategy']={'matrix':{'copy':[1,2]}}
+            elif kind=='extra_job':w['jobs']['other']=copy.deepcopy(w['jobs']['history'])
+            else:
+                step=next(s for s in w['jobs']['history']['steps'] if
+                    s.get('name')=='Collect full history, persist changes, verify clean consumption')
+                step['run']+='\npython tools/long_history_lake.py --unexpected-second-call\n'
+            with self.subTest(kind=kind),patch.object(yaml,'safe_load',return_value=w):
+                with self.assertRaisesRegex(ValueError,'auto_one_fixed_job|auto_no_matrix|auto_one_collector'):
+                    self.h.verify_auto_code(p,ctx,gh)
+
+    def test_actual_auto_entry_failure_then_duplicate_then_next_slot_keep_reservations(self):
+        from types import SimpleNamespace
+        p=self.profile();sha=digest(encoded(p));a=self.authorize(p)
+        b=copy.deepcopy(a);b['run'].update(id=78,run_number=11)
+        b['reservation']=self.h.auto_slot_reservation(p,11)
+        original_budget=self.h.HybridBudget
+        r=self.h.auto_request(p,sha,now=self.now)
+        with patch.dict('os.environ',RUNNER_TEMP=str(self.root)), \
+             patch.object(self.h,'HybridBudget',side_effect=lambda r:original_budget(r,live_transport=False)), \
+             patch.object(self.h,'authorize_auto',side_effect=[a,a,b]), \
+             patch.object(self.h,'HybridTransport',side_effect=ValueError('SYNTHETIC_RESTORE_FAILURE')) as transport:
+            for index,run_id,reason in ((0,77,'SYNTHETIC_RESTORE_FAILURE'),
+                                       (1,77,'already_invoked'),(2,78,'SYNTHETIC_RESTORE_FAILURE')):
+                args=SimpleNamespace(report_dir=str(self.root/('attempt-'+str(index))),
+                    hybrid_approval_reference='fixture',run_id='history-'+str(run_id)+'-1',remote='fixture')
+                with self.subTest(index=index),self.assertRaisesRegex(ValueError,reason):
+                    self.h.run_hybrid(args,r,sha,auto=(p,sha))
+            self.assertEqual(transport.call_count,2)
+        self.assertEqual(b['reservation']['reserved_allowance']['provider_gets'],
+                         2*a['reservation']['reserved_allowance']['provider_gets'])
+        self.assertTrue((self.root/'history-auto-77-1.entry').exists())
+        self.assertTrue((self.root/'history-auto-78-1.entry').exists())
+
+    def test_transport_retry_uses_same_meter_and_no_refund(self):
+        r=self.request();r['budget']['transport_calls']=2
+        budget=self.h.HybridBudget(r,live_transport=False)
+        transport=self.h.HybridTransport.__new__(self.h.HybridTransport);transport.hybrid_budget=budget
+        with patch.object(self.h.RcloneTransport,'call',side_effect=ValueError('research_transport:RATE_LIMIT')) as call, \
+             patch('tools.macro_research_checkpoint.time.sleep'):
+            with self.assertRaisesRegex(ValueError,'hybrid_budget_exhausted'):
+                transport.read_call('cat','synthetic')
+        self.assertEqual(call.call_count,2)
+        self.assertEqual(budget.used['transport_calls'],2)
 
 
 if __name__=='__main__': unittest.main()

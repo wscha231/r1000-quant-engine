@@ -61,7 +61,7 @@ on:
       hybrid_refresh_mode:
         description: Explicit approved hybrid scope; absent legacy behavior is unchanged
         type: choice
-        options: [LEGACY, HYBRID_DAILY, HYBRID_WEEKLY]
+        options: [LEGACY, HYBRID_DAILY, HYBRID_WEEKLY, HYBRID_AUTO]
         default: LEGACY
       hybrid_request_sha256:
         description: Exact original private hybrid request SHA256, not an approval
@@ -148,18 +148,22 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
-          from tools.long_history_lake import finalization_mode,require,scoped_alfred_request,exclusive,hybrid_request,authorize_hybrid,HYBRID_MODES
+          from tools.long_history_lake import finalization_mode,require,scoped_alfred_request,exclusive,hybrid_request,authorize_hybrid,HYBRID_MODES,auto_profile,authorize_auto
           finalizing=finalization_mode(os.environ['FINALIZE_COMMIT'],os.environ['FINALIZE_CATALOG'],os.environ['SOURCE_HEAD'])
           require(not finalizing or os.environ['GITHUB_EVENT_NAME']=='workflow_dispatch','finalization_requires_dispatch')
           raw=os.environ['SCOPED_ALFRED_REQUEST'].encode('utf-8')
           sha=os.environ['SCOPED_ALFRED_SHA']
           mode=os.environ['HYBRID_MODE']
-          require(mode=='LEGACY' or mode in HYBRID_MODES,'hybrid_mode')
+          require(mode=='LEGACY' or mode in HYBRID_MODES or mode=='HYBRID_AUTO','hybrid_mode')
           if mode!='LEGACY':
               require(not raw and not sha and not finalizing,'hybrid_mode_conflict')
               private=os.environ['HYBRID_REQUEST'].encode('utf-8')
-              request=hybrid_request(private,os.environ['HYBRID_SHA'],mode)
-              authorize_hybrid(request,os.environ['HYBRID_SHA'],os.environ['HYBRID_APPROVAL'])
+              if mode=='HYBRID_AUTO':
+                  request=auto_profile(private,os.environ['HYBRID_SHA'])
+                  authorize_auto(request,os.environ['HYBRID_SHA'],os.environ['HYBRID_APPROVAL'])
+              else:
+                  request=hybrid_request(private,os.environ['HYBRID_SHA'],mode)
+                  authorize_hybrid(request,os.environ['HYBRID_SHA'],os.environ['HYBRID_APPROVAL'])
               path=Path(os.environ['RUNNER_TEMP'])/'hybrid-history-request.json'
               exclusive(path,private)
               path.chmod(0o600)

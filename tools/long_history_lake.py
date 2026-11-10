@@ -407,16 +407,235 @@ def authorize_hybrid(request, request_sha256, approval_reference, *, gh=None, co
                 owner_comment_sha256=digest(encoded(c)),run_id=int(context['GITHUB_RUN_ID']))
 
 
+AUTO_WORKFLOW='.github/workflows/long_history_research.yml'
+AUTO_OWNER_TAG='LONG_HISTORY_AUTO_OWNER_V1 '
+AUTO_RESOURCES=('provider_gets','provider_bytes','transport_calls','transport_reserved_bytes',
+                'write_bytes','active_seconds')
+# Execution dependencies, including the pre-Source offline callers. No test or
+# runtime file can be changed under an unchanged external standing profile.
+AUTO_PINS=(AUTO_WORKFLOW,'tools/long_history_lake.py','tools/macro_history_sources.py',
+    'tools/macro_technical_study.py','tools/macro_research_cycle.py','tools/macro_research_checkpoint.py',
+    'tools/configure_macro_research_drive.py','tools/research_data_access.py','tools/research_model_inputs.py',
+    'tools/run_data_freshness_contract.py','tools/prepare_a1_reader_generation.py',
+    'tools/alpaca_sip_private_backfill_v1.py','tools/twelve_private_capture.py',
+    'tools/alpaca_sip_source_revision.py','tools/alpaca_sip_managed_refresh.py',
+    'tools/alpaca_sip_campaign.py','tools/prepare_a1_managed_ohlcv.py',
+    'tools/run_daily_market_session_gate.py','tools/run_pr_validation.py','r1000_legacy_input_guard.py',
+    'tests/research_data_access_smoke.py','tests/research_model_inputs_smoke.py',
+    'tests/a1_reader_generation_binding_smoke.py','tests/alpaca_sip_private_backfill_v1_smoke.py',
+    'tests/long_history_lake_smoke.py','tests/macro_technical_evidence_smoke.py',
+    'tests/macro_research_cycle_smoke.py','data_static/research_dataset_registry_v1.json',
+    'docs/research_dataset_generation_v1.schema.json','docs/research_data_access.json',
+    'docs/macro_indicator_registry.json','docs/run287_chameleon_macro_inputs_contract.json')
+
+
+def auto_profile(raw, expected_sha256, *, now=None):
+    """An immutable external allocation, not a profile or budget issuer."""
+    require(type(raw) is bytes and 0<len(raw)<=65536 and digest(raw)==expected_sha256,
+            'auto_original_profile_hash')
+    def unique(pairs):
+        value={}
+        for k,v in pairs:
+            require(k not in value,'auto_duplicate_key'); value[k]=v
+        return value
+    r=json.loads(raw,object_pairs_hook=unique,
+                 parse_constant=lambda _:require(False,'auto_nonfinite_json'))
+    fixed={'schema','profile_id','mode','purpose','code_sha','code_pins','registry_sha256',
+        'roster_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256',
+        'focus_pairs','baseline','macro_start','financial_start','available_at','not_before',
+        'expires_at','rights_sha256','repository_id','workflow_id','workflow_path',
+        'first_run_number','last_run_number','per_run_allowance','total_reservation','opening_floor'}
+    require(type(r) is dict and set(r)==fixed and r['schema']=='long-history-hybrid-auto-v1'
+            and r['mode']=='HYBRID_AUTO' and r['purpose']=='PRIVATE_NONCOMMERCIAL_RESEARCH'
+            and isinstance(r['profile_id'],str) and re.fullmatch('[A-Za-z0-9_-]{1,65}',r['profile_id']),
+            'auto_profile_fields')
+    now=hybrid_clock(utc_now()) if now is None else now
+    first,available,expiry=(hybrid_clock(r[k]) for k in ('not_before','available_at','expires_at'))
+    require(first<=available<=now<expiry and expiry-first<=timedelta(days=31),'auto_original_window')
+    require(all(type(r[k]) is int and 0<r[k]<=2**53-1 for k in
+        ('repository_id','workflow_id','first_run_number','last_run_number'))
+        and r['first_run_number']<=r['last_run_number'] and r['workflow_path']==AUTO_WORKFLOW,
+        'auto_counter_identity')
+    require(isinstance(r['code_sha'],str) and re.fullmatch('[a-f0-9]{40}',r['code_sha'])
+            and type(r['code_pins']) is dict and set(r['code_pins'])==set(AUTO_PINS)
+            and all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v)
+                    for v in r['code_pins'].values()),'auto_code_pins')
+    b=r['per_run_allowance']
+    require(type(b) is dict and set(b)==set(AUTO_RESOURCES)|{'max_chain_commits','max_issuers'}
+            and all(type(v) is int and 0<v<=2**53-1 for v in b.values())
+            and 480<=b['active_seconds']<=7200 and b['max_chain_commits']<=20000
+            and b['max_issuers']<=20000,'auto_per_run_allowance')
+    slots=r['last_run_number']-r['first_run_number']+1
+    for name in ('total_reservation','opening_floor'):
+        require(type(r[name]) is dict and set(r[name])==set(AUTO_RESOURCES)
+                and all(type(v) is int and 0<=v<=2**53-1 for v in r[name].values()),'auto_total_shape')
+    require(r['total_reservation']=={k:slots*b[k] for k in AUTO_RESOURCES},'auto_total_not_full_slots')
+    # Validate the rest through the fixed-v1 contract on a runtime-derived view.
+    # That view never replaces, reissues or hashes as the original OWNER profile.
+    auto_request(r,expected_sha256,now=now)
+    return r
+
+
+def auto_request(profile, profile_sha256, *, now=None, run=None, reservation=None):
+    now=hybrid_clock(utc_now()) if now is None else now
+    from tools.run_daily_market_session_gate import evaluate_market_session, mcal
+    local=now.astimezone(ZoneInfo('America/New_York'))
+    weekly=local.weekday()>=5
+    gate=evaluate_market_session(now_utc=now,min_close_age_minutes=120,
+                                 max_close_age_hours=96 if weekly else 18)
+    require(gate['ready'],'auto_no_completed_due_session')
+    through=gate['session_date']; monday=date.fromisoformat(through)
+    monday-=timedelta(days=monday.weekday())
+    expiry=hybrid_clock(profile['expires_at'])
+    if weekly:
+        schedule=mcal.get_calendar('NYSE').schedule(start_date=monday,end_date=monday+timedelta(days=4))
+        require(not schedule.empty and schedule.index[-1].strftime('%Y-%m-%d')==through,
+                'auto_week_not_complete')
+        expiry=min(expiry,datetime.combine(monday+timedelta(days=7),datetime.min.time(),
+                                          ZoneInfo('America/New_York')).astimezone(timezone.utc))
+    keys=('purpose','registry_sha256','roster_sha256','cohort_sha256','mapping_object_sha256',
+          'mapping_source_sha256','focus_pairs','baseline','macro_start','financial_start',
+          'available_at','not_before','rights_sha256')
+    r={k:copy.deepcopy(profile[k]) for k in keys}
+    r.update(schema='long-history-hybrid-v1',request_id=profile['profile_id']+'-'+str((run or {}).get('run_number','prepare')),
+        mode='HYBRID_WEEKLY' if weekly else 'HYBRID_DAILY',code_sha=os.environ.get('GITHUB_SHA'),
+        through=through,decision_at=now.isoformat(),expires_at=expiry.isoformat(),
+        weekly=dict(week_start=monday.isoformat(),session=through) if weekly else None,
+        budget=copy.deepcopy(profile['per_run_allowance']))
+    raw=encoded(r); hybrid_request(raw,digest(raw),r['mode'],now=now)
+    r['_auto']=dict(profile_sha256=profile_sha256,original_available_at=profile['available_at'],
+        original_not_before=profile['not_before'],original_expires_at=profile['expires_at'],
+        observed_at=now.isoformat(),selected_session=through,run=copy.deepcopy(run),
+        reservation=copy.deepcopy(reservation),code_pins_sha256=digest(encoded(profile['code_pins'])))
+    return r
+
+
+def auto_slot_reservation(profile, run_number):
+    require(type(run_number) is int and profile['first_run_number']<=run_number<=profile['last_run_number'],
+            'auto_run_number_outside_original_allocation')
+    used=run_number-profile['first_run_number']+1
+    total=profile['last_run_number']-profile['first_run_number']+1
+    charged={k:used*profile['per_run_allowance'][k] for k in AUTO_RESOURCES}
+    return dict(metric='FULL_COUNTER_SLOTS_NOT_ACTUAL_USAGE_NO_REFUNDS',consumed_slots=used,
+        allocated_slots=total,reserved_allowance=charged,
+        cumulative_with_opening_floor={k:profile['opening_floor'][k]+charged[k] for k in AUTO_RESOURCES},
+        remaining_allowance={k:profile['total_reservation'][k]-charged[k] for k in AUTO_RESOURCES},
+        actual_failed_wire_bytes=None,actual_Drive_API_requests=None)
+
+
+def verify_auto_code(profile, context, gh):
+    """Reuse the existing deployed ancestor + exact local/remote byte contract."""
+    import base64
+    import yaml
+    head=context['GITHUB_SHA']; repo='repos/wscha231/r1000-quant-engine'
+    compare=gh(repo+'/compare/'+profile['code_sha']+'...'+head)
+    require(compare.get('status') in ('identical','ahead')
+            and compare.get('merge_base_commit',{}).get('sha')==profile['code_sha'],'auto_deployed_ancestor')
+    for path,pin in profile['code_pins'].items():
+        remote=gh(repo+'/contents/'+path+'?'+urlencode(dict(ref=head)))
+        require(remote.get('encoding')=='base64' and remote.get('type')=='file'
+                and digest(base64.b64decode(remote.get('content',''),validate=False))==pin
+                and digest((ROOT/path).read_bytes().replace(b'\r\n',b'\n'))==pin,
+                'auto_deployed_code_changed_NEEDS_REBIND')
+    workflow=yaml.safe_load((ROOT/AUTO_WORKFLOW).read_text(encoding='utf-8'))
+    jobs=workflow['jobs']; require(set(jobs)=={'history'},'auto_one_fixed_job')
+    job=jobs['history']; require('strategy' not in job,'auto_no_matrix')
+    steps=job['steps']; name='Collect full history, persist changes, verify clean consumption'
+    collector=[s for s in steps if s.get('name')==name]
+    require(len(collector)==1 and collector[0].get('run','').count('python tools/long_history_lake.py')==1
+            and sum(s.get('run','').count('python tools/long_history_lake.py') for s in steps)==2
+            and len([s for s in steps if s.get('name')=='Finalize one pinned stored generation without collection'
+                and s.get('if')=="${{ inputs.finalize_commit_sha256 != '' }}"])==1,
+            'auto_one_collector_invocation')
+
+
+def authorize_auto(profile, profile_sha256, approval_reference, *, gh=None, context=None):
+    if gh is None:
+        from tools.alpaca_sip_campaign import gh_json
+        gh=gh_json
+    names=('GITHUB_REPOSITORY','GITHUB_REPOSITORY_ID','GITHUB_REF','GITHUB_RUN_ID','GITHUB_RUN_NUMBER',
+           'GITHUB_RUN_ATTEMPT','GITHUB_SHA','GITHUB_EVENT_NAME','GITHUB_JOB','GITHUB_ACTIONS',
+           'GITHUB_WORKFLOW_REF','GITHUB_WORKFLOW_SHA')
+    context=dict(os.environ) if context is None else context
+    require(all(isinstance(context.get(k),str) and context[k] for k in names),'auto_live_context')
+    repo='wscha231/r1000-quant-engine'; prefix='repos/'+repo
+    require(context['GITHUB_REPOSITORY']==repo and context['GITHUB_REF']=='refs/heads/master'
+            and context['GITHUB_JOB']=='history' and context['GITHUB_ACTIONS']=='true'
+            and context['GITHUB_RUN_ATTEMPT']=='1'
+            and context['GITHUB_EVENT_NAME'] in ('schedule','workflow_dispatch')
+            and context['GITHUB_WORKFLOW_REF']==repo+'/'+AUTO_WORKFLOW+'@refs/heads/master'
+            and context['GITHUB_WORKFLOW_SHA']==context['GITHUB_SHA']
+            and re.fullmatch('[a-f0-9]{40}',context['GITHUB_SHA'])
+            and all(re.fullmatch('[1-9][0-9]*',context[k]) for k in
+                    ('GITHUB_REPOSITORY_ID','GITHUB_RUN_ID','GITHUB_RUN_NUMBER')),'auto_live_identity')
+    run=gh(prefix+'/actions/runs/'+context['GITHUB_RUN_ID'])
+    require(all(type(run.get(k)) is int for k in ('id','run_number','run_attempt','workflow_id'))
+            and run['id']==int(context['GITHUB_RUN_ID']) and run['run_attempt']==1
+            and run['run_number']==int(context['GITHUB_RUN_NUMBER'])
+            and run['workflow_id']==profile['workflow_id'] and run.get('path')==AUTO_WORKFLOW
+            and run.get('repository',{}).get('id')==profile['repository_id']==int(context['GITHUB_REPOSITORY_ID'])
+            and run['repository'].get('full_name')==repo
+            and run.get('head_repository',{}).get('id')==profile['repository_id']
+            and run['head_repository'].get('full_name')==repo
+            and run.get('head_sha')==context['GITHUB_SHA'] and run.get('head_branch')=='master'
+            and run.get('event')==context['GITHUB_EVENT_NAME'],'auto_rest_run_mismatch')
+    now=hybrid_clock(utc_now())
+    require(hybrid_clock(profile['not_before'])<=hybrid_clock(run.get('created_at'))<=now
+            <hybrid_clock(profile['expires_at']),'auto_run_original_window')
+    reservation=auto_slot_reservation(profile,run['run_number'])
+    workflow=gh(prefix+'/actions/workflows/'+str(profile['workflow_id']))
+    require(workflow.get('id')==profile['workflow_id'] and workflow.get('path')==AUTO_WORKFLOW
+            and workflow.get('state')=='active','auto_workflow_identity')
+    match=re.fullmatch(r'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)',
+                       approval_reference)
+    require(match is not None,'auto_owner_reference')
+    c=gh(prefix+'/issues/comments/'+match[1])
+    require(c.get('id')==int(match[1]) and c.get('author_association')=='OWNER'
+            and c.get('user',{}).get('type')=='User' and c.get('created_at')==c.get('updated_at')
+            and c.get('issue_url')=='https://api.github.com/repos/'+repo+'/issues/448'
+            and hybrid_clock(profile['available_at'])<=hybrid_clock(c.get('created_at'))<=now,
+            'auto_owner_approval')
+    records=[line[len(AUTO_OWNER_TAG):] for line in c.get('body','').splitlines() if line.startswith(AUTO_OWNER_TAG)]
+    require(len(records)==1 and json.loads(records[0])==dict(schema='long-history-auto-owner-v1',
+        profile_sha256=profile_sha256,code_pins_sha256=digest(encoded(profile['code_pins'])),
+        purpose=profile['purpose'],rights_sha256=profile['rights_sha256'],expires_at=profile['expires_at']),
+        'auto_owner_original_profile')
+    verify_auto_code(profile,context,gh)
+    return dict(approval_reference=approval_reference,profile_sha256=profile_sha256,
+        owner_comment_sha256=digest(encoded(c)),run={k:run[k] for k in
+            ('id','run_number','run_attempt','workflow_id','head_sha','event','created_at')},
+        reservation=reservation)
+
+
+def claim_auto_invocation(authorization):
+    # This is job-local exclusion, NOT a durable ledger. The pinned no-matrix
+    # job is the sole caller. Identical second calls must fail too (unlike the
+    # content-addressed exclusive() helper's intentional idempotent readback).
+    root=Path(os.environ.get('RUNNER_TEMP',''))
+    require(os.environ.get('RUNNER_TEMP') and root.is_dir()
+            and not any(p.is_symlink() for p in [root,*root.parents]),'auto_runner_temp')
+    run=authorization['run']
+    path=root/('history-auto-'+str(run['id'])+'-'+str(run['run_attempt'])+'.entry')
+    try:
+        with path.open('xb') as stream:
+            stream.write(encoded(dict(profile_sha256=authorization['profile_sha256'],run=run)))
+        path.chmod(0o600)
+    except FileExistsError:
+        require(False,'auto_collector_already_invoked')
+
+
 class HybridBudget:
     """Ephemeral ceiling reservations, never a new ledger or actual-wire claim."""
     def __init__(self, request, *, live_transport=True, monotonic=time.monotonic):
         self.limits=request['budget']; self.monotonic=monotonic; self.start=monotonic()
+        self.allowed_seconds=min(self.limits['active_seconds'],max(0.0,
+            (hybrid_clock(request['expires_at'])-hybrid_clock(utc_now())).total_seconds()))
         self.live_transport=live_transport; self.alarm_active=False
         self.used=dict(provider_gets=0,provider_bytes=0,transport_calls=0,
                        transport_reserved_bytes=0,write_bytes=0)
         self.returned_bytes=0
     def remaining_seconds(self):
-        return max(0.0,self.limits['active_seconds']-(self.monotonic()-self.start))
+        return max(0.0,self.allowed_seconds-(self.monotonic()-self.start))
     def check(self):
         require(self.remaining_seconds()>0,'hybrid_active_deadline')
     def reserve(self, **amounts):
@@ -458,6 +677,8 @@ class HybridTransport(RcloneTransport):
 
 
 def hybrid_continuation_identity(r):
+    if '_auto' in r:
+        return digest(encoded(dict(standing_profile_sha256=r['_auto']['profile_sha256'])))
     keys=('purpose','code_sha','registry_sha256','roster_sha256','cohort_sha256',
           'mapping_object_sha256','mapping_source_sha256','focus_pairs',
           'macro_start','financial_start','rights_sha256')
@@ -470,7 +691,10 @@ def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
     parent,current=lake.restore_catalog()
     require(parent==lake.parent and current==lake.before,'hybrid_parent_changed_NEEDS_REBIND')
     latest=lake.verified_execution()
-    require(latest['study_recomputed_from_drive'],'hybrid_parent_execution_incomplete')
+    require(latest['study_recomputed_from_drive'] and latest['quality_status']!='PARTIAL'
+            and ('cycle_scope' not in latest or
+                 latest['cycle_scope'].get('requested_cycle_complete') is True),
+            'hybrid_parent_execution_incomplete')
     baseline=request['baseline']; cursor=parent; descendants=[]; base_catalog=None
     identity=hybrid_continuation_identity(request)
     for _ in range(budget.limits['max_chain_commits']):
@@ -482,7 +706,7 @@ def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
             base_catalog=catalog
             break
         detail=catalog.get('config',{}).get('hybrid_refresh',{})
-        require(catalog.get('code_sha')==request['code_sha']
+        require((catalog.get('code_sha')==request['code_sha'] or '_auto' in request)
                 and detail.get('continuation_identity')==identity
                 and detail.get('resolved_parent')==commit['parent']
                 and detail.get('through','9999')<=request['through'],
@@ -560,6 +784,8 @@ def finish_hybrid_cycle(lake, scope):
         integrity_scope='FULL_EXISTING_HISTORY_NOT_A_FOCUS_ONLY_RESTORE',
         full_restore_elapsed_cost='UNKNOWN_UNTIL_MEASURED',
         collection_budget=scope['budget'].summary())
+    if '_auto' in scope['request']:
+        summary['standing_auto']=copy.deepcopy(scope['request']['_auto'])
     scope['summary']=summary
     scope['detail']=dict(request_sha256=scope['request_sha256'],mode=scope['request']['mode'],
         continuation_identity=scope['continuation_identity'],baseline=scope['request']['baseline'],
@@ -567,6 +793,8 @@ def finish_hybrid_cycle(lake, scope):
         descendants_verified=scope['descendants_verified'],through=scope['request']['through'],
         checked_keys=sorted(checked),NOT_CHECKED_THIS_CYCLE=unchecked,NOT_DUE=not_due,
         summary_sha256=digest(encoded(summary)),cycle_scope=summary,authorization=scope['authorization'])
+    if '_auto' in scope['request']:
+        scope['detail']['standing_auto']=copy.deepcopy(scope['request']['_auto'])
     return summary
 
 
@@ -1650,7 +1878,7 @@ def finalize_existing(lake, args, reports):
                              macro_start=macro_start,through=through,report=report,recovery=recovery,cycle=cycle)
 
 
-def run_hybrid(args, request, request_sha256):
+def run_hybrid(args, request, request_sha256, *, auto=None):
     """Same Source/Lake publication path, with a checked explicit subset boundary."""
     from tools.alpaca_sip_campaign import RuntimeMeter
     budget=HybridBudget(request)
@@ -1659,7 +1887,15 @@ def run_hybrid(args, request, request_sha256):
     reports.mkdir(parents=True,exist_ok=True)
     try:
         with RuntimeMeter.process_deadline(budget):
-            approval=authorize_hybrid(request,request_sha256,args.hybrid_approval_reference)
+            if auto is None:
+                approval=authorize_hybrid(request,request_sha256,args.hybrid_approval_reference)
+            else:
+                profile,original_sha=auto
+                approval=authorize_auto(profile,original_sha,args.hybrid_approval_reference)
+                request=auto_request(profile,original_sha,run=approval['run'],reservation=approval['reservation'])
+                request_sha256=digest(encoded(request))
+                require(args.run_id=='history-'+str(approval['run']['id'])+'-1','auto_cli_run_identity')
+                claim_auto_invocation(approval)
             transport=HybridTransport(args.remote,budget)
             with _history_phase('INITIAL_RESTORE'):
                 lake=Lake(transport,args.workspace)
@@ -1720,14 +1956,21 @@ def main():
     hybrid=args.hybrid_mode!='LEGACY' or bool(args.hybrid_request or args.hybrid_request_sha256
                                             or args.hybrid_approval_reference)
     if hybrid:
-        require(args.hybrid_mode in HYBRID_MODES and args.hybrid_request
+        require(args.hybrid_mode in HYBRID_MODES|{'HYBRID_AUTO'} and args.hybrid_request
                 and args.hybrid_request_sha256 and args.hybrid_approval_reference
                 and not scoped and not finalizing,'hybrid_explicit_inputs_required')
         with Path(args.hybrid_request).open('rb') as stream:
-            request=hybrid_request(stream.read(65537),args.hybrid_request_sha256,args.hybrid_mode)
+            raw=stream.read(65537)
+        auto=None
+        if args.hybrid_mode=='HYBRID_AUTO':
+            profile=auto_profile(raw,args.hybrid_request_sha256)
+            auto=(profile,args.hybrid_request_sha256)
+            request=auto_request(profile,args.hybrid_request_sha256)
+        else:
+            request=hybrid_request(raw,args.hybrid_request_sha256,args.hybrid_mode)
         require(args.macro_start==request['macro_start'] and args.financial_start==request['financial_start'],
                 'hybrid_cli_window_conflict')
-        return run_hybrid(args,request,args.hybrid_request_sha256)
+        return run_hybrid(args,request,args.hybrid_request_sha256,auto=auto)
     require(not scoped or (args.scoped_alfred_request and args.scoped_alfred_request_sha256
                           and not finalizing),'scoped_request_inputs')
     request=None

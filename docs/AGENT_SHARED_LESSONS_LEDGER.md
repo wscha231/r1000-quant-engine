@@ -10260,3 +10260,28 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   access. A new null fixture incorrectly expected missing-receipt status; retain
   that failed run and the existing unverified status instead of weakening the
   parser or claiming an unreachable static example was reproduced.
+- Financial/macro hybrid storage receipts alone cannot account for failed work
+  before publication. A separately OWNER-bound finite workflow run-number
+  allocation can reserve every slot, including deleted/failed/skip gaps, with
+  no refunds or rollover. It requires exact repository/workflow identity,
+  attempt1, pinned no-matrix single caller and an exclusive per-attempt entry;
+  a counter alone is insufficient. Keep reservation ceilings distinct from
+  measured usage and preserve partial-latest Lake failure even with budget left.
+- Preserve the fixed-request WIP checkpoint as behavior-untested evidence;
+  syntax PASS is not Native, AUTO, rights, data readiness or operational success.
+  Runtime-derived DAILY/WEEKLY requests keep the original external profile SHA,
+  window, opening floor and rights, without inventing candidate/holdings meaning.
+- The first hybrid Native run stopped at the unchanged1000-security cohort
+  guard: its two-row synthetic fixture was invalid. Keep that failed8.4275987s
+  attempt and repair the fixture with1000 unique synthetic securities mapped
+  to two issuers; never lower the production cohort guard for a focus test.
+- The next normal run passed all49 hybrid/AUTO/scoped-ALFRED/selected legacy
+  tests, then the broad catalog lookup refused an unrelated existing Reader
+  dependency pin. Preserve its35.249372s cost and blocked result. Validate the
+  two permitted current Lake pins separately; do not refresh foreign Reader
+  hashes or claim the whole reuse catalog passes from a local Lake check.
+- Optimized49 also passed; its post-suite lookup then refused the other existing
+  Reader guide pin in group591. That35.0324358s attempt remains charged and the
+  two broad catalog refusals remain BLOCKED. Restrict the final canary to the
+  actual permitted Lake pins and unchanged catalog fields, rather than repeatedly
+  running passing suites or accepting unrelated catalog failures as success.
