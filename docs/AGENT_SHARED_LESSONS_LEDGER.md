@@ -10292,3 +10292,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   macro-study, Reader, training and economic readiness remain false/blocked.
   Review the consolidated official FRED API terms(k/l), without inferring
   blanket illegality or deleting prior research. Fixed-v1/legacy stay strict.
+- A normal official companyfacts404 with verified submissions is a data gap,
+  not necessarily a failed producer transaction. AUTO must keep data completeness
+  false while a new exact clean-consumer/terminal execution proves ready and
+  strict raw-backed held outcomes separately. Recheck member/source hashes,
+  exact CIK/form-role/reason and original clocks; bind unmapped HOLD hashes.
+  Never use a gap flag, arbitrary proof dictionary, old partial or a budget/
+  cancellation/missing-execution failure to authorize the next refresh.
+- The broad terminal-fix normal run reached and passed the new gap/tamper/
+  failed-publication cases, but its47-second watchdog interrupted the remaining
+  suite. Preserve47.1997829s as NOT_COMPLETE, with optimized not run. Use a
+  proportional focused normal/-O suite within the remaining52.4248644s; never
+  relabel the prior53-case head or the interrupted run as this head's full PASS.

@@ -697,31 +697,75 @@ def hybrid_continuation_identity(r):
 
 def hybrid_execution_ready(receipt, *, allow_source_scope=False):
     complete=('cycle_scope' not in receipt or receipt['cycle_scope'].get('requested_cycle_complete') is True)
+    if allow_source_scope and 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+        return (receipt.get('producer_cycle_complete') is True
+                and receipt.get('producer_terminal_verified_from_drive') is True
+                and receipt.get('terminal_outcomes_complete') is True
+                and receipt['quality_status']=='PARTIAL_COVERAGE')
     return complete and receipt['quality_status']!='PARTIAL' and (
         receipt['study_recomputed_from_drive'] or (allow_source_scope
-            and type(receipt.get('source_cycle_readback')) is dict))
+            and receipt.get('source_readback_verified_from_drive') is True))
+
+
+def hybrid_gap_readback(lake,key,entry):
+    """Re-prove the existing official submissions gap; no synthetic fact rows."""
+    require(re.fullmatch('sec/[0-9]{10}',key) and entry.get('status')=='COVERAGE_GAP'
+            and entry.get('coverage_gap') is True and entry.get('normalized') is None
+            and entry.get('evidence')=='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS'
+            and type(entry.get('raw_objects')) is list and len(entry['raw_objects'])==1
+            and entry.get('objects')==entry['raw_objects'],'hybrid_gap_shape')
+    member=entry['raw_objects'][0];raw=lake.get_bytes(member)
+    require(digest(raw)==member,'hybrid_gap_member_hash')
+    original=unpacked(raw)
+    require(len(original)<=32*1024*1024 and digest(original)==entry.get('submissions_source_sha256'),
+            'hybrid_gap_source_hash')
+    profile=sec_submissions_profile(original,key[4:])
+    require(all(entry.get(k)==v for k,v in profile.items()),'hybrid_gap_cik_or_role')
+    reason=('SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT' if profile['has_fundamental_issuer_role']
+            else 'SEC_FUNDAMENTAL_ENTITY_ROLE_UNRESOLVED')
+    require(entry.get('coverage_gap_reason')==reason,'hybrid_gap_reason')
+    return dict(key=key,status='COVERAGE_GAP',reason=reason,normalized=None,
+        raw_member_sha256=member,original_source_sha256=digest(original),identity_role=profile,
+        clocks={k:entry.get(k) for k in ('retrieved_at','available_at','checked_at')})
 
 
 def hybrid_source_scope_readback(lake, summary):
-    """Only an explicitly FRED-disabled AUTO cycle; never a macro-study receipt."""
+    """Exact selected Source outcomes; never itself a macro-study receipt."""
     auto=summary.get('standing_auto',{})
-    require(auto.get('provider_scope',{}).get('fred') is False,'hybrid_source_scope_only')
+    terminal='terminal_outcomes_complete' in summary
+    require(auto.get('provider_scope',{}).get('fred') is False or terminal,'hybrid_source_scope_only')
     detail=lake.catalog['config']['hybrid_refresh'];keys=detail['checked_keys']
     require(digest(encoded(keys))==summary['checked_scope_sha256']
             and keys==sorted(set(keys)) and bool(keys),'hybrid_source_scope_binding')
-    observed=[]
+    observed=[];held=[]
     for key in keys:
-        require(not key.startswith(('current/','alfred/')),'hybrid_disabled_fred_consumption')
-        provider='sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/') else None
+        provider=('sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/')
+                  else 'fred' if key.startswith(('current/','alfred/')) else None)
         require(provider and auto['provider_scope'].get(provider) is True,'hybrid_disabled_provider_consumption')
         entry=lake.catalog['datasets'][key]
+        if terminal and entry['status']=='COVERAGE_GAP':
+            held.append(hybrid_gap_readback(lake,key,entry));continue
         require(entry['status'] in ('COLLECTED','UNCHANGED'),'hybrid_source_scope_blocked')
         rows=lake.get_records(key)
         observed.append(dict(key=key,normalized=entry['normalized'],objects=entry['objects'],rows=len(rows)))
-    return dict(schema='long-history-hybrid-source-readback-v1',commit=lake.parent,
+    proof=dict(schema='long-history-hybrid-source-readback-v1',commit=lake.parent,
         catalog=digest(encoded(lake.catalog)),profile_sha256=auto['profile_sha256'],
         checked_scope_sha256=summary['checked_scope_sha256'],checked=observed,
         macro_regime_ready=False,whole_macro_complete=False,source_admission=False,historical_pit_certified=False)
+    if terminal:
+        require(summary['terminal_outcomes_complete'] is True
+                and len(observed)+len(held)==len(keys),'hybrid_terminal_outcomes_incomplete')
+        cohort,mapping_object,mapping=verified_cohort_source(lake)
+        _,missing,_=issuer_queue(json.loads(cohort)['rows'],mapping,prior_sec_mapping(lake))
+        unmapped=dict(count=len(missing),missing_sha256=digest(encoded(missing)),
+            cohort_sha256=digest(cohort),mapping_object_sha256=mapping_object,
+            mapping_source_sha256=lake.catalog['datasets']['universe/cohort']['sec_ticker_mapping_source_sha256'])
+        require(unmapped==summary['unmapped_securities_HOLD'],'hybrid_unmapped_hold_binding')
+        proof.update(schema='long-history-hybrid-source-readback-v2',terminal_outcomes_complete=True,
+            ready_clocks={v['key']:{k:lake.catalog['datasets'][v['key']].get(k)
+                for k in ('retrieved_at','available_at','first_available_at','checked_at')} for v in observed},
+            held=held,unmapped_securities_HOLD=unmapped)
+    return proof
 
 
 def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
@@ -766,7 +810,7 @@ def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
                 and lookup.get(p['ticker'].upper().replace('.','-'))=={p['cik']}
                 for p in request['focus_pairs']),'hybrid_ticker_cik_proof')
     prior=prior_sec_mapping(lake)
-    groups,_,_=issuer_queue(members,mapping,prior)
+    groups,missing,_=issuer_queue(members,mapping,prior)
     focus={p['cik'] for p in request['focus_pairs']}
     require(focus<=set(groups),'hybrid_focus_outside_cohort')
     selected=focus if request['mode']=='HYBRID_DAILY' else set(groups)
@@ -791,6 +835,9 @@ def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
     return dict(request=request,request_sha256=request_sha256,budget=budget,authorization=authorization,
         cohort=cohort,mapping=mapping,prior_mapping=prior,groups=groups,selected=selected,checked_keys=keys,
         attempted_keys=set(),completed_keys=set(),
+        unmapped_securities_HOLD=dict(count=len(missing),missing_sha256=digest(encoded(missing)),
+            cohort_sha256=digest(cohort),mapping_object_sha256=mapping_sha,
+            mapping_source_sha256=universe['sec_ticker_mapping_source_sha256']),
         focus_keys={'sec/'+c for c in focus},provider_scope=providers,resolved_parent=parent,
         resolved_parent_execution=latest['execution_receipt_sha256'],descendants_verified=len(descendants),
         continuation_identity=identity,provider_reservation_plan=dict(gets=gets,bytes=bytes_))
@@ -833,9 +880,17 @@ def finish_hybrid_cycle(lake, scope):
         full_restore_elapsed_cost='UNKNOWN_UNTIL_MEASURED',
         collection_budget=scope['budget'].summary())
     if '_auto' in scope['request']:
+        terminal=scope['completed_keys']==checked
+        for key in checked:
+            entry=now.get(key,{})
+            if entry.get('status')=='COVERAGE_GAP':hybrid_gap_readback(lake,key,entry)
+            elif entry.get('status') not in ('COLLECTED','UNCHANGED'):terminal=False
         summary['standing_auto']=copy.deepcopy(scope['request']['_auto'])
         summary.update(provider_scope=copy.deepcopy(providers),provider_exclusions=disabled,
-                       macro_regime_ready=False,whole_macro_complete=False,data_ready=False)
+            macro_regime_ready=False,whole_macro_complete=False,data_ready=False,
+            terminal_outcomes_complete=terminal,producer_cycle_complete=False,
+            producer_completion_requires='EXACT_CLEAN_EXECUTION_READBACK',
+            unmapped_securities_HOLD=scope['unmapped_securities_HOLD'])
     scope['summary']=summary
     scope['detail']=dict(request_sha256=scope['request_sha256'],mode=scope['request']['mode'],
         continuation_identity=scope['continuation_identity'],baseline=scope['request']['baseline'],
@@ -1264,6 +1319,8 @@ class Lake:
         require(receipt.get('schema')=='long-history-execution-v1' and
                 receipt.get('run_id')==commit['run_id'] and
                 receipt.get('eligible_for_selector') is False,'execution_schema')
+        require(not ({'source_readback_verified_from_drive','producer_terminal_verified_from_drive'}&set(receipt)),
+                'hybrid_derived_marker_in_receipt')
         require(type(receipt.get('study_recomputed_from_drive')) is bool and
                 type(receipt.get('consumer_rows')) is int and receipt['consumer_rows']>=0,
                 'execution_consumer_evidence')
@@ -1281,10 +1338,25 @@ class Lake:
                     and type(receipt.get('cycle_scope')) is dict
                     and digest(encoded(receipt['cycle_scope']))==self.catalog.get('config',{}).get(
                         'hybrid_refresh',{}).get('summary_sha256'),'hybrid_execution_scope_mismatch')
+        readback_verified=False;terminal_verified=False
         if 'source_cycle_readback' in receipt:
             require(receipt['source_cycle_readback']==hybrid_source_scope_readback(self,receipt['cycle_scope'])
-                    and receipt['study_recomputed_from_drive'] is False,'hybrid_source_scope_readback_mismatch')
-        return dict(receipt,execution_receipt_sha256=sha)
+                    and (receipt['cycle_scope'].get('standing_auto',{}).get('provider_scope',{}).get('fred')
+                         is not False or receipt['study_recomputed_from_drive'] is False),
+                    'hybrid_source_scope_readback_mismatch')
+            readback_verified=True
+            terminal_verified=receipt['source_cycle_readback']['schema']=='long-history-hybrid-source-readback-v2'
+        if 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+            require((receipt.get('producer_cycle_complete') is True)==terminal_verified
+                    and receipt.get('terminal_outcomes_complete')==terminal_verified,
+                    'hybrid_terminal_execution_mismatch')
+        else:
+            require(receipt.get('producer_cycle_complete') is not True,'hybrid_old_partial_not_promoted')
+        result=dict(receipt,execution_receipt_sha256=sha)
+        if readback_verified or 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+            result.update(source_readback_verified_from_drive=readback_verified,
+                          producer_terminal_verified_from_drive=terminal_verified)
+        return result
 
     def publish(self,run_id,config):
         require(re.fullmatch('[A-Za-z0-9_-]{1,100}',run_id),'run_id')
@@ -1823,7 +1895,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
     try:
         if source_only:
             proof=(hybrid_source_scope_readback(consumer,cycle['summary'])
-                   if cycle['summary']['requested_cycle_complete'] else None)
+                   if cycle['summary'].get('terminal_outcomes_complete',
+                                            cycle['summary']['requested_cycle_complete']) else None)
             result.update(study_recomputed_from_drive=False,macro_regime_ready=False,
                           whole_macro_complete=False,study_blocked_reason='FRED_RIGHTS_BLOCKED_OR_DISABLED_THIS_CYCLE')
             if proof is not None:result['source_cycle_readback']=proof
@@ -1840,6 +1913,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
                 (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
                 (reports/'engine-context.json').write_bytes(encoded(context))
             result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+            if cycle is not None and cycle['summary'].get('terminal_outcomes_complete') is True:
+                result['source_cycle_readback']=hybrid_source_scope_readback(consumer,cycle['summary'])
     except (Refused,TimeoutError,InterruptedError):
         # Cancellation is not a partial study result and must not publish a receipt.
         raise
@@ -1868,14 +1943,24 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
         quality_status=report['status'],eligible_for_selector=False)
     if recovery is not None:
         receipt['recovery']=recovery
+    producer=False
     if cycle is not None:
         receipt['cycle_scope']=cycle['summary']
-        if source_only and 'source_cycle_readback' in result:
+        if 'source_cycle_readback' in result:
             receipt['source_cycle_readback']=result['source_cycle_readback']
+        if 'terminal_outcomes_complete' in cycle['summary']:
+            producer=result.get('source_cycle_readback',{}).get('schema')=='long-history-hybrid-source-readback-v2'
+            receipt.update(producer_cycle_complete=producer,terminal_outcomes_complete=producer)
         result.update(cycle_scope=cycle['summary'],whole_universe_current=False)
     raw=encoded(receipt); receipt_sha=digest(raw)
     with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
         transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
+    if producer:
+        require(consumer.restore_catalog()[0]==result['commit_sha256'],'hybrid_terminal_head_changed')
+        verified=consumer.verified_execution()
+        require(verified['execution_receipt_sha256']==receipt_sha
+                and verified['producer_terminal_verified_from_drive'] is True,'hybrid_terminal_execution_readback')
+        result.update(producer_cycle_complete=True,terminal_outcomes_complete=True)
     if recovery is not None:
         verified=consumer.verified_execution()
         require(verified['execution_receipt_sha256']==receipt_sha and verified.get('recovery')==recovery,
@@ -1985,7 +2070,7 @@ def run_hybrid(args, request, request_sha256, *, auto=None):
             summary=finish_hybrid_cycle(lake,scope)
             report=diagnostics(lake)
             report.update(inventory_quality_status=report['status'],
-                status=('PARTIAL_COVERAGE' if summary['requested_cycle_complete'] else 'PARTIAL')
+                status=('PARTIAL_COVERAGE' if summary.get('terminal_outcomes_complete',False) else 'PARTIAL')
                     if auto is not None else ('PARTIAL' if report['status']=='PARTIAL' else 'PARTIAL_COVERAGE'),
                 cycle_scope=summary)
             (reports/'quality.json').write_bytes(encoded(report))

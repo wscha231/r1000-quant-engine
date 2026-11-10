@@ -2229,6 +2229,10 @@ class HybridHistoryTest(unittest.TestCase):
             commit_sha256=result['commit_sha256'],reports={'quality.json':qsha},
             consumer_rows=0,study_recomputed_from_drive=True,quality_status=q['status'],eligible_for_selector=False)
         if summary is not None: e['cycle_scope']=summary
+        if summary is not None and 'terminal_outcomes_complete' in summary:
+            terminal=summary['terminal_outcomes_complete']
+            e.update(producer_cycle_complete=terminal,terminal_outcomes_complete=terminal)
+            if terminal:e['source_cycle_readback']=self.h.hybrid_source_scope_readback(lake,summary)
         raw=encoded(e); sha=digest(raw); self.t.write(PREFIX+'/executions/'+sha,raw)
         return sha
 
@@ -2571,7 +2575,7 @@ class AutoHybridTest(unittest.TestCase):
         p=self.profile();sha=digest(encoded(p))
         # First synthetic approved run uses the fixed Friday scope, then the
         # same original profile selects the next week's true terminal session.
-        r=self.request();r['_auto']=dict(profile_sha256=sha)
+        r=self.h.auto_request(p,sha,now=self.now,run=dict(id=77,run_number=10))
         scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
             self.h.HybridBudget(r,live_transport=False),{})
         self.run_daily(scope);summary=self.h.finish_hybrid_cycle(self.lake,scope)
@@ -2717,6 +2721,116 @@ class AutoHybridTest(unittest.TestCase):
             self.assertEqual(self.lake.catalog['datasets']['sec/0000000001'],before)
             summary=self.h.finish_hybrid_cycle(self.lake,scope)
             self.assertFalse(summary['requested_cycle_complete']);self.assertFalse(summary['data_ready'])
+
+
+    def terminal_scope(self):
+        self.now=self.h.hybrid_clock('2026-10-24T06:37:00Z')
+        self.enterContext(patch.object(self.h,'utc_now',return_value=self.now.isoformat()))
+        p=self.profile();p['provider_scope']=dict(sec=True,fred=False,worldbank=False)
+        p['rights_sha256'].update(fred=None,worldbank=None);sha=digest(encoded(p))
+        r=self.h.auto_request(p,sha,now=self.now,run=dict(id=77,run_number=10))
+        scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+            self.h.HybridBudget(r,live_transport=False),{})
+        raw=encoded(dict(cik=2,filings=dict(recent=dict(form=['10-K'],
+            accessionNumber=['0000000002-26-000001']))))
+        def public(url,conditional=None):
+            if 'companyfacts/CIK0000000002' in url:raise SourceHTTPError(404)
+            if 'submissions/CIK0000000002' in url:return raw,{}
+            self.assertIn('companyfacts/CIK0000000001',url)
+            return None,conditional
+        with patch.object(self.h,'get_public',side_effect=public), \
+             patch.object(self.h,'fetch_fred_retry',side_effect=AssertionError('FRED_FORBIDDEN')):
+            self.h.collect_macros(self.lake,r['macro_start'],r['through'],_hybrid=scope)
+            self.h.collect_financials(self.lake,'unused',r['financial_start'],r['through'],_hybrid=scope)
+        return p,sha,r,scope
+
+    def terminal_publish(self,scope,*,fatal=None):
+        summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        result=self.lake.publish('synthetic-terminal-10',dict(self.config,hybrid_refresh=scope['detail']))
+        consumer=Lake(self.t,self.root/'terminal-consumer');reports=self.root/'terminal-reports';reports.mkdir()
+        report=self.h.diagnostics(consumer);report.update(
+            status='PARTIAL_COVERAGE' if summary['terminal_outcomes_complete'] else 'PARTIAL',cycle_scope=summary)
+        (reports/'quality.json').write_bytes(encoded(report))
+        with patch.object(self.h,'analyze_restored',side_effect=AssertionError('FRED_STUDY_FORBIDDEN')):
+            if fatal is None:
+                code=self.h.complete_consumer(consumer,result,reports,self.root/'terminal',
+                    run_id='synthetic-terminal-10',macro_start='1996-01-01',through='2026-10-23',report=report,cycle=scope)
+            else:
+                with patch.object(self.h,'hybrid_source_scope_readback',side_effect=fatal):
+                    code=self.h.complete_consumer(consumer,result,reports,self.root/'terminal',
+                        run_id='synthetic-terminal-10',macro_start='1996-01-01',through='2026-10-23',report=report,cycle=scope)
+        return consumer,result,summary,code
+
+    def next_terminal_scope(self,p,sha,consumer):
+        with patch.object(self.h,'utc_now',return_value='2026-10-27T00:30:00Z'), \
+             patch.object(self.h,'get_public',side_effect=AssertionError('NO_IMPLICIT_PROVIDER')):
+            r=self.h.auto_request(p,sha,run=dict(id=78,run_number=11))
+            return self.h.prepare_hybrid_scope(consumer,r,digest(encoded(r)),
+                self.h.HybridBudget(r,live_transport=False),{})
+
+    def test_strict_gap_terminal_receipt_allows_next_healthy_focus_but_never_data_ready(self):
+        p,sha,r,scope=self.terminal_scope()
+        consumer,result,summary,code=self.terminal_publish(scope)
+        self.assertEqual(code,2);self.assertFalse(summary['requested_cycle_complete'])
+        self.assertTrue(summary['terminal_outcomes_complete']);self.assertFalse(summary['producer_cycle_complete'])
+        receipt=consumer.verified_execution()
+        self.assertTrue(receipt['producer_cycle_complete']);self.assertTrue(receipt['producer_terminal_verified_from_drive'])
+        proof=receipt['source_cycle_readback'];self.assertEqual(len(proof['checked']),1);self.assertEqual(len(proof['held']),1)
+        self.assertIsNone(proof['held'][0]['normalized']);self.assertNotIn('rows',proof['held'][0])
+        self.assertFalse(summary['data_ready']);self.assertFalse(receipt['study_recomputed_from_drive'])
+        self.assertEqual(summary['focus_current'],1)
+        next_scope=self.next_terminal_scope(p,sha,consumer)
+        self.assertEqual(next_scope['selected'],{'0000000001'})
+
+    def test_gap_identity_hash_role_and_pending_member_tamper_never_become_terminal(self):
+        _,_,_,scope=self.terminal_scope();key='sec/0000000002'
+        original=copy.deepcopy(self.lake.catalog['datasets'][key])
+        for field,bad in (('submissions_source_sha256','f'*64),('cik','0000000003'),
+                          ('coverage_gap_reason','MADE_UP'),('normalized','a'*64),('issuer_forms',[])):
+            self.lake.catalog['datasets'][key]=dict(original,**{field:bad})
+            with self.subTest(field=field),self.assertRaisesRegex(ValueError,'hybrid_gap_'):
+                self.h.finish_hybrid_cycle(self.lake,scope)
+        self.lake.catalog['datasets'][key]=original
+        path=self.lake.pending[original['raw_objects'][0]];path.write_bytes(b'bad synthetic member')
+        with self.assertRaisesRegex(ValueError,'hybrid_gap_member_hash'):
+            self.h.finish_hybrid_cycle(self.lake,scope)
+
+    def test_terminal_receipt_tamper_and_missing_execution_refuse_next_cycle(self):
+        p,sha,_,scope=self.terminal_scope();consumer,result,_,_=self.terminal_publish(scope)
+        original_path=self.t.root/PREFIX/'executions'/result['execution_receipt_sha256']
+        raw=original_path.read_bytes();bad=json.loads(raw)
+        bad['source_cycle_readback']['held'][0]['reason']='MADE_UP'
+        original_path.unlink();changed=encoded(bad);bad_path=self.t.root/PREFIX/'executions'/digest(changed)
+        self.t.write(PREFIX+'/executions/'+digest(changed),changed)
+        with self.assertRaisesRegex(ValueError,'source_scope_readback_mismatch'):
+            self.next_terminal_scope(p,sha,consumer)
+        bad_path.unlink()
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
+            self.next_terminal_scope(p,sha,consumer)
+        self.t.write(PREFIX+'/executions/'+digest(raw),raw)
+        self.assertTrue(self.next_terminal_scope(p,sha,consumer)['selected'])
+
+    def test_blocked_stale_or_budget_failed_readback_cannot_continue_from_partial(self):
+        p,sha,_,scope=self.terminal_scope();key='sec/0000000002'
+        original=copy.deepcopy(self.lake.catalog['datasets'][key])
+        for state in ('BLOCKED','STALE_RETAINED'):
+            self.lake.catalog['datasets'][key]=dict(original,status=state)
+            summary=self.h.finish_hybrid_cycle(self.lake,scope)
+            self.assertFalse(summary['terminal_outcomes_complete']);self.assertFalse(summary['requested_cycle_complete'])
+        self.lake.catalog['datasets'][key]=original
+        consumer,result,_,code=self.terminal_publish(scope,fatal=ValueError('hybrid_budget_exhausted'))
+        self.assertEqual(code,2)
+        receipt=consumer.verified_execution();self.assertFalse(receipt['producer_cycle_complete'])
+        with self.assertRaisesRegex(ValueError,'hybrid_parent_execution_incomplete'):
+            self.next_terminal_scope(p,sha,consumer)
+
+    def test_deadline_cancellation_after_data_commit_leaves_no_terminal_execution(self):
+        p,sha,_,scope=self.terminal_scope()
+        with self.assertRaises(self.h.Refused):
+            self.terminal_publish(scope,fatal=self.h.Refused('CAMPAIGN_DEADLINE'))
+        consumer=Lake(self.t,self.root/'interrupted-consumer')
+        with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
+            self.next_terminal_scope(p,sha,consumer)
 
 
 if __name__=='__main__': unittest.main()

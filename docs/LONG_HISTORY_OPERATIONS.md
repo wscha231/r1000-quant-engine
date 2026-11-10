@@ -524,3 +524,35 @@ full history/receipt verification; it does not satisfy the existing shared
 research reader's requirement for a completed macro study. Partial selected
 cycles and missing/corrupt readbacks still block. Baseline and legacy research
 study gates remain intact, with no Source/PIT/A3/ER/A5 admission.
+
+### AUTO terminal outcomes are separate from complete data
+
+For AUTO only, a checked issuer may finish as ready or as a strictly verified
+official `COVERAGE_GAP`. The latter keeps normalized=null, no invented fact rows,
+its actual reason and original stored clocks. Re-read the exact compressed member,
+verify its content hash and original `submissions_source_sha256`, and rerun
+`sec_submissions_profile` against the key's exact CIK and all stored form/role
+metadata. A reason string or old gap flag alone cannot finish an outcome.
+Unchecked entries remain byte-for-byte dictionaries with their original clocks.
+
+`requested_cycle_complete` and `focus_current` retain their ready-data meaning:
+a gap is never counted ready. `terminal_outcomes_complete` is a local plan only
+when attempted==checked==completed and every outcome is ready or a strict gap.
+The catalog/quality scope keeps `producer_cycle_complete=false` until clean
+publication is proved. The v2 source readback separates ready objects/clocks
+from held raw identities/reasons/clocks, and binds unmapped securities as HOLD
+using the original cohort/mapping and recomputed missing-list hashes/counts.
+It never fabricates a CIK or silently removes an unmapped security.
+
+Only the new exact execution receipt can declare producer_cycle_complete=true,
+after catalog/commit/clean-consumer/readback verification; its returned verified
+terminal marker is recomputed, never accepted as a caller's flag. The publisher
+rereads that execution and checks the latest head again. A future AUTO can
+continue that same immutable profile from this canonical terminal proof even
+when data completeness remains false and CLI exit2 reports partial coverage.
+This is not blanket permission for PARTIAL quality or an old partial receipt.
+BLOCKED, STALE_RETAINED, missed attempts, fatal budget/deadline/cancellation,
+raw/CIK/role/hash mismatches, missing/ambiguous execution, branching or partial
+publication still block. Fixed-v1, legacy and original baseline gates do not
+gain this terminal exception. Source/PIT, macro readiness, external A3 ACK and
+economic authority remain false or independently gated.
