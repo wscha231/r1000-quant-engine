@@ -10364,3 +10364,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   ticker normalization, and reject zero/first-character CIK outputs and false
   unmapped dotted aliases. Retract dependent T2 templates until corrected;
   no source/PIT, holdings or collection authority follows from a metadata join.
+- Correcting one current dependency can expose older stale pins in the same
+  reuse entry. Before another CI cycle, compare every operand with canonical
+  Git bytes and the accepted baseline; distinguish sparse missing files and
+  CRLF from true stale pins. Bind only the explicitly reviewed current hashes,
+  preserve historical references, and keep failed runs and costs visible.

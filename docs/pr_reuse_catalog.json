@@ -864,7 +864,7 @@
         "r1000_bootstrap_ci.py": "2d905031958acf93bf249d8332103b59b02015bcd028dea8b6fd73cb83fa6894",
         "r1000_candidate_lanes.py": "cd804d8c0c3eb09ea68ccad67a46cb901ffe953ba69a7b0c115479d0a6410690",
         "r1000_config.py": "7edeabd73edd4ffa29f38c03e816816310ad54c5c042274bfd5c46a952eb1e11",
-        "r1000_features.py": "96decfe3eef4bfe7fc92e2419ffddf9d1ffc54be685c98d96f270a551cd568da",
+        "r1000_features.py": "c061b6dcd81df188f458209d419479edc2453a227b3fc8168d3e17337e45f45c",
         "r1000_helpers.py": "811cd036ec99bb5f7b75df10180e1f6e14d62e6fa501152086244e750080d988",
         "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
         "r1000_market_leader_engine.py": "2dcb02a7cc46a2728de81ecaf337c65530da4b08827819b9cd7e1e9566545160",
@@ -884,8 +884,8 @@
         "tools/free_market_context.py": "501c256479dacc948659e3dc316951641c222f87762fb0bc3c9937005ee24181",
         "tools/nav_metrics_v2.py": "84aa24337325dfb4b09eaae9a2cfaf5faf113a3546329fa4b6fb705e3978895c",
         "tools/run_sec_institutional_signals.py": "cb1ed3bd92355db2c3f774ac0b93f553c302a540561866208c885f189b57e945",
-        "tools/run_sec_ownership_signals.py": "a81c210d64945f236cc64e8bbc5af3b85014c963b7d6dbd8acd9ec604b7518b4",
-        "tools/run_sec_submissions_collector.py": "81113d1b6b37014f45f9db711d04657342eae64291f6ba2761dd21b5c21e77a0",
+        "tools/run_sec_ownership_signals.py": "10c4750df9de61eb77b58804529548d05e0a7e89ec2bd499ce9bbc86d5774732",
+        "tools/run_sec_submissions_collector.py": "adb4758f012e00ad25cb0028a7560401b7cfac89d62f2dbf62100151be25a26f",
         "tools/run_weekly_evaluation.py": "7508f85548d1d0a7553abd36a0fba11f02f00da1d5223f9cc51407f12dfff7d0"
       }
     },
