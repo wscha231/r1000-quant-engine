@@ -316,7 +316,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/long_history_lake.py": "3c280d0d46489209507133869eddf99585699adb32ecf16855d8ebc2d78756b5",
+        "tools/long_history_lake.py": "c3dee7923f9bfbfe92051ba697af05fceca3eebf20583be8844dc6dd3c718014",
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
         "docs/RESEARCH_DATA_ACCESS.md": "403680df3e2856e248a552687f776c10697d0951ce233ee78a3df7a7365beb3a",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
@@ -880,7 +880,7 @@
         "tools/chameleon_market_context_v2.py": "dc6079008a0aa591286969d88819163a3c8365663b749e56b6d9c48ae888066d",
         "tools/earnings_consensus_h1.py": "39c4c0f1b6d8ff9b2908172105790671f76e0ac9ca427628b7bbe3eb23bbf176",
         "tools/eodhd_calendar_trends.py": "45835a01480231310c47f855d784ddfba26ea731a0ee4309edbb7324045f5107",
-        "tools/etf_leadership_snapshot.py": "70e175feae8cad0347453860626e4195e21898bac1a0afc9af03f56ffc72e873",
+        "tools/etf_leadership_snapshot.py": "b6342ce9fc8c1527aea64faf900898bfd9df9600d8e730370e66be999612ead3",
         "tools/free_market_context.py": "501c256479dacc948659e3dc316951641c222f87762fb0bc3c9937005ee24181",
         "tools/nav_metrics_v2.py": "84aa24337325dfb4b09eaae9a2cfaf5faf113a3546329fa4b6fb705e3978895c",
         "tools/run_sec_institutional_signals.py": "cb1ed3bd92355db2c3f774ac0b93f553c302a540561866208c885f189b57e945",
@@ -1106,7 +1106,7 @@
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
         "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
-        "tools/long_history_lake.py": "3c280d0d46489209507133869eddf99585699adb32ecf16855d8ebc2d78756b5",
+        "tools/long_history_lake.py": "c3dee7923f9bfbfe92051ba697af05fceca3eebf20583be8844dc6dd3c718014",
         "tools/macro_history_sources.py": "14e5588e9945bd537583a807abddcc10c99ac6ccf347d190d5202b02257bec18",
         "tools/macro_research_checkpoint.py": "f7d91f1529ac5052bc4b2011a45121b1deb210b75dc3967e765c175bc71a0175",
         "tools/run_data_freshness_contract.py": "6d5f2af03b3a713a83b4ff75ffc50cb7480916cb6aae1323c383944b7c1e13be"

@@ -1,5 +1,6 @@
 """Synthetic component isolation; no credentials, provider or Drive transport."""
 from contextlib import ExitStack
+from copy import deepcopy
 from datetime import date, timedelta
 import gzip
 import io
@@ -208,6 +209,59 @@ class ComponentHoldTests(unittest.TestCase):
             runtime.bootstrap_coverage(self.drive, self.control, dict(groups=[group]), {"AAPL", "MSFT"})
         self.assertEqual(caught.exception.coverage, {"AAPL": FULL[-1]})
         self.assertEqual(caught.exception.held, {"MSFT": HELD})
+
+    def test_new_locator_matches_actual_readback_receipt_and_preserves_exact_object_refs(self):
+        group = self.baseline(dict(AAPL=FULL[:2], MSFT=FULL[:2]), end=FULL[-1])
+        result = self.execute([group])
+        rows = runtime.journal_rows(self.drive, self.control)
+        terminal = next(r for h, r in rows if h == result["checkpoint_sha256"])
+        self.assertEqual(len(terminal["receipts"]), 1)
+        entry = terminal["receipts"][0]
+        self.assertEqual(len(entry["objects"]), 3)
+        self.assertTrue(all(set(r) == {"file_id", "sha256", "bytes"} for r in entry["objects"]))
+        ref = entry["objects"][-1]
+        original = self.drive.objects[ref["file_id"]]
+        self.assertEqual((runtime.digest(original), len(original)), (ref["sha256"], ref["bytes"]))
+        receipt = runtime.decode(original)
+        self.assertEqual(entry["capture_membership_hint"], dict(
+            schema="a1-managed-capture-membership-hint-v1", capture_receipt_sha256=ref["sha256"],
+            **{k: receipt[k] for k in ("symbols", "start", "end", "collected", "no_bars")}))
+        self.assertEqual(entry["capture_membership_hint"]["symbols"], ["AAPL", "MSFT"])
+        self.assertIsNone(entry["public_available_at"])
+        for key in ("historical_identity_verified", "corporate_action_chain_verified", "source_admission", "pit_verified"):
+            self.assertIs(entry[key], False)
+        self.assertEqual(self.meter.used["provider_gets"], 4)
+
+    def test_unverified_new_capture_cannot_publish_a_locator_or_complete_checkpoint(self):
+        group = self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        verify = cap.verify_archived_group
+        def refuse_new(raw, normalized, receipt):
+            if receipt["start"] == FULL[-1]:
+                raise runtime.Refused("FIXTURE_NEW_ARCHIVE_NOT_VERIFIED")
+            return verify(raw, normalized, receipt)
+        with patch.object(cap, "verify_archived_group", side_effect=refuse_new):
+            with self.assertRaisesRegex(runtime.Refused, "FIXTURE_NEW_ARCHIVE_NOT_VERIFIED"):
+                self.execute([group], tracked=("AAPL",))
+        rows = runtime.journal_rows(self.drive, self.control)
+        self.assertTrue(rows)
+        self.assertFalse(any(r["state"] == "COMPLETE" or r.get("receipts") for _, r in rows))
+
+    def test_legacy_checkpoint_without_locator_restores_without_rewriting_original_bytes(self):
+        group = self.baseline(dict(AAPL=FULL[:2]), end=FULL[-1])
+        self.execute([group], tracked=("AAPL",))
+        rows = runtime.journal_rows(self.drive, self.control)
+        reserved = next(pair for pair in rows if pair[1]["state"] == "RESERVED")
+        terminal = next(r for _, r in rows if r["state"] == "COMPLETE")
+        # Construct separate hash-consistent legacy fixture; never rewrite a journal.
+        legacy = json.loads(runtime.encoded(terminal))
+        for entry in legacy["receipts"]:
+            del entry["capture_membership_hint"]
+        legacy_sha = runtime.sha(legacy); before = dict(self.drive.objects); checked = []
+        restored = runtime.restore_journal([reserved, (legacy_sha, legacy)],
+            [dict(id=1, head_sha="2" * 40), dict(id=2, head_sha="2" * 40)], "b" * 64,
+            lambda run, checkpoint: checked.append(checkpoint))
+        self.assertEqual(restored, (legacy_sha, {"AAPL": FULL[-1]}, {}))
+        self.assertEqual(checked, [legacy_sha]);self.assertEqual(self.drive.objects, before)
 
     def test_mixed_reuse_and_prefix_hold_no_identity_or_provider_for_held(self):
         result = self.execute([self.baseline(dict(AAPL=FULL, MSFT=FULL[1:]))])
@@ -571,6 +625,415 @@ class ComponentHoldTests(unittest.TestCase):
             self.collect([group], tracked=("AAPL",))
         self.assertNotIsInstance(caught.exception, runtime.IncompleteBootstrapCoverage)
         self.assertEqual(self.opener.urls, [])
+
+
+class TieredCadenceTests(unittest.TestCase):
+    """Synthetic role/control evidence, never actual holdings or market rights."""
+
+    def setUp(self):
+        self.enterContext(patch.object(socket, "create_connection", side_effect=AssertionError("network")))
+        self.enterContext(patch.object(socket.socket, "connect", side_effect=AssertionError("network")))
+        self.now = runtime.campaign.utc("2026-10-24T00:30:00Z")
+        self.monitor = (runtime.ROOT / runtime.managed.MONITOR_CONTRACT).read_bytes()
+        self.monitor_sha = runtime.digest(self.monitor)
+        self.helper_path = runtime.ROOT / runtime.managed.MONITOR_HELPER
+        self.helper_raw = self.helper_path.read_bytes()
+        self.helper_sha = runtime.digest(self.helper_raw.replace(b"\r\n", b"\n"))
+        from tools import run287_etf_rotation as helper
+        self.etf_sha = runtime.digest(runtime.managed.encode(sorted(helper.universe(
+            helper.policy(json.loads(self.monitor))[0]))))
+        self.proof = b'{"fixture_only":"independent Source review; not actual portfolio evidence"}'
+        self.proof_sha = runtime.digest(self.proof)
+        self.proofs = {self.proof_sha: self.proof}
+
+    def evidence(self):
+        return dict(scope="RESEARCH_ONLY", source_sha256=self.proof_sha,
+            source_reference="https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-12345678",
+            as_of="2026-10-23T20:00:00Z", available_at="2026-10-23T20:01:00Z",
+            expires_at="2026-11-01T00:00:00Z")
+
+    def packet(self):
+        return dict(schema="a1-managed-priority-roster-v1", usage="RESEARCH_ONLY",
+            as_of="2026-10-23T20:00:00Z", available_at="2026-10-23T20:01:00Z",
+            expires_at="2026-11-01T00:00:00Z",
+            source_reference=runtime.managed.A0 + "#issuecomment-12345678",
+            holdings=dict(status="UNKNOWN", portfolio_mode="ACTUAL", tickers=None),
+            roles=[dict(self.evidence(), ticker="AAPL", role="PRIORITY")])
+
+    def parse(self, packet=None, *, binding=None, expected=None, monitor_sha=None, limit=60):
+        raw = runtime.encoded(self.packet() if packet is None else packet)
+        return runtime.managed.priority_roster(raw,
+            expected_sha256=runtime.digest(raw) if expected is None else expected,
+            monitor_raw=self.monitor, monitor_sha256=self.monitor_sha if monitor_sha is None else monitor_sha,
+            monitor_helper_sha256=self.helper_sha, etf_universe_sha256=self.etf_sha,
+            proof_objects=self.proofs, max_priority_candidates=limit, holdings_binding=binding,
+            now_utc=self.now)
+
+    def holding(self, *, status="VERIFIED", mode="ACTUAL", kind="ACTUAL_ACCEPTED", names=None):
+        value = dict(self.evidence(), status=status, portfolio_mode=mode, portfolio_kind=kind,
+                     tickers=["AAPL"] if names is None else names, scope=mode,
+                     positions_sha256=self.proof_sha)
+        keys = ("portfolio_mode", "portfolio_kind", "status", "positions_sha256", "tickers", "as_of",
+                "available_at", "expires_at", "source_reference")
+        return value, {k: value[k] for k in keys}
+
+    def cadence(self, *, extra=None):
+        ref = dict(file_id="fixture-proof-123", sha256=self.proof_sha, bytes=len(self.proof))
+        return dict(schema=runtime.managed.CADENCE_SCHEMA, roster_ref=ref, source_refs=[ref],
+                    monitor_contract_sha256=self.monitor_sha, max_priority_candidates=60,
+                    monitor_helper_sha256=self.helper_sha, etf_universe_sha256=self.etf_sha,
+                    holdings_binding=None, weekly_catchup=extra)
+
+    def test_unknown_holdings_preserves_independent_etfs_and_candidate(self):
+        roster = self.parse()
+        self.assertEqual(roster["etf_count"], 42)
+        self.assertEqual(len(roster["daily"]), 43)
+        self.assertEqual(roster["daily"]["SPY"], ["ETF"])
+        self.assertEqual(roster["daily"]["AAPL"], ["PRIORITY"])
+        self.assertEqual((roster["holdings_status"], roster["holdings_completeness"],
+                          roster["overall_status"]), ("UNKNOWN", "UNKNOWN", "PARTIAL_HOLDINGS"))
+
+    def test_helper_drift_refuses_before_import_or_provider(self):
+        original_open = Path.open
+        def changed(path, *args, **kwargs):
+            if path.resolve() == self.helper_path.resolve():
+                return io.BytesIO(self.helper_raw + b"\n# changed policy code\n")
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, "open", changed), self.assertRaisesRegex(ValueError, "CADENCE_HELPER_CODE_CHANGED"):
+            self.parse()
+
+    def test_imported_helper_replacement_cannot_add_or_swap_same_count_basket(self):
+        from tools import run287_etf_rotation as helper
+        original = helper.universe
+        for swap in (False, True):
+            def substituted(config):
+                result = original(config)
+                if swap:
+                    result.pop("SPY")
+                result["AAPL"] = dict(kind="THEME", group="changed", label="unreviewed")
+                return result
+            with self.subTest(swap=swap), patch.object(helper, "universe", substituted), \
+                    self.assertRaisesRegex(ValueError, "CADENCE_HELPER_EXECUTION_CHANGED"):
+                self.parse()
+
+    def test_monitor_and_external_same_count_basket_pins_both_refuse_drift(self):
+        monitor = json.loads(self.monitor)
+        rotation = monitor["etf_rotation"]
+        used = set(rotation["watch_reference"].values())
+        group = next(g for g in rotation["themes"].values() if set(g) - used)
+        old = next(t for t in group if t not in used)
+        group["AAPL"] = group.pop(old)
+        changed = runtime.encoded(monitor)
+        with self.assertRaisesRegex(ValueError, "CADENCE_MONITOR_HASH"):
+            runtime.managed.priority_roster(runtime.encoded(self.packet()),
+                expected_sha256=runtime.digest(runtime.encoded(self.packet())), monitor_raw=changed,
+                monitor_sha256=self.monitor_sha, monitor_helper_sha256=self.helper_sha,
+                etf_universe_sha256=self.etf_sha, proof_objects=self.proofs,
+                max_priority_candidates=60, holdings_binding=None, now_utc=self.now)
+        with self.assertRaisesRegex(ValueError, "CADENCE_ETF_UNIVERSE_CHANGED"):
+            runtime.managed.priority_roster(runtime.encoded(self.packet()),
+                expected_sha256=runtime.digest(runtime.encoded(self.packet())), monitor_raw=changed,
+                monitor_sha256=runtime.digest(changed), monitor_helper_sha256=self.helper_sha,
+                etf_universe_sha256=self.etf_sha, proof_objects=self.proofs,
+                max_priority_candidates=60, holdings_binding=None, now_utc=self.now)
+
+    def test_helper_git_lf_binding_preserves_observed_windows_crlf_hash(self):
+        canonical = self.helper_raw.replace(b"\r\n", b"\n")
+        crlf = canonical.replace(b"\n", b"\r\n")
+        original_open = Path.open
+        def windows_file(path, *args, **kwargs):
+            if path.resolve() == self.helper_path.resolve():
+                return io.BytesIO(crlf)
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, "open", windows_file):
+            roster = self.parse()
+        self.assertEqual(roster["etf_helper_binding"], dict(expected_GitLF_sha256=self.helper_sha,
+            observed_file_sha256=runtime.digest(crlf), normalization="CRLF_TO_LF_EXACT_MATCH"))
+        self.assertNotEqual(runtime.digest(crlf), self.helper_sha)
+
+    def test_wrong_helper_origin_and_legacy_no_cadence_compatibility(self):
+        from tools import run287_etf_rotation as helper
+        with patch.object(helper, "__file__", "other/helper.py"), \
+                self.assertRaisesRegex(ValueError, "CADENCE_HELPER_BINDING"):
+            self.parse()
+        with patch.object(runtime.managed, "verified_etf_helper", side_effect=AssertionError("legacy helper I/O")):
+            self.assertEqual(runtime.select_candidates({"AAPL", "MSFT"}, {}, {}, FULL[-1], 1), ["AAPL"])
+            self.assertTrue(runtime.managed.cadence_market_gate(now_utc=self.now)["ready"])
+
+    def test_unknown_is_not_an_empty_portfolio(self):
+        value = self.packet(); value["holdings"]["tickers"] = []
+        with self.assertRaisesRegex(ValueError, "CADENCE_UNKNOWN_NOT_EMPTY"):
+            self.parse(value)
+
+    def test_actual_holdings_requires_external_original_positions_binding(self):
+        value = self.packet(); value["holdings"], binding = self.holding()
+        with self.assertRaisesRegex(ValueError, "CADENCE_HOLDINGS_EXTERNAL_BINDING"):
+            self.parse(value)
+        roster = self.parse(value, binding=binding)
+        self.assertEqual(set(roster["daily"]["AAPL"]), {"HOLDING", "PRIORITY"})
+        self.assertEqual(roster["holdings_completeness"], "VERIFIED")
+        changed = deepcopy(value); changed["holdings"]["positions_sha256"] = "e" * 64
+        with self.assertRaisesRegex(ValueError, "CADENCE_HOLDINGS_EXTERNAL_BINDING"):
+            self.parse(changed, binding=binding)
+        changed = deepcopy(value); changed["holdings"]["tickers"] = ["AAPM"]
+        with self.assertRaisesRegex(ValueError, "CADENCE_HOLDINGS_EXTERNAL_BINDING"):
+            self.parse(changed, binding=binding)
+
+    def test_model_empty_and_csv_path_do_not_authenticate_actual_empty(self):
+        value = self.packet()
+        value["holdings"], binding = self.holding(status="NO_POSITIONS", kind="RESEARCH_MODEL", names=[])
+        with self.assertRaisesRegex(ValueError, "CADENCE_HOLDINGS_KIND"):
+            self.parse(value, binding=binding)
+        value["holdings"] = dict(status="VERIFIED", portfolio_mode="ACTUAL", tickers=[], csv="old-paper.csv")
+        with self.assertRaisesRegex(ValueError, "CADENCE_HOLDINGS_EXTERNAL_BINDING"):
+            self.parse(value)
+
+    def test_explicit_research_no_positions_and_notconfigured_keep_their_meaning(self):
+        for status in ("NO_POSITIONS", "NOT_CONFIGURED"):
+            with self.subTest(status=status):
+                value = self.packet()
+                value["holdings"], binding = self.holding(status=status, mode="RESEARCH_ONLY",
+                    kind="RESEARCH_" + status, names=[])
+                roster = self.parse(value, binding=binding)
+                self.assertEqual(roster["holdings_status"], status)
+                self.assertIn("SPY", roster["daily"])
+                if status == "NOT_CONFIGURED":
+                    self.assertEqual(roster["overall_status"], "PARTIAL_HOLDINGS")
+
+    def test_external_hashes_and_roster_schema_cannot_self_authorize(self):
+        for kwargs, reason in ((dict(expected="f" * 64), "CADENCE_ROSTER_HASH"),
+                               (dict(monitor_sha="f" * 64), "CADENCE_MONITOR_HASH")):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                self.parse(**kwargs)
+        value = self.packet(); value["owner_approved"] = True
+        with self.assertRaisesRegex(ValueError, "CADENCE_ROSTER_SCHEMA"):
+            self.parse(value)
+
+    def test_sources_clocks_duplicates_v0_and_candidate_cap(self):
+        cases = []
+        value = self.packet(); value["roles"][0]["source_sha256"] = "f" * 64
+        cases.append((value, "CADENCE_ROLE_SOURCE"))
+        value = self.packet(); value["roles"][0]["scope"] = "ACTUAL"
+        cases.append((value, "CADENCE_CANDIDATE_RESEARCH_SCOPE"))
+        value = self.packet(); value["available_at"] = "2026-10-25T00:00:00Z"
+        cases.append((value, "CADENCE_ROSTER_STALE_OR_FUTURE"))
+        value = self.packet(); value["expires_at"] = "2026-10-23T00:00:00Z"
+        cases.append((value, "CADENCE_ROSTER_STALE_OR_FUTURE"))
+        value = self.packet(); value["roles"] *= 2
+        cases.append((value, "CADENCE_ROLE_DUPLICATE"))
+        value = self.packet(); value["roles"][0].update(role="OPPORTUNITY", verification="V0", event_id="event-fixture-1")
+        cases.append((value, "CADENCE_EVENT_UNVERIFIED"))
+        for value, reason in cases:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                self.parse(value)
+        with self.assertRaisesRegex(ValueError, "CADENCE_CANDIDATE_BOUND"):
+            self.parse(limit=0)
+
+    def test_stale_role_is_preserved_without_becoming_daily(self):
+        value = self.packet(); value["roles"][0]["expires_at"] = "2026-10-23T23:59:00Z"
+        roster = self.parse(value)
+        self.assertNotIn("AAPL", roster["daily"])
+        self.assertEqual(roster["stale_roles"]["AAPL"], ["STALE_PRIORITY_EVIDENCE"])
+        self.assertIn("SPY", roster["daily"])
+
+    def test_verified_opportunity_has_one_event_and_never_creates_sixty_candidates(self):
+        value = self.packet(); value["roles"][0].update(role="OPPORTUNITY", verification="V2", event_id="event-fixture-1")
+        roster = self.parse(value)
+        self.assertEqual(roster["daily"]["AAPL"], ["OPPORTUNITY"])
+        self.assertEqual(len(roster["daily"]), 43)
+        value["roles"].append(dict(value["roles"][0], ticker="MSFT"))
+        with self.assertRaisesRegex(ValueError, "CADENCE_EVENT_UNVERIFIED"):
+            self.parse(value)
+
+    def test_role_rank_precedes_age_and_duplicate_role_uses_highest_priority(self):
+        value = self.packet(); value["holdings"], binding = self.holding(names=["SPY"])
+        value["roles"].append(dict(self.evidence(), ticker="MSFT", role="OPPORTUNITY",
+                                   event_id="event-fixture-2", verification="V1"))
+        roster = self.parse(value, binding=binding)
+        schedule = runtime.managed.tier_schedule(roster, {"SPY", "QQQ", "AAPL", "MSFT", "ZZZ"}, "2026-10-23")
+        coverage = {"SPY": "2026-10-22", "QQQ": "2020-01-02", "AAPL": "2019-01-02"}
+        self.assertEqual(runtime.select_candidates(set(coverage) | {"MSFT", "ZZZ"}, coverage, {},
+            "2026-10-23", 5, schedule), ["SPY", "QQQ", "AAPL", "MSFT", "ZZZ"])
+        coverage["SPY"] = "2026-10-23"
+        self.assertEqual(runtime.select_candidates(set(coverage) | {"MSFT", "ZZZ"}, coverage, {},
+            "2026-10-23", 1, schedule), ["QQQ"])
+
+    def test_weekday_watch_not_due_and_weekly_pending_is_not_removed(self):
+        roster = self.parse()
+        schedule = runtime.managed.tier_schedule(roster, {"AAPL", "MSFT"}, "2026-10-21")
+        self.assertFalse(schedule["weekly_due"])
+        self.assertEqual(schedule["weekly_target_session"], "2026-10-16")
+        self.assertEqual(runtime.select_candidates({"AAPL", "MSFT"}, {}, {}, "2026-10-21", 2, schedule), ["AAPL"])
+        progress = runtime.managed.tier_progress(schedule, {"AAPL", "MSFT"}, {}, {}, "2026-10-21")
+        self.assertEqual(progress["pending_weekly"], ["MSFT"])
+        self.assertEqual(progress["holdings_completeness"], "UNKNOWN")
+
+    def test_ordinary_saturday_earlyclose_and_dst_use_actual_session_closes(self):
+        for now, close in (("2026-10-24T00:30:00Z", "2026-10-23T20:00:00Z"),
+                           ("2026-11-07T00:30:00Z", "2026-11-06T21:00:00Z"),
+                           ("2026-11-28T00:30:00Z", "2026-11-27T18:00:00Z")):
+            with self.subTest(now=now):
+                gate = runtime.managed.cadence_market_gate(now_utc=now, cadence=self.cadence())
+                self.assertTrue(gate["ready"])
+                self.assertEqual(runtime.campaign.utc(gate["market_close_utc"]), runtime.campaign.utc(close))
+
+    def friday_holiday(self):
+        return dict(mode="WEEKLY_CATCHUP", week_start="2026-03-30", session="2026-04-02",
+                    not_before="2026-04-03T00:30:00Z", expires_at="2026-04-06T00:00:00Z")
+
+    def test_friday_holiday_requires_explicit_week_and_preserves_old_session(self):
+        now = "2026-04-04T00:30:00Z"
+        self.assertFalse(runtime.managed.cadence_market_gate(now_utc=now)["ready"])
+        cadence = self.cadence(extra=self.friday_holiday())
+        runtime.managed.cadence_contract(cadence, not_before="2026-04-01T00:00:00Z",
+                                         expires_at="2026-04-06T00:00:00Z")
+        for at in (now, "2026-04-05T00:30:00Z"):
+            gate = runtime.managed.cadence_market_gate(now_utc=at, cadence=cadence)
+            self.assertTrue(gate["ready"])
+            self.assertEqual(gate["session_date"], "2026-04-02")
+            self.assertTrue(gate["catchup_mode"])
+            self.assertFalse(gate["forced"])
+        self.assertFalse(runtime.managed.cadence_market_gate(now_utc="2026-04-06T00:30:00Z", cadence=cadence)["ready"])
+
+    def test_weekly_wrong_week_non_session_or_unbounded_expiry_refuses(self):
+        for key, bad, reason in (("session", "2026-04-03", "CADENCE_WEEK_END_SESSION"),
+                                 ("week_start", "2026-03-23", "CADENCE_WEEK_END_SESSION"),
+                                 ("expires_at", "2026-04-07T00:00:00Z", "CADENCE_WEEKLY_WINDOW")):
+            extra = self.friday_holiday(); extra[key] = bad
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, reason):
+                runtime.managed.cadence_contract(self.cadence(extra=extra),
+                    not_before="2026-04-01T00:00:00Z", expires_at="2026-04-08T00:00:00Z")
+
+    def test_journal_roster_swap_and_new_control_cannot_reset_prior_usage(self):
+        base = dict(schema="a1-managed-run-checkpoint-v1", control_sha256="b" * 64,
+                    cadence_binding_sha256="c" * 64, run_id=1, slot=1, source_sha="2" * 40)
+        rows = [("a" * 64, dict(base, state="RESERVED", parent_sha256=None)),
+                ("d" * 64, dict(base, state="COMPLETE", parent_sha256="a" * 64,
+                    coverage_updates={"AAPL": "2026-10-23"}, held={}))]
+        history = [dict(id=1, head_sha="2" * 40), dict(id=2)]
+        result = runtime.restore_journal(rows, history, "b" * 64, lambda *_: {}, cadence_binding="c" * 64)
+        self.assertEqual(result[1], {"AAPL": "2026-10-23"})
+        with self.assertRaisesRegex(runtime.Refused, "CADENCE_JOURNAL_BINDING_CHANGED"):
+            runtime.restore_journal(rows, history, "b" * 64, lambda *_: {}, cadence_binding="e" * 64)
+        with self.assertRaisesRegex(runtime.Refused, "MANAGED_STATE_CHAIN"):
+            runtime.restore_journal(rows, history, "e" * 64, lambda *_: {}, cadence_binding="c" * 64)
+
+    def fixture(self):
+        f = ComponentHoldTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        return f
+
+    def test_collector_preserves_role_order_across_different_missing_windows(self):
+        f = self.fixture()
+        groups = [f.baseline({t: days}, end=(date.fromisoformat(max(days)) + timedelta(days=1)).isoformat())
+                  for t, days in dict(AAPL=FULL[:1], MSFT=FULL[:2]).items()]
+        schedule = dict(daily=["MSFT"], role_rank={"MSFT": 0}, weekly_due=True)
+        result = runtime.collect_groups(f.drive, f.meter, f.control,
+            dict(groups=groups, asset_identity_refs=f.identities), {"AAPL", "MSFT"},
+            {"AAPL": FULL[0], "MSFT": FULL[1]}, {}, FULL[-1], "fixture-key", "fixture-secret",
+            lambda: f.now, scheduling=schedule)
+        queries = [parse_qs(urlsplit(url).query) for url in f.opener.urls if "/bars" in url]
+        self.assertEqual([q["symbols"][0] for q in queries], ["MSFT", "MSFT", "AAPL", "AAPL"])
+        self.assertEqual(result[0], {"AAPL": FULL[-1], "MSFT": FULL[-1]})
+
+    def role_fixture(self):
+        f = self.fixture()
+        f.control["authorized_tickers"] = ["AAPL", "MSFT", "SPY"]
+        f.identities["SPY"] = f.drive.seed(f.control["evidence_folder_id"], runtime.encoded(asset("SPY")))
+        schedule = dict(daily=["MSFT", "SPY"], role_rank={"MSFT": 0, "SPY": 1}, weekly_due=True)
+        return f, schedule
+
+    def collect_roles(self, f, schedule, dates):
+        groups = [f.baseline({t: days}, end=(date.fromisoformat(max(days)) + timedelta(days=1)).isoformat())
+                  for t, days in dates.items()]
+        prior = {t: max(days) for t, days in dates.items()}
+        return runtime.collect_groups(f.drive, f.meter, f.control,
+            dict(groups=groups, asset_identity_refs=f.identities), set(dates), prior, {}, FULL[-1],
+            "fixture-key", "fixture-secret", lambda: f.now, scheduling=schedule)
+
+    def test_same_window_mixed_roles_preserve_actual_provider_order(self):
+        f, schedule = self.role_fixture()
+        self.collect_roles(f, schedule, dict(AAPL=FULL[:2], MSFT=FULL[:2], SPY=FULL[:2]))
+        queries = [parse_qs(urlsplit(url).query) for url in f.opener.urls if "/bars" in url]
+        self.assertEqual([q["symbols"][0] for q in queries],
+                         ["MSFT", "MSFT", "SPY", "SPY", "AAPL", "AAPL"])
+
+    def test_holding_window_cannot_pull_watch_ahead_of_another_etf_window(self):
+        f, schedule = self.role_fixture()
+        self.collect_roles(f, schedule, dict(AAPL=FULL[:1], MSFT=FULL[:1], SPY=FULL[:2]))
+        queries = [parse_qs(urlsplit(url).query) for url in f.opener.urls if "/bars" in url]
+        self.assertEqual([q["symbols"][0] for q in queries],
+                         ["MSFT", "MSFT", "SPY", "SPY", "AAPL", "AAPL"])
+
+    def test_mid_group_budget_stop_never_starts_lower_role_or_refunds_completed_io(self):
+        f, schedule = self.role_fixture()
+        f.meter.allowance["provider_gets"] = 3
+        with self.assertRaises(runtime.Refused):
+            self.collect_roles(f, schedule, dict(AAPL=FULL[:1], MSFT=FULL[:1], SPY=FULL[:2]))
+        queries = [parse_qs(urlsplit(url).query) for url in f.opener.urls if "/bars" in url]
+        self.assertEqual([q["symbols"][0] for q in queries], ["MSFT", "MSFT"])
+        self.assertEqual(f.meter.used["provider_gets"], 3)
+        self.assertFalse(any("/assets/SPY" in u or "/assets/AAPL" in u for u in f.opener.urls))
+
+    def install_roster(self, f):
+        value = self.packet(); value["roles"][0]["ticker"] = "MSFT"
+        cadence = self.cadence()
+        cadence["roster_ref"] = f.drive.seed(f.control["evidence_folder_id"], runtime.encoded(value))
+        cadence["source_refs"] = [f.drive.seed(f.control["evidence_folder_id"], self.proof)]
+        f.control["cadence"] = cadence
+        return cadence
+
+    def test_bounded_execution_keeps_daily_first_weekly_pending_and_outside_names_uncaptured(self):
+        f = self.fixture(); self.install_roster(f); f.control["max_symbols_per_run"] = 1
+        group = f.baseline(dict(AAPL=FULL[:2], MSFT=FULL[:2]), end="2026-10-23")
+        result = f.execute([group])
+        self.assertEqual(result["valid_updated"], 1)
+        self.assertEqual(result["tier_progress"]["pending_weekly"], ["AAPL"])
+        self.assertIn("SPY", result["tier_progress"]["outside_scope"])
+        self.assertEqual(result["overall_status"], "PARTIAL_HOLDINGS")
+        self.assertFalse(any("SPY" in url or "AAPL" in url for url in f.opener.urls))
+        rows = runtime.journal_rows(f.drive, f.control)
+        binding = runtime.sha(f.control["cadence"])
+        _, coverage, held = runtime.restore_journal(rows,
+            [dict(id=1, head_sha="2" * 40), dict(id=2)], "b" * 64, lambda *_: {}, cadence_binding=binding)
+        roster = runtime.load_cadence_roster(f.control, f.drive, f.now)
+        schedule = runtime.managed.tier_schedule(roster, {"AAPL", "MSFT"}, FULL[-1])
+        self.assertEqual(runtime.select_candidates({"AAPL", "MSFT"}, coverage, held,
+            FULL[-1], 1, schedule), ["AAPL"])
+        self.assertLess(len(runtime.encoded(result)), 65536)
+
+    def test_empty_provider_response_is_held_without_deleting_original_bytes(self):
+        f = self.fixture()
+        group = f.baseline(dict(AAPL=FULL[:2]), end="2026-10-23")
+        originals = set(f.drive.objects)
+        original_open = f.opener.open
+        def empty_bars(request, **kwargs):
+            if "/bars" in request.full_url:
+                f.opener.urls.append(request.full_url)
+                return Reply(runtime.encoded(dict(bars={}, next_page_token=None)))
+            return original_open(request, **kwargs)
+        schedule = dict(daily=["AAPL"], role_rank={"AAPL": 0}, weekly_due=False)
+        with patch.object(f.opener, "open", side_effect=empty_bars):
+            updates, held, _, _, _ = runtime.collect_groups(f.drive, f.meter, f.control,
+                dict(groups=[group], asset_identity_refs=f.identities), {"AAPL"}, {}, {},
+                FULL[-1], "fixture-key", "fixture-secret", lambda: f.now, scheduling=schedule)
+        self.assertEqual(updates, {})
+        self.assertEqual(held["AAPL"], "VERIFIED_NO_DATA_FOR_REQUESTED_WINDOW")
+        self.assertTrue(originals <= set(f.drive.objects))
+
+    def test_budget_failure_keeps_meter_cost_and_source_history(self):
+        f = self.fixture(); group = f.baseline(dict(AAPL=FULL[:2]), end="2026-10-23")
+        before = set(f.drive.objects)
+        f.meter.used["provider_gets"] = f.meter.allowance["provider_gets"]
+        used = dict(f.meter.used)
+        with self.assertRaises(runtime.Refused):
+            runtime.collect_groups(f.drive, f.meter, f.control,
+                dict(groups=[group], asset_identity_refs=f.identities), {"AAPL"}, {}, {},
+                FULL[-1], "fixture-key", "fixture-secret", lambda: f.now,
+                scheduling=dict(daily=["AAPL"], role_rank={"AAPL": 0}, weekly_due=False))
+        self.assertGreaterEqual(f.meter.used["provider_gets"], used["provider_gets"])
+        self.assertTrue(before <= set(f.drive.objects))
 
 
 if __name__ == "__main__":

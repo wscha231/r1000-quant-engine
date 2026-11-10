@@ -10,6 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import warnings
 import zipfile
 from html.parser import HTMLParser
@@ -562,6 +563,57 @@ class ForwardContextTests(unittest.TestCase):
         self.assertIn("forward_source_context", monitor.render(report))
         self.assertIn("forward_source_context", monitor.render_html(report))
 
+    def test_checked_managed_checkpoint_is_not_missing_or_economic_regime(self):
+        for parent_conclusion in ("success", "failure"):
+            with self.subTest(parent_conclusion=parent_conclusion):
+                feed = self.Feed("a1_forward", self.managed_payload(), conclusion=parent_conclusion)
+                feed.set_jobs(proxy="failure" if parent_conclusion == "failure" else "success")
+                source = self.collect("a1_forward", feed)
+                before = copy.deepcopy(source)
+                value = monitor.reassessment_handoff({"a1_forward": source}, self.session, NOW,
+                                                       CONTRACT, code_sha="a" * 40)
+                self.assertEqual(source, before)
+                self.assertEqual(value["current_snapshot"]["rows"], [])
+                self.assertEqual(value["review_requests"], [])
+                reference = value["source_refs"][0]
+                self.assertEqual(reference["producer_evidence"]["status"],
+                                 "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION")
+                self.assertEqual(reference["producer_evidence"]["checkpoint_sha256"], "c" * 64)
+                for key in ("source_admission", "pit_verified", "economic_authority"):
+                    self.assertIs(reference[key], False)
+                self.assertFalse(value["global_scope_complete"])
+                self.assertFalse(value["consumption_ack"])
+                later = NOW + monitor.timedelta(minutes=5)
+                source["metadata_collected_at"] = later.isoformat()
+                source["files"]["result"]["sha256"] = "d" * 64
+                repeated = monitor.reassessment_handoff({"a1_forward": source}, self.session, later,
+                    CONTRACT, previous=value, code_sha="a" * 40)
+                self.assertEqual(repeated["review_intake_id"], value["review_intake_id"])
+                self.assertEqual(repeated["new_event_ids"], [])
+                self.assertEqual(repeated["review_requests"], [])
+
+    def test_missing_blocked_stale_and_conflicting_managed_evidence_stays_repair_only(self):
+        cases = []
+        missing = self.Feed("a1_forward"); missing.set_jobs()
+        cases.append(("missing", missing))
+        blocked = self.Feed("a1_forward", self.managed_payload(blocked=True), conclusion="failure")
+        blocked.set_jobs(managed="failure"); cases.append(("failed", blocked))
+        stale = self.Feed("a1_forward", self.managed_payload(date="2026-09-03"))
+        stale.set_jobs(); cases.append(("stale", stale))
+        conflict = self.managed_payload(); conflict["meter"]["managed_checkpoint_sha256"] = "d" * 64
+        bad = self.Feed("a1_forward", conflict); bad.set_jobs(); cases.append(("conflict", bad))
+        admitted = self.managed_payload(); admitted["result"]["source_admission"] = True
+        bad = self.Feed("a1_forward", admitted); bad.set_jobs(); cases.append(("false_admission", bad))
+        for name, feed in cases:
+            with self.subTest(case=name):
+                source = self.collect("a1_forward", feed)
+                value = monitor.reassessment_handoff({"a1_forward": source}, self.session, NOW,
+                                                       CONTRACT, code_sha="a" * 40)
+                self.assertIn("A6", {r["agent"] for r in value["review_requests"]})
+                self.assertNotIn("A5", {r["agent"] for r in value["review_requests"]})
+                self.assertTrue(all(r["status"] != "OBSERVED" for r in value["current_snapshot"]["rows"]))
+                self.assertTrue(all(v is False for v in value["safety"].values()))
+
     def test_proxy_success_and_managed_failure_are_distinct(self):
         a1 = self.Feed("a1_forward", self.managed_payload(blocked=True), conclusion="failure")
         a1.set_jobs(managed="failure")
@@ -844,6 +896,24 @@ class RotationTests(unittest.TestCase):
             blocked = read(Feed(raw))
             self.assertEqual(blocked["data"]["etf_rotation"]["status"], "UNVERIFIED_RECEIPT")
             self.assertEqual(blocked["data"]["summary"]["data_as_of"], "2026-11-04")
+        baseline_sources = evidence()
+        baseline_sources["tactical"] = read(Feed(b"{}"))
+        baseline_report = monitor.evaluate(baseline_sources, "2026-11-04", monitor_now, CONTRACT)
+        legacy_rows = lambda report: [{k: v for k, v in row.items() if not k.startswith("a3_rotation_")}
+                                      for row in report["watchlist"]]
+        for value in (None, [], 42, "not-a-receipt", True):
+            with self.subTest(optional_etf_json=value):
+                isolated = read(Feed(rotation.canonical(value)))
+                self.assertEqual(isolated["status"], source["status"])
+                self.assertTrue(isolated["artifact_hash_verified"])
+                self.assertEqual(isolated["data"]["summary"], source["data"]["summary"])
+                self.assertEqual(isolated["data"]["etf_rotation"]["status"], "UNVERIFIED_RECEIPT")
+                combined = evidence(); combined["tactical"] = isolated
+                checked = monitor.evaluate(combined, "2026-11-04", monitor_now, CONTRACT)
+                self.assertEqual(legacy_rows(checked), legacy_rows(baseline_report))
+                self.assertEqual(checked["alerts"], baseline_report["alerts"])
+                self.assertFalse(any(r["agent"] == "A3" for r in checked["reassessment"]["review_requests"]))
+                self.assertNotIn("etf_safe_review", isolated["data"])
 
         class UnavailableTransport:
             def write(self, path, raw):
@@ -856,6 +926,378 @@ class RotationTests(unittest.TestCase):
 
 
 
+class ReviewHandoffTests(unittest.TestCase):
+    session = "2026-09-04"
+
+    def source(self, *, failed=False):
+        return {"status": "UPSTREAM_FAILED" if failed else "VERIFIED_ARTIFACT",
+            "artifact_hash_verified": True, "metadata_collected_at": NOW.isoformat(),
+            "run": dict(id=21, run_attempt=1, head_sha="a" * 40, status="completed",
+                conclusion="failure" if failed else "success", created_at="2026-09-05T06:00:00Z",
+                updated_at="2026-09-05T07:00:00Z"),
+            "artifact": {"created_at": "2026-09-05T06:40:00Z", "digest": "sha256:" + "b" * 64},
+            "files": {"summary": {"sha256": "c" * 64, "bytes": 100}},
+            "data": {"summary": {"schema_version": "daily-crisis-monitor-v2", "research_only": True,
+                "auto_trade_allowed": False, "expected_session": self.session,
+                "generated_at_utc": "2026-09-05T06:30:00Z",
+                "market_analysis": {"schema": "market-analysis-report-v1", "market": "US",
+                    "session": self.session, "cutoff": "2026-09-05T06:20:00Z",
+                    "status": "DATA_BLOCKED" if failed else "READY_RESEARCH_ONLY", "blockers": ["REAL_INPUT_WAIT"],
+                    "market_assessment": {"status": "DATA_BLOCKED" if failed else "READY_RESEARCH_ONLY",
+                        "state": None if failed else "GREEN", "observed_state": None if failed else "GREEN",
+                        "risk_score": None if failed else .2, "axes": [{"axis": "CREDIT", "risk_percentile": .2}],
+                        "ready_axis_count": 10, "required_axes_ready": True}}}}}
+
+    def handoff(self, sources=None, **kwargs):
+        return monitor.reassessment_handoff(sources or {"a4_forward": self.source()},
+            self.session, kwargs.pop("now", NOW), CONTRACT, code_sha="a" * 40, **kwargs)
+
+    def test_real_bridge_preserves_common_risk_requires_without_paper_or_holdings(self):
+        value = self.handoff({"a4_forward": self.source(), "operating": {"status": "UPSTREAM_FAILED"}})
+        a5 = next(r for r in value["review_requests"] if r["agent"] == "A5")
+        self.assertIn("PORTFOLIO_COMMON_RISK_REVIEW", a5["slices"])
+        self.assertEqual(set(a5["requires"]), {"CURRENT_A4", "CURRENT_REVALIDATED_A3_ER", "INDEPENDENT_A6"})
+        self.assertFalse(a5["execute"])
+        self.assertFalse(value["global_scope_complete"])
+        self.assertFalse(value["consumption_ack"])
+        self.assertEqual(value["intake_export"]["status"], "BLOCKED_CANONICAL_INTAKE_MISSING")
+        self.assertTrue(all(v is False for v in value["safety"].values()))
+
+    def test_failed_crisis_is_repair_and_does_not_invent_a5_decision(self):
+        value = self.handoff({"a4_forward": self.source(failed=True)})
+        agents = {r["agent"] for r in value["review_requests"]}
+        self.assertTrue({"A1", "A6"}.issubset(agents))
+        self.assertNotIn("A5", agents)
+        self.assertTrue(all(r["authority"] == "REVIEW_ONLY" for r in value["review_requests"]))
+
+    def test_transport_recollection_keeps_event_and_intake_identity_without_ack(self):
+        first = self.handoff()
+        source = self.source()
+        later = NOW + monitor.timedelta(minutes=5)
+        source["metadata_collected_at"] = later.isoformat()
+        source["files"]["summary"]["sha256"] = "d" * 64
+        second = self.handoff({"a4_forward": source}, previous=first, now=later)
+        self.assertEqual(first["review_intake_id"], second["review_intake_id"])
+        self.assertEqual(second["new_event_ids"], [])
+        self.assertEqual(second["parameter_proposals"], {})
+        self.assertFalse(second["consumption_ack"])
+
+    def test_same_ready_status_changed_actual_regime_or_axis_requests_new_review(self):
+        first = self.handoff()
+        for change in ({"state": "RED"}, {"axes": [{"axis": "CREDIT", "risk_percentile": .9}]}):
+            source = self.source()
+            source["metadata_collected_at"] = (NOW + monitor.timedelta(minutes=5)).isoformat()
+            source["run"]["updated_at"] = "2026-09-05T07:01:00Z"
+            source["data"]["summary"]["market_analysis"]["market_assessment"].update(change)
+            result = self.handoff({"a4_forward": source}, previous=first, now=NOW + monitor.timedelta(minutes=5))
+            self.assertTrue(result["new_event_ids"])
+            self.assertIn("A5", result["parameter_proposals"])
+            self.assertNotEqual(first["review_intake_id"], result["review_intake_id"])
+
+    def test_status_only_a4_cannot_invent_a_risk_state(self):
+        source = self.source()
+        del source["data"]["summary"]["market_analysis"]["market_assessment"]
+        result = self.handoff({"a4_forward": source})
+        self.assertNotIn("A5", result["parameter_proposals"])
+
+    def test_expired_a4_original_is_repair_not_renewed_observed_evidence(self):
+        source = self.source()
+        report = source["data"]["summary"]
+        report["generated_at_utc"] = "2026-09-05T07:40:00Z"
+        report["market_analysis"]["cutoff"] = "2026-09-05T07:30:00Z"
+        source["artifact"]["created_at"] = "2026-09-05T07:50:00Z"
+        source["run"]["updated_at"] = "2026-09-05T08:00:00Z"
+        row = dict(family="MACRO", provider="SYNTHETIC", entity_kind="MACRO_SERIES", entity_id="DGS10",
+            metric="level", fiscal_period=None, observation_period=self.session, identity={"unit": "percent"},
+            values={"value": 1234567.89}, status="OBSERVED", available_at="2026-09-05T07:00:00Z",
+            collected_at="2026-09-05T07:00:00Z", revision_id="v1", source_sha256="f" * 64, causal_event_id=None)
+        child = monitor.reassessment.snapshot([row], scope_id="synthetic-a4-only",
+            cutoff="2026-09-05T07:30:00Z", expires_at="2026-09-05T08:00:00Z")
+        report["market_analysis"]["candidate_reassessment_snapshot"] = child
+        value = self.handoff({"a4_forward": source})
+        self.assertNotIn("A5", value["parameter_proposals"])
+        self.assertIn("A6", value["parameter_proposals"])
+        self.assertTrue(all(r["status"] != "OBSERVED" for r in value["current_snapshot"]["rows"]))
+        report["market_analysis"]["candidate_reassessment_snapshot"] = monitor.reassessment.snapshot([row],
+            scope_id="synthetic-a4-only", cutoff="2026-09-05T07:30:00Z", expires_at="2026-09-05T08:40:00Z")
+        fresh = self.handoff({"a4_forward": source})
+        self.assertEqual(fresh["current_snapshot"]["expires_at"], "2026-09-05T08:40:00+00:00")
+        self.assertNotIn("1234567.89", json.dumps(fresh))
+
+    def test_missing_and_future_original_clocks_block_only_that_scope(self):
+        bad = self.source()
+        bad["metadata_collected_at"] = (NOW + monitor.timedelta(days=1)).isoformat()
+        value = self.handoff({"a4_forward": self.source(), "bad": bad})
+        self.assertIn("A5", {r["agent"] for r in value["review_requests"]})
+        self.assertIn({"scope": "bad", "reason": "ORIGINAL_SOURCE_IDENTITY_OR_CLOCK_MISSING"}, value["blocked_scopes"])
+
+    def test_private_etf_hash_is_not_an_original_payload(self):
+        value = self.handoff({"tactical": {"data": {"etf_rotation": {
+            "a3_handoff_status": "REVIEW_REQUESTS_READY", "private_payload_sha256": "e" * 64}}}})
+        self.assertFalse(any(r["agent"] == "A3" for r in value["review_requests"]))
+        self.assertTrue(any(r["reason"] == "PRIVATE_ETF_PAYLOAD_OR_CHECKED_PUBLICATION_MISSING_NO_RECONSTRUCTION"
+                            for r in value["blocked_scopes"]))
+
+    def test_private_etf_original_decoder_preserves_independent_a3_metadata_only(self):
+        fixture = RotationTests()
+        result = fixture.analyze(fixture.fixture())
+        raw = rotation.canonical({**result, "producer": fixture.producer,
+                                  "observed_at_utc": fixture.now.isoformat()})
+        public = rotation.public_receipt(result, fixture.producer, fixture.now, rotation.sha256(raw))
+        run = sample_run(); run["created_at"] = fixture.now.isoformat()
+        artifact = {"created_at": fixture.now.isoformat()}
+        observation = rotation.receipt_observation(public, run, artifact, result["session"], fixture.now, CONTRACT)
+        source = {"tactical": {"metadata_collected_at": fixture.now.isoformat(),
+                               "data": {"etf_rotation": observation}}}
+        value = monitor.reassessment_handoff(source, result["session"], fixture.now, CONTRACT,
+            private_etf_payload=raw, code_sha="a" * 40)
+        expected = rotation.decode_a3_review_requests(observation, raw, CONTRACT)
+        actual = [r for r in value["review_requests"] if r["agent"] == "A3"]
+        self.assertEqual({r["request_id"] for r in actual}, {r["request_id"] for r in expected})
+        self.assertTrue(actual)
+        self.assertNotIn("relative_strength", json.dumps(value))
+        self.assertNotIn("normalized_price_input_sha256", json.dumps(value))
+        self.assertTrue(all(r["execute"] is False for r in actual))
+        for collected in (None, (fixture.now + monitor.timedelta(seconds=1)).isoformat()):
+            broken = copy.deepcopy(source)
+            if collected is None:
+                del broken["tactical"]["metadata_collected_at"]
+            else:
+                broken["tactical"]["metadata_collected_at"] = collected
+            refused = monitor.reassessment_handoff(broken, result["session"], fixture.now, CONTRACT,
+                private_etf_payload=raw, code_sha="a" * 40)
+            self.assertFalse(any(r["agent"] == "A3" for r in refused["review_requests"]))
+            self.assertNotIn("etf_parameter_proposals", refused)
+            self.assertTrue(any(r["scope"] == "etf" for r in refused["blocked_scopes"]))
+
+    def test_new_snapshots_keep_no_private_price_holding_or_url_values(self):
+        source = self.source()
+        source["run"]["html_url"] = "https://private.invalid/?credential=PRIVATE_SENTINEL"
+        source["data"]["summary"]["private_price"] = "PRIVATE_PRICE_SENTINEL"
+        source["data"]["summary"]["Actual_holdings"] = ["PRIVATE_HOLDING_SENTINEL"]
+        raw = json.dumps(self.handoff({"a4_forward": source}))
+        for value in ("PRIVATE_SENTINEL", "PRIVATE_PRICE_SENTINEL", "PRIVATE_HOLDING_SENTINEL"):
+            self.assertNotIn(value, raw)
+
+    def test_scheduled_producer_member_to_default_consumer_preserves_a3_a5_cause(self):
+        from tools import etf_leadership_snapshot as producer
+        fixture = RotationTests()
+        result = fixture.analyze(fixture.fixture())
+        class Memory:
+            def __init__(self):
+                self.objects = {}; self.reads = 0
+            def write(self, path, raw):
+                self.objects[path] = raw
+            def read(self, path):
+                self.reads += 1
+                return self.objects[path]
+        remote = Memory()
+        receipt = producer.publish_rotation_review(result, fixture.producer, fixture.now, CONTRACT, remote)
+        self.assertEqual(remote.reads, 1)
+        self.assertIn("safe_review_handoff", receipt)
+        self.assertNotIn("relative_strength", json.dumps(receipt))
+        spec = CONTRACT["sources"]["tactical"]
+        run = sample_run(conclusion="failure")
+        run.update(created_at="2026-11-05T03:00:00Z", updated_at="2026-11-05T04:20:00Z")
+        observed = monitor.timestamp("2026-11-05T08:00:00Z")
+        class Feed:
+            def __init__(self, payload):
+                content = io.BytesIO()
+                with zipfile.ZipFile(content, "w") as archive:
+                    archive.writestr(spec["members"]["summary"], '{"data_as_of":"2026-11-04"}')
+                    archive.writestr(spec["members"]["etf_rotation"], rotation.canonical(payload))
+                self.raw = content.getvalue()
+                self.artifact = dict(id=1, name=spec["artifact_prefix"] + "2", expired=False,
+                    digest="sha256:" + rotation.sha256(self.raw), size_in_bytes=len(self.raw),
+                    created_at="2026-11-05T04:15:00Z", workflow_run={"id": 2, "head_sha": "a" * 40})
+            def json(self, path):
+                return {"workflow_runs": [run]} if "/workflows/" in path else {"artifacts": [self.artifact]}
+            def archive(self, artifact_id, destination, limit):
+                destination.write_bytes(self.raw)
+                return self.artifact["digest"]
+        tactical = monitor.collect_source(Feed(receipt), "tactical", spec, CONTRACT,
+            now=observed, session=result["session"])
+        self.assertEqual(monitor.published_etf_reviews(tactical, CONTRACT, observed)[0]["agent"], "A3")
+        value = monitor.reassessment_handoff({"tactical": tactical}, result["session"], observed,
+                                             CONTRACT, code_sha="a" * 40)
+        a3 = [r for r in value["review_requests"] if r["agent"] == "A3"]
+        a5 = next(r for r in value["review_requests"] if r["agent"] == "A5")
+        self.assertTrue(a3)
+        self.assertTrue(set(a3[0]["causal_event_ids"]).intersection(a5["event_ids"]))
+        self.assertEqual(set(a5["requires"]), {"CURRENT_A4", "CURRENT_REVALIDATED_A3_ER", "INDEPENDENT_A6"})
+        sources = evidence(); sources["tactical"] = tactical
+        def collect(client, key, *args, **kwargs):
+            return sources.get(key, {"status": "MISSING_RUN", "data": {}})
+        with tempfile.TemporaryDirectory() as temp, patch.object(monitor, "GitHub"), \
+             patch.object(monitor, "collect_source", side_effect=collect), \
+             patch.object(monitor, "completed_session", return_value=result["session"]), \
+             patch.object(monitor, "datetime", wraps=monitor.datetime) as clock, \
+             patch.dict(monitor.os.environ, {"GITHUB_SHA": "a" * 40, "GITHUB_EVENT_NAME": "schedule"}), \
+             patch.object(sys, "argv", ["monitor", "--output-dir", str(Path(temp) / "report")]):
+            clock.now.return_value = observed
+            self.assertEqual(monitor.main(), 0)
+            exported = json.loads((Path(temp) / "report/candidate_reassessment.json").read_text())
+            self.assertTrue(any(r["agent"] == "A3" for r in exported["review_requests"]))
+            self.assertTrue(any(r["agent"] == "A5" for r in exported["review_requests"]))
+            self.assertFalse(exported["consumption_ack"])
+        for field in ("readback_sha256", "decoder_git_lf_sha256", "producer_git_lf_sha256"):
+            broken = copy.deepcopy(tactical)
+            capsule = broken["data"]["etf_safe_review"]
+            capsule[field] = "f" * 64
+            capsule["binding_sha256"] = rotation.sha256(rotation.canonical(
+                {k: v for k, v in capsule.items() if k != "binding_sha256"}))
+            with self.assertRaisesRegex(ValueError, "published_etf_provenance_refused"):
+                monitor.published_etf_reviews(broken, CONTRACT, observed)
+        class Corrupt(Memory):
+            def read(self, path):
+                return b"corrupt-original"
+        refused = producer.publish_rotation_review(result, fixture.producer, fixture.now, CONTRACT, Corrupt())
+        self.assertNotIn("safe_review_handoff", refused)
+        self.assertEqual(refused["safe_review_error"], "PRIVATE_READBACK_OR_DECODER_REFUSED")
+
+    def test_daily_current_does_not_assert_weekly_or_holdings_complete(self):
+        source = {"artifact_hash_verified": True, "data": {"result": {"session": self.session,
+            "cadence_binding_sha256": "f" * 64, "tier_progress": {
+                "by_tier": {"DAILY": {"CURRENT": 42, "PENDING": 0, "HELD": 0},
+                            "WEEKLY": {"CURRENT": 400, "PENDING": 1, "HELD": 2}},
+                "weekly_due": False, "weekly_target_session": "2026-08-28",
+                "outside_scope": ["PRIVATE_HOLDING_SENTINEL"], "holdings_completeness": "UNKNOWN",
+                "stale_role_counts": {"STALE_PRIORITY_EVIDENCE": 1}}}}}
+        value = monitor.cadence_observation(source, self.session)
+        self.assertTrue(value["daily_current"])
+        self.assertFalse(value["whole_universe_current"])
+        self.assertFalse(value["source_admission"])
+        self.assertEqual(value["holdings_completeness"], "UNKNOWN")
+        self.assertNotIn("PRIVATE_HOLDING_SENTINEL", json.dumps(value))
+        progress = source["data"]["result"]["tier_progress"]
+        progress["outside_scope"] = []
+        progress["by_tier"]["WEEKLY"] = {"CURRENT": 403, "PENDING": 0, "HELD": 0}
+        self.assertFalse(monitor.cadence_observation(source, self.session)["whole_universe_current"])
+        source["data"]["result"]["tier_progress"]["by_tier"]["DAILY"]["CURRENT"] = True
+        self.assertEqual(monitor.cadence_observation(source, self.session)["status"], "CADENCE_UNVERIFIED")
+
+    def test_workflow_completion_is_exact_metadata_and_no_rerun(self):
+        run = dict(id=23, run_attempt=1, head_sha="a" * 40, head_branch="master", event="schedule",
+            name="Daily Crisis Monitor", path=".github/workflows/daily_crisis_monitor.yml", status="completed",
+            conclusion="failure", created_at="2026-09-05T06:00:00Z", updated_at="2026-09-05T07:00:00Z",
+            repository={"full_name": CONTRACT["repository"]}, head_repository={"full_name": CONTRACT["repository"]})
+        class Feed:
+            def json(self, path):
+                if path != "/actions/runs/23":
+                    raise AssertionError("unexpected mutation or endpoint")
+                return run
+        event = {"workflow_run": copy.deepcopy(run)}
+        value = monitor.completion_trigger(Feed(), CONTRACT, NOW, event)
+        self.assertEqual(value["conclusion"], "failure")
+        self.assertFalse(value["dispatch"])
+        for field, altered in (("head_sha", "b" * 40), ("event", "pull_request"), ("run_attempt", 2)):
+            bad = copy.deepcopy(event); bad["workflow_run"][field] = altered
+            with self.assertRaisesRegex(ValueError, "untrusted_completion_trigger"):
+                monitor.completion_trigger(Feed(), CONTRACT, NOW, bad)
+        run["head_repository"]["full_name"] = "fork/untrusted"
+        with self.assertRaisesRegex(ValueError, "untrusted_completion_trigger"):
+            monitor.completion_trigger(Feed(), CONTRACT, NOW, event)
+
+    def test_full_intake_is_consumable_and_preserves_original_roles_models_and_clocks(self):
+        from tools import materialize_system_state as materializer
+        board = materializer.board
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            requests = []
+            for agent in ("A1", "A2", "A3", "A4", "A5", "A6"):
+                inputs = {}
+                for role in board.contracts()["agents"][agent]["inputs"]:
+                    path = root / (agent + "_" + role + ".json")
+                    path.write_text('{"synthetic_only":true}', encoding="utf-8")
+                    inputs[role] = dict(path=path.name, sha256=board.file_hash(path), observed_at="2026-09-05T06:00:00Z",
+                        available_at="2026-09-05T06:10:00Z", collected_at="2026-09-05T06:20:00Z",
+                        expires_at="2026-09-05T09:00:00Z", status="VERIFIED")
+                requests.append(dict(agent=agent, inputs=inputs, model={"name": "synthetic-only", "version": "v1"},
+                    parameters={"portfolio_mode": "MODEL_PORTFOLIO"} if agent == "A5" else {"original": True}))
+            intake = {"observed_at": NOW.isoformat(), "expires_at": (NOW + monitor.timedelta(minutes=30)).isoformat(),
+                      "sources": {}, "requests": requests}
+            mission = board.mission_targets()
+            payloads = {"code": {"repository": CONTRACT["repository"], "default_branch": "master",
+                "master_sha": "a" * 40, "observed_at": NOW.isoformat(), "g0_run": {}},
+                "mission": {k: mission[k] for k in ("mission_contract_id", "mission_contract_sha256",
+                                                   "official_metric_mode", "mission_contract_values")}}
+            for role, payload in payloads.items():
+                path = root / (role + "_observation.json")
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                intake["sources"][role] = [dict(path=path.name, sha256=board.file_hash(path),
+                    observed_at=NOW.isoformat(), available_at=NOW.isoformat(), collected_at=NOW.isoformat(),
+                    expires_at=intake["expires_at"], status="VERIFIED", identity="synthetic-" + role)]
+            original = copy.deepcopy(intake)
+            merged, receipt = monitor.export_review_intake(intake, self.handoff(), root, NOW, "a" * 40)
+            self.assertEqual(intake, original)
+            for before, after in zip(original["requests"], merged["requests"]):
+                for key in ("agent", "inputs", "model"):
+                    self.assertEqual(before[key], after[key])
+            self.assertFalse(receipt["execute"])
+            self.assertFalse(receipt["consumption_ack"])
+            state = materializer.materialize(merged, root, NOW, "a" * 40)
+            tasks = board._plan_tasks(state, root, board.contracts(), NOW, "a" * 40, "b" * 64)
+            self.assertTrue(all(t["status"] == "BLOCKED" for t in tasks if t["agent"] in {"A3", "A5"}))
+            self.assertTrue(all(t["authority"]["execute"] is False for t in tasks))
+            old = copy.deepcopy(intake); old["expires_at"] = (NOW - monitor.timedelta(seconds=1)).isoformat()
+            with self.assertRaisesRegex(ValueError, "intake_stale_or_future"):
+                monitor.export_review_intake(old, self.handoff(), root, NOW, "a" * 40)
+            forged = self.handoff(); forged["parameter_proposals"]["A5"]["candidate_reassessment"]["scope"]["requires"] = []
+            with self.assertRaisesRegex(ValueError, "intake_proposal_original_required"):
+                monitor.export_review_intake(intake, forged, root, NOW, "a" * 40)
+            injected = self.handoff(); injected["etf_parameter_proposals"] = {"A5": {"injected": "not-an-original"}}
+            with self.assertRaisesRegex(ValueError, "intake_etf_original_required"):
+                monitor.export_review_intake(intake, injected, root, NOW, "a" * 40)
+
+            # Persistent same-session failure IDs repeat even when the actual
+            # producer contract changes. Generation and original replay must
+            # suppress only the unchanged-identity batch, never its requests.
+            for change in ("unchanged", "code", "config"):
+                with self.subTest(persistent_failure_identity=change):
+                    prior_contract = copy.deepcopy(CONTRACT)
+                    if change == "config":
+                        prior_contract["reassessment"]["expiry_hours"] = 12
+                    failed = {"a4_forward": self.source(failed=True)}
+                    previous = monitor.reassessment_handoff(failed, self.session, NOW, prior_contract,
+                        code_sha="b" * 40 if change == "code" else "a" * 40)
+                    current = self.handoff(failed, previous=previous)
+                    self.assertEqual(current["new_event_ids"], [])
+                    self.assertTrue(current["review_requests"])
+                    self.assertEqual(bool(current["parameter_proposals"]), change != "unchanged")
+                    exported, checked = monitor.export_review_intake(intake, current, root, NOW, "a" * 40)
+                    for before, after in zip(intake["requests"], exported["requests"]):
+                        for key in ("agent", "inputs", "model"):
+                            self.assertEqual(before[key], after[key])
+                        expected_parameters = copy.deepcopy(before["parameters"])
+                        expected_parameters.update(current["parameter_proposals"].get(before["agent"], {}))
+                        self.assertEqual(after["parameters"], expected_parameters)
+                    self.assertFalse(checked["execute"])
+                    self.assertFalse(checked["consumption_ack"])
+                    forged_repeat = copy.deepcopy(current)
+                    forged_repeat["parameter_proposals"]["A5"] = {"injected": "not-an-original"}
+                    with self.assertRaisesRegex(ValueError, "intake_proposal_original_required"):
+                        monitor.export_review_intake(intake, forged_repeat, root, NOW, "a" * 40)
+
+    def test_default_main_exports_real_bridge_and_missing_intake_packet(self):
+        sources = evidence(); sources["a4_forward"] = self.source(failed=True)
+        def collect(client, key, *args, **kwargs):
+            return sources.get(key, {"status": "MISSING_RUN", "data": {}})
+        with tempfile.TemporaryDirectory() as temp, patch.object(monitor, "GitHub"), \
+             patch.object(monitor, "collect_source", side_effect=collect), \
+             patch.object(monitor, "completed_session", return_value=self.session), \
+             patch.object(monitor, "datetime", wraps=monitor.datetime) as clock, \
+             patch.dict(monitor.os.environ, {"GITHUB_SHA": "a" * 40, "GITHUB_EVENT_NAME": "schedule"}), \
+             patch.object(sys, "argv", ["monitor", "--output-dir", str(Path(temp) / "report")]):
+            clock.now.return_value = NOW
+            self.assertEqual(monitor.main(), 0)
+            root = Path(temp) / "report"
+            value = json.loads((root / "candidate_reassessment.json").read_text())
+            self.assertTrue(value["review_requests"])
+            self.assertEqual(value["intake_export"]["status"], "BLOCKED_CANONICAL_INTAKE_MISSING")
+            self.assertTrue((root / "a0_parameter_proposals.json").exists())
+            self.assertTrue((root / "review_queue.csv").exists())
+
+
 def main() -> int:
     # This existing CI path also exercises the optional strict Theme/ETF reader.
     # No frozen Tier-1 registry or gate definition is changed.
@@ -864,6 +1306,7 @@ def main() -> int:
         unittest.defaultTestLoader.loadTestsFromTestCase(MonitorTests),
         unittest.defaultTestLoader.loadTestsFromTestCase(ForwardContextTests),
         unittest.defaultTestLoader.loadTestsFromTestCase(RotationTests),
+        unittest.defaultTestLoader.loadTestsFromTestCase(ReviewHandoffTests),
         unittest.defaultTestLoader.loadTestsFromModule(theme_etf_source_bridge_smoke),
     ])
     result = unittest.TextTestRunner(verbosity=1).run(suite)

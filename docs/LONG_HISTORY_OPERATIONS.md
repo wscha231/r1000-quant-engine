@@ -402,3 +402,157 @@ late-created indicator history, unsupported IDs and pre-I/O budget/parent refusa
 The native Main feature-row adapter is not connected by this Source patch; a
 separate Main consumer packet must bind each row's cutoff and original recipe.
 No full Native engine, collection or backtest completion is claimed.
+
+## Opt-in financial/macro hybrid scope and standing AUTO
+
+The existing `long_history_research.yml` job and Lake retain their legacy,
+fixed-v1 request, finalization and missing-only ALFRED modes. Opt-in
+HYBRID_DAILY checks only externally bound, uniquely verified ticker/CIK focus
+pairs plus the existing34 current series. HYBRID_WEEKLY checks the original
+whole issuer cohort, current34, ALFRED12 and World Bank4 indicators. Neither
+updates the frozen cohort/mapping from a new provider snapshot. Unchecked
+dataset entries and their original availability/collection clocks stay intact;
+NOT_CHECKED_THIS_CYCLE and NOT_DUE are distinct from a successful check.
+Byte-identical normalized results retain original retrieval/availability clocks.
+
+HYBRID_AUTO is an additional **disabled until separately activated** input to
+that same job, not a new scheduler, collector, Registry or durable budget ledger.
+The existing private `LONG_HISTORY_HYBRID_REQUEST_JSON` supplies exact external
+`long-history-hybrid-auto-v1` bytes; the existing optional mode, request SHA and
+approval reference inputs/variables select them. No secret or variable is
+created by this code. Empty/default selection remains LEGACY. The profile must
+be independently prepared and OWNER-approved; code never issues a profile,
+budget, rights attestation, rollover or refreshed31-day window.
+
+The strict profile fields are `profile_id`, `mode=HYBRID_AUTO`, private research
+`purpose`, original `code_sha` ancestor and exact `code_pins` for AUTO_PINS,
+`repository_id`, `workflow_id`, exact `workflow_path`, `first_run_number`,
+`last_run_number`, `per_run_allowance`, `total_reservation`, `opening_floor`,
+original `not_before`, `available_at`, `expires_at` (at most31days),
+`registry_sha256`, `roster_sha256`, frozen `cohort_sha256`, mapping object/source
+hashes, verified `focus_pairs`, exact baseline commit/catalog/execution,
+`macro_start`, `financial_start`, explicit `provider_scope` booleans for
+`sec`/`fred`/`worldbank`, and separate rights evidence. Each enabled provider
+requires its evidence hash; a disabled provider requires explicit null, never
+a dummy hash or implied permission. At least one provider must be selected.
+An immutable OWNER/User comment on #448 must bind its **original raw SHA**,
+code-pins digest, purpose, rights hashes and original expiry under
+`LONG_HISTORY_AUTO_OWNER_V1` / `long-history-auto-owner-v1`. Hashes are evidence
+references; they do not themselves certify supplier rights or historical PIT.
+Do not invent a focus investment meaning: an externally bound collection watch
+seed is separate from candidate admission, Actual holdings and A3/ER/A5 scope.
+
+`per_run_allowance` has provider GETs/body reservations, transport CLI calls/body
+reservations, write bytes, active seconds, chain and issuer bounds. The first6
+resource fields define `total_reservation=(LAST-FIRST+1)*PER_RUN`, exactly.
+AUTO reserves the existing whole120-minute job as7200 active seconds per slot,
+including checkout/setup/offline work; this is a reservation, not measured CPU
+or provider time. AUTO attempt2 is skipped by the job condition before checkout
+or dependency installation. The existing fixed-v1/LEGACY/finalizer active-time
+and rerun contracts are unchanged.
+At run number N, **every** slot FIRST..N is charged in full, including deleted,
+failed, skipped, cancelled or unrelated workflow runs and gaps. Opening usage is
+added separately. DAILY and WEEKLY share this one original allocation. There is
+no history-list subtraction, refund or automatic renewal. These are conservative
+reservations, not certified actual API/wire/Drive quota or stored usage.
+GitHub documents RUN_NUMBER as increasing per new workflow run and unchanged on
+[rerun](https://docs.github.com/en/actions/reference/workflows-and-actions/variables).
+A recreated/moved workflow or foreign ID requires a new independently reviewed
+binding; it cannot reuse this allocation.
+
+Before Source/Drive I/O, authenticated REST current-run identity is matched to
+GITHUB_* (repository/head repository, workflow/path, id, number, attempt1,
+master branch/head, event, fixed history job and workflow ref/SHA). Original
+ancestor and all relevant local/deployed code hashes must still match; an
+unrelated merge alone does not invalidate the profile. The pinned workflow must
+have exactly one no-matrix job and one collector command. The actual collector
+claims an exclusive job-local RUNNER_TEMP entry before constructing transport;
+even an identical second invocation is refused. That entry survives failures
+for the remainder of the job; it is not another canonical ledger. Attempt2 and
+LAST+1 fail before data I/O. Retries remain inside the same per-run meter and
+active deadline, bounded also by the original effective expiry.
+
+Runtime New York weekdays select DAILY via the existing completed-NYSE gate;
+New York weekends select WEEKLY only after the actual terminal session of that
+week has closed+120minutes. The weekly view uses at most the original expiry
+or Monday00:00NY, whichever is earlier. Original profile/hash/window remain
+unchanged while each derived request records actual decision/observation time,
+selected session, REST run id/number, reservation and resolved parent. No
+historical source publication clock is invented or renewed.
+
+Full original Lake pack/member/commit verification, exact baseline ancestry,
+latest execution/report hashes and original mapping checks remain mandatory.
+A latest PARTIAL quality, incomplete requested hybrid cycle, missing/ambiguous
+execution or failed study blocks continuation even with remaining allocation.
+PARTIAL_COVERAGE can describe a completed daily subset; it never certifies a
+current whole universe. SQL uses only successfully checked macro keys; the
+existing wider study is explicitly labelled archival with retained inputs.
+Storage publication, clean consumer study and exact execution receipt are still
+separate gates. A partial publication is not bypassed by selecting an older
+successful parent. Actual activation, permissions/settings, collection and
+Source/PIT/Reader/economic acceptance remain Root's subsequent work.
+
+### Provider rights isolation in AUTO only
+
+The2026-11-10 review of the official consolidated
+[FRED terms](https://fred.stlouisfed.org/legal/terms/) identified API prohibitions
+(k) concerning software/AI development or training and (l) concerning storage,
+cache, archive and database uses. Applicability and purpose-specific permission
+need separate review; a prior API success or a rights-file hash cannot grant
+them. This is not a conclusion about all past data or an instruction to delete
+or rewrite existing files. Current Root preparation keeps `fred=false`, its
+rights reference null, actual FRED capture0 and A8/training authority0.
+
+AUTO plans and fetches only enabled providers. SEC-only daily scope reserves
+only selected SEC requests; enabled WorldBank is due only in WEEKLY. Disabled
+entries retain their exact values, objects and clocks and appear separately as
+NOT_CHECKED_THIS_CYCLE / RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE, rather
+than NOT_DUE or successfully refreshed. Provider selection is part of the
+original immutable profile SHA; changing it cannot reuse that allocation.
+No budget is enlarged or reset. Fixed-v1/legacy all-provider contracts retain
+their original strict non-null rights fields and default behavior.
+
+When FRED is excluded, clean consumption verifies only the selected SEC/WB
+normalized originals and binds an exact `source_cycle_readback` to the current
+commit/catalog/profile/scope. Empty macro SQL is skipped and `analyze_restored`
+is not called: retained FRED cannot produce a new macro evaluation, study,
+learning input or current regime. `study_recomputed_from_drive=false`,
+`macro_regime_ready=false`, `whole_macro_complete=false` and `data_ready=false`
+remain explicit even if the selected financial cycle completes. This new
+source-only readback can continue the same authorized Source family after
+full history/receipt verification; it does not satisfy the existing shared
+research reader's requirement for a completed macro study. Partial selected
+cycles and missing/corrupt readbacks still block. Baseline and legacy research
+study gates remain intact, with no Source/PIT/A3/ER/A5 admission.
+
+### AUTO terminal outcomes are separate from complete data
+
+For AUTO only, a checked issuer may finish as ready or as a strictly verified
+official `COVERAGE_GAP`. The latter keeps normalized=null, no invented fact rows,
+its actual reason and original stored clocks. Re-read the exact compressed member,
+verify its content hash and original `submissions_source_sha256`, and rerun
+`sec_submissions_profile` against the key's exact CIK and all stored form/role
+metadata. A reason string or old gap flag alone cannot finish an outcome.
+Unchecked entries remain byte-for-byte dictionaries with their original clocks.
+
+`requested_cycle_complete` and `focus_current` retain their ready-data meaning:
+a gap is never counted ready. `terminal_outcomes_complete` is a local plan only
+when attempted==checked==completed and every outcome is ready or a strict gap.
+The catalog/quality scope keeps `producer_cycle_complete=false` until clean
+publication is proved. The v2 source readback separates ready objects/clocks
+from held raw identities/reasons/clocks, and binds unmapped securities as HOLD
+using the original cohort/mapping and recomputed missing-list hashes/counts.
+It never fabricates a CIK or silently removes an unmapped security.
+
+Only the new exact execution receipt can declare producer_cycle_complete=true,
+after catalog/commit/clean-consumer/readback verification; its returned verified
+terminal marker is recomputed, never accepted as a caller's flag. The publisher
+rereads that execution and checks the latest head again. A future AUTO can
+continue that same immutable profile from this canonical terminal proof even
+when data completeness remains false and CLI exit2 reports partial coverage.
+This is not blanket permission for PARTIAL quality or an old partial receipt.
+BLOCKED, STALE_RETAINED, missed attempts, fatal budget/deadline/cancellation,
+raw/CIK/role/hash mismatches, missing/ambiguous execution, branching or partial
+publication still block. Fixed-v1, legacy and original baseline gates do not
+gain this terminal exception. Source/PIT, macro readiness, external A3 ACK and
+economic authority remain false or independently gated.

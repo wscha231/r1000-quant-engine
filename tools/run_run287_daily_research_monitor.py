@@ -8,6 +8,7 @@ Downloaded JSON/CSV is data only. This report is not accepted paper state.
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import hashlib
 import io
@@ -31,6 +32,7 @@ if str(ROOT) not in sys.path:
 from tools.run287_research_score_handoff import read_score_handoff, evaluate_score_handoff
 from tools.run287_research_report_html import render_html
 from tools import run287_etf_rotation, theme_etf_source_bridge
+from tools import candidate_reassessment_bridge as reassessment
 from tools.theme_etf_upstream_admission import read_upstream_prerequisite, recovery_observed_ready
 
 CONTRACT = ROOT / "docs/run287_daily_research_monitor_contract.json"
@@ -223,11 +225,16 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
     member_limit = min(contract["max_member_bytes"], spec.get("max_member_bytes", contract["max_member_bytes"]))
     try:
         runs = client.json(f"/actions/workflows/{spec['workflow']}/runs?branch=master&per_page=30")
+        if key == "previous_monitor":
+            current_id = os.environ.get("GITHUB_RUN_ID", "")
+            runs = dict(runs, workflow_runs=[r for r in runs.get("workflow_runs", [])
+                        if str(r.get("id")) != current_id])
         run = latest_run(runs.get("workflow_runs", []), spec["workflow"], contract["repository"], spec["allowed_events"])
         if run is None:
             return result
         result["run"] = {k: run.get(k) for k in
-                         ("id", "run_attempt", "head_sha", "created_at", "status", "conclusion", "html_url")}
+                         ("id", "run_attempt", "head_sha", "created_at", "updated_at", "status", "conclusion", "html_url")}
+        result["metadata_collected_at"] = (now or datetime.now(timezone.utc)).isoformat()
         if run.get("status") != "completed":
             result["status"] = "UPSTREAM_IN_PROGRESS"
             return result
@@ -258,11 +265,13 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
             if (not isinstance(artifacts, list) or type(count) is not int
                     or count != len(artifacts) or count > 100):
                 raise ValueError("forward_artifact_list_incomplete")
-        matches = [a for a in artifacts if a.get("name") == spec["artifact_prefix"] + str(run["id"])]
+        artifact_name = spec.get("artifact_name", spec["artifact_prefix"] + "{run_id}").format(
+            run_id=run["id"], run_attempt=run.get("run_attempt", 1))
+        matches = [a for a in artifacts if a.get("name") == artifact_name]
         if len(matches) != 1:
             return result
         artifact = matches[0]
-        result["artifact"] = {k: artifact.get(k) for k in ("id", "name", "digest", "expired", "size_in_bytes")}
+        result["artifact"] = {k: artifact.get(k) for k in ("id", "name", "digest", "expired", "size_in_bytes", "created_at")}
         identity = artifact.get("workflow_run") or {}
         if identity.get("id") != run["id"] or identity.get("head_sha") != run["head_sha"]:
             raise ValueError("artifact_run_identity_mismatch")
@@ -297,11 +306,15 @@ def collect_source(client: GitHub, key: str, spec: dict, contract: dict, *, now=
             if rotation_member:
                 # A bad optional receipt must not discard existing tactical diagnostics.
                 try:
-                    rotation, hashes = read_members(path, {"etf_rotation": rotation_member}, min(member_limit, 16_384))
+                    rotation, hashes = read_members(path, {"etf_rotation": rotation_member}, min(member_limit, 131_072))
                     rotation_now = now if now is not None else datetime.now(timezone.utc)
+                    raw_receipt = rotation.get("etf_rotation")
                     result["data"]["etf_rotation"] = run287_etf_rotation.receipt_observation(
-                        rotation.get("etf_rotation"), run, artifact, session or completed_session(rotation_now),
+                        raw_receipt, run, artifact, session or completed_session(rotation_now),
                         rotation_now, contract)
+                    capsule = raw_receipt.get("safe_review_handoff") if isinstance(raw_receipt, dict) else None
+                    if capsule is not None:
+                        result["data"]["etf_safe_review"] = capsule
                     result["files"].update(hashes)
                 except (ValueError, OSError, RuntimeError, zipfile.BadZipFile):
                     result["data"]["etf_rotation"] = {"status": "UNVERIFIED_RECEIPT"}
@@ -472,7 +485,401 @@ def forward_source_context(sources: dict, session: str, now: datetime) -> dict:
             "sec_13f": {"observation_key": "ownership", "scope": "QUARTERLY_DISCLOSURES"}}
 
 
-def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict:
+def completion_trigger(client: GitHub, contract: dict, now: datetime, event: dict | None = None) -> dict:
+    """Authenticate completion metadata; never dispatch or rerun its workflow."""
+    if event is None:
+        if os.environ.get("GITHUB_EVENT_NAME") != "workflow_run":
+            return {"status": "NORMAL_MONITOR_ENTRY"}
+        path = Path(os.environ["GITHUB_EVENT_PATH"])
+        if path.stat().st_size > contract["reassessment"]["max_bytes"]:
+            raise ValueError("completion_event_budget")
+        event = theme_etf_source_bridge.decode_evidence_json(path.read_text(encoding="utf-8"))
+    candidate = event.get("workflow_run", {})
+    run_id = candidate.get("id")
+    if type(run_id) is not int or run_id <= 0:
+        raise ValueError("completion_run_identity")
+    run = client.json(f"/actions/runs/{run_id}")
+    workflows = contract["reassessment"]["completion_workflows"]
+    if (run.get("name") not in workflows or run.get("path") != ".github/workflows/" + workflows[run["name"]]
+            or run.get("head_branch") != contract["branch"]
+            or any((run.get(k) or {}).get("full_name") != contract["repository"] for k in ("repository", "head_repository"))
+            or run.get("event") not in ("schedule", "workflow_dispatch")
+            or run.get("status") != "completed" or type(run.get("run_attempt")) is not int
+            or run["run_attempt"] <= 0 or not isinstance(run.get("conclusion"), str)
+            or not re.fullmatch(r"[a-f0-9]{40}", run.get("head_sha") or "")
+            or any(candidate.get(k) != run.get(k) for k in ("id", "run_attempt", "head_sha", "head_branch", "event", "name"))
+            or (candidate.get("head_repository") or {}).get("full_name") != contract["repository"]
+            or not timestamp(run["created_at"]) <= timestamp(run["updated_at"]) <= now):
+        raise ValueError("untrusted_completion_trigger")
+    return {"status": "VERIFIED_COMPLETION_METADATA_ONLY", "run_id": run_id,
+            "attempt": run["run_attempt"], "head_sha": run["head_sha"], "workflow": run["name"],
+            "conclusion": run["conclusion"], "source_admission": False, "dispatch": False}
+
+
+def cadence_observation(source: dict, session: str) -> dict:
+    """Tier progress is a Source diagnostic, never holdings or price admission."""
+    blocked = {"status": "CADENCE_UNVERIFIED", "daily_current": False,
+               "whole_universe_current": False, "holdings_completeness": "UNKNOWN", "source_admission": False}
+    result = source.get("data", {}).get("result", {})
+    progress, binding = result.get("tier_progress"), result.get("cadence_binding_sha256")
+    if (source.get("artifact_hash_verified") is not True or result.get("session") != session
+            or not isinstance(binding, str) or not re.fullmatch(r"[a-f0-9]{64}", binding)
+            or not isinstance(progress, dict)):
+        return blocked
+    counts = progress.get("by_tier", {})
+    if set(counts) != {"DAILY", "WEEKLY"}:
+        return blocked
+    for row in counts.values():
+        if (not isinstance(row, dict) or set(row) != {"CURRENT", "PENDING", "HELD"}
+                or any(type(v) is not int or not 0 <= v <= 10000 for v in row.values())):
+            return blocked
+    outside, stale = progress.get("outside_scope", []), progress.get("stale_role_counts", {})
+    if (not isinstance(outside, list) or len(outside) > 10000 or type(progress.get("weekly_due")) is not bool
+            or date_state(progress.get("weekly_target_session"), session) not in {"CURRENT", "STALE"}
+            or not isinstance(stale, dict) or len(stale) > 100
+            or any(not isinstance(k, str) or not re.fullmatch(r"[A-Z_]{1,100}", k)
+                   or type(v) is not int or not 0 <= v <= 10000 for k, v in stale.items())):
+        return blocked
+    daily = counts["DAILY"]
+    return {"status": "SOURCE_CADENCE_REPORTED_ONLY", "cadence_binding_sha256": binding,
+            "daily_current": sum(daily.values()) > 0 and daily["PENDING"] == daily["HELD"] == 0,
+            "whole_universe_current": (sum(sum(r.values()) for r in counts.values()) > 0
+                and all(r["PENDING"] == r["HELD"] == 0 for r in counts.values()) and not outside
+                and (sum(counts["WEEKLY"].values()) == 0 or progress["weekly_target_session"] == session)),
+            "by_tier": counts, "weekly_due": progress.get("weekly_due"),
+            "weekly_target_session": progress.get("weekly_target_session"),
+            "outside_scope_count": len(outside),
+            "holdings_completeness": progress.get("holdings_completeness", "UNKNOWN"),
+            "stale_role_counts": stale, "source_admission": False}
+
+
+def _review_source_row(key: str, source: dict, session: str, now: datetime) -> tuple[dict | None, dict]:
+    run = source.get("run", {})
+    if (type(run.get("id")) is not int or run["id"] <= 0
+            or type(run.get("run_attempt")) is not int or run["run_attempt"] <= 0
+            or not re.fullmatch(r"[a-f0-9]{40}", run.get("head_sha") or "")):
+        raise ValueError("source_review_identity_missing")
+    collected, available = timestamp(source["metadata_collected_at"]), timestamp(run["updated_at"])
+    if not timestamp(run["created_at"]) <= available <= collected <= now:
+        raise ValueError("source_review_clock")
+    reference = {"source": key, "run": {k: run.get(k) for k in
+        ("id", "run_attempt", "head_sha", "created_at", "updated_at", "status", "conclusion")},
+        "artifact_sha256": source.get("artifact", {}).get("digest"),
+        "members": {k: {"sha256": v.get("sha256"), "bytes": v.get("bytes")}
+                    for k, v in source.get("files", {}).items()}, "observed_at": collected.isoformat()}
+    # These clocks concern the observed workflow status, not publication or
+    # collection of underlying prices. No private values enter public snapshots.
+    status = "FAILED" if source.get("status") in {"UPSTREAM_FAILED", "BLOCKED_SOURCE"} else "MISSING"
+    values, period = {"source_status": source.get("status", "MISSING_SOURCE")}, available.date().isoformat()
+    if key == "a1_forward":
+        managed = forward_a1_context(source, session)["managed_generation"]
+        values["source_status"] = managed["status"]
+        if managed["status"] == "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION":
+            # A checked producer checkpoint is neither missing nor a changed
+            # economic REGIME. Preserve its proof without scheduling A5 risk.
+            reference.update(reason=managed["status"],
+                classification="PRODUCER_COMPLETION_ONLY_NOT_ECONOMIC_OBSERVATION",
+                producer_evidence={k: managed[k] for k in ("status", "session", "checkpoint_sha256")},
+                source_admission=False, pit_verified=False, economic_authority=False)
+            return None, reference
+        if managed["status"] == "STALE":
+            status = "STALE"
+        elif managed["status"] in {"MANAGED_REFRESH_BLOCKED", "MANAGED_EVIDENCE_UNVERIFIED", "FUTURE"}:
+            status = "FAILED"
+    if key == "a4_forward":
+        view = forward_a4_context(source, session, now)
+        values = {"source_status": view["status"], "reason_codes": view["reason_codes"]}
+        period = view["report_session"] or period
+        model = source.get("data", {}).get("summary", {}).get("market_analysis", {}).get("market_assessment", {})
+        if (view["status"] == "RESEARCH_REPORT_AVAILABLE" and isinstance(model, dict)
+                and model.get("status") == "READY_RESEARCH_ONLY"
+                and isinstance(model.get("state"), str) and model["state"]
+                and number(model.get("risk_score")) is not None and isinstance(model.get("axes"), list)):
+            # Digest actual incumbent state/risk/axes, not a READY label. Never
+            # publish price-derived numbers from those private originals.
+            values["market_assessment"] = {k: model.get(k) for k in
+                ("state", "observed_state", "risk_score", "axes", "ready_axis_count", "required_axes_ready",
+                 "fear_recovery_stage", "contract_sha256")}
+            status = "OBSERVED"
+        else:
+            status = "FAILED"
+    row = dict(family="REGIME", provider="GITHUB_ACTIONS_METADATA", entity_kind="MARKET",
+        entity_id="monitor:" + key, metric="report_status", fiscal_period=None, observation_period=period,
+        identity={"scope": "REPORT_STATUS_ONLY"}, values={"semantic_sha256": reassessment.digest(values)},
+        status=status, available_at=available.isoformat(), collected_at=collected.isoformat(),
+        revision_id="report-status-v1", source_sha256=reassessment.digest(reference), causal_event_id=None)
+    reference["reason"] = values["source_status"]
+    return row, reference
+
+
+def published_etf_reviews(source: dict, contract: dict, now: datetime) -> list[dict]:
+    """Read the producer's decoder/readback capsule from the same hashed member.
+
+    This observes reviewed producer code and immutable publication provenance;
+    it grants no Source/ER/PIT admission. A3 still rereads private originals.
+    """
+    helper = run287_etf_rotation
+    obs, capsule = (source.get("data", {}).get(k, {}) for k in ("etf_rotation", "etf_safe_review"))
+    run, artifact = source.get("run", {}), source.get("artifact", {})
+    if (source.get("artifact_hash_verified") is not True or obs.get("a3_handoff_status") != "REVIEW_REQUESTS_READY"
+            or not re.fullmatch(r"[a-f0-9]{64}", source.get("files", {}).get("etf_rotation", {}).get("sha256", ""))
+            or len(helper.canonical(capsule)) > 131072 or capsule.get("schema") != "etf-published-review-handoff-v1"):
+        raise ValueError("published_etf_original_missing")
+    unsigned = {k: v for k, v in capsule.items() if k != "binding_sha256"}
+    _, watch, policy_sha = helper.policy(contract)
+    if (capsule.get("binding_sha256") != helper.sha256(helper.canonical(unsigned))
+            or capsule.get("private_payload_sha256") != obs.get("private_payload_sha256")
+            or capsule.get("readback_sha256") != obs.get("private_payload_sha256")
+            or not re.fullmatch(r"[a-f0-9]{64}", capsule.get("readback_sha256") or "")
+            or capsule.get("producer") != obs.get("producer")
+            or capsule.get("producer") != {"run_id": run.get("id"), "run_attempt": run.get("run_attempt"), "head_sha": run.get("head_sha")}
+            or capsule.get("observed_at_utc") != obs.get("observed_at_utc") or capsule.get("session") != obs.get("session")
+            or capsule.get("policy_sha256") != policy_sha or capsule.get("safety") != helper.SAFETY
+            or capsule.get("decoder") != "tools.run287_etf_rotation.decode_a3_review_requests"
+            or capsule.get("decoder_git_lf_sha256") != hashlib.sha256(Path(helper.__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            or capsule.get("producer_git_lf_sha256") != hashlib.sha256((ROOT / "tools/etf_leadership_snapshot.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+            or not timestamp(run["created_at"]) <= timestamp(capsule["observed_at_utc"])
+                <= timestamp(artifact["created_at"]) <= timestamp(source["metadata_collected_at"]) <= now):
+        raise ValueError("published_etf_provenance_refused")
+    requests = capsule.get("requests")
+    if not isinstance(requests, list) or len(requests) != obs["counts"]["a3_review_requests"]:
+        raise ValueError("published_etf_count")
+    seen = set()
+    fields = {"request_id", "agent", "subject", "status", "event_family", "requested_slices", "requires", "execute"}
+    for request in requests:
+        ticker = request.get("subject", {}).get("ticker")
+        if (set(request) != fields or request["subject"] != {"market": "US", "ticker": ticker}
+                or ticker not in watch or ticker in seen or request["agent"] != "A3"
+                or request["request_id"] != helper.a3_request_id(obs["session"], request["subject"])
+                or request["status"] != "REVIEW_REQUIRED" or request["event_family"] != "LEADERSHIP"
+                or request["requested_slices"] != list(helper.A3_SLICES)
+                or request["requires"] != list(helper.A3_REQUIREMENTS) or request["execute"] is not False):
+            raise ValueError("published_etf_request")
+        seen.add(ticker)
+    return copy.deepcopy(requests)
+
+
+def _review_parameter_proposals(plan: dict, *, new_event_ids: list[str],
+                                contract_identity: dict, previous_contract_identity: dict | None) -> dict:
+    # Recollection alone is suppressed; a changed contract still needs its
+    # original review proposals even when persistent failure event IDs repeat.
+    if not new_event_ids and previous_contract_identity == contract_identity:
+        return {}
+    return reassessment.a0_parameter_proposals(plan)
+
+
+def reassessment_handoff(sources: dict, session: str, now: datetime, contract: dict, *,
+                         previous: dict | None = None, private_etf_payload: bytes | None = None,
+                         code_sha: str | None = None) -> dict:
+    """Reuse existing semantic planning; isolated missing scopes stay visible."""
+    spec = contract["reassessment"]
+    blocked, rows, refs, original_expiries = [], [], [], []
+    for key, source in sorted(sources.items()):
+        try:
+            row, ref = _review_source_row(key, source, session, now)
+            if row is None:
+                refs.append(ref)
+                continue
+            extra = []
+            if key == "a4_forward" and row["status"] == "OBSERVED":
+                original = source["data"]["summary"]["market_analysis"].get("candidate_reassessment_snapshot")
+                if original is not None:
+                    reassessment.verify(original, "review-observation-snapshot-v1")
+                    if original != reassessment.snapshot(original["rows"], scope_id=original["scope_id"],
+                            cutoff=original["cutoff"], expires_at=original["expires_at"]):
+                        raise ValueError("a4_original_snapshot_refused")
+                    market_cutoff = source["data"]["summary"]["market_analysis"]["cutoff"]
+                    if (timestamp(original["cutoff"]) != timestamp(market_cutoff)
+                            or not timestamp(original["cutoff"]) <= now < timestamp(original["expires_at"])):
+                        row["status"] = "FAILED"
+                        ref["reason"] = "A4_ORIGINAL_SNAPSHOT_EXPIRED_OR_CUTOFF_MISMATCH"
+                        original = None
+                    else:
+                        original_expiries.append(timestamp(original["expires_at"]))
+                        ref["child_snapshot"] = {k: original[k] for k in ("content_sha256", "cutoff", "expires_at")}
+                    for item in original["rows"] if original else []:
+                        # Keep original identity/clocks/receipt SHA; expose only
+                        # its existing semantic digest, never the source value.
+                        extra.append({**item, "values": {"semantic_sha256":
+                            reassessment.digest(reassessment.semantic(item))}})
+            rows.extend([row, *extra]); refs.append(ref)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            blocked.append({"scope": key, "reason": "ORIGINAL_SOURCE_IDENTITY_OR_CLOCK_MISSING"})
+    if len(rows) > spec["max_rows"]:
+        raise ValueError("review_row_budget")
+    etf_source = sources.get("tactical", {})
+    rotation = etf_source.get("data", {}).get("etf_rotation", {})
+    etf_requests = []
+    try:
+        etf_requests = (run287_etf_rotation.decode_a3_review_requests(rotation, private_etf_payload, contract)
+                        if private_etf_payload is not None else published_etf_reviews(etf_source, contract, now))
+        # ETF leadership is a verified market review catalyst, not an invented
+        # company/issuer exposure. The incumbent bridge supplies A5's requires.
+        available = timestamp(rotation["observed_at_utc"])
+        collected = timestamp(etf_source["metadata_collected_at"])
+        if not available <= collected <= now:
+            raise ValueError("etf_review_clock")
+        if etf_requests:
+            ids = sorted(r["request_id"] for r in etf_requests)
+            rows.append(dict(family="REGIME", provider="EXISTING_ETF_ROTATION", entity_kind="MARKET",
+                entity_id="ETF_ROTATION", metric="verified_review_batch", fiscal_period=None,
+                observation_period=rotation["session"], identity={"policy_sha256": rotation["policy_sha256"]},
+                values={"semantic_sha256": reassessment.digest(ids)}, status="OBSERVED",
+                available_at=available.isoformat(), collected_at=collected.isoformat(),
+                revision_id="etf-review-v1", source_sha256=rotation["private_payload_sha256"],
+                causal_event_id=reassessment.digest(ids)))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        etf_requests = []
+        blocked.append({"scope": "etf", "reason": "PRIVATE_ETF_PAYLOAD_OR_CHECKED_PUBLICATION_MISSING_NO_RECONSTRUCTION",
+                        "expected_sha256": rotation.get("private_payload_sha256")})
+    result = {"schema": spec["schema"], "status": "PARTIAL_REVIEW_ONLY", "session": session,
+        "source_refs": refs, "blocked_scopes": blocked, "global_scope_complete": False,
+        "holdings_status": "ACCEPTED_HOLDINGS_NOT_CONNECTED", "consumption_ack": False,
+        "execution_completed": False, "parameter_proposals": {}, "review_requests": [],
+        "intake_export": {"status": "BLOCKED_CANONICAL_INTAKE_MISSING", "next_packet": {
+            "required": ["fresh full source_intake", "original evidence_root", "original request roles/model/hash/clock",
+                         "current A3/ER/A4/A6 evidence"], "synthesize_missing_roles": False}},
+        "safety": dict(reassessment.CLOSED)}
+    if not spec.get("exposure_index"):
+        blocked.append({"scope": "company_exposures", "reason": "VERIFIED_EXPOSURE_INDEX_MISSING_UNMAPPED_RETAINED"})
+    previous = previous if isinstance(previous, dict) and previous.get("schema") == spec["schema"] else None
+    code_sha = code_sha or os.environ.get("GITHUB_SHA", "")
+    if re.fullmatch(r"[a-f0-9]{40}", code_sha or ""):
+        cutoff = now.isoformat()
+        expiry = min([now + timedelta(hours=spec["expiry_hours"]), *original_expiries]).isoformat()
+        index = spec.get("exposure_index") or reassessment.exposure_index(
+            candidates=[], edges=[], available_at=cutoff, expires_at=expiry)
+        scope = "monitor:" + reassessment.digest(sorted(reassessment.row_key(r) for r in rows))[:24]
+        current = reassessment.snapshot(rows, scope_id=scope, cutoff=cutoff, expires_at=expiry)
+        identity = dict(code_sha=code_sha, config_sha256=reassessment.digest(spec), model_version=spec["profile"],
+            parameters_sha256=reassessment.digest({"scope": scope}),
+            dependency_sha256=hashlib.sha256(Path(reassessment.__file__).read_bytes()).hexdigest())
+        prior = previous.get("current_snapshot") if previous else None
+        if prior and prior.get("scope_id") != scope:
+            prior = None; blocked.append({"scope": "comparison", "reason": "SCOPE_CHANGED_REAUDIT"})
+        try:
+            plan = reassessment.plan_reassessment(prior, current, index, now=cutoff, contract_identity=identity,
+                previous_contract_identity=previous.get("contract_identity") if prior else None,
+                previous_index_sha256=previous.get("exposure_index", {}).get("content_sha256") if prior else None)
+            result.update(plan=plan, proposal_plan=plan, current_snapshot=current, exposure_index=index,
+                          contract_identity=identity,
+                          comparison_snapshot=prior,
+                          comparison_contract_identity=previous.get("contract_identity") if prior else None,
+                          comparison_index_sha256=previous.get("exposure_index", {}).get("content_sha256") if prior else None)
+            old_ids = {e["event_id"] for e in previous.get("plan", {}).get("events", [])} if previous else set()
+            result["new_event_ids"] = sorted(e["event_id"] for e in plan["events"] if e["event_id"] not in old_ids)
+            result["parameter_proposals"] = _review_parameter_proposals(plan,
+                new_event_ids=result["new_event_ids"], contract_identity=identity,
+                previous_contract_identity=result["comparison_contract_identity"])
+            for intent in plan["review_intents"]:
+                result["review_requests"].append({**intent, "request_id": reassessment.digest(intent),
+                                                 "source_refs": refs, "authority": "REVIEW_ONLY"})
+        except (ValueError, TypeError, KeyError):
+            blocked.append({"scope": "bridge", "reason": "BRIDGE_OR_PREVIOUS_ORIGINAL_REFUSED"})
+    else:
+        blocked.append({"scope": "bridge", "reason": "CURRENT_CODE_IDENTITY_MISSING"})
+    if previous and previous.get("contract_identity") == result.get("contract_identity"):
+        current_ids = {r["request_id"] for r in result["review_requests"]}
+        for old in previous.get("review_requests", []):
+            # Keep open bridge requests visible; a prior monitor is not an A0
+            # ACK or current evidence. ETF metadata is never a substitute for
+            # replaying its private original payload below.
+            if "event_ids" in old and old["request_id"] not in current_ids:
+                result["review_requests"].append({**copy.deepcopy(old),
+                    "pending_scope": "PRIOR_REVIEW_NOT_CURRENT_EVIDENCE"})
+    if len(result["review_requests"]) > spec["max_rows"]:
+        raise ValueError("pending_review_budget")
+    if etf_requests:
+            cause = [e["event_id"] for e in result.get("plan", {}).get("events", []) if e.get("entity_id") == "ETF_ROTATION"]
+            for request in etf_requests:
+                safe = {k: request[k] for k in ("request_id", "agent", "subject", "status", "event_family",
+                                                "requested_slices", "requires", "execute")}
+                result["review_requests"].append({**safe, "authority": "REVIEW_ONLY", "causal_event_ids": cause,
+                    "source_refs": [{"private_payload_sha256": rotation["private_payload_sha256"]}]})
+            result["etf_parameter_proposals"] = {"A3": {"etf_rotation_review": {
+                "requests": [r for r in result["review_requests"] if "subject" in r],
+                "private_payload_sha256": rotation["private_payload_sha256"]}}}
+            result["etf_observation"] = copy.deepcopy(rotation)
+            if private_etf_payload is None:
+                # Retain public-safe original proof needed for export replay,
+                # never raw payloads, tactical price rows or private holdings.
+                result["etf_publication_source"] = {
+                    "artifact_hash_verified": etf_source.get("artifact_hash_verified"),
+                    "metadata_collected_at": etf_source.get("metadata_collected_at"),
+                    "run": {k: etf_source.get("run", {}).get(k) for k in
+                        ("id", "run_attempt", "head_sha", "created_at", "updated_at", "status", "conclusion")},
+                    "artifact": {k: etf_source.get("artifact", {}).get(k) for k in ("id", "digest", "created_at")},
+                    "files": {"etf_rotation": etf_source.get("files", {}).get("etf_rotation")},
+                    "data": {"etf_rotation": copy.deepcopy(rotation),
+                             "etf_safe_review": copy.deepcopy(etf_source.get("data", {}).get("etf_safe_review"))}}
+    result["review_intake_id"] = reassessment.digest({"requests": sorted(r["request_id"] for r in result["review_requests"]),
+                                                    "profile": spec["profile"]})
+    return result
+
+
+def export_review_intake(intake: dict, handoff: dict, evidence_root: Path, now: datetime, code_sha: str,
+                        *, private_etf_payload: bytes | None = None, contract: dict | None = None) -> tuple[dict, dict]:
+    """Return a private full intake changing parameters only, never a state."""
+    from tools import materialize_system_state as materializer
+    if len(json.dumps(intake, allow_nan=False).encode()) > 2_000_000:
+        raise ValueError("intake_budget")
+    if (handoff.get("contract_identity", {}).get("code_sha") != code_sha
+            or handoff["contract_identity"]["dependency_sha256"] !=
+            hashlib.sha256(Path(reassessment.__file__).read_bytes()).hexdigest()):
+        raise ValueError("intake_review_code_changed")
+    materializer.intake_validate(intake, now)
+    replay = reassessment.plan_reassessment(handoff.get("comparison_snapshot"), handoff["current_snapshot"],
+        handoff["exposure_index"], now=handoff["current_snapshot"]["cutoff"],
+        contract_identity=handoff["contract_identity"], previous_contract_identity=handoff.get("comparison_contract_identity"),
+        previous_index_sha256=handoff.get("comparison_index_sha256"))
+    expected = _review_parameter_proposals(replay, new_event_ids=handoff.get("new_event_ids"),
+        contract_identity=handoff["contract_identity"],
+        previous_contract_identity=handoff.get("comparison_contract_identity"))
+    if replay != handoff["plan"] or expected != handoff["parameter_proposals"]:
+        raise ValueError("intake_proposal_original_required")
+    merged, missing = copy.deepcopy(intake), []
+    requests = {r["agent"]: r for r in merged.get("requests", [])}
+    if len(requests) != len(merged.get("requests", [])):
+        raise ValueError("intake_duplicate_agents")
+    proposals = copy.deepcopy(handoff["parameter_proposals"])
+    if handoff.get("etf_parameter_proposals"):
+        if contract is None:
+            contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        if private_etf_payload is not None:
+            decoded = run287_etf_rotation.decode_a3_review_requests(handoff["etf_observation"], private_etf_payload, contract)
+        elif handoff.get("etf_publication_source"):
+            decoded = published_etf_reviews(handoff["etf_publication_source"], contract, now)
+        else:
+            raise ValueError("intake_etf_original_required")
+        causes = [e["event_id"] for e in replay["events"] if e.get("entity_id") == "ETF_ROTATION"]
+        fields = ("request_id", "agent", "subject", "status", "event_family", "requested_slices", "requires", "execute")
+        checked = [{**{k: r[k] for k in fields}, "authority": "REVIEW_ONLY", "causal_event_ids": causes,
+            "source_refs": [{"private_payload_sha256": handoff["etf_observation"]["private_payload_sha256"]}]} for r in decoded]
+        exact = {"A3": {"etf_rotation_review": {"requests": checked,
+                 "private_payload_sha256": handoff["etf_observation"]["private_payload_sha256"]}}}
+        if handoff["etf_parameter_proposals"] != exact:
+            raise ValueError("intake_etf_proposal_injection")
+        proposals.setdefault("A3", {}).update(exact["A3"])
+    for agent, proposal in proposals.items():
+        if agent not in requests:
+            missing.append(agent); continue
+        request = requests[agent]
+        if set(request["inputs"]) != set(materializer.board.contracts()["agents"][agent]["inputs"]):
+            raise ValueError("intake_existing_role_mismatch")
+        for key, value in proposal.items():
+            if key in request["parameters"] and request["parameters"][key] != value:
+                raise ValueError("intake_existing_parameter_conflict")
+            request["parameters"][key] = copy.deepcopy(value)
+    state = materializer.materialize(merged, evidence_root, now, code_sha)
+    materializer.verify_state(state, merged, evidence_root, now, code_sha)
+    return merged, {"status": "MATERIALIZER_CONSUMABLE_REVIEW_ONLY", "missing_request_templates": missing,
+        "state_sha256": state["state_sha256"], "g0_status": state["g0"]["status"],
+        "unresolved_blocker_count": len(state["blockers"]), "consumption_ack": False,
+        "execute": False, "A5_decision_completed": False}
+
+
+def evaluate(sources: dict, session: str, now: datetime, contract: dict, *, previous=None,
+             private_etf_payload=None) -> dict:
     alerts, observations = [], {}
     observations["theme_etf_bridge"] = theme_etf_source_bridge.observation(sources.get("operating", {}), session)
     if contract.get("forward_context_sources"):
@@ -625,7 +1032,7 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
                               "data_gap": "KR_ADAPTER_REQUIRED" if market == "KR" else
                               "PRICE_FINANCIAL_MOAT_AND_SELECTOR_REVIEW_REQUIRED" if engine is not None else
                               "PRICE_FINANCIAL_MOAT_AND_SCORE_HANDOFF_REQUIRED"})
-    return {"schema_version": SCHEMA, "generated_at_utc": now.isoformat(),
+    report = {"schema_version": SCHEMA, "generated_at_utc": now.isoformat(),
             "expected_us_session": session, "repository": contract["repository"],
             "status": "ATTENTION_REQUIRED" if alerts else "OBSERVATIONS_COLLECTED",
             "current_investment_ranking_ready": False,
@@ -635,6 +1042,11 @@ def evaluate(sources: dict, session: str, now: datetime, contract: dict) -> dict
             "sources": {k: {a: b for a, b in v.items() if a != "data"} for k, v in sources.items()},
             "watchlist": watchlist, "research_questions": contract["research_questions"],
             "score_policy": contract["score_policy"], "safety": contract["safety"]}
+    report["observations"]["cadence"] = cadence_observation(sources.get("a1_forward", {}), session)
+    # This path is independent of legacy accepted-account/frontier health.
+    report["reassessment"] = reassessment_handoff(sources, session, now, contract,
+        previous=previous, private_etf_payload=private_etf_payload)
+    return report
 
 
 def render(report: dict) -> str:
@@ -660,6 +1072,16 @@ def render(report: dict) -> str:
         rows.append(f"| {row['market']} | {row['ticker']} | {price} | {engine_text} | {score if score is not None else 'unavailable'} | {row['data_gap']} |")
     rows.extend(["", report["score_policy"], "",
                  "KR exchange calendar, long price history, financial estimates and source-cited moat research remain separate inputs. No US-relative score is imputed for KR tickers.", ""])
+    review = report.get("reassessment", {})
+    rows.extend(["## A3 / A5 review handoff", "",
+                 "Review requests are not consumption ACKs, completed analysis, weights or orders.",
+                 f"Scope: {review.get('status')} / intake: {review.get('intake_export', {}).get('status')}", "",
+                 "| Agent | Stable request | Reason / slices | Requires |", "|---|---|---|---|"])
+    for request in review.get("review_requests", []):
+        rows.append("| " + " | ".join((request["agent"], request["request_id"],
+            ", ".join(request.get("slices", request.get("requested_slices", []))),
+            ", ".join(request["requires"]))) + " |")
+    rows.extend("- " + item["scope"] + ": " + item["reason"] for item in review.get("blocked_scopes", []))
     return "\n".join(rows)
 
 
@@ -667,6 +1089,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--contract", type=Path, default=CONTRACT)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--canonical-inputs", type=Path)
+    parser.add_argument("--expected-intake-sha256")
+    parser.add_argument("--evidence-root", type=Path)
+    parser.add_argument("--private-intake-output", type=Path)
+    parser.add_argument("--private-etf-payload", type=Path)
     args = parser.parse_args()
     contract = json.loads(args.contract.read_text(encoding="utf-8"))
     if contract.get("schema_version") != SCHEMA or contract.get("branch") != "master":
@@ -675,15 +1102,56 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=False)
     now = datetime.now(timezone.utc)
     client = GitHub(contract["repository"], os.environ.get("GH_TOKEN", ""))
+    trigger = completion_trigger(client, contract, now)
     session = completed_session(now)
     forward_specs = contract.get("forward_context_sources", {})
     if set(contract["sources"]).intersection(forward_specs):
         raise ValueError("forward_source_key_conflict")
     sources = {k: collect_source(client, k, spec, contract, now=now, session=session)
                for k, spec in {**contract["sources"], **forward_specs}.items()}
-    report = evaluate(sources, session, now, contract)
+    prior_source = collect_source(client, "previous_monitor", contract["reassessment"]["previous_monitor"],
+                                 contract, now=now, session=session)
+    prior_report = prior_source.get("data", {}).get("report", {})
+    previous = (prior_report.get("reassessment") if prior_source.get("artifact_hash_verified") is True
+                and prior_source.get("status") == "VERIFIED_ARTIFACT"
+                and prior_report.get("repository") == contract["repository"] else None)
+    private_etf = None
+    if args.private_etf_payload:
+        if args.private_etf_payload.stat().st_size > 1_000_000:
+            raise ValueError("private_etf_payload_budget")
+        private_etf = args.private_etf_payload.read_bytes()
+    report = evaluate(sources, session, now, contract, previous=previous, private_etf_payload=private_etf)
+    report["completion_trigger"] = trigger
+    report["review_comparison"] = {"status": prior_source.get("status"),
+                                    "run": prior_source.get("run"), "consumption_ack": False}
     report["code_sha"] = os.environ.get("GITHUB_SHA", "local-unpublished")
     report["contract_sha256"] = hashlib.sha256(args.contract.read_bytes()).hexdigest()
+    if args.canonical_inputs:
+        try:
+            if (args.canonical_inputs.stat().st_size > contract["reassessment"]["max_bytes"]
+                    or not args.evidence_root or not args.private_intake_output
+                    or not re.fullmatch(r"[a-f0-9]{64}", args.expected_intake_sha256 or "")):
+                raise ValueError("intake_binding_or_private_destination_missing")
+            raw = args.canonical_inputs.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != args.expected_intake_sha256:
+                raise ValueError("intake_original_hash_mismatch")
+            destination = args.private_intake_output.resolve()
+            if (destination.is_relative_to(args.output_dir.resolve())
+                    or destination.is_relative_to(ROOT.resolve())
+                    or destination.is_relative_to(args.evidence_root.resolve())
+                    or destination == args.canonical_inputs.resolve()
+                    or args.private_intake_output.is_symlink() or destination.exists()):
+                raise ValueError("private_intake_destination_overlap")
+            intake, result = export_review_intake(theme_etf_source_bridge.decode_evidence_json(raw.decode("utf-8")),
+                report["reassessment"], args.evidence_root, now, report["code_sha"],
+                private_etf_payload=private_etf, contract=contract)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as handle:
+                json.dump(intake, handle, sort_keys=True, allow_nan=False)
+            report["reassessment"]["intake_export"] = result
+        except (OSError, ValueError, TypeError, KeyError):
+            report["reassessment"]["intake_export"] = {"status": "BLOCKED_ORIGINAL_INTAKE_OR_PRIVATE_EXPORT",
+                                                         "consumption_ack": False, "execute": False}
     (args.output_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (args.output_dir / "report.md").write_text(render(report), encoding="utf-8")
     (args.output_dir / "report.html").write_text(render_html(report), encoding="utf-8")
@@ -699,6 +1167,16 @@ def main() -> int:
         writer = csv.DictWriter(handle, fieldnames=list(report["watchlist"][0]))
         writer.writeheader()
         writer.writerows(report["watchlist"])
+    for name, value in (("candidate_reassessment.json", report["reassessment"]),
+                        ("a0_parameter_proposals.json", report["reassessment"]["parameter_proposals"])):
+        (args.output_dir / name).write_text(json.dumps(value, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    with (args.output_dir / "review_queue.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["agent", "request_id", "reason", "requires", "execute"])
+        writer.writeheader()
+        for request in report["reassessment"]["review_requests"]:
+            writer.writerow({"agent": request["agent"], "request_id": request["request_id"],
+                "reason": ";".join(request.get("slices", request.get("requested_slices", []))),
+                "requires": ";".join(request["requires"]), "execute": False})
     print(json.dumps({"status": report["status"], "expected_us_session": report["expected_us_session"],
                       "alerts": report["alerts"], "current_investment_ranking_ready": False,
                       "current_engine_scores_ready": report["current_engine_scores_ready"]}))

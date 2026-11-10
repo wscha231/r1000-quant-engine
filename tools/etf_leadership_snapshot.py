@@ -174,6 +174,40 @@ def telegram_send(msg: str) -> None:
         pass
 
 
+def publish_rotation_review(result, producer, observed_at, contract, remote=None):
+    """Publish originals privately, then a decoder-bound metadata capsule."""
+    import hashlib
+    from tools import run287_etf_rotation as helper
+    if remote is None:
+        from tools.macro_research_checkpoint import RcloneTransport
+        namespace = os.environ.get("MACRO_RESEARCH_REMOTE", "")
+        if not namespace.endswith("/scheduled"):
+            return helper.public_receipt(result, producer, observed_at, None)
+        remote = RcloneTransport(namespace)
+    receipt = helper.publish_private(result, producer, observed_at, remote)
+    if receipt["private_payload_sha256"] is None:
+        return receipt
+    try:
+        raw = helper.canonical({**result, "producer": producer, "observed_at_utc": observed_at.isoformat()})
+        restored = remote.read(helper.PRIVATE_PREFIX + receipt["private_payload_sha256"])
+        if len(restored) > 1_000_000 or restored != raw:
+            raise ValueError("private_original_readback")
+        requests = helper.decode_a3_review_requests({**receipt, "status": receipt["price_status"]}, restored, contract)
+        fields = ("request_id", "agent", "subject", "status", "event_family", "requested_slices", "requires", "execute")
+        capsule = dict(schema="etf-published-review-handoff-v1", producer=producer,
+            observed_at_utc=observed_at.isoformat(), session=receipt["session"],
+            private_payload_sha256=receipt["private_payload_sha256"], readback_sha256=helper.sha256(restored),
+            decoder="tools.run287_etf_rotation.decode_a3_review_requests",
+            decoder_git_lf_sha256=hashlib.sha256(Path(helper.__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+            producer_git_lf_sha256=hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+            policy_sha256=receipt["policy_sha256"], requests=[{k: r[k] for k in fields} for r in requests], safety=helper.SAFETY)
+        capsule["binding_sha256"] = helper.sha256(helper.canonical(capsule))
+        receipt["safe_review_handoff"] = capsule
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        receipt["safe_review_error"] = "PRIVATE_READBACK_OR_DECODER_REFUSED"
+    return receipt
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--telegram", action="store_true")
@@ -235,14 +269,14 @@ def main() -> int:
             body.append(f"  {l['ticker']:>5} {l['label']:<22} {ret:+.2%}")
         telegram_send("\n".join(body))
     if rotation is not None:
-        from tools.run287_etf_rotation import canonical, publish_private
+        from tools.run287_etf_rotation import canonical
 
         try:
             result = rotation.finish()
             producer = {"run_id": int(os.environ["GITHUB_RUN_ID"]),
                         "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
                         "head_sha": os.environ["GITHUB_SHA"]}
-            receipt = publish_private(result, producer, datetime.now(timezone.utc))
+            receipt = publish_rotation_review(result, producer, datetime.now(timezone.utc), rotation.contract)
             destination = REPO_ROOT / "outputs/after_close_daily/etf_rotation_receipt.json"
             destination.parent.mkdir(parents=True, exist_ok=True)
             with destination.open("xb") as handle:

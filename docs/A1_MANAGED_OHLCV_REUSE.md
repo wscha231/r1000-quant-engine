@@ -349,3 +349,128 @@ managed job: the legacy `daily_update` job is skipped so a small witness cannot
 also initiate its free-data engine validation/replays or cache synchronization.
 Ordinary scheduled runs and manual requests with `managed_refresh=false` retain
 their existing daily behavior. This uses the same workflow and schedule.
+
+## Opt-in daily roles and weekly retained history — 2026-11-10
+
+This extension is code preparation, without activation, provider rights,
+Source/PIT admission or portfolio authority. Empty/absent `cadence` retains the
+legacy contract only when absent: a present null/malformed object refuses.
+Existing607 controls, expired grants, opening costs and private journals are not
+rewritten. Execution still needs a protected deployment, exact ten code pins,
+the immutable OWNER grant, account rights and all original budget/Drive gates.
+The five changed paths add no collector, scheduler, Registry or ledger.
+
+An optional control `cadence` has schema `a1-managed-tiered-cadence-v1`, an exact
+`roster_ref`, `source_refs`, the existing monitor file's exact
+`monitor_contract_sha256`, its separate `monitor_helper_sha256` and exact
+`etf_universe_sha256`, an explicit `max_priority_candidates` no greater
+than60, `holdings_binding`, and `weekly_catchup` (normally null). The existing
+OWNER approval binds every field through the control SHA; flags in the roster
+cannot approve themselves. Reference sizes/hashes are checked with the existing
+private read primitive and charged to the same actual meter. Source proofs have
+at most32 distinct references/16MiB total, each at most2MB. The monitor source is
+`docs/run287_daily_research_monitor_contract.json`; reuse its exact42 ETF union
+through the existing rotation policy/universe API, not another ticker list.
+Expected pins refer to actual deployed bytes, including Git LF where deployed.
+
+The separate helper pin is mandatory only in an opt-in cadence. It does not
+extend or rewrite the legacy607 ten-path PIN_PATHS/control. Before importing the
+ETF helper, the caller reads its fixed existing repository path and checks its
+Git-LF code SHA against the externally approved control. It then binds the actual
+imported module origin and both pure functions' executable code to that same
+reviewed source (compiled with the current Python optimization mode). A replaced
+function or a stale/different imported implementation refuses before provider
+work. The sorted ETF ticker union's canonical `encode()` SHA must also equal the
+control's `etf_universe_sha256`; merely retaining42 names is insufficient.
+Monitor config drift, helper drift and same-count basket substitution are distinct
+refusals. Neither expected pin is learned from the untrusted roster or its flags.
+
+Only helper **code** may reverse CRLF to LF, and only when that exact canonical
+byte hash equals the external expected code pin. The result retains both
+`expected_GitLF_sha256` and `observed_file_sha256` plus the normalization method.
+This is execution-code compatibility, not rewriting an original observation,
+market-data hash, previous control, proof or historic receipt. Other code changes
+refuse. No global Git setting, source file or original fingerprint is rewritten.
+
+Independent A6 rejected e97's unpinned transitive helper with a counterexample:
+unchanged roster/monitor/proofs/control could add AAPL as an ETF by changing only
+the helper. That REQUEST_CHANGES evidence remains preserved. New helper-binding
+evidence must apply to the corrected HEAD; the earlier47×2 author passes and
+e97 counterexample do not certify the fix.
+
+The immutable roster schema is `a1-managed-priority-roster-v1`. It declares
+`usage=RESEARCH_ONLY`, aware `as_of`, `available_at`, `expires_at`, the existing
+A0 comment `source_reference`, `holdings`, and explicit `roles`. Every role has
+a reviewed original `source_sha256`/`source_reference`, independent source bytes
+from the control-bound references, original aware clocks and expiry. PRIORITY
+and OPPORTUNITY scopes are RESEARCH_ONLY. An opportunity additionally needs a
+unique event ID and V1/V2; V0, duplicate and future evidence refuse. Sixty is a
+proposal ceiling, not a chosen universe, holdings or Registry activation.
+
+UNKNOWN holdings must carry `tickers=null`; they are not empty or complete.
+Independent ETF/candidate roles remain available while the result explicitly
+says `PARTIAL_HOLDINGS`. Any non-UNKNOWN holding state requires an independently
+reviewed `holdings_binding` in the OWNER control, with the exact portfolio mode,
+portfolio kind, status, original positions SHA, verified sorted ticker set,
+as-of/availability/expiry and source reference. The ticker set must match the
+roster exactly; hash existence alone cannot authenticate a changed holding.
+ACTUAL requires ACTUAL_ACCEPTED origin. A CSV path, stale Paper state, model
+positions, a body VERIFIED flag, missing/NaN quantities or zero-filled values
+are not such an origin. The Source adapter neither parses those quantities nor
+creates their trust: the existing accepted-state owner must verify and pin that
+original positions-to-ticker binding before approving the control.
+RESEARCH_ONLY can explicitly attest NO_POSITIONS/RESEARCH_NO_POSITIONS or
+NOT_CONFIGURED/RESEARCH_NOT_CONFIGURED with the same source/clock proof;
+NOT_CONFIGURED remains a partial completeness state, never an Actual empty.
+
+Actual request order is HOLDING, then ETF, PRIORITY, OPPORTUNITY, then WATCH.
+Multiple roles use the highest priority once. Within a role, oldest verified
+coverage precedes ticker order. Both selection and actual provider grouping
+preserve that order: batches split by `(role_rank,start,end)`, with candidate
+order inside a batch. A holding sharing an old window with WATCH cannot pull
+that WATCH ahead of an ETF in a different window. Existing completed same-session
+names are skipped before the bounded selection. Outside policy/authorized
+scope names are reported, never implicitly captured or appended to the seed.
+Missing price/financial evidence, stale roles and held assets preserve history
+and candidates; they do not delete them or certify downstream research readiness.
+
+The existing00:30 UTC Tuesday-Saturday schedule is unchanged. Normal Saturday
+uses the actual week-ending completed NYSE session. Calendar selection preserves
+holidays, early close and DST, the120-minute close buffer and unchanged provider
+UTC-day-end-plus15-minute gate. WATCH is not due every weekday; pending weekly
+names and role-specific current/held/pending counts remain visible. Daily roles
+may exhaust the existing cap, leaving WATCH pending without a budget increase.
+No Sunday/Monday slot exists, so automatic2–3-day weekend processing is NOT
+CONNECTED. A small witness is not completion of the retained universe.
+
+For a holiday Friday, the unchanged daily18-hour age guard can reject Thursday
+at Saturday's slot. Only an explicit `weekly_catchup` can select that older
+session: mode WEEKLY_CATCHUP, exact Monday `week_start`, actual terminal `session`,
+`not_before` and `expires_at`. Its window must fit the original control, start
+after the actual close+120minutes and end by next Monday00:00 New York. The
+selected session must still be the latest completed session. No Sunday label,
+force bypass or global freshness increase is introduced; every other job keeps
+its old gate. The replayed no-capture proof uses the same exact control contract.
+
+The existing append-only reservation/terminal journal additionally pins the
+cadence hash. Roster replacement or control mismatch stops before continuing a
+foreign chain; it cannot reset usage, skip an unreconciled failed run or refund
+attempts. A mid-group budget interruption preserves original published bytes
+and failed costs, while the BLOCKED journal still needs explicit reconciliation.
+An empty response is held/no-data, not successful coverage. A missing/held ETF
+does not remove an otherwise independently eligible subject.
+
+This v1 freezes an exact roster; it is not perpetual dynamic roster automation.
+Holdings changes, new temporary opportunities and priority reselection require
+an existing A0 OWNER rebind proposal with new exact roster/source pins and
+continuation accounting. `EXACT_OWNER_REBIND_REQUIRED` and
+`STOP_PRESERVE_JOURNAL_AND_USAGE` are output metadata, without settings writes or
+approval. A hash mismatch may be corruption, not merely a roster update: retain
+the failure and require review, never automatically accept its replacement.
+
+Synthetic validation uses the already registered
+`tests/alpaca_sip_managed_refresh_smoke.py` in normal and optimized Python.
+It covers actual provider ordering across mixed roles/windows, partial budgets,
+same-session reuse, pending weekly work, UNKNOWN vs research-empty holdings,
+one-character ticker tampering, V0, outside scope, empty responses, role expiry,
+calendar boundaries, journal/control changes and absence of budget resets.

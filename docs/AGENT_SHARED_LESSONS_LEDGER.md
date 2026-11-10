@@ -10196,3 +10196,184 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   defaults and stopped at the new input gate. Disable macro only in that
   selection-boundary fixture; retain every retry/causality assertion and run
   the registered aggregate, not only the new macro test class.
+
+## 2026-11-10 - Bind managed cadence to external roles and exact weekly sessions
+
+- Oldest-first across all tracked names does not prioritize holdings. Preserve
+  role then coverage order through actual provider groups, not just selection:
+  mixed-role windows can otherwise pull WATCH ahead of an ETF in another window.
+- A positions hash without its independently reviewed exact ticker set does not
+  authenticate Actual holdings. UNKNOWN is not empty; a CSV locator, NaN-to-zero
+  normalization or empty model positions must not become an Actual empty account.
+  Keep independently verified ETF/candidate work and partial holdings explicit.
+- A holiday Friday needs a separately pinned week/session catchup contract.
+  Preserve actual session labels, close/endpoint buffers and the ordinary age
+  guard; an unchanged Tue-Sat schedule does not provide Sunday/Monday slots.
+- An exact roster hash is not dynamic roster automation. Replacement requires
+  the existing OWNER/A0 rebind and continuation accounting, with original failed
+  costs/journals retained. Never reset usage, infer new authority or erase held
+  history when moving between daily and weekly roles.
+- The first synthetic cadence run declared a capture through one more session
+  than its fixture rows contained; the unchanged archive checker correctly held
+  it. Bind fixture end-exclusive dates to their actual rows, retain the failure
+  and cost, and never weaken the production coverage check to fix the test.
+- Independent A6 found that a pinned roster/config still drifted through an
+  unpinned ETF helper. Bind the actual helper file/module/functions and the exact
+  derived ticker union through separate external cadence pins. The same count
+  does not prove the same basket, and module caching/monkeypatches are not proof
+  that the inspected source bytes are the code being executed. Keep legacy pins
+  intact; retain observed Windows code hashes separately from reviewed Git-LF.
+
+## 2026-11-10 - Scheduled observations are review requests, not portfolio authority
+
+- Reuse the existing semantic reassessment bridge and original A0 intake roles,
+  models, hashes and clocks. A report, queued REVIEW or consumable parameter
+  export is neither an A0 consumption ACK nor completed A3/ER/A5 work. Keep
+  unrelated Paper frontiers independent and unknown holdings explicitly unknown.
+- A READY status alone does not detect changed risk. Hash the incumbent current
+  state/risk axes and replay eligible original typed snapshots. Preserve their
+  expiry; an expired child cannot be repackaged as a fresh24-hour observation.
+- Re-derive ETF parameters from the checked decoder/publication provenance;
+  arbitrary extra agent/parameter dictionaries must be refused. Producer private
+  byte readback precedes safe metadata publication; a payload hash alone never
+  reconstructs an event. A3 still rereads the private originals through its reader.
+- Public monitor snapshots contain semantic digests, safe IDs, receipt hashes,
+  clocks and counts rather than new SIP/price values, Actual holdings, private
+  Drive IDs or signed URLs. Keep full intake exports outside published outputs.
+- Daily tier readiness can coexist with an older valid weekly target. Neither
+  a complete daily subset nor a Source cadence report certifies the whole
+  current universe, Source/PIT admission, validated ER or portfolio weights.
+- The first consumer fixture omitted canonical code/mission originals and the
+  unchanged materializer correctly refused state identity. Restore only those
+  original fixture observations; keep absent Source/G0/ER/books blocked and
+  preserve the failed run instead of weakening verify_state.
+- Clear decoded ETF intents when a later collection-clock check refuses them;
+  successful decoding alone must not leave requests available after rejection.
+  Preserve launcher parse failures separately from Python results and charge a
+  conservative elapsed bound when the original shell timing is unavailable.
+- An optional ETF member may decode to valid JSON without being an object.
+  Keep its original missing/unverified receipt status and isolate it before
+  capsule access so the normal tactical summary, hash verification and research
+  queue survive. Register the existing monitor aggregate in the default PR
+  runner; a passing standalone workflow does not mean Tier-1 consumed it.
+- The real ZIP reader already refuses every nonobject JSON root before capsule
+  access. A new null fixture incorrectly expected missing-receipt status; retain
+  that failed run and the existing unverified status instead of weakening the
+  parser or claiming an unreachable static example was reproduced.
+- A current A1 job/checkpoint/meter replay is producer completion evidence,
+  not a missing source or an economic regime change. Preserve its original
+  proof in the handoff while leaving Source/PIT/ER authority false; stale,
+  blocked or conflicting evidence still requests repair. A successful managed
+  job can remain observable when a different parent-workflow job failed.
+- When inserting regression methods, preserve the preceding method's final
+  assertions in their original scope; retain fixture NameError failures and
+  their elapsed cost rather than deleting the displaced assertion.
+- Financial/macro hybrid storage receipts alone cannot account for failed work
+  before publication. A separately OWNER-bound finite workflow run-number
+  allocation can reserve every slot, including deleted/failed/skip gaps, with
+  no refunds or rollover. It requires exact repository/workflow identity,
+  attempt1, pinned no-matrix single caller and an exclusive per-attempt entry;
+  a counter alone is insufficient. Keep reservation ceilings distinct from
+  measured usage and preserve partial-latest Lake failure even with budget left.
+- Preserve the fixed-request WIP checkpoint as behavior-untested evidence;
+  syntax PASS is not Native, AUTO, rights, data readiness or operational success.
+  Runtime-derived DAILY/WEEKLY requests keep the original external profile SHA,
+  window, opening floor and rights, without inventing candidate/holdings meaning.
+- The first hybrid Native run stopped at the unchanged1000-security cohort
+  guard: its two-row synthetic fixture was invalid. Keep that failed8.4275987s
+  attempt and repair the fixture with1000 unique synthetic securities mapped
+  to two issuers; never lower the production cohort guard for a focus test.
+- The next normal run passed all49 hybrid/AUTO/scoped-ALFRED/selected legacy
+  tests, then the broad catalog lookup refused an unrelated existing Reader
+  dependency pin. Preserve its35.249372s cost and blocked result. Validate the
+  two permitted current Lake pins separately; do not refresh foreign Reader
+  hashes or claim the whole reuse catalog passes from a local Lake check.
+- Optimized49 also passed; its post-suite lookup then refused the other existing
+  Reader guide pin in group591. That35.0324358s attempt remains charged and the
+  two broad catalog refusals remain BLOCKED. Restrict the final canary to the
+  actual permitted Lake pins and unchanged catalog fields, rather than repeatedly
+  running passing suites or accepting unrelated catalog failures as success.
+- AUTO provider permissions must be explicit and immutable: disabled FRED uses
+  null rights evidence, preserves retained bytes/clocks, makes no FRED fetch and
+  cannot feed a new archived macro study or current regime. Verify eligible
+  SEC/WB normalized originals under a distinct source-only cycle readback;
+  macro-study, Reader, training and economic readiness remain false/blocked.
+  Review the consolidated official FRED API terms(k/l), without inferring
+  blanket illegality or deleting prior research. Fixed-v1/legacy stay strict.
+- A normal official companyfacts404 with verified submissions is a data gap,
+  not necessarily a failed producer transaction. AUTO must keep data completeness
+  false while a new exact clean-consumer/terminal execution proves ready and
+  strict raw-backed held outcomes separately. Recheck member/source hashes,
+  exact CIK/form-role/reason and original clocks; bind unmapped HOLD hashes.
+  Never use a gap flag, arbitrary proof dictionary, old partial or a budget/
+  cancellation/missing-execution failure to authorize the next refresh.
+- The broad terminal-fix normal run reached and passed the new gap/tamper/
+  failed-publication cases, but its47-second watchdog interrupted the remaining
+  suite. Preserve47.1997829s as NOT_COMPLETE, with optimized not run. Use a
+  proportional focused normal/-O suite within the remaining52.4248644s; never
+  relabel the prior53-case head or the interrupted run as this head's full PASS.
+- A scheduled hybrid's previous NYSE session is an observation boundary, not
+  the knowledge time of a current FRED/WB snapshot fetched on the next UTC day.
+  Keep the legacy date-only guard and add an explicit actual SQL-consumption
+  clock, full retrieval/availability comparisons and observation filtering.
+  Preflight metadata clocks before publication, then independently recheck the
+  actual post-restore clock. Bind that clock in SQL/report/execution provenance.
+  Study bundles keep their real later creation/as-of times; never backdate them
+  to match SQL. Exercise actual LocalTransport/SQLite, not a mocked success.
+- The first clock regression run passed its SQL assertions but a new test left
+  a query connection open: SQLite's transaction context does not close its
+  handle, so Windows temporary-directory cleanup failed. Preserve2.0624963s
+  and use explicit closing in the fixture, without changing runtime guards.
+- The second clock run exposed an old mock fixture publishing an October22
+  catalog while requesting October23 SQL. Preserve8.5627141s, align the fixture
+  and reject mismatched observation bounds before SQL or execution publication;
+  do not weaken the new catalog-bound clock verification to accept it.
+- An explicit consumption clock must not certify its own future time. Validate
+  prepublication <= SQL <= study (when present) <= receipt <= verification now;
+  a new prepublication marker requires the matching SQL clock and report even
+  if both are omitted. Keep legacy receipts and date-only callers unchanged.
+- Anchor fixture edits to their unique consumer setup: a broad matching report
+  line placed the prepublication marker in a different fixture. The new omission
+  test caught this before publication; correct its location and retain1.5146252s.
+- Future managed checkpoints carry a locator hint copied only from an already
+  readback-verified capture receipt (symbols/window/collected/no-bars, bound to
+  its exact SHA). Keep object references as exactly file_id/sha256/bytes and all
+  qualification flags false. Consumers reverify originals; old checkpoints
+  remain readable and immutable. Do not infer membership from journal order.
+- Generation and intake replay must share the same identity-aware review
+  suppression rule. Repeated same-session source failures retain their event
+  IDs across code/config changes; no new event ID alone cannot suppress the
+  changed contract's original proposals. Unchanged identities stay deduplicated,
+  and every exported proposal still requires exact original-plan replay.
+- B9 Hosted CI ran403 Lake cases with3 failures; its runner retained only the
+  final15 lines, hiding two case names. Focused getTestCaseNames discovery and
+  actual execution reproduced three distinct HistoryTest failures, not inherited
+  repeats: code-push guard, finalization LEGACY-only cohort restore and writer
+  queue guard. Update the exact stronger workflow expectations, preserve
+  read-only issues permission for OWNER evidence, and exercise push exclusion,
+  AUTO attempt1/2 plus mode precedence. Do not change runtime/workflow or rerun
+  the other400 cases merely to repair stale test strings; charge the0.7740971s
+  reproduction and distinguish focused normal/-O from the prior Hosted result.
+
+- A dedicated monitor CI path does not authorize changing the protected236
+  program inventory. Preserve its237-vs236 and protected-delta failures, restore
+  the exact accepted runner blob, and rebind only actual current dependency
+  hashes; historical references and review gates remain unchanged.
+- An original mapping hash does not validate a derived identity table. Preserve
+  source buffers and record types, reuse the canonical SEC parser plus its
+  ticker normalization, and reject zero/first-character CIK outputs and false
+  unmapped dotted aliases. Retract dependent T2 templates until corrected;
+  no source/PIT, holdings or collection authority follows from a metadata join.
+- Correcting one current dependency can expose older stale pins in the same
+  reuse entry. Before another CI cycle, compare every operand with canonical
+  Git bytes and the accepted baseline; distinguish sparse missing files and
+  CRLF from true stale pins. Bind only the explicitly reviewed current hashes,
+  preserve historical references, and keep failed runs and costs visible.
+- Correction to the preceding current-pin reconciliation: group577's fixed
+  SEC/feature hashes are intentional historical exact-byte boundaries. The
+  author misclassified them and Root incorrectly approved their update; the
+  existing current-source-refusal regression caught it in235/236 CI. Restore
+  those3 pins. Accepted-current Git equality alone cannot recertify historical
+  Source; validate frozen positives and exact current/changed-source refusals.
+  The separately reviewed ETF pin covers producer review-handoff code only,
+  with Source/PIT/financial/ER admission still false. Keep all failed proofs.

@@ -145,6 +145,17 @@ def validate_control(control, inventory_sha, policy_sha, now):
             and managed.symbols(control["backfill_tickers"]) <= set(control.get("authorized_tickers", []))
             and managed.symbols(control.get("authorized_tickers")), "MANAGED_TICKER_SCOPE")
     execution_scope(control)
+    if "cadence" in control:
+        cadence = managed.cadence_contract(control["cadence"],
+            not_before=control["not_before"], expires_at=control["expires_at"])
+        reference(cadence["roster_ref"], MAX_STATE)
+        pins = []
+        for ref in cadence["source_refs"]:
+            reference(ref, MAX_STATE)
+            pins.append(ref["sha256"])
+        require(len(set(pins)) == len(pins)
+                and sum(r["bytes"] for r in cadence["source_refs"]) <= 16 * 1024 * 1024,
+                "CADENCE_PROOF_BOUND")
     require(isinstance(control.get("deployment"), dict)
             and set(control.get("code_pins", {})) == set(PIN_PATHS)
             and all(isinstance(h, str) and managed.SHA.fullmatch(h)
@@ -245,7 +256,7 @@ def provider_endpoint_gate(session, now):
                 checked_at_utc=now.isoformat())
 
 
-def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
+def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance, *, cadence=None):
     if checkpoint_sha is None:
         require(isinstance(value, dict) and value.get("schema") == "a1-managed-no-capture-v1"
                 and value.get("status") in {"SKIP_MARKET_WINDOW", "SKIP_PROVIDER_ENDPOINT_WINDOW"}
@@ -258,7 +269,7 @@ def verify_final_meter(value, run, checkpoint_sha, control_sha, allowance):
         observed = campaign.utc(value.get("observed_at_utc"))
         require(campaign.utc(run.get("created_at")) <= observed <= campaign.utc(run.get("updated_at")),
                 "MANAGED_NO_CAPTURE_CLOCK")
-        gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
+        gate = managed.cadence_market_gate(now_utc=observed, cadence=cadence)
         require(value.get("market_gate") == gate, "MANAGED_NO_CAPTURE_CALENDAR")
         if value["status"] == "SKIP_MARKET_WINDOW":
             require(gate["ready"] is False, "MANAGED_NO_CAPTURE_CALENDAR")
@@ -341,7 +352,8 @@ def final_meter_reader(gh, control, control_sha, deadline, clock):
                         == {"managed_meter.json", "managed_result.json"}
                         and all(0 < f.file_size <= 65536 for f in files), "MANAGED_ARTIFACT_FILES")
                 meter = decode(z.read("managed_meter.json"))
-        return verify_final_meter(meter, run, checkpoint_sha, control_sha, control["per_run_allowance"])
+        return verify_final_meter(meter, run, checkpoint_sha, control_sha, control["per_run_allowance"],
+                                  cadence=control.get("cadence"))
     return verify
 
 
@@ -406,7 +418,7 @@ def journal_rows(drive, control):
     return rows
 
 
-def restore_journal(rows, history, control_sha, meter_verifier=None):
+def restore_journal(rows, history, control_sha, meter_verifier=None, *, cadence_binding=None):
     parent = None
     coverage, held = {}, {}
     expected_states = 0
@@ -431,6 +443,8 @@ def restore_journal(rows, history, control_sha, meter_verifier=None):
                     and r.get("source_sha") == run.get("head_sha")
                     for r in (r0, r1)) and r0.get("parent_sha256") == parent
                 and r1.get("parent_sha256") == h0, "MANAGED_STATE_CHAIN")
+        require(all(r.get("cadence_binding_sha256") == cadence_binding for r in (r0, r1)),
+                "CADENCE_JOURNAL_BINDING_CHANGED")
         require(r1["state"] == "COMPLETE", "MANAGED_PRIOR_FAILURE_REQUIRES_RECONCILIATION")
         require(meter_verifier is not None, "MANAGED_FINAL_METER_REQUIRED")
         meter_verifier(run, h1)
@@ -566,11 +580,24 @@ def complete_grid(normalized, valid, start, end):
     return {t for t, grids in dates.items() if expected and grids["raw"] == grids["split"] == expected}
 
 
+def select_candidates(tracked, coverage, held, session, limit, scheduling=None):
+    eligible = set(tracked) - set(held)
+    if scheduling is None:
+        return sorted(eligible, key=lambda t: (coverage.get(t, ""), t))[:limit]
+    for t in set(tracked) & set(coverage):
+        managed.coverage_day(coverage[t], session)
+    daily = set(scheduling["daily"])
+    eligible = {t for t in eligible if coverage.get(t, "") < session
+                and (t in daily or scheduling["weekly_due"])}
+    return sorted(eligible, key=lambda t: (scheduling["role_rank"].get(t, 4),
+                                           coverage.get(t, ""), t))[:limit]
+
+
 def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
-                   prior_held, session, key, secret, clock=campaign.utc):
+                   prior_held, session, key, secret, clock=campaign.utc, *, scheduling=None):
     # Oldest covered names first avoids starving the tail after a bounded run.
-    candidates = sorted(set(tracked) - set(prior_held), key=lambda t: (prior_coverage.get(t, ""), t))
-    candidates = candidates[:control["max_symbols_per_run"]]
+    candidates = select_candidates(tracked, prior_coverage, prior_held, session,
+                                   control["max_symbols_per_run"], scheduling)
     needs = set(candidates) - set(prior_coverage)
     held = {t: prior_held[t] for t in set(tracked) & set(prior_held)}
     identities = {}
@@ -601,7 +628,16 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
         identities[t] = standalone_id
     reused = [t for t in reused if t not in held]
     updates, receipts, rows = {}, [], 0
-    for (start, end), names in sorted(windows.items()):
+    rank = {t: i for i, t in enumerate(candidates)}
+    if scheduling is None:
+        batches = sorted(windows.items())
+    else:
+        role_windows = {}
+        for (start, end), names in windows.items():
+            for t in sorted(names, key=rank.__getitem__):
+                role_windows.setdefault((scheduling["role_rank"].get(t, 4), start, end), []).append(t)
+        batches = [((start, end), names) for (_, start, end), names in sorted(role_windows.items())]
+    for (start, end), names in batches:
         names = [t for t in names if t not in held]
         for offset in range(0, len(names), capture.GROUP_SIZE):
             group = names[offset:offset + capture.GROUP_SIZE]
@@ -636,13 +672,35 @@ def collect_groups(drive, meter, control, bootstrap, tracked, prior_coverage,
                 else:
                     held[t] = "INCOMPLETE_REQUESTED_SESSION"
             held.update({t: "VERIFIED_NO_DATA_FOR_REQUESTED_WINDOW" for t in no_data})
+            # Locator only, copied after original archive/receipt readback. Consumers
+            # must reverify objects; this hint grants no identity, rights or PIT.
+            hint = dict(schema="a1-managed-capture-membership-hint-v1",
+                        capture_receipt_sha256=objects[-1]["sha256"],
+                        **{k: receipt[k] for k in ("symbols", "start", "end", "collected", "no_bars")})
             receipts.append(dict(objects=objects, collection_started_at=observed,
                                  collection_finished_at=clock().isoformat(), public_available_at=None,
+                                 capture_membership_hint=hint,
                                  historical_identity_verified=False, corporate_action_chain_verified=False,
                                  source_admission=False, pit_verified=False))
             rows += count
     updates.update({t: coverage[t] for t in reused})
     return updates, held, reused, receipts, rows
+
+
+def load_cadence_roster(control, drive, now):
+    cadence = control["cadence"]
+    raw = private_bytes(drive, control["evidence_folder_id"], cadence["roster_ref"], MAX_STATE)
+    proofs = {r["sha256"]: private_bytes(drive, control["evidence_folder_id"], r, MAX_STATE)
+              for r in cadence["source_refs"]}
+    # This exact existing monitor file is independently pinned in the OWNER control.
+    with (ROOT / managed.MONITOR_CONTRACT).open("rb") as handle:
+        monitor = handle.read(managed.MAX_BYTES + 1)
+    return managed.priority_roster(raw, expected_sha256=cadence["roster_ref"]["sha256"],
+        monitor_raw=monitor, monitor_sha256=cadence["monitor_contract_sha256"],
+        monitor_helper_sha256=cadence["monitor_helper_sha256"],
+        etf_universe_sha256=cadence["etf_universe_sha256"],
+        proof_objects=proofs, max_priority_candidates=cadence["max_priority_candidates"],
+        holdings_binding=cadence["holdings_binding"], now_utc=now)
 
 
 def execute(control, control_sha, policy, bootstrap, history, drive, meter, context,
@@ -653,13 +711,19 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
     if subset is not None:
         require(subset <= policy_tracked, "MANAGED_EXECUTION_SCOPE")
     tracked = policy_tracked if subset is None else subset
+    cadence = control.get("cadence")
+    roster = load_cadence_roster(control, drive, clock()) if cadence is not None else None
+    binding = sha(cadence) if cadence is not None else None
     prior = journal_rows(drive, control)
-    parent, coverage, old_held = restore_journal(prior, history, control_sha, meter_verifier)
+    parent, coverage, old_held = restore_journal(prior, history, control_sha, meter_verifier,
+                                               cadence_binding=binding)
     if subset is not None:
         require(set(coverage) | set(old_held) <= tracked, "MANAGED_EXECUTION_STATE_SCOPE")
     slot = len(history)
     base = dict(schema="a1-managed-run-checkpoint-v1", control_sha256=control_sha,
                 run_id=context["run_id"], slot=slot, source_sha=context["head"])
+    if cadence is not None:
+        base["cadence_binding_sha256"] = binding
     reserve = dict(base, state="RESERVED", parent_sha256=parent,
                    reserved_allowance=control["per_run_allowance"],
                    created_at=clock().isoformat())
@@ -671,20 +735,30 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
         observed = clock()
         require(observed >= campaign.utc(market_preflight["checked_at_utc"]),
                 "MANAGED_MARKET_CLOCK_REGRESSION")
-        gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
+        gate = managed.cadence_market_gate(now_utc=observed, cadence=cadence)
         require(gate["ready"], "MANAGED_MARKET_WINDOW")
         require(market_preflight["ready"] is True
                 and gate["session_date"] == market_preflight["session_date"],
                 "MANAGED_MARKET_SESSION_CHANGED")
         require(provider_endpoint_gate(gate["session_date"], observed)["ready"],
                 "MANAGED_PROVIDER_ENDPOINT_WINDOW")
-        values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
-                                gate["session_date"], key, secret, clock)
+        scheduling = managed.tier_schedule(roster, tracked, gate["session_date"]) if roster is not None else None
+        if scheduling is None:
+            values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
+                                    gate["session_date"], key, secret, clock)
+        else:
+            values = collect_groups(drive, meter, control, bootstrap, tracked, coverage, old_held,
+                                    gate["session_date"], key, secret, clock, scheduling=scheduling)
         updates, held, reused, receipts, rows = values
         terminal.update(coverage_updates=updates, held=held,
                         reused=reused, receipts=receipts, rows=rows,
                         session=gate["session_date"], completed_at=clock().isoformat())
-        if not updates:
+        if scheduling is not None:
+            terminal["tier_progress"] = managed.tier_progress(
+                scheduling, tracked, dict(coverage, **updates), held, gate["session_date"])
+        if not updates and (scheduling is None or any(
+                (t in scheduling["daily"] or scheduling["weekly_due"])
+                and coverage.get(t, "") < gate["session_date"] for t in tracked)):
             terminal["reason"] = "MANAGED_ALL_COMPONENTS_HELD"
             raise Refused(terminal["reason"])
         terminal.update(state="COMPLETE", reason=None)
@@ -705,7 +779,7 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
                             pending=len(tracked) - current - len(held_in_scope),
                             outside_scope=len(policy_tracked) - len(tracked),
                             all_tracked_same_session=current == len(policy_tracked))
-    return dict(status="REFRESH_CHECKPOINT_VERIFIED", session=terminal["session"],
+    result = dict(status="REFRESH_CHECKPOINT_VERIFIED", session=terminal["session"],
                 valid_updated=len(terminal["coverage_updates"])-len(terminal["reused"]), held=len(terminal["held"]),
                 reused=len(terminal["reused"]), rows=terminal["rows"], checkpoint_sha256=stored["sha256"],
                 session_coverage=session_coverage,
@@ -713,6 +787,17 @@ def execute(control, control_sha, policy, bootstrap, history, drive, meter, cont
                 budget_basis="all slots fully reserved; no automatic refund",
                 supplier_expiry_inferred=False, source_admission=False, pit_verified=False,
                 economic_authority=False)
+    if scheduling is not None:
+        result.update(cadence_binding_sha256=binding, tier_progress=terminal["tier_progress"],
+                      holdings_status=roster["holdings_status"],
+                      overall_status=roster["overall_status"],
+                      etf_helper_binding=roster["etf_helper_binding"],
+                      etf_universe_sha256=roster["etf_universe_sha256"],
+                      roster_binding_policy="EXACT_OWNER_REBIND_REQUIRED",
+                      automatic_roster_updates=False,
+                      next_roster_packet="EXISTING_A0_OWNER_REBIND_PROPOSAL",
+                      control_changed_action="STOP_PRESERVE_JOURNAL_AND_USAGE")
+    return result
 
 
 def context_from_env():
@@ -753,7 +838,7 @@ def run(args, *, gh=campaign.gh_json, drive_factory=OwnerDrive, clock=campaign.u
     source_history_fence(control, gh)
     observed = clock()  # metadata validation must not freeze the provider clock
     require(observed >= now, "MANAGED_MARKET_CLOCK_REGRESSION")
-    gate = managed.evaluate_market_session(now_utc=observed, min_close_age_minutes=120)
+    gate = managed.cadence_market_gate(now_utc=observed, cadence=control.get("cadence"))
     endpoint = provider_endpoint_gate(gate["session_date"], observed) if gate["ready"] else None
     if not gate["ready"] or not endpoint["ready"]:
         marker = dict(schema="a1-managed-no-capture-v1",

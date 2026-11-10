@@ -68,6 +68,9 @@ LEGACY_SEC_MAPPING_PRODUCERS = frozenset({
 })
 _LOCK = threading.Lock()
 _LAST = 0.0
+HYBRID_MODES = frozenset(('HYBRID_DAILY', 'HYBRID_WEEKLY'))
+HYBRID_OWNER_TAG = 'A1_HYBRID_HISTORY_EXECUTION_V1 '
+HYBRID_READ_RESERVATION = 20 * 1024 * 1024
 
 
 
@@ -278,6 +281,626 @@ def sec_conditional(old,start,through):
     return old.get('http') if (old.get('start')==start and old.get('through','9999')<=through
         and 'deferred_until' in old and (old['deferred_until'] is None or old['deferred_until']>through)
         and old.get('extraction_sha256')==extraction_identity()) else None
+
+
+def hybrid_clock(value):
+    require(isinstance(value,str) and not value.endswith('-00:00')
+            and re.search(r'(Z|[+-][0-9]{2}:[0-9]{2})$',value), 'hybrid_explicit_clock')
+    result=datetime.fromisoformat(value.replace('Z','+00:00'))
+    require(result.utcoffset() is not None,'hybrid_explicit_clock')
+    return result.astimezone(timezone.utc)
+
+
+def hybrid_request(raw, expected_sha256, mode, *, now=None, _auto_provider_scope=None):
+    """Integrity/shape only; live OWNER authorization is independently required."""
+    require(type(raw) is bytes and 0<len(raw)<=65536 and mode in HYBRID_MODES
+            and isinstance(expected_sha256,str) and re.fullmatch('[a-f0-9]{64}',expected_sha256)
+            and digest(raw)==expected_sha256,'hybrid_request_hash_or_mode')
+    def unique(pairs):
+        value={}
+        for k,v in pairs:
+            require(k not in value,'hybrid_duplicate_key'); value[k]=v
+        return value
+    r=json.loads(raw,object_pairs_hook=unique,
+                 parse_constant=lambda _:require(False,'hybrid_nonfinite_json'))
+    fields={'schema','request_id','mode','purpose','code_sha','registry_sha256','roster_sha256',
+            'cohort_sha256','mapping_object_sha256','mapping_source_sha256','focus_pairs','baseline',
+            'macro_start','financial_start','through','decision_at','available_at','not_before',
+            'expires_at','weekly','budget','rights_sha256'}
+    require(type(r) is dict and set(r)==fields and r['schema']=='long-history-hybrid-v1'
+            and r['mode']==mode and r['purpose']=='PRIVATE_NONCOMMERCIAL_RESEARCH', 'hybrid_request_fields')
+    require(isinstance(r['request_id'],str) and re.fullmatch('[A-Za-z0-9_-]{1,100}',r['request_id']),
+            'hybrid_request_id')
+    require(isinstance(r['code_sha'],str) and re.fullmatch('[a-f0-9]{40}',r['code_sha'])
+            and r['code_sha']==os.environ.get('GITHUB_SHA'), 'hybrid_code_changed_NEEDS_REBIND')
+    for k in ('registry_sha256','roster_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256'):
+        require(isinstance(r[k],str) and re.fullmatch('[a-f0-9]{64}',r[k]),'hybrid_pin')
+    require(r['cohort_sha256']==COHORT_SHA and r['registry_sha256']==digest(encoded(registry())),
+            'hybrid_registry_or_cohort_changed_NEEDS_REBIND')
+    baseline=r['baseline']
+    require(type(baseline) is dict and set(baseline)=={'commit','catalog','execution'}
+            and all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in baseline.values()),
+            'hybrid_baseline')
+    pairs=r['focus_pairs']
+    require(type(pairs) is list and 0<len(pairs)<=1500 and all(type(p) is dict
+            and set(p)=={'ticker','cik'} and isinstance(p['ticker'],str)
+            and re.fullmatch('[A-Z][A-Z0-9.-]{0,13}',p['ticker'])
+            and isinstance(p['cik'],str) and re.fullmatch('[0-9]{10}',p['cik']) for p in pairs),
+            'hybrid_focus_pairs')
+    require([(p['ticker'],p['cik']) for p in pairs]==sorted(set((p['ticker'],p['cik']) for p in pairs))
+            and len({p['ticker'] for p in pairs})==len(pairs),'hybrid_focus_duplicate')
+    now=hybrid_clock(utc_now()) if now is None else now
+    first,last,decision,expiry=(hybrid_clock(r[k]) for k in
+        ('not_before','available_at','decision_at','expires_at'))
+    require(first<=last<=decision<=now<expiry and expiry-first<=timedelta(days=31), 'hybrid_window')
+    for key in ('macro_start','financial_start','through'):
+        require(isinstance(r[key],str) and date.fromisoformat(r[key]).isoformat()==r[key], 'hybrid_date')
+    require(r['macro_start']<=r['through'] and r['financial_start']<=r['through']
+            and r['through']<=decision.date().isoformat(), 'hybrid_date_window')
+    rights=r['rights_sha256']
+    require(type(rights) is dict and set(rights)=={'fred','sec','worldbank'}
+            and all((isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v))
+                    if _auto_provider_scope is None or _auto_provider_scope[k] else v is None
+                    for k,v in rights.items()),
+            'hybrid_rights_evidence_required')
+    b=r['budget']
+    require(type(b) is dict and set(b)=={'provider_gets','provider_bytes','transport_calls',
+        'transport_reserved_bytes','write_bytes','active_seconds','max_chain_commits','max_issuers'}
+        and all(type(v) is int and 0<v<=2**53-1 for v in b.values())
+        and 480<=b['active_seconds']<=7200 and b['max_chain_commits']<=20000
+        and b['max_issuers']<=20000,'hybrid_finite_budget')
+    from tools.run_daily_market_session_gate import evaluate_market_session, mcal
+    if mode=='HYBRID_DAILY':
+        gate=evaluate_market_session(now_utc=decision,min_close_age_minutes=120)
+        require(r['weekly'] is None and gate['ready'] and gate['session_date']==r['through'],
+                'hybrid_daily_session')
+    else:
+        w=r['weekly']; day=date.fromisoformat(r['through']); monday=day-timedelta(days=day.weekday())
+        schedule=mcal.get_calendar('NYSE').schedule(start_date=monday,end_date=monday+timedelta(days=4))
+        require(type(w) is dict and set(w)=={'week_start','session'} and not schedule.empty
+                and w==dict(week_start=monday.isoformat(),session=r['through'])
+                and schedule.index[-1].strftime('%Y-%m-%d')==r['through']
+                and schedule.iloc[-1]['market_close'].to_pydatetime()+timedelta(minutes=120)<=decision
+                and expiry<=datetime.combine(monday+timedelta(days=7),datetime.min.time(),
+                                               ZoneInfo('America/New_York')).astimezone(timezone.utc),
+                'hybrid_weekly_session')
+    return r
+
+
+def authorize_hybrid(request, request_sha256, approval_reference, *, gh=None, context=None):
+    """Reuse the existing A0 OWNER surface; hashes/flags cannot approve themselves."""
+    if gh is None:
+        from tools.alpaca_sip_campaign import gh_json
+        gh=gh_json
+    context=context or {k:os.environ.get(k,'') for k in
+        ('GITHUB_REPOSITORY','GITHUB_REF','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_SHA')}
+    require(context['GITHUB_REPOSITORY']=='wscha231/r1000-quant-engine'
+            and context['GITHUB_REF']=='refs/heads/master' and context['GITHUB_RUN_ATTEMPT']=='1'
+            and context['GITHUB_SHA']==request['code_sha'] and context['GITHUB_RUN_ID'].isdigit(),
+            'hybrid_live_context')
+    match=re.fullmatch(r'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)',
+                       approval_reference)
+    require(match is not None,'hybrid_owner_reference')
+    c=gh('repos/wscha231/r1000-quant-engine/issues/comments/'+match[1])
+    require(c.get('id')==int(match[1]) and c.get('author_association')=='OWNER'
+            and c.get('user',{}).get('type')=='User' and c.get('created_at')==c.get('updated_at')
+            and c.get('issue_url')=='https://api.github.com/repos/wscha231/r1000-quant-engine/issues/448'
+            and hybrid_clock(request['available_at'])<=hybrid_clock(c.get('created_at'))
+            <=hybrid_clock(utc_now()),'hybrid_owner_approval')
+    records=[line[len(HYBRID_OWNER_TAG):] for line in c.get('body','').splitlines()
+             if line.startswith(HYBRID_OWNER_TAG)]
+    require(len(records)==1 and json.loads(records[0])==dict(schema='long-history-hybrid-owner-v1',
+        request_sha256=request_sha256,producer_code_sha=request['code_sha'],
+        purpose=request['purpose'],rights_sha256=request['rights_sha256'],
+        expires_at=request['expires_at']),'hybrid_owner_scope')
+    # Failed or concurrent executions consume this exact request identity too.
+    # A new OWNER-reviewed recovery request, not an Actions rerun, is required.
+    query=urlencode(dict(created='>='+request['not_before'],per_page=100))
+    payload=gh('repos/wscha231/r1000-quant-engine/actions/workflows/long_history_research.yml/runs?'+query)
+    runs=payload.get('workflow_runs')
+    require(type(runs) is list and payload.get('total_count')==len(runs)<100,
+            'hybrid_history_bound_NEEDS_REBIND')
+    title='history-'+request['mode']+'-'+request_sha256
+    same=[v for v in runs if v.get('display_title')==title]
+    require(len(same)==1 and same[0].get('id')==int(context['GITHUB_RUN_ID'])
+            and same[0].get('run_attempt')==1 and same[0].get('head_sha')==request['code_sha'],
+            'hybrid_request_replay_or_unknown')
+    return dict(approval_reference=approval_reference,request_sha256=request_sha256,
+                owner_comment_sha256=digest(encoded(c)),run_id=int(context['GITHUB_RUN_ID']))
+
+
+AUTO_WORKFLOW='.github/workflows/long_history_research.yml'
+AUTO_OWNER_TAG='LONG_HISTORY_AUTO_OWNER_V1 '
+AUTO_RESOURCES=('provider_gets','provider_bytes','transport_calls','transport_reserved_bytes',
+                'write_bytes','active_seconds')
+# Execution dependencies, including the pre-Source offline callers. No test or
+# runtime file can be changed under an unchanged external standing profile.
+AUTO_PINS=(AUTO_WORKFLOW,'tools/long_history_lake.py','tools/macro_history_sources.py',
+    'tools/macro_technical_study.py','tools/macro_research_cycle.py','tools/macro_research_checkpoint.py',
+    'tools/configure_macro_research_drive.py','tools/research_data_access.py','tools/research_model_inputs.py',
+    'tools/run_data_freshness_contract.py','tools/prepare_a1_reader_generation.py',
+    'tools/alpaca_sip_private_backfill_v1.py','tools/twelve_private_capture.py',
+    'tools/alpaca_sip_source_revision.py','tools/alpaca_sip_managed_refresh.py',
+    'tools/alpaca_sip_campaign.py','tools/prepare_a1_managed_ohlcv.py',
+    'tools/run_daily_market_session_gate.py','tools/run_pr_validation.py','r1000_legacy_input_guard.py',
+    'tests/research_data_access_smoke.py','tests/research_model_inputs_smoke.py',
+    'tests/a1_reader_generation_binding_smoke.py','tests/alpaca_sip_private_backfill_v1_smoke.py',
+    'tests/long_history_lake_smoke.py','tests/macro_technical_evidence_smoke.py',
+    'tests/macro_research_cycle_smoke.py','data_static/research_dataset_registry_v1.json',
+    'docs/research_dataset_generation_v1.schema.json','docs/research_data_access.json',
+    'docs/macro_indicator_registry.json','docs/run287_chameleon_macro_inputs_contract.json')
+
+
+def auto_profile(raw, expected_sha256, *, now=None):
+    """An immutable external allocation, not a profile or budget issuer."""
+    require(type(raw) is bytes and 0<len(raw)<=65536 and digest(raw)==expected_sha256,
+            'auto_original_profile_hash')
+    def unique(pairs):
+        value={}
+        for k,v in pairs:
+            require(k not in value,'auto_duplicate_key'); value[k]=v
+        return value
+    r=json.loads(raw,object_pairs_hook=unique,
+                 parse_constant=lambda _:require(False,'auto_nonfinite_json'))
+    fixed={'schema','profile_id','mode','purpose','code_sha','code_pins','registry_sha256',
+        'roster_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256',
+        'focus_pairs','baseline','macro_start','financial_start','available_at','not_before',
+        'expires_at','rights_sha256','repository_id','workflow_id','workflow_path',
+        'first_run_number','last_run_number','per_run_allowance','total_reservation','opening_floor','provider_scope'}
+    require(type(r) is dict and set(r)==fixed and r['schema']=='long-history-hybrid-auto-v1'
+            and r['mode']=='HYBRID_AUTO' and r['purpose']=='PRIVATE_NONCOMMERCIAL_RESEARCH'
+            and isinstance(r['profile_id'],str) and re.fullmatch('[A-Za-z0-9_-]{1,65}',r['profile_id']),
+            'auto_profile_fields')
+    require(type(r['provider_scope']) is dict and set(r['provider_scope'])=={'sec','fred','worldbank'}
+            and all(type(v) is bool for v in r['provider_scope'].values())
+            and any(r['provider_scope'].values()),'auto_explicit_provider_scope')
+    now=hybrid_clock(utc_now()) if now is None else now
+    first,available,expiry=(hybrid_clock(r[k]) for k in ('not_before','available_at','expires_at'))
+    require(first<=available<=now<expiry and expiry-first<=timedelta(days=31),'auto_original_window')
+    require(all(type(r[k]) is int and 0<r[k]<=2**53-1 for k in
+        ('repository_id','workflow_id','first_run_number','last_run_number'))
+        and r['first_run_number']<=r['last_run_number'] and r['workflow_path']==AUTO_WORKFLOW,
+        'auto_counter_identity')
+    require(isinstance(r['code_sha'],str) and re.fullmatch('[a-f0-9]{40}',r['code_sha'])
+            and type(r['code_pins']) is dict and set(r['code_pins'])==set(AUTO_PINS)
+            and all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v)
+                    for v in r['code_pins'].values()),'auto_code_pins')
+    b=r['per_run_allowance']
+    require(type(b) is dict and set(b)==set(AUTO_RESOURCES)|{'max_chain_commits','max_issuers'}
+            and all(type(v) is int and 0<v<=2**53-1 for v in b.values())
+            and b['active_seconds']==7200 and b['max_chain_commits']<=20000
+            and b['max_issuers']<=20000,'auto_per_run_allowance')
+    slots=r['last_run_number']-r['first_run_number']+1
+    for name in ('total_reservation','opening_floor'):
+        require(type(r[name]) is dict and set(r[name])==set(AUTO_RESOURCES)
+                and all(type(v) is int and 0<=v<=2**53-1 for v in r[name].values()),'auto_total_shape')
+    require(r['total_reservation']=={k:slots*b[k] for k in AUTO_RESOURCES},'auto_total_not_full_slots')
+    # Validate the rest through the fixed-v1 contract on a runtime-derived view.
+    # That view never replaces, reissues or hashes as the original OWNER profile.
+    auto_request(r,expected_sha256,now=now)
+    return r
+
+
+def auto_request(profile, profile_sha256, *, now=None, run=None, reservation=None):
+    now=hybrid_clock(utc_now()) if now is None else now
+    from tools.run_daily_market_session_gate import evaluate_market_session, mcal
+    local=now.astimezone(ZoneInfo('America/New_York'))
+    weekly=local.weekday()>=5
+    gate=evaluate_market_session(now_utc=now,min_close_age_minutes=120,
+                                 max_close_age_hours=96 if weekly else 18)
+    require(gate['ready'],'auto_no_completed_due_session')
+    through=gate['session_date']; monday=date.fromisoformat(through)
+    monday-=timedelta(days=monday.weekday())
+    expiry=hybrid_clock(profile['expires_at'])
+    if weekly:
+        schedule=mcal.get_calendar('NYSE').schedule(start_date=monday,end_date=monday+timedelta(days=4))
+        require(not schedule.empty and schedule.index[-1].strftime('%Y-%m-%d')==through,
+                'auto_week_not_complete')
+        expiry=min(expiry,datetime.combine(monday+timedelta(days=7),datetime.min.time(),
+                                          ZoneInfo('America/New_York')).astimezone(timezone.utc))
+    keys=('purpose','registry_sha256','roster_sha256','cohort_sha256','mapping_object_sha256',
+          'mapping_source_sha256','focus_pairs','baseline','macro_start','financial_start',
+          'available_at','not_before','rights_sha256')
+    r={k:copy.deepcopy(profile[k]) for k in keys}
+    r.update(schema='long-history-hybrid-v1',request_id=profile['profile_id']+'-'+str((run or {}).get('run_number','prepare')),
+        mode='HYBRID_WEEKLY' if weekly else 'HYBRID_DAILY',code_sha=os.environ.get('GITHUB_SHA'),
+        through=through,decision_at=now.isoformat(),expires_at=expiry.isoformat(),
+        weekly=dict(week_start=monday.isoformat(),session=through) if weekly else None,
+        budget=copy.deepcopy(profile['per_run_allowance']))
+    raw=encoded(r); hybrid_request(raw,digest(raw),r['mode'],now=now,
+                                   _auto_provider_scope=profile['provider_scope'])
+    r['_auto']=dict(profile_sha256=profile_sha256,original_available_at=profile['available_at'],
+        original_not_before=profile['not_before'],original_expires_at=profile['expires_at'],
+        observed_at=now.isoformat(),selected_session=through,run=copy.deepcopy(run),
+        provider_scope=copy.deepcopy(profile['provider_scope']),
+        reservation=copy.deepcopy(reservation),code_pins_sha256=digest(encoded(profile['code_pins'])))
+    return r
+
+
+def auto_slot_reservation(profile, run_number):
+    require(type(run_number) is int and profile['first_run_number']<=run_number<=profile['last_run_number'],
+            'auto_run_number_outside_original_allocation')
+    used=run_number-profile['first_run_number']+1
+    total=profile['last_run_number']-profile['first_run_number']+1
+    charged={k:used*profile['per_run_allowance'][k] for k in AUTO_RESOURCES}
+    return dict(metric='FULL_COUNTER_SLOTS_NOT_ACTUAL_USAGE_NO_REFUNDS',consumed_slots=used,
+        allocated_slots=total,reserved_allowance=charged,
+        cumulative_with_opening_floor={k:profile['opening_floor'][k]+charged[k] for k in AUTO_RESOURCES},
+        remaining_allowance={k:profile['total_reservation'][k]-charged[k] for k in AUTO_RESOURCES},
+        actual_failed_wire_bytes=None,actual_Drive_API_requests=None)
+
+
+def verify_auto_code(profile, context, gh):
+    """Reuse the existing deployed ancestor + exact local/remote byte contract."""
+    import base64
+    import yaml
+    head=context['GITHUB_SHA']; repo='repos/wscha231/r1000-quant-engine'
+    compare=gh(repo+'/compare/'+profile['code_sha']+'...'+head)
+    require(compare.get('status') in ('identical','ahead')
+            and compare.get('merge_base_commit',{}).get('sha')==profile['code_sha'],'auto_deployed_ancestor')
+    for path,pin in profile['code_pins'].items():
+        remote=gh(repo+'/contents/'+path+'?'+urlencode(dict(ref=head)))
+        require(remote.get('encoding')=='base64' and remote.get('type')=='file'
+                and digest(base64.b64decode(remote.get('content',''),validate=False))==pin
+                and digest((ROOT/path).read_bytes().replace(b'\r\n',b'\n'))==pin,
+                'auto_deployed_code_changed_NEEDS_REBIND')
+    workflow=yaml.safe_load((ROOT/AUTO_WORKFLOW).read_text(encoding='utf-8'))
+    jobs=workflow['jobs']; require(set(jobs)=={'history'},'auto_one_fixed_job')
+    job=jobs['history']; require('strategy' not in job,'auto_no_matrix')
+    require(job.get('timeout-minutes')==120 and job.get('if','').endswith(
+        " && ((inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY') != 'HYBRID_AUTO' || github.run_attempt == 1)"),
+        'auto_whole_job_reservation_and_rerun_gate')
+    steps=job['steps']; name='Collect full history, persist changes, verify clean consumption'
+    collector=[s for s in steps if s.get('name')==name]
+    require(len(collector)==1 and collector[0].get('run','').count('python tools/long_history_lake.py')==1
+            and sum(s.get('run','').count('python tools/long_history_lake.py') for s in steps)==2
+            and len([s for s in steps if s.get('name')=='Finalize one pinned stored generation without collection'
+                and s.get('if')=="${{ inputs.finalize_commit_sha256 != '' }}"])==1,
+            'auto_one_collector_invocation')
+
+
+def authorize_auto(profile, profile_sha256, approval_reference, *, gh=None, context=None):
+    if gh is None:
+        from tools.alpaca_sip_campaign import gh_json
+        gh=gh_json
+    names=('GITHUB_REPOSITORY','GITHUB_REPOSITORY_ID','GITHUB_REF','GITHUB_RUN_ID','GITHUB_RUN_NUMBER',
+           'GITHUB_RUN_ATTEMPT','GITHUB_SHA','GITHUB_EVENT_NAME','GITHUB_JOB','GITHUB_ACTIONS',
+           'GITHUB_WORKFLOW_REF','GITHUB_WORKFLOW_SHA')
+    context=dict(os.environ) if context is None else context
+    require(all(isinstance(context.get(k),str) and context[k] for k in names),'auto_live_context')
+    repo='wscha231/r1000-quant-engine'; prefix='repos/'+repo
+    require(context['GITHUB_REPOSITORY']==repo and context['GITHUB_REF']=='refs/heads/master'
+            and context['GITHUB_JOB']=='history' and context['GITHUB_ACTIONS']=='true'
+            and context['GITHUB_RUN_ATTEMPT']=='1'
+            and context['GITHUB_EVENT_NAME'] in ('schedule','workflow_dispatch')
+            and context['GITHUB_WORKFLOW_REF']==repo+'/'+AUTO_WORKFLOW+'@refs/heads/master'
+            and context['GITHUB_WORKFLOW_SHA']==context['GITHUB_SHA']
+            and re.fullmatch('[a-f0-9]{40}',context['GITHUB_SHA'])
+            and all(re.fullmatch('[1-9][0-9]*',context[k]) for k in
+                    ('GITHUB_REPOSITORY_ID','GITHUB_RUN_ID','GITHUB_RUN_NUMBER')),'auto_live_identity')
+    run=gh(prefix+'/actions/runs/'+context['GITHUB_RUN_ID'])
+    require(all(type(run.get(k)) is int for k in ('id','run_number','run_attempt','workflow_id'))
+            and run['id']==int(context['GITHUB_RUN_ID']) and run['run_attempt']==1
+            and run['run_number']==int(context['GITHUB_RUN_NUMBER'])
+            and run['workflow_id']==profile['workflow_id'] and run.get('path')==AUTO_WORKFLOW
+            and run.get('repository',{}).get('id')==profile['repository_id']==int(context['GITHUB_REPOSITORY_ID'])
+            and run['repository'].get('full_name')==repo
+            and run.get('head_repository',{}).get('id')==profile['repository_id']
+            and run['head_repository'].get('full_name')==repo
+            and run.get('head_sha')==context['GITHUB_SHA'] and run.get('head_branch')=='master'
+            and run.get('event')==context['GITHUB_EVENT_NAME'],'auto_rest_run_mismatch')
+    now=hybrid_clock(utc_now())
+    require(hybrid_clock(profile['not_before'])<=hybrid_clock(run.get('created_at'))<=now
+            <hybrid_clock(profile['expires_at']),'auto_run_original_window')
+    reservation=auto_slot_reservation(profile,run['run_number'])
+    workflow=gh(prefix+'/actions/workflows/'+str(profile['workflow_id']))
+    require(workflow.get('id')==profile['workflow_id'] and workflow.get('path')==AUTO_WORKFLOW
+            and workflow.get('state')=='active','auto_workflow_identity')
+    match=re.fullmatch(r'https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-([0-9]+)',
+                       approval_reference)
+    require(match is not None,'auto_owner_reference')
+    c=gh(prefix+'/issues/comments/'+match[1])
+    require(c.get('id')==int(match[1]) and c.get('author_association')=='OWNER'
+            and c.get('user',{}).get('type')=='User' and c.get('created_at')==c.get('updated_at')
+            and c.get('issue_url')=='https://api.github.com/repos/'+repo+'/issues/448'
+            and hybrid_clock(profile['available_at'])<=hybrid_clock(c.get('created_at'))<=now,
+            'auto_owner_approval')
+    records=[line[len(AUTO_OWNER_TAG):] for line in c.get('body','').splitlines() if line.startswith(AUTO_OWNER_TAG)]
+    require(len(records)==1 and json.loads(records[0])==dict(schema='long-history-auto-owner-v1',
+        profile_sha256=profile_sha256,code_pins_sha256=digest(encoded(profile['code_pins'])),
+        purpose=profile['purpose'],rights_sha256=profile['rights_sha256'],expires_at=profile['expires_at']),
+        'auto_owner_original_profile')
+    verify_auto_code(profile,context,gh)
+    return dict(approval_reference=approval_reference,profile_sha256=profile_sha256,
+        owner_comment_sha256=digest(encoded(c)),run={k:run[k] for k in
+            ('id','run_number','run_attempt','workflow_id','head_sha','event','created_at')},
+        reservation=reservation)
+
+
+def claim_auto_invocation(authorization):
+    # This is job-local exclusion, NOT a durable ledger. The pinned no-matrix
+    # job is the sole caller. Identical second calls must fail too (unlike the
+    # content-addressed exclusive() helper's intentional idempotent readback).
+    root=Path(os.environ.get('RUNNER_TEMP',''))
+    require(os.environ.get('RUNNER_TEMP') and root.is_dir()
+            and not any(p.is_symlink() for p in [root,*root.parents]),'auto_runner_temp')
+    run=authorization['run']
+    path=root/('history-auto-'+str(run['id'])+'-'+str(run['run_attempt'])+'.entry')
+    try:
+        with path.open('xb') as stream:
+            stream.write(encoded(dict(profile_sha256=authorization['profile_sha256'],run=run)))
+        path.chmod(0o600)
+    except FileExistsError:
+        require(False,'auto_collector_already_invoked')
+
+
+class HybridBudget:
+    """Ephemeral ceiling reservations, never a new ledger or actual-wire claim."""
+    def __init__(self, request, *, live_transport=True, monotonic=time.monotonic):
+        self.limits=request['budget']; self.monotonic=monotonic; self.start=monotonic()
+        self.allowed_seconds=min(self.limits['active_seconds'],max(0.0,
+            (hybrid_clock(request['expires_at'])-hybrid_clock(utc_now())).total_seconds()))
+        self.live_transport=live_transport; self.alarm_active=False
+        self.used=dict(provider_gets=0,provider_bytes=0,transport_calls=0,
+                       transport_reserved_bytes=0,write_bytes=0)
+        self.returned_bytes=0
+    def remaining_seconds(self):
+        return max(0.0,self.allowed_seconds-(self.monotonic()-self.start))
+    def check(self):
+        require(self.remaining_seconds()>0,'hybrid_active_deadline')
+    def reserve(self, **amounts):
+        self.check()
+        require(all(self.used[k]+v<=self.limits[k] for k,v in amounts.items()),'hybrid_budget_exhausted')
+        for k,v in amounts.items(): self.used[k]+=v
+    def provider(self, gets, bytes_):
+        self.reserve(provider_gets=gets,provider_bytes=bytes_)
+    def summary(self):
+        return dict(reserved=dict(self.used),active_seconds=self.monotonic()-self.start,
+            returned_application_bytes=self.returned_bytes,actual_provider_gets=None,
+            actual_failed_wire_bytes=None,actual_Drive_API_requests=None,
+            metric='FULL_FETCH_AND_CLI_BODY_CEILINGS_NO_REFUNDS_NOT_WIRE_OR_DRIVE_QUOTA')
+
+
+class HybridTransport(RcloneTransport):
+    # Keep the original per-pack verification path. The batch subprocess bypasses
+    # call(), so it is not silently exempted from the opt-in reservation meter.
+    read_pack_batch=None
+    def __init__(self, remote, budget):
+        self.hybrid_budget=budget
+        super().__init__(remote)
+    def call(self, *args):
+        require(args and args[0]!='mkdir','hybrid_existing_root_required')
+        self.hybrid_budget.reserve(transport_calls=1,transport_reserved_bytes=HYBRID_READ_RESERVATION)
+        result=super().call(*args)
+        self.hybrid_budget.returned_bytes+=len(result)
+        self.hybrid_budget.check()
+        return result
+    def names(self, prefix):
+        result=super().names(prefix)
+        if prefix==PREFIX+'/commits':
+            require(len(result)<=self.hybrid_budget.limits['max_chain_commits'],
+                    'hybrid_chain_bound_NEEDS_REBIND')
+        return result
+    def write(self, path, raw):
+        self.hybrid_budget.reserve(write_bytes=len(raw))
+        return super().write(path,raw)
+
+
+def hybrid_continuation_identity(r):
+    if '_auto' in r:
+        return digest(encoded(dict(standing_profile_sha256=r['_auto']['profile_sha256'])))
+    keys=('purpose','code_sha','registry_sha256','roster_sha256','cohort_sha256',
+          'mapping_object_sha256','mapping_source_sha256','focus_pairs',
+          'macro_start','financial_start','rights_sha256')
+    return digest(encoded({k:r[k] for k in keys}))
+
+
+def hybrid_execution_ready(receipt, *, allow_source_scope=False):
+    complete=('cycle_scope' not in receipt or receipt['cycle_scope'].get('requested_cycle_complete') is True)
+    if allow_source_scope and 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+        return (receipt.get('producer_cycle_complete') is True
+                and receipt.get('producer_terminal_verified_from_drive') is True
+                and receipt.get('terminal_outcomes_complete') is True
+                and receipt['quality_status']=='PARTIAL_COVERAGE')
+    return complete and receipt['quality_status']!='PARTIAL' and (
+        receipt['study_recomputed_from_drive'] or (allow_source_scope
+            and receipt.get('source_readback_verified_from_drive') is True))
+
+
+def hybrid_gap_readback(lake,key,entry):
+    """Re-prove the existing official submissions gap; no synthetic fact rows."""
+    require(re.fullmatch('sec/[0-9]{10}',key) and entry.get('status')=='COVERAGE_GAP'
+            and entry.get('coverage_gap') is True and entry.get('normalized') is None
+            and entry.get('evidence')=='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS'
+            and type(entry.get('raw_objects')) is list and len(entry['raw_objects'])==1
+            and entry.get('objects')==entry['raw_objects'],'hybrid_gap_shape')
+    member=entry['raw_objects'][0];raw=lake.get_bytes(member)
+    require(digest(raw)==member,'hybrid_gap_member_hash')
+    original=unpacked(raw)
+    require(len(original)<=32*1024*1024 and digest(original)==entry.get('submissions_source_sha256'),
+            'hybrid_gap_source_hash')
+    profile=sec_submissions_profile(original,key[4:])
+    require(all(entry.get(k)==v for k,v in profile.items()),'hybrid_gap_cik_or_role')
+    reason=('SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT' if profile['has_fundamental_issuer_role']
+            else 'SEC_FUNDAMENTAL_ENTITY_ROLE_UNRESOLVED')
+    require(entry.get('coverage_gap_reason')==reason,'hybrid_gap_reason')
+    return dict(key=key,status='COVERAGE_GAP',reason=reason,normalized=None,
+        raw_member_sha256=member,original_source_sha256=digest(original),identity_role=profile,
+        clocks={k:entry.get(k) for k in ('retrieved_at','available_at','checked_at')})
+
+
+def hybrid_source_scope_readback(lake, summary):
+    """Exact selected Source outcomes; never itself a macro-study receipt."""
+    auto=summary.get('standing_auto',{})
+    terminal='terminal_outcomes_complete' in summary
+    require(auto.get('provider_scope',{}).get('fred') is False or terminal,'hybrid_source_scope_only')
+    detail=lake.catalog['config']['hybrid_refresh'];keys=detail['checked_keys']
+    require(digest(encoded(keys))==summary['checked_scope_sha256']
+            and keys==sorted(set(keys)) and bool(keys),'hybrid_source_scope_binding')
+    observed=[];held=[]
+    for key in keys:
+        provider=('sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/')
+                  else 'fred' if key.startswith(('current/','alfred/')) else None)
+        require(provider and auto['provider_scope'].get(provider) is True,'hybrid_disabled_provider_consumption')
+        entry=lake.catalog['datasets'][key]
+        if terminal and entry['status']=='COVERAGE_GAP':
+            held.append(hybrid_gap_readback(lake,key,entry));continue
+        require(entry['status'] in ('COLLECTED','UNCHANGED'),'hybrid_source_scope_blocked')
+        rows=lake.get_records(key)
+        observed.append(dict(key=key,normalized=entry['normalized'],objects=entry['objects'],rows=len(rows)))
+    proof=dict(schema='long-history-hybrid-source-readback-v1',commit=lake.parent,
+        catalog=digest(encoded(lake.catalog)),profile_sha256=auto['profile_sha256'],
+        checked_scope_sha256=summary['checked_scope_sha256'],checked=observed,
+        macro_regime_ready=False,whole_macro_complete=False,source_admission=False,historical_pit_certified=False)
+    if terminal:
+        require(summary['terminal_outcomes_complete'] is True
+                and len(observed)+len(held)==len(keys),'hybrid_terminal_outcomes_incomplete')
+        cohort,mapping_object,mapping=verified_cohort_source(lake)
+        _,missing,_=issuer_queue(json.loads(cohort)['rows'],mapping,prior_sec_mapping(lake))
+        unmapped=dict(count=len(missing),missing_sha256=digest(encoded(missing)),
+            cohort_sha256=digest(cohort),mapping_object_sha256=mapping_object,
+            mapping_source_sha256=lake.catalog['datasets']['universe/cohort']['sec_ticker_mapping_source_sha256'])
+        require(unmapped==summary['unmapped_securities_HOLD'],'hybrid_unmapped_hold_binding')
+        proof.update(schema='long-history-hybrid-source-readback-v2',terminal_outcomes_complete=True,
+            ready_clocks={v['key']:{k:lake.catalog['datasets'][v['key']].get(k)
+                for k in ('retrieved_at','available_at','first_available_at','checked_at')} for v in observed},
+            held=held,unmapped_securities_HOLD=unmapped)
+    return proof
+
+
+def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
+    """Resolve only the existing verified descendant chain, never auto-rebind."""
+    require(lake.parent and not lake.pending and lake.catalog==lake.before,'hybrid_unclean_parent')
+    parent,current=lake.restore_catalog()
+    require(parent==lake.parent and current==lake.before,'hybrid_parent_changed_NEEDS_REBIND')
+    latest=lake.verified_execution()
+    require(hybrid_execution_ready(latest,allow_source_scope='_auto' in request),
+            'hybrid_parent_execution_incomplete')
+    baseline=request['baseline']; cursor=parent; descendants=[]; base_catalog=None
+    identity=hybrid_continuation_identity(request)
+    for _ in range(budget.limits['max_chain_commits']):
+        require(cursor,'hybrid_baseline_not_ancestor_NEEDS_REBIND')
+        commit=json.loads(lake.read_hash('commits',cursor))
+        catalog=json.loads(lake.read_hash('catalogs',commit['catalog']))
+        if cursor==baseline['commit']:
+            require(commit['catalog']==baseline['catalog'],'hybrid_baseline_catalog')
+            base_catalog=catalog
+            break
+        detail=catalog.get('config',{}).get('hybrid_refresh',{})
+        require((catalog.get('code_sha')==request['code_sha'] or '_auto' in request)
+                and detail.get('continuation_identity')==identity
+                and detail.get('resolved_parent')==commit['parent']
+                and detail.get('through','9999')<=request['through'],
+                'hybrid_lineage_changed_NEEDS_REBIND')
+        require(detail.get('request_sha256')!=request_sha256,'hybrid_request_already_executed')
+        descendants.append(cursor); cursor=commit['parent']
+    require(base_catalog is not None,'hybrid_chain_bound_NEEDS_REBIND')
+    view=copy.copy(lake); view.parent=baseline['commit']; view.catalog=base_catalog
+    original=latest if parent==baseline['commit'] else view.verified_execution()
+    require(original['execution_receipt_sha256']==baseline['execution']
+            and original['study_recomputed_from_drive'],'hybrid_baseline_execution')
+    cohort,mapping_sha,mapping=verified_cohort_source(lake)
+    universe=lake.catalog['datasets']['universe/cohort']
+    require(mapping_sha==request['mapping_object_sha256'] and
+            universe.get('sec_ticker_mapping_source_sha256')==request['mapping_source_sha256'],
+            'hybrid_mapping_changed_NEEDS_REBIND')
+    members=json.loads(cohort)['rows']
+    names={r['ticker'].upper().replace('.','-') for r in members}; lookup=sec_ticker_lookup(mapping)
+    require(all(p['ticker'].upper().replace('.','-') in names
+                and lookup.get(p['ticker'].upper().replace('.','-'))=={p['cik']}
+                for p in request['focus_pairs']),'hybrid_ticker_cik_proof')
+    prior=prior_sec_mapping(lake)
+    groups,missing,_=issuer_queue(members,mapping,prior)
+    focus={p['cik'] for p in request['focus_pairs']}
+    require(focus<=set(groups),'hybrid_focus_outside_cohort')
+    selected=focus if request['mode']=='HYBRID_DAILY' else set(groups)
+    providers=request.get('_auto',{}).get('provider_scope',dict(sec=True,fred=True,worldbank=True))
+    if not providers['sec']: selected=set()
+    require(len(selected)<=budget.limits['max_issuers'],'hybrid_issuer_budget')
+    specs=[s for s in registry()['series'] if s.get('collection_scope')!='scoped_alfred_only']
+    require(len(specs)==34 and len(ARCHIVES)==12,'hybrid_macro_scope_changed_NEEDS_REBIND')
+    weekly=request['mode']=='HYBRID_WEEKLY'
+    fred_gets=(len(specs)*3+(len(ARCHIVES)*3*FRED_MAX_PAGES if weekly else 0)) if providers['fred'] else 0
+    wb_gets=len(WB_INDICATORS)*3 if weekly and providers['worldbank'] else 0
+    gets=len(selected)*6+fred_gets+wb_gets
+    bytes_=len(selected)*6*(32*1024*1024+1)+fred_gets*SCOPED_PAGE_RESERVATION_BYTES+wb_gets*(32*1024*1024+1)
+    require(gets<=budget.limits['provider_gets'] and bytes_<=budget.limits['provider_bytes'],
+            'hybrid_provider_budget_preflight')
+    keys={'sec/'+c for c in selected}
+    if providers['fred']:
+        keys|={'current/'+s['id'] for s in specs}
+        if weekly:keys|={'alfred/'+s for s in ARCHIVES}
+    if weekly and providers['worldbank']:keys|={'worldbank/'+i for i in WB_INDICATORS}
+    require(keys,'hybrid_no_due_authorized_scope')
+    return dict(request=request,request_sha256=request_sha256,budget=budget,authorization=authorization,
+        cohort=cohort,mapping=mapping,prior_mapping=prior,groups=groups,selected=selected,checked_keys=keys,
+        attempted_keys=set(),completed_keys=set(),
+        unmapped_securities_HOLD=dict(count=len(missing),missing_sha256=digest(encoded(missing)),
+            cohort_sha256=digest(cohort),mapping_object_sha256=mapping_sha,
+            mapping_source_sha256=universe['sec_ticker_mapping_source_sha256']),
+        focus_keys={'sec/'+c for c in focus},provider_scope=providers,resolved_parent=parent,
+        resolved_parent_execution=latest['execution_receipt_sha256'],descendants_verified=len(descendants),
+        continuation_identity=identity,provider_reservation_plan=dict(gets=gets,bytes=bytes_))
+
+
+def finish_hybrid_cycle(lake, scope):
+    old=lake.before['datasets']; now=lake.catalog['datasets']; checked=scope['checked_keys']
+    require(scope['attempted_keys']==checked,'hybrid_incomplete_request_scope')
+    require(set(now)-set(old)<=checked,'hybrid_unrequested_dataset')
+    for key in set(old)-checked:
+        require(now.get(key)==old[key],'hybrid_unchecked_dataset_changed')
+    for key in checked & set(old) & set(now):
+        before,after=old[key],now[key]
+        if after.get('status')=='COLLECTED' and before.get('objects')==after.get('objects'):
+            after.update(status='UNCHANGED',changed=False)
+            for field in ('retrieved_at','first_available_at'):
+                if field in before: after[field]=before[field]
+    counts={s:sum(now.get(k,{}).get('status')==s for k in checked) for s in
+            ('COLLECTED','UNCHANGED','COVERAGE_GAP','BLOCKED','STALE_RETAINED')}
+    unchecked=sorted(set(old)-checked)
+    providers=scope['provider_scope']
+    disabled={key:'RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE' for key in unchecked
+        if (key.startswith('sec/') and not providers['sec'])
+        or (key.startswith(('current/','alfred/')) and not providers['fred'])
+        or (key.startswith('worldbank/') and not providers['worldbank'])}
+    not_due=[k for k in unchecked if scope['request']['mode']=='HYBRID_DAILY'
+             and k.startswith(('alfred/','worldbank/')) and k not in disabled]
+    complete=scope['completed_keys']==checked and all(
+        now.get(k,{}).get('status') in ('COLLECTED','UNCHANGED') for k in checked)
+    summary=dict(schema='long-history-hybrid-cycle-scope-v1',mode=scope['request']['mode'],
+        request_sha256=scope['request_sha256'],effective_through=scope['request']['through'],
+        checked_scope_sha256=digest(encoded(sorted(checked))),checked_datasets=len(checked),
+        checked_status_counts=counts,focus_current=sum(k in scope['completed_keys'] and
+            now.get(k,{}).get('status') in ('COLLECTED','UNCHANGED') for k in scope['focus_keys']),
+        focus_requested=len(scope['focus_keys']),
+        retained_NOT_CHECKED_THIS_CYCLE=len(unchecked),retained_NOT_DUE=len(not_due),
+        unchecked_scope_sha256=digest(encoded(unchecked)),requested_cycle_complete=complete,
+        full_universe_current=False,historical_pit_certified=False,source_admission=False,
+        integrity_scope='FULL_EXISTING_HISTORY_NOT_A_FOCUS_ONLY_RESTORE',
+        full_restore_elapsed_cost='UNKNOWN_UNTIL_MEASURED',
+        collection_budget=scope['budget'].summary())
+    if '_auto' in scope['request']:
+        terminal=scope['completed_keys']==checked
+        for key in checked:
+            entry=now.get(key,{})
+            if entry.get('status')=='COVERAGE_GAP':hybrid_gap_readback(lake,key,entry)
+            elif entry.get('status') not in ('COLLECTED','UNCHANGED'):terminal=False
+        summary['standing_auto']=copy.deepcopy(scope['request']['_auto'])
+        summary.update(provider_scope=copy.deepcopy(providers),provider_exclusions=disabled,
+            macro_regime_ready=False,whole_macro_complete=False,data_ready=False,
+            terminal_outcomes_complete=terminal,producer_cycle_complete=False,
+            producer_completion_requires='EXACT_CLEAN_EXECUTION_READBACK',
+            unmapped_securities_HOLD=scope['unmapped_securities_HOLD'])
+    scope['summary']=summary
+    scope['detail']=dict(request_sha256=scope['request_sha256'],mode=scope['request']['mode'],
+        continuation_identity=scope['continuation_identity'],baseline=scope['request']['baseline'],
+        resolved_parent=scope['resolved_parent'],resolved_parent_execution=scope['resolved_parent_execution'],
+        descendants_verified=scope['descendants_verified'],through=scope['request']['through'],
+        checked_keys=sorted(checked),NOT_CHECKED_THIS_CYCLE=unchecked,NOT_DUE=not_due,
+        summary_sha256=digest(encoded(summary)),cycle_scope=summary,authorization=scope['authorization'])
+    if '_auto' in scope['request']:
+        scope['detail']['standing_auto']=copy.deepcopy(scope['request']['_auto'])
+    return summary
 
 
 def fred_missing(rows,missing):
@@ -696,6 +1319,8 @@ class Lake:
         require(receipt.get('schema')=='long-history-execution-v1' and
                 receipt.get('run_id')==commit['run_id'] and
                 receipt.get('eligible_for_selector') is False,'execution_schema')
+        require(not ({'source_readback_verified_from_drive','producer_terminal_verified_from_drive'}&set(receipt)),
+                'hybrid_derived_marker_in_receipt')
         require(type(receipt.get('study_recomputed_from_drive')) is bool and
                 type(receipt.get('consumer_rows')) is int and receipt['consumer_rows']>=0,
                 'execution_consumer_evidence')
@@ -707,7 +1332,55 @@ class Lake:
                 quality.get('eligible_for_selector') is False and
                 quality.get('status') in {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'} and
                 quality['status']==receipt.get('quality_status'),'execution_quality_mismatch')
-        return dict(receipt,execution_receipt_sha256=sha)
+        if ('cycle_scope' in receipt or 'cycle_scope' in quality
+                or self.catalog.get('config',{}).get('hybrid_refresh') is not None):
+            require(receipt.get('cycle_scope')==quality.get('cycle_scope')
+                    and type(receipt.get('cycle_scope')) is dict
+                    and digest(encoded(receipt['cycle_scope']))==self.catalog.get('config',{}).get(
+                        'hybrid_refresh',{}).get('summary_sha256'),'hybrid_execution_scope_mismatch')
+        if ('materialization_clock' in receipt or 'materialization_prepublication_clock' in quality):
+            detail=self.catalog.get('config',{}).get('hybrid_refresh',{})
+            keys=[k for k in detail.get('checked_keys',[])
+                if k.startswith(('current/','alfred/','worldbank/'))
+                and self.catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
+            clock=receipt.get('materialization_clock')
+            require(type(clock) is dict and bool(keys),'materialization_execution_clock_missing')
+            require(clock==materialization_clock(self,keys,self.catalog['config']['through'],
+                    clock['consumption_cutoff_utc']) and
+                    json.loads(verified.get('materialization-clock.json',b'null'))==clock,
+                    'materialization_execution_clock_mismatch')
+            sql_at=hybrid_clock(clock['consumption_cutoff_utc']);created=hybrid_clock(receipt['created_at'])
+            require(sql_at<=created<=hybrid_clock(utc_now()),'materialization_execution_clock_order')
+            if 'materialization_prepublication_clock' in quality:
+                pre=quality['materialization_prepublication_clock']
+                require(pre==materialization_clock(self,keys,self.catalog['config']['through'],
+                            pre['consumption_cutoff_utc']) and
+                        hybrid_clock(pre['consumption_cutoff_utc'])<=sql_at,
+                        'materialization_prepublication_clock_order')
+            study=json.loads(verified.get('macro-evaluation.json',b'{}'))
+            if 'as_of' in study:
+                study_at=hybrid_clock(study['as_of'])
+                require(receipt.get('study_consumption_cutoff_utc')==study_at.isoformat()
+                        and sql_at<=study_at<=created,'materialization_study_clock_order')
+        readback_verified=False;terminal_verified=False
+        if 'source_cycle_readback' in receipt:
+            require(receipt['source_cycle_readback']==hybrid_source_scope_readback(self,receipt['cycle_scope'])
+                    and (receipt['cycle_scope'].get('standing_auto',{}).get('provider_scope',{}).get('fred')
+                         is not False or receipt['study_recomputed_from_drive'] is False),
+                    'hybrid_source_scope_readback_mismatch')
+            readback_verified=True
+            terminal_verified=receipt['source_cycle_readback']['schema']=='long-history-hybrid-source-readback-v2'
+        if 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+            require((receipt.get('producer_cycle_complete') is True)==terminal_verified
+                    and receipt.get('terminal_outcomes_complete')==terminal_verified,
+                    'hybrid_terminal_execution_mismatch')
+        else:
+            require(receipt.get('producer_cycle_complete') is not True,'hybrid_old_partial_not_promoted')
+        result=dict(receipt,execution_receipt_sha256=sha)
+        if readback_verified or 'terminal_outcomes_complete' in receipt.get('cycle_scope',{}):
+            result.update(source_readback_verified_from_drive=readback_verified,
+                          producer_terminal_verified_from_drive=terminal_verified)
+        return result
 
     def publish(self,run_id,config):
         require(re.fullmatch('[A-Za-z0-9_-]{1,100}',run_id),'run_id')
@@ -762,40 +1435,56 @@ class Lake:
             remote_verified=self.transport.remote_verified,eligible_for_selector=False)
 
 
-def collect_financials(lake,cohort,start,through):
-    raw=Path(cohort).read_bytes()
+def collect_financials(lake,cohort,start,through,*,_hybrid=None):
+    if _hybrid is not None and not _hybrid['provider_scope']['sec']:
+        return dict(status='NOT_CHECKED_THIS_CYCLE',reason='RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE')
+    raw=_hybrid['cohort'] if _hybrid is not None else Path(cohort).read_bytes()
     require(digest(raw)==COHORT_SHA,'cohort_hash')
     payload=json.loads(raw)
     members=payload['rows']
     require(payload['candidate_count']==len(members) and payload['as_of']<=through,'cohort_identity')
-    mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
-    prior_mapping,prior_sources=prior_sec_mapping(lake,with_sources=True)
-    groups,missing,resolution=issuer_queue(members,json.loads(mapping_raw),prior_mapping)
+    if _hybrid is None:
+        mapping_raw,_=get_public('https://www.sec.gov/files/company_tickers.json')
+        prior_mapping,prior_sources=prior_sec_mapping(lake,with_sources=True)
+        mapping=json.loads(mapping_raw)
+    else:
+        mapping=_hybrid['mapping']; prior_mapping=_hybrid['prior_mapping']
+    groups,missing,resolution=issuer_queue(members,mapping,prior_mapping)
+    full_issuer_count=len(groups)
     current_ciks={row['cik'] for row in resolution if row['identity_status'] in
         ('CURRENT_SEC_MAPPING','CURRENT_SEC_MAPPING_WITH_HISTORY_CONFLICT')}
     history_ciks={cik for row in resolution for cik in row.get('history_retained_ciks',
         [row['cik']] if row['identity_status']=='PRIOR_SEC_MAPPING_RETAINED_LIFECYCLE_REVIEW' else [])}
     retrieved=utc_now()
-    lake.dataset('universe/cohort',[raw,mapping_raw],members,dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
-        rows=len(members),requested_securities=len(members),mapped_issuers=len(current_ciks),
-        current_mapped_issuer_count=len(current_ciks),history_retained_issuer_count=len(history_ciks),
-        collection_issuer_count=len(groups),
-        current_mapping_issuer_keys=sorted('sec/'+cik for cik in current_ciks),
-        history_retained_issuer_keys=sorted('sec/'+cik for cik in history_ciks),
-        collection_issuer_keys=sorted('sec/'+cik for cik in groups),
-        active_issuer_keys=sorted('sec/'+cik for cik in groups),missing=missing,
-        lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),
-        sec_identity_resolution=resolution,
-        cohort_source_object_sha256=digest(packed(raw)),
-        sec_ticker_mapping_object_sha256=digest(packed(mapping_raw)),
-        sec_ticker_mapping_source_sha256=digest(mapping_raw),
-        sec_ticker_mapping_retrieved_at=retrieved,
-        historical_sec_mapping_object_sha256s=list(dict.fromkeys(
-            [digest(packed(mapping_raw))]+prior_sources)),
-        source_role_contract_version='cohort-sec-mapping-v1'))
+    if _hybrid is None:
+        lake.dataset('universe/cohort',[raw,mapping_raw],members,dict(evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
+            rows=len(members),requested_securities=len(members),mapped_issuers=len(current_ciks),
+            current_mapped_issuer_count=len(current_ciks),history_retained_issuer_count=len(history_ciks),
+            collection_issuer_count=len(groups),
+            current_mapping_issuer_keys=sorted('sec/'+cik for cik in current_ciks),
+            history_retained_issuer_keys=sorted('sec/'+cik for cik in history_ciks),
+            collection_issuer_keys=sorted('sec/'+cik for cik in groups),
+            active_issuer_keys=sorted('sec/'+cik for cik in groups),missing=missing,
+            lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),
+            sec_identity_resolution=resolution,
+            cohort_source_object_sha256=digest(packed(raw)),
+            sec_ticker_mapping_object_sha256=digest(packed(mapping_raw)),
+            sec_ticker_mapping_source_sha256=digest(mapping_raw),
+            sec_ticker_mapping_retrieved_at=retrieved,
+            historical_sec_mapping_object_sha256s=list(dict.fromkeys(
+                [digest(packed(mapping_raw))]+prior_sources)),
+            source_role_contract_version='cohort-sec-mapping-v1'))
+    else:
+        require(groups==_hybrid['groups'],'hybrid_issuer_scope_changed')
+        groups={c:groups[c] for c in sorted(_hybrid['selected'])}
     def one(item):
         cik,symbols=item; key='sec/'+cik
         old=lake.catalog['datasets'].get(key,{})
+        if _hybrid is not None:
+            # Covers both the existing three-attempt companyfacts call and its
+            # possible three-attempt404 submissions fallback, without refunds.
+            _hybrid['budget'].provider(6,6*(32*1024*1024+1))
+            _hybrid['attempted_keys'].add(key)
         try:
             # An older restored object can only be reused for the same extraction
             # floor/schema. A changed window forces a full response.
@@ -815,6 +1504,8 @@ def collect_financials(lake,cohort,start,through):
                 rejected_rows=rejected,**fact_coverage(rows,start,through))
             return key,[data],rows,metadata
         except (ValueError,KeyError,TypeError,OSError) as exc:
+            if _hybrid is not None and isinstance(exc,(Refused,TimeoutError,InterruptedError)):
+                raise
             if isinstance(exc,SourceHTTPError) and exc.code==404:
                 try:
                     submissions,_=get_public(f'https://data.sec.gov/submissions/CIK{cik}.json')
@@ -831,14 +1522,19 @@ def collect_financials(lake,cohort,start,through):
                 except (ValueError,KeyError,TypeError,OSError) as sub_exc:
                     return key,None,None,ValueError('SEC_SUBMISSIONS_'+safe_error(sub_exc))
             return key,None,None,exc
-    for count,(key,pages,rows,result) in enumerate(ThreadPoolExecutor(max_workers=6).map(one,sorted(groups.items())),1):
+    work=(map(one,sorted(groups.items())) if _hybrid is not None else
+          ThreadPoolExecutor(max_workers=6).map(one,sorted(groups.items())))
+    for count,(key,pages,rows,result) in enumerate(work,1):
+        if _hybrid is not None: _hybrid['budget'].check()
         if isinstance(result,Exception): lake.blocked(key,result)
         elif result.get('coverage_gap') is True: lake.coverage_gap(key,pages,result)
         elif pages is None: lake.catalog['datasets'][key]=result
         else: lake.dataset(key,pages,rows,result)
+        if _hybrid is not None and not isinstance(result,Exception):
+            _hybrid['completed_keys'].add(key)
         if count%100==0: print(json.dumps(dict(phase='SEC_COLLECTED',issuers=count,total=len(groups))),flush=True)
     return dict(requested_securities=len(members),mapped_issuers=len(current_ciks),
-        history_retained_issuer_count=len(history_ciks),collection_issuer_count=len(groups),
+        history_retained_issuer_count=len(history_ciks),collection_issuer_count=full_issuer_count,
         lifecycle_review_count=sum(row['lifecycle_review_required'] for row in resolution),missing=missing)
 
 
@@ -1020,13 +1716,20 @@ def project_alfred_asof(lake, series, decision_at):
     return result
 
 
-def collect_macros(lake,start,through):
-    for spec in registry()['series']:
+def collect_macros(lake,start,through,*,_hybrid=None):
+    specs=[] if _hybrid is not None and not _hybrid['provider_scope']['fred'] else registry()['series']
+    for spec in specs:
         if spec.get('collection_scope')=='scoped_alfred_only':
             continue
         sid=spec['id']
-        for mode in (['current','alfred'] if sid in ARCHIVES else ['current']):
+        modes=(['current'] if _hybrid is not None and _hybrid['request']['mode']=='HYBRID_DAILY'
+               else ['current','alfred'] if sid in ARCHIVES else ['current'])
+        for mode in modes:
             key=f'{mode}/{sid}'
+            if _hybrid is not None:
+                pages=1 if mode=='current' else FRED_MAX_PAGES
+                _hybrid['budget'].provider(3*pages,3*pages*SCOPED_PAGE_RESERVATION_BYTES)
+                _hybrid['attempted_keys'].add(key)
             try:
                 pages,retrieved=fetch_fred_retry(sid,start,through,mode)
                 if mode=='current': rows,missing=parse_current(pages,sid,start,through,retrieved)
@@ -1065,9 +1768,20 @@ def collect_macros(lake,start,through):
                     entry['retained_source_objects']=sorted(set(dependencies))
                     entry['objects']=sorted(set(entry['objects']+dependencies))
                     entry['retained_from_commit']=lake.parent
-            except Exception as exc: lake.blocked(key,exc)
+                if _hybrid is not None: _hybrid['completed_keys'].add(key)
+            except Exception as exc:
+                if _hybrid is not None:
+                    if isinstance(exc,(Refused,TimeoutError,InterruptedError)): raise
+                    _hybrid['budget'].check()
+                lake.blocked(key,exc)
+    if _hybrid is not None and (_hybrid['request']['mode']=='HYBRID_DAILY'
+                               or not _hybrid['provider_scope']['worldbank']):
+        return
     for indicator in WB_INDICATORS:
         key='worldbank/'+indicator
+        if _hybrid is not None:
+            _hybrid['budget'].provider(3,3*(32*1024*1024+1))
+            _hybrid['attempted_keys'].add(key)
         try:
             url='https://api.worldbank.org/v2/country/'+';'.join(COUNTRIES)+'/indicator/'+indicator+'?'+urlencode(
                 dict(format='json',date=start[:4]+':'+through[:4],per_page=20000))
@@ -1078,6 +1792,7 @@ def collect_macros(lake,start,through):
                 earliest=min(r['observation_date'] for r in rows if r['value'] is not None),latest=max(r['observation_date'] for r in rows if r['value'] is not None),
                 countries=list(COUNTRIES),indicator=indicator,frequency='annual',
                 requested_start=start,requested_through=through,**wb_coverage(rows,start,through)))
+            if _hybrid is not None: _hybrid['completed_keys'].add(key)
         except Exception as exc: lake.blocked(key,exc)
 
 
@@ -1113,26 +1828,51 @@ def diagnostics(lake):
             if d['status']=='COVERAGE_GAP'})
 
 
-def materialize(lake,destination,keys,cutoff):
+def materialization_clock(lake,keys,through,decision_time):
+    """Observation bounds and knowledge clocks are independent; never infer PIT."""
+    decision=hybrid_clock(decision_time)
+    require(decision<=hybrid_clock(utc_now()),'materialization_future_consumption_clock')
+    require(type(through) is str and date.fromisoformat(through).isoformat()==through
+            and through<=decision.date().isoformat(),'materialization_observation_window')
+    for key in keys:
+        entry=lake.catalog['datasets'][key]
+        require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
+        require(entry.get('evidence')!='current_only' or hybrid_clock(entry['retrieved_at'])<=decision,
+                'current_vintage_historical_cutoff_forbidden')
+    return dict(schema='long-history-materialization-clock-v1',observation_through=through,
+        consumption_cutoff_utc=decision.isoformat(),selected_keys_sha256=digest(encoded(sorted(keys))),
+        historical_pit_certified=False)
+
+
+def materialize(lake,destination,keys,cutoff,*,decision_time=None):
     """Rebuildable SQL cache from pinned, verified versions. No PIT relabelling."""
     require(not Path(destination).exists(),'database_already_exists')
+    clock=(materialization_clock(lake,keys,cutoff,decision_time) if decision_time is not None else None)
+    decision=hybrid_clock(clock['consumption_cutoff_utc']) if clock else None
     conn=sqlite3.connect(destination)
     try:
         conn.execute('create table records(dataset text, observation_date text, filed_date text, concept text, unit text, value real, evidence text, payload text)')
         conn.execute('create table provenance(catalog_generation integer, cutoff text, historical_pit_certified integer)')
         conn.execute('insert into provenance values(?,?,0)',(lake.catalog['generation'],cutoff))
+        if clock:
+            conn.execute('create table consumption_context(observation_through text, consumption_cutoff_utc text, historical_pit_certified integer)')
+            conn.execute('insert into consumption_context values(?,?,0)',
+                         (cutoff,clock['consumption_cutoff_utc']))
         count=0
         with conn:
             for key in keys:
                 entry=lake.catalog['datasets'][key]
                 require(entry['status'] in ('COLLECTED','UNCHANGED'),'stale_dataset')
-                require(entry.get('evidence')!='current_only' or cutoff>=entry['retrieved_at'][:10],
+                require(entry.get('evidence')!='current_only' or (
+                        cutoff>=entry['retrieved_at'][:10] if decision is None else
+                        hybrid_clock(entry['retrieved_at'])<=decision),
                         'current_vintage_historical_cutoff_forbidden')
                 for row in lake.get_records(key):
                     observed=row.get('observation_date',row.get('end'))
                     if observed and observed>cutoff: continue
                     if row.get('filed') and row['filed']>cutoff: continue
-                    if row.get('available_at') and row['available_at'][:10]>cutoff: continue
+                    if row.get('available_at') and (row['available_at'][:10]>cutoff if decision is None
+                            else hybrid_clock(row['available_at'])>decision): continue
                     conn.execute('insert into records values(?,?,?,?,?,?,?,?)',(key,observed,row.get('filed'),row.get('concept',row.get('series')),row.get('unit'),row.get('value'),row.get('evidence',entry['evidence']),json.dumps(row)))
                     count+=1
             conn.execute('create index lookup on records(dataset,observation_date,filed_date)')
@@ -1187,31 +1927,63 @@ def analyze_restored(lake, root, start, through):
 
 
 def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_start, through, report,
-                      recovery=None):
+                      recovery=None, cycle=None):
     transport=consumer.transport
     require(consumer.parent==result['commit_sha256'] and digest(encoded(consumer.catalog))==result['catalog_sha256'],
             'consumer_generation_mismatch')
     keys=[k for k,d in consumer.catalog['datasets'].items() if k.startswith(('current/','alfred/','worldbank/'))
           and d['status'] in ('COLLECTED','UNCHANGED')]
+    if cycle is not None:
+        keys=[k for k in keys if k in cycle['checked_keys']]
+        require(not keys or through==consumer.catalog['config']['through'],
+                'materialization_observation_catalog_mismatch')
+    source_only=cycle is not None and cycle['summary'].get('standing_auto',{}).get(
+        'provider_scope',{}).get('fred') is False
+    consumption_at=utc_now() if cycle is not None and keys else None
+    sql_clock=(materialization_clock(consumer,keys,through,consumption_at) if consumption_at else None)
     with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
-        consumer_rows=materialize(consumer,Path(workspace)/'macro.sqlite',keys,through)
+        consumer_rows=(0 if source_only and not keys else
+                       materialize(consumer,Path(workspace)/'macro.sqlite',keys,through,
+                           **(dict(decision_time=consumption_at) if consumption_at else {})))
         phase_counts['rows']=consumer_rows
+    if sql_clock is not None:
+        result['materialization_clock']=sql_clock
+        (reports/'materialization-clock.json').write_bytes(encoded(sql_clock))
     try:
-        with _history_phase('STUDY'):
-            study_result,context=analyze_restored(consumer,Path(workspace)/'study',macro_start,through)
-        context['catalog_sha256']=result['catalog_sha256']
-        with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
-            (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
-            (reports/'engine-context.json').write_bytes(encoded(context))
-        result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+        if source_only:
+            proof=(hybrid_source_scope_readback(consumer,cycle['summary'])
+                   if cycle['summary'].get('terminal_outcomes_complete',
+                                            cycle['summary']['requested_cycle_complete']) else None)
+            result.update(study_recomputed_from_drive=False,macro_regime_ready=False,
+                          whole_macro_complete=False,study_blocked_reason='FRED_RIGHTS_BLOCKED_OR_DISABLED_THIS_CYCLE')
+            if proof is not None:result['source_cycle_readback']=proof
+        else:
+            study_result,context=None,None
+            with _history_phase('STUDY'):
+                study_result,context=analyze_restored(consumer,Path(workspace)/'study',macro_start,through)
+            context['catalog_sha256']=result['catalog_sha256']
+            if cycle is not None:
+                context.update(cycle_scope=cycle['summary'],
+                    study_input_scope='ARCHIVAL_RESEARCH_WITH_RETAINED_NOT_CHECKED_INPUTS',
+                    whole_universe_current=False)
+            with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
+                (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
+                (reports/'engine-context.json').write_bytes(encoded(context))
+            result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+            if cycle is not None and 'as_of' in study_result:
+                result['study_consumption_cutoff_utc']=hybrid_clock(study_result['as_of']).isoformat()
+            if cycle is not None and cycle['summary'].get('terminal_outcomes_complete') is True:
+                result['source_cycle_readback']=hybrid_source_scope_readback(consumer,cycle['summary'])
     except (Refused,TimeoutError,InterruptedError):
         # Cancellation is not a partial study result and must not publish a receipt.
         raise
     except (ValueError,KeyError,TypeError,OSError) as exc:
         result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
-    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
+    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_HYBRID_SOURCE_SCOPE' if source_only
+                  else 'VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
     if recovery is not None:
-        require(result['study_recomputed_from_drive'],'finalization_study_not_complete')
+        require(result['study_recomputed_from_drive'] or (source_only and
+                'source_cycle_readback' in result),'finalization_study_not_complete')
         with _history_phase('FINALIZATION_RECHECK', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256']):
             require(consumer.restore_catalog()[0]==result['commit_sha256'],'finalization_head_changed')
             require(consumer.verified_execution(allow_missing=True) is None,'finalization_execution_changed')
@@ -1228,11 +2000,28 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
         reports=durable_reports,consumer_rows=consumer_rows,
         study_recomputed_from_drive=result['study_recomputed_from_drive'],
         quality_status=report['status'],eligible_for_selector=False)
+    for key in ('materialization_clock','study_consumption_cutoff_utc'):
+        if key in result:receipt[key]=result[key]
     if recovery is not None:
         receipt['recovery']=recovery
+    producer=False
+    if cycle is not None:
+        receipt['cycle_scope']=cycle['summary']
+        if 'source_cycle_readback' in result:
+            receipt['source_cycle_readback']=result['source_cycle_readback']
+        if 'terminal_outcomes_complete' in cycle['summary']:
+            producer=result.get('source_cycle_readback',{}).get('schema')=='long-history-hybrid-source-readback-v2'
+            receipt.update(producer_cycle_complete=producer,terminal_outcomes_complete=producer)
+        result.update(cycle_scope=cycle['summary'],whole_universe_current=False)
     raw=encoded(receipt); receipt_sha=digest(raw)
     with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
         transport.write(f'{PREFIX}/executions/{receipt_sha}',raw)
+    if producer:
+        require(consumer.restore_catalog()[0]==result['commit_sha256'],'hybrid_terminal_head_changed')
+        verified=consumer.verified_execution()
+        require(verified['execution_receipt_sha256']==receipt_sha
+                and verified['producer_terminal_verified_from_drive'] is True,'hybrid_terminal_execution_readback')
+        result.update(producer_cycle_complete=True,terminal_outcomes_complete=True)
     if recovery is not None:
         verified=consumer.verified_execution()
         require(verified['execution_receipt_sha256']==receipt_sha and verified.get('recovery')==recovery,
@@ -1242,6 +2031,9 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
     with _history_phase('LOCAL_PUBLICATION_WRITE'):
         (reports/'publication.json').write_bytes(encoded(result))
     print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
+    if cycle is not None:
+        return 0 if cycle['summary']['requested_cycle_complete'] and (result['study_recomputed_from_drive']
+            or (source_only and 'source_cycle_readback' in result)) else 2
     if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
     return 0
 
@@ -1282,19 +2074,95 @@ def finalize_existing(lake, args, reports):
     result=dict(commit_sha256=lake.parent,catalog_sha256=commit['catalog'],new_packs=0,
                 verified_new_bytes=0,remote_verified=lake.transport.remote_verified,eligible_for_selector=False)
     if existing is not None:
-        require(existing['study_recomputed_from_drive'],'finalization_existing_incomplete_execution')
+        source_only=config.get('hybrid_refresh',{}).get('standing_auto',{}).get(
+            'provider_scope',{}).get('fred') is False
+        require(existing['study_recomputed_from_drive'] or (source_only and hybrid_execution_ready(
+            existing,allow_source_scope=True)),'finalization_existing_incomplete_execution')
         result.update(status='ALREADY_FINALIZED',execution_receipt_sha256=existing['execution_receipt_sha256'],
                       quality_status=existing['quality_status'],consumer_rows=existing['consumer_rows'])
         (reports/'publication.json').write_bytes(encoded(result))
         print('LONG_HISTORY_SUMMARY '+json.dumps(result),flush=True)
-        return 2 if existing['quality_status'] in ('PARTIAL','PARTIAL_COVERAGE') else 0
+        return 0 if source_only and hybrid_execution_ready(existing,allow_source_scope=True) else (
+            2 if existing['quality_status'] in ('PARTIAL','PARTIAL_COVERAGE') else 0)
     recovery=dict(schema='long-history-finalization-v1',source_run_id=commit['run_id'],
                   source_head_sha=args.source_head_sha,finalization_run_id=args.run_id,
                   finalizer_head_sha=code,provider_requests_executed=0,new_data_commits=0)
     report=diagnostics(lake)
+    cycle=None
+    if config.get('hybrid_refresh') is not None:
+        detail=config['hybrid_refresh']; summary=detail.get('cycle_scope')
+        require(type(summary) is dict and digest(encoded(summary))==detail.get('summary_sha256')
+                and digest(encoded(detail.get('checked_keys')))==summary.get('checked_scope_sha256'),
+                'hybrid_recovery_scope')
+        cycle=dict(summary=summary,checked_keys=set(detail['checked_keys']))
+        report.update(inventory_quality_status=report['status'],status='PARTIAL_COVERAGE',cycle_scope=summary)
     (reports/'quality.json').write_bytes(encoded(report))
     return complete_consumer(lake,result,reports,args.workspace,run_id=commit['run_id'],
-                             macro_start=macro_start,through=through,report=report,recovery=recovery)
+                             macro_start=macro_start,through=through,report=report,recovery=recovery,cycle=cycle)
+
+
+def run_hybrid(args, request, request_sha256, *, auto=None):
+    """Same Source/Lake publication path, with a checked explicit subset boundary."""
+    from tools.alpaca_sip_campaign import RuntimeMeter
+    budget=HybridBudget(request)
+    reports=Path(args.report_dir)
+    require(not reports.exists() or not any(reports.iterdir()),'hybrid_report_replay')
+    reports.mkdir(parents=True,exist_ok=True)
+    try:
+        with RuntimeMeter.process_deadline(budget):
+            if auto is None:
+                approval=authorize_hybrid(request,request_sha256,args.hybrid_approval_reference)
+            else:
+                profile,original_sha=auto
+                approval=authorize_auto(profile,original_sha,args.hybrid_approval_reference)
+                request=auto_request(profile,original_sha,run=approval['run'],reservation=approval['reservation'])
+                request_sha256=digest(encoded(request))
+                require(args.run_id=='history-'+str(approval['run']['id'])+'-1','auto_cli_run_identity')
+                claim_auto_invocation(approval)
+            transport=HybridTransport(args.remote,budget)
+            with _history_phase('INITIAL_RESTORE'):
+                lake=Lake(transport,args.workspace)
+            scope=prepare_hybrid_scope(lake,request,request_sha256,budget,approval)
+            with _history_phase('MACRO_COLLECTION'):
+                collect_macros(lake,request['macro_start'],request['through'],_hybrid=scope)
+            with _history_phase('FINANCIAL_COLLECTION'):
+                collect_financials(lake,args.cohort,request['financial_start'],request['through'],_hybrid=scope)
+            budget.check()
+            summary=finish_hybrid_cycle(lake,scope)
+            report=diagnostics(lake)
+            report.update(inventory_quality_status=report['status'],
+                status=('PARTIAL_COVERAGE' if summary.get('terminal_outcomes_complete',False) else 'PARTIAL')
+                    if auto is not None else ('PARTIAL' if report['status']=='PARTIAL' else 'PARTIAL_COVERAGE'),
+                cycle_scope=summary)
+            sql_keys=[k for k in sorted(scope['checked_keys'])
+                if k.startswith(('current/','alfred/','worldbank/'))
+                and lake.catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
+            if sql_keys:
+                # Fail a predictable clock/window refusal before committing data.
+                # Consumption independently takes a new actual post-restore clock.
+                report['materialization_prepublication_clock']=materialization_clock(
+                    lake,sql_keys,request['through'],utc_now())
+            (reports/'quality.json').write_bytes(encoded(report))
+            config=dict(macro_start=request['macro_start'],financial_start=request['financial_start'],
+                through=request['through'],cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),
+                countries=list(COUNTRIES),worldbank_indicators=list(WB_INDICATORS),
+                registry_sha256=digest(encoded(registry())),hybrid_refresh=scope['detail'])
+            with _history_phase('PUBLICATION'):
+                result=lake.publish(args.run_id,config)
+            with _history_phase('CLEAN_CONSUMER_RESTORE',commit_sha256=result['commit_sha256'],
+                                catalog_sha256=result['catalog_sha256']):
+                consumer=Lake(transport,Path(args.workspace)/'clean-consumer')
+            return complete_consumer(consumer,result,reports,args.workspace,run_id=args.run_id,
+                macro_start=request['macro_start'],through=request['through'],report=report,cycle=scope)
+    except BaseException:
+        print('HYBRID_STOP '+json.dumps(dict(request_sha256=request_sha256,
+              state='FAILED_NOT_COMPLETE',budget=budget.summary()),sort_keys=True),flush=True)
+        raise
+    finally:
+        # A small local attempt receipt, not accepted Source state or a new ledger.
+        (reports/'hybrid-meter.json').write_bytes(encoded(dict(schema='long-history-hybrid-meter-v1',
+            request_sha256=request_sha256,budget=budget.summary(),source_admission=False,
+            historical_pit_certified=False,economic_authority=False)))
 
 
 def main():
@@ -1311,9 +2179,31 @@ def main():
     p.add_argument('--source-head-sha',default='')
     p.add_argument('--scoped-alfred-request',default='')
     p.add_argument('--scoped-alfred-request-sha256',default='')
+    p.add_argument('--hybrid-mode',default='LEGACY')
+    p.add_argument('--hybrid-request',default='')
+    p.add_argument('--hybrid-request-sha256',default='')
+    p.add_argument('--hybrid-approval-reference',default='')
     args=p.parse_args()
     finalizing=finalization_mode(args.finalize_commit_sha256,args.finalize_catalog_sha256,args.source_head_sha)
     scoped=bool(args.scoped_alfred_request or args.scoped_alfred_request_sha256)
+    hybrid=args.hybrid_mode!='LEGACY' or bool(args.hybrid_request or args.hybrid_request_sha256
+                                            or args.hybrid_approval_reference)
+    if hybrid:
+        require(args.hybrid_mode in HYBRID_MODES|{'HYBRID_AUTO'} and args.hybrid_request
+                and args.hybrid_request_sha256 and args.hybrid_approval_reference
+                and not scoped and not finalizing,'hybrid_explicit_inputs_required')
+        with Path(args.hybrid_request).open('rb') as stream:
+            raw=stream.read(65537)
+        auto=None
+        if args.hybrid_mode=='HYBRID_AUTO':
+            profile=auto_profile(raw,args.hybrid_request_sha256)
+            auto=(profile,args.hybrid_request_sha256)
+            request=auto_request(profile,args.hybrid_request_sha256)
+        else:
+            request=hybrid_request(raw,args.hybrid_request_sha256,args.hybrid_mode)
+        require(args.macro_start==request['macro_start'] and args.financial_start==request['financial_start'],
+                'hybrid_cli_window_conflict')
+        return run_hybrid(args,request,args.hybrid_request_sha256,auto=auto)
     require(not scoped or (args.scoped_alfred_request and args.scoped_alfred_request_sha256
                           and not finalizing),'scoped_request_inputs')
     request=None
@@ -1335,6 +2225,9 @@ def main():
         with _history_phase('MACRO_COLLECTION'):
             meter=collect_scoped_alfred(lake,request)
         config=copy.deepcopy(lake.before['config'])
+        # A separately scoped ALFRED run is not a continuation authorization for
+        # the previous financial hybrid family. Its old record stays in history.
+        config.pop('hybrid_refresh',None)
         config.update(registry_sha256=digest(encoded(registry())),
             scoped_alfred_request_sha256=args.scoped_alfred_request_sha256,
             scoped_alfred_request=request,scoped_alfred_reservations=meter)
