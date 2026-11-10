@@ -10196,3 +10196,24 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   defaults and stopped at the new input gate. Disable macro only in that
   selection-boundary fixture; retain every retry/causality assertion and run
   the registered aggregate, not only the new macro test class.
+
+## 2026-11-10 - Bind managed cadence to external roles and exact weekly sessions
+
+- Oldest-first across all tracked names does not prioritize holdings. Preserve
+  role then coverage order through actual provider groups, not just selection:
+  mixed-role windows can otherwise pull WATCH ahead of an ETF in another window.
+- A positions hash without its independently reviewed exact ticker set does not
+  authenticate Actual holdings. UNKNOWN is not empty; a CSV locator, NaN-to-zero
+  normalization or empty model positions must not become an Actual empty account.
+  Keep independently verified ETF/candidate work and partial holdings explicit.
+- A holiday Friday needs a separately pinned week/session catchup contract.
+  Preserve actual session labels, close/endpoint buffers and the ordinary age
+  guard; an unchanged Tue-Sat schedule does not provide Sunday/Monday slots.
+- An exact roster hash is not dynamic roster automation. Replacement requires
+  the existing OWNER/A0 rebind and continuation accounting, with original failed
+  costs/journals retained. Never reset usage, infer new authority or erase held
+  history when moving between daily and weekly roles.
+- The first synthetic cadence run declared a capture through one more session
+  than its fixture rows contained; the unchanged archive checker correctly held
+  it. Bind fixture end-exclusive dates to their actual rows, retain the failure
+  and cost, and never weaken the production coverage check to fix the test.
