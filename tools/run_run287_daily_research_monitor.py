@@ -553,7 +553,7 @@ def cadence_observation(source: dict, session: str) -> dict:
             "stale_role_counts": stale, "source_admission": False}
 
 
-def _review_source_row(key: str, source: dict, session: str, now: datetime) -> tuple[dict, dict]:
+def _review_source_row(key: str, source: dict, session: str, now: datetime) -> tuple[dict | None, dict]:
     run = source.get("run", {})
     if (type(run.get("id")) is not int or run["id"] <= 0
             or type(run.get("run_attempt")) is not int or run["run_attempt"] <= 0
@@ -571,6 +571,21 @@ def _review_source_row(key: str, source: dict, session: str, now: datetime) -> t
     # collection of underlying prices. No private values enter public snapshots.
     status = "FAILED" if source.get("status") in {"UPSTREAM_FAILED", "BLOCKED_SOURCE"} else "MISSING"
     values, period = {"source_status": source.get("status", "MISSING_SOURCE")}, available.date().isoformat()
+    if key == "a1_forward":
+        managed = forward_a1_context(source, session)["managed_generation"]
+        values["source_status"] = managed["status"]
+        if managed["status"] == "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION":
+            # A checked producer checkpoint is neither missing nor a changed
+            # economic REGIME. Preserve its proof without scheduling A5 risk.
+            reference.update(reason=managed["status"],
+                classification="PRODUCER_COMPLETION_ONLY_NOT_ECONOMIC_OBSERVATION",
+                producer_evidence={k: managed[k] for k in ("status", "session", "checkpoint_sha256")},
+                source_admission=False, pit_verified=False, economic_authority=False)
+            return None, reference
+        if managed["status"] == "STALE":
+            status = "STALE"
+        elif managed["status"] in {"MANAGED_REFRESH_BLOCKED", "MANAGED_EVIDENCE_UNVERIFIED", "FUTURE"}:
+            status = "FAILED"
     if key == "a4_forward":
         view = forward_a4_context(source, session, now)
         values = {"source_status": view["status"], "reason_codes": view["reason_codes"]}
@@ -653,6 +668,9 @@ def reassessment_handoff(sources: dict, session: str, now: datetime, contract: d
     for key, source in sorted(sources.items()):
         try:
             row, ref = _review_source_row(key, source, session, now)
+            if row is None:
+                refs.append(ref)
+                continue
             extra = []
             if key == "a4_forward" and row["status"] == "OBSERVED":
                 original = source["data"]["summary"]["market_analysis"].get("candidate_reassessment_snapshot")

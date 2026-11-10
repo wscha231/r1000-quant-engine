@@ -563,6 +563,57 @@ class ForwardContextTests(unittest.TestCase):
         self.assertIn("forward_source_context", monitor.render(report))
         self.assertIn("forward_source_context", monitor.render_html(report))
 
+    def test_checked_managed_checkpoint_is_not_missing_or_economic_regime(self):
+        for parent_conclusion in ("success", "failure"):
+            with self.subTest(parent_conclusion=parent_conclusion):
+                feed = self.Feed("a1_forward", self.managed_payload(), conclusion=parent_conclusion)
+                feed.set_jobs(proxy="failure" if parent_conclusion == "failure" else "success")
+                source = self.collect("a1_forward", feed)
+                before = copy.deepcopy(source)
+                value = monitor.reassessment_handoff({"a1_forward": source}, self.session, NOW,
+                                                       CONTRACT, code_sha="a" * 40)
+                self.assertEqual(source, before)
+                self.assertEqual(value["current_snapshot"]["rows"], [])
+                self.assertEqual(value["review_requests"], [])
+                reference = value["source_refs"][0]
+                self.assertEqual(reference["producer_evidence"]["status"],
+                                 "MANAGED_CHECKPOINT_REPORTED_FOR_SESSION")
+                self.assertEqual(reference["producer_evidence"]["checkpoint_sha256"], "c" * 64)
+                for key in ("source_admission", "pit_verified", "economic_authority"):
+                    self.assertIs(reference[key], False)
+                self.assertFalse(value["global_scope_complete"])
+                self.assertFalse(value["consumption_ack"])
+                later = NOW + monitor.timedelta(minutes=5)
+                source["metadata_collected_at"] = later.isoformat()
+                source["files"]["result"]["sha256"] = "d" * 64
+                repeated = monitor.reassessment_handoff({"a1_forward": source}, self.session, later,
+                    CONTRACT, previous=value, code_sha="a" * 40)
+                self.assertEqual(repeated["review_intake_id"], value["review_intake_id"])
+                self.assertEqual(repeated["new_event_ids"], [])
+                self.assertEqual(repeated["review_requests"], [])
+
+    def test_missing_blocked_stale_and_conflicting_managed_evidence_stays_repair_only(self):
+        cases = []
+        missing = self.Feed("a1_forward"); missing.set_jobs()
+        cases.append(("missing", missing))
+        blocked = self.Feed("a1_forward", self.managed_payload(blocked=True), conclusion="failure")
+        blocked.set_jobs(managed="failure"); cases.append(("failed", blocked))
+        stale = self.Feed("a1_forward", self.managed_payload(date="2026-09-03"))
+        stale.set_jobs(); cases.append(("stale", stale))
+        conflict = self.managed_payload(); conflict["meter"]["managed_checkpoint_sha256"] = "d" * 64
+        bad = self.Feed("a1_forward", conflict); bad.set_jobs(); cases.append(("conflict", bad))
+        admitted = self.managed_payload(); admitted["result"]["source_admission"] = True
+        bad = self.Feed("a1_forward", admitted); bad.set_jobs(); cases.append(("false_admission", bad))
+        for name, feed in cases:
+            with self.subTest(case=name):
+                source = self.collect("a1_forward", feed)
+                value = monitor.reassessment_handoff({"a1_forward": source}, self.session, NOW,
+                                                       CONTRACT, code_sha="a" * 40)
+                self.assertIn("A6", {r["agent"] for r in value["review_requests"]})
+                self.assertNotIn("A5", {r["agent"] for r in value["review_requests"]})
+                self.assertTrue(all(r["status"] != "OBSERVED" for r in value["current_snapshot"]["rows"]))
+                self.assertTrue(all(v is False for v in value["safety"].values()))
+
     def test_proxy_success_and_managed_failure_are_distinct(self):
         a1 = self.Feed("a1_forward", self.managed_payload(blocked=True), conclusion="failure")
         a1.set_jobs(managed="failure")

@@ -10260,6 +10260,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   access. A new null fixture incorrectly expected missing-receipt status; retain
   that failed run and the existing unverified status instead of weakening the
   parser or claiming an unreachable static example was reproduced.
+- A current A1 job/checkpoint/meter replay is producer completion evidence,
+  not a missing source or an economic regime change. Preserve its original
+  proof in the handoff while leaving Source/PIT/ER authority false; stale,
+  blocked or conflicting evidence still requests repair. A successful managed
+  job can remain observable when a different parent-workflow job failed.
+- When inserting regression methods, preserve the preceding method's final
+  assertions in their original scope; retain fixture NameError failures and
+  their elapsed cost rather than deleting the displaced assertion.
 - Financial/macro hybrid storage receipts alone cannot account for failed work
   before publication. A separately OWNER-bound finite workflow run-number
   allocation can reserve every slot, including deleted/failed/skip gaps, with
