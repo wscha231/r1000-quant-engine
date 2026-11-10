@@ -37,11 +37,12 @@ def prices(ticker='SPY'):
 
 
 class ReaderTest(unittest.TestCase):
-    def financial_reader_fixture(self, *, durable=False, verified_original=False, generic_generation=None):
+    def financial_reader_fixture(self, *, durable=False, verified_original=False, generic_generation=None,
+                                 hybrid_variant=None):
         from a1_reader_generation_binding_smoke import bound_financial_fixture
         from tools.research_data_access import FINANCIAL_DATASET
         bound,trust,blobs,_,_=bound_financial_fixture(durable=durable,verified_original=verified_original,
-            generic_generation=generic_generation)
+            generic_generation=generic_generation,hybrid_variant=hybrid_variant)
         holder={'manifest':bound.manifest};calls=[]
         class Memory:
             def read(_,path):
@@ -57,6 +58,19 @@ class ReaderTest(unittest.TestCase):
             args.update(changes)
             return reader.read_components(FINANCIAL_DATASET,digest(holder['manifest']),**args)
         return holder,trust,blobs,calls,read
+
+    def test_financial_hybrid_variants_replay_public_reader_without_global_or_drive_admission(self):
+        for variant in ('scope_only','materialization','study','source_v1','source_v2_held','source_v2_partial'):
+            with self.subTest(variant=variant):
+                holder,t,blobs,calls,read=self.financial_reader_fixture(hybrid_variant=variant)
+                batch=read();receipt=batch.results['financial'].receipt
+                self.assertEqual(receipt['original_producer_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+                self.assertIs(receipt['original_producer_study_recomputed_from_drive'],variant=='study')
+                self.assertEqual(receipt['original_producer_global_completeness'],'NOT_CERTIFIED')
+                self.assertFalse(receipt['historical_pit']);self.assertFalse(receipt['source_admitted'])
+                self.assertFalse(receipt['eligible_for_economics'])
+                self.assertNotIn('source_readback_verified_from_drive',receipt)
+                self.assertNotIn('producer_terminal_verified_from_drive',receipt)
 
     def test_financial_verified_original_replays_actual_component_API_without_admission(self):
         holder,t,blobs,calls,read=self.financial_reader_fixture(verified_original=True)

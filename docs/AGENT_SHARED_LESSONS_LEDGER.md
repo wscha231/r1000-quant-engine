@@ -10391,3 +10391,17 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   for later generations of the same producer. Bind the positive generation and
   changed object/clock identity through commit/catalog/execution/QA; reject old
   QA replay and retain all forward-only, partial-global and no-admission flags.
+- A raw financial producer receipt may carry the canonical hybrid scope, clock
+  and source-outcome fields. Reuse the same metadata validator as the full Lake,
+  with bounded original report bytes; do not replace an exact-key refusal with
+  blanket trust or a fake Lake/derived Drive marker. Keep actual source/gap/body
+  readback in the full Lake and selected-issuer reconstruction in the Reader.
+  Reported held/unmapped outcomes and partial study status are not admission.
+  Preserve earlier actual generations under their real producer HEAD; a later
+  code correction and unexecuted fixtures cannot relabel those receipts.
+- Independent static review caught a shared wrong-shape fixture: terminal-v2
+  cohort_sha256 hashes decompressed cohort JSON, while catalog raw_objects
+  hashes gzip bytes. Comparing them would reject the real canonical producer.
+  Preserve source-role metadata and the full Lake decompression checks, and
+  use a receipt generated through actual local Lake/finish/complete-consumer
+  APIs so a fixture cannot repeat the implementation's byte-domain mistake.

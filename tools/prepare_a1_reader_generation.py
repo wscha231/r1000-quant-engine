@@ -1798,7 +1798,8 @@ def _financial_verified_origin(e, trust, proofs, metadata, raw_size, normalized_
     completed receipt is never whole-cohort, historical-PIT or economic authority.
     No Lake, transport, trust factory, reconstruction or publication is invoked.
     """
-    from tools.long_history_lake import SCHEMA as LAKE_SCHEMA
+    from tools.long_history_lake import (SCHEMA as LAKE_SCHEMA,
+        execution_metadata_report_names, validate_execution_metadata)
     origin = e['origin']
     def document(ref, limit=4 * 1024 * 1024):
         require(type(ref) is dict and set(ref) == {'sha256', 'bytes'} and
@@ -1831,9 +1832,7 @@ def _financial_verified_origin(e, trust, proofs, metadata, raw_size, normalized_
             ds['rows'] == trust.normalized_rows and ds['extraction_sha256'] == trust.extraction_sha256 and
             all(ds[k] == origin[k] for k in ('start','through','retrieved_at','checked_at')),
             'FINANCIAL_ORIGINAL_DATASET')
-    fields = {'schema','run_id','created_at','catalog_sha256','commit_sha256','reports',
-              'consumer_rows','study_recomputed_from_drive','quality_status','eligible_for_selector'}
-    require(type(execution) is dict and fields <= set(execution) <= fields | {'recovery'} and
+    require(type(execution) is dict and
             ('recovery' not in execution or type(execution['recovery']) is dict) and
             execution['schema'] == 'long-history-execution-v1' and execution['run_id'] == origin['run_id'] and
             execution['catalog_sha256'] == origin['catalog_sha256'] and
@@ -1845,6 +1844,24 @@ def _financial_verified_origin(e, trust, proofs, metadata, raw_size, normalized_
             quality['schema'] == 'long-history-quality-v1' and quality['eligible_for_selector'] is False and
             quality['status'] == execution['quality_status'] and quality['status'] in
                 {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'}, 'FINANCIAL_ORIGINAL_EXECUTION')
+    # Only already authenticated, bounded proof bytes enter the shared metadata
+    # validator. This does not construct a Lake or assert any original body read.
+    try:
+        report_values = {'quality.json': quality}
+        for name in execution_metadata_report_names(execution, quality):
+            if name != 'quality.json':
+                sha = execution['reports'][name]
+                require(sha in proofs, 'FINANCIAL_ORIGINAL_REPORT_MISSING')
+                report_values[name] = metadata(proofs[sha], 4 * 1024 * 1024)
+        validate_execution_metadata(execution,
+            commit_sha256=origin['commit_sha256'], commit=commit, catalog=catalog,
+            quality=quality, report_values=report_values,
+            validation_clock=e['first_verified_readback_at'])
+    except Exception as exc:
+        # Preserve cancellation/deadline subclasses and accumulated byte charges.
+        if type(exc) not in (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            raise
+        raise BindingError('FINANCIAL_ORIGINAL_PRODUCER_METADATA') from None
     if 'recovery' in execution:
         recovery = execution['recovery']
         require(set(recovery) == {'schema','source_run_id','source_head_sha','finalization_run_id',
