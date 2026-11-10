@@ -10405,3 +10405,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Preserve source-role metadata and the full Lake decompression checks, and
   use a receipt generated through actual local Lake/finish/complete-consumer
   APIs so a fixture cannot repeat the implementation's byte-domain mistake.
+- A shared producer validator also governs registered Lake regressions. Keep
+  their synthetic bare receipts and hybrid scopes canonical, not only the new
+  Reader fixtures. Isolate missing receipt clocks from missing report proofs,
+  and assert each exact earliest refusal without weakening runtime gates or
+  relabeling an older fixture run as current-head validation.
