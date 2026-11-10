@@ -3,6 +3,32 @@
   "repository": "wscha231/r1000-quant-engine",
   "branch": "master",
   "purpose": "Read-only research handoff; workflow success is not data freshness or investment approval.",
+  "reassessment": {
+    "schema": "monitor-reassessment-handoff-v1",
+    "profile": "free-first-review-inputs-v1",
+    "max_bytes": 2000000,
+    "max_rows": 256,
+    "expiry_hours": 24,
+    "exposure_index": null,
+    "completion_workflows": {
+      "Free Data Daily Update": "free_data_daily_update.yml",
+      "Daily Crisis Monitor": "daily_crisis_monitor.yml"
+    },
+    "previous_monitor": {
+      "workflow": "run287_daily_research_monitor.yml",
+      "allowed_events": ["schedule", "workflow_dispatch", "workflow_run"],
+      "artifact_prefix": "run287-daily-research-monitor-",
+      "artifact_name": "run287-daily-research-monitor-{run_id}-{run_attempt}",
+      "max_artifact_bytes": 4194304,
+      "max_member_bytes": 2000000,
+      "members": {"report": "report.json"}
+    },
+    "outputs": ["candidate_reassessment.json", "a0_parameter_proposals.json", "review_queue.csv"],
+    "etf_publication_schema": "etf-published-review-handoff-v1",
+    "etf_original_decoder": "tools.run287_etf_rotation.decode_a3_review_requests",
+    "privacy": "New public snapshots contain semantic digests and provenance metadata only. Private price/holding payloads are not copied; full trusted intake exports require an explicit private destination.",
+    "meaning": "Stable review requests only; no A0 consumption ACK, Source admission, ER, weights or accepted account writes. Missing private ETF bytes or trusted source_intake blocks that scope."
+  },
   "max_artifact_bytes": 536870912,
   "max_member_bytes": 16777216,
   "theme_etf_bridge": {

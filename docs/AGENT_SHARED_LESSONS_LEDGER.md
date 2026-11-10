@@ -10223,3 +10223,31 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   does not prove the same basket, and module caching/monkeypatches are not proof
   that the inspected source bytes are the code being executed. Keep legacy pins
   intact; retain observed Windows code hashes separately from reviewed Git-LF.
+
+## 2026-11-10 - Scheduled observations are review requests, not portfolio authority
+
+- Reuse the existing semantic reassessment bridge and original A0 intake roles,
+  models, hashes and clocks. A report, queued REVIEW or consumable parameter
+  export is neither an A0 consumption ACK nor completed A3/ER/A5 work. Keep
+  unrelated Paper frontiers independent and unknown holdings explicitly unknown.
+- A READY status alone does not detect changed risk. Hash the incumbent current
+  state/risk axes and replay eligible original typed snapshots. Preserve their
+  expiry; an expired child cannot be repackaged as a fresh24-hour observation.
+- Re-derive ETF parameters from the checked decoder/publication provenance;
+  arbitrary extra agent/parameter dictionaries must be refused. Producer private
+  byte readback precedes safe metadata publication; a payload hash alone never
+  reconstructs an event. A3 still rereads the private originals through its reader.
+- Public monitor snapshots contain semantic digests, safe IDs, receipt hashes,
+  clocks and counts rather than new SIP/price values, Actual holdings, private
+  Drive IDs or signed URLs. Keep full intake exports outside published outputs.
+- Daily tier readiness can coexist with an older valid weekly target. Neither
+  a complete daily subset nor a Source cadence report certifies the whole
+  current universe, Source/PIT admission, validated ER or portfolio weights.
+- The first consumer fixture omitted canonical code/mission originals and the
+  unchanged materializer correctly refused state identity. Restore only those
+  original fixture observations; keep absent Source/G0/ER/books blocked and
+  preserve the failed run instead of weakening verify_state.
+- Clear decoded ETF intents when a later collection-clock check refuses them;
+  successful decoding alone must not leave requests available after rejection.
+  Preserve launcher parse failures separately from Python results and charge a
+  conservative elapsed bound when the original shell timing is unavailable.
