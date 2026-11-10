@@ -10377,3 +10377,17 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Source; validate frozen positives and exact current/changed-source refusals.
   The separately reviewed ETF pin covers producer review-handoff code only,
   with Source/PIT/financial/ER admission still false. Keep all failed proofs.
+- Keep a known original financial producer separate from a new reuse execution.
+  A matched Gen30 origin needs its own explicit trusted mode, original receipt
+  pin and commit/catalog/config/issuer/extraction/QA linkage; do not erase that
+  evidence to satisfy the old unmatched G29/R9 contract. Preserve PARTIAL global
+  quality and the actual study flag. A completed receipt is neither whole-cohort
+  completeness nor PIT/market-join/valuation/ER/A5 or economic authority. Reject
+  invalid matched evidence without legacy fallback and carry resource charges
+  through preparation, binding and the existing Reader replay.
+- Do not turn a fixed successful Gen30/three-issuer archive-QA receipt into a
+  permanent generation or cohort-size gate. Preserve that exact proof variant,
+  and use a separately versioned bounded selected-issuer reconstruction proof
+  for later generations of the same producer. Bind the positive generation and
+  changed object/clock identity through commit/catalog/execution/QA; reject old
+  QA replay and retain all forward-only, partial-global and no-admission flags.

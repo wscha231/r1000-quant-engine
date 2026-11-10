@@ -37,10 +37,11 @@ def prices(ticker='SPY'):
 
 
 class ReaderTest(unittest.TestCase):
-    def financial_reader_fixture(self, *, durable=False):
+    def financial_reader_fixture(self, *, durable=False, verified_original=False, generic_generation=None):
         from a1_reader_generation_binding_smoke import bound_financial_fixture
         from tools.research_data_access import FINANCIAL_DATASET
-        bound,trust,blobs,_,_=bound_financial_fixture(durable=durable)
+        bound,trust,blobs,_,_=bound_financial_fixture(durable=durable,verified_original=verified_original,
+            generic_generation=generic_generation)
         holder={'manifest':bound.manifest};calls=[]
         class Memory:
             def read(_,path):
@@ -56,6 +57,38 @@ class ReaderTest(unittest.TestCase):
             args.update(changes)
             return reader.read_components(FINANCIAL_DATASET,digest(holder['manifest']),**args)
         return holder,trust,blobs,calls,read
+
+    def test_financial_verified_original_replays_actual_component_API_without_admission(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture(verified_original=True)
+        result=read();receipt=result.results['financial'].receipt
+        self.assertEqual(receipt['original_producer_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+        self.assertEqual(receipt['execution_receipt_sha256'],t.execution_receipt_sha256)
+        self.assertEqual(result.receipt['reuse_execution_receipt_sha256'],t.execution_receipt_sha256)
+        self.assertNotEqual(t.execution_receipt_sha256,t.original_execution_receipt_sha256)
+        self.assertEqual(result.receipt['original_producer_quality_status'],'PARTIAL')
+        self.assertFalse(result.receipt['original_producer_study_recomputed_from_drive'])
+        self.assertEqual(receipt['original_source']['matching_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+        for key in ('source_admitted','historical_pit','eligible_for_economics','qualified_market_join',
+                    'eligible_for_valuation','eligible_for_er','eligible_for_a5'):
+            self.assertIs(receipt[key],False)
+        self.assertEqual(len(calls),len(set(calls)))
+
+    def test_financial_verified_original_wrong_trust_or_historical_purpose_cannot_fallback(self):
+        from dataclasses import replace
+        holder,t,blobs,calls,read=self.financial_reader_fixture(verified_original=True)
+        for changes in (dict(purpose='backtest'),dict(purpose='training'),
+                        dict(financial_trust=replace(t,original_execution_receipt_sha256='0'*64)),
+                        dict(financial_trust=replace(t,origin_mode='LEGACY_UNMATCHED_G29_V1'))):
+            with self.subTest(changes=tuple(changes)),self.assertRaises(ContractError):read(**changes)
+
+    def test_financial_generic_future_generation_uses_existing_public_reader(self):
+        holder,t,blobs,calls,read=self.financial_reader_fixture(generic_generation=31)
+        batch=read();receipt=batch.results['financial'].receipt
+        self.assertEqual(receipt['original_producer_generation'],31)
+        self.assertEqual(batch.receipt['original_producer_generation'],31)
+        self.assertEqual(receipt['original_producer_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+        self.assertEqual(receipt['reuse_execution_receipt_sha256'],t.execution_receipt_sha256)
+        self.assertFalse(receipt['historical_pit']);self.assertFalse(receipt['eligible_for_economics'])
 
     def test_financial_local_component_preserves_original_facts_and_not_current_scope(self):
         holder,t,blobs,calls,read=self.financial_reader_fixture()
