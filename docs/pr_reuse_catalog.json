@@ -316,7 +316,7 @@
       "superseded_by": null,
       "do_not_repeat_refs": [],
       "dependency_hashes": {
-        "tools/long_history_lake.py": "291d522194bd64f8ad0941b692021a242e5966559d2991b3bf620485b2f5126e",
+        "tools/long_history_lake.py": "e9d28fd981b393f94d786ec0c3239655cdb6dfc893aae9e5777ea43e00816887",
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
         "docs/RESEARCH_DATA_ACCESS.md": "403680df3e2856e248a552687f776c10697d0951ce233ee78a3df7a7365beb3a",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
@@ -1106,7 +1106,7 @@
         "tools/research_data_access.py": "76c8416de98d67d6f9b41366b465bb6bf28a84037c89849f7216633a113882de",
         "data_static/research_dataset_registry_v1.json": "ff367db8c344ccbeadd7b7b511cc55360d6055ac401c9303bb4eff029aac8257",
         "r1000_legacy_input_guard.py": "9ac8ab6e95c43c3de8e63f72f1393ac600ae53628d0c339f8df6587b6408bc89",
-        "tools/long_history_lake.py": "291d522194bd64f8ad0941b692021a242e5966559d2991b3bf620485b2f5126e",
+        "tools/long_history_lake.py": "e9d28fd981b393f94d786ec0c3239655cdb6dfc893aae9e5777ea43e00816887",
         "tools/macro_history_sources.py": "14e5588e9945bd537583a807abddcc10c99ac6ccf347d190d5202b02257bec18",
         "tools/macro_research_checkpoint.py": "f7d91f1529ac5052bc4b2011a45121b1deb210b75dc3967e765c175bc71a0175",
         "tools/run_data_freshness_contract.py": "6d5f2af03b3a713a83b4ff75ffc50cb7480916cb6aae1323c383944b7c1e13be"

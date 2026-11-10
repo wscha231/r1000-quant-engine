@@ -10285,3 +10285,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   two broad catalog refusals remain BLOCKED. Restrict the final canary to the
   actual permitted Lake pins and unchanged catalog fields, rather than repeatedly
   running passing suites or accepting unrelated catalog failures as success.
+- AUTO provider permissions must be explicit and immutable: disabled FRED uses
+  null rights evidence, preserves retained bytes/clocks, makes no FRED fetch and
+  cannot feed a new archived macro study or current regime. Verify eligible
+  SEC/WB normalized originals under a distinct source-only cycle readback;
+  macro-study, Reader, training and economic readiness remain false/blocked.
+  Review the consolidated official FRED API terms(k/l), without inferring
+  blanket illegality or deleting prior research. Fixed-v1/legacy stay strict.

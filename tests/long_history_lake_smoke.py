@@ -2446,6 +2446,7 @@ class AutoHybridTest(unittest.TestCase):
         r.update(schema='long-history-hybrid-auto-v1',profile_id='synthetic-auto',mode='HYBRID_AUTO',
             expires_at='2026-11-02T12:00:00Z',repository_id=123,workflow_id=456,
             workflow_path=self.h.AUTO_WORKFLOW,first_run_number=10,last_run_number=20,
+            provider_scope=dict(sec=True,fred=True,worldbank=True),
             code_pins={p:digest((ROOT/p).read_bytes().replace(b'\r\n',b'\n')) for p in self.h.AUTO_PINS},
             per_run_allowance=copy.deepcopy(self.request()['budget']))
         r['total_reservation']={k:11*r['per_run_allowance'][k] for k in self.h.AUTO_RESOURCES}
@@ -2632,6 +2633,90 @@ class AutoHybridTest(unittest.TestCase):
                 transport.read_call('cat','synthetic')
         self.assertEqual(call.call_count,2)
         self.assertEqual(budget.used['transport_calls'],2)
+
+    def test_provider_scope_requires_disabled_null_and_active_real_evidence_hash(self):
+        for scope,rights in ((dict(sec=True,fred=False,worldbank=False),self.request()['rights_sha256']),
+            (dict(sec=True,fred=True,worldbank=True),dict(sec='d'*64,fred=None,worldbank='e'*64)),
+            (dict(sec=False,fred=False,worldbank=False),dict(sec=None,fred=None,worldbank=None))):
+            p=self.profile();p.update(provider_scope=scope,rights_sha256=rights);raw=encoded(p)
+            with self.assertRaisesRegex(ValueError,'rights_evidence_required|explicit_provider_scope'):
+                self.h.auto_profile(raw,digest(raw),now=self.now)
+        r=self.request();r['rights_sha256']['fred']=None;raw=encoded(r)
+        with self.assertRaisesRegex(ValueError,'rights_evidence_required'):
+            self.h.hybrid_request(raw,digest(raw),r['mode'],now=self.now)
+
+    def test_auto_reserves_whole_job_and_rerun_skips_before_checkout(self):
+        import yaml
+        p=self.profile();p['per_run_allowance']['active_seconds']=480
+        p['total_reservation']['active_seconds']=11*480;raw=encoded(p)
+        with self.assertRaisesRegex(ValueError,'auto_per_run_allowance'):
+            self.h.auto_profile(raw,digest(raw),now=self.now)
+        workflow=yaml.safe_load((ROOT/self.h.AUTO_WORKFLOW).read_bytes())
+        job=workflow['jobs']['history']
+        self.assertEqual(job['timeout-minutes'],120)
+        self.assertIn("((inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY') != 'HYBRID_AUTO' || github.run_attempt == 1)",job['if'])
+        self.assertNotIn('env.',job['if'])
+
+    def test_sec_only_excludes_fred_worldbank_preserves_clocks_and_readbacks_without_macro(self):
+        p=self.profile();p['provider_scope']=dict(sec=True,fred=False,worldbank=False)
+        p['rights_sha256'].update(fred=None,worldbank=None)
+        p['per_run_allowance']['provider_gets']=6;p['total_reservation']['provider_gets']=66
+        sha=digest(encoded(p));self.h.auto_profile(encoded(p),sha,now=self.now)
+        r=self.h.auto_request(p,sha,now=self.now,run=dict(id=77,run_number=10))
+        scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+            self.h.HybridBudget(r,live_transport=False),{})
+        self.assertEqual(scope['provider_reservation_plan']['gets'],6)
+        self.assertEqual(scope['checked_keys'],{'sec/0000000001'})
+        before=copy.deepcopy(self.lake.catalog['datasets'])
+        with patch.object(self.h,'fetch_fred_retry',side_effect=AssertionError('FRED_FORBIDDEN')), \
+             patch.object(self.h,'get_public',return_value=(None,dict(etag='fixture'))) as public:
+            self.h.collect_macros(self.lake,r['macro_start'],r['through'],_hybrid=scope)
+            self.h.collect_financials(self.lake,'unused',r['financial_start'],r['through'],_hybrid=scope)
+        self.assertEqual(public.call_count,1)
+        for key,entry in before.items():
+            if key.startswith(('current/','alfred/','worldbank/')):
+                self.assertEqual(self.lake.catalog['datasets'][key],entry)
+        summary=self.h.finish_hybrid_cycle(self.lake,scope)
+        self.assertTrue(summary['requested_cycle_complete']);self.assertFalse(summary['data_ready'])
+        self.assertFalse(summary['macro_regime_ready']);self.assertFalse(summary['whole_macro_complete'])
+        self.assertEqual(len(summary['provider_exclusions']),50)
+        result=self.lake.publish('synthetic-sec-only-10',dict(self.config,hybrid_refresh=scope['detail']))
+        consumer=Lake(self.t,self.root/'sec-consumer');reports=self.root/'sec-reports';reports.mkdir()
+        report=self.h.diagnostics(consumer);report.update(status='PARTIAL_COVERAGE',cycle_scope=summary)
+        (reports/'quality.json').write_bytes(encoded(report))
+        with patch.object(self.h,'analyze_restored',side_effect=AssertionError('FRED_STUDY_FORBIDDEN')) as study, \
+             patch.object(self.h,'materialize',side_effect=AssertionError('NO_MACRO_SQL')):
+            code=self.h.complete_consumer(consumer,result,reports,self.root/'sec',run_id='synthetic-sec-only-10',
+                macro_start=r['macro_start'],through=r['through'],report=report,cycle=scope)
+        study.assert_not_called();self.assertEqual(code,0)
+        receipt=consumer.verified_execution();self.assertFalse(receipt['study_recomputed_from_drive'])
+        self.assertEqual(len(receipt['source_cycle_readback']['checked']),1)
+        self.assertFalse((reports/'macro-evaluation.json').exists())
+        r=self.h.auto_request(p,sha,now=self.now,run=dict(id=78,run_number=11))
+        scope2=self.h.prepare_hybrid_scope(consumer,r,digest(encoded(r)),
+            self.h.HybridBudget(r,live_transport=False),{})
+        self.assertEqual(scope2['descendants_verified'],1)
+
+    def test_weekly_worldbank_scope_skips_sec_fred_and_does_not_certify_failed_cycle(self):
+        p=self.profile();p['provider_scope']=dict(sec=False,fred=False,worldbank=True)
+        p['rights_sha256'].update(sec=None,fred=None);sha=digest(encoded(p))
+        clock='2026-10-31T06:37:00Z'
+        with patch.object(self.h,'utc_now',return_value=clock):
+            self.h.auto_profile(encoded(p),sha)
+            r=self.h.auto_request(p,sha)
+            scope=self.h.prepare_hybrid_scope(self.lake,r,digest(encoded(r)),
+                self.h.HybridBudget(r,live_transport=False),{})
+            self.assertEqual(scope['provider_reservation_plan']['gets'],12)
+            self.assertEqual(len(scope['checked_keys']),4)
+            before=copy.deepcopy(self.lake.catalog['datasets']['sec/0000000001'])
+            with patch.object(self.h,'fetch_fred_retry',side_effect=AssertionError('FRED_FORBIDDEN')), \
+                 patch.object(self.h,'get_public',side_effect=ValueError('SYNTHETIC_WB_FAILURE')) as public:
+                self.h.collect_financials(self.lake,'unused',r['financial_start'],r['through'],_hybrid=scope)
+                self.h.collect_macros(self.lake,r['macro_start'],r['through'],_hybrid=scope)
+            self.assertEqual(public.call_count,4)
+            self.assertEqual(self.lake.catalog['datasets']['sec/0000000001'],before)
+            summary=self.h.finish_hybrid_cycle(self.lake,scope)
+            self.assertFalse(summary['requested_cycle_complete']);self.assertFalse(summary['data_ready'])
 
 
 if __name__=='__main__': unittest.main()

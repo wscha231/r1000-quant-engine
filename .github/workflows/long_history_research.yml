@@ -81,7 +81,7 @@ jobs:
   history:
     # A code merge must not implicitly launch a provider collection. Existing
     # manual and scheduled producer runs keep their original execution boundary.
-    if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master' && github.event_name != 'push'
+    if: github.repository == 'wscha231/r1000-quant-engine' && github.ref == 'refs/heads/master' && github.event_name != 'push' && ((inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY') != 'HYBRID_AUTO' || github.run_attempt == 1)
     concurrency:
       group: durable-long-history-single-writer
       cancel-in-progress: false

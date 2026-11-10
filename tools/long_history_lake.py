@@ -291,7 +291,7 @@ def hybrid_clock(value):
     return result.astimezone(timezone.utc)
 
 
-def hybrid_request(raw, expected_sha256, mode, *, now=None):
+def hybrid_request(raw, expected_sha256, mode, *, now=None, _auto_provider_scope=None):
     """Integrity/shape only; live OWNER authorization is independently required."""
     require(type(raw) is bytes and 0<len(raw)<=65536 and mode in HYBRID_MODES
             and isinstance(expected_sha256,str) and re.fullmatch('[a-f0-9]{64}',expected_sha256)
@@ -339,7 +339,9 @@ def hybrid_request(raw, expected_sha256, mode, *, now=None):
             and r['through']<=decision.date().isoformat(), 'hybrid_date_window')
     rights=r['rights_sha256']
     require(type(rights) is dict and set(rights)=={'fred','sec','worldbank'}
-            and all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in rights.values()),
+            and all((isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v))
+                    if _auto_provider_scope is None or _auto_provider_scope[k] else v is None
+                    for k,v in rights.items()),
             'hybrid_rights_evidence_required')
     b=r['budget']
     require(type(b) is dict and set(b)=={'provider_gets','provider_bytes','transport_calls',
@@ -444,11 +446,14 @@ def auto_profile(raw, expected_sha256, *, now=None):
         'roster_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256',
         'focus_pairs','baseline','macro_start','financial_start','available_at','not_before',
         'expires_at','rights_sha256','repository_id','workflow_id','workflow_path',
-        'first_run_number','last_run_number','per_run_allowance','total_reservation','opening_floor'}
+        'first_run_number','last_run_number','per_run_allowance','total_reservation','opening_floor','provider_scope'}
     require(type(r) is dict and set(r)==fixed and r['schema']=='long-history-hybrid-auto-v1'
             and r['mode']=='HYBRID_AUTO' and r['purpose']=='PRIVATE_NONCOMMERCIAL_RESEARCH'
             and isinstance(r['profile_id'],str) and re.fullmatch('[A-Za-z0-9_-]{1,65}',r['profile_id']),
             'auto_profile_fields')
+    require(type(r['provider_scope']) is dict and set(r['provider_scope'])=={'sec','fred','worldbank'}
+            and all(type(v) is bool for v in r['provider_scope'].values())
+            and any(r['provider_scope'].values()),'auto_explicit_provider_scope')
     now=hybrid_clock(utc_now()) if now is None else now
     first,available,expiry=(hybrid_clock(r[k]) for k in ('not_before','available_at','expires_at'))
     require(first<=available<=now<expiry and expiry-first<=timedelta(days=31),'auto_original_window')
@@ -463,7 +468,7 @@ def auto_profile(raw, expected_sha256, *, now=None):
     b=r['per_run_allowance']
     require(type(b) is dict and set(b)==set(AUTO_RESOURCES)|{'max_chain_commits','max_issuers'}
             and all(type(v) is int and 0<v<=2**53-1 for v in b.values())
-            and 480<=b['active_seconds']<=7200 and b['max_chain_commits']<=20000
+            and b['active_seconds']==7200 and b['max_chain_commits']<=20000
             and b['max_issuers']<=20000,'auto_per_run_allowance')
     slots=r['last_run_number']-r['first_run_number']+1
     for name in ('total_reservation','opening_floor'):
@@ -502,10 +507,12 @@ def auto_request(profile, profile_sha256, *, now=None, run=None, reservation=Non
         through=through,decision_at=now.isoformat(),expires_at=expiry.isoformat(),
         weekly=dict(week_start=monday.isoformat(),session=through) if weekly else None,
         budget=copy.deepcopy(profile['per_run_allowance']))
-    raw=encoded(r); hybrid_request(raw,digest(raw),r['mode'],now=now)
+    raw=encoded(r); hybrid_request(raw,digest(raw),r['mode'],now=now,
+                                   _auto_provider_scope=profile['provider_scope'])
     r['_auto']=dict(profile_sha256=profile_sha256,original_available_at=profile['available_at'],
         original_not_before=profile['not_before'],original_expires_at=profile['expires_at'],
         observed_at=now.isoformat(),selected_session=through,run=copy.deepcopy(run),
+        provider_scope=copy.deepcopy(profile['provider_scope']),
         reservation=copy.deepcopy(reservation),code_pins_sha256=digest(encoded(profile['code_pins'])))
     return r
 
@@ -540,6 +547,9 @@ def verify_auto_code(profile, context, gh):
     workflow=yaml.safe_load((ROOT/AUTO_WORKFLOW).read_text(encoding='utf-8'))
     jobs=workflow['jobs']; require(set(jobs)=={'history'},'auto_one_fixed_job')
     job=jobs['history']; require('strategy' not in job,'auto_no_matrix')
+    require(job.get('timeout-minutes')==120 and job.get('if','').endswith(
+        " && ((inputs.hybrid_refresh_mode || vars.LONG_HISTORY_REFRESH_MODE || 'LEGACY') != 'HYBRID_AUTO' || github.run_attempt == 1)"),
+        'auto_whole_job_reservation_and_rerun_gate')
     steps=job['steps']; name='Collect full history, persist changes, verify clean consumption'
     collector=[s for s in steps if s.get('name')==name]
     require(len(collector)==1 and collector[0].get('run','').count('python tools/long_history_lake.py')==1
@@ -685,15 +695,42 @@ def hybrid_continuation_identity(r):
     return digest(encoded({k:r[k] for k in keys}))
 
 
+def hybrid_execution_ready(receipt, *, allow_source_scope=False):
+    complete=('cycle_scope' not in receipt or receipt['cycle_scope'].get('requested_cycle_complete') is True)
+    return complete and receipt['quality_status']!='PARTIAL' and (
+        receipt['study_recomputed_from_drive'] or (allow_source_scope
+            and type(receipt.get('source_cycle_readback')) is dict))
+
+
+def hybrid_source_scope_readback(lake, summary):
+    """Only an explicitly FRED-disabled AUTO cycle; never a macro-study receipt."""
+    auto=summary.get('standing_auto',{})
+    require(auto.get('provider_scope',{}).get('fred') is False,'hybrid_source_scope_only')
+    detail=lake.catalog['config']['hybrid_refresh'];keys=detail['checked_keys']
+    require(digest(encoded(keys))==summary['checked_scope_sha256']
+            and keys==sorted(set(keys)) and bool(keys),'hybrid_source_scope_binding')
+    observed=[]
+    for key in keys:
+        require(not key.startswith(('current/','alfred/')),'hybrid_disabled_fred_consumption')
+        provider='sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/') else None
+        require(provider and auto['provider_scope'].get(provider) is True,'hybrid_disabled_provider_consumption')
+        entry=lake.catalog['datasets'][key]
+        require(entry['status'] in ('COLLECTED','UNCHANGED'),'hybrid_source_scope_blocked')
+        rows=lake.get_records(key)
+        observed.append(dict(key=key,normalized=entry['normalized'],objects=entry['objects'],rows=len(rows)))
+    return dict(schema='long-history-hybrid-source-readback-v1',commit=lake.parent,
+        catalog=digest(encoded(lake.catalog)),profile_sha256=auto['profile_sha256'],
+        checked_scope_sha256=summary['checked_scope_sha256'],checked=observed,
+        macro_regime_ready=False,whole_macro_complete=False,source_admission=False,historical_pit_certified=False)
+
+
 def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
     """Resolve only the existing verified descendant chain, never auto-rebind."""
     require(lake.parent and not lake.pending and lake.catalog==lake.before,'hybrid_unclean_parent')
     parent,current=lake.restore_catalog()
     require(parent==lake.parent and current==lake.before,'hybrid_parent_changed_NEEDS_REBIND')
     latest=lake.verified_execution()
-    require(latest['study_recomputed_from_drive'] and latest['quality_status']!='PARTIAL'
-            and ('cycle_scope' not in latest or
-                 latest['cycle_scope'].get('requested_cycle_complete') is True),
+    require(hybrid_execution_ready(latest,allow_source_scope='_auto' in request),
             'hybrid_parent_execution_incomplete')
     baseline=request['baseline']; cursor=parent; descendants=[]; base_catalog=None
     identity=hybrid_continuation_identity(request)
@@ -733,22 +770,28 @@ def prepare_hybrid_scope(lake, request, request_sha256, budget, authorization):
     focus={p['cik'] for p in request['focus_pairs']}
     require(focus<=set(groups),'hybrid_focus_outside_cohort')
     selected=focus if request['mode']=='HYBRID_DAILY' else set(groups)
+    providers=request.get('_auto',{}).get('provider_scope',dict(sec=True,fred=True,worldbank=True))
+    if not providers['sec']: selected=set()
     require(len(selected)<=budget.limits['max_issuers'],'hybrid_issuer_budget')
     specs=[s for s in registry()['series'] if s.get('collection_scope')!='scoped_alfred_only']
     require(len(specs)==34 and len(ARCHIVES)==12,'hybrid_macro_scope_changed_NEEDS_REBIND')
     weekly=request['mode']=='HYBRID_WEEKLY'
-    gets=len(selected)*6+len(specs)*3+(len(ARCHIVES)*3*FRED_MAX_PAGES+len(WB_INDICATORS)*3 if weekly else 0)
-    bytes_=(len(selected)*6*(32*1024*1024+1)+len(specs)*3*SCOPED_PAGE_RESERVATION_BYTES
-            +(len(ARCHIVES)*3*FRED_MAX_PAGES*SCOPED_PAGE_RESERVATION_BYTES
-              +len(WB_INDICATORS)*3*(32*1024*1024+1) if weekly else 0))
+    fred_gets=(len(specs)*3+(len(ARCHIVES)*3*FRED_MAX_PAGES if weekly else 0)) if providers['fred'] else 0
+    wb_gets=len(WB_INDICATORS)*3 if weekly and providers['worldbank'] else 0
+    gets=len(selected)*6+fred_gets+wb_gets
+    bytes_=len(selected)*6*(32*1024*1024+1)+fred_gets*SCOPED_PAGE_RESERVATION_BYTES+wb_gets*(32*1024*1024+1)
     require(gets<=budget.limits['provider_gets'] and bytes_<=budget.limits['provider_bytes'],
             'hybrid_provider_budget_preflight')
-    keys={'sec/'+c for c in selected}|{'current/'+s['id'] for s in specs}
-    if weekly: keys|={'alfred/'+s for s in ARCHIVES}|{'worldbank/'+i for i in WB_INDICATORS}
+    keys={'sec/'+c for c in selected}
+    if providers['fred']:
+        keys|={'current/'+s['id'] for s in specs}
+        if weekly:keys|={'alfred/'+s for s in ARCHIVES}
+    if weekly and providers['worldbank']:keys|={'worldbank/'+i for i in WB_INDICATORS}
+    require(keys,'hybrid_no_due_authorized_scope')
     return dict(request=request,request_sha256=request_sha256,budget=budget,authorization=authorization,
         cohort=cohort,mapping=mapping,prior_mapping=prior,groups=groups,selected=selected,checked_keys=keys,
         attempted_keys=set(),completed_keys=set(),
-        focus_keys={'sec/'+c for c in focus},resolved_parent=parent,
+        focus_keys={'sec/'+c for c in focus},provider_scope=providers,resolved_parent=parent,
         resolved_parent_execution=latest['execution_receipt_sha256'],descendants_verified=len(descendants),
         continuation_identity=identity,provider_reservation_plan=dict(gets=gets,bytes=bytes_))
 
@@ -768,8 +811,13 @@ def finish_hybrid_cycle(lake, scope):
     counts={s:sum(now.get(k,{}).get('status')==s for k in checked) for s in
             ('COLLECTED','UNCHANGED','COVERAGE_GAP','BLOCKED','STALE_RETAINED')}
     unchecked=sorted(set(old)-checked)
+    providers=scope['provider_scope']
+    disabled={key:'RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE' for key in unchecked
+        if (key.startswith('sec/') and not providers['sec'])
+        or (key.startswith(('current/','alfred/')) and not providers['fred'])
+        or (key.startswith('worldbank/') and not providers['worldbank'])}
     not_due=[k for k in unchecked if scope['request']['mode']=='HYBRID_DAILY'
-             and k.startswith(('alfred/','worldbank/'))]
+             and k.startswith(('alfred/','worldbank/')) and k not in disabled]
     complete=scope['completed_keys']==checked and all(
         now.get(k,{}).get('status') in ('COLLECTED','UNCHANGED') for k in checked)
     summary=dict(schema='long-history-hybrid-cycle-scope-v1',mode=scope['request']['mode'],
@@ -786,6 +834,8 @@ def finish_hybrid_cycle(lake, scope):
         collection_budget=scope['budget'].summary())
     if '_auto' in scope['request']:
         summary['standing_auto']=copy.deepcopy(scope['request']['_auto'])
+        summary.update(provider_scope=copy.deepcopy(providers),provider_exclusions=disabled,
+                       macro_regime_ready=False,whole_macro_complete=False,data_ready=False)
     scope['summary']=summary
     scope['detail']=dict(request_sha256=scope['request_sha256'],mode=scope['request']['mode'],
         continuation_identity=scope['continuation_identity'],baseline=scope['request']['baseline'],
@@ -1231,6 +1281,9 @@ class Lake:
                     and type(receipt.get('cycle_scope')) is dict
                     and digest(encoded(receipt['cycle_scope']))==self.catalog.get('config',{}).get(
                         'hybrid_refresh',{}).get('summary_sha256'),'hybrid_execution_scope_mismatch')
+        if 'source_cycle_readback' in receipt:
+            require(receipt['source_cycle_readback']==hybrid_source_scope_readback(self,receipt['cycle_scope'])
+                    and receipt['study_recomputed_from_drive'] is False,'hybrid_source_scope_readback_mismatch')
         return dict(receipt,execution_receipt_sha256=sha)
 
     def publish(self,run_id,config):
@@ -1287,6 +1340,8 @@ class Lake:
 
 
 def collect_financials(lake,cohort,start,through,*,_hybrid=None):
+    if _hybrid is not None and not _hybrid['provider_scope']['sec']:
+        return dict(status='NOT_CHECKED_THIS_CYCLE',reason='RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE')
     raw=_hybrid['cohort'] if _hybrid is not None else Path(cohort).read_bytes()
     require(digest(raw)==COHORT_SHA,'cohort_hash')
     payload=json.loads(raw)
@@ -1566,7 +1621,8 @@ def project_alfred_asof(lake, series, decision_at):
 
 
 def collect_macros(lake,start,through,*,_hybrid=None):
-    for spec in registry()['series']:
+    specs=[] if _hybrid is not None and not _hybrid['provider_scope']['fred'] else registry()['series']
+    for spec in specs:
         if spec.get('collection_scope')=='scoped_alfred_only':
             continue
         sid=spec['id']
@@ -1622,7 +1678,8 @@ def collect_macros(lake,start,through,*,_hybrid=None):
                     if isinstance(exc,(Refused,TimeoutError,InterruptedError)): raise
                     _hybrid['budget'].check()
                 lake.blocked(key,exc)
-    if _hybrid is not None and _hybrid['request']['mode']=='HYBRID_DAILY':
+    if _hybrid is not None and (_hybrid['request']['mode']=='HYBRID_DAILY'
+                               or not _hybrid['provider_scope']['worldbank']):
         return
     for indicator in WB_INDICATORS:
         key='worldbank/'+indicator
@@ -1757,29 +1814,42 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
           and d['status'] in ('COLLECTED','UNCHANGED')]
     if cycle is not None:
         keys=[k for k in keys if k in cycle['checked_keys']]
+    source_only=cycle is not None and cycle['summary'].get('standing_auto',{}).get(
+        'provider_scope',{}).get('fred') is False
     with _history_phase('SQL_MATERIALIZATION', datasets=len(keys)) as phase_counts:
-        consumer_rows=materialize(consumer,Path(workspace)/'macro.sqlite',keys,through)
+        consumer_rows=(0 if source_only and not keys else
+                       materialize(consumer,Path(workspace)/'macro.sqlite',keys,through))
         phase_counts['rows']=consumer_rows
     try:
-        with _history_phase('STUDY'):
-            study_result,context=analyze_restored(consumer,Path(workspace)/'study',macro_start,through)
-        context['catalog_sha256']=result['catalog_sha256']
-        if cycle is not None:
-            context.update(cycle_scope=cycle['summary'],
-                study_input_scope='ARCHIVAL_RESEARCH_WITH_RETAINED_NOT_CHECKED_INPUTS',
-                whole_universe_current=False)
-        with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
-            (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
-            (reports/'engine-context.json').write_bytes(encoded(context))
-        result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
+        if source_only:
+            proof=(hybrid_source_scope_readback(consumer,cycle['summary'])
+                   if cycle['summary']['requested_cycle_complete'] else None)
+            result.update(study_recomputed_from_drive=False,macro_regime_ready=False,
+                          whole_macro_complete=False,study_blocked_reason='FRED_RIGHTS_BLOCKED_OR_DISABLED_THIS_CYCLE')
+            if proof is not None:result['source_cycle_readback']=proof
+        else:
+            study_result,context=None,None
+            with _history_phase('STUDY'):
+                study_result,context=analyze_restored(consumer,Path(workspace)/'study',macro_start,through)
+            context['catalog_sha256']=result['catalog_sha256']
+            if cycle is not None:
+                context.update(cycle_scope=cycle['summary'],
+                    study_input_scope='ARCHIVAL_RESEARCH_WITH_RETAINED_NOT_CHECKED_INPUTS',
+                    whole_universe_current=False)
+            with _history_phase('LOCAL_STUDY_REPORTS', reports=2):
+                (reports/'macro-evaluation.json').write_bytes(encoded(study_result))
+                (reports/'engine-context.json').write_bytes(encoded(context))
+            result.update(study_recomputed_from_drive=True,study_tests=study_result['tests_declared'])
     except (Refused,TimeoutError,InterruptedError):
         # Cancellation is not a partial study result and must not publish a receipt.
         raise
     except (ValueError,KeyError,TypeError,OSError) as exc:
         result.update(study_recomputed_from_drive=False,study_blocked_reason=safe_error(exc))
-    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
+    result.update(consumer_rows=consumer_rows,consumer='VERIFIED_HYBRID_SOURCE_SCOPE' if source_only
+                  else 'VERIFIED_SQL_RESEARCH_CACHE',quality_status=report['status'])
     if recovery is not None:
-        require(result['study_recomputed_from_drive'],'finalization_study_not_complete')
+        require(result['study_recomputed_from_drive'] or (source_only and
+                'source_cycle_readback' in result),'finalization_study_not_complete')
         with _history_phase('FINALIZATION_RECHECK', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256']):
             require(consumer.restore_catalog()[0]==result['commit_sha256'],'finalization_head_changed')
             require(consumer.verified_execution(allow_missing=True) is None,'finalization_execution_changed')
@@ -1800,6 +1870,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
         receipt['recovery']=recovery
     if cycle is not None:
         receipt['cycle_scope']=cycle['summary']
+        if source_only and 'source_cycle_readback' in result:
+            receipt['source_cycle_readback']=result['source_cycle_readback']
         result.update(cycle_scope=cycle['summary'],whole_universe_current=False)
     raw=encoded(receipt); receipt_sha=digest(raw)
     with _history_phase('EXECUTION_RECEIPT_WRITE', commit_sha256=result['commit_sha256'], catalog_sha256=result['catalog_sha256'], application_bytes=len(raw)):
@@ -1814,7 +1886,8 @@ def complete_consumer(consumer, result, reports, workspace, *, run_id, macro_sta
         (reports/'publication.json').write_bytes(encoded(result))
     print('LONG_HISTORY_SUMMARY '+json.dumps(dict(result,financial_issuers=report['financial_issuers'],financial_fact_rows=report['financial_fact_rows'])),flush=True)
     if cycle is not None:
-        return 0 if cycle['summary']['requested_cycle_complete'] and result['study_recomputed_from_drive'] else 2
+        return 0 if cycle['summary']['requested_cycle_complete'] and (result['study_recomputed_from_drive']
+            or (source_only and 'source_cycle_readback' in result)) else 2
     if report['status'] in ('PARTIAL','PARTIAL_COVERAGE') or not result['study_recomputed_from_drive']: return 2
     return 0
 
@@ -1855,12 +1928,16 @@ def finalize_existing(lake, args, reports):
     result=dict(commit_sha256=lake.parent,catalog_sha256=commit['catalog'],new_packs=0,
                 verified_new_bytes=0,remote_verified=lake.transport.remote_verified,eligible_for_selector=False)
     if existing is not None:
-        require(existing['study_recomputed_from_drive'],'finalization_existing_incomplete_execution')
+        source_only=config.get('hybrid_refresh',{}).get('standing_auto',{}).get(
+            'provider_scope',{}).get('fred') is False
+        require(existing['study_recomputed_from_drive'] or (source_only and hybrid_execution_ready(
+            existing,allow_source_scope=True)),'finalization_existing_incomplete_execution')
         result.update(status='ALREADY_FINALIZED',execution_receipt_sha256=existing['execution_receipt_sha256'],
                       quality_status=existing['quality_status'],consumer_rows=existing['consumer_rows'])
         (reports/'publication.json').write_bytes(encoded(result))
         print('LONG_HISTORY_SUMMARY '+json.dumps(result),flush=True)
-        return 2 if existing['quality_status'] in ('PARTIAL','PARTIAL_COVERAGE') else 0
+        return 0 if source_only and hybrid_execution_ready(existing,allow_source_scope=True) else (
+            2 if existing['quality_status'] in ('PARTIAL','PARTIAL_COVERAGE') else 0)
     recovery=dict(schema='long-history-finalization-v1',source_run_id=commit['run_id'],
                   source_head_sha=args.source_head_sha,finalization_run_id=args.run_id,
                   finalizer_head_sha=code,provider_requests_executed=0,new_data_commits=0)
@@ -1908,7 +1985,9 @@ def run_hybrid(args, request, request_sha256, *, auto=None):
             summary=finish_hybrid_cycle(lake,scope)
             report=diagnostics(lake)
             report.update(inventory_quality_status=report['status'],
-                status='PARTIAL' if report['status']=='PARTIAL' else 'PARTIAL_COVERAGE',cycle_scope=summary)
+                status=('PARTIAL_COVERAGE' if summary['requested_cycle_complete'] else 'PARTIAL')
+                    if auto is not None else ('PARTIAL' if report['status']=='PARTIAL' else 'PARTIAL_COVERAGE'),
+                cycle_scope=summary)
             (reports/'quality.json').write_bytes(encoded(report))
             config=dict(macro_start=request['macro_start'],financial_start=request['financial_start'],
                 through=request['through'],cohort_sha256=COHORT_SHA,archives=list(ARCHIVES),

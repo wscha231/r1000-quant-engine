@@ -431,7 +431,10 @@ The strict profile fields are `profile_id`, `mode=HYBRID_AUTO`, private research
 original `not_before`, `available_at`, `expires_at` (at most31days),
 `registry_sha256`, `roster_sha256`, frozen `cohort_sha256`, mapping object/source
 hashes, verified `focus_pairs`, exact baseline commit/catalog/execution,
-`macro_start`, `financial_start` and separate FRED/SEC/WorldBank rights hashes.
+`macro_start`, `financial_start`, explicit `provider_scope` booleans for
+`sec`/`fred`/`worldbank`, and separate rights evidence. Each enabled provider
+requires its evidence hash; a disabled provider requires explicit null, never
+a dummy hash or implied permission. At least one provider must be selected.
 An immutable OWNER/User comment on #448 must bind its **original raw SHA**,
 code-pins digest, purpose, rights hashes and original expiry under
 `LONG_HISTORY_AUTO_OWNER_V1` / `long-history-auto-owner-v1`. Hashes are evidence
@@ -442,6 +445,11 @@ seed is separate from candidate admission, Actual holdings and A3/ER/A5 scope.
 `per_run_allowance` has provider GETs/body reservations, transport CLI calls/body
 reservations, write bytes, active seconds, chain and issuer bounds. The first6
 resource fields define `total_reservation=(LAST-FIRST+1)*PER_RUN`, exactly.
+AUTO reserves the existing whole120-minute job as7200 active seconds per slot,
+including checkout/setup/offline work; this is a reservation, not measured CPU
+or provider time. AUTO attempt2 is skipped by the job condition before checkout
+or dependency installation. The existing fixed-v1/LEGACY/finalizer active-time
+and rerun contracts are unchanged.
 At run number N, **every** slot FIRST..N is charged in full, including deleted,
 failed, skipped, cancelled or unrelated workflow runs and gaps. Opening usage is
 added separately. DAILY and WEEKLY share this one original allocation. There is
@@ -483,3 +491,36 @@ Storage publication, clean consumer study and exact execution receipt are still
 separate gates. A partial publication is not bypassed by selecting an older
 successful parent. Actual activation, permissions/settings, collection and
 Source/PIT/Reader/economic acceptance remain Root's subsequent work.
+
+### Provider rights isolation in AUTO only
+
+The2026-11-10 review of the official consolidated
+[FRED terms](https://fred.stlouisfed.org/legal/terms/) identified API prohibitions
+(k) concerning software/AI development or training and (l) concerning storage,
+cache, archive and database uses. Applicability and purpose-specific permission
+need separate review; a prior API success or a rights-file hash cannot grant
+them. This is not a conclusion about all past data or an instruction to delete
+or rewrite existing files. Current Root preparation keeps `fred=false`, its
+rights reference null, actual FRED capture0 and A8/training authority0.
+
+AUTO plans and fetches only enabled providers. SEC-only daily scope reserves
+only selected SEC requests; enabled WorldBank is due only in WEEKLY. Disabled
+entries retain their exact values, objects and clocks and appear separately as
+NOT_CHECKED_THIS_CYCLE / RIGHTS_BLOCKED_OR_DISABLED_BY_OWNER_PROFILE, rather
+than NOT_DUE or successfully refreshed. Provider selection is part of the
+original immutable profile SHA; changing it cannot reuse that allocation.
+No budget is enlarged or reset. Fixed-v1/legacy all-provider contracts retain
+their original strict non-null rights fields and default behavior.
+
+When FRED is excluded, clean consumption verifies only the selected SEC/WB
+normalized originals and binds an exact `source_cycle_readback` to the current
+commit/catalog/profile/scope. Empty macro SQL is skipped and `analyze_restored`
+is not called: retained FRED cannot produce a new macro evaluation, study,
+learning input or current regime. `study_recomputed_from_drive=false`,
+`macro_regime_ready=false`, `whole_macro_complete=false` and `data_ready=false`
+remain explicit even if the selected financial cycle completes. This new
+source-only readback can continue the same authorized Source family after
+full history/receipt verification; it does not satisfy the existing shared
+research reader's requirement for a completed macro study. Partial selected
+cycles and missing/corrupt readbacks still block. Baseline and legacy research
+study gates remain intact, with no Source/PIT/A3/ER/A5 admission.
