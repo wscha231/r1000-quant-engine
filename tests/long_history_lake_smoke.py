@@ -431,6 +431,7 @@ class HistoryTest(unittest.TestCase):
         quality_sha=digest(quality)
         self.t.write(f'{PREFIX}/reports/{quality_sha}',quality)
         receipt=dict(schema='long-history-execution-v1',run_id='one',
+            created_at=json.loads(self.lake.read_hash('commits',publication['commit_sha256']))['created_at'],
             commit_sha256=publication['commit_sha256'],catalog_sha256=publication['catalog_sha256'],
             reports={'quality.json':quality_sha},consumer_rows=1,
             study_recomputed_from_drive=False,quality_status='PARTIAL',eligible_for_selector=False)
@@ -1835,7 +1836,7 @@ class HistoryTest(unittest.TestCase):
                 {'long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'})
             # Module import alone cannot prove deferred runtime file reads.
             # Execute the actual portable macro suite in the declared checkout.
-            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py']
+            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py','--portable']
             macro=subprocess.run(macro_command,cwd=baseline,env=env,
                                  capture_output=True,text=True,timeout=60)
             self.assertLessEqual(len(macro.stdout)+len(macro.stderr),32768)
@@ -1843,6 +1844,13 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(macro.returncode,0,macro.stdout+macro.stderr)
             self.assertEqual([int(n) for n in re.findall(r'Ran (\d+) tests?',macro.stderr)],
                              [json.loads(positive.stdout)['macro_technical_evidence_smoke']])
+            # Only the collector explicitly selects the original Source suite.
+            # Default PR execution must still require every new A4 dependency;
+            # a missing module cannot silently shrink that registered suite.
+            full=subprocess.run(macro_command[:-1],cwd=baseline,env=env,
+                                capture_output=True,text=True,timeout=60)
+            self.assertNotEqual(full.returncode,0)
+            self.assertIn('a4_macro_bridge_smoke',full.stderr)
             missing_contract=root/'missing-a4-contract';shutil.copytree(baseline,missing_contract)
             (missing_contract/'docs/run287_chameleon_macro_inputs_contract.json').unlink()
             refused=subprocess.run(macro_command,cwd=missing_contract,env=env,
@@ -2834,7 +2842,7 @@ class AutoHybridTest(unittest.TestCase):
         bad['source_cycle_readback']['held'][0]['reason']='MADE_UP'
         original_path.unlink();changed=encoded(bad);bad_path=self.t.root/PREFIX/'executions'/digest(changed)
         self.t.write(PREFIX+'/executions/'+digest(changed),changed)
-        with self.assertRaisesRegex(ValueError,'source_scope_readback_mismatch'):
+        with self.assertRaisesRegex(ValueError,'^hybrid_terminal_metadata$'):
             self.next_terminal_scope(p,sha,consumer)
         bad_path.unlink()
         with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):
@@ -2883,12 +2891,17 @@ class MaterializationClockTest(unittest.TestCase):
         return key
 
     def publish(self,key,*,source_only=False):
-        summary=dict(schema='long-history-hybrid-cycle-scope-v1',requested_cycle_complete=True,
-                     full_universe_current=False,checked_scope_sha256=digest(encoded([key])))
+        summary=dict(schema='long-history-hybrid-cycle-scope-v1',mode='HYBRID_DAILY',
+                     requested_cycle_complete=True,checked_datasets=1,
+                     full_universe_current=False,historical_pit_certified=False,source_admission=False,
+                     checked_scope_sha256=digest(encoded([key])))
         if source_only:
+            # Intentional legacy source-readback-v1 clock fixture. It is not
+            # AUTO terminal-v2 and does not claim a cohort terminal readback.
             summary['standing_auto']=dict(profile_sha256='f'*64,
                 provider_scope=dict(sec=False,fred=False,worldbank=True))
-        detail=dict(checked_keys=[key],summary_sha256=digest(encoded(summary)))
+        detail=dict(checked_keys=[key],cycle_scope=summary,summary_sha256=digest(encoded(summary)))
+        if source_only:detail['standing_auto']=copy.deepcopy(summary['standing_auto'])
         result=self.lake.publish('synthetic-real-sql',dict(through=self.through,hybrid_refresh=detail))
         consumer=Lake(self.transport,self.root/'consumer');reports=self.root/'reports';reports.mkdir()
         (self.root/'work').mkdir()
@@ -2994,7 +3007,12 @@ class MaterializationClockTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,reason):consumer.verified_execution()
         def omitted(receipt):
             del receipt['materialization_clock'];del receipt['reports']['materialization-clock.json']
-        check(omitted,'materialization_execution_clock_missing')
+        check(omitted,'execution_quality_mismatch')
+        def receipt_clock_omitted(receipt):
+            # Retain the authenticated report so this case reaches the missing
+            # receipt-clock guard rather than failing report dependencies first.
+            del receipt['materialization_clock']
+        check(receipt_clock_omitted,'materialization_execution_clock_missing')
         def future(receipt):
             receipt['materialization_clock']['consumption_cutoff_utc']='2026-11-10T06:45:00+00:00'
             report_ref(receipt,'materialization-clock.json',receipt['materialization_clock'])
@@ -3008,7 +3026,7 @@ class MaterializationClockTest(unittest.TestCase):
             check(lambda receipt:receipt.update(created_at='2026-11-10T06:39:00Z'),
                   'materialization_execution_clock_order')
             check(lambda receipt:receipt.update(created_at='2026-11-10T06:51:00Z'),
-                  'materialization_execution_clock_order')
+                  'execution_future_clock')
             def reversed_study(receipt):
                 receipt['study_consumption_cutoff_utc']='2026-11-10T06:41:00+00:00'
                 report_ref(receipt,'macro-evaluation.json',dict(as_of='2026-11-10T06:41:00Z'))

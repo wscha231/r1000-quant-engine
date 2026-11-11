@@ -1019,6 +1019,11 @@ class ResearchDataReader:
             eligible_for_selector=False, eligible_for_economics=False,
             quarter_completeness='NOT_CERTIFIED', statement_completeness='NOT_CERTIFIED',
             registry_sha256=self.registry_sha256, reader_code_sha256=sha256_file(Path(__file__)))
+        if source.get('origin_mode') == 'VERIFIED_ORIGINAL_PRODUCER_V1':
+            receipt.update({key: source[key] for key in ('origin_mode',
+                'original_producer_generation','original_producer_execution_receipt_sha256',
+                'reuse_execution_receipt_sha256','original_producer_quality_status',
+                'original_producer_study_recomputed_from_drive','original_producer_global_completeness')})
         receipt['receipt_sha256'] = digest(encoded(receipt))
         verified = dict(objects)
         if pub_sha is not None:
@@ -1032,6 +1037,11 @@ class ResearchDataReader:
                                    'identity_scope', 'market_security_binding_status', 'qualified_market_join',
                                    'eligible_for_valuation', 'eligible_for_er', 'eligible_for_a5')},
             component_receipts={name: receipt['receipt_sha256']})
+        if source.get('origin_mode') == 'VERIFIED_ORIGINAL_PRODUCER_V1':
+            batch.update({key: receipt[key] for key in ('origin_mode',
+                'original_producer_generation','original_producer_execution_receipt_sha256',
+                'reuse_execution_receipt_sha256','original_producer_quality_status',
+                'original_producer_study_recomputed_from_drive','original_producer_global_completeness')})
         return ComponentReadResult(MappingProxyType({name: result}), _freeze({}), _freeze(batch), encoded(batch))
 
     def _read(self, dataset_id, data_generation_id, *, decision_time, purpose,

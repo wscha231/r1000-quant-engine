@@ -5,6 +5,13 @@ series describe their economic exposures, not an authorization to buy non-US sto
 Current implementation is RESEARCH_ONLY. No targets, accounts, orders or model
 promotion are changed. Full portfolio backtest has not run.
 
+The declared collector sparse checkout explicitly runs
+`tests/macro_technical_evidence_smoke.py --portable`: the original Source-only
+cases. The registered PR command without that flag runs all A4 extensions and
+refuses missing dependencies. Neither mode authenticates current source rights,
+historical PIT, A3 expected returns or an A5 proposal. Workflow/test changes
+still invalidate older AUTO code pins and require the existing owner review.
+
 ## Verified prior work
 
 PR #413 source b6897123b9dfcde5d102cbc1b31800f50b3cc39c was rerun after the
