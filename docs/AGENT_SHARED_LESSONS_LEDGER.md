@@ -10539,3 +10539,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   canonical27 files (475,340 bytes), preserve hashes/policies, and rerun the70
   affected managed-input/execution cases; they pass. This is an environment
   repair, not source admission, changed data or a clean full-run claim.
+- A later Drive probe listed32 commit names, then bounded metadata reads again
+  hit403 shared-client project requests-per-minute quota. Do not turn one list
+  success into verified catalog, execution or pack evidence, or infer the hosted
+  secret uses the desktop's profile. Record the actual auth/readback boundary;
+  use the official owner-client setup guidance without exposing credentials.

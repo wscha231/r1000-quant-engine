@@ -23,6 +23,17 @@ after the first verified publication. Existing state must always restore and
 pass `rclone check` before computation. A per-workflow single writer prevents
 overlapping checkpoint publications.
 
+Authentication must be verified for the actual hosted secret, separately from
+the desktop profile. The desktop's shared rclone client listed32 commit names
+once, then returned403 project requests-per-minute quota on bounded metadata
+reads; no current catalog/execution or original packs were verified. Rclone's
+[official Drive instructions](https://rclone.org/drive/#making-your-own-client-id)
+recommend an owner client_id and document retirement of the shared client in2026.
+Use the existing approved OAuth configuration in `RCLONE_CONFIG_GDRIVE`, or the
+existing approved service-account route, with the same durable namespace; verify
+actual read and research checkpoint readback before activation. Listing success
+alone does not prove stable access, source readiness or persistence.
+
 Set `A4_LEARNING_POLICY_SHA256` to the SHA256 of the original reviewed private
 policy file. Leave it empty while source rights or input qualification is
 unresolved: diagnosis still emits, learning is visibly blocked, and the overall
