@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -73,6 +74,14 @@ class LearningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"BACKDATED_CURRENT"):
             l.fit_trial(p,policy,digest(encoded(policy)),resolve)
 
+    def test_price_original_requires_the_target_specific_reviewed_source(self):
+        p,policy,resolve=fixture()
+        for source_ids in (["fred:SOFR","fred:IORB"],["fred:SOFR","fred:IORB","price:QQQ"]):
+            q=copy.deepcopy(policy)
+            next(iter(q["source_bindings"].values()))["source_ids"]=source_ids
+            with self.subTest(source_ids=source_ids),self.assertRaisesRegex(ValueError,"PRICE_SOURCE_BINDING"):
+                l.fit_trial(p,q,digest(encoded(q)),resolve)
+
     def test_future_versions_do_not_change_prior_feature_prefix(self):
         p,_,_=fixture()
         before=l.replay_features(p["observations"],p["sessions"])
@@ -118,6 +127,18 @@ class LearningTests(unittest.TestCase):
             trial["automatic_promotion_allowed"]=True
             with self.assertRaises(ValueError):l.store_trial(trial,d)
 
+    def test_trial_writer_and_restore_use_one_exact_size_budget(self):
+        from tools.run_a4_research_cycle import restored_trials
+        p,policy,resolve=fixture();trial=l.fit_trial(p,policy,digest(encoded(policy)),resolve)
+        size=len(encoded(trial))
+        with tempfile.TemporaryDirectory() as d:
+            with patch.object(l,"MAX_TRIAL_BYTES",size-1),self.assertRaisesRegex(ValueError,"TRIAL_SIZE"):
+                l.store_trial(trial,d)
+            self.assertFalse((Path(d)/"trials").exists())
+            with patch.object(l,"MAX_TRIAL_BYTES",size):
+                l.store_trial(trial,d)
+                self.assertEqual(restored_trials(d,p["cutoff"]),[trial])
+
     def test_monthly_weekly_cadence_and_no_automatic_promotion(self):
         first=l.cadence("2026-11-07T10:00:00Z")
         repeated=l.cadence("2026-11-07T10:00:00Z",previous_training_month=first["month"],previous_week=first["week"])
@@ -137,6 +158,19 @@ class LearningTests(unittest.TestCase):
         prediction["created_at"]=days[3]["close_utc"]
         with self.assertRaisesRegex(ValueError,"RETROSPECTIVE"):
             l.score_predictions([prediction],p["prices"],days,p["cutoff"])
+
+    def test_scoring_reuses_paths_without_changing_order_or_missingness(self):
+        p,_,_=fixture(300);days=p["sessions"]
+        predictions=[dict(target="SPY",horizon_sessions=h,outcome=outcome,estimate=.01,
+            created_at=days[i]["close_utc"],decision_session=days[i]["session"])
+            for i in (0,1,2,295) for h in (5,252) for outcome in l.OUTCOMES]
+        expected=[l.score_predictions([r],p["prices"],days,p["cutoff"])[0] for r in predictions]
+        with patch.object(l,"price_series",wraps=l.price_series) as prices,patch.object(l,"outcome_labels",wraps=l.outcome_labels) as labels:
+            actual=l.score_predictions(predictions,p["prices"],days,p["cutoff"])
+            self.assertEqual(prices.call_count,1)
+            self.assertEqual(labels.call_count,2)
+        self.assertEqual(actual,expected)
+        self.assertTrue(any(r["status"]=="PENDING_OR_MISSING_PATH" for r in actual))
 
     def test_do_not_repeat_remains_closed_for_rejected_identity(self):
         p,policy,resolve=fixture()

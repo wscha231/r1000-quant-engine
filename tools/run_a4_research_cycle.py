@@ -44,7 +44,7 @@ def restored_trials(state_root, cutoff):
     results=[]
     for file in sorted(files):
         market.need(re.fullmatch(r"[a-f0-9]{64}\.json",file.name),"A4_STATE_FILE_IDENTITY")
-        trial=market.clock.decode(market.bounded(file,32*1024**2))
+        trial=market.clock.decode(market.bounded(file,learning.MAX_TRIAL_BYTES))
         learning.verify_trial(trial)
         market.need(file.stem==trial["trial_sha256"] and
                     market.clock.stamp(trial["cutoff"])<=market.clock.stamp(cutoff),"A4_STATE_CLOCK_OR_IDENTITY")

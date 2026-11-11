@@ -52,7 +52,9 @@ reviewed_rights_pins, reviewed_source_receipt_pins, and source_bindings by origi
 hash. Each binding includes size_bytes, source_ids, purpose, historical_use
 (`FORWARD_CAPTURE_ONLY` or `DATE_ARCHIVE_RESEARCH_ONLY`), rights_evidence_sha256
 and source_receipt_sha256. It also supplies the four-field do-not-repeat
-trial_identity. Source membership, units, clocks, file sizes and original bytes
+trial_identity. Target prices require the exact `price:<ETF>` member in that
+original's reviewed source_ids; a macro-only or other-ETF binding is insufficient.
+Source membership, units, clocks, file sizes and original bytes
 are rechecked. The policy is externally reviewed evidence, not a declaration
 that this consumer independently qualified every source.
 
@@ -68,7 +70,10 @@ five independent daily samples. One-session realized volatility is unknown.
 
 Trial files are content-addressed under `state/trials`; identical writes reuse
 bytes and conflicts refuse. All 14 targets, seven horizons and three outcomes
-remain in the declared family, including insufficient evidence. New trials are
+remain in the declared family. Writer and restore share a32MiB per-trial budget;
+oversized trials are refused before entering state. Weekly scoring caches each
+target/horizon path once per call without changing missing or immature results.
+Insufficient evidence remains in the family. New trials are
 challenger proposals. To explain a later A4 report with a fixed release, an
 external policy must explicitly bind active_trial_sha256 and reviewed_trial_pins.
 Code/math/feature-recipe changes refuse the old release until independently

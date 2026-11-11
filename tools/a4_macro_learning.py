@@ -23,6 +23,7 @@ from tools.check_run287_do_not_repeat import evaluate_candidate, load_registry
 from tools.daily_crisis_report_clock import mcal
 
 SCHEMA = "a4-macro-learning-trial-v1"
+MAX_TRIAL_BYTES = 32 * 1024**2
 SAFETY = dict(causal_effect_identified=False, historical_pit_certified=False,
     automatic_promotion_allowed=False, eligible_for_selector=False,
     portfolio_weight_effect=0, target_book_write_allowed=False, orders_generated=False)
@@ -95,6 +96,11 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
         check(row["source_id"] in binding.get("source_ids", []), "A4_LEARNING_SOURCE_BINDING")
         if binding["historical_use"] == "FORWARD_CAPTURE_ONLY":
             check(free.utc(row["available_at"]) >= free.utc(row["collected_at"]), "A4_LEARNING_BACKDATED_CURRENT")
+    for target, rows in prices.items():
+        check(type(rows) is list and len(rows)<=len(sessions),"A4_LEARNING_PRICE_BUDGET")
+        for row in rows:
+            check("price:"+target in bindings[row["original_sha256"]].get("source_ids",[]),
+                  "A4_LEARNING_PRICE_SOURCE_BINDING")
     return sessions
 
 
@@ -239,9 +245,11 @@ def verify_trial(trial):
 
 def store_trial(trial, root):
     verify_trial(trial)
+    raw=encoded(trial)
+    check(len(raw)<=MAX_TRIAL_BYTES,"A4_LEARNING_TRIAL_SIZE")
     path=Path(root)/"trials"/(trial["trial_sha256"]+".json")
-    exclusive(path,encoded(trial))
-    check(path.read_bytes()==encoded(trial),"A4_LEARNING_TRIAL_READBACK")
+    exclusive(path,raw)
+    check(path.read_bytes()==raw,"A4_LEARNING_TRIAL_READBACK")
     return dict(path="trials/"+path.name,sha256=digest(path.read_bytes()),trial_sha256=trial["trial_sha256"],
                 accepted_model=False,durable_remote_verified=False)
 
@@ -256,22 +264,31 @@ def cadence(cutoff, *, previous_training_month=None, previous_week=None):
 
 def score_predictions(predictions, prices, sessions, cutoff):
     """Score fixed predictions only when the complete next-close path exists."""
+    check(type(predictions) is list and len(predictions)<=100000,"A4_PREDICTION_BUDGET")
     index=calendar_sessions(sessions,cutoff); out=[]
+    close_cache, outcome_cache, entry_cache = {}, {}, {}
     for prediction in predictions:
-        check(prediction["horizon_sessions"] in analysis.HORIZONS and prediction["target"] in analysis.TARGETS,
+        check(prediction["horizon_sessions"] in analysis.HORIZONS and prediction["target"] in analysis.TARGETS
+              and prediction["outcome"] in OUTCOMES,
               "A4_PREDICTION_SCOPE")
         check(free.utc(prediction["created_at"])<=free.utc(cutoff),"A4_FUTURE_PREDICTION")
         decision=pd.Timestamp(prediction["decision_session"])
         check(decision in index,"A4_PREDICTION_SESSION")
         i=index.get_loc(decision); h=prediction["horizon_sessions"]
-        schedule=mcal.get_calendar("NYSE").schedule(start_date=decision.date(),end_date=decision.date()+timedelta(days=14))
-        entry_close=schedule.market_close.iloc[1].to_pydatetime()
+        if i not in entry_cache:
+            if i+1<len(sessions):entry_cache[i]=free.utc(sessions[i+1]["close_utc"])
+            else:
+                schedule=mcal.get_calendar("NYSE").schedule(start_date=decision.date(),end_date=decision.date()+timedelta(days=14))
+                entry_cache[i]=schedule.market_close.iloc[1].to_pydatetime()
+        entry_close=entry_cache[i]
         check(free.utc(sessions[i]["close_utc"])<=free.utc(prediction["created_at"])<entry_close,
               "A4_RETROSPECTIVE_PREDICTION")
         actual=None
         if i+h+1<len(sessions) and free.utc(sessions[i+h+1]["close_utc"])<=free.utc(cutoff):
-            close=price_series(prices.get(prediction["target"],[]),sessions,cutoff)
-            actual=outcome_labels(close,h)[prediction["outcome"]].iloc[i]
+            target=prediction["target"];key=(target,h)
+            if target not in close_cache:close_cache[target]=price_series(prices.get(target,[]),sessions,cutoff)
+            if key not in outcome_cache:outcome_cache[key]=outcome_labels(close_cache[target],h)
+            actual=outcome_cache[key][prediction["outcome"]].iloc[i]
             actual=None if pd.isna(actual) else float(actual)
         estimate=free.number(prediction["estimate"])
         check(estimate is not None,"A4_PREDICTION_ESTIMATE")
