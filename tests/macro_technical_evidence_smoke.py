@@ -2,6 +2,7 @@
 """Offline regressions: publication leakage, revised data, labels and inference."""
 from __future__ import annotations
 
+import argparse
 from datetime import timezone
 from pathlib import Path
 import os
@@ -387,16 +388,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn('synthetic-test-key',source.encoded(calendar).decode())
 
 
-def run_tests():
-    from a4_macro_bridge_smoke import BridgeTests
-    from a4_liquidity_analysis_smoke import LiquidityTests
-    from a4_macro_learning_smoke import LearningTests
-    from a4_cloud_cycle_smoke import CloudTests
-    suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in (EvidenceTests,BridgeTests,LiquidityTests,LearningTests,CloudTests)])
+def run_tests(*, portable=False):
+    classes=[EvidenceTests]
+    if not portable:
+        from a4_macro_bridge_smoke import BridgeTests
+        from a4_liquidity_analysis_smoke import LiquidityTests
+        from a4_macro_learning_smoke import LearningTests
+        from a4_cloud_cycle_smoke import CloudTests
+        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests))
+    suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in classes])
     result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():
         raise AssertionError("macro_technical_evidence_smoke_failed")
 
 
 if __name__ == "__main__":
-    run_tests()
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--portable',action='store_true',
+        help='Run the incumbent Source-only cases in the declared collector sparse checkout; PR validation defaults to all A4 cases.')
+    run_tests(portable=parser.parse_args().portable)

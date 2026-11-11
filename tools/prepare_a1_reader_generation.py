@@ -1715,6 +1715,8 @@ class TrustedFinancialSourceBinding:
     execution_receipt_sha256: str | None = None
     publication_receipt_sha256: str | None = None
     publication_scope: str = 'LOCAL_ONLY'
+    origin_mode: str = 'LEGACY_UNMATCHED_G29_V1'
+    original_execution_receipt_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1770,6 +1772,182 @@ def _financial_rows_digest(rows, remaining_bytes, *, charge=None):
         hashed.update(encoded(dict(row))[:-1])
     hashed.update(b']\n')
     return hashed.hexdigest(), cost
+
+
+FINANCIAL_LEGACY_ORIGIN = 'LEGACY_UNMATCHED_G29_V1'
+FINANCIAL_VERIFIED_ORIGIN = 'VERIFIED_ORIGINAL_PRODUCER_V1'
+
+
+def _financial_origin_mode(trust, evidence):
+    mode = trust.origin_mode
+    require(mode in (FINANCIAL_LEGACY_ORIGIN, FINANCIAL_VERIFIED_ORIGIN) and
+            evidence.get('origin_mode', FINANCIAL_LEGACY_ORIGIN) == mode, 'FINANCIAL_ORIGIN_MODE')
+    pin = evidence['origin'].get('matching_execution_receipt_sha256')
+    if mode == FINANCIAL_VERIFIED_ORIGIN:
+        require(pin == _hash(trust.original_execution_receipt_sha256), 'FINANCIAL_ORIGINAL_EXECUTION')
+        require(trust.publication_scope == 'LOCAL_ONLY', 'FINANCIAL_ORIGINAL_USE_SCOPE')
+    else:
+        require(trust.original_execution_receipt_sha256 is None and pin is None, 'FINANCIAL_ORIGIN')
+    return mode
+
+
+def _financial_verified_origin(e, trust, proofs, metadata, raw_size, normalized_size):
+    """Verify the original receipt separately from a later reuse execution.
+
+    Only the selected issuer is certified here. A PARTIAL global quality or a
+    completed receipt is never whole-cohort, historical-PIT or economic authority.
+    No Lake, transport, trust factory, reconstruction or publication is invoked.
+    """
+    from tools.long_history_lake import (SCHEMA as LAKE_SCHEMA,
+        execution_metadata_report_names, validate_execution_metadata)
+    origin = e['origin']
+    def document(ref, limit=4 * 1024 * 1024):
+        require(type(ref) is dict and set(ref) == {'sha256', 'bytes'} and
+                type(ref['bytes']) is int and ref['sha256'] in proofs and
+                len(proofs[ref['sha256']]) == ref['bytes'], 'FINANCIAL_ORIGINAL_PROOF')
+        return metadata(proofs[ref['sha256']], limit)
+    frozen = metadata(proofs[e['proofs']['source_origin']], 1024 * 1024)
+    require(set(frozen) == {'schema','generation','dataset_key','commit','catalog','execution','quality'} and
+            frozen['schema'] == 'a1-financial-verified-producer-origin-v1' and
+            type(frozen['generation']) is int and frozen['generation'] > 0 and
+            frozen['dataset_key'] == origin['dataset_key'], 'FINANCIAL_ORIGINAL_PROOF')
+    require(frozen['commit']['sha256'] == origin['commit_sha256'] and
+            frozen['catalog']['sha256'] == origin['catalog_sha256'] and
+            frozen['execution']['sha256'] == trust.original_execution_receipt_sha256,
+            'FINANCIAL_ORIGINAL_EXECUTION')
+    commit, catalog, execution, quality = (document(frozen[key]) for key in ('commit','catalog','execution','quality'))
+    require(commit['schema'] == 'long-history-commit-v1' and catalog['schema'] == LAKE_SCHEMA and
+            type(catalog['generation']) is int and type(commit['generation']) is int and
+            commit['generation'] == catalog['generation'] == frozen['generation'] and
+            commit['catalog'] == origin['catalog_sha256'] and
+            commit['run_id'] == catalog['run_id'] == origin['run_id'] and
+            catalog['code_sha'] == trust.original_source_sha and
+            digest(encoded(catalog['config'])) == trust.original_config_sha256 and
+            catalog['config']['financial_start'] == trust.original_start and
+            catalog['config']['through'] == trust.original_through and
+            catalog['eligible_for_selector'] is False, 'FINANCIAL_ORIGINAL_CATALOG')
+    ds = catalog['datasets'][origin['dataset_key']]
+    require(ds['cik'] == trust.issuer_cik and ds['status'] == 'COLLECTED' and
+            ds['raw_objects'] == [trust.raw_sha256] and ds['normalized'] == trust.normalized_sha256 and
+            ds['rows'] == trust.normalized_rows and ds['extraction_sha256'] == trust.extraction_sha256 and
+            all(ds[k] == origin[k] for k in ('start','through','retrieved_at','checked_at')),
+            'FINANCIAL_ORIGINAL_DATASET')
+    require(type(execution) is dict and
+            ('recovery' not in execution or type(execution['recovery']) is dict) and
+            execution['schema'] == 'long-history-execution-v1' and execution['run_id'] == origin['run_id'] and
+            execution['catalog_sha256'] == origin['catalog_sha256'] and
+            execution['commit_sha256'] == origin['commit_sha256'] and
+            type(execution['consumer_rows']) is int and execution['consumer_rows'] >= 0 and
+            type(execution['study_recomputed_from_drive']) is bool and
+            execution['eligible_for_selector'] is False and
+            execution['reports']['quality.json'] == frozen['quality']['sha256'] and
+            quality['schema'] == 'long-history-quality-v1' and quality['eligible_for_selector'] is False and
+            quality['status'] == execution['quality_status'] and quality['status'] in
+                {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'}, 'FINANCIAL_ORIGINAL_EXECUTION')
+    # Only already authenticated, bounded proof bytes enter the shared metadata
+    # validator. This does not construct a Lake or assert any original body read.
+    try:
+        report_values = {'quality.json': quality}
+        for name in execution_metadata_report_names(execution, quality):
+            if name != 'quality.json':
+                sha = execution['reports'][name]
+                require(sha in proofs, 'FINANCIAL_ORIGINAL_REPORT_MISSING')
+                report_values[name] = metadata(proofs[sha], 4 * 1024 * 1024)
+        validate_execution_metadata(execution,
+            commit_sha256=origin['commit_sha256'], commit=commit, catalog=catalog,
+            quality=quality, report_values=report_values,
+            validation_clock=e['first_verified_readback_at'])
+    except Exception as exc:
+        # Preserve cancellation/deadline subclasses and accumulated byte charges.
+        if type(exc) not in (ValueError, KeyError, TypeError, IndexError, AttributeError):
+            raise
+        raise BindingError('FINANCIAL_ORIGINAL_PRODUCER_METADATA') from None
+    if 'recovery' in execution:
+        recovery = execution['recovery']
+        require(set(recovery) == {'schema','source_run_id','source_head_sha','finalization_run_id',
+                'finalizer_head_sha','provider_requests_executed','new_data_commits'} and
+                recovery['schema'] == 'long-history-finalization-v1' and
+                recovery['source_run_id'] == origin['run_id'] and
+                recovery['source_head_sha'] == trust.original_source_sha and
+                type(recovery['finalizer_head_sha']) is str and
+                re.fullmatch('[a-f0-9]{40}', recovery['finalizer_head_sha']) and
+                type(recovery['provider_requests_executed']) is int and recovery['provider_requests_executed'] == 0 and
+                type(recovery['new_data_commits']) is int and recovery['new_data_commits'] == 0,
+                'FINANCIAL_ORIGINAL_RECOVERY')
+        _financial_known_text(recovery['finalization_run_id'], 'FINANCIAL_ORIGINAL_RECOVERY')
+    qa = metadata(proofs[trust.reconstruction_receipt_sha256], 4 * 1024 * 1024)
+    fixed = qa['schema'] == 'source-sec-fixed3-gen30-archive-qa-v1'
+    generic = qa['schema'] == 'a1-financial-original-archive-reconstruction-v1'
+    require(fixed or generic, 'FINANCIAL_RECONSTRUCTION_SCHEMA')
+    require(type(qa['datasets']) is list and type(qa['packs']) is list,
+            'FINANCIAL_RECONSTRUCTION_INVENTORY')
+    if fixed:
+        require(frozen['generation'] == 30 and len(qa['datasets']) == 3 and len(qa['packs']) == 6 and
+                qa['status'] == 'VERIFIED_FIXED_THREE_ORIGINAL_PACKS_MEMBERS_AND_FINANCIAL_DIAGNOSTICS',
+                'FINANCIAL_RECONSTRUCTION')
+    else:
+        require(qa['status'] == 'VERIFIED_SELECTED_ORIGINAL_ARCHIVE_AND_RECONSTRUCTION' and
+                qa['provider'] == 'SEC_COMPANYFACTS' and qa['identity_scope'] == 'ISSUER_FINANCIAL_FACTS' and
+                qa['validation_scope'] == 'SELECTED_ISSUERS_ONLY' and qa['whole_cohort_verified'] is False and
+                1 <= len(qa['datasets']) <= 32 and len(qa['packs']) == 2 * len(qa['datasets']),
+                'FINANCIAL_RECONSTRUCTION_INVENTORY')
+        inventory = {}
+        for item in qa['datasets']:
+            require(type(item['cik']) is str and re.fullmatch('[0-9]{10}', item['cik']) and
+                    item['dataset_key'] == 'sec/' + item['cik'] and item['dataset_key'] not in inventory,
+                    'FINANCIAL_RECONSTRUCTION_INVENTORY')
+            inventory[item['dataset_key']] = (_hash(item['raw_sha256']), _hash(item['normalized_sha256']))
+        pairs = set()
+        for item in qa['packs']:
+            require(item['dataset_key'] in inventory and item['role'] in
+                    ('original_response_gzip','normalized_gzip_jsonl'), 'FINANCIAL_RECONSTRUCTION_INVENTORY')
+            pair = (item['dataset_key'], item['role'])
+            require(pair not in pairs and item['selected_object_sha256'] == inventory[item['dataset_key']][
+                0 if item['role'] == 'original_response_gzip' else 1], 'FINANCIAL_RECONSTRUCTION_INVENTORY')
+            pairs.add(pair)
+        require(inventory.get(origin['dataset_key']) == (trust.raw_sha256, trust.normalized_sha256),
+                'FINANCIAL_RECONSTRUCTION')
+    require(qa['source_admission'] is False and qa['pit_verified'] is False and
+            qa['eligible_for_selector'] is False and qa['ER_allowed'] is False and
+            qa['economic_validation'] == 'NOT_RUN' and qa['Reader_ACK'] == 'NOT_RUN' and
+            type(qa['Source_prepare']) is int and qa['Source_prepare'] == 0 and
+            type(qa['financial_generation_issued']) is int and qa['financial_generation_issued'] == 0 and
+            type(qa['qualification_issued']) is int and qa['qualification_issued'] == 0,
+            'FINANCIAL_RECONSTRUCTION')
+    source = qa['source_origin_refs']
+    require(type(source['generation']) is int and source['generation'] == frozen['generation'] and
+            source['commit_sha256'] == origin['commit_sha256'] and
+            source['catalog_sha256'] == origin['catalog_sha256'] and
+            source['execution_sha256'] == trust.original_execution_receipt_sha256 and
+            source['catalog_code_sha'] == trust.original_source_sha and
+            source['catalog_config_sha256'] == trust.original_config_sha256 and
+            qa['helper']['current_extraction_sha256'] == trust.extraction_sha256,
+            'FINANCIAL_RECONSTRUCTION')
+    selected = [row for row in qa['datasets'] if row['dataset_key'] == origin['dataset_key'] and row['cik'] == trust.issuer_cik]
+    require(len(selected) == 1 and selected[0]['raw_cik_matches_canonical'] is True and
+            selected[0]['actual_normalized_rows'] == trust.normalized_rows, 'FINANCIAL_RECONSTRUCTION')
+    replay = selected[0]['extraction']
+    require(replay['status'] == 'EXACT_CANONICAL_SEC_ROWS_REPLAY_MATCH' and
+            replay['original_normalized_bytes_equal'] is True and replay['rejected_original_rows'] == 0 and
+            replay['rows'] == trust.normalized_rows and replay['extraction_sha256'] == trust.extraction_sha256 and
+            replay['start'] == trust.original_start and replay['through'] == trust.original_through,
+            'FINANCIAL_RECONSTRUCTION')
+    for obj, size, role in ((trust.raw_sha256, raw_size, 'original_response_gzip'),
+                           (trust.normalized_sha256, normalized_size, 'normalized_gzip_jsonl')):
+        packs = [p for p in qa['packs'] if p['role'] == role and p['selected_object_sha256'] == obj]
+        require(len(packs) == 1 and packs[0]['selected_gzip_bytes'] == size and
+                packs[0]['full_pack_hash_and_all_member_hash_CRC'] is True and
+                catalog['locations'][obj] == packs[0]['pack_sha256'], 'FINANCIAL_RECONSTRUCTION')
+    require(_clock(origin['checked_at']) <= _clock(catalog['created_at']) <= _clock(commit['created_at']) <=
+            _clock(execution['created_at']) <= _clock(qa['started_at_utc']) <=
+            _clock(qa['first_observed_complete_local_archive_QA_at']) <= _clock(qa['finished_at_utc']) <=
+            _clock(e['first_verified_readback_at']), 'FINANCIAL_ORIGINAL_CLOCK')
+    return dict(origin_mode=FINANCIAL_VERIFIED_ORIGIN,
+        original_producer_generation=frozen['generation'],
+        original_producer_execution_receipt_sha256=trust.original_execution_receipt_sha256,
+        original_producer_quality_status=execution['quality_status'],
+        original_producer_study_recomputed_from_drive=execution['study_recomputed_from_drive'],
+        original_producer_global_completeness='NOT_CERTIFIED')
 
 
 def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, decision_time, *,
@@ -1828,6 +2006,7 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
             e['normalized'] == dict(sha256=trust.normalized_sha256, bytes=len(normalized)),
             'FINANCIAL_ORIGIN')
     origin, rights, identity = e['origin'], e['rights'], e['issuer']
+    origin_mode = _financial_origin_mode(trust, e)
     require(type(identity) is dict and type(trust.issuer_cik) is str and
             re.fullmatch(r'[0-9]{10}', trust.issuer_cik) and identity['cik'] == trust.issuer_cik,
             'FINANCIAL_IDENTITY')
@@ -1840,7 +2019,6 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
             and origin['source_code_sha'] == trust.original_source_sha and
             re.fullmatch('[a-f0-9]{40}', trust.original_source_sha) and
             origin['extraction_sha256'] == trust.extraction_sha256 and
-            origin['matching_execution_receipt_sha256'] is None and
             origin['status'] == 'COLLECTED', 'FINANCIAL_ORIGIN')
     for k in ('commit_sha256', 'catalog_sha256', 'config_sha256'):
         _hash(origin[k])
@@ -1870,34 +2048,38 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
         require(h in proofs, 'FINANCIAL_TRUST')
     require(e['proofs']['reconstruction'] == trust.reconstruction_receipt_sha256,
             'FINANCIAL_TRUST')
-    # Reuse existing R9 ACK/result and frozen-origin evidence, not a new claim
-    # that an unchanged diagnostic hash covers different objects/config/windows.
-    ack = metadata(proofs[trust.reconstruction_receipt_sha256], 4 * 1024 * 1024)
-    frozen = metadata(proofs[e['proofs']['source_origin']], 4 * 1024 * 1024)
-    result = metadata(proofs[_hash(e['proofs']['reconstruction_result'])], 4 * 1024 * 1024)
-    actual_inputs = [r for r in ack['reads'] if r['kind'] == 'financial']
-    require(ack['schema'] == 'mu-financial-diagnostic-consumer-ack-v1' and
-            ack['status'] == 'DONE_DIAGNOSTIC_ONLY_UNADMITTED' and
-            ack['matching_producer_execution'] is False and len(actual_inputs) == 2 and
-            {(r['sha256'], r['bytes']) for r in actual_inputs} ==
-            {(trust.raw_sha256, len(raw)), (trust.normalized_sha256, len(normalized))} and
-            result['raw_normalized_exact_equal'] is True and result['normalized_rows'] == trust.normalized_rows and
-            result['rejected_rows'] == 0 and any(r['sha256'] == trust.reconstruction_receipt_sha256 and
-            r['bytes'] == len(proofs[trust.reconstruction_receipt_sha256]) for r in result['output_refs']),
-            'FINANCIAL_ORIGIN')
-    ds, header = frozen['dataset'], frozen['original_catalog_header']
-    require(frozen['schema'] == 'mu-frozen-g29-selected-dataset-projection-v1' and
-            frozen['dataset_key'] == origin['dataset_key'] and
-            frozen['commit_sha256'] == origin['commit_sha256'] and
-            frozen['catalog_sha256'] == origin['catalog_sha256'] and
-            frozen['accepted_g29_producer_execution'] is False and
-            header['code_sha'] == trust.original_source_sha and header['config_sha256'] == trust.original_config_sha256 and
-            header['run_id'] == origin['run_id'] and ds['cik'] == trust.issuer_cik and ds['status'] == 'COLLECTED' and
-            ds['raw_objects'] == [trust.raw_sha256] and ds['normalized'] == trust.normalized_sha256 and
-            ds['extraction_sha256'] == trust.extraction_sha256 and ds['rows'] == trust.normalized_rows and
-            all(ds[k] == origin[k] for k in ('start', 'through', 'retrieved_at', 'checked_at')) and
-            any(r['kind'] == 'metadata' and r['sha256'] == e['proofs']['source_origin'] and
-                r['bytes'] == len(proofs[e['proofs']['source_origin']]) for r in ack['reads']), 'FINANCIAL_ORIGIN')
+    producer_origin = {}
+    if origin_mode == FINANCIAL_VERIFIED_ORIGIN:
+        producer_origin = _financial_verified_origin(e, trust, proofs, metadata, len(raw), len(normalized))
+    else:
+        # Reuse existing R9 ACK/result and frozen-origin evidence, not a new claim
+        # that an unchanged diagnostic hash covers different objects/config/windows.
+        ack = metadata(proofs[trust.reconstruction_receipt_sha256], 4 * 1024 * 1024)
+        frozen = metadata(proofs[e['proofs']['source_origin']], 4 * 1024 * 1024)
+        result = metadata(proofs[_hash(e['proofs']['reconstruction_result'])], 4 * 1024 * 1024)
+        actual_inputs = [r for r in ack['reads'] if r['kind'] == 'financial']
+        require(ack['schema'] == 'mu-financial-diagnostic-consumer-ack-v1' and
+                ack['status'] == 'DONE_DIAGNOSTIC_ONLY_UNADMITTED' and
+                ack['matching_producer_execution'] is False and len(actual_inputs) == 2 and
+                {(r['sha256'], r['bytes']) for r in actual_inputs} ==
+                {(trust.raw_sha256, len(raw)), (trust.normalized_sha256, len(normalized))} and
+                result['raw_normalized_exact_equal'] is True and result['normalized_rows'] == trust.normalized_rows and
+                result['rejected_rows'] == 0 and any(r['sha256'] == trust.reconstruction_receipt_sha256 and
+                r['bytes'] == len(proofs[trust.reconstruction_receipt_sha256]) for r in result['output_refs']),
+                'FINANCIAL_ORIGIN')
+        ds, header = frozen['dataset'], frozen['original_catalog_header']
+        require(frozen['schema'] == 'mu-frozen-g29-selected-dataset-projection-v1' and
+                frozen['dataset_key'] == origin['dataset_key'] and
+                frozen['commit_sha256'] == origin['commit_sha256'] and
+                frozen['catalog_sha256'] == origin['catalog_sha256'] and
+                frozen['accepted_g29_producer_execution'] is False and
+                header['code_sha'] == trust.original_source_sha and header['config_sha256'] == trust.original_config_sha256 and
+                header['run_id'] == origin['run_id'] and ds['cik'] == trust.issuer_cik and ds['status'] == 'COLLECTED' and
+                ds['raw_objects'] == [trust.raw_sha256] and ds['normalized'] == trust.normalized_sha256 and
+                ds['extraction_sha256'] == trust.extraction_sha256 and ds['rows'] == trust.normalized_rows and
+                all(ds[k] == origin[k] for k in ('start', 'through', 'retrieved_at', 'checked_at')) and
+                any(r['kind'] == 'metadata' and r['sha256'] == e['proofs']['source_origin'] and
+                    r['bytes'] == len(proofs[e['proofs']['source_origin']]) for r in ack['reads']), 'FINANCIAL_ORIGIN')
     documents = e['source_documents']
     require(type(documents) is list and bool(documents) and len(documents) <= MAX_PROOFS and
             len(set(documents)) == len(documents) and all(_hash(h) in proofs for h in documents),
@@ -1952,14 +2134,16 @@ def _financial_inputs(raw, normalized, evidence_bytes, trust, proof_objects, dec
         require(previous is None or previous <= order, 'FINANCIAL_FACT_SCHEMA')
         previous = order
     row_digest, _ = _financial_rows_digest(rows, budget - charge, charge=debit)
-    quality = encoded(dict(schema='a1-financial-reuse-quality-v1', status='VERIFIED_ARCHIVAL_BYTES',
+    quality_value = dict(schema='a1-financial-reuse-quality-v1', status='VERIFIED_ARCHIVAL_BYTES',
         issuer_cik=trust.issuer_cik, raw_sha256=trust.raw_sha256, normalized_sha256=trust.normalized_sha256,
         rows=len(rows), row_set_sha256=row_digest, start=min(r['end'] for r in rows),
         end=max(r['end'] for r in rows), units=sorted({r['unit'] for r in rows}),
         extraction_sha256=trust.extraction_sha256, reconstruction_receipt_sha256=trust.reconstruction_receipt_sha256,
         raw_reextracted=False,
         statement_completeness='NOT_CERTIFIED', quarter_completeness='NOT_CERTIFIED',
-        historical_pit=False, eligible_for_selector=False))
+        historical_pit=False, eligible_for_selector=False)
+    quality_value.update(producer_origin)
+    quality = encoded(quality_value)
     objects = dict(proofs)
     objects.update({trust.raw_sha256: raw, trust.normalized_sha256: normalized,
                     trust.evidence_sha256: evidence_bytes, digest(quality): quality})
@@ -2049,6 +2233,26 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
         q = _decode(prepared.quality, 1024 * 1024)
         for metadata in (p, e, q):
             debit(_json_retained_bytes(metadata, budget - spent))
+        mode = _financial_origin_mode(t, e)
+        producer_origin = {}
+        if mode == FINANCIAL_VERIFIED_ORIGIN:
+            def original_metadata(body, limit):
+                require(len(body) <= budget - spent, 'FINANCIAL_RESOURCE_LIMIT')
+                value = _decode(body, limit)
+                debit(_json_retained_bytes(value, budget - spent))
+                return value
+            producer_origin = _financial_verified_origin(e, t, objects, original_metadata,
+                len(objects[t.raw_sha256]), len(objects[t.normalized_sha256]))
+            require(all(q.get(key) == value for key, value in producer_origin.items()),
+                    'FINANCIAL_REUSE_QUALITY')
+            require(p.get('origin_mode') == mode and p.get('original_matching_execution') is True and
+                    p.get('original_matching_execution_receipt_sha256') == t.original_execution_receipt_sha256 and
+                    t.execution_receipt_sha256 != t.original_execution_receipt_sha256 and
+                    p.get('run_id') != e['origin']['run_id'], 'FINANCIAL_REUSE_RECEIPT')
+        else:
+            require(p.get('origin_mode', FINANCIAL_LEGACY_ORIGIN) == FINANCIAL_LEGACY_ORIGIN and
+                    p['original_matching_execution'] is False and
+                    p.get('original_matching_execution_receipt_sha256') is None, 'FINANCIAL_REUSE_RECEIPT')
         require(e['raw'] == dict(sha256=t.raw_sha256,bytes=len(objects[t.raw_sha256])) and
                 e['normalized'] == dict(sha256=t.normalized_sha256,bytes=len(objects[t.normalized_sha256])) and
                 type(prepared.rows) is tuple and len(prepared.rows) == t.normalized_rows, 'FINANCIAL_OBJECTS')
@@ -2061,7 +2265,7 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
                 p['quality_sha256'] == digest(prepared.quality) and type(p['rows']) is int and
                 p['rows'] == t.normalized_rows and
                 p['provider_gets'] == 0 and type(p['provider_gets']) is int and
-                p['original_matching_execution'] is False and p['historical_pit'] is False,
+                p['historical_pit'] is False,
                 'FINANCIAL_REUSE_RECEIPT')
         require(q['schema'] == 'a1-financial-reuse-quality-v1' and q['status'] == 'VERIFIED_ARCHIVAL_BYTES' and
                 q['raw_sha256'] == t.raw_sha256 and q['normalized_sha256'] == t.normalized_sha256 and
@@ -2088,6 +2292,9 @@ def bind_financial_reuse(prepared, execution_receipt, *, trusted_source, created
             source_receipt_sha256=t.execution_receipt_sha256, quality_sha256=digest(prepared.quality),
             evidence_sha256=t.evidence_sha256, review_receipt_sha256=t.review_receipt_sha256,
             reuse_origin=e['origin'])
+        source.update(producer_origin)
+        if producer_origin:
+            source['reuse_execution_receipt_sha256'] = t.execution_receipt_sha256
         objects[t.execution_receipt_sha256] = execution_receipt
         spec = dict(dataset_id=FINANCIAL_DATASET, schema=FINANCIAL_SCHEMA, source=source,
             files=[dict(storage='archive', format='gzip_jsonl', sha256=t.normalized_sha256,

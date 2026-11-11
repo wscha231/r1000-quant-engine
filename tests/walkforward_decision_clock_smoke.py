@@ -1174,6 +1174,7 @@ class MacroPrefixCausalityTests(unittest.TestCase):
             transport.write(history.PREFIX + "/reports/" + quality_sha, quality)
             receipt = history.encoded(dict(schema="long-history-execution-v1",
                 run_id="synthetic-macro-shape", commit_sha256=publication["commit_sha256"],
+                created_at=history.json.loads(writer.read_hash("commits", publication["commit_sha256"]))["created_at"],
                 catalog_sha256=publication["catalog_sha256"], reports={"quality.json": quality_sha},
                 consumer_rows=39, study_recomputed_from_drive=True, quality_status="PARTIAL",
                 eligible_for_selector=False))
