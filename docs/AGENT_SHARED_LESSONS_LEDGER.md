@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+- Parquet top-level field indices are physical column indices only when the
+  whole schema is flat. Reject even unprojected nested/extension fields before
+  computing projected footer budgets; otherwise an earlier struct can hide a
+  selected column's true decoded size. Keep optional21 label-column absence
+  explicit None/UNKNOWN in supplied binding records, with63/126 labels strict.
+
+- Stock-leader input binding is a local, untested WIP checkpoint while stock
+  review fixes take priority. Keep immutable V1/252 contracts unchanged and
+  distinguish exact supplied cohort metadata from Source/PIT authentication.
+  The public price Reader supports training; financial component reads remain
+  research-only, so never alias price authority into financial training. Retain
+  unlabelled current prediction rows and separate maturity from training eligibility.
+- A metadata-only CLI must branch before optional U0 path resolution. Bound the
+  projected Parquet footer before table allocation and decode the same hashed
+  buffer. Keep the actual completed NYSE session, per-feature close/availability,
+  full as-of denominator and latest unlabelled rows; regenerated report clocks,
+  role labels and matching hashes do not grant financial training admission.
+- Optional21-session warning fields remain explicit UNKNOWN in the fixed hash;
+  never make them a new63/126 selection gate. Date/horizon sector-neutral labels
+  also inherit their complete peers' latest actual availability, while every
+  original per-row clock remains unchanged. A Parquet dictionary page's encoded
+  size does not bound expanded strings: keep dictionaries, bound value lengths
+  and decoded expansion before pandas conversion. Preserve the earlier R1 scope.
 - A reviewed healthy-winner RISK_EXIT must replay all existing ceilings, not
   only gross/direct caps. Share the native factor over the original current
   book, verified ETF look-through and risk groups; require exactly old*factor.
@@ -10696,6 +10719,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - An inline byte-transfer attempt failed before private persistence; preserve
   that failed read/cost and use bounded chunks with exact size/SHA checks.
   Reconstructed archival prices remain separate from current/PIT admission.
+- Latest-session extraction must compute its maximum once before filtering.
+  Recomputing it for every historical row makes bounded pre-fit inspection
+  quadratic; retain the existing denominator/latest-row/future-tail checks.
+- Label masking and actual-clock injection also need horizon-batched key lookups.
+  Preserve immature outcomes, unknown/latest rows, unmatched clocks and duplicate
+  DataFrame indices; use counted comparisons instead of flaky timing assertions.
 
 - The first public stock/MODEL positive fixture used the generic US:BIO model
   while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
@@ -10704,3 +10733,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - An agent usage-limit stop can leave a valid frozen writer lease behind.
   Confirm its inactive owner and Native release, preserve SHA/diff/cost evidence,
   and record a single-writer takeover instead of spawning repeated replacements.
+
+### 2026-11-11 — Preserve process-exit CI failures
+
+- PR750 exact fd442f64 full CI43012938185/job130496790241 ended235/236 in3643.61s. The unchanged sec_13f_cusip_mapping_smoke reported PASS and all15 cases OK, then its process aborted during shutdown. Preserve the failed gate and log; the cause is unconfirmed. Test/mapper/parser/signals/submissions/requirements/protected236 runner blobs match accepted base. Do not weaken mapping, Source or CI guards, hide the exit, or patch unrelated code on that evidence. Prefer one fresh exact-head validation after the next accepted-master alignment over duplicate full checks on a soon-stale base.
