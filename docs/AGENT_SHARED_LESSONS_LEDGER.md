@@ -10560,3 +10560,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+- Adjacent immutable price captures are not overlapping parents. Oct13-ending
+  history and Oct14-starting tails cannot satisfy the existing composition
+  anchor predicate. First reuse exact retained payload/window evidence; an
+  explicitly allocated two-session bridge must enter through the public finite
+  Source controller, with old producer/hash/account/cost chains preserved.
+  Keep actual past-session calendar truth separate from current daily readiness,
+  reject extra pages/replays, and preserve unknown-outcome reservations. Neither
+  cash/noncash discovery nor bridge capture certifies lifecycle, PIT or rights.
+- The first bridge Native run passed16/17 and stopped on a fixture KeyError:
+  a synthetic EXTERNAL_FAMILY_BOUND append omitted its existing proof/expiry
+  clocks before reaching the unknown-POST path. Supply both aware fixture
+  clocks, preserve the failure/cost, and recheck that path plus optimized cases;
+  do not relax WorkJournal's binding-clock guard or rerun the passed normal16.
+- PowerShell receipt finalization needs `$true`, not bare `true`. Save elapsed
+  time/results through a finally-safe path before optional formatting; preserve
+  original logs and conservatively reserve unknown costs without rerunning tests.
