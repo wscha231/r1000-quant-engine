@@ -10906,3 +10906,31 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   daily-monitor run43054348879 at master6955a4b2; outcome is still pending.
   Financing/research-learning flags remain off. Source#750 merge sequencing
   is held; no additional scheduler, fullrun, fit or accepted-state write.
+
+### 2026-11-11 — Hosted capture is separate from a valid daily decision
+
+- Fresh master6955a4b2 monitor run43054348879/job130639697024 succeeded in
+  primary capture/configuration/readback:6 originals /17,627,102 bytes /
+  42,929 observations. Artifact13871343675 ZIP SHA256
+  bf440c6a47be1ba5f90d7ec8e5f58ad4c4ebe62338e3f14544d59d9efa640aea;
+  execution e8e6d261634337b60342e5eb74b882195fcf56330d38b39b21d63a026bd63f70.
+  Independent Drive execution/request/report parity and15 canonical Git
+  implementation hashes passed; durable witness
+  97b7fa7a4253021ef2d876c47f27a5f0830df2799fc239413cf0e8d971a919da.
+  Overall job remains FAILURE: LATE_SESSION_NOT_RETROACTIVE. Native A4 lacks
+  metrics/calendar0/10. Do not backdate a manual intraday run, relabel a red
+  daily decision as complete, or call a dispatch an observed scheduled run.
+- Currentfc0b7b6e reassessment of the same19 originals changed only financing
+  context, implementation and content hash. Native/funding/bank operands were
+  unchanged; durable receipt7de27ecaceafd92c6bdbc41f9b1aaf12a0b1d5b1752bb70e21e06405c28f3bd2.
+  Full125-case author regression passed213.965s; exact-head hosted review clean.
+- Author actual-input Decimal auditR1 correctly stopped on an auditor error:
+  it assumed every reported H.4.1 balance had been converted to billions,
+  while the report explicitly retained millions. R2 uses source AND report
+  units, preserving all original/report numbers.157 amount/rate/bp/week-grid/
+  bank-scope/auction-denominator/survey/ACM checks passed; durable receipt
+  15a228b14d4f863f62391eaa11425c6c80e24bd252a2db7ba69a612174cea3d0.
+  This is author arithmetic verification, not independent A6 or PIT/fit/A5
+  admission. Preserve R1 failure and do not change product values to fit an
+  audit's unit assumption. Primary collection is enabled; financing/learning
+  remain off pending their independent deployment/input prerequisites.

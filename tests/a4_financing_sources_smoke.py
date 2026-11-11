@@ -232,6 +232,9 @@ class FinancingTests(unittest.TestCase):
             self.assertEqual(report['status'],'DATA_BLOCKED');self.assertFalse(result['model_fit_performed'])
             self.assertIn('Treasury auction demand',m.render_report(report))
             self.assertIn('Prior six same-issuance BTC | Cohort comparison',m.render_report(report))
+            self.assertIn('| deposits_all | 2026-11-04 |',m.render_report(report))
+            self.assertIn('Survey period: 202610',m.render_report(report))
+            self.assertIn('| 2026-11-06 | daily | 0.750 | 4.500 | 3.750 |',m.render_report(report))
 
     def test_missing_index_keeps_core_partial_and_never_reuses_an_old_survey(self):
         calls=[]

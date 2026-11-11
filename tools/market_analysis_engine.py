@@ -412,13 +412,13 @@ def render_report(value):
         for key, row in value["funding"]["spreads"].items():
             lines.append(f"| {key} | {row['value']} | {row['observation_date']} | {row['status']} |")
         lines += ["", "## Bank balances", "", "Balance changes do not identify transfers from stocks or MMFs.",
-                  "", "| Series | Level | Unit | 1 week change | 4 week change | 13 week change | Status |",
-                  "| --- | ---: | --- | ---: | ---: | ---: | --- |"]
+                  "", "| Series | Observation date | Level | Unit | 1 week change | 4 week change | 13 week change | Status |",
+                  "| --- | --- | ---: | --- | ---: | ---: | ---: | --- |"]
         for key, row in {**value["bank_credit"]["series"], **value["bank_credit"].get("additional_scoped_series",{})}.items():
-            if row is None: lines.append(f"| {key} | | | | | | MISSING |")
+            if row is None: lines.append(f"| {key} | | | | | | | MISSING |")
             else:
                 changes = [row["changes"].get(str(n), {}).get("value") for n in (1, 4, 13)]
-                lines.append(f"| {key} | {row['value']} | {row['unit']} | {changes[0]} | {changes[1]} | {changes[2]} | {row['status']} |")
+                lines.append(f"| {key} | {row['observation_date']} | {row['value']} | {row['unit']} | {changes[0]} | {changes[1]} | {changes[2]} | {row['status']} |")
         lines += ["", "## Liquidity balances", "", "| Series | Level | Unit | Basis | Observation | Status |",
                   "| --- | ---: | --- | --- | --- | --- |"]
         for key, row in value['liquidity']['series'].items():
@@ -435,7 +435,8 @@ def render_report(value):
                 issuance='Reopening' if r['reopening'] else 'New issue'
                 lines.append(f"| {r['security_type']} {r['original_term_years']}y | {issuance} | {r['observation_date']} | {r['high_yield_percent']:.3f} | {r['bid_to_cover']:.2f} | {display} | {same_display} | {item['cohort_comparison']} |")
             lines += ['', 'Peer cohorts preserve original term and report reopening status separately. Auction tail requires a verified when-issued quote.',
-                '', '## Bank lending survey', '', '| Sector | Measure | Net percent | Respondents |', '| --- | --- | ---: | ---: |']
+                '', '## Bank lending survey', '', 'Survey period: '+str(extra['lending_standards']['survey_period']),
+                '', '| Sector | Measure | Net percent | Respondents |', '| --- | --- | ---: | ---: |']
             for r in extra['lending_standards']['series']:
                 lines.append(f"| {r['sector']} | {r['measure']} | {r['value']:.2f} | {r['respondents']} |")
             lines += ['', 'Survey respondent groups are distinct from H.8 aggregates; each question retains its own denominator.',
@@ -443,6 +444,13 @@ def render_report(value):
                 'ICI ETF/MMF data: '+extra['fund_flows']['status'],
                 'Term premium: '+extra['term_premium']['status']+'; daily original: '+extra['term_premium']['daily_status'],
                 'FINRA leverage: '+extra['leverage']['status']]
+            term=extra['term_premium'];latest=term['latest']
+            if latest is not None:
+                display=lambda key: 'MISSING' if latest.get(key) is None else f'{latest[key]:.3f}'
+                lines += ['', '| ACM observation | Frequency | 10y premium (percentage points) | Fitted 10y yield % | Expected short-rate component % |',
+                    '| --- | --- | ---: | ---: | ---: |',
+                    f"| {latest['observation_date']} | {latest['frequency']} | {display('term_premium_10y_percent')} | {display('fitted_yield_10y_percent')} | {display('expected_short_rate_10y_percent')} |",
+                    '', term['caveat']]
         lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
         lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
     for notice in value.get('primary_source_notices', []):
