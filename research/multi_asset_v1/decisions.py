@@ -192,6 +192,19 @@ def lookthrough(weights, assets, holdings, cutoff, policy):
     return {"security_exposure":dict(leaves),"risk_group_exposure":dict(groups)}
 
 
+def _risk_ceiling_scale(weights, exposure, risk):
+    """The incumbent gross, direct, looked-through security and group ceiling."""
+    gross=number(risk["max_gross"],0,1);cap=number(risk["max_security_weight"],0,1)
+    total=sum(weights.values())
+    scale=min(1.0,gross/total) if total else 1.0
+    for group,value in exposure["risk_group_exposure"].items():
+        limit=number(risk["risk_group_limits"].get(group),0,1)
+        if value>limit:scale=min(scale,limit/value)
+    for value in [*weights.values(),*exposure["security_exposure"].values()]:
+        if value>cap:scale=min(scale,cap/value)
+    return scale
+
+
 def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_weights=None, *, decision_events=None,
             artifact_resolver=None,model_review=None):
     pinned(risk,policy,"risk",cutoff)
@@ -252,12 +265,7 @@ def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_we
             old=weights.get(aid,0)
             weights[aid]=old+min(max(0,cap-old),free*raw/total)
     exposure=lookthrough(weights,assets,holdings,cutoff,policy)
-    scale=min(1.0,gross/sum(weights.values())) if sum(weights.values()) else 1.0
-    for group,value in exposure["risk_group_exposure"].items():
-        limit=number(risk["risk_group_limits"].get(group),0,1)
-        if value>limit: scale=min(scale,limit/value)
-    for value in [*weights.values(),*exposure["security_exposure"].values()]:
-        if value>cap: scale=min(scale,cap/value)
+    scale=_risk_ceiling_scale(weights,exposure,risk)
     weights={k:v*scale for k,v in weights.items()}
     # No redistribution to force a commodity/crypto minimum; unused budget stays cash.
     for r,_ in selected:
@@ -428,7 +436,7 @@ def _stock_cash_return(quote,clock,cutoff,policy,artifact_resolver):
     return selected["rate_pct"]/100*clock["carry_calendar_days"]/365
 
 
-def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk):
+def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk,*,assets=None,holdings=None,policy=None):
     """Original risk review plus current same-security thesis; never missing=exit."""
     from tools.run287_hold_exit_policy import classify_execution_sell, SELL_TAXONOMY
     require(review.get("taxonomy") in set(SELL_TAXONOMY)-{"EXECUTION_RECONCILIATION"},"stock_exit_taxonomy")
@@ -443,8 +451,10 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk):
     elif kind=="RISK_EXIT":
         require(review.get("risk_feature_sha256")==digest({k:row.get(k) for k in
             ("expected_drawdown","downside_probability","RS120","RS240")}),"stock_exit_risk_features")
-        scale=min(1.0,number(risk["max_gross"],0,1)/sum(current.values()),
-                  number(risk["max_security_weight"],0,1)/max(current.values()))
+        require(type(assets) is dict and type(holdings) is dict and type(policy) is dict,
+                "stock_risk_exit_original_exposure_context_required")
+        exposure=lookthrough(current,assets,holdings,cutoff,policy)
+        scale=_risk_ceiling_scale(current,exposure,risk)
         require(scale<1 and math.isclose(target,old*scale,abs_tol=1e-9),"stock_risk_exit_not_recomputed_ceiling")
     elif kind=="REPLACEMENT_EXIT":
         other=by_id.get(review.get("replacement_asset_id"))
@@ -596,7 +606,8 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             require(stamp(proof["available_at"])<=stamp(cutoff)<stamp(proof["expires_at"]),"stock_exception_expired")
             hi=min(hi,number(proof.get("max_weight"),0,.20))
         if aid in exits:
-            hi,audit=_stock_exit(exits[aid],row,old,by_id,cutoff,current,artifact_resolver,risk);lo=hi;exit_audit.append(audit)
+            hi,audit=_stock_exit(exits[aid],row,old,by_id,cutoff,current,artifact_resolver,risk,
+                assets=assets,holdings=holdings,policy=policy);lo=hi;exit_audit.append(audit)
         hi=min(hi,cap)  # A direct ETF vehicle remains capped after look-through.
         if not old and (not entry or not tradable): continue
         require(lo<=hi+1e-10,"stock_winner_hard_limit_conflict:"+aid)

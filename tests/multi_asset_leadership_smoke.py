@@ -2249,5 +2249,81 @@ class StockCashResearch(unittest.TestCase):
         self.assertAlmostEqual(known['score_change_5d'],.05)
         self.assertAlmostEqual(known['score_change_20d'],.20)
 
+    def test_reviewed_group_risk_trim_replays_ceiling_without_selling_unreviewed_winner(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        p,r,policy=self.inputs();ids=[e['asset_id'] for e in p['evaluations'][:2]]
+        for asset in r['assets']:
+            if asset['asset_id'] in ids:asset['risk_group_ids']=['SYNTHETIC:GROUP']
+        for original in p['evaluations']:original['feature_sha256']=feature_identity(p,r)
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr=p['risk'];rr.update(feature_sha256=feature_identity(p,r),max_gross=.4,max_security_weight=.2)
+        rr['risk_group_limits']['SYNTHETIC:GROUP']=.2
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        result=run(p,r,policy,artifact_resolver=self.memory)
+        rows=[row for row in result['multi_asset_leadership_latest'] if row['asset_id'] in ids]
+        assets={a['asset_id']:a for a in r['assets']};current={aid:.15 for aid in ids}
+        self.assertLess(sum(current.values()),rr['max_gross'])
+        self.assertLess(max(current.values()),rr['max_security_weight'])
+        self.assertAlmostEqual(lookthrough(current,assets,{},CUTOFF,policy)['risk_group_exposure']['SYNTHETIC:GROUP'],.30)
+        def review(row,target):
+            return dict(asset_id=row['asset_id'],taxonomy='RISK_EXIT',reason='REVIEWED_ORIGINAL_GROUP_CEILING',
+                evaluation_sha256=row['evaluation_sha256'],thesis_id=row['thesis_id'],max_weight=target,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',risk_feature_sha256=digest({k:row.get(k)
+                    for k in ('expected_drawdown','downside_probability','RS120','RS240')}))
+        packet=rr['stock_cash_allocation'];packet.update(decision_asset_ids=ids,
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows},
+            exit_reviews=[review(row,.10) for row in rows])
+        def execute():
+            policy['reviewed_pins']['risk'].append(digest(rr))
+            return stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        trimmed=execute()
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            for aid in ids:self.assertAlmostEqual(trimmed['comparisons'][arm]['weights'][aid],.10)
+        # Existing intact winners retain their floor unless each applicable
+        # partial trim has its own reviewed, exactly recomputable RISK_EXIT.
+        self.assertTrue(all(row['thesis_status'] in {'POSITIVE','INTACT'} for row in rows))
+        original=copy.deepcopy(packet['exit_reviews']);packet['exit_reviews']=original[:1]
+        with self.assertRaisesRegex(ContractError,'winner_hard_limits_require_review'):execute()
+        packet['exit_reviews']=copy.deepcopy(original);packet['exit_reviews'][0]['max_weight']=0
+        with self.assertRaisesRegex(ContractError,'risk_exit_not_recomputed_ceiling'):execute()
+        packet['exit_reviews']=copy.deepcopy(original);rr['risk_group_limits']['SYNTHETIC:GROUP']=.4
+        with self.assertRaisesRegex(ContractError,'risk_exit_not_recomputed_ceiling'):execute()
+
+    def test_reviewed_lookthrough_risk_trim_needs_original_holdings(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal,_stock_exit
+        p,r,policy=self.inputs();native=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        direct=native[0];fund=copy.deepcopy(native[1]);aid='US:SYNTHRISKFUND'
+        fund.update(asset_id=aid,symbol='SYNTHRISKFUND');rows=[direct,fund]
+        assets={a['asset_id']:a for a in r['assets']}
+        assets[aid]={**assets[direct['asset_id']],'asset_id':aid,'symbol':fund['symbol'],
+            'asset_class':'ETF','vehicle_type':'EQUITY_ETF'}
+        holding=dict(**meta('ISSUER_HOLDINGS'),fund_id=aid,source_id='ISSUER_HOLDINGS',
+            portfolio_scope='FULL_PORTFOLIO',coverage_kind='FULL',weight_unit='FRACTION',
+            holdings_as_of=list(SESSIONS)[-1],expected_unique_rows=1,
+            rows=[dict(security_id=direct['asset_id'],instrument='COMMON',identity_verified=True,weight=1.0)])
+        policy['reviewed_pins']['holdings'].append(digest(holding));holdings={aid:holding}
+        current={direct['asset_id']:.15,aid:.15};rr=p['risk'];rr['max_security_weight']=.2
+        rr['risk_multipliers']['ETF']=1
+        exposure=lookthrough(current,assets,holdings,CUTOFF,policy)
+        self.assertAlmostEqual(exposure['security_exposure'][direct['asset_id']],.30)
+        self.assertTrue(all(value<=rr['risk_group_limits'][group] for group,value in exposure['risk_group_exposure'].items()))
+        exits=[dict(asset_id=row['asset_id'],taxonomy='RISK_EXIT',reason='REVIEWED_ORIGINAL_LEAF_CEILING',
+            evaluation_sha256=row['evaluation_sha256'],thesis_id=row['thesis_id'],max_weight=.1,
+            available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',risk_feature_sha256=digest({k:row.get(k)
+                for k in ('expected_drawdown','downside_probability','RS120','RS240')})) for row in rows]
+        rr['stock_cash_allocation'].update(decision_asset_ids=[row['asset_id'] for row in rows],
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows},exit_reviews=exits)
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        result=stock_cash_proposal(rows,assets,rr,holdings,CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            weights=result['comparisons'][arm]['weights']
+            for security in current:self.assertAlmostEqual(weights[security],.1)
+            self.assertAlmostEqual(lookthrough(weights,assets,holdings,CUTOFF,policy)['security_exposure'][direct['asset_id']],.2)
+        with self.assertRaisesRegex(ContractError,'missing_etf_holdings'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        with self.assertRaisesRegex(ContractError,'original_exposure_context_required'):
+            _stock_exit(exits[0],direct,.15,{row['asset_id']:row for row in rows},CUTOFF,current,None,rr)
+
 
 if __name__=="__main__":unittest.main()

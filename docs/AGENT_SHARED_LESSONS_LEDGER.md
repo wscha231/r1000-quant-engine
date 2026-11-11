@@ -1,5 +1,14 @@
 # Agent Shared Lessons Ledger
 
+- A reviewed healthy-winner RISK_EXIT must replay all existing ceilings, not
+  only gross/direct caps. Share the native factor over the original current
+  book, verified ETF look-through and risk groups; require exactly old*factor.
+  Missing review/holdings, a book within its limits or excessive liquidation
+  remain blocked. A new entry failure alone never authorizes a winner trim.
+- The initial synthetic ETF trim fixture omitted its reviewed class risk
+  multiplier; native scoring correctly refused it. Declare that fixture value,
+  preserve the failed run, and keep missing/nonfinite live risk inputs blocking.
+
 - Multiple typed exits into one replacement must sum their released weights
   before applying the shared hard-cap constraints in both comparison arms.
   An exited or already eliminated row has zero capacity and cannot veto another
