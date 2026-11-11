@@ -10576,3 +10576,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - PowerShell receipt finalization needs `$true`, not bare `true`. Save elapsed
   time/results through a finally-safe path before optional formatting; preserve
   original logs and conservatively reserve unknown costs without rerunning tests.
+- A fake object store hid a real Drive reservation failure in the16MiB bridge:
+  default16,000,000-byte readbacks exhausted the meter after partial writes.
+  Bound known writes by len(raw) and verified references by declared bytes;
+  retain real OwnerDrive/RuntimeMeter in the full fake-HTTP regression rather
+  than raising budgets or replacing the storage path with an unmetered store.
+- A direct fast-runner entry repeated the known protected236 inventory error.
+  Preserve the failed registration commit, restore the accepted runner bytes,
+  and register the finite bridge through the existing managed-refresh aggregate.

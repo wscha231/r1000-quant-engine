@@ -1036,5 +1036,16 @@ class TieredCadenceTests(unittest.TestCase):
         self.assertTrue(before <= set(f.drive.objects))
 
 
+def load_tests(loader, standard_tests, pattern):
+    # Keep the protected program inventory fixed; register only the finite bridge.
+    import importlib.util
+    path = Path(__file__).with_name("alpaca_sip_campaign_smoke.py")
+    spec = importlib.util.spec_from_file_location("a1_bridge_registered", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    standard_tests.addTests(loader.loadTestsFromTestCase(module.TwoSessionBridgeTests))
+    return standard_tests
+
+
 if __name__ == "__main__":
     unittest.main()

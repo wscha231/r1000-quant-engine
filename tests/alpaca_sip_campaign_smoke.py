@@ -9603,3 +9603,69 @@ class TwoSessionBridgeTests(unittest.TestCase):
                 self.assertRaisesRegex(c.Refused,'BRIDGE_START_OR_DEADLINE'):
             c.worker(args,control,Path(self.tmp)/'meter.json')
         meter.assert_not_called()
+
+    def test_real_owner_drive_and_meter_complete_bridge_under_16MiB(self):
+        """Only HTTP responses are fake; real Drive write/readback/meter stay."""
+        control,args,_,_=self.context()
+        meters=[]
+        class BridgeServer(Server):
+            def __init__(server):
+                super().__init__()
+                server.objects['fixture-rights-001']=(dict(name='rights.json',parents=['fixture-rights-folder']),b'doc')
+                server.google_calls=[];server.media_bounds=[];server.settled_google_bytes=0;server.peak_reserved=0
+            def open(server,request,**kwargs):
+                parts=urlsplit(request.full_url);query=parse_qs(parts.query)
+                if parts.netloc=='paper-api.alpaca.markets':
+                    symbol=parts.path.rsplit('/',1)[-1]
+                    return Reply(c.encoded(dict(id=cap.BRIDGE_ASSET_IDS[symbol],symbol=symbol,
+                        exchange='NASDAQ',status='active',**{'class':'us_equity'})))
+                if parts.netloc=='data.alpaca.markets':
+                    names=query['symbols'][0].split(',')
+                    return Reply(c.encoded(dict(bars={t:[dict(t=d+'T04:00:00Z',o=10,h=11,l=9,c=10,v=100)
+                        for d in ['2026-10-13','2026-10-14']] for t in names},next_page_token=None)))
+                meter=meters[0];used=meter.used['drive_bytes'];body_size=len(request.data or b'')
+                reserved_limit=used-server.settled_google_bytes-body_size-65536-1
+                server.peak_reserved=max(server.peak_reserved,used)
+                server.google_calls.append((request.get_method(),request.full_url))
+                if query.get('alt')==['media']:
+                    file_id=parts.path.rsplit('/',1)[-1]
+                    server.media_bounds.append((reserved_limit,len(server.objects[file_id][1])))
+                if parts.path=='/drive/v3/files/fixture-rights-folder':
+                    reply=Reply(c.encoded(dict(id='fixture-rights-folder',mimeType='application/vnd.google-apps.folder',
+                        trashed=False,shared=False,parents=['fixture-root-123'],
+                        permissions=[dict(id='fixture-owner',type='user',role='owner')])))
+                else:
+                    reply=super().open(request,**kwargs)
+                server.settled_google_bytes+=body_size+len(reply.body)+65536
+                return reply
+        server=BridgeServer();original_meter=c.RuntimeMeter
+        def make_meter(*values,**kwargs):
+            meter=original_meter(*values,**kwargs,opener=server,clock=c.utc)
+            meters.append(meter);return meter
+        token=dict(access_token='fixture-access',refresh_token='fixture-refresh',expiry='2030-01-01T00:00:00Z')
+        config='[gdrive]\ntype=drive\ntoken='+json.dumps(token)+'\n'
+        current=dict(id=123,status='in_progress',created_at=self.now.isoformat(),run_started_at=self.now.isoformat())
+        from contextlib import redirect_stdout
+        output=io.StringIO()
+        self.assertIs(cap.OwnerDrive,drive_module.OwnerDrive)
+        with patch.dict(os.environ,{'MACRO_DRIVE_CONFIG':config}),patch.object(cap,'_new3_source'),\
+                patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=current),\
+                patch.object(c,'RuntimeMeter',side_effect=make_meter),patch.object(cap.time,'sleep'),redirect_stdout(output):
+            result=c.worker(args,control,Path(self.tmp)/'real-drive-meter.json')
+        self.assertEqual(result['status'],'BRIDGE_CAPTURE_VERIFIED');self.assertEqual(result['rows_verified'],12)
+        self.assertEqual(type(meters[0]),original_meter)
+        saved=c.bounded_json(Path(self.tmp)/'real-drive-meter.json')
+        self.assertTrue(saved['finalized']);self.assertEqual(saved['status'],'COMPLETE')
+        self.assertEqual(saved['usage']['provider_gets'],5)
+        self.assertEqual(saved['usage']['drive_requests'],len(server.google_calls))
+        self.assertGreater(saved['usage']['drive_requests'],0)
+        self.assertLessEqual(saved['usage']['drive_requests'],cap.BRIDGE_CAPS['drive_requests'])
+        self.assertLessEqual(saved['usage']['drive_bytes'],16*1024**2)
+        self.assertLessEqual(server.peak_reserved,16*1024**2)
+        self.assertEqual(len(server.media_bounds),9)
+        self.assertTrue(all(limit==actual for limit,actual in server.media_bounds),server.media_bounds)
+        self.assertEqual(saved['confirmed_storage_bytes'],saved['usage']['storage_bytes'])
+        self.assertEqual(sum(method=='POST' for method,_ in server.google_calls),4)
+        for private in ['fixture-access','fixture-owner','fixture-object-','fixture-root-123']:
+            self.assertNotIn(private,output.getvalue())

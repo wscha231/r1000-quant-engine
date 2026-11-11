@@ -331,7 +331,7 @@ def _private_object(drive: OwnerDrive, folder: str, ref: dict,
             and type(ref.get("bytes")) is int
             and 0 < ref["bytes"] <= max_bytes, "RESUME_REFERENCE")
     drive.check(ref["file_id"], folder, folder=False)
-    raw = drive.read(ref["file_id"], max_bytes)
+    raw = drive.read(ref["file_id"], ref["bytes"])
     require(len(raw) == ref["bytes"] and digest(raw) == ref["sha256"],
             "RESUME_OBJECT_HASH")
     return raw
