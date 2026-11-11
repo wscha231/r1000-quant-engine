@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+- A public stock opt-in consumer must use the same scoped readiness contract
+  as its native allocator, preserve UNKNOWN/global-incomplete output, and compare
+  only verified MODEL allocation weights/cash. Previous proposal weights are
+  not incumbents; Actual/Paper/ApprovedTarget remain separate. Attest the public
+  adapter and every newly consumed A4 implementation-identity/helper operand,
+  and run the existing public suite in the dedicated normal/-O contract job.
+
 - A verified MODEL helper is insufficient when its public board/CLI drops the
   externally reviewed policy. Preserve canonical-state replay and transport the
   separately hash-pinned policy; neither its hash nor task preparation grants
@@ -10639,3 +10646,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+
+- The first public stock/MODEL positive fixture used the generic US:BIO model
+  while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
+  blocked it. Build the original accepted model through that same FTI A3 fixture;
+  preserve the failed run, current scope checks and original allocation identity.

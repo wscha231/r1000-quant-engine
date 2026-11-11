@@ -21,6 +21,11 @@ on:
       - 'tools/run_agent_board.py'
       - 'tools/a4_liquidity_analysis.py'
       - 'tools/a4_macro_bridge.py'
+      - 'tools/a5_model_portfolio.py'
+      - 'tests/a5_model_portfolio_smoke.py'
+      - 'tools/a4_macro_learning.py'
+      - 'tools/macro_technical_study.py'
+      - 'tools/run_a4_research_cycle.py'
       - 'docs/market_analysis_contract_v2.json'
       - 'research/control_plane/**'
       - 'mission_contract.py'
@@ -46,6 +51,11 @@ on:
       - 'tools/run_agent_board.py'
       - 'tools/a4_liquidity_analysis.py'
       - 'tools/a4_macro_bridge.py'
+      - 'tools/a5_model_portfolio.py'
+      - 'tests/a5_model_portfolio_smoke.py'
+      - 'tools/a4_macro_learning.py'
+      - 'tools/macro_technical_study.py'
+      - 'tools/run_a4_research_cycle.py'
       - 'docs/market_analysis_contract_v2.json'
       - 'research/control_plane/**'
       - 'mission_contract.py'
@@ -89,6 +99,8 @@ jobs:
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
           python -O -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
+          python -W error::ResourceWarning tests/a5_model_portfolio_smoke.py
+          python -O -W error::ResourceWarning tests/a5_model_portfolio_smoke.py
           python tests/theme_etf_runtime_v1_smoke.py
   capture:
     needs: contract
