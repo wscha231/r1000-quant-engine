@@ -10849,3 +10849,37 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   tests. Hosted exact955f6824 run43031475824/job130559337676 independently
   passed236/236 (3708.54s), including the frozen positives and unchanged broker
   assertions. Final child28a2cc53 aggregate passed107/107 (276.99s).
+
+### 2026-11-11 — Financing context needs native denominators and source rights
+
+- TreasuryDirect's current auctioned snapshots contain250 rows per security
+  type, not a full historical auction universe. Preserve original maturity,
+  CUSIP and reopening flags. Compare six prior same-term auctions separately
+  from same-issuance-type peers. Dealer/direct/indirect shares reconcile exactly
+  to competitive par awarded inside the offering, not grand totals with SOMA.
+  Use integer-dollar parsing before reconciliation; float rounding can hide a
+  fractional dollar at the numeric bound. A prior-auction yield change is not
+  an auction tail without an auction-time when-issued quote.
+- The October SLOOS domestic table produces17 distinct tightening/demand
+  measures with question-specific respondent counts. Match question text and
+  semantic table headers, not bare question numbers. Preserve missing special
+  NDFI items, changes in survey populations and differences from H.8 groups.
+- The NYFed chart CSV has785 monthly ACM observations. The separate daily XLS
+  is10,170,880 bytes and exceeded the first8MiB bounded bootstrap; discard the
+  partial read. Its narrow12MiB allowance stays below existing transport and
+  request limits. Pin xlrd2.0.2, read the exact Daily sheet and matching model
+  components, and keep monthly data out of daily independent samples. Actual
+  daily normalization verified16,316 observations since1961, throughNov9.
+  Full-sample revised estimates keep collection availability, not historical PIT.
+- ICI permits personal-computer storage but limits redistribution/server
+  mirroring; its underlying data require member/subscriber evidence. Public
+  ETF/MMF reports and user-pasted numbers do not authorize automated Drive
+  ingestion or training. ICE/FRED rights and FINRA evidence remain separate.
+  ETF creations/redemptions, MMF asset changes and secondary-market purchases
+  are different measurements; concurrent growth does not trace the same cash.
+- Initial new regressions caught a one-dollar reconciliation tolerance and an
+  incorrect fake-fetch arity. Preserve the incumbent fetch(url,limit[,payload])
+  boundary. Future raw additions legitimately change the original hash; require
+  earlier numeric decisions to stay unchanged without weakening provenance.
+  Conditional financing scenarios do not set a native CAUTION state or exit
+  incumbent winners; new features still need independent recipe/input review.

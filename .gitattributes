@@ -17,3 +17,5 @@ docs/run287_p0_3_authority_census/source_workflow_authority_policy.json text eol
 docs/run287_p0_3_authority_census/source_branch_protection_contract.json text eol=lf
 tools/a4_primary_sources.py text eol=lf
 tools/a4_primary_macro_sources.py text eol=lf
+tools/a4_financing_sources.py text eol=lf
+tools/a4_financing_analysis.py text eol=lf

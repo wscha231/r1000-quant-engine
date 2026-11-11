@@ -65,7 +65,8 @@ def nyfed(feed):
 
 class PrimaryTests(unittest.TestCase):
     def test_checkout_preserves_hash_bound_normalizer_bytes(self):
-        paths=('tools/a4_primary_sources.py','tools/a4_primary_macro_sources.py')
+        paths=('tools/a4_primary_sources.py','tools/a4_primary_macro_sources.py',
+               'tools/a4_financing_sources.py','tools/a4_financing_analysis.py')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())

@@ -104,14 +104,18 @@ jobs:
         id: a4_primary_collect
         if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && steps.a4_primary_config.outcome == 'success'
         continue-on-error: true
+        env:
+          A4_FINANCING_COLLECTION_ENABLED: ${{ vars.A4_FINANCING_COLLECTION_ENABLED }}
         run: |
           set -euo pipefail
           DEST="outputs/a4_primary_collection/${{ github.run_id }}-${{ github.run_attempt }}"
           # Set the attempted input root even on failure; never fall back to a
           # restored current-looking report after today's collection failed.
           echo "A4_INPUT_ROOT=$DEST/inputs" >> "$GITHUB_ENV"
+          financing=()
+          if [ "${A4_FINANCING_COLLECTION_ENABLED:-false}" = true ]; then financing=(--include-financing-inputs); fi
           python tools/collect_a4_primary_data.py --output-dir "$DEST" \
-            --existing-input-root outputs/market_analysis_inputs --publish --include-economic-inputs
+            --existing-input-root outputs/market_analysis_inputs --publish --include-economic-inputs "${financing[@]}"
 
       - name: Restore A4 research checkpoint
         id: a4_restore

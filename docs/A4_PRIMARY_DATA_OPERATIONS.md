@@ -1,5 +1,10 @@
 # A4 primary-original collection
 
+The separately enabled [financing component](A4_FINANCING_CONDITIONS_V1.md)
+adds Treasury auction cohorts, domestic SLOOS and native daily/monthly ACM
+inputs through its own typed Reader in this same archive. Missing licensed
+credit/flow evidence remains blocked and does not alter native risk readiness.
+
 The existing Daily Crisis Monitor workflow can capture the Board's H.4.1,
 H.8 and policy-rate SDMX originals, plus the New York Fed's last30 SOFR,
 TGCR and EFFR observations. This bounded research capture does not call FRED,
