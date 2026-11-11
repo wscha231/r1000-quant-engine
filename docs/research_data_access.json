@@ -59,6 +59,8 @@
     "guide": "docs/A4_PRIMARY_DATA_OPERATIONS.md",
     "producer": "tools/collect_a4_primary_data.py",
     "reader": "tools/a4_primary_sources.py:read_generation",
+    "economic_reader": "tools/a4_primary_macro_sources.py:read_generation",
+    "economic_schema": "a4-primary-economic-bundle-v1",
     "namespace_below_existing_research_base": "shared-research-v1/macro-primary",
     "pin": "exact capture manifest SHA256; original and normalized bytes replayed with shared Reader hash checks",
     "authority": "RESEARCH_BYTES_ONLY; does not finalize or replace legacy Lake execution",

@@ -10845,3 +10845,59 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   was dirty. Check the actual branch ref before admission, preserve the accepted
   counterpart, and coordinate a short integration window before another exact-
   head check. Old-head green is not validation of the new aligned head.
+
+### 2026-11-11 — Government economic histories remain current vintages
+
+- Actual BLS four-series responses cover1996–2026 in four public API calls.
+  Preserve exact request windows, original bytes, SA identity and preliminary
+  footnotes. A reference-month label is not release availability; all downloaded
+  revised histories keep actual collection clocks and no historical PIT grant.
+- H.10/H.15 business-day SDMX uses FREQ9, unlike policy-rate calendar-day FREQ8.
+  Current H.10 BRD is separate from V0 goods-only series; keep native base labels
+  and definition caveats rather than silently rebasing or joining the histories.
+  The H.15 full archive contains third-party corporate-bond series. Its private
+  bootstrap was not admitted or uploaded as a government-only training source;
+  select Treasury's own official curve feed for the automated public source.
+- Treasury Atom updated describes current feed regeneration, not original
+  historical availability. Require explicit year and native nominal/real fields,
+  preserve negative real rates/nulls and reject pagination or mixed-year data.
+  Actual latest Treasury observations reachedNov10 while H.15 still showedNov9;
+  source/date selection can materially change a current-rate diagnosis.
+- Keep the economic adapter/manifest separate from the accepted bank/funding
+  codec so adding source definitions does not invalidate those old captures.
+  Optional provider failures retain verified core history and an explicit
+  partial diagnostic; they never count as full collection/model completion.
+  Original native credit/readiness and independent policy gates stay closed.
+- Feature replay must reject unreviewed alternate-source splices for one
+  logical series, not merely hash each original. Apply the same guard during
+  input validation and at the time a row becomes visible in replay; future
+  alternate sources cannot change an earlier prefix.
+- Actual exact b460d9b capture persisted and reread13 government originals
+  (20,417,011 bytes),50,497 observations and the A4 request/report. Execution
+  ffc4d9e8a47ff3a85368643a5108c44142b56b770120f2119a7237da30db1478
+  is durable research evidence, not deployed-default or historical PIT proof.
+  Native report remains DATA_BLOCKED; no model fit or portfolio was produced.
+- A fresh-process Drive replay verified all six core feeds, then correctly
+  refused H.10: Windows checkout had converted the economic normalizer to CRLF.
+  Its Git-LF bytes still matched the original a5790295 source pin. Preserve
+  exact code hashing and old manifests; pin both paired normalizers to LF with
+  Git attributes and test a real autocrlf checkout. Do not rehash accepted
+  source manifests or treat this closed failed replay as successful recovery.
+- Fixed-reader28a2cc53 independently reread all13 Drive pairs and reproduced
+  the original A4 report exactly, with50,497 observations and zero publisher
+  requests. Cold receipt cd14e06f0029768a92f6f93e400285ae22032dbd5fcf195f54cb7a2cad16b812
+  was published and reread. This closes that replay attempt only; native
+  DATA_BLOCKED, historical PIT, qualified target labels and policy gates remain.
+- A fresh14:13UTC legacy metadata preflight still found generation31 at
+  commit83ff1624e5af7f800e90e309b7902ca6ff26335bcaaac7cb3dc21f6c14f25c89,
+  source2eecbebd and run42841756603 (cancelled). Its46 current/ALFRED datasets
+  have legacy config without a FRED-disabled source-only scope. Existing
+  finalization would recompute the retained FRED study; do not dispatch it
+  without reviewed rights or relabel this old catalog as a source-only cycle.
+  Metadata hashes do not certify original pack bodies or a current execution.
+- A long local ManualTests diagnostic spanned branch/source integration and
+  was stopped without a result; it is not exact-head PASS evidence. Freeze
+  source/HEAD for suites that reconstruct CLI fixtures as well as A4/A5 graph
+  tests. Hosted exact955f6824 run43031475824/job130559337676 independently
+  passed236/236 (3708.54s), including the frozen positives and unchanged broker
+  assertions. Final child28a2cc53 aggregate passed107/107 (276.99s).

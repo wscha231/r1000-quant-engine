@@ -64,6 +64,25 @@ def nyfed(feed):
 
 
 class PrimaryTests(unittest.TestCase):
+    def test_checkout_preserves_hash_bound_normalizer_bytes(self):
+        paths=('tools/a4_primary_sources.py','tools/a4_primary_macro_sources.py')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())
+            def git(*args):
+                return subprocess.run(['git','-C',str(root),*args],check=True,
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+            git('init','-q');git('config','core.autocrlf','true')
+            raw=b'# hash-bound normalizer\nVALUE = 1\n'
+            for name in paths:
+                target=root/name;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes(raw)
+                self.assertNotIn(b'\r\n',(ROOT/name).read_bytes())
+            git('add','--','.gitattributes',*paths)
+            for name in paths:(root/name).unlink()
+            git('checkout-index','-f','--',*paths)
+            for name in paths:self.assertEqual((root/name).read_bytes(),raw)
+
     def test_official_zip_mime_type_is_accepted_without_provider_retry(self):
         raw=archive('h8'); calls=[]
         class Opener:

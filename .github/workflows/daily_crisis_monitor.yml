@@ -111,7 +111,7 @@ jobs:
           # restored current-looking report after today's collection failed.
           echo "A4_INPUT_ROOT=$DEST/inputs" >> "$GITHUB_ENV"
           python tools/collect_a4_primary_data.py --output-dir "$DEST" \
-            --existing-input-root outputs/market_analysis_inputs --publish
+            --existing-input-root outputs/market_analysis_inputs --publish --include-economic-inputs
 
       - name: Restore A4 research checkpoint
         id: a4_restore
