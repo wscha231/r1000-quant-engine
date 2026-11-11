@@ -81,6 +81,10 @@ class LearningTests(unittest.TestCase):
             next(iter(q["source_bindings"].values()))["source_ids"]=source_ids
             with self.subTest(source_ids=source_ids),self.assertRaisesRegex(ValueError,"PRICE_SOURCE_BINDING"):
                 l.fit_trial(p,q,digest(encoded(q)),resolve)
+        q=copy.deepcopy(policy)
+        next(iter(q["source_bindings"].values()))["source_ids"]="fred:SOFR fred:IORB price:SPY"
+        with self.assertRaisesRegex(ValueError,"SOURCE_MEMBERSHIP_SCHEMA"):
+            l.validate_inputs(p,q,digest(encoded(q)),resolve)
 
     def test_future_versions_do_not_change_prior_feature_prefix(self):
         p,_,_=fixture()

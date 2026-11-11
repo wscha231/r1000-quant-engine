@@ -68,8 +68,13 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
     originals.update(r["original_sha256"] for rows in prices.values() for r in rows)
     check(callable(artifact_resolver) and len(originals) <= 128, "A4_LEARNING_ORIGINAL_RESOLVER")
     reserved=0
+    allowed_sources={"fred:"+sid for sid in analysis.SERIES}|{"nyfed:"+sid for sid in ("SOFR","TGCR","EFFR")}|{"price:"+target for target in analysis.TARGETS}
     for sha in sorted(originals):
         binding = bindings.get(sha, {})
+        source_ids=binding.get("source_ids")
+        check(type(source_ids) is list and 0<len(source_ids)<=len(allowed_sources) and
+              all(type(s) is str and s in allowed_sources for s in source_ids) and
+              len(set(source_ids))==len(source_ids),"A4_LEARNING_SOURCE_MEMBERSHIP_SCHEMA")
         check(type(binding.get("size_bytes")) is int and 0<binding["size_bytes"]<=32*1024**2,
               "A4_LEARNING_SOURCE_SIZE_REQUIRED")
         reserved+=binding["size_bytes"]
