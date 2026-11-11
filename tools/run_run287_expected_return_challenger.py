@@ -394,24 +394,31 @@ def load_pre_fit_binding(args: argparse.Namespace, contract: Mapping[str, Any]):
                       "tools/run_run287_expected_return_challenger.py"), "consumer_code_identity")
     completed = pd.Timestamp(result["completed_decision_session"])
     prefix = frame.loc[pd.to_datetime(frame["feature_date"]).dt.normalize() <= completed].copy()
-    keys = pd.Series([_binding_key(row) for row in prefix.to_dict("records")],index=prefix.index)
+    keys = [_binding_key(row) for row in prefix.to_dict("records")]
+    immature = {}
     for label in result["labels"]:
         if label["status"] == "IMMATURE":
-            mask = keys.map(lambda key: key == (label["feature_date"],label["ticker"]))
-            spec = contract["horizons"][str(label["horizon"])]
-            for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end"):
-                prefix.loc[mask,spec[name]] = pd.NaT if name.endswith("label_end") else np.nan
+            immature.setdefault(label["horizon"], set()).add((label["feature_date"],label["ticker"]))
+    for horizon, members in immature.items():
+        mask = np.fromiter((key in members for key in keys), dtype=bool, count=len(keys))
+        spec = contract["horizons"][str(horizon)]
+        for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end"):
+            prefix.loc[mask,spec[name]] = pd.NaT if name.endswith("label_end") else np.nan
     return prefix, result
 
 
 def apply_pre_fit_label_clocks(prepared: pd.DataFrame, readiness: Mapping[str, Any]) -> None:
     """Preserve actual availability at EVERY historical V1 decision, in place."""
-    keys = pd.Series([_binding_key(row) for row in prepared.to_dict("records")],index=prepared.index)
+    keys = [_binding_key(row) for row in prepared.to_dict("records")]
+    clocks = {}
     for label in readiness["labels"]:
-        mask = keys.map(lambda key:key == (label["feature_date"],label["ticker"]))
         value = (_binding_stamp(label["training_available_at"]).tz_localize(None)
                  if label["status"] in {"MATURE", "IMMATURE"} else pd.NaT)
-        prepared.loc[mask,f"label_available_at_{label['horizon']}d"] = value
+        clocks.setdefault(label["horizon"], {})[(label["feature_date"],label["ticker"])] = value
+    for horizon, updates in clocks.items():
+        mask = np.fromiter((key in updates for key in keys), dtype=bool, count=len(keys))
+        if mask.any():
+            prepared.loc[mask,f"label_available_at_{horizon}d"] = [updates[key] for key in keys if key in updates]
 
 
 def replay_pre_fit_price_source(request: Mapping[str, Any], *, decision_time: str,

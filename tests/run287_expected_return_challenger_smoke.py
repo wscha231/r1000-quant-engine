@@ -1581,6 +1581,60 @@ def test_pre_fit_optional_21_labels_absent_remain_unknown() -> None:
     else:raise AssertionError('required63-session labels became optional')
 
 
+def test_pre_fit_batch_masks_and_clocks_preserve_rows_with_linear_key_work() -> None:
+    frame,values,cfg,decision=_pre_fit_fixture()
+    late='2026-11-11T09:00:00Z'
+    for label in values['labels']['rows']:
+        if label['horizon']==21 and label['available_at'] is not None:
+            label['available_at']=late
+    counter=dict(active=False, comparisons=0)
+    class CountedKey(tuple):
+        __hash__=tuple.__hash__
+        def __eq__(self, other):
+            counter['comparisons']+=1
+            return tuple.__eq__(self,other)
+    original_key,original_validate=MOD._binding_key,MOD.validate_pre_fit_binding
+    def key(row):
+        value=original_key(row)
+        return CountedKey(value) if counter['active'] else value
+    def validated(*args,**kwargs):
+        result=original_validate(*args,**kwargs)
+        counter.update(active=True,comparisons=0)
+        return result
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp);feature=root/'features.parquet';frame.to_parquet(feature,index=False)
+        binding,_,blobs=_pre_fit_binding(values,decision,MOD.sha256_file(feature))
+        for role,raw in blobs.items():(root/(role+'.json')).write_bytes(raw)
+        path=root/'binding.json';path.write_text(json.dumps(binding),encoding='utf-8')
+        args=Namespace(feature_store=str(feature),input_binding=str(path),input_binding_root=str(root),
+            expected_input_binding_sha256=MOD.sha256_file(path))
+        actual=MOD.git_blob_bytes
+        def current(sha,name):return Path(MOD.__file__).read_bytes() if name=='tools/run_run287_expected_return_challenger.py' else actual(sha,name)
+        with patch.object(MOD,'git_blob_bytes',side_effect=current), \
+                patch.object(MOD,'validate_pre_fit_binding',side_effect=validated), \
+                patch.object(MOD,'_binding_key',side_effect=key):
+            loaded,readiness=MOD.load_pre_fit_binding(args,cfg)
+        _pre_fit_check(counter['comparisons']<20*len(frame),'immature mask does not rescan every row for each label')
+    spec=cfg['horizons']['21']
+    _pre_fit_check(len(loaded)==250 and readiness['mature_rows']['63']==readiness['mature_rows']['126']==200,
+        'whole denominator and mandatory mature horizons preserved')
+    _pre_fit_check(all(loaded[spec[name]].isna().all() for name in
+        ('stock_return','benchmark_return','stock_label_end','benchmark_label_end')),'all200 immature21 outcomes cleared')
+    _pre_fit_check(loaded[cfg['horizons']['63']['stock_return']].notna().sum()==200,'mature63 outcomes preserved')
+    prepared=MOD.prepare_frame(loaded,cfg)
+    extra=prepared.iloc[[0]].copy();extra['ticker']='OUTSIDE'
+    extra['label_available_at_21d']=pd.Timestamp('1999-01-01')
+    prepared=pd.concat([prepared,extra]);prepared.index=[0]*len(prepared)
+    counter['comparisons']=0
+    with patch.object(MOD,'_binding_key',side_effect=key):MOD.apply_pre_fit_label_clocks(prepared,readiness)
+    _pre_fit_check(counter['comparisons']<20*len(prepared),'clock injection does not scan the cohort per label')
+    known=prepared['ticker'].ne('OUTSIDE') & prepared['feature_date'].lt(pd.Timestamp('2026-11-10'))
+    _pre_fit_check(prepared.loc[known,'label_available_at_21d'].eq(pd.Timestamp(late).tz_localize(None)).all(),
+        'late actual clocks preserved with duplicate frame indices')
+    _pre_fit_check(prepared.loc[prepared['ticker'].eq('OUTSIDE'),'label_available_at_21d'].eq(pd.Timestamp('1999-01-01')).all(),
+        'unmatched row clocks remain unchanged')
+
+
 def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None:
     from tests.research_data_access_smoke import ReaderTest,DECISION
     holder=ReaderTest('runTest');holder.setUp()
@@ -1629,6 +1683,7 @@ def main() -> int:
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
     test_pre_fit_optional_21_labels_absent_remain_unknown()
+    test_pre_fit_batch_masks_and_clocks_preserve_rows_with_linear_key_work()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 

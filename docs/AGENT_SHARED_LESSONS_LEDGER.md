@@ -10692,6 +10692,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Latest-session extraction must compute its maximum once before filtering.
   Recomputing it for every historical row makes bounded pre-fit inspection
   quadratic; retain the existing denominator/latest-row/future-tail checks.
+- Label masking and actual-clock injection also need horizon-batched key lookups.
+  Preserve immature outcomes, unknown/latest rows, unmatched clocks and duplicate
+  DataFrame indices; use counted comparisons instead of flaky timing assertions.
 
 - The first public stock/MODEL positive fixture used the generic US:BIO model
   while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
