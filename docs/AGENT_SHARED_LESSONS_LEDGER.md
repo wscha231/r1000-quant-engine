@@ -10987,6 +10987,134 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   audit's unit assumption. Primary collection is enabled; financing/learning
   remain off pending their independent deployment/input prerequisites.
 
+### 2026-11-12 KST — Unified data views must preserve purpose and version evidence
+
+- A single index can join primary/economic/financing originals, legacy storage
+  metadata and learning readiness without granting Source/PIT/rights or A5
+  authority. A legacy catalog/execution metadata match is not pack/Reader
+  verification; keep the original common Reader as the consumption gate.
+- Select source versions by capture cutoff before replaying original pairs.
+  Replaying every captured vintage duplicates observations and exhausts the
+  shared150,000-row/64MiB budget without new independent information. Late
+  publication of an older capture cannot replace a fresher capture. Preserve
+  all attempt references and block the latest failed feed rather than falling
+  back to a prior success. Exclude future attempts into a separate audit.
+- Native operands require the original request hash bound by the externally
+  pinned capture execution; recomputing the hash of a changed local request
+  is not authorization. The first index draft was tightened before publication
+  with a rebind refusal. Current native derived operands are retained once by
+  exact object hash for remote replay; capture-only receipts do not themselves
+  prove optional native originals were archived. Sparse remote receipt restore
+  must keep missing/expired native operands blocked, never silently partial.
+- Readiness for historical backtests and calibrated future forecasts is
+  separate from current context. The index validates the existing reviewed
+  learning bundle but does not manufacture a policy, run an unqualified fit,
+  promote a trial or treat current revised history as historical PIT.
+- Initial full142-case local regression passed238.139s. A subsequent portability
+  check found the access-route JSON was CRLF on Windows while its Git blob was
+  LF; the catalog also hashes this locator. Pin it to LF alongside the separate
+  index implementation and extend the actual autocrlf checkout regression.
+  Do not ignore raw hashes or publish a cross-host identity claim before the
+  configuration bytes are canonical. Existing18-file risk identity stays intact.
+- Actual existing core receipts844dcf29/47dd7d6a/e8e6d261 predate the optional
+  requested_feeds field. Preserve their original bytes and recognize only the
+  original six-feed v1 profile; do not infer an expanded economic/financing
+  scope or demand unpublished generation bodies from a blocked attempt.
+  Publication records its own exact code SHA; catalog fingerprints remain
+  reusable for the same source/logic/as-of view across merge-only heads.
+- The three declared weekly-change descriptions use current revised Board
+  balances, exact seven-day pairs and no price inputs or model fitting. Keep
+  missing weeks, constant-series insufficiency, all negative results and the
+  noncausal/nonpredictive label. This does not turn revised histories into
+  historical decisions, backtests or admitted learning features.
+- Final147-case local aggregate at6e603d2a passed273.305s. Core collection plus
+  index paired replay and31-commit legacy metadata probing can exceed the old
+  primary-only30-minute budget. Reuse the existing60-minute workflow ceiling
+  for primary/index-enabled runs; leave30 when disabled and all source/object
+  quotas unchanged. This is execution capacity, not evidence that any model,
+  native risk state or future forecast is qualified.
+- Actual version51 integration and an independent cache-free Drive replay
+  verified six execution references, nineteen selected paired inputs and
+  68,116 native rows. Catalog928163d8 and report7560342f were byte-identical;
+  cold witness e9215bf9b5fba9921b839900d7207a1d8ea7b757d8063a54e0b05a4e6f7e9197
+  was stored/read back with provider calls and original-source writes0. Native
+  metrics/calendar were still absent; this is neither a qualified backtest nor
+  model fitting. Latest legacy metadata was generation32 with1,157 dataset
+  entries and a matching execution reference, not the old generation31 gap.
+- A subsequent audit found the legacy metadata probe used the latest commit
+  and unfiltered matching receipts even for an earlier cutoff. Later valid
+  additions could therefore change the old catalog's metadata view. Select the
+  visible commit prefix and receipts by declared creation clocks, and count
+  only contributing objects in catalog identity. Continue charging all actual
+  discovery reads to the unchanged budget. A future catalog is not needed to
+  reconstruct an earlier view. Keep malformed/missing clocks and broken chains
+  blocked; declared metadata clocks still do not certify PIT. Add regression
+  cases for future commits/receipts, unreadable future catalogs and missing
+  matching-receipt clocks. The native report never used this probe as a signal.
+- The review-complete workflow requires an exact single-line command. Extra
+  prose after the command correctly failed its publisher binding. Preserve the
+  failure, submit the exact command after current clean review/zero threads,
+  and verify the new check; do not weaken the parser or borrow an old head.
+- The as-of follow-up passed24 focused cases35.866s and149 aggregate cases
+  244.093s before publication. Record the tested source tree separately from a
+  frozen older HEAD when an independent read-only verification is in progress.
+  An ancestry-only alignment can preserve the exact validated tree, but fresh
+  current-head review and protected CI are still mandatory.
+- Fresh generation32 common-Reader verification completed in1034.171s:
+  81 historical packs/6033 object dependencies, linked execution c7d25fd1 and
+  quality report4dbe2f01 passed their original checks. Witness
+  ba3b74901fb84d33bc7ea65b4d953ccc715aa76b5f4f528e81dfe241eccabcb4
+  was stored/read back. Of1157 dataset entries,1155 were COLLECTED and2 remained
+  COVERAGE_GAP. Existing receipt consumer_rows652263/study_recomputed true is
+  prior-producer evidence, not a new fit or row reconstruction by this audit.
+  Selected records/provider recollection/original-source writes were0.
+  The unchanged Lake Reader closure matched accepted533bd448 source with
+  checkout CRLF/LF differences explicitly fingerprinted; this does not waive
+  exact paired-normalizer hashes. Source/PIT/rights/training admission remain
+  separate from archive integrity and existing analytical report verification.
+- Current7e same-input reassessment and independent Drive-only replay passed
+  with19 paired feeds/68,116 rows. Cold witness
+  6ac1f7ed9a7c93684b695cb9062f9b653092438bd922b18666209015719939e9
+  was stored/read back for catalog9376c686 and execution698f08a8. Market report
+  bytes stayed exactly equal to version51/7560342f. Only the index module's
+  fingerprints and visible metadata byte count changed; native market math
+  files were unchanged. Provider calls/fit/accepted-state changes were0.
+- The fresh generation32 evidence came from scheduled legacy workflow
+  43040722327/job130591475822 at accepted a2ff88ac, not from the newer Source
+  family's unspent allocation. It durably published c7d25fd1 and three reports
+  before the job correctly exited2 for PARTIAL_COVERAGE. Artifact13873237269's
+  API digest is090907ecbd2734ff7eb8c9dcc0af38729f3205005239761bff78f07b17372ff5;
+  artifact metadata is not downloaded-byte verification. Never relabel this
+  scheduled failure as a green full-scope cycle or inherit Source authority.
+- The existing macro-evaluation report8641c4982b970c3747fc12bb52f1a06e69f0511ee74423bc98126227c137b44e
+  contains336 fixed single-feature purged walk-forward tests:253
+  NO_INCREMENTAL_EVIDENCE and83 INSUFFICIENT_INDEPENDENT_EVIDENCE. Preserve all
+  negative/insufficient outcomes. The assets are SP500 and NASDAQCOM price
+  indexes excluding dividends/costs, not the requested fourteen ETFs. The
+  report explicitly lacks historical-PIT/full-portfolio certification and
+  limits multiple testing to its current run; canonical experiment-census
+  integration remains required. Reading this prior report is not a new fit,
+  a learning-policy approval, a promoted model or a source-rights grant.
+- While required current-head CI was still in progress, the connected Actions
+  job-list endpoint repeatedly timed out and the exact gh read returned502.
+  The public status page reported operational; do not infer a global incident
+  or terminal success from either fact. Preserve current executions/evidence
+  and wait for explicit required-check results rather than substitute an old
+  head's green check or replay a transactional workflow.
+- The c4 run then exceeded its90-minute limit while GET remained in_progress:
+  normal cancel and official force-cancel both returned409/not-in-progress,
+  whereas re-run returned403/already-running. None succeeded. One unchanged-
+  tree PR synchronization at145e48ce was used as a bounded recovery; all four
+  new workflows remained queued and no current-head checks were created.
+  The7e job metadata meanwhile showed every step including Complete job as
+  successful, yet its top job/check status remained in_progress. Neither state
+  is substituted for an explicit green required check. Stop retry loops.
+  GitHub's official troubleshooting guide documents this abnormal state and
+  advises Support when self-service/force cancellation cannot clear it:
+  https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
+  Prepare a sanitized support packet; external submission requires explicit
+  user authorization. Keep financial/Drive credentials and raw data out of it.
+
 ### 2026-11-12 KST — Preserve finance code while recovering a stuck PR record
 
 - Finance PR753/c4 validation remained in_progress beyond90 minutes; job reads
@@ -11002,3 +11130,52 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   replayed version. Fresh review/required checks and strict default alignment
   remain mandatory. Do not infer a global incident, passing check, Source
   admission, training approval or model/account change from the recovery.
+
+### 2026-11-12 KST — Reuse price originals rather than rotation summaries
+
+- The existing ETF rotation producer was inspected before declaring new price collection necessary. It compares retained/Yahoo-adjusted windows and publishes summary rows plus normalized_price_input_sha256; publish_private does not retain the full sessions/closes input array. Its42/42 window count and derived payload are not a qualified fourteen-ETF training bundle, original-price replay, historical adjustment/PIT evidence or source-rights grant. Reuse the existing original price/financial Readers and externally reviewed policy instead of manufacturing learning inputs from summary counts or an input hash.
+
+### 2026-11-12 — Preserve an unexplained child-process failure
+
+- Unified head8401d0e7 validate43099012117/job130784400613 completed235/236
+  in3579.19s. The only failure was run287_chameleon_macro_inputs_smoke.py,
+  which returned nonzero after13.36s with no captured output. The existing
+  runner did not log the child return code. Do not label this an assertion,
+  timeout, dependency regression or infrastructure failure without evidence.
+- The test, builder and contract bytes exactly match accepted533bd448 and
+  prior successful236/236 head51c19ee2. An isolated local faulthandler run
+  passed; the hosted A4 aggregate passed173.22s. Neither success erases the
+  failed required check. Preserve the run/log and require fresh exact-head
+  green validation after the already-planned accepted-parent alignment.
+  Do not weaken the protected runner, skip the test or infer the exit cause.
+- The exact financing parent c2412516 later passed236/236 in3696.39s,
+  including that unchanged test in16.74s. This additional success still does
+  not identify the silent exit cause or erase the failed index check.
+
+### 2026-11-12 KST — Hosted capture success is separate from current diagnosis
+
+- Replacement finance PR756/c2412516 passed fresh exact review, both Python
+  contracts, review_complete and protected236/236. Expected-head merge produced
+  accepted master d13876a9f47f33a8d925b0dfe0eb3612306757b5. Primary and
+  financing collection flags were enabled/read back; research remains off.
+  The older abnormal run records and unsubmitted Support draft remain audit
+  history, not passing checks. No branch protection or runner was changed.
+- Fresh hosted Daily Crisis Monitor43105918576/attempt1/job130809082218 at
+  accepted533bd448 verified13 originals/50,497 observations/20,417,011 bytes.
+  Execution8a5a5a458e73250fef3423cbabf570e0dc7464ecf8edf223743ac2c4fb29f179
+  binds cutoff2026-11-11T21:52:30.769145+00:00 and session2026-11-11.
+  Capture/readback and its durable gate passed; research/fit were skipped.
+- The job still correctly failed: native A4 lacks risk metrics/calendar and
+  the legacy daily wrapper refuses STALE_SUCCESS_NOT_CURRENT_REPORT. Do not
+  relabel fresh official macro context as a current native risk score or a
+  durably completed paper session. Legacy history update remained false.
+- Artifact13894743624 ZIP91f95b3bde451535244b0e70910bada249ede92146fad8d3849c7d2b42397856
+  and daily artifact13894633885 ZIP2af6035eb6d9679e9aae9bb3782a99e398d14f17b0de9c48cb89c67fdd4fbae6
+  were downloaded-byte verified. Author proof5b1d58d83b897d681d1e1a967abd94f021a34db38227bc6aa583fba007ebb580
+  was stored/read back after remote execution/request/report byte parity and
+  all16 canonical Git implementation fingerprints passed. This author check
+  did not independently replay original pairs; the producer's paired-object
+  publication/readbacks are retained separately. Provider/fit/accepted writes0.
+- The first author-witness utility used the wrong helper namespace and failed
+  before writing its witness. Correct the import, retain that failed attempt
+  in the successful proof, and do not infer durability from a local draft.
