@@ -86,12 +86,15 @@ def load_learning(root, expected_policy_sha256):
 
 
 def run_cycle(*, input_root, state_root, output_dir, cutoff,
-              learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None):
+              learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None,learning_input_root=None):
     root,state,out=Path(input_root),Path(state_root),Path(output_dir)
-    market.need(not any(p.is_symlink() for path in (root,state,out) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
+    learn_root=Path(learning_input_root) if learning_input_root is not None else root
+    market.need(not any(p.is_symlink() for path in (root,state,out,learn_root) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
     resolved=[p.resolve() for p in (root,state,out)]
     market.need(all(not a.is_relative_to(b) and not b.is_relative_to(a)
                     for i,a in enumerate(resolved) for b in resolved[:i]),"A4_INPUT_STATE_OUTPUT_OVERLAP")
+    market.need(all(not learn_root.resolve().is_relative_to(p.resolve()) and not p.resolve().is_relative_to(learn_root.resolve())
+                    for p in (state,out)),"A4_LEARNING_STATE_OUTPUT_OVERLAP")
     market.need(not out.exists(),"A4_ATTEMPT_ALREADY_EXISTS")
     out.mkdir(parents=True)
     try:
@@ -130,7 +133,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
                 market.need(market.clock.stamp(value["cutoff"])<=market.clock.stamp(cutoff),"A4_FUTURE_WEEKLY_STATE")
                 weeks.append(value["week"])
         plan["weekly_score_due"]=plan["week"] not in weeks
-        payload,policy,resolve=load_learning(root,learning_policy_sha256)
+        payload,policy,resolve=load_learning(learn_root,learning_policy_sha256)
         market.need(market.clock.stamp(payload["cutoff"])<=market.clock.stamp(cutoff) and
                     payload["sessions"][-1]["session"]==market.current_session(cutoff),"A4_LEARNING_NOT_CURRENT_SESSION")
         learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
@@ -202,6 +205,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-root",required=True)
+    parser.add_argument("--learning-input-root",default=None)
     parser.add_argument("--state-root",required=True)
     parser.add_argument("--output-dir",required=True)
     parser.add_argument("--cutoff",default=None)
@@ -210,7 +214,8 @@ def main():
     try:
         result=run_cycle(input_root=args.input_root,state_root=args.state_root,output_dir=args.output_dir,
                          cutoff=cutoff,learning_policy_sha256=os.environ.get("A4_LEARNING_POLICY_SHA256"),
-                         a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256"),code_sha=os.environ.get("GITHUB_SHA"))
+                         a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256"),code_sha=os.environ.get("GITHUB_SHA"),
+                         learning_input_root=args.learning_input_root)
         print(json.dumps({k:result[k] for k in ("status","market_status","learning_status","learning_blockers")}))
         return 0 if result["status"]=="COMPLETE_RESEARCH_ONLY" else 2
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):

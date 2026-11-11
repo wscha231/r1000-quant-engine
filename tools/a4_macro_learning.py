@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from tools import a4_liquidity_analysis as analysis
+from tools.a4_primary_sources import semantic_register
 from tools import macro_technical_study as study
 from tools import free_market_context as free
 from tools.macro_history_sources import digest, encoded, exclusive
@@ -29,7 +30,7 @@ SAFETY = dict(causal_effect_identified=False, historical_pit_certified=False,
     portfolio_weight_effect=0, target_book_write_allowed=False, orders_generated=False)
 OUTCOMES = ("return", "maximum_drawdown", "realized_volatility")
 FEATURES = {"funding:"+name: dict(family="FUNDING", kind="continuous") for name in analysis.SPREADS}
-for _sid, _spec in analysis.SERIES.items():
+for _sid, _spec in {**analysis.SERIES, **semantic_register()}.items():
     if _spec[5] == "FUNDING": continue
     _logical, _, _freq, _, _, _family, _age = _spec
     _name = ("change_4_weeks:" if _freq == "weekly" else "change_1_month:" if _freq == "monthly" else "change_5_observations:")+_logical
@@ -68,7 +69,8 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
     originals.update(r["original_sha256"] for rows in prices.values() for r in rows)
     check(callable(artifact_resolver) and len(originals) <= 128, "A4_LEARNING_ORIGINAL_RESOLVER")
     reserved=0
-    allowed_sources={"fred:"+sid for sid in analysis.SERIES}|{"nyfed:"+sid for sid in ("SOFR","TGCR","EFFR")}|{"price:"+target for target in analysis.TARGETS}
+    primary_register = semantic_register()
+    allowed_sources={"fred:"+sid for sid in analysis.SERIES}|{"frb:"+sid for sid in primary_register}|{"nyfed:"+sid for sid in ("SOFR","TGCR","EFFR")}|{"price:"+target for target in analysis.TARGETS}
     for sha in sorted(originals):
         binding = bindings.get(sha, {})
         source_ids=binding.get("source_ids")
@@ -86,13 +88,15 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
               and binding.get("rights_evidence_sha256") in policy.get("reviewed_rights_pins", [])
               and binding.get("source_receipt_sha256") in policy.get("reviewed_source_receipt_pins", []),
               "A4_LEARNING_SOURCE_SCOPE_NOT_REVIEWED")
+        if any(s.startswith('frb:') for s in source_ids):
+            check(binding.get('historical_use') == 'FORWARD_CAPTURE_ONLY', 'A4_PRIMARY_HISTORY_NOT_PIT')
         raw = artifact_resolver(sha)
         check(type(raw) is bytes and len(raw)==binding["size_bytes"] and digest(raw) == sha, "A4_LEARNING_ORIGINAL_HASH")
     for row in observations:
-        check(row.get("logical_id") in {s[0] for s in analysis.SERIES.values()}, "A4_LEARNING_SOURCE_ID")
-        sid=row["source_id"].partition(":")[2]
-        check(sid in analysis.SERIES,"A4_LEARNING_SOURCE_ID")
-        spec=analysis.SERIES[sid]
+        provider, _, sid=row["source_id"].partition(":")
+        register = primary_register if provider == 'frb' else analysis.SERIES
+        check(sid in register,"A4_LEARNING_SOURCE_ID")
+        spec=register[sid]
         check(tuple(row.get(k) for k in ("logical_id","unit","frequency","measurement_basis","seasonal_basis","family","max_age_days"))==spec,
               "A4_LEARNING_SOURCE_SEMANTICS")
         free.number(row["value"])

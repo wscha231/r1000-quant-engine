@@ -10737,3 +10737,111 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 ### 2026-11-11 — Preserve process-exit CI failures
 
 - PR750 exact fd442f64 full CI43012938185/job130496790241 ended235/236 in3643.61s. The unchanged sec_13f_cusip_mapping_smoke reported PASS and all15 cases OK, then its process aborted during shutdown. Preserve the failed gate and log; the cause is unconfirmed. Test/mapper/parser/signals/submissions/requirements/protected236 runner blobs match accepted base. Do not weaken mapping, Source or CI guards, hide the exit, or patch unrelated code on that evidence. Prefer one fresh exact-head validation after the next accepted-master alignment over duplicate full checks on a soon-stale base.
+
+### 2026-11-11 — Actual current A4 diagnosis is separate from full readiness
+
+- A user-requested one-off current-vintage run captured32 public originals
+  (48,102 bytes), reached all four enhanced-domain readiness gates, verified
+  every input hash and reproduced the exact report without network requests.
+  The native ten-axis metrics/calendar were absent: overall DATA_BLOCKED,
+  null risk score and unconnected historical forecasts remain the correct result.
+  This did not verify Lake/Drive consumption, perform training or activate a job.
+- RRPTSYD measures Treasury temporary-open-market RRP operations. Its current
+  logical label total_rrp must not be interpreted as the H.4.1 balance-sheet
+  total including foreign official accounts. Preserve this semantic caveat in
+  the diagnosis; compare native measurement bases and avoid double-counting it
+  with overnight RRP when their observed operations coincide.
+- Latest pre-integration daily run42943132761/job130269440134 remained
+  DATA_BLOCKED/STALE_SUCCESS_NOT_CURRENT_REPORT. A successful restore or status
+  upload step does not establish a current diagnosis. No transactional rerun
+  or accepted-state publication was performed for this one-off investigation.
+
+### 2026-11-11 — Primary macro capture is not historical PIT or Lake recovery
+
+- Owner-client Drive reads verified generation31 commit83ff1624e5af7f800e90e309b7902ca6ff26335bcaaac7cb3dc21f6c14f25c89
+  and cataloga8f3d201b6ceffdfa83484789c586fe7c37914fedb0ab08164858d299dfc80e2,
+  but none of12 execution receipts matched the current head. Do not fabricate a
+  replacement receipt, select an older success or treat metadata-only reads as
+  original pack verification. Shared-client403 quota and owner-client success
+  are different transport evidence; preserve both without changing global auth.
+- Direct Board H.4.1/H.8 ZIPs contained about17.55MB compressed originals and
+  over206MB XML. Stream selected observations, bound actual decompression and
+  retained row memory, reject XML declarations/UTF16 and ZIP path tricks, and
+  verify native series/currency/UNIT_MULT before converting H.8 millions to
+  billions. Native weekly averages remain distinct from Wednesday levels.
+- Current Board history is revised, even when it spans decades. Store it with
+  actual collection availability and null publication clocks in the existing
+  shared research namespace; primary capture is not Source admission or a
+  replacement long-history execution. Refuse historical archive use of frb:
+  learning bindings; qualified ETF labels/rights and original dated vintages
+  are still required. Never bypass FRED's disabled AUTO rights setting by
+  relabeling retained bytes; direct originals retain their actual provider.
+- Collection/readback, native ten-axis readiness, a reviewed learning policy,
+  actual model fitting and A5 proposal acceptance are separate milestones.
+  A failed live capture must select its attempted input root, not fall back to
+  a restored current-looking request. Failure receipts may be archived as
+  closed-authority audit records but never accepted as completed input.
+- First actual six-feed attempt kept three NYFed originals but Board ZIP
+  requests failed; no aggregate request or generation was published. Official
+  downloads advertise application/x-zip-compressed. The narrower zip/json
+  Accept header produced406; explicitly accepting the original MIME restored
+  H.8/policy-rate capture and normalization. Preserve the failed execution,
+  include safe HTTP status diagnostics and test negotiation without retries.
+- Exact-head review found that dedicated collection credentials alone did not
+  install rclone: the older setup exits when legacy credentials are absent.
+  Install the binary in the dedicated setup path too; shared secrets are not a
+  prerequisite for this independently scoped primary-source configuration.
+- A second review exposed shell status masking: a failed middle command in an
+  && chain is exempt from set-e, and a later if can overwrite that failure.
+  Require explicit nonzero exit for each research and capture prerequisite;
+  execute the actual YAML gate in bash across enabled/failed/skipped cases.
+  Also keep source bytes fixed during identity-bound A4/A5 tests: a mid-test
+  source edit correctly invalidated the public stock-model graph. Stable
+  replay passed15 focused cases and the full94-case aggregate without waivers.
+- Corrected actual capture36663e9 stored and reread all six originals
+  (17,627,102 bytes),42,929 observations and their normalized pairs. A separate
+  process reused only Drive originals, reproduced the same report with zero
+  provider requests and stored cold-replay receipt
+  3c8454b0ca944da845f211678927a694ddb165211878a05b1e56f9c3b06260d0.
+  The real learning-cycle attempt was BLOCKED for missing verified policy/input
+  evidence; no fit, accepted model or portfolio resulted. This evidence pins
+  its original producer/normalizer code, not later reader versions.
+- A later review found primary market selection hid a valid restored learning
+  bundle. Keep a separate learning input root, validate original pins/clocks
+  there and refuse overlap with writable state/output. Do not copy, regenerate
+  or self-approve a policy as a side effect of fresh market collection.
+- Cross-host review found gzip.compress(mtime=0) uses an OS header supplied by
+  zlib in Python3.12 but forces255 in3.13+. Preserve exact compressed hash/size
+  and compare bounded decompressed canonical rows to original replay instead
+  of requiring recompression equality. Test a different compression level/OS
+  header as valid, but reject changed normalized values with updated hashes.
+  Current normalization changes require a newly pinned capture or explicit
+  reviewed migration; retain original old receipts and code for their replay.
+- Required CI run43017058968/job130510648847 passed234/236 suites. The new
+  locator paragraph correctly invalidated current-source reuse of the frozen
+  data-access guide. Restore its reviewed12833-byte original (403680df3e2856e2
+  48a552687f776c10697d0951ce233ee78a3df7a7365beb3a) only inside disposable
+  historical positives. Keep the production reuse catalog unchanged and retain
+  bounded archive/hash checks plus changed-current-source refusal.
+- The same CI observed one existing malformed-Parquet CLI subprocess exit-6
+  with "terminate called without an active exception" on hosted Python3.12.
+  Its unchanged assertion passed three local repetitions and all69 broker
+  cases (250.2s); this does not establish the Linux cause. Do not suppress the
+  assertion or change the primary codec speculatively; require fresh hosted CI.
+  Focused unittest imports need the incumbent tests directory on sys.path;
+  a ModuleNotFoundError from a different invocation is not a decoder regression.
+
+- Source143 attempt1 CI43027463530/job130545673754 also failed235/236,
+  this time in an unchanged disclosure-labeler program. One selective ordinary
+  PR validate retry passed236/236 at the SAME143 head (attempt2/job130579858280,
+  4978.89s). Preserve both failures; successful assertions plus a terminate
+  diagnostic and nonzero process result do not establish a shutdown root cause.
+  The runner combines stdout then stderr and omits the child numeric code in its
+  tail, so their precise temporal order/signal cannot be reconstructed. Do not
+  patch unrelated readers or relax gates without a minimal Linux reproduction.
+- PR.base.sha can remain an older snapshot while refs/heads/master advances.
+  Source143 contained accepteda2ff and all current checks passed, but actual
+  master moved to6955a4b2 through A4 PR751 during the validation; the real merge
+  was dirty. Check the actual branch ref before admission, preserve the accepted
+  counterpart, and coordinate a short integration window before another exact-
+  head check. Old-head green is not validation of the new aligned head.

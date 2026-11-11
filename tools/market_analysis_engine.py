@@ -107,11 +107,16 @@ def verify_request(raw, expected_sha, cutoff, session):
         if kind in {"macro", "macro_v2"}:
             need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
         kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
-        need(kind in kinds or (v2 and kind in {"macro_v2", "learning_release"}), "INPUT_KIND")
+        need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "learning_release"}), "INPUT_KIND")
+        if kind == "macro_primary":
+            from tools.a4_primary_sources import FEEDS
+            need(spec.get("feed") in FEEDS and type(spec.get("observation_start")) is str
+                 and type(spec.get("observation_through")) is str, "PRIMARY_FEED_WINDOW")
         if kind == "learning_release":
             need(type(spec.get("policy_sha256")) is str and re.fullmatch(r"[a-f0-9]{64}",spec["policy_sha256"]),
                  "LEARNING_POLICY_PIN_REQUIRED")
-        role = ("macro" if kind == "macro_v2" else kind, spec.get("source_id") if kind in {"macro", "macro_v2"} else None)
+        role = ("macro" if kind == "macro_v2" else kind, spec.get("feed") if kind == "macro_primary" else
+                spec.get("source_id") if kind in {"macro", "macro_v2"} else None)
         need(role not in roles, "DUPLICATE_INPUT_ROLE"); roles.add(role)
         path = spec.get("path"); safe_path(path)
         need(path not in names, "DUPLICATE_INPUT_PATH"); names.add(path)
@@ -191,6 +196,9 @@ def native_risk(blobs, session, cutoff):
 def input_limit(spec):
     # Full six-year native metric panels exceed the ordinary source-file cap.
     # Match the incumbent report reader's32MiB metric bound, not its risk policy.
+    if spec["kind"] == "macro_primary":
+        from tools.a4_primary_sources import MAX_ORIGINAL
+        return MAX_ORIGINAL
     return MAX_NATIVE_METRIC_BYTES if spec["kind"] in {"risk_metrics", "learning_release"} else MAX_FILE_BYTES
 
 
@@ -199,6 +207,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     need(type(supplied) is dict and set(supplied) == {s["path"] for s in req["inputs"]}, "INPUT_SET")
     macro, public, prices, surveys, native, receipts = [], [], [], [], {}, []
     enhanced_originals = []
+    primary_rows = []
     learning_release = None
     need(all(type(x) is bytes for x in supplied.values()), "INPUT_BYTES_TYPE")
     need(sum(len(x) for x in supplied.values()) <= MAX_TOTAL_BYTES, "TOTAL_INPUT_BUDGET")
@@ -215,6 +224,12 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             macro.extend(context.macro_source_rows(raw, source_id=spec.get("source_id"), collected_at=collected, cutoff=cutoff))
         elif kind == "macro_v2":
             need(bool(enhanced_originals) and enhanced_originals[-1][1] is spec, "A4_UNREGISTERED_SOURCE")
+        elif kind == "macro_primary":
+            from tools.a4_primary_sources import normalize
+            records, _ = normalize(raw, spec["feed"], collected_at=collected,
+                start=spec["observation_start"], through=spec["observation_through"])
+            need(len(primary_rows)+len(records) <= 150000, "A4_OBSERVATION_BUDGET")
+            primary_rows.extend(records)
         elif kind == "learning_release":
             learning_release = (raw, spec)
         elif kind == "cot_tff":
@@ -257,7 +272,10 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         **SAFETY}
     if req["schema"] == REQUEST_SCHEMA_V2:
         from tools.a4_liquidity_analysis import enrich
-        enrich(result, enhanced_originals)
+        enrich(result, enhanced_originals, primary_rows=primary_rows)
+        if primary_rows:
+            from tools.a4_primary_sources import notices
+            result['primary_source_notices'] = notices()
         if learning_release is not None:
             from tools import a4_macro_learning as learning
             body, spec = learning_release
@@ -304,6 +322,8 @@ def implementation_identity():
                   CONTRACT_PATH.with_name("market_analysis_contract_v2.json")])
     from tools import a4_macro_learning, macro_technical_study
     paths.extend([Path(a4_macro_learning.__file__),Path(macro_technical_study.__file__)])
+    from tools import a4_primary_sources
+    paths.append(Path(a4_primary_sources.__file__))
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 
@@ -364,13 +384,19 @@ def render_report(value):
         lines += ["", "## Bank balances", "", "Balance changes do not identify transfers from stocks or MMFs.",
                   "", "| Series | Level | Unit | 1 week change | 4 week change | 13 week change | Status |",
                   "| --- | ---: | --- | ---: | ---: | ---: | --- |"]
-        for key, row in value["bank_credit"]["series"].items():
+        for key, row in {**value["bank_credit"]["series"], **value["bank_credit"].get("additional_scoped_series",{})}.items():
             if row is None: lines.append(f"| {key} | | | | | | MISSING |")
             else:
                 changes = [row["changes"].get(str(n), {}).get("value") for n in (1, 4, 13)]
                 lines.append(f"| {key} | {row['value']} | {row['unit']} | {changes[0]} | {changes[1]} | {changes[2]} | {row['status']} |")
+        lines += ["", "## Liquidity balances", "", "| Series | Level | Unit | Basis | Observation | Status |",
+                  "| --- | ---: | --- | --- | --- | --- |"]
+        for key, row in value['liquidity']['series'].items():
+            lines.append(f"| {key} | {row['value']} | {row['unit']} | {row['measurement_basis']} | {row['observation_date']} | {row['status']} |")
         lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
         lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
+    for notice in value.get('primary_source_notices', []):
+        lines.extend(['', notice])
     lines += ["", "Missing optional: " + ", ".join(value.get("missing_optional_sources", [])),
               "Blockers: " + ", ".join(value.get("blockers", model.get("blockers", []))), ""]
     return "\n".join(lines)

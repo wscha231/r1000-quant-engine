@@ -74,6 +74,88 @@ HISTORICAL_LAKE_SHA256 = 'fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4
 # Immutable historical test inputs, not current-source reuse certification.
 # These exact Git-LF bytes are bound by the unchanged historical catalog.
 HISTORICAL_READER_INPUTS = {
+    'docs/RESEARCH_DATA_ACCESS.md': (
+        '403680df3e2856e248a552687f776c10697d0951ce233ee78a3df7a7365beb3a', 12833,
+        b'H4sIAAAAAAAC/41bbVMbV5b+3r/ilv0BqJIQ2PEkk41TRTBJqBDsASczUy6XJKQGNBaSRi3sYcZTJWORxUZZQwK2IIKVJzjYKbyR'
+        b'MQaxwbNV/JT9SLf+wz7nnHu7JcBTm/KUZan73nPPPS/Pec6Z88pd2HSfNZT3qtQszx3te08WvfVdr1ZqPmx46xV1/PpN85s3yntS'
+        b'P36zrdxv6/i1WaoremjthWXhb+VuN7xS1VstqhvHjfrx65JqlhfdR3PKu//AW2/c7Mzbjh3PJyajyXghHo0nErbjdP/JyWa6vPWi'
+        b'Gunt6elR3sYzvIy/tt3t3aP941d1b6FqeRuL7o9l99mh8ur/dB8u+/JszEEeyN6tPksVPp8eg9z0s/d22f2eRYEY3spbb70UUt4P'
+        b'i+7rBs5WW8Ef5e6UcL7j11hzYbP5+IHlVe558xXvp3WShk66U3cXq+qzbHYibasr+dRtG8sr9/Wu93S3uVLlbb03VW+hpkRAnPRe'
+        b'835VBKxhE3q/RTXrFcudrXlb1eM6dlgpuQvz7jrv79WqKgGtpLMTJLVIpAKJcB2lqmqurkCRemvLOn9euc8PvVrR/6GmjnfuW1Yv'
+        b'5KoVoUrvm7KCOnFs5TbK7kbVO6jQdUI0vIKF1OjnfbRh32cDw9dHu6eSrOP1tziCHA/CN8tlb/0Qn9zZiqWUSmTTaTtRyObpFNdG'
+        b'SOVbOPrGvFc9dF/gsPV689E2HZ22fviMvn4KPew/P248aK5UvC06/EO9hXWhW8WuTOfjY1DyeCoTzyRS8bSKZ5JqKp7IZ9VkysFe'
+        b'MzGWW2ub1XO0Hy8U7KlcAVeKL8rPYcTPcd84AonZpiyoctPdqPB9lF7BeoxQwYLl53R2nMn9afuEiBe7W+zBGAJdCN3hRsW4xfHO'
+        b'W6xJciayU1OpgkpMxlMZ2N4JWYKLJjlz8cQttjgo+KcSHqM7uXDpN9oyyTLc+jL528MG2w3u4qDSXNn1Vg6VWTI2FL9lx2Cbb2Dl'
+        b'tJr783P3+xqtj3XgRWZTXqHe8J7WcRNkqLR9xH2xCXfg8+8UYW9mWbl6LPbCfbrOt7z+llbHSb21ujgb7eELqN9X7i8Nb7VEPrt+'
+        b'CFdQzSXouWos9z2svLLrLhwYqcSzW6SK2X+xE9OFVDbjxAI3YJW0+ETLrfx5Op5OFWZYmNe75H2l6glbNnu1Gav4iaLFX1FQI2Hd'
+        b'vZJXWlc4gPfjof6Jo4p4LJ3gUncQBF1EOn1ROKO3sRTx/jGHo0NzCGA7da/x9GjfKcQL087Rvn07lbQzCZtsturVFskVvVdzp4yE'
+        b'DnKtb+T6YN+Qby/a5th+yXd1VIQZN+8vcpAtsv0+fCZexietlbyd3TajZ+dYqjYrpVPOqB0hMnq9b2ggOjJwvW9weOCK2YjCmgQT'
+        b'xBX3oKQNXkzqOZyvNTJpZ6Bgxm9bljgOJZNGHRFUwWUglhqLO7Z2pA8tK2aSRIS9P1qwE5OZVCKejhrNRW73RpzEpJ2cTtvJSDqb'
+        b'mQjrEBHGLzHLymezhfB4Np2082rwChvBVpEinn9aVlSrEPSFlmMDaoYUlIyihWzuYk80lXEKqQIbYzwdiXE831s1Gms+PKBsclyH'
+        b'43OqpO1p31nEBXwD66l/h+u1yDdnt7UQ7tYiu0WlhEynPKyx3uDgxAZN1oBnkVmNI14bea/3IkfAjSUSFudP3MplU5lCyMrFc3Y+'
+        b'SjqDfkOK8mquYCc59f2jTGmPMgHFBMTGR+bW5KLuqubsZkS+UXeVO0vpHB8ovMAF7lp3w+Gw/z88HpvOYJe8Y0cS2clsvhCjh+UU'
+        b'vaHe3g/ovHtlExGRh5uVBmEI2EH/4Bf6fHhHRyWtfvjLzy8oM7OxIngcv3lJyZRcU4IPaZ39r6JYDMdORD7q7SHb+mmblv6YJVkr'
+        b'Q2/kkBRwNovqD5+MDKnxeKLAhqgBAHnCQtXdmYdsR/uwW69awrfALPWSDw/u+jn96S5Ox0a+SoiBPO+iWy7SFpH3ehAs8Gbk2uB1'
+        b'sjS3+murmZVF2MR0Pm9nCpGPHDufsh0W9dMROJa5fwQ0bOk9eQnpA+V4v+4jbTWXS5ypvilz+kQ+nt+GaIR93NozjoJsKrDoedqY'
+        b'd4ynx/PwjtYN/VxSaa5yIrwN64lP2Jx4as/49gmbKFEIRRKsitv5NwJl3uYSXq1KHD+u3yMTRXxxv9/0Hu+S2Zw48p1sPp0ci2du'
+        b'RT5KZZJwYDgoi3GJnPHJS7aEOnbZLSI+BkakhQrBMl5SLHtN9kohtCUdyk3peCnb5e0cjNGJhdozx12TFwjR6hwNZIq4rGNqYJAa'
+        b'ciH3RjSswHkf+YHdBDx6m2ypufL8+NdKIIMlxgWktwcdkLfRT9Ab3dSTbyh2auci11qo+ul+V6LI3Lfew01KoDB+WDTlMDolnPag'
+        b'BA1TxsKDiBmWezDfknsoysy+hIicBsqLbXHOj+oCUyQ309Xn7ThFR7ciaNmEHwnRVAt4a7sUI77nZf3sThbeDmXgB83Kihod6Gcv'
+        b'0+mGYy5XEgyY91apTNgqWibqrZS8tWXyIwrCT+YC32uuvCR3p7y1t+ztVcnc8Ze3U2nReVtk5FxzbaYwmc1QrufaoTIPfViWtihY'
+        b'O8EV8hM/zOYTyBu2H6V00DXZwF2saJWzla+UWSC2D7OraJSVB9/dWiL7mtMao8PPV/jhkxcBr7jlAHHZ/ObGtnd/nVKgSdpQNVLm'
+        b'r5DovxcpQvH5YrFYjs9npabIyBVVTOZz1rHG89kpoLjCZDo1pvTX1/BP+aGQzaadbsqSUZ0lo2lARfMgwcaQGmF1XM/HMw59GwLy'
+        b'LiBwwHP+alsWP3+ZH+088WRn1um2M7dT+WzmRseXff0jVwEaRgf6Rvo/x4cvr14f6LjZFSLA4f9HonV2mCwfJksMJ+LIZx1dXVZq'
+        b'XNFu3bk4xUuVctQwtvuQF8jHU0jQX8fT0/ZAPp/Nd3YMZxVSUWo8hWSnD6eRd0eXpSH4ZVYXFBBPOp28Nu0YnYw7kEKecTpCrbtC'
+        b'DD+E4HX+xWwT9X/p7FLqvPoy5TipzERkKuVAZQRK4FoJO4Xgkc0rCUpwjBSuwMrlEdo6/9bhLxHVj3Z8qPzvbpz+OepMxlEOdNz0'
+        b'9dihg1pUQGX7+yd+a3nLKUwnZ2jV7FRuGgAhSgYSTZLLty/xrx68+Xe+pQwwzv/3jXdd3yguDAojMkDhPrAm3V4ubRN44RVVKqMK'
+        b'uFmVmEmkYSDWLXsGV9Jh8ulXwyN9MDGLlnDsgrktHdtvdOjvoYUbePMmCa6/IpFFP3wU7PO3jv6rQ0MD/dcHrsAeOr4a7v+8b/gz'
+        b'/OPv75L/it4V8o2ls4lbkBqXjnVZ1Hz2jmMEmrALrJw8bBCCdPm2oK31w1b7w+b6APheHrjhf9NynfokeAhLhlSHbwynjhi8YzB0'
+        b'8BTJ1hl834WFSHISyc500scu3Ph5dTUn+FeN/m6oJTzE2UumHdtBxQ6LyKVTCXidcW8FA8mOj3+IBVpCCvthSEcChvndzp9htLw9'
+        b'3xSk+CP+C3/5ZfjKFSgTMdCy2nfmEHoCP/kskQFQXGKZUl8DKInaa8vezkvG2W2VCwEfyR8Etk+7PSd2Xbry1fhIgjNdueitL5kt'
+        b'TnA4kMkK6lW/SKV9BBKcLr9NcYrk+wPk2lyCpCY5BWTVLgEMKlGBBfxlkVIsd77kovxd9GkOEZmrH82fCazRJ9b1JSsE27gv6iEl'
+        b'LGA7aULH3Nk9zeToepUwDSprgYq0u3FPYcegsSwUC5DHgHm5zshFo4qK92Rbp2VSKBTBgEZfztY9r7akYi3uFOObFVIC2qbyhran'
+        b'FLxWRzWgVwQ6b6mW38VEAcXQbYynUFhqMMzc2BBjdQOX5Qd9w4wNBR1DP1QEMjomsMqM6q4IDmwIBpC4tAD6MIVidMOFY/xONDv2'
+        b'J1BrDh2ATjk2U7Adc0Tc+sRfUzm2llqVrAwXZBFFc59rTE19GnQU8J1Mhh7tT8VzOSQr6J+dEuKvA16TWugeZqGT3YBXbKWDGTvV'
+        b'UHttE8PobW0xXcUeRA+fZ7Lp24ZmVLk+XtgG8cO3wUKI28BydubZRHeLwDUMTSI+KTyVTdppFNtIIE53biam6QYq0kcErsI5uQR+'
+        b'/O+GoSXwxmWQoiqkvESImBV+fz6gKUG+aLoAH0fsCSCFPBUEAth9opS1IBVNO2g7rq/SfvqmQtaEnYH5UjQIaS3gXMsQLmT8CYpO'
+        b'U8nDjyTtRMqhKClqZ9v8nvkkURvWttxHq8Szxfj00VQyJkEMDlfzkbboePBKRNQc0iQ3VSz4XNqkCMifx22E/bzNzBIYZ3zHm0nx'
+        b'P0bVWGbCeLJ/635V+WTZ2yoFV0lBpW/QKLt5b9dlKth73BA60kJx4BbLpP6W2y5pcWlT2sZQHzpK5fJZSjh5HXGo3ligMuOHEw7Z'
+        b'gn1bwOyZFmMAbSfnuhygF5Jp2xMhRQjx5Hd4MB2faf9SlkjHM61fI+IgzYWsLpi8rp9CKjAFQmkhfcUhxjEArhnagdfA38j5t5G9'
+        b'osQPBbaNxYKyxC9VSCvSQTDXL6toH9diJfXiUSJk2NYS+CdLgmUT2cx4akKjR98qKHCmcrb+mm2+9GML+0cBrfnoAdMdnMAC4oiv'
+        b'ZGw6k0xTOXCWikX5Rjnnkk73NFw5n0KjpzsJFDxz7pTK+A3jItFCasq+fFqJl1v0yS/gbM70FFivVPLyuexkOnE77BOFYX3S8GTv'
+        b'OaP9y/oSLIIyFDlnpQ0i5+WKINgCqKKBolMX++yvT7bd/9w+EeYoKGrKWtLTeTWanc4nbOEcxnUAkHaALy5rXNbRDID2xPry8T8b'
+        b'J+wfqBLEp6koLp9hwJ1yH+3W5YNP+ZErHvKa6XTBuXGODhrPzJy72U1PCbTScdaHbQVT4GnqgA4Rw3UBr4f90g1sK4sSFlGI6JHo'
+        b'9XGMWhvvfl7HILyhP2lrBD8EMgFp6RT/icVOHT0mIXRO+gpGAaaChh8R/0mg7MVy834xYExQy9/JA2yGswC8RIdLBjCOhixM9fjx'
+        b'DvGR3IUUZoNZ3KJqY3FbkoSO4Ijs3PSS6l4focK0jWRUn0shlbrf/hcCZ/AOtSBq8z76o0RqTsOmiEeEoRGRj/bpZse4f8TNObE/'
+        b'4iIjAyORvks6tOgWRkvTkZb3G5r08i8NnZcpDAUuGhE8Qh01bSJBsPJtxOATaqgQYrw/T1Kv7VI2gBo1vQKidXnZrT2gKwC/9Y5k'
+        b'a1ltyCPip0jFlw78n0mN2w7jJUpsnCZ1nFTud5vUPzgV0DtNRDJvC64KUb2C0wHfG8u93N3d7ccM+mz5HcloIT/tFOjLLs7OEiTa'
+        b'kTpDbQPMydDcX/5Hn494L404BM2Q5RELAfJrDzAV+IxKsAJzlQkqJ9kJQDy3VwRskXT6wkwOKJWFYnNbbbh7xbaECsOucqeIgOJJ'
+        b'NzBg/+Em/nAAOhP66N6hBowb2yi4mIjlesKiLzhXsCv6eNeUG9T+B5dMWI3wmMAfbBU7K3e0KZVAu+Hv4reROeJjKWI1IrixFFge'
+        b'UsosGxGqGAjU3g1FPGMH5qh1dh4XdCnATgQzCpGUYP8FPh9GWcvITe6Amzhb894BlLVXpCbhFmo9ZitjIwNfjQ5EB/4wOHp9cPiz'
+        b'mA7qbV3PgDnVcBGx4DGBP7z8dd/Q4JW+64NXh0Gb/e6rQdQboLLN9mRMiHNS6Om+Zaz/6tcDI2jbR78a/mL46u+HY5pKplEMPhyz'
+        b'5rwp4cBd4/q/FNlfEZ2YuPTbKyUukB6tKuEkz4hwMmogSmsBwaRlDdDlXIYlpphKoQ9c/n5DoYIl9EIgcWNO09CwTrf+ihSoo4sE'
+        b'MCt7B4vz7Q0O94NHxGxC31D06vDQH2OR2Cd9/V98Ojg0FGjKDHnoOl9XKiccxpJGjTQCqPHAlDMZs8yYmPqOQwpgKiW9Q3MF/ypJ'
+        b'S6edZGiufUv2FNOVBwEaVALAunby8ng8DasL+dAXuRYdGmdS9bDqq6gpi36di9u6k8eriBK4SVEuqYPCVjht37bTfvWzXqGGAUXT'
+        b'trEUrc9PBQpxrmEMZ0mcaIcoqjAN1s23csb8ZDQL6yrIKDryM7ZH/b9QO10/W1qTpvA0GqXwJKWbFouoZE1GRDR9Egk4V0FVjLva'
+        b'MAAbsSnzKJnJdvQgY8xIMD1CBd9UXEqPIlB1UHroFuMHF3qk6cj0CwcahMt7nK64oES6qr9qzpWlK4N/CWaTcIdGhVRL1JzZXOIb'
+        b'RG8QXvNYd2l81z+lo4/1pJK6AyHjFy72RrjXHMaNZAphOzORytgtoy6npndah3VCWC2ZTTgRn3RHEOmL9vX3D4zy7/LrO+euWHA0'
+        b'TQBPPn7XxNN6a9/ITGedGAPju2rBO6gRu2nFtrkmzD6YKyZkxb1VsofNIg9KGFLoaJ+NTQapyK4l7Lj19ebGPEUTWpirbo6kPKoh'
+        b'VNG7mkrkWUtVM73ymCrYborg3tNXLVMU0nNijPS0rqtV1ksbxyi9fJMXtRXoPEdQynCM0uOf5610nQ6NYSmeVWLWSPeN5AR0KB43'
+        b'gWlBVtTQqw0h3bgAoSG3vZKIpBv6eHNrE39804R/cs4jjIrs97ZdihPAin3JH0zTgzLeE2O9pvVdWzreP5SGeRW2yECFX2WMR6mC'
+        b'lL1VlOkY38h1Yg2woph8RIPXUzMODFC0wRsqWuY2mPA7PfZm7gStudqm8BWUecg5/MkjJc1Ey7rQc+E34Z7fhnsv0ErUuRfdk4gX'
+        b'3pcBqEs9F0O9F34b+uBSj4/QQ9zWxFRDz3vc+n78QCyLiNzeS6He9y+Get7/gKuDlgD8WNA1U4YXe8AIhgyB2NvL//o9dcbVJ2iN'
+        b'QzJ8ozvdETFTxQXlC1YyS+kuLgqy9kd5/BnDgG+Vm+OSga+CSVvLFPAVox4iZuu+8vx1GJ21zRhpRsabrQcYF2OFPe5cSU9BBBOa'
+        b'mmqv1ghdoDR+CJO8yE/qzCgHCwxfjtH8jyJ5RWuUpWEyPTW26M9QwDj4ZPdbut7spYK4HzHLSBMjMnhGianCxZVjC/3HgwwI0gfE'
+        b'ylvN1SrF6dXlM7rkSFs0zLe2TOwzRYCXHP3Yb3EbVfIUUpew8qgE8dP/fvOdGeQSpIHKV9BnRBKMHq/AczI+EWmuYUjxMEKcO/CZ'
+        b'ODOvItrhl0yaQRXFkx1+ZjYOoGu2lrKj1ODuQ0WHRJo8k0k8FhPzCQL3qJEgmff4oEwKoASD2T5YmR4Y080GhPOnxKBzV0GiLNmk'
+        b'7kFU20YADZcVa+szm7TTPTOVlunN+QoDTM3Ylho0NcU4WToqcgaumxC0tsGOCOE8X9HjD+ABKMdT9ycqh9DMAc19BL+IKbf85DCK'
+        b'iU4Sz4NvY4aEWVq0zGiYhk1S5JvE1d7hwXVoyLxwwN7h869nMnZCM+E0/h4GgxiSg0YMKu7Pv3KvxYBfHXSVoZhY4b4Lym2KZ1Vb'
+        b'GHKusw6F2MifQR5zba+BGRdw4oTaeWUEtaTDuuWXnFRRmyopMDDqwxn4yXMKHHa1iZT8+qHqDxS2TTLTE0x4SDunpJsLMqTI9//s'
+        b'0MQfI4i0ouj6dG7z2Xv8E2ZqsqgeX8SvrDU9n0qh4x1inIgA1ww4l4tmRflsRjD0HrTRenyfPL0Bqpf8dIbJfAoaOriIBZkVKu1N'
+        b'mLYygIaaGBRh9FkfRE9wiQ1gcRbQt8KWdpo4tX8HsrfGnUFW8LW1/5wGxf2EYBlh5UyyWNAxaJkNlxi0gjeVCdzVE63JYNJW9+Wk'
+        b'k9UGF1/ULfgidYe8rUb7JZ1NS2ij35uXZCQX/vqNahvhb/MVHqUydNupNoPOpLGjffMxaupriVw80Kt1Hbgdt/mY+CPn3imrC6IY'
+        b'31Xkxoi9fOd8RIz/XwqIg5h0a2+UalDBeEy7G7eXuL7Wk15BZSSn5bJInBow2q9TpLSBWx7tD4zg20fbSLfNRxRhMWHYWtoRh3Sa'
+        b'3rT+DxF5F+EhMgAA'),
     # Frozen catalog operand only; current learning code remains unqualified.
     'tools/macro_technical_study.py': ('3be72cfe62c39c9e4fe6508548f17ef8a6884d600094121bed8311c2e516a18c', 18875,
         b'H4sIAAAAAAAC/71cbW/jRpL+7l/BZYA7cizJL9nJYr1hEK+tZIyd2BPbyW5OEAhapCTGFKmQlG1NkP9+T1V1N5sU5ZnF4m6QzEjN'
@@ -4255,12 +4337,11 @@ class ManualTests(unittest.TestCase):
                     target = self.root / name
                     target.write_bytes(historical_catalog_fixture_bytes(target.read_bytes(), expected_sha))
 
-        # Preserve the reviewed regression operand only in this disposable
-        # historical positive. Do not repin the production reuse catalog.
-        name = 'tools/macro_technical_study.py'
-        expected = HISTORICAL_READER_INPUTS[name][0]
-        if any(row['dependency_hashes'].get(name) == expected for row in catalog['entries']):
-            (self.root / name).write_bytes(historical_reader_fixture_bytes(name))
+        # Preserve reviewed Reader/code/guide operands only in disposable
+        # historical positives. Never repin the production reuse catalog.
+        for name, (expected, _, _) in HISTORICAL_READER_INPUTS.items():
+            if any(row['dependency_hashes'].get(name) == expected for row in catalog['entries']):
+                (self.root / name).write_bytes(historical_reader_fixture_bytes(name))
 
         # Frozen577 import positives retain their reviewed Source bytes. Current
         # Source changes must continue to fail production catalog lookup.

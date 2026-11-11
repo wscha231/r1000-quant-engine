@@ -396,7 +396,8 @@ def run_tests(*, portable=False):
         from a4_macro_learning_smoke import LearningTests
         from a4_cloud_cycle_smoke import CloudTests
         from a5_model_portfolio_smoke import ModelTests
-        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests))
+        from a4_primary_sources_smoke import PrimaryTests
+        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests,PrimaryTests))
     suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in classes])
     result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():

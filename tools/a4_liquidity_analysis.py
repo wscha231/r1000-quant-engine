@@ -27,7 +27,7 @@ SERIES = {
     "WTREGEN": ("tga_week_average", "millions_usd", "weekly", "WEEK_AVERAGE", "NSA", "LIQUIDITY", 14),
     "WDTGAL": ("tga_wednesday", "millions_usd", "weekly", "WEDNESDAY_LEVEL", "NSA", "LIQUIDITY", 14),
     "RRPONTSYD": ("overnight_rrp", "billions_usd", "daily", "OVERNIGHT_OPERATION_AMOUNT", "NSA", "LIQUIDITY", 5),
-    "RRPTSYD": ("total_rrp", "billions_usd", "daily", "OPERATION_AMOUNT", "NSA", "LIQUIDITY", 5),
+    "RRPTSYD": ("total_rrp", "billions_usd", "daily", "OPERATION_AMOUNT", "NSA", "LIQUIDITY", 5),  # v2 compatibility key; not H.4.1 total
     "DPSACBW027SBOG": ("deposits_all", "billions_usd", "weekly", "WEDNESDAY_LEVEL", "SA", "BANK_CREDIT", 16),
     "DPSDCBW027SBOG": ("deposits_domestic", "billions_usd", "weekly", "WEDNESDAY_LEVEL", "SA", "BANK_CREDIT", 16),
     "DPSLCBW027SBOG": ("deposits_large", "billions_usd", "weekly", "WEDNESDAY_LEVEL", "SA", "BANK_CREDIT", 16),
@@ -207,16 +207,26 @@ def bank_comparison(panel):
         else:
             absent.append("OBSERVATION_DATE_MISMATCH")
     ready = not absent and ratio is not None and reconciliation == "MATCH_WITHIN_ROUNDING"
+    scoped_ratios = {}
+    for scope in ('all', 'domestic', 'large', 'small'):
+        deposit, loans = panel.get('deposits_'+scope), panel.get('loans_'+scope)
+        observed = deposit is not None and loans is not None and all(r['status']=='OBSERVED' for r in (deposit,loans))
+        compatible = observed and all(deposit[k]==loans[k] for k in ('observation_date','unit','measurement_basis','seasonal_basis'))
+        scoped_ratios[scope] = dict(value=loans['value']/deposit['value'] if compatible and deposit['value'] else None,
+            observation_date=deposit['observation_date'] if compatible else None,
+            status='OBSERVED' if compatible and deposit['value'] else 'MISSING_OR_INCOMPATIBLE_INPUT')
     return dict(status="OBSERVED" if ready else "PARTIAL", blockers=absent + ([] if ready or absent else [reconciliation]),
         series={k: panel.get(k) for k in required}, loans_to_deposits=ratio,
+        additional_scoped_series={k: v for k,v in panel.items() if v["family"] == "BANK_CREDIT" and k not in required},
+        scoped_loans_to_deposits=scoped_ratios,
         domestic_reconciliation=reconciliation, deposit_change_is_identified_transfer=False,
         large_bank_definition="TOP_25_DOMESTIC_BANKS_AT_H8_BENCHMARK", small_bank_definition="OTHER_DOMESTIC_BANKS",
         foreign_related_institutions_in_all_banks=True,
         structural_adjustments="SOURCE_H8_ADJUSTMENTS_RETAINED_NOT_RECONSTRUCTED")
 
 
-def enrich(report, originals):
-    rows = []
+def enrich(report, originals, *, primary_rows=()):
+    rows = list(primary_rows)
     for raw, spec in originals: rows.extend(parse_original(raw, spec))
     histories = visible_histories(rows, report["cutoff"])
     panel = {k: summarize(v, report["cutoff"]) for k, v in histories.items()}
@@ -225,7 +235,7 @@ def enrich(report, originals):
     liquid = {k: v for k, v in panel.items() if v["family"] == "LIQUIDITY"}
     liquidity_ready = all(panel.get(k, {}).get("status") == "OBSERVED" for k in ("fed_assets", "reserves_week_average")) and any(
         panel.get(k, {}).get("status") == "OBSERVED" for k in ("tga_week_average", "tga_wednesday")) and any(
-        panel.get(k, {}).get("status") == "OBSERVED" for k in ("overnight_rrp", "total_rrp"))
+        panel.get(k, {}).get("status") == "OBSERVED" for k in ("overnight_rrp", "total_rrp", "rrp_total_week_average"))
     bank = bank_comparison(panel)
     macro = {k: v for k, v in panel.items() if v["family"] in {"GROWTH", "INFLATION", "RATES", "CREDIT", "FX"}}
     macro_ready = all(any(r["family"] == family and r["status"] == "OBSERVED" for r in macro.values())
@@ -234,6 +244,7 @@ def enrich(report, originals):
         funding=dict(status="OBSERVED" if funding_ready else "PARTIAL", spreads=spreads,
                      series={k: v for k, v in panel.items() if v["family"] == "FUNDING"}),
         liquidity=dict(status="OBSERVED" if liquidity_ready else "PARTIAL", series=liquid,
+                       rrp_measurement_warning="total_rrp is a legacy Treasury OMO operation key, not the H.4.1 total; balance-sheet total, foreign and other accounts are separate; never sum overlapping series",
                        fixed_reserve_threshold_used=False, net_liquidity_shortcut_used=False),
         bank_credit=bank, macro_direction_inputs=macro,
         enhanced_readiness=dict(funding=funding_ready, liquidity=liquidity_ready,
