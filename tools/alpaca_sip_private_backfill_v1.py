@@ -1794,7 +1794,11 @@ def _new3_source(c, auth, *, accounting=False):
         and pr.get("base", {}).get("repo", {}).get("full_name") == c.REPO
         and pr.get("head", {}).get("sha") == auth["deployment"]["reviewed_head"]
         and pr.get("merge_commit_sha") == auth["expected_master"], "NEW_THREE_DEPLOYMENT")
-    c._revision_module().named_read_checks(c, auth)
+    revision = c._revision_module()
+    if auth.get("allocation_profile") == BRIDGE_PROFILE:
+        revision.named_read_checks(c, auth, gate_profile=revision.BRIDGE_CURRENT_GATE_PROFILE)
+    else:
+        revision.named_read_checks(c, auth)
     for path, sha in auth["code_pins"].items():
         value = c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={auth['expected_master']}")
         require(value.get("encoding") == "base64" and digest(c.base64.b64decode(value["content"])) == sha

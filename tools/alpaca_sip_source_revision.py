@@ -238,14 +238,56 @@ def named_read_gate_log(c,job_id):
     return raw.decode("utf-8")
 
 
-def named_read_gate(c,control,check):
-    # These are the existing trusted gate bytes at reviewed base3c6c216, not
-    # newly trusted PR/runner pins. A changed protected implementation must stop.
+BRIDGE_CURRENT_GATE_PROFILE = "TWO_SESSION_BRIDGE_CURRENT_REVIEW_GATE_V1"
+# Protected master2e6cf4bb (PR750) already publishes v2 comment receipts and
+# verifies its publisher. These pins apply only to the new bridge profile;
+# READ392_GATE_PINS and every historical/default named-read proof stay intact.
+BRIDGE_CURRENT_GATE_PINS = {
+    ".github/workflows/review_complete_gate.yml": "513a9f4366ac74be398fa3f6687e34776491e0ea62057ba0e25334595ae932a3",
+    "tools/check_pr_review_complete.py": "ca4f3cf06e446aea1fb68d5b7cf6d674eec115ce9ca02e5a91e0ab762d5fbc4d",
+}
+
+
+def _bridge_gate_summary(c,result,control,completed):
+    """Reproduce the pinned publisher, never accept a display-only green check."""
+    kind=result.get("evidence_type")
+    binding=result.get("comment_receipt_binding")
+    c.require(type(result.get("evidence_id")) is int and result["evidence_id"]>0
+        and isinstance(result.get("evidence_at"),str)
+        and "comment_receipt_binding" in result,"NAMED_READ_GATE_PROVENANCE")
+    try:
+        c.require(c.utc(result["evidence_at"])<=completed,"NAMED_READ_GATE_PROVENANCE")
+        serialized=c.json.dumps(binding,sort_keys=True,separators=(",",":"),allow_nan=False)
+    except (TypeError,ValueError,OverflowError):
+        raise c.Refused("NAMED_READ_GATE_PROVENANCE") from None
+    if kind=="MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT":
+        c.require(type(binding) is dict
+            and binding.get("schema_version")=="trusted-codex-issue-comment-receipt-v1"
+            and binding.get("repository")==c.REPO
+            and binding.get("pull_request_number")==control["deployment"]["pull_request"]
+            and binding.get("head_sha")==control["deployment"]["reviewed_head"]
+            and binding.get("receipt_comment_id")==result["evidence_id"]
+            and binding.get("receipt_created_at")==result["evidence_at"],
+            "NAMED_READ_GATE_PROVENANCE")
+    else:
+        c.require(binding is None,"NAMED_READ_GATE_PROVENANCE")
+    return ("Evidence: "+kind+"\n\nFailures: none\n\nComment receipt binding: "+serialized
+        +"\n\nPublisher verification: verified\n\nUnresolved conversations are enforced separately by master branch protection.")
+
+
+def named_read_gate(c,control,check,*,gate_profile=None):
+    # The legacy default retains base3c6c216; only the explicit bridge profile
+    # selects the separately pinned protected publisher. Other changes stop.
     output=check.get("output",{})
+    c.require(gate_profile in (None,BRIDGE_CURRENT_GATE_PROFILE),"NAMED_READ_GATE_PROFILE")
+    current=gate_profile==BRIDGE_CURRENT_GATE_PROFILE
     evidence=("ATTESTED_EXACT_HEAD_REVIEW","MAINTAINER_BOUND_CLEAN_REACTION")
+    if current:evidence+=("MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT",)
+    gate_pins=BRIDGE_CURRENT_GATE_PINS if current else READ392_GATE_PINS
     summaries={"Evidence: "+e+"\n\nFailures: none\n\nUnresolved conversations are enforced separately by master branch protection." for e in evidence}
     c.require(type(check.get("id")) is int and type(check.get("check_suite",{}).get("id")) is int
-        and output.get("title")=="PASS_REVIEW_COMPLETE" and output.get("summary") in summaries
+        and output.get("title")=="PASS_REVIEW_COMPLETE"
+        and (isinstance(output.get("summary"),str) if current else output.get("summary") in summaries)
         and isinstance(check.get("started_at"),str) and isinstance(check.get("completed_at"),str),
         "NAMED_READ_GATE_PROVENANCE")
     started=c.utc(check["started_at"]);completed=c.utc(check["completed_at"])
@@ -295,10 +337,13 @@ def named_read_gate(c,control,check):
             and result.get("head_sha")==control["deployment"]["reviewed_head"]
             and result.get("pull_request_number")==control["deployment"]["pull_request"]
             and result.get("evidence_type") in evidence and result.get("failures")==[],"NAMED_READ_GATE_PROVENANCE")
+        if current:
+            c.require(output["summary"]==_bridge_gate_summary(c,result,control,completed),
+                "NAMED_READ_GATE_PROVENANCE")
         checkouts=c.re.findall(r"(?m)^\[command\].*git log -1 --format=%H\n([0-9a-f]{40})$",text)
         c.require(len(checkouts)==1,"NAMED_READ_GATE_PROVENANCE")
         for ref in {run["head_sha"],checkouts[0]}:
-            for path,sha in READ392_GATE_PINS.items():
+            for path,sha in gate_pins.items():
                 remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={ref}")
                 c.require(remote.get("encoding")=="base64"
                     and c.digest(c.base64.b64decode(remote.get("content","")))==sha,"NAMED_READ_GATE_PROVENANCE")
@@ -306,7 +351,7 @@ def named_read_gate(c,control,check):
     c.require(len(proofs)==1,"NAMED_READ_GATE_PROVENANCE")
 
 
-def named_read_checks(c,control):
+def named_read_checks(c,control,*,gate_profile=None):
     head=control["deployment"]["reviewed_head"]
     checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
     c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
@@ -315,7 +360,9 @@ def named_read_checks(c,control):
         c.require(len(selected)==1 and selected[0].get("head_sha")==head
             and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
             and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
-        if name=="review_complete":named_read_gate(c,control,selected[0])
+        if name=="review_complete":
+            if gate_profile is None:named_read_gate(c,control,selected[0])
+            else:named_read_gate(c,control,selected[0],gate_profile=gate_profile)
 
 
 def named_read_origin(c,control):

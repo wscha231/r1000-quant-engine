@@ -10845,3 +10845,33 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   was dirty. Check the actual branch ref before admission, preserve the accepted
   counterpart, and coordinate a short integration window before another exact-
   head check. Old-head green is not validation of the new aligned head.
+
+## 2026-11-12 — Review publisher evolution must be tested at the actual consumer
+
+- Protected750 passed236/236 and merged, but its first actual public Source
+  host stopped at NAMED_READ_GATE_PROVENANCE before reservation/POST/provider
+  or Drive writes. The reused legacy consumer accepted old display summaries
+  and frozen old gate bytes; the current publisher adds verified comment
+  receipt bindings. Collector tests alone missed this cross-edge mismatch.
+- Add an explicit bridge-only current-publisher profile with independently
+  pinned protected code, structured evaluation/full published-check parity,
+  canonical workflow/job/step/log proof and exact repository/PR/head/ID/time.
+  Preserve legacy default and settlement pins. Never forge an old summary,
+  remove protection or replay a failed transaction to obtain a green result.
+- Keep the refused host's zero-side-effect receipt and unused grant. A repaired
+  protected deployment requires fresh control/OWNER evidence; changing the
+  grant cannot change the fixed capture nonce or erase earlier family costs.
+
+- The first64-test focused normal run failed five cases at the unchanged
+  262144-byte physical source-read bound: Windows CRLF expansion made the
+  revision module264859 bytes. Pin that module to LF (261163 bytes), retain
+  the failed23.4806789-second receipt and keep the bound unchanged.
+- After LF checkout repair,65/65 focused tests passed in both normal and -O
+  modes (45.8007481 seconds). The actual protected750 review gate also passed
+  through the new consumer (five GitHub metadata reads and one46733-byte log,
+  6.147729 native seconds). No reservation, dispatch, provider/Drive call or
+  Source admission resulted; real protected-gate compatibility is now tested.
+- The Source job uses an explicit sparse checkout without gate publisher files
+  or.gitattributes. Keep synthetic current-publisher proof fixtures self-contained
+  and test physical source bytes without requiring absent checkout files. Verify
+  actual trusted pins separately through the real protected-gate consumer.
