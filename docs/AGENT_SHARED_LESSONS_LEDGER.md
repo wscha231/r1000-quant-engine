@@ -10431,6 +10431,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   negative tests and current-source collection clocks remain explicit. Monthly
   models are externally reviewed releases only; current FRED rights-disabled
   Source configuration is not permission to train on retained bytes.
+- Independent review found that original-byte validation alone omitted the
+  target-price source scope; require price:<ETF> for every label original.
+  Cache weekly outcome paths per target/horizon, preserve missingness and order,
+  and enforce the same32MiB trial budget before write and during restore. A
+  successful oversized write would otherwise poison the next cloud restart.
 
 ### 2026-11-11 — A5 must consume the exact original reviewed A4 report
 
