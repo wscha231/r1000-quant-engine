@@ -411,6 +411,7 @@ A6_FIXED_PROOF_INPUTS = (
     'research/control_plane/matured_outcome_cohort_v1.schema.json',
     'docs/market_analysis_contract_v2.json',
     'docs/a4_macro_hypotheses_v1.json',
+    'docs/A4_CLOUD_RESEARCH_OPERATIONS.md',
 )
 A6_FIXED_PROOF_PROGRAMS = (
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
@@ -1088,6 +1089,12 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/a4_macro_bridge.py',
     'tests/a4_liquidity_analysis_smoke.py',
     'tools/a4_liquidity_analysis.py',
+    'tests/a4_macro_learning_smoke.py',
+    'tests/a4_cloud_cycle_smoke.py',
+    'tools/a4_macro_learning.py',
+    'tools/run_a4_research_cycle.py',
+    'tests/a5_model_portfolio_smoke.py',
+    'tools/a5_model_portfolio.py',
     'tools/market_analysis_engine.py',
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',

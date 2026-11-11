@@ -10484,3 +10484,86 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   JSON accepted by Source must not be reclassified as CSV by the A4 consumer.
   Use the existing shared detector and regress both byte variants, exact raw
   hashes, retained nulls and forged normalization refusal.
+
+### 2026-11-11 — Cloud research state and mature labels are separate gates
+
+- Keep daily diagnosis, weekly fixed-prediction scores and monthly challenger
+  fits on the existing hosted workflow, with immutable Drive state/readback and
+  one writer. Quota/auth failure cannot imply an empty namespace; explicit first
+  genesis also requires successful parent inventory proving absence. Defaults
+  stay off until current inputs, source rights and external policy pins exist.
+- The first nonempty learning controls exposed string-date price reindexing
+  that silently produced all-null targets. Preserve the failure, use actual
+  DatetimeIndex keys, and require a real expanding fit positive control beside
+  missing/late-label refusals. The source fixture also needed primitive floats
+  and a datetime index; native strict-number/index guards were preserved.
+- Label maturity uses actual price availability at each fold, not only session
+  offsets. Weekly release samples, one-session unknown volatility, all declared
+  negative tests and current-source collection clocks remain explicit. Monthly
+  models are externally reviewed releases only; current FRED rights-disabled
+  Source configuration is not permission to train on retained bytes.
+- Independent review found that original-byte validation alone omitted the
+  target-price source scope; require price:<ETF> for every label original.
+  Cache weekly outcome paths per target/horizon, preserve missingness and order,
+  and enforce the same32MiB trial budget before write and during restore. A
+  successful oversized write would otherwise poison the next cloud restart.
+- Apply the same pre-write bound to weekly scores and forward predictions as to
+  their restore path (8MiB). A valid100,000-row score population can exceed it;
+  retain that attempt as blocked before publication instead of poisoning every
+  later restore. The boundary regression proves no file/directory on refusal.
+- Normalized learning rows must preserve the original parser's date boundary:
+  observation_date cannot exceed availability or collection's UTC date. Reject
+  negative-age future values on input admission and feature replay. Fixed
+  forecasts must satisfy decision-close <= creation < next-session close before
+  report or checkpoint mutation; the15-minute grace cannot revive a passed
+  entry. Persisted retrospective predictions would poison later scoring.
+- Hosted run42964325786/job130337903140 passed235/236 suites; the manual
+  historical reuse positive correctly rejected the changed regression operand
+  with catalog_dependency_changed:tools/macro_technical_study.py. Retain the
+  original18,875-byte catalog-hashed operand in a bounded offline test archive,
+  restore it only in disposable historical positives, and continue testing that
+  current/mutated bytes fail the unchanged production catalog. Do not recertify
+  the catalog or relax its lookup merely to make historical tests pass.
+
+### 2026-11-11 — A5 must consume the exact original reviewed A4 report
+
+- Bind the displayed A4 v2 report to the native A3/A6 graph and reviewed risk
+  packet, not merely a self-consistent content hash. A fixed learning release
+  belongs inside the original A4 request replay; auxiliary cloud context cannot
+  replace it. Keep original A3 net ER, costs and the incumbent sizing algorithm.
+- A disposable complete original graph reaches a native research proposal;
+  missing evidence returns null security/cash weights and owner routes, never a
+  fabricated all-cash completion. Prior proposals require external reviewed pins
+  and remain separate from actual account positions. Neither synthetic success
+  nor a hosted checkpoint establishes a qualified real-data portfolio.
+- Independent review exposed that the initial positive fixture retained legacy
+  evaluations outside its original A3 subset, and hosted wall-clock replay would
+  not match a fixed reviewed decision. Refuse legacy evaluations, require full
+  allocator-cohort original coverage, and replay at the pinned decision while
+  separately checking execution freshness/expiry. The first narrowed fixture
+  correctly failed the incumbent all-row comparison; rebuild the entire reviewed
+  cohort before rerunning, never waive the native ranking gate.
+- The cloud integration control now replays a fixed report at a later actual
+  execution with an active reviewed model. Its valid first forecast persists;
+  execution after the next-close entry is blocked without another prediction.
+  Keep this test with the A5 fixed-clock consumer, not its A4-only parent branch.
+- A completed mutable Codex summary alone is not accepted review_complete
+  evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
+  use the existing authenticated review, fresh-reaction or immutable-receipt
+  path. The later bare command passed on the service's fresh clean reaction.
+  Never fabricate evidence, widen receipt grammar or merge around the gate.
+- The local expanded control-plane run initially lacked tracked data_static
+  fixtures because sparse checkout excluded that directory. Materialize the
+  canonical27 files (475,340 bytes), preserve hashes/policies, and rerun the70
+  affected managed-input/execution cases; they pass. This is an environment
+  repair, not source admission, changed data or a clean full-run claim.
+- A later Drive probe listed the commit folder, then bounded metadata reads again
+  hit403 shared-client project requests-per-minute quota. Do not turn one list
+  success into verified catalog, execution or pack evidence, or infer the hosted
+  secret uses the desktop's profile. Record the actual auth/readback boundary;
+  use the official owner-client setup guidance without exposing credentials.
+- A raw-file connector response contained a nested expiring signed download URL
+  that was inadvertently included in diagnostic output. Do not serialize whole
+  file-reference responses: log only opaque IDs, hashes and byte counts, and
+  retain no signed URL values in source, PRs or operational evidence. A file
+  listing or empty text preview is not original-byte/hash verification.
