@@ -10391,3 +10391,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   test storage. The actual Drive read remains refused by quota, and the local
   Python launcher referenced a missing installation; direct verified Python3.14
   works. Neither environment finding is a completed real-data replay.
+
+### 2026-11-11 — Keep funding, reserve and bank balance semantics separate
+
+- V2 funding spreads are percentage-point differences multiplied by100 to bp;
+  shared inputs are one evidence family, never four independent risk votes.
+  Latest nulls or mismatched observation dates cannot reuse an older spread.
+  H8 large+small reconciles to domestic, not all-bank deposits including foreign
+  institutions. Weekly deltas require every intervening weekly observation.
+- Reserve week averages, Wednesday balances and repo operation amounts retain
+  separate identities; no fixed3trillion cutoff or net-liquidity shortcut is
+  introduced. The12 synthetic arithmetic/parser/integration cases pass normal
+  and -O; real source rights, native ten-axis readiness and ER remain separate.

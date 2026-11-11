@@ -1,0 +1,15 @@
+{
+  "schema": "a4-macro-hypotheses-v1",
+  "status": "UNVERIFIED_RESEARCH_HYPOTHESES",
+  "origin": "User-supplied video summary; original publication year and episode not verified",
+  "current_market_claims_allowed": false,
+  "hypotheses": [
+    {"id": "reserve_absolute_threshold", "claim": "Reserves below USD 3 trillion coincide with funding stress", "comparison": "Absolute threshold versus trailing reserve changes and SOFR/TGCR/EFFR spreads; never an active risk threshold"},
+    {"id": "tga_drawdown_liquidity", "claim": "TGA drawdowns ease reserve and funding conditions", "comparison": "Native-frequency TGA changes, later observed reserves and funding spreads with contrary episodes retained"},
+    {"id": "year_end_liquidity_rebound", "claim": "Year-end Treasury cash releases support equity recovery", "comparison": "Preregister calendar windows and compare all available years; no assumed current-year Treasury plan"},
+    {"id": "first_quarter_drain", "claim": "First-quarter cash rebuilding and later tax dates worsen liquidity", "comparison": "Separate first-quarter, tax-date, issuance and quarter-end observations without assigning cash causality from season alone"},
+    {"id": "liquidity_amplifies_drawdown", "claim": "Funding strain amplifies equity drawdowns", "comparison": "Purged forward drawdown and volatility labels across all declared targets and horizons"}
+  ],
+  "causal_effect_identified": false,
+  "automatic_promotion_allowed": false
+}

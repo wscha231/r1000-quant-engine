@@ -1,0 +1,21 @@
+{
+  "schema": "market-analysis-contract-v2",
+  "request_schema": "market-analysis-request-v2",
+  "report_schema": "market-analysis-report-v2",
+  "market": "US",
+  "authority": "RESEARCH_ONLY",
+  "backward_compatible_request_schema": "market-analysis-request-v1",
+  "native_risk_contract": "docs/run287_chameleon_macro_risk_contract.json",
+  "risk_rules_changed": false,
+  "input_limits": {"max_inputs": 64, "max_request_bytes": 262144, "max_file_bytes": 8388608, "max_total_bytes": 67108864, "max_native_metric_bytes": 33554432},
+  "new_input_kind": "macro_v2",
+  "source_register": "tools/a4_liquidity_analysis.py:SERIES",
+  "fred_current_json": "Exact a4-macro-normalization-v1 binding required; recompute CSV from original bytes",
+  "nyfed_json": "Original refRates with exact type/effectiveDate and rate/volume/percentile fields; availability is collection unless original publication is separately verified",
+  "balance_change_interpretation": "BALANCE_CHANGE_NOT_IDENTIFIED_FLOW",
+  "reserve_fixed_threshold": null,
+  "net_liquidity_shortcut_allowed": false,
+  "learning_horizons_sessions": [1, 5, 10, 21, 63, 126, 252],
+  "learning_targets": ["SPY", "QQQ", "IWM", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY"],
+  "safety": {"source_admission_allowed": false, "portfolio_overlay_allowed": false, "target_book_write_allowed": false, "order_generation_allowed": false, "ledger_mutation_allowed": false, "automatic_promotion_allowed": false}
+}
