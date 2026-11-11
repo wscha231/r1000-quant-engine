@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from datetime import timedelta
+import math
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,15 @@ ADAPTERS={adapter.SCHEMA:adapter for adapter in (p,e,f)}
 SAFETY=dict(source_admitted=False,historical_pit_certified=False,training_admitted=False,
     automatic_promotion_allowed=False,accepted_model_changed=False,accepted_portfolio_changed=False,
     ledger_mutated=False,orders_generated=False)
+LOADED_INDEX_SHA256=digest(Path(__file__).read_bytes())
+
+
+def index_identity():
+    identity=market.implementation_identity()
+    identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
+    path=Path(__file__).resolve().parents[1]/'docs/research_data_access.json'
+    identity[path.name]=digest(path.read_bytes())
+    return identity
 
 
 def pin(value):
@@ -74,6 +84,48 @@ def summarise(rows,feed,cutoff):
             status='MISSING_LATEST' if missing else 'STALE' if age>max_age else 'OBSERVED',
             missing_values=sum('value' in r and r['value'] is None for r in series),
             latest={k:latest[k] for k in fields if k in latest},historical_use='FORWARD_CAPTURE_ONLY'))
+    return result
+
+
+def describe_weekly_history(rows,feed,cutoff):
+    """Fixed balance-change descriptions; never a historical decision or trained feature."""
+    pairs={'h41':(('tga_week_average','reserves_week_average'),),
+        'h8':(('deposits_all','loans_all'),('deposits_all','cash_assets_all'))}.get(feed,())
+    needed={key for pair in pairs for key in pair};panel={}
+    for row in rows:
+        if row.get('logical_id') not in needed or row['value'] is None:continue
+        if p.clock(row['available_at'])>p.clock(cutoff) or p.day(row['observation_date'])>p.clock(cutoff).date():continue
+        p.check(row['frequency']=='weekly','DATA_CENTER_DESCRIPTION_FREQUENCY')
+        key=(row['logical_id'],row['observation_date']);p.check(key not in panel,'DATA_CENTER_DUPLICATE_VINTAGE')
+        panel[key]=row
+    result=[]
+    for left,right in pairs:
+        changes=[]
+        dates=sorted(date for key,date in panel if key==left)
+        for date in dates:
+            previous=(p.day(date)-timedelta(days=7)).isoformat()
+            keys=((left,date),(left,previous),(right,date),(right,previous))
+            if not all(key in panel for key in keys):continue
+            observed=[panel[key] for key in keys]
+            p.check(len({(r['unit'],r['measurement_basis'],r['seasonal_basis'],r.get('bank_aggregation')) for r in observed})==1,
+                'DATA_CENTER_DESCRIPTION_SEMANTICS')
+            x=observed[0]['value']-observed[1]['value'];y=observed[2]['value']-observed[3]['value']
+            p.check(math.isfinite(x) and math.isfinite(y),'DATA_CENTER_DESCRIPTION_NUMERIC_SCALE')
+            changes.append((date,x,y))
+        correlation=None
+        if len(changes)>=3:
+            xs=[r[1] for r in changes];ys=[r[2] for r in changes]
+            sx=max(map(abs,xs));sy=max(map(abs,ys))
+            if sx and sy:
+                xs=[x/sx for x in xs];ys=[y/sy for y in ys]
+                mx=math.fsum(xs)/len(xs);my=math.fsum(ys)/len(ys)
+                xx=math.fsum((x-mx)**2 for x in xs);yy=math.fsum((y-my)**2 for y in ys)
+                if xx and yy:correlation=max(-1.,min(1.,math.fsum((x-mx)*(y-my) for x,y in zip(xs,ys))/math.sqrt(xx*yy)))
+        result.append(dict(left=left,right=right,frequency='weekly',transformation='EXACT_7_DAY_BALANCE_DIFFERENCE',
+            paired_changes=len(changes),first_change=changes[0][0] if changes else None,last_change=changes[-1][0] if changes else None,
+            pearson_correlation=correlation,status='DESCRIPTIVE_ONLY' if correlation is not None else 'INSUFFICIENT_EVIDENCE',
+            vintage='CURRENT_REVISED_DESCRIPTION',historical_decision_tested=False,causal_effect_identified=False,
+            predictive_evidence=False,structural_adjustments_reconstructed=False,stock_or_mmf_transfer_identified=False))
     return result
 
 
@@ -205,12 +257,22 @@ def render_catalog(catalog):
         'Missing learning targets: '+', '.join(catalog['learning']['missing_targets']),
         'Learning blockers: '+', '.join(catalog['learning']['blockers']),
         'Rights-blocked sources: '+', '.join(catalog['rights_blocked_sources']),'']
+    lines+=['## Past balance-change descriptions','',
+        'Current revised histories only; no test of what an investor knew then, causality, forecasts or stock/MMF transfers.','',
+        '| Pair | Exact weekly changes | Range | Descriptive correlation |', '| --- | ---: | --- | ---: |']
+    for item in catalog['retrospective_descriptions']:
+        value='INSUFFICIENT_EVIDENCE' if item['pearson_correlation'] is None else f"{item['pearson_correlation']:.4f}"
+        lines.append(f"| {item['left']} / {item['right']} | {item['paired_changes']} | {item['first_change']} .. {item['last_change']} | {value} |")
     return '\n'.join(lines)
 
 
-def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,learning_policy_sha256=None):
+def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,
+          learning_policy_sha256=None,code_sha=None):
     """Produce a hash-bound as-of view; old successes never hide newer failed attempts."""
     now=p.clock(cutoff);cutoff=now.isoformat()
+    identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
+    p.check((code_sha is None and transport is None) or type(code_sha) is str and re.fullmatch('[a-f0-9]{40}',code_sha),
+        'DATA_CENTER_PUBLICATION_CODE_PIN')
     p.check(type(captures) is list and 0<len(captures)<=MAX_CAPTURES and
         all(type(s) is dict and set(s)=={'root','execution_sha256'} for s in captures),'DATA_CENTER_CAPTURE_BUDGET')
     root=Path(output_dir);p.check(not root.exists() and not any(q.is_symlink() for q in (root,*root.parents)),
@@ -242,7 +304,17 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         p.check(p.clock(execution['cutoff'])<=completed,'DATA_CENTER_EXECUTION_CLOCK')
         if completed>now:
             audit.append(dict(execution_sha256=sha,status='EXCLUDED_FUTURE_ATTEMPT'));continue
-        requested=execution.get('requested_feeds')
+        generations=execution.get('generation_sha256s')
+        p.check(type(generations) is list and all(type(s) is str for s in generations)
+            and len(generations)==len(set(generations)) and len(generations)<=len(FEEDS)
+            and type(execution.get('originals')) is int and execution['originals']==len(generations),
+            'DATA_CENTER_GENERATION_BUDGET')
+        for gen in generations:pin(gen)
+        legacy='requested_feeds' not in execution
+        if legacy:
+            p.check(execution['originals']<=len(collector.FEED_ORDER) and execution.get('economic_inputs_enabled',False) is False
+                and execution.get('financing_inputs_enabled',False) is False,'DATA_CENTER_LEGACY_CORE_PROFILE')
+        requested=list(collector.FEED_ORDER) if legacy else execution['requested_feeds']
         p.check(type(requested) is list and all(type(s) is str for s in requested) and len(requested)==len(set(requested))
             and set(collector.FEED_ORDER)<=set(requested)<=set(FEEDS),
             'DATA_CENTER_REQUESTED_FEEDS')
@@ -252,11 +324,9 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             type(r.get('blocker')) is str and re.fullmatch('[A-Z0-9_]{1,100}',r['blocker']) and
             ('http_status' not in r or type(r['http_status']) is int and 100<=r['http_status']<=599) for r in failures),
             'DATA_CENTER_FAILURE_SCHEMA')
-        generations=execution['generation_sha256s']
-        p.check(type(generations) is list and len(generations)==len(set(generations)) and len(generations)<=len(FEEDS),
-            'DATA_CENTER_GENERATION_BUDGET')
         attempt=dict(execution_sha256=sha,cutoff=execution['cutoff'],completed_at=execution['completed_at'],producer_code_sha=execution['code_sha'],
-            declared_status=execution['status'],requested_feeds=requested,failures=execution['failures'])
+            declared_status=execution['status'],requested_feeds=requested,failures=execution['failures'],
+            legacy_core_profile_inferred=legacy,generation_sha256s=generations)
         refs=execution.get('analysis_publication',[])
         p.check(type(refs) is list and len(refs) in {0,2},'DATA_CENTER_ANALYSIS_REFERENCES')
         kinds=set()
@@ -274,7 +344,8 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             try:p.check(p.read_object(remote,p.PREFIX+'/executions/'+sha+'.json',sha,128*1024)==raw,'DATA_CENTER_REMOTE_EXECUTION')
             except (ValueError,OSError):durable=False
         feeds_seen=set()
-        for gen in generations:
+        skipped=execution['status'].startswith('BLOCKED') or not durable or (source/'publication_failed.json').exists()
+        for gen in ([] if skipped else generations):
             meta_raw=p.read_object(reader,p.PREFIX+'/generations/'+pin(gen)+'.json',gen,65536)
             meta=p.f.strict_json(meta_raw);p.check(type(meta) is dict,'DATA_CENTER_GENERATION_SCHEMA');feed=meta['feed']
             p.check(feed in requested and feed not in feeds_seen,'DATA_CENTER_GENERATION_FEED');feeds_seen.add(feed)
@@ -311,6 +382,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             item.update(status='VERIFIED_BYTES_ONLY',observations=len(records),original_bytes=checked['original_bytes'],
                 original_pair_remote_verified=remote is not None and source_transport.remote_verified is True,
                 series=summarise(records,feed,cutoff))
+            item['retrospective_descriptions']=describe_weekly_history(records,feed,cutoff)
         except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
             item.update(status='BLOCKED',blocker='ORIGINAL_NORMALIZATION_CLOCK_OR_BUDGET_NOT_VERIFIED')
     inputs=root/'inputs';entries=[]
@@ -355,13 +427,16 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
     report=market.load_report(inputs/'request.json',inputs,digest(raw),cutoff=cutoff) if core else market.blocked(
         'DATA_CENTER_LATEST_CORE_INPUT_FAILED_OR_MISSING',cutoff=cutoff,session=request['session'])
     learn=learning_readiness(learning_root,learning_policy_sha256,cutoff)
-    shared_index=Path(__file__).resolve().parents[1]/'docs/research_data_access.json'
     legacy=lake_metadata(source_transport if probe_lake else None,cutoff)
+    p.check(identity==index_identity(),'DATA_CENTER_IMPLEMENTATION_CHANGED')
     catalog=dict(schema=SCHEMA,cutoff=cutoff,mode='RESEARCH_ONLY',status='PARTIAL_RESEARCH',
-        catalog_implementation_sha256=digest(Path(__file__).read_bytes()),access_routes_sha256=digest(shared_index.read_bytes()),
+        implementation=identity,catalog_implementation_sha256=identity[Path(__file__).name],
+        access_routes_sha256=identity['research_data_access.json'],
         attempts=sorted(attempts,key=lambda r:(p.clock(r['completed_at']),r['execution_sha256'])),
         sources=sorted(sources,key=lambda r:(r['feed'],r['completed_at'],r['execution_sha256'],r['status'])),
         selected_sources={key:selected[key] for key in sorted(selected)},native_frequencies_preserved=True,
+        retrospective_descriptions=[dict(item,generation_sha256=s['generation_sha256'],original_sha256=s['original_sha256'])
+            for _,s in sorted(selected.items()) for item in s.get('retrospective_descriptions',[])],
         native_input_state=native_state,
         legacy_lake=legacy,price_and_financial_route=dict(status='LOCATOR_ONLY_NOT_COVERAGE',
             reader='tools/research_model_inputs.py:replay_model_inputs',source_originals_reverified_here=False),
@@ -399,6 +474,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             exclusive(root/'publication_failed.json',encoded(dict(stage='CATALOG_OR_REPORT',status='BLOCKED')))
             raise ValueError('DATA_CENTER_PUBLICATION_FAILED') from None
     receipt=dict(schema='a4-data-center-execution-v1',catalog_sha256=catalog_sha,cutoff=cutoff,
+        repository='wscha231/r1000-quant-engine',producer_code_sha=code_sha,
         selected_core_verified=core,
         status='DURABLE_RESEARCH_INDEX_COMPLETE' if transport is not None and transport.remote_verified is True else 'LOCAL_RESEARCH_INDEX_COMPLETE',
         source_executions=[r['execution_sha256'] for r in catalog['attempts']],analysis_publication=publication,
@@ -421,12 +497,14 @@ def main():
     parser.add_argument('--remote-execution-sha256',action='append',default=[])
     parser.add_argument('--cutoff',required=True);parser.add_argument('--output-dir',required=True)
     parser.add_argument('--publish',action='store_true');parser.add_argument('--probe-lake-metadata',action='store_true')
+    parser.add_argument('--code-sha',default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--learning-input-root');parser.add_argument('--learning-policy-sha256')
     args=parser.parse_args()
     attempt_root=Path(args.output_dir)
     owned=not attempt_root.exists() and not any(q.is_symlink() for q in (attempt_root,*attempt_root.parents))
     try:
         p.check(len(args.capture_root)==len(args.execution_sha256),'DATA_CENTER_CAPTURE_BINDING')
+        if args.publish:p.check(type(args.code_sha) is str and re.fullmatch('[a-f0-9]{40}',args.code_sha),'DATA_CENTER_PUBLICATION_CODE_PIN')
         reader=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']) if args.publish or args.remote_execution_sha256 else None
         specs=[dict(root=r,execution_sha256=s) for r,s in zip(args.capture_root,args.execution_sha256)]
         p.check(len(specs)+len(args.remote_execution_sha256)<=MAX_CAPTURES,'DATA_CENTER_CAPTURE_BUDGET')
@@ -435,7 +513,7 @@ def main():
         catalog,receipt=build(specs,
             cutoff=args.cutoff,output_dir=args.output_dir,transport=reader if args.publish else None,source_transport=reader,
             probe_lake=args.probe_lake_metadata,
-            learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256)
+            learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256,code_sha=args.code_sha)
         print(encoded(dict(status=receipt['status'],catalog_sha256=receipt['catalog_sha256'],
             current_diagnosis=catalog['current_diagnosis']['status'],historical_evaluation=catalog['historical_evaluation']['status'],
             future_view=catalog['future_view']['status'])).decode().strip())

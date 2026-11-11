@@ -153,7 +153,7 @@ class DataCenterTests(unittest.TestCase):
                 def write(self,path,raw):
                     if '/index-executions/' in path:raise ValueError('synthetic')
                     remote.write(path,raw)
-            with self.assertRaises(ValueError):d.build([spec],cutoff=NOW,output_dir=root/'view',transport=FailReceipt())
+            with self.assertRaises(ValueError):d.build([spec],cutoff=NOW,output_dir=root/'view',transport=FailReceipt(),code_sha='b'*40)
             failure=json.loads((root/'view/publication_failed.json').read_bytes())
             self.assertEqual(failure['stage'],'EXECUTION_RECEIPT')
 
@@ -185,7 +185,7 @@ class DataCenterTests(unittest.TestCase):
             raw=encoded(request);(native/'request.json').write_bytes(raw);(native/'request.sha256').write_text(digest(raw))
             (native/'context.json').write_bytes(body)
             remote=LocalTransport(root/'remote');spec=capture(root/'capture',transport=remote,native=native)
-            a,ar=d.build([spec],cutoff=NOW,output_dir=root/'one',transport=remote)
+            a,ar=d.build([spec],cutoff=NOW,output_dir=root/'one',transport=remote,code_sha='b'*40)
             self.assertEqual(remote.read(p.PREFIX+'/objects/'+sha),body)
             sparse=d.restore_reference(remote,spec['execution_sha256'],root/'reference',cutoff=NOW)
             self.assertFalse((root/'reference/archive').exists())
@@ -204,6 +204,64 @@ class DataCenterTests(unittest.TestCase):
             self.assertEqual(catalog['native_input_state']['status'],'BLOCKED')
             result=json.loads((root/'view/inputs/request.json').read_bytes())
             self.assertFalse(any(r['kind']=='risk_context' for r in result['inputs']))
+
+    def test_legacy_v1_core_receipt_is_read_without_rewriting_its_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);spec=capture(root/'capture');path=root/'capture/execution.json';value=json.loads(path.read_bytes())
+            for key in ('requested_feeds','economic_inputs_enabled','financing_inputs_enabled'):value.pop(key,None)
+            raw=encoded(value);path.write_bytes(raw);spec['execution_sha256']=digest(raw)
+            catalog,_=d.build([spec],cutoff=NOW,output_dir=root/'view')
+            self.assertTrue(catalog['attempts'][0]['legacy_core_profile_inferred'])
+            self.assertEqual(set(catalog['selected_sources']),set(c.FEED_ORDER))
+            self.assertEqual(digest(path.read_bytes()),spec['execution_sha256'])
+            value['generation_sha256s'].append('0'*64);value['originals']=7
+            raw=encoded(value);path.write_bytes(raw);spec['execution_sha256']=digest(raw)
+            with self.assertRaises(ValueError):d.build([spec],cutoff=NOW,output_dir=root/'extended')
+
+    def test_failed_remote_attempt_does_not_require_unpublished_generation_objects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);remote=LocalTransport(root/'remote')
+            def failure(url,*args):
+                if url==p.FEEDS['h8'][0]:raise HTTPError(url,503,'unavailable',{},None)
+                return fetch(url,*args)
+            spec=capture(root/'capture',transport=remote,fetcher=failure)
+            catalog,receipt=d.build([spec],cutoff=NOW,output_dir=root/'view',transport=remote,code_sha='b'*40)
+            self.assertFalse(receipt['selected_core_verified']);self.assertEqual(receipt['analysis_publication'],[])
+            self.assertTrue(all(s['status']=='BLOCKED' for s in catalog['selected_sources'].values()))
+
+    def test_changed_code_or_locator_during_build_fails_before_catalog_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);spec=capture(root/'capture');before=d.index_identity();after=dict(before)
+            after['research_data_access.json']='0'*64
+            with patch.object(d,'index_identity',side_effect=[before,after]),self.assertRaises(ValueError):
+                d.build([spec],cutoff=NOW,output_dir=root/'view')
+            self.assertFalse((root/'view/catalog.json').exists())
+
+    def test_descriptive_history_keeps_exact_weekly_changes_and_is_not_predictive(self):
+        rows=[]
+        for i in range(5):
+            date=(p.day('2026-09-02')+timedelta(weeks=i)).isoformat()
+            for key,value in [('tga_week_average',i*i),('reserves_week_average',100-2*i*i)]:
+                rows.append(dict(logical_id=key,observation_date=date,value=value,available_at=NOW,
+                    frequency='weekly',unit='millions_usd',measurement_basis='WEEK_AVERAGE',seasonal_basis='NSA'))
+        result=d.describe_weekly_history(rows,'h41',NOW)[0]
+        self.assertEqual(result['paired_changes'],4);self.assertAlmostEqual(result['pearson_correlation'],-1)
+        self.assertFalse(result['historical_decision_tested']);self.assertFalse(result['predictive_evidence'])
+        future=dict(rows[-1],observation_date='2026-12-02',available_at='2026-12-03T00:00:00Z',value=999)
+        self.assertEqual(d.describe_weekly_history(rows+[future],'h41',NOW)[0],result)
+        missing=[r for r in rows if r['observation_date']!='2026-09-16']
+        self.assertEqual(d.describe_weekly_history(missing,'h41',NOW)[0]['paired_changes'],2)
+
+    def test_description_refuses_duplicate_vintages_and_does_not_fill_constant_correlation(self):
+        rows=[]
+        for i in range(5):
+            for key,value in [('deposits_all',100+i),('loans_all',100+i*i),('cash_assets_all',50)]:
+                rows.append(dict(logical_id=key,observation_date=(p.day('2026-09-02')+timedelta(weeks=i)).isoformat(),
+                    value=value,available_at=NOW,frequency='weekly',unit='billions_usd',
+                    measurement_basis='WEDNESDAY_LEVEL',seasonal_basis='SA',bank_aggregation='CB'))
+        result=d.describe_weekly_history(rows,'h8',NOW)
+        self.assertTrue(all(r['pearson_correlation'] is None for r in result))
+        with self.assertRaises(ValueError):d.describe_weekly_history(rows+[dict(rows[0])],'h8',NOW)
 
 
 if __name__=='__main__':unittest.main()

@@ -139,6 +139,7 @@ jobs:
           catalog,receipt=center.build([dict(root=str(capture),execution_sha256=digest((capture/'execution.json').read_bytes()))],
               cutoff=source.now(),output_dir=Path('outputs/a4_data_center')/run,
               transport=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']),probe_lake=True,
+              code_sha=os.environ['GITHUB_SHA'],
               learning_root='outputs/market_analysis_inputs',
               learning_policy_sha256=os.environ.get('A4_LEARNING_POLICY_SHA256') or None)
           print({'status':receipt['status'],'catalog_sha256':receipt['catalog_sha256'],

@@ -11016,3 +11016,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   index implementation and extend the actual autocrlf checkout regression.
   Do not ignore raw hashes or publish a cross-host identity claim before the
   configuration bytes are canonical. Existing18-file risk identity stays intact.
+- Actual existing core receipts844dcf29/47dd7d6a/e8e6d261 predate the optional
+  requested_feeds field. Preserve their original bytes and recognize only the
+  original six-feed v1 profile; do not infer an expanded economic/financing
+  scope or demand unpublished generation bodies from a blocked attempt.
+  Publication records its own exact code SHA; catalog fingerprints remain
+  reusable for the same source/logic/as-of view across merge-only heads.
+- The three declared weekly-change descriptions use current revised Board
+  balances, exact seven-day pairs and no price inputs or model fitting. Keep
+  missing weeks, constant-series insufficiency, all negative results and the
+  noncausal/nonpredictive label. This does not turn revised histories into
+  historical decisions, backtests or admitted learning features.

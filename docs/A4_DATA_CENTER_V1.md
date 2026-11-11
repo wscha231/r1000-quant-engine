@@ -14,6 +14,10 @@ Future completed attempts are excluded into a separate audit so they cannot
 change an earlier catalog or diagnostic. Only selected vintages are replayed:
 weekly data and multiple capture versions do not become independent daily
 samples. Same inputs and equivalent UTC cutoff reuse the catalog identity.
+The original six-feed v1 receipt is recognized when its later optional feed
+list is absent: only the closed original core profile is inferred. Original
+receipt/manifest hashes are preserved. Failed attempts need no unpublished
+generation bodies before they can be retained as blocked history.
 
 The snapshot records native units, bank scopes, seasonal/measurement basis,
 observation range, actual availability, missing/latest/stale values, source
@@ -39,6 +43,11 @@ research bytes, not automatic Source/PIT or training admission.
   1/5/10/21/63/126/252 sessions and the existing fourteen ETF targets.
   An observed historical range is distinct from a qualified historical-PIT
   range. Current revised government histories cannot be backdated.
+  A separate current-vintage description reports three fixed weekly-change
+  correlations: TGA/reserves, deposits/loans and deposits/cash. It uses exact
+  seven-day observations, preserves gaps, reports all declared pairs and does
+  not reconstruct structural adjustments. These are descriptive statistics,
+  not past investment decisions, causal effects, trained features or a backtest.
 - The forward view exposes conditional scenarios and horizon evidence.
   It cannot invent probabilities, expected returns or portfolio weights.
   Quantitative forecasts still require an independently reviewed fixed trial
@@ -65,6 +74,10 @@ execution receipt. A failed publication/readback leaves a separate
 `publication_failed.json`; a local COMPLETE-looking receipt cannot certify
 durability without the matching remote readback. No mutable latest pointer is
 an authority. Use exact snapshot/execution pins for historical queries.
+The publisher records its exact repository code SHA separately from the
+reusable catalog identity. Source/locator fingerprints are checked before and
+after construction; changing them during replay refuses publication. The
+twenty hash-bound risk/index/locator files use canonical LF bytes.
 
 Limits: eight capture references per view, nineteen registered feeds per
 capture, 150,000 selected native rows and64MiB cached original/normalized
@@ -84,6 +97,7 @@ the existing configured research transport; it does not call a provider.
 Remote references can be mixed with local ones, up to the same bounded limit.
 `--publish` writes/rechecks the index and research reports; without it, remote
 references are read-only. `--probe-lake-metadata` adds the metadata-only view.
+Publication requires `--code-sha` or the existing workflow's `GITHUB_SHA`.
 `--learning-input-root` plus the externally supplied original policy hash
 enable readiness checks without manufacturing a policy or changing state.
 
@@ -93,3 +107,5 @@ the attempted root and fails the final gate, never at a restored old success.
 The research cycle runs only after its original state restore and a successful
 index when primary collection is enabled. Existing enable flags, single writer
 and30/60-minute workflow bounds remain; no additional schedule is installed.
+An index with a blocked core can still retain its diagnostic metadata, but its
+CLI/workflow step fails and cannot start the dependent research cycle.
