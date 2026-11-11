@@ -388,7 +388,12 @@ class EvidenceTests(unittest.TestCase):
 
 
 def run_tests():
-    result=unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.loadTestsFromTestCase(EvidenceTests))
+    from a4_macro_bridge_smoke import BridgeTests
+    from a4_liquidity_analysis_smoke import LiquidityTests
+    from a4_macro_learning_smoke import LearningTests
+    from a4_cloud_cycle_smoke import CloudTests
+    suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in (EvidenceTests,BridgeTests,LiquidityTests,LearningTests,CloudTests)])
+    result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():
         raise AssertionError("macro_technical_evidence_smoke_failed")
 
