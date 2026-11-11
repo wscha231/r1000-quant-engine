@@ -10477,3 +10477,43 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   JSON accepted by Source must not be reclassified as CSV by the A4 consumer.
   Use the existing shared detector and regress both byte variants, exact raw
   hashes, retained nulls and forged normalization refusal.
+
+### 2026-11-11 — Cloud research state and mature labels are separate gates
+
+- Keep daily diagnosis, weekly fixed-prediction scores and monthly challenger
+  fits on the existing hosted workflow, with immutable Drive state/readback and
+  one writer. Quota/auth failure cannot imply an empty namespace; explicit first
+  genesis also requires successful parent inventory proving absence. Defaults
+  stay off until current inputs, source rights and external policy pins exist.
+- The first nonempty learning controls exposed string-date price reindexing
+  that silently produced all-null targets. Preserve the failure, use actual
+  DatetimeIndex keys, and require a real expanding fit positive control beside
+  missing/late-label refusals. The source fixture also needed primitive floats
+  and a datetime index; native strict-number/index guards were preserved.
+- Label maturity uses actual price availability at each fold, not only session
+  offsets. Weekly release samples, one-session unknown volatility, all declared
+  negative tests and current-source collection clocks remain explicit. Monthly
+  models are externally reviewed releases only; current FRED rights-disabled
+  Source configuration is not permission to train on retained bytes.
+- Independent review found that original-byte validation alone omitted the
+  target-price source scope; require price:<ETF> for every label original.
+  Cache weekly outcome paths per target/horizon, preserve missingness and order,
+  and enforce the same32MiB trial budget before write and during restore. A
+  successful oversized write would otherwise poison the next cloud restart.
+- Apply the same pre-write bound to weekly scores and forward predictions as to
+  their restore path (8MiB). A valid100,000-row score population can exceed it;
+  retain that attempt as blocked before publication instead of poisoning every
+  later restore. The boundary regression proves no file/directory on refusal.
+- Normalized learning rows must preserve the original parser's date boundary:
+  observation_date cannot exceed availability or collection's UTC date. Reject negative-age
+  future values both on input admission and feature replay. Fixed forecasts must
+  also satisfy decision-close <= creation < next-session close before report or
+  checkpoint mutation; the15-minute completed-session grace cannot revive a
+  passed entry. A persisted retrospective prediction would poison later scoring.
+- Hosted run42964325786/job130337903140 passed235/236 suites; the manual
+  historical reuse positive correctly rejected the changed regression operand
+  with catalog_dependency_changed:tools/macro_technical_study.py. Retain the
+  original18,875-byte catalog-hashed operand in a bounded offline test archive,
+  restore it only in disposable historical positives, and continue testing that
+  current/mutated bytes fail the unchanged production catalog. Do not recertify
+  the catalog or relax its lookup merely to make historical tests pass.
