@@ -9,7 +9,7 @@ import math
 import re
 
 from research.multi_asset_v1 import runtime
-from research.multi_asset_v1.contracts import digest, require, number, stamp, ContractError
+from research.multi_asset_v1.contracts import digest, require, number, stamp, registry_rows
 from tools import chameleon_market_context_v2 as context
 
 SCHEMA="a5-model-portfolio-proposal-v1"
@@ -105,6 +105,10 @@ def build_model_proposal(payload, registry, policy, report, *, artifact_resolver
         require(not payload.get("positions") and not payload.get("position_book_kind"),"A5_MODEL_ONLY_NO_ACCOUNT_BOOK")
         require(payload.get("requested_security_ids") and payload.get("a3_reference_entries") is not None
                 and payload.get("current_a3_review") is not None,"A5_CURRENT_A3_GRAPH_REQUIRED")
+        require(not payload.get("evaluations"),"A5_UNCOVERED_LEGACY_EVALUATIONS")
+        _,assets=registry_rows(registry)
+        require(set(assets)-{policy["benchmark_id"]}==set(payload["requested_security_ids"]),
+                "A5_FULL_ALLOCATOR_COHORT_NEEDS_ORIGINAL_REFERENCES")
         validate_report(report,payload,policy)
         result=runtime.run(payload,registry,policy,artifact_resolver=artifact_resolver,
                            review_root=review_root,code_sha=code_sha)
@@ -113,6 +117,8 @@ def build_model_proposal(payload, registry, policy, report, *, artifact_resolver
                 "A5_CURRENT_A3_A6_NOT_VERIFIED")
         require(set(payload["requested_security_ids"])=={r["asset_id"] for r in coverage["records"]}
                 and all(r.get("runtime_evaluation_admitted") is True for r in coverage["records"]),"A5_A3_ROSTER_INCOMPLETE")
+        require(set(result["proposal"].get("proposed_weights",{}))<=set(payload["requested_security_ids"]),
+                "A5_ALLOCATED_SECURITY_WITHOUT_ORIGINAL_COVERAGE")
         # The displayed report must be the exact original A4 report consumed by
         # the verified graph, not another self-hashed view or an auxiliary fit.
         from tools.run_a4_research_cycle import json_ref
@@ -126,16 +132,32 @@ def build_model_proposal(payload, registry, policy, report, *, artifact_resolver
         return blocked(cutoff,["CURRENT_A3_A4_A6_RISK_OR_NATIVE_PROPOSAL_NOT_VERIFIED"])
 
 
-def load_and_build(root, request, report, *, expected_policy_sha256,code_sha):
-    """A scoped request reuses the incumbent A2 bounded original file loader."""
+def pinned_inputs(root, request, expected_policy_sha256):
     from tools.run_a4_research_cycle import json_ref
-    from tools.run_multi_asset_leadership import a3_artifacts
     require(type(expected_policy_sha256) is str and re.fullmatch(r"[a-f0-9]{64}",expected_policy_sha256),
             "A5_EXTERNAL_POLICY_PIN")
     require(request.get("schema")=="a5-model-proposal-request-v1" and
             request["policy"]["sha256"]==expected_policy_sha256,"A5_EXTERNAL_POLICY_PIN")
     payload=json_ref(root,request["inputs"]);registry=json_ref(root,request["registry"],4*1024**2)
     policy=json_ref(root,request["policy"],1024**2)
+    return payload,registry,policy
+
+
+def decision_cutoff(root, request, *, expected_policy_sha256,execution_at):
+    """Choose the fixed replay time; full original-graph admission still follows."""
+    payload,_,policy=pinned_inputs(root,request,expected_policy_sha256)
+    profile=policy["current_a3_review_profile"]
+    require(stamp(profile["available_at"])<=stamp(payload["as_of"])<=stamp(execution_at)<stamp(profile["expires_at"]),
+            "A5_EXECUTION_OUTSIDE_REVIEWED_VALIDITY")
+    return payload["as_of"]
+
+
+def load_and_build(root, request, report, *, expected_policy_sha256,code_sha,execution_at):
+    """A scoped request reuses the incumbent A2 bounded original file loader."""
+    from tools.run_a4_research_cycle import json_ref
+    from tools.run_multi_asset_leadership import a3_artifacts
+    decision_cutoff(root,request,expected_policy_sha256=expected_policy_sha256,execution_at=execution_at)
+    payload,registry,policy=pinned_inputs(root,request,expected_policy_sha256)
     previous=json_ref(root,request["previous_proposal"],8*1024**2) if request.get("previous_proposal") else None
     return build_model_proposal(payload,registry,policy,report,artifact_resolver=a3_artifacts(payload,root),
         review_root=root,code_sha=code_sha,previous=previous)

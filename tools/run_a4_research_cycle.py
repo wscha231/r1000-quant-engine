@@ -90,7 +90,21 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     try:
         raw_pin=market.bounded(root/"request.sha256",128).decode("ascii").strip()
     except (OSError,ValueError,UnicodeError):raw_pin=None
-    report=market.load_report(root/"request.json",root,raw_pin,cutoff=cutoff)
+    from tools import a5_model_portfolio as a5
+    a5_request=None;replay_cutoff=cutoff
+    try:
+        a5_request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
+        replay_cutoff=a5.decision_cutoff(root,a5_request,expected_policy_sha256=a5_policy_sha256,execution_at=cutoff)
+    except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+        a5_request=None
+    try:
+        # Replay at the fixed decision while checking freshness and expiry at
+        # actual execution time. Never refresh a past graph's timestamp/hash.
+        raw_request=market.bounded(root/"request.json",256*1024)
+        market.verify_request(raw_request,raw_pin,cutoff,market.current_session(cutoff))
+        report=market.load_report(root/"request.json",root,raw_pin,cutoff=replay_cutoff)
+    except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+        report=market.blocked("MARKET_INPUT_UNAVAILABLE_INVALID_OR_EXPIRED",cutoff=cutoff,session=market.current_session(cutoff))
     events=[];status="BLOCKED";blockers=[];scores=[];predictions=[]
     learning_context=None
     try:
@@ -149,11 +163,11 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")
         plan=learning.cadence(cutoff)
-    from tools import a5_model_portfolio as a5
     portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
     try:
-        request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
-        portfolio=a5.load_and_build(root,request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha)
+        market.need(a5_request is not None,"A5_FIXED_DECISION_NOT_VERIFIED")
+        portfolio=a5.load_and_build(root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
+                                    execution_at=cutoff)
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         pass
     exclusive(out/"model_portfolio.json",encoded(portfolio))
@@ -164,7 +178,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     exclusive(out/"market_analysis.md",market.render_report(report).encode("utf-8"))
     if learning_context is not None:
         exclusive(out/"learning_context.json",encoded(learning_context))
-    cycle=dict(schema="a4-cloud-research-cycle-v1",cutoff=cutoff,market_session=report["session"],
+    cycle=dict(schema="a4-cloud-research-cycle-v1",cutoff=cutoff,decision_cutoff=report["cutoff"],market_session=report["session"],
         market_status=report["status"],learning_status=status,learning_blockers=blockers,
         a5_status=portfolio["status"],a5_blockers=portfolio.get("reasons",[]),
         cadence=plan,events=events,source_collection_requests=0,

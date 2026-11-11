@@ -10443,3 +10443,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   fabricated all-cash completion. Prior proposals require external reviewed pins
   and remain separate from actual account positions. Neither synthetic success
   nor a hosted checkpoint establishes a qualified real-data portfolio.
+- Independent review exposed that the initial positive fixture retained legacy
+  evaluations outside its original A3 subset, and hosted wall-clock replay would
+  not match a fixed reviewed decision. Refuse legacy evaluations, require full
+  allocator-cohort original coverage, and replay at the pinned decision while
+  separately checking execution freshness/expiry. The first narrowed fixture
+  correctly failed the incumbent all-row comparison; rebuild the entire reviewed
+  cohort before rerunning, never waive the native ranking gate.
+- A completed mutable Codex summary is not the immutable clean receipt required
+  by review_complete. The PR744 summary-pin attempt was correctly refused;
+  retain the failed gate and obtain the service's exact-head receipt instead.
+  Never fabricate evidence, widen the gate's receipt grammar or merge around it.

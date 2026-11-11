@@ -98,6 +98,12 @@ and current A6 review graph. The graph must replay the exact native A4 v2 report
 The reviewed risk packet additionally binds `a4_report_content_sha256` and
 `a4_request_sha256`; current A3 net returns and reviewed allocation limits pass
 through the incumbent independent allocator.
+Every security in the submitted allocator registry (except its benchmark) must
+have a current original A3 reference. Legacy evaluation rows are refused.
+The cloud cycle replays A4 at the fixed A5 decision time from the independently
+pinned policy/input packet. It separately checks current NYSE session and A4
+request expiry at execution time, and refuses execution after the reviewed
+profile expires. Replaying the decision never refreshes its timestamp or hash.
 
 The output includes security and cash weights, selection/exclusion reasons,
 original cost assumptions, macro evidence and changes against an externally
