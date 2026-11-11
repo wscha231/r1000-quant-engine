@@ -409,6 +409,8 @@ A6_FIXED_PROOF_INPUTS = (
     'research/control_plane/a2_event_handoff_v1.schema.json',
     'research/control_plane/candidate_data_queue_v1.schema.json',
     'research/control_plane/matured_outcome_cohort_v1.schema.json',
+    'docs/market_analysis_contract_v2.json',
+    'docs/a4_macro_hypotheses_v1.json',
 )
 A6_FIXED_PROOF_PROGRAMS = (
     '.github/workflows/alpaca_sip_private_backfill_v1.yml',
@@ -1084,6 +1086,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/market_analysis_engine_smoke.py',
     'tests/a4_macro_bridge_smoke.py',
     'tools/a4_macro_bridge.py',
+    'tests/a4_liquidity_analysis_smoke.py',
+    'tools/a4_liquidity_analysis.py',
     'tools/market_analysis_engine.py',
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',

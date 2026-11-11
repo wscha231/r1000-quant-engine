@@ -10451,3 +10451,29 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   shared metadata gate before the downstream dataset-status check.
   Restore a fresh writer for that next publication; reusing the already
   published writer correctly triggers its stale-writer guard.
+
+### 2026-11-11 — Keep funding, reserve and bank balance semantics separate
+
+- V2 funding spreads are percentage-point differences multiplied by100 to bp;
+  shared inputs are one evidence family, never four independent risk votes.
+  Latest nulls or mismatched observation dates cannot reuse an older spread.
+  H8 large+small reconciles to domestic, not all-bank deposits including foreign
+  institutions. Weekly deltas require every intervening weekly observation.
+- Reserve week averages, Wednesday balances and repo operation amounts retain
+  separate identities; no fixed3trillion cutoff or net-liquidity shortcut is
+  introduced. The12 synthetic arithmetic/parser/integration cases pass normal
+  and -O; real source rights, native ten-axis readiness and ER remain separate.
+- Exact-head independent review caught a v1-only downstream monitor and a valid
+  non-object NYFed JSON escaping as AttributeError. Accept both report versions
+  behind the existing artifact/session/clock gates, and require an object before
+  reading refRates. Regress actual loader DATA_BLOCKED output and the unchanged
+  v1/v2 forward handoff; never treat a parser crash as a completed diagnosis.
+- V2 historical-evidence arrays can exceed the old128KiB A4 ZIP-member bound.
+  Give that source a bounded16MiB member/32MiB archive envelope within the
+  unchanged global caps, retaining exact member/hash/session checks. Regress a
+  real compressed multi-model member and one-byte-over-budget refusal; accepting
+  the new schema alone is insufficient if the transport still rejects its data.
+- Keep FRED format detection identical to the original normalizer: UTF8 BOM
+  JSON accepted by Source must not be reclassified as CSV by the A4 consumer.
+  Use the existing shared detector and regress both byte variants, exact raw
+  hashes, retained nulls and forged normalization refusal.

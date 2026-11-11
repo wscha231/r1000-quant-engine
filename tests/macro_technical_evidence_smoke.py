@@ -392,7 +392,8 @@ def run_tests(*, portable=False):
     classes=[EvidenceTests]
     if not portable:
         from a4_macro_bridge_smoke import BridgeTests
-        classes.append(BridgeTests)
+        from a4_liquidity_analysis_smoke import LiquidityTests
+        classes.extend((BridgeTests,LiquidityTests))
     suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in classes])
     result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():
