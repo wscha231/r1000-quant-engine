@@ -10426,3 +10426,15 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   negative tests and current-source collection clocks remain explicit. Monthly
   models are externally reviewed releases only; current FRED rights-disabled
   Source configuration is not permission to train on retained bytes.
+
+### 2026-11-11 — A5 must consume the exact original reviewed A4 report
+
+- Bind the displayed A4 v2 report to the native A3/A6 graph and reviewed risk
+  packet, not merely a self-consistent content hash. A fixed learning release
+  belongs inside the original A4 request replay; auxiliary cloud context cannot
+  replace it. Keep original A3 net ER, costs and the incumbent sizing algorithm.
+- A disposable complete original graph reaches a native research proposal;
+  missing evidence returns null security/cash weights and owner routes, never a
+  fabricated all-cash completion. Prior proposals require external reviewed pins
+  and remain separate from actual account positions. Neither synthetic success
+  nor a hosted checkpoint establishes a qualified real-data portfolio.

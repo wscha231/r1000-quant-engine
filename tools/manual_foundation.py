@@ -1093,6 +1093,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/a4_cloud_cycle_smoke.py',
     'tools/a4_macro_learning.py',
     'tools/run_a4_research_cycle.py',
+    'tests/a5_model_portfolio_smoke.py',
+    'tools/a5_model_portfolio.py',
     'tools/market_analysis_engine.py',
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',
