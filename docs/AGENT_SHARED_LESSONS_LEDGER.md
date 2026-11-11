@@ -11027,3 +11027,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   missing weeks, constant-series insufficiency, all negative results and the
   noncausal/nonpredictive label. This does not turn revised histories into
   historical decisions, backtests or admitted learning features.
+- Final147-case local aggregate at6e603d2a passed273.305s. Core collection plus
+  index paired replay and31-commit legacy metadata probing can exceed the old
+  primary-only30-minute budget. Reuse the existing60-minute workflow ceiling
+  for primary/index-enabled runs; leave30 when disabled and all source/object
+  quotas unchanged. This is execution capacity, not evidence that any model,
+  native risk state or future forecast is qualified.

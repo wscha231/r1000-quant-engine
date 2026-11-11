@@ -106,6 +106,8 @@ capture, then consumes its current request. Index failure points the run at
 the attempted root and fails the final gate, never at a restored old success.
 The research cycle runs only after its original state restore and a successful
 index when primary collection is enabled. Existing enable flags, single writer
-and30/60-minute workflow bounds remain; no additional schedule is installed.
+and the existing60-minute ceiling covers enabled primary/index work (30 minutes
+when disabled); no additional schedule is installed. This accounts for paired
+readback plus bounded legacy metadata reads without raising object/request caps.
 An index with a blocked core can still retain its diagnostic metadata, but its
 CLI/workflow step fails and cannot start the dependent research cycle.
