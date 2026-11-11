@@ -88,6 +88,8 @@ exactly `trial` and `policy`; `sha256` binds those file bytes and `policy_sha256
 binds the canonical encoded reviewed policy. The source owner must independently
 review this pin. The separate `learning_context.json` cloud diagnostic does not
 replace the native request-replay report or enter A5 as an alternate A4 report.
+New auxiliary forecasts retain the actual execution creation clock, even during
+fixed-report replay. They cannot be recorded after their next-close entry.
 
 Persist and `rclone check` the state and attempt before recording a separate
 transport readback witness. A computation result itself keeps

@@ -10465,6 +10465,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   separately checking execution freshness/expiry. The first narrowed fixture
   correctly failed the incumbent all-row comparison; rebuild the entire reviewed
   cohort before rerunning, never waive the native ranking gate.
+- The cloud integration control now replays a fixed report at a later actual
+  execution with an active reviewed model. Its valid first forecast persists;
+  execution after the next-close entry is blocked without another prediction.
+  Keep this test with the A5 fixed-clock consumer, not its A4-only parent branch.
 - A completed mutable Codex summary alone is not accepted review_complete
   evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
   use the existing authenticated review, fresh-reaction or immutable-receipt
