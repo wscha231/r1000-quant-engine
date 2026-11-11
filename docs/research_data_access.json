@@ -55,6 +55,17 @@
     "scope": "Existing price/financial component APIs; macro remains pinned Lake; research only"
   },
   "current_coverage_source": "verified catalog datasets and execution-linked quality report; never this static index",
+  "a4_primary_component": {
+    "guide": "docs/A4_PRIMARY_DATA_OPERATIONS.md",
+    "producer": "tools/collect_a4_primary_data.py",
+    "reader": "tools/a4_primary_sources.py:read_generation",
+    "namespace_below_existing_research_base": "shared-research-v1/macro-primary",
+    "pin": "exact capture manifest SHA256; original and normalized bytes replayed with shared Reader hash checks",
+    "authority": "RESEARCH_BYTES_ONLY; does not finalize or replace legacy Lake execution",
+    "historical_use": "FORWARD_CAPTURE_ONLY; no backdated current SDMX history",
+    "source_admitted": false,
+    "training_admitted": false
+  },
   "frozen_generation_reader": {
     "reader": "tools/research_data_access.py",
     "registry": "data_static/research_dataset_registry_v1.json",
