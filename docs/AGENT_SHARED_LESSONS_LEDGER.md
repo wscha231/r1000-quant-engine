@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+- Parquet top-level field indices are physical column indices only when the
+  whole schema is flat. Reject even unprojected nested/extension fields before
+  computing projected footer budgets; otherwise an earlier struct can hide a
+  selected column's true decoded size. Keep optional21 label-column absence
+  explicit None/UNKNOWN in supplied binding records, with63/126 labels strict.
+
+- Stock-leader input binding is a local, untested WIP checkpoint while stock
+  review fixes take priority. Keep immutable V1/252 contracts unchanged and
+  distinguish exact supplied cohort metadata from Source/PIT authentication.
+  The public price Reader supports training; financial component reads remain
+  research-only, so never alias price authority into financial training. Retain
+  unlabelled current prediction rows and separate maturity from training eligibility.
+- A metadata-only CLI must branch before optional U0 path resolution. Bound the
+  projected Parquet footer before table allocation and decode the same hashed
+  buffer. Keep the actual completed NYSE session, per-feature close/availability,
+  full as-of denominator and latest unlabelled rows; regenerated report clocks,
+  role labels and matching hashes do not grant financial training admission.
+- Optional21-session warning fields remain explicit UNKNOWN in the fixed hash;
+  never make them a new63/126 selection gate. Date/horizon sector-neutral labels
+  also inherit their complete peers' latest actual availability, while every
+  original per-row clock remains unchanged. A Parquet dictionary page's encoded
+  size does not bound expanded strings: keep dictionaries, bound value lengths
+  and decoded expansion before pandas conversion. Preserve the earlier R1 scope.
 - A reviewed healthy-winner RISK_EXIT must replay all existing ceilings, not
   only gross/direct caps. Share the native factor over the original current
   book, verified ETF look-through and risk groups; require exactly old*factor.
@@ -10666,6 +10689,12 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+- Latest-session extraction must compute its maximum once before filtering.
+  Recomputing it for every historical row makes bounded pre-fit inspection
+  quadratic; retain the existing denominator/latest-row/future-tail checks.
+- Label masking and actual-clock injection also need horizon-batched key lookups.
+  Preserve immature outcomes, unknown/latest rows, unmatched clocks and duplicate
+  DataFrame indices; use counted comparisons instead of flaky timing assertions.
 
 - The first public stock/MODEL positive fixture used the generic US:BIO model
   while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
@@ -10751,6 +10780,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   header as valid, but reject changed normalized values with updated hashes.
   Current normalization changes require a newly pinned capture or explicit
   reviewed migration; retain original old receipts and code for their replay.
+- Required CI run43017058968/job130510648847 passed234/236 suites. The new
+  locator paragraph correctly invalidated current-source reuse of the frozen
+  data-access guide. Restore its reviewed12833-byte original (403680df3e2856e2
+  48a552687f776c10697d0951ce233ee78a3df7a7365beb3a) only inside disposable
+  historical positives. Keep the production reuse catalog unchanged and retain
+  bounded archive/hash checks plus changed-current-source refusal.
+- The same CI observed one existing malformed-Parquet CLI subprocess exit-6
+  with "terminate called without an active exception" on hosted Python3.12.
+  Its unchanged assertion passed three local repetitions and all69 broker
+  cases (250.2s); this does not establish the Linux cause. Do not suppress the
+  assertion or change the primary codec speculatively; require fresh hosted CI.
+  Focused unittest imports need the incumbent tests directory on sys.path;
+  a ModuleNotFoundError from a different invocation is not a decoder regression.
 
 ### 2026-11-11 — Government economic histories remain current vintages
 
@@ -10778,3 +10820,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   logical series, not merely hash each original. Apply the same guard during
   input validation and at the time a row becomes visible in replay; future
   alternate sources cannot change an earlier prefix.
+- Actual exact b460d9b capture persisted and reread13 government originals
+  (20,417,011 bytes),50,497 observations and the A4 request/report. Execution
+  ffc4d9e8a47ff3a85368643a5108c44142b56b770120f2119a7237da30db1478
+  is durable research evidence, not deployed-default or historical PIT proof.
+  Native report remains DATA_BLOCKED; no model fit or portfolio was produced.
