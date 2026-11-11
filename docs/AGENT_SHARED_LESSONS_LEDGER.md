@@ -10901,3 +10901,104 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   tests. Hosted exact955f6824 run43031475824/job130559337676 independently
   passed236/236 (3708.54s), including the frozen positives and unchanged broker
   assertions. Final child28a2cc53 aggregate passed107/107 (276.99s).
+
+### 2026-11-11 — Financing context needs native denominators and source rights
+
+- TreasuryDirect's current auctioned snapshots contain250 rows per security
+  type, not a full historical auction universe. Preserve original maturity,
+  CUSIP and reopening flags. Compare six prior same-term auctions separately
+  from same-issuance-type peers. Dealer/direct/indirect shares reconcile exactly
+  to competitive par awarded inside the offering, not grand totals with SOMA.
+  Use integer-dollar parsing before reconciliation; float rounding can hide a
+  fractional dollar at the numeric bound. A prior-auction yield change is not
+  an auction tail without an auction-time when-issued quote.
+- The October SLOOS domestic table produces17 distinct tightening/demand
+  measures with question-specific respondent counts. Match question text and
+  semantic table headers, not bare question numbers. Preserve missing special
+  NDFI items, changes in survey populations and differences from H.8 groups.
+- The NYFed chart CSV has785 monthly ACM observations. The separate daily XLS
+  is10,170,880 bytes and exceeded the first8MiB bounded bootstrap; discard the
+  partial read. Its narrow12MiB allowance stays below existing transport and
+  request limits. Pin xlrd2.0.2, read the exact Daily sheet and matching model
+  components, and keep monthly data out of daily independent samples. Actual
+  daily normalization verified16,316 observations since1961, throughNov9.
+  Full-sample revised estimates keep collection availability, not historical PIT.
+- ICI permits personal-computer storage but limits redistribution/server
+  mirroring; its underlying data require member/subscriber evidence. Public
+  ETF/MMF reports and user-pasted numbers do not authorize automated Drive
+  ingestion or training. ICE/FRED rights and FINRA evidence remain separate.
+  ETF creations/redemptions, MMF asset changes and secondary-market purchases
+  are different measurements; concurrent growth does not trace the same cash.
+- Initial new regressions caught a one-dollar reconciliation tolerance and an
+  incorrect fake-fetch arity. Preserve the incumbent fetch(url,limit[,payload])
+  boundary. Future raw additions legitimately change the original hash; require
+  earlier numeric decisions to stay unchanged without weakening provenance.
+  Conditional financing scenarios do not set a native CAUTION state or exit
+  incumbent winners; new features still need independent recipe/input review.
+
+### 2026-11-11 — Financing cold replay and cross-host report identity
+
+- Exact6a5cc4a9 capture durably verified19 original/normalized pairs,
+  34,893,050 original bytes /68,116 observations plus request/report and
+  execution readback. Execution SHA2564577a3ef486568c6a36240004a2618e8c5e174b4fc153cff3f410f1ccec8e79c.
+  A new Drive-only replay reconstructed every pair and the exact report with
+  zero publisher requests; published/reread receipt SHA256
+  6fea7bd5b5a37aca71e9d8b868d5e1f5be3961b574183c79ec720224e514ebb7.
+  Native report remains0/10 DATA_BLOCKED without metrics/calendar; capture
+  success is not native completion, historical PIT, fit or A5 qualification.
+- Paired normalizers were already LF, but14 other A4 identity-bound source/
+  contract files differed between Windows working bytes and Git/Linux blobs.
+  Pin all18 identity paths to LF and test their real bytes through autocrlf.
+  Preserve the completed prior-code replay; do not ignore raw identity hashes
+  or claim a changed implementation reproduces the old report byte-for-byte.
+- Actual Nov10 10-year BTC2.46 is below the mixed-term prior-six mean2.595
+  but above the prior-six new-issue mean2.45. Display both cohorts and their
+  disagreement rather than treating the mixed comparison as conclusive stress.
+- The merged core collector was enabled for first hosted validation in fresh
+  daily-monitor run43054348879 at master6955a4b2; outcome is still pending.
+  Financing/research-learning flags remain off. Source#750 merge sequencing
+  is held; no additional scheduler, fullrun, fit or accepted-state write.
+
+### 2026-11-11 — Hosted capture is separate from a valid daily decision
+
+- Fresh master6955a4b2 monitor run43054348879/job130639697024 succeeded in
+  primary capture/configuration/readback:6 originals /17,627,102 bytes /
+  42,929 observations. Artifact13871343675 ZIP SHA256
+  bf440c6a47be1ba5f90d7ec8e5f58ad4c4ebe62338e3f14544d59d9efa640aea;
+  execution e8e6d261634337b60342e5eb74b882195fcf56330d38b39b21d63a026bd63f70.
+  Independent Drive execution/request/report parity and15 canonical Git
+  implementation hashes passed; durable witness
+  97b7fa7a4253021ef2d876c47f27a5f0830df2799fc239413cf0e8d971a919da.
+  Overall job remains FAILURE: LATE_SESSION_NOT_RETROACTIVE. Native A4 lacks
+  metrics/calendar0/10. Do not backdate a manual intraday run, relabel a red
+  daily decision as complete, or call a dispatch an observed scheduled run.
+- Currentfc0b7b6e reassessment of the same19 originals changed only financing
+  context, implementation and content hash. Native/funding/bank operands were
+  unchanged; durable receipt7de27ecaceafd92c6bdbc41f9b1aaf12a0b1d5b1752bb70e21e06405c28f3bd2.
+  Full125-case author regression passed213.965s; exact-head hosted review clean.
+- Author actual-input Decimal auditR1 correctly stopped on an auditor error:
+  it assumed every reported H.4.1 balance had been converted to billions,
+  while the report explicitly retained millions. R2 uses source AND report
+  units, preserving all original/report numbers.157 amount/rate/bp/week-grid/
+  bank-scope/auction-denominator/survey/ACM checks passed; durable receipt
+  15a228b14d4f863f62391eaa11425c6c80e24bd252a2db7ba69a612174cea3d0.
+  This is author arithmetic verification, not independent A6 or PIT/fit/A5
+  admission. Preserve R1 failure and do not change product values to fit an
+  audit's unit assumption. Primary collection is enabled; financing/learning
+  remain off pending their independent deployment/input prerequisites.
+
+### 2026-11-12 KST — Preserve finance code while recovering a stuck PR record
+
+- Finance PR753/c4 validation remained in_progress beyond90 minutes; job reads
+  timed out/returned502, and logs returnedBlobNotFound. Normal and force cancel
+  returned409/not-in-progress while re-run returned403/already-running. No
+  control request succeeded. One unchanged-tree synchronization at145e48ce
+  remained queued. GitHub documents such abnormal workflow/check states at
+  https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
+- A new unified-head workflow did start normally. Preserve the original PR,
+  run history and finance source tree, and try one replacement branch/PR as a
+  separate recovery path. Its only additional change is this operational
+  lesson; all18 market implementation hashes remain identical to the actual
+  replayed version. Fresh review/required checks and strict default alignment
+  remain mandatory. Do not infer a global incident, passing check, Source
+  admission, training approval or model/account change from the recovery.
