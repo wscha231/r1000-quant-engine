@@ -1232,12 +1232,14 @@
               "additionalProperties": false,
               "required": [
                 "kind",
-                "artifact"
+                "artifact",
+                "model_identity"
               ],
               "properties": {
                 "kind": {
-                  "const": "INCUMBENTS"
+                  "enum": ["INCUMBENTS", "PARENT_LINEAGE_ONLY"]
                 },
+                "model_identity": {"$ref": "#/$defs/current_model_identity"},
                 "artifact": {
                   "$ref": "#/$defs/artifact"
                 }
@@ -1253,6 +1255,122 @@
           "minLength": 1,
           "maxLength": 240
         }
+      }
+    },
+    "current_model_identity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["model_id", "model_version", "model_code_sha", "model_config_sha256",
+                   "model_recipe_sha256", "data_identity_sha256", "cost_context_sha256"],
+      "properties": {
+        "model_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "model_version": {"type": "string", "minLength": 1, "maxLength": 200},
+        "model_code_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$",
+          "description": "Model implementation revision in the original allocation and externally reviewed context; distinct from producer and current consumer code identities."},
+        "model_config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "model_recipe_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "data_identity_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "cost_context_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "model_allocation_positions": {
+      "type": "array", "minItems": 0, "maxItems": 1000,
+      "items": {"type": "object", "additionalProperties": false,
+        "required": ["asset_id", "weight"],
+        "properties": {"asset_id": {"type": "string", "minLength": 1, "maxLength": 80},
+                       "weight": {"type": "number", "minimum": 0, "maximum": 1}}}
+    },
+    "model_allocation_state": {
+      "type": "object", "additionalProperties": false,
+      "dependentRequired": {
+        "parent_state_sha256": ["parent_acceptance_sha256", "assessment_kind", "assessment_inputs_sha256", "assessment_source_sha256"],
+        "parent_acceptance_sha256": ["parent_state_sha256", "assessment_kind", "assessment_inputs_sha256", "assessment_source_sha256"]
+      },
+      "allOf": [{"if": {"required": ["assessment_kind"], "properties": {
+        "assessment_kind": {"enum": ["ALLOCATION_CHANGE", "HOLD_REAFFIRMATION"]}}},
+        "then": {"required": ["parent_state_sha256", "parent_acceptance_sha256"]}}],
+      "required": ["schema_version", "state_role", "model_identity", "as_of", "decision_time",
+                   "positions", "cash_weight", "origin_a5_task_key", "actual_holdings_claimed", "execution_or_performance_claimed"],
+      "properties": {
+        "schema_version": {"const": "model-allocation-state-v1"},
+        "state_role": {"const": "MODEL_ALLOCATION_STATE"},
+        "model_identity": {"$ref": "#/$defs/current_model_identity"},
+        "as_of": {"type": "string", "format": "date"},
+        "decision_time": {"type": "string", "format": "date-time"},
+        "positions": {"$ref": "#/$defs/model_allocation_positions"},
+        "cash_weight": {"type": "number", "minimum": 0, "maximum": 1,
+          "description": "Explicit MODEL cash allocation, not an inferred cash balance or cash-return admission."},
+        "origin_a5_task_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "assessment_kind": {"enum": ["INITIAL_ALLOCATION", "ALLOCATION_CHANGE", "HOLD_REAFFIRMATION"]},
+        "assessment_source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "assessment_inputs_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "parent_state_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "parent_acceptance_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "actual_holdings_claimed": {"const": false},
+        "execution_or_performance_claimed": {"const": false}
+      }
+    },
+    "model_allocation_selection": {
+      "type": "object", "additionalProperties": false,
+      "description": "Original owner selection submitted for independent review; the document alone grants no acceptance or future standing authority.",
+      "required": ["schema_version", "change_kind", "owner_principal", "selected_at", "expires_at", "reason",
+                   "proposal_receipt_sha256", "a5_packet", "a5_receipt", "model_identity", "positions", "cash_weight"],
+      "properties": {
+        "schema_version": {"const": "model-allocation-selection-v1"},
+        "change_kind": {"enum": ["SELECT_ALLOCATION", "REAFFIRM_HOLD", "NO_CHANGE"]},
+        "owner_principal": {"type": "string", "minLength": 1, "maxLength": 80},
+        "selected_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "proposal_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "a5_packet": {"$ref": "#/$defs/artifact"},
+        "a5_receipt": {"$ref": "#/$defs/artifact"},
+        "model_identity": {"$ref": "#/$defs/current_model_identity"},
+        "positions": {"$ref": "#/$defs/model_allocation_positions"},
+        "cash_weight": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "model_incumbents_acceptance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "book_kind", "state_role", "current", "model_identity", "as_of",
+                   "decision_time", "expires_at", "positions", "cash_weight", "positions_sha256", "producer_code_sha",
+                   "producer_config_hash", "principals", "proofs", "observed_at", "available_at",
+                   "collected_at", "source", "data_quality", "evidence_kind", "raw_sha256"],
+      "properties": {
+        "schema_version": {"const": "model-incumbents-acceptance-v1"},
+        "book_kind": {"const": "MODEL"},
+        "state_role": {"const": "ADMITTED_MODEL_ALLOCATION"},
+        "current": {"const": true,
+          "description": "Active allocation acceptance inside its original validity window, not an attestation of current-session executed holdings."},
+        "model_identity": {"$ref": "#/$defs/current_model_identity"},
+        "as_of": {"type": "string", "format": "date"},
+        "decision_time": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"},
+        "positions": {"$ref": "#/$defs/model_allocation_positions"},
+        "cash_weight": {"type": "number", "minimum": 0, "maximum": 1},
+        "positions_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$",
+          "description": "Existing multi_asset.contracts.digest: canonical UTF-8 JSON plus LF; distinct from board task identity digests."},
+        "producer_code_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$",
+          "description": "Original A5/A6 orchestration revision, bound to their immutable task/completion evidence; not silently replaced by current consumer HEAD."},
+        "producer_config_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "principals": {"type": "object", "additionalProperties": false, "required": ["A5", "A6"],
+          "properties": {"A5": {"type": "string", "minLength": 1, "maxLength": 80},
+                         "A6": {"type": "string", "minLength": 1, "maxLength": 80}}},
+        "proofs": {"type": "object", "additionalProperties": false,
+          "required": ["state", "a5_packet", "a5_receipt", "a6_packet", "a6_receipt"],
+          "properties": {"state": {"$ref": "#/$defs/artifact"},
+                         "a5_packet": {"$ref": "#/$defs/artifact"},
+                         "a5_receipt": {"$ref": "#/$defs/artifact"},
+                         "a6_packet": {"$ref": "#/$defs/artifact"},
+                         "a6_receipt": {"$ref": "#/$defs/artifact"},
+                         "parent_acceptance": {"$ref": "#/$defs/artifact"},
+                         "parent_state": {"$ref": "#/$defs/artifact"}}},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "available_at": {"type": "string", "format": "date-time"},
+        "collected_at": {"type": "string", "format": "date-time"},
+        "source": {"type": "string", "minLength": 1, "maxLength": 200},
+        "data_quality": {"const": "OBSERVED"},
+        "evidence_kind": {"const": "FORWARD_CAPTURE"},
+        "raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     }
   },

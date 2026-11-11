@@ -97,7 +97,7 @@ def _date(value: Any, *, field: str, required: bool = True) -> pd.Timestamp | No
 
 
 def _number(value: Any) -> float | None:
-    text = str(value or "").strip()
+    text = "" if value is None else str(value).strip()
     if not text:
         return None
     parsed = pd.to_numeric(text, errors="coerce")
