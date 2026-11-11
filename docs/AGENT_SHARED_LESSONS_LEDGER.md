@@ -10391,3 +10391,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   test storage. The actual Drive read remains refused by quota, and the local
   Python launcher referenced a missing installation; direct verified Python3.14
   works. Neither environment finding is a completed real-data replay.
+- Full CI42944844092 passed235/237: direct runner registration broke the frozen
+  236-program contract and the A6 temporary fixture lacked the new program.
+  Preserve that failure, restore the exact protected runner, register the new
+  cases through its existing macro-evidence aggregate, and extend the fixed A6
+  dependency closure. No protected lineage/count guard is changed.
