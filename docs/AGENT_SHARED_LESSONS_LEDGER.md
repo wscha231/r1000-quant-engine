@@ -10543,8 +10543,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   canonical27 files (475,340 bytes), preserve hashes/policies, and rerun the70
   affected managed-input/execution cases; they pass. This is an environment
   repair, not source admission, changed data or a clean full-run claim.
-- A later Drive probe listed32 commit names, then bounded metadata reads again
+- A later Drive probe listed the commit folder, then bounded metadata reads again
   hit403 shared-client project requests-per-minute quota. Do not turn one list
   success into verified catalog, execution or pack evidence, or infer the hosted
   secret uses the desktop's profile. Record the actual auth/readback boundary;
   use the official owner-client setup guidance without exposing credentials.
+- A raw-file connector response contained a nested expiring signed download URL
+  that was inadvertently included in diagnostic output. Do not serialize whole
+  file-reference responses: log only opaque IDs, hashes and byte counts, and
+  retain no signed URL values in source, PRs or operational evidence. A file
+  listing or empty text preview is not original-byte/hash verification.

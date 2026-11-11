@@ -24,7 +24,7 @@ pass `rclone check` before computation. A per-workflow single writer prevents
 overlapping checkpoint publications.
 
 Authentication must be verified for the actual hosted secret, separately from
-the desktop profile. The desktop's shared rclone client listed32 commit names
+the desktop profile. The desktop's shared rclone client listed the commit folder
 once, then returned403 project requests-per-minute quota on bounded metadata
 reads; no current catalog/execution or original packs were verified. Rclone's
 [official Drive instructions](https://rclone.org/drive/#making-your-own-client-id)
