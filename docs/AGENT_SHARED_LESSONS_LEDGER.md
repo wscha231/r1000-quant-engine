@@ -10986,3 +10986,19 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   admission. Preserve R1 failure and do not change product values to fit an
   audit's unit assumption. Primary collection is enabled; financing/learning
   remain off pending their independent deployment/input prerequisites.
+
+### 2026-11-12 KST — Preserve finance code while recovering a stuck PR record
+
+- Finance PR753/c4 validation remained in_progress beyond90 minutes; job reads
+  timed out/returned502, and logs returnedBlobNotFound. Normal and force cancel
+  returned409/not-in-progress while re-run returned403/already-running. No
+  control request succeeded. One unchanged-tree synchronization at145e48ce
+  remained queued. GitHub documents such abnormal workflow/check states at
+  https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
+- A new unified-head workflow did start normally. Preserve the original PR,
+  run history and finance source tree, and try one replacement branch/PR as a
+  separate recovery path. Its only additional change is this operational
+  lesson; all18 market implementation hashes remain identical to the actual
+  replayed version. Fresh review/required checks and strict default alignment
+  remain mandatory. Do not infer a global incident, passing check, Source
+  admission, training approval or model/account change from the recovery.
