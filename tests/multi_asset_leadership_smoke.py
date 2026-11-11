@@ -20,7 +20,7 @@ from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_
 from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity,feature_availability
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
-from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes
+from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes,prepare_model_snapshot
 from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
 
 CUTOFF="2026-09-19T10:00:00+00:00"
@@ -415,6 +415,24 @@ class Decisions(unittest.TestCase):
         self.policy["reviewed_pins"]["positions"].append(digest(receipt));self.p["position_receipt"]=receipt
         with self.assertRaisesRegex(ContractError,"future_or_conflicting_time"):run(self.p,self.r,self.policy)
 
+    def test_model_label_or_account_pin_does_not_admit_model_incumbents(self):
+        original=copy.deepcopy(self.p)
+        for book_kind in ("PAPER","ACTUAL_BROKER","APPROVED_TARGET","MODEL"):
+            self.p=copy.deepcopy(original)
+            self.p["positions"]=[{"asset_id":"US:FTI","weight":.08}]
+            self.p["position_book_kind"]="MODEL"
+            receipt={**meta("CANONICAL_BOOK"),"as_of":list(SESSIONS)[-1],"book_kind":book_kind,
+                     "positions_sha256":digest(self.p["positions"])}
+            self.policy["reviewed_pins"]["positions"].append(digest(receipt))
+            self.p["position_receipt"]=receipt
+            with self.subTest(source=book_kind),self.assertRaisesRegex(ContractError,"^current_model_incumbents_required$"):
+                run(self.p,self.r,self.policy)
+
+    def test_unknown_empty_model_is_not_genesis_or_actual_empty(self):
+        self.p.update(position_book_kind="MODEL",positions=[],cash_weight=1.0)
+        with self.assertRaisesRegex(ContractError,"^current_model_incumbents_required$"):
+            run(self.p,self.r,self.policy)
+
     def test_held_negative_thesis_or_bad_valuation_never_adds(self):
         riskrow=risk(self.p,self.r,self.policy);assets={a["asset_id"]:a for a in self.r["assets"]}
         row=dict(asset_id="US:FTI",portfolio_status="HOLD",thesis_status="POSITIVE",valuation_acceptable=True,expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=.1,RS60_change_5d=.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
@@ -593,6 +611,83 @@ class ExposureAndPublication(unittest.TestCase):
             self.assertEqual((out/"last_success.json").read_bytes(),saved)
             self.assertEqual((out/"attempts/one/result.json").read_bytes(),result)
             with self.assertRaises(ContractError):read_latest(out)
+
+    def test_model_publication_opt_in_does_not_promote_legacy_or_missing_model(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        with tempfile.TemporaryDirectory() as temp, patch(
+                'tools.run_multi_asset_leadership.verified_source_hashes',return_value={'synthetic-code':'a'*64}):
+            out=Path(temp)
+            publish(p,r,policy,out,'normal-proposal',CODE_SHA)
+            original=(out/'attempts/normal-proposal/receipt.json').read_bytes()
+            self.assertNotIn('model_allocation_ref',load_json(original))
+            with self.assertRaisesRegex(ContractError,'model_publication_current_research_blocked'):
+                publish(p,r,policy,out,'not-model',CODE_SHA,
+                    model_publication=dict(candidate_receipt={},owner_decision={}))
+            self.assertEqual((out/'attempts/normal-proposal/receipt.json').read_bytes(),original)
+            self.assertEqual(load_json((out/'latest_attempt.json').read_bytes())['status'],'BLOCKED')
+            with self.assertRaisesRegex(ContractError,'not_ready'):read_latest(out,consumed_at=CUTOFF)
+            unknown=copy.deepcopy(p)
+            unknown.update(position_book_kind='MODEL',model_identity={'model_id':'UNACCEPTED'})
+            with self.assertRaisesRegex(ContractError,'current_model_incumbents_required'):
+                publish(unknown,r,policy,out,'unknown-model',CODE_SHA,
+                    model_publication=dict(candidate_receipt={},owner_decision={}))
+            self.assertEqual((out/'attempts/normal-proposal/receipt.json').read_bytes(),original)
+
+    def test_model_physical_source_pair_rejects_unbacked_rehash_and_latest_swap(self):
+        from tools import run_multi_asset_leadership as publisher
+        from research.multi_asset_v1.contracts import stamp
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);expiry='2026-09-20T10:00:00+00:00'
+            observed='2026-09-19T10:00:03+00:00';cutoff=stamp('2026-09-19T10:01:00+00:00')
+            def put(name,value):
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True)
+                with path.open('xb') as handle:handle.write(encoded(value))
+                return dict(path=name,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                    observed_at=observed,available_at=observed,collected_at=observed,expires_at=expiry,status='VERIFIED')
+            context=put('context.json',dict(decision_time=CUTOFF))
+            packet=dict(task_key='a'*64,identity=dict(code_sha=CODE_SHA),inputs=dict(portfolio_context=context))
+            result=dict(as_of=list(SESSIONS)[-1],computed_at=CUTOFF,global_ranking_ready=True,
+                code_identity_verified=True,code_sha=CODE_SHA,proposal=dict(status='RESEARCH_PROPOSAL'),
+                a3_reference_coverage=dict(current_review=dict(context_sha256=context['sha256'],task_keys=dict(A5='a'*64))))
+            result_ref=put('source/attempts/one/result.json',result)
+            receipt=dict(attempt_id='one',as_of=result['as_of'],global_ranking_ready=True,consumable=True,
+                         result_sha256=result_ref['sha256'])
+            receipt_ref=put('source/attempts/one/receipt.json',receipt)
+            (root/'source/latest_attempt.json').write_bytes(encoded(receipt))
+            candidate=dict(proposal_receipt=receipt_ref,proposal_result=result_ref,portfolio_context=context,
+                proposal_receipt_sha256=receipt_ref['sha256'],proposal_result_sha256=result_ref['sha256'],
+                publication_read_at=observed,publication_clock_scope='PREPARE_READ_OBSERVATION_NOT_ORIGINAL_COLLECTION_OR_PUBLICATION',
+                state=dict(expires_at=expiry))
+            selection=dict(proposal_receipt_sha256=receipt_ref['sha256'],selected_at='2026-09-19T10:00:02+00:00')
+            original=dict(available_at='2026-09-19T10:00:01+00:00')
+            def check(value,decision=selection,source_packet=packet):
+                read,_=publisher._model_originals(root,cutoff,cutoff)
+                return publisher._model_candidate_source(value,decision,read,source_packet,original,
+                    candidate_observed_at='2026-09-19T10:00:04+00:00')
+            self.assertEqual(len(check(candidate)),3)  # byte provenance only, no MODEL admission
+            absent=copy.deepcopy(candidate);absent.pop('proposal_result')
+            with self.assertRaisesRegex(ContractError,'model_source_refs_required'):check(absent)
+            missing=copy.deepcopy(candidate);missing['proposal_result']['path']='missing.json'
+            with self.assertRaises(OSError):check(missing)
+            changed=copy.deepcopy(result);changed['code_sha']='b'*40
+            replaced=copy.deepcopy(candidate);replaced['proposal_result']=put('rehashed_result.json',changed)
+            replaced['proposal_result_sha256']=replaced['proposal_result']['sha256']
+            with self.assertRaisesRegex(ContractError,'model_original_publication_pair'):check(replaced)
+            forged=copy.deepcopy(candidate);forged['proposal_receipt_sha256']='f'*64
+            forged_owner={**selection,'proposal_receipt_sha256':'f'*64}
+            with self.assertRaisesRegex(ContractError,'model_original_publication_pair'):check(forged,forged_owner)
+            wrong_packet=copy.deepcopy(packet);wrong_packet['task_key']='b'*64
+            with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):check(candidate,source_packet=wrong_packet)
+            alias=copy.deepcopy(candidate);alias['portfolio_context']=put('alias_context.json',dict(decision_time=CUTOFF))
+            with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):check(alias)
+            def swap_latest(*args,**kwargs):
+                (root/'source/latest_attempt.json').write_bytes(encoded({**receipt,'attempt_id':'other'}))
+                return result
+            with patch.object(publisher,'read_latest',side_effect=swap_latest):
+                with self.assertRaisesRegex(ContractError,'model_original_publication_changed'):
+                    prepare_model_snapshot(root/'source',root/'candidate',proposal_receipt_sha256=receipt_ref['sha256'],
+                        owner_decision={},portfolio_context={},review_root=root,policy={},now=cutoff.isoformat())
+            self.assertFalse((root/'candidate').exists())
 
     def test_result_tampering_rejected(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
@@ -1048,7 +1143,32 @@ class A3OriginalInputs(unittest.TestCase):
     def execute(self):
         return run(self.p,self.r,self.policy,artifact_resolver=self.memory())
 
-    def current_review(self):
+    def stock_review_inputs(self):
+        """Exact synthetic full-base pin; the unreviewed member stays UNKNOWN."""
+        self.policy['stock_cash_research']['enabled']=True
+        self.p['base_equity_ids']=['US:FTI','US:UNMAPPED']
+        self.p['base_universe_receipt']['asset_ids']=sorted(self.p['base_equity_ids'])
+        self.policy['reviewed_pins']['base_universe'].append(digest(self.p['base_universe_receipt']))
+        self.original['feature_sha256']=feature_identity(self.p,self.r)
+        self.original['cost_assumptions']['commission_bps']=25
+        self.original['portfolio_cost_basis']=dict(schema='reviewed-portfolio-cost-basis-v1',
+            horizon='12_CALENDAR_MONTHS',kind='NET_REFERENCE_ROUND_TRIP',
+            cost_assumptions_sha256=digest(self.original['cost_assumptions']),evidence_sha256='c'*64,
+            reference_cost_bps_per_side=25,embedded_cost_fraction=.005,
+            embedded_transaction_cost_fraction=.005,embedded_ongoing_cost_fraction=0,
+            gross_expected_return=self.original['expected_return_12m']+.005)
+        self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+        raw=b'DATE,DGS3MO\n2026-09-17,3.0\n';sha=hashlib.sha256(raw).hexdigest()
+        self.refs.raw[('CASH:SOURCE',sha)]=raw
+        rr=self.p['risk'];rr.update(feature_sha256=feature_identity(self.p,self.r),max_security_weight=.2)
+        rr['stock_cash_allocation']=dict(horizon='12_CALENDAR_MONTHS',events_sha256=digest([]),
+            decision_asset_ids=['US:FTI'],evaluation_sha256_by_asset={'US:FTI':digest(self.original)},
+            cash_carry=dict(**{**meta('FRED_ARCHIVE'),'raw_sha256':sha},metric='dgs3mo',unit='FRACTION',
+                value=.03,observation_date='2026-09-17',original_ref=dict(artifact_id='CASH:SOURCE',sha256=sha,bytes=len(raw))),
+            exception_reviews=[],exit_reviews=[])
+        self.policy['reviewed_pins']['risk'].append(digest(rr))
+
+    def current_review(self, prefix=None, *, stock=False):
         from tests.control_plane_agent_contract_smoke import ControlPlaneTests
         # Actual original evidence exists at 10:00; selection/review happens
         # afterwards, before this later decision. Never backdate QA clocks.
@@ -1058,8 +1178,10 @@ class A3OriginalInputs(unittest.TestCase):
         self.original['issuer_id']='CIK:1'
         self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
         self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+        if stock:self.stock_review_inputs()
         self.reseal()
         case=ControlPlaneTests('runTest');case.setUp();self.addCleanup(case.doCleanups)
+        if prefix is not None: case._artifact_prefix=prefix
         binding,graph,principals=case.current_review_case(self)
         self.p['current_a3_review']=binding
         self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
@@ -1068,6 +1190,298 @@ class A3OriginalInputs(unittest.TestCase):
             feature_sha256=feature_identity(self.p,self.r),risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,
             available_at=case.at(-5.25),expires_at=case.at(30),principals=principals)
         return case,graph
+
+    def test_model_snapshot_publisher_replays_owner_post_qa_and_current_admission(self):
+        from tools import run_agent_board as board
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        case,_=self.current_review(prefix='publisher_origin',stock=True)
+        source_binding=copy.deepcopy(self.p['current_a3_review'])
+        packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A5'))
+        aid=self.p['requested_security_ids'][0]
+        original_target=dict(status='PROPOSAL_ONLY',proposed_weights={aid:.2},
+                             orders_generated=False,accepted_target_written=False)
+        origin=copy.deepcopy(case.complete('A5',{'target_proposal':original_target}))
+        selected=board.timestamp(origin['available_at'])+timedelta(seconds=1)
+        prepared_at=case.now.isoformat()
+        expiry=case.at(30)
+        def put(name,value,at):
+            path=case.root/'publisher_proof'/(name+'.json');path.parent.mkdir(parents=True,exist_ok=True)
+            with path.open('xb') as handle: handle.write(encoded(value))
+            return dict(path=path.relative_to(case.root).as_posix(),sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                observed_at=at,available_at=at,collected_at=at,expires_at=expiry,status='VERIFIED')
+        packet_ref=put('a5_packet',packet,origin['available_at'])
+        receipt_ref=put('a5_receipt',origin,origin['available_at'])
+        identity=dict(model_id='SYNTHETIC:PUBLISHER',model_version='fixture-v1',model_code_sha=CODE_SHA,
+            model_config_sha256='1'*64,model_recipe_sha256='2'*64,data_identity_sha256='3'*64,
+            cost_context_sha256='4'*64)
+        source_out=case.root/'proposal_source';candidate_out=case.root/'model_candidates'
+        # Isolate only publisher Git-source attestation for this dirty synthetic
+        # fixture. Current A3/ER/A4, original completion and MODEL QA verifiers
+        # all execute their real implementations; no Source authority is claimed.
+        synthetic_code={'synthetic-fixture-source': 'a'*64}
+        with patch('tools.run_multi_asset_leadership.verified_source_hashes',return_value=synthetic_code):
+            initial=publish(self.p,self.r,self.policy,source_out,'original',CODE_SHA,
+                    artifact_resolver=self.memory(),review_root=case.root)
+            self.assertFalse(read_latest(source_out,consumed_at=prepared_at)['global_ranking_ready'])
+            self.assertEqual(initial['proposal']['intent'],'NO_ENTRY_HOLD_CASH')
+            self.assertEqual(initial['proposal']['cash'],1.0)
+            self.assertEqual(initial['proposal']['proposed_weights'],{})
+            self.assertTrue(any(r['asset_id']=='US:UNMAPPED' and r['expected_return_12m'] is None
+                for r in initial['multi_asset_leadership_latest']))
+            selected=max(board.timestamp(origin['available_at']),board.timestamp(self.p['as_of']))+timedelta(seconds=1)
+            source_hash=hashlib.sha256((source_out/'latest_attempt.json').read_bytes()).hexdigest()
+            selection=dict(schema_version='model-allocation-selection-v1',change_kind='SELECT_ALLOCATION',
+                owner_principal='OWNER:FIXTURE',selected_at=selected.isoformat(),expires_at=expiry,
+                reason='Explicit comparison allocation .15; preserve original .20 proposal',
+                proposal_receipt_sha256=source_hash,a5_packet=packet_ref,a5_receipt=receipt_ref,
+                model_identity=identity,positions=[dict(asset_id=aid,weight=.15)],cash_weight=.85)
+            # A second genuinely completed MODEL A5 is not the A5 named by
+            # this immutable publication. Reuse the same evidence base while
+            # issuing a different task identity; do not forge a failing receipt.
+            request_a5=next(r for r in case.state['requests'] if r['agent']=='A5')
+            saved_parameters=copy.deepcopy(request_a5['parameters'])
+            saved_completed=copy.deepcopy(case.state['completed_tasks'])
+            saved_prefix=case._artifact_prefix
+            try:
+                request_a5['parameters']['synthetic_unrelated_task']=True
+                case.state['completed_tasks']=[r for r in case.state['completed_tasks'] if r['agent']!='A5']
+                case._artifact_prefix='publisher_unrelated'
+                alternate_packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A5'))
+                alternate_receipt=copy.deepcopy(case.complete('A5',{'target_proposal':original_target}))
+                alternate=copy.deepcopy(selection)
+                alternate['a5_packet']=put('unrelated_packet',alternate_packet,alternate_receipt['available_at'])
+                alternate['a5_receipt']=put('unrelated_receipt',alternate_receipt,alternate_receipt['available_at'])
+                from tools import run_multi_asset_leadership as publisher
+                read,_=publisher._model_originals(case.root,board.timestamp(prepared_at),board.timestamp(prepared_at))
+                replayed,_,_=publisher._model_origin(alternate,read,board.timestamp(prepared_at))
+                self.assertEqual(replayed['task_key'],alternate_packet['task_key'])
+                self.assertNotEqual(replayed['task_key'],packet['task_key'])
+                alternate_ref=put('unrelated_owner',alternate,selected.isoformat())
+                with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):
+                    prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                        owner_decision=alternate_ref,portfolio_context=source_binding['portfolio_context'],
+                        review_root=case.root,policy=self.policy,now=prepared_at)
+                self.assertFalse(candidate_out.exists())
+            finally:
+                request_a5['parameters']=saved_parameters
+                case.state['completed_tasks']=saved_completed
+                case._artifact_prefix=saved_prefix
+            owner_ref=put('owner_selection',selection,selected.isoformat())
+            candidate=prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                review_root=case.root,policy=self.policy,now=prepared_at)
+            candidate_path=candidate_out/'attempts'/candidate['attempt_id']/'receipt.json'
+            saved=candidate_path.read_bytes()
+            repeated=prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                review_root=case.root,policy=self.policy,now=prepared_at)
+            self.assertEqual(repeated,candidate);self.assertEqual(candidate_path.read_bytes(),saved)
+            self.assertFalse(candidate['consumable']);self.assertFalse(candidate['model_acceptance_issued'])
+            state_bytes=(case.root/candidate['state']['path']).read_bytes()
+            original_origin=publisher._model_origin
+            latest_bytes=(source_out/'latest_attempt.json').read_bytes()
+            def block_after_real_origin(*args,**kwargs):
+                replay=original_origin(*args,**kwargs)
+                (source_out/'latest_attempt.json').write_bytes(encoded(dict(status='BLOCKED',attempt_id='later')))
+                return replay
+            try:
+                with patch.object(publisher,'_model_origin',side_effect=block_after_real_origin):
+                    with self.assertRaisesRegex(ContractError,'model_original_publication_changed'):
+                        prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                            owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                            review_root=case.root,policy=self.policy,now=prepared_at)
+                self.assertEqual(candidate_path.read_bytes(),saved)
+                self.assertEqual((case.root/candidate['state']['path']).read_bytes(),state_bytes)
+            finally:
+                # Restore only this isolated synthetic fixture's exact saved
+                # bytes for subsequent cases, never a production latest status.
+                (source_out/'latest_attempt.json').write_bytes(latest_bytes)
+            candidate_ref=dict(path=candidate_path.relative_to(case.root).as_posix(),
+                sha256=hashlib.sha256(saved).hexdigest(),observed_at=prepared_at,available_at=prepared_at,
+                collected_at=prepared_at,expires_at=expiry,status='VERIFIED')
+            state=load_json((case.root/candidate['state']['path']).read_bytes())
+            self.assertEqual(state['positions'],[dict(asset_id=aid,weight=.15)])
+            self.assertEqual(board.read_json(case.root/origin['outputs']['target_proposal']['path']),original_target)
+            covered=dict(state=candidate['state'],target=origin['outputs']['target_proposal'],
+                a5_packet=packet_ref,a5_receipt=receipt_ref,owner_decision=owner_ref,candidate_receipt=candidate_ref)
+            covered.update(proposal_receipt=candidate['proposal_receipt'],proposal_result=candidate['proposal_result'])
+            covered.update({'input:'+k:v for k,v in packet['inputs'].items()})
+            inventory=copy.deepcopy(board.read_json(case.root/source_binding['portfolio_context']['path'])['artifact_inventory'])
+            for key,ref in covered.items(): inventory['MODEL:publication:'+key]=ref
+            for agent,dep in packet['dependency_outputs'].items():
+                for role,ref in dep['outputs'].items(): inventory['MODEL:dependency:'+agent+':'+role]=ref
+            case.now+=timedelta(minutes=10)
+            case.state['as_of'],case.state['expires_at']=case.at(-5),case.at(40)
+            bundle_ref=put('post_bundle',dict(schema_version='qa-review-bundle-v2',artifacts=covered),prepared_at)
+            qa=next(r for r in case.state['requests'] if r['agent']=='A6');qa['inputs']['review_bundle']=bundle_ref
+            case.state['completed_tasks']=[r for r in case.state['completed_tasks'] if r['agent']!='A6']
+            post_packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A6'))
+            case._artifact_prefix='publisher_post_qa'
+            post_receipt=copy.deepcopy(case.complete('A6'))
+            post_at=board.timestamp(post_receipt['available_at'])+timedelta(seconds=1)
+            post_packet_ref=put('a6_packet',post_packet,post_at.isoformat())
+            post_receipt_ref=put('a6_receipt',post_receipt,post_at.isoformat())
+            for role,ref in post_receipt['outputs'].items(): inventory['MODEL:post:'+role]=ref
+            inventory.update({'MODEL:bundle':bundle_ref,'MODEL:a6_packet':post_packet_ref,'MODEL:a6_receipt':post_receipt_ref})
+            accepted=dict(schema_version='model-incumbents-acceptance-v1',book_kind='MODEL',
+                state_role='ADMITTED_MODEL_ALLOCATION',current=True,model_identity=identity,as_of=state['as_of'],
+                decision_time=state['decision_time'],expires_at=candidate['state']['expires_at'],
+                positions=state['positions'],cash_weight=state['cash_weight'],positions_sha256=digest(state['positions']),
+                producer_code_sha=packet['identity']['code_sha'],producer_config_hash=packet['identity']['config_hash'],
+                principals=dict(A5='PRODUCER:MODEL',A6='REVIEWER:INDEPENDENT'),
+                proofs=dict(state=candidate['state'],a5_packet=packet_ref,a5_receipt=receipt_ref,
+                    a6_packet=post_packet_ref,a6_receipt=post_receipt_ref),
+                observed_at=(post_at+timedelta(seconds=1)).isoformat(),available_at=(post_at+timedelta(seconds=2)).isoformat(),
+                collected_at=(post_at+timedelta(seconds=3)).isoformat(),source='CANONICAL_BOOK',
+                data_quality='OBSERVED',evidence_kind='FORWARD_CAPTURE',raw_sha256=candidate['state']['sha256'])
+            accepted_ref=put('external_acceptance',accepted,(post_at+timedelta(seconds=4)).isoformat())
+            inventory['MODEL:acceptance']=accepted_ref
+            model_context=copy.deepcopy(board.read_json(case.root/source_binding['portfolio_context']['path']))
+            model_context.update(artifact_inventory=inventory,
+                model_state=dict(kind='INCUMBENTS',artifact=accepted_ref,model_identity=identity))
+            self.p['as_of']='2026-09-19T10:30:00+00:00'
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+            self.original['issuer_id']='CIK:1';self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI'];self.reseal()
+            self.stock_review_inputs();self.reseal()
+            self.policy.pop('current_a3_review_profile',None)
+            self.policy['reviewed_pins']['positions']=[digest(accepted)]  # External fixture OWNER, not publisher code.
+            current=ControlPlaneTests('runTest');current.setUp();self.addCleanup(current.doCleanups)
+            binding,_,principals=current.current_review_case(self,model_binding=(model_context,case.root),model_policy=self.policy)
+            self.p.update(current_a3_review=binding,position_book_kind='MODEL',model_identity=identity)
+            self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+                purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
+                graph_sha256=binding['review_graph']['sha256'],binding_sha256=digest(binding),
+                policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+                risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=current.at(-5.25),
+                expires_at=min(current.at(30),binding['review_graph']['expires_at']),principals=principals)
+            request=dict(candidate_receipt=candidate_ref,owner_decision=owner_ref)
+            out=current.root/'published'
+            source_packet=copy.deepcopy(next(p for p in current.tasks() if p['agent']=='A5'))
+            current._artifact_prefix='publisher_no_change_source'
+            source_receipt=copy.deepcopy(current.complete('A5',{'target_proposal':original_target}))
+            current_source_refs={}
+            for role,value in (('a5_packet',source_packet),('a5_receipt',source_receipt)):
+                ref=current.artifact('current_'+role);current.set_payload(ref,value)
+                ref['observed_at']=ref['available_at']=ref['collected_at']=source_receipt['available_at']
+                current_source_refs[role]=ref
+            result=publish(self.p,self.r,self.policy,out,'accepted-once',CODE_SHA,
+                artifact_resolver=self.memory(),review_root=current.root,model_publication=request)
+            receipt=load_json((out/'attempts/accepted-once/receipt.json').read_bytes())
+            self.assertEqual(receipt['model_allocation_ref']['artifact'],accepted_ref)
+            self.assertEqual(result['model_allocation_publication']['model_identity'],identity)
+            self.assertFalse(receipt['model_allocation_ref']['accepted_model_state_written'])
+            self.assertEqual(read_latest(out,consumed_at=self.p['as_of'])['proposal_context']['book_kind'],'MODEL')
+            original_bytes=(out/'attempts/accepted-once/receipt.json').read_bytes()
+            # A NEW current A5 assessment may reaffirm the same allocation.
+            # Its immutable parent and original QA are never restamped.
+            no_change=copy.deepcopy(selection)
+            no_change.update(change_kind='REAFFIRM_HOLD',proposal_receipt_sha256=hashlib.sha256(
+                (out/'latest_attempt.json').read_bytes()).hexdigest(),
+                selected_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=1)).isoformat(),**current_source_refs)
+            nc_path=current.root/'no_change_selection.json'
+            with nc_path.open('xb') as handle: handle.write(encoded(no_change))
+            nc_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=2)).isoformat()
+            nc_ref=dict(path=nc_path.relative_to(current.root).as_posix(),
+                sha256=hashlib.sha256(nc_path.read_bytes()).hexdigest(),observed_at=no_change['selected_at'],
+                available_at=no_change['selected_at'],collected_at=no_change['selected_at'],expires_at=expiry,status='VERIFIED')
+            nc=prepare_model_snapshot(out,current.root/'no_change',proposal_receipt_sha256=no_change['proposal_receipt_sha256'],
+                owner_decision=nc_ref,portfolio_context=binding['portfolio_context'],review_root=current.root,
+                policy=self.policy,now=nc_at)
+            self.assertEqual(nc['status'],'PENDING_MODEL_REVIEW');self.assertFalse(nc['consumable'])
+            held_state=board.read_json(current.root/nc['state']['path'])
+            self.assertEqual(held_state['assessment_kind'],'HOLD_REAFFIRMATION')
+            self.assertEqual(held_state['positions'],state['positions'])
+            self.assertEqual(held_state['cash_weight'],state['cash_weight'])
+            self.assertNotEqual(nc['state']['sha256'],candidate['state']['sha256'])
+            self.assertEqual(held_state['parent_state_sha256'],candidate['state']['sha256'])
+            self.assertEqual(held_state['parent_acceptance_sha256'],accepted_ref['sha256'])
+            same=prepare_model_snapshot(out,current.root/'no_change',
+                proposal_receipt_sha256=no_change['proposal_receipt_sha256'],owner_decision=nc_ref,
+                portfolio_context=binding['portfolio_context'],review_root=current.root,policy=self.policy,now=nc_at)
+            self.assertEqual(same,nc)
+            self.assertEqual((case.root/candidate['state']['path']).read_bytes(),state_bytes)
+            with self.assertRaisesRegex(ContractError,'model_publication_fields'):
+                publish(self.p,self.r,self.policy,out,'forged',CODE_SHA,artifact_resolver=self.memory(),
+                    review_root=current.root,model_publication={**request,'approved':True})
+            self.assertEqual((out/'attempts/accepted-once/receipt.json').read_bytes(),original_bytes)
+            # A later assessment can use an EXPIRED, explicitly authenticated
+            # last parent as lineage. Its fresh Source/A3/A4/pre-QA are genuinely
+            # rebuilt; the old QA/ER is not made current by a new read timestamp.
+            from tools.run_multi_asset_leadership import prepare_model_parent_read_observation
+            old_acceptance_bytes=(current.root/accepted_ref['path']).read_bytes()
+            self.p['as_of']='2026-09-19T11:10:00+00:00'
+            self.policy.pop('current_a3_review_profile')
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']==aid)
+            self.original['issuer_id']='CIK:1'
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!=aid]
+            self.stock_review_inputs()
+            # Verified MODEL-only positive weight remains reviewable after it
+            # leaves the base. Membership alone never creates a SELL.
+            self.p['base_equity_ids']=['US:UNMAPPED']
+            self.p['base_universe_receipt']['asset_ids']=['US:UNMAPPED']
+            self.policy['reviewed_pins']['base_universe'].append(digest(self.p['base_universe_receipt']))
+            self.original['feature_sha256']=feature_identity(self.p,self.r)
+            self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['risk']['feature_sha256']=feature_identity(self.p,self.r)
+            self.p['risk']['stock_cash_allocation']['evaluation_sha256_by_asset']={aid:digest(self.original)}
+            self.policy['reviewed_pins']['risk'].append(digest(self.p['risk']));self.reseal()
+            parent_expiry='2026-09-19T12:00:00+00:00'
+            self.policy['model_lineage_parent']=dict(schema='model-lineage-parent-policy-v1',
+                purpose='PARENT_LINEAGE_ONLY',acceptance=accepted_ref,accepted_at=accepted_ref['collected_at'],
+                state_sha256=candidate['state']['sha256'],model_identity_sha256=digest(identity),
+                available_at='2026-09-19T11:00:00+00:00',expires_at=parent_expiry)
+            parent_context=copy.deepcopy(model_context)
+            for ref in parent_context['artifact_inventory'].values():
+                ref.update(observed_at='2026-09-19T11:00:00+00:00',available_at='2026-09-19T11:00:00+00:00',
+                    collected_at='2026-09-19T11:00:00+00:00',expires_at=parent_expiry)
+            observed=prepare_model_parent_read_observation(self.policy,current.root,now='2026-09-19T11:00:00+00:00')
+            parent_context['model_state'].update(kind='PARENT_LINEAGE_ONLY',artifact=observed['artifact'])
+            for key,ref in parent_context['artifact_inventory'].items():
+                if ref['path']==accepted_ref['path']:parent_context['artifact_inventory'][key]=observed['artifact']
+            later=ControlPlaneTests('runTest');later.setUp();self.addCleanup(later.doCleanups)
+            later_binding,_,later_principals=later.current_review_case(self,
+                model_binding=(parent_context,current.root),model_policy=self.policy)
+            self.p['current_a3_review']=later_binding
+            self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+                purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=later_binding['portfolio_context']['sha256'],
+                graph_sha256=later_binding['review_graph']['sha256'],binding_sha256=digest(later_binding),
+                policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+                risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=later.at(-5.25),
+                expires_at=min(later.at(30),later_binding['review_graph']['expires_at']),principals=later_principals)
+            latest_packet=copy.deepcopy(next(p for p in later.tasks() if p['agent']=='A5'))
+            later._artifact_prefix='new_hold_source'
+            latest_receipt=copy.deepcopy(later.complete('A5',{'target_proposal':original_target}))
+            latest_refs={}
+            for role,value in (('a5_packet',latest_packet),('a5_receipt',latest_receipt)):
+                ref=later.artifact('current_'+role);later.set_payload(ref,value)
+                ref['observed_at']=ref['available_at']=ref['collected_at']=latest_receipt['available_at']
+                latest_refs[role]=ref
+            later_out=later.root/'new_proposal'
+            later_result=publish(self.p,self.r,self.policy,later_out,'fresh-hold',CODE_SHA,
+                artifact_resolver=self.memory(),review_root=later.root)
+            self.assertEqual(later_result['proposal']['proposed_weights'].get(aid),.15)
+            self.assertFalse(later_result['global_ranking_ready'])
+            selected_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=1)).isoformat()
+            new_owner={**no_change,**latest_refs,'selected_at':selected_at,'expires_at':parent_expiry,
+                'proposal_receipt_sha256':hashlib.sha256((later_out/'latest_attempt.json').read_bytes()).hexdigest()}
+            owner_path=later.root/'fresh_hold_owner.json';owner_path.write_bytes(encoded(new_owner))
+            new_owner_ref=dict(path=owner_path.name,sha256=hashlib.sha256(owner_path.read_bytes()).hexdigest(),
+                observed_at=selected_at,available_at=selected_at,collected_at=selected_at,
+                expires_at=parent_expiry,status='VERIFIED')
+            fresh=prepare_model_snapshot(later_out,later.root/'fresh_hold',
+                proposal_receipt_sha256=new_owner['proposal_receipt_sha256'],owner_decision=new_owner_ref,
+                portfolio_context=later_binding['portfolio_context'],review_root=later.root,policy=self.policy,
+                now=(board.timestamp(selected_at)+timedelta(seconds=1)).isoformat())
+            fresh_state=board.read_json(later.root/fresh['state']['path'])
+            self.assertEqual(fresh_state['assessment_kind'],'HOLD_REAFFIRMATION')
+            self.assertGreater(stamp(fresh['state']['expires_at']),stamp(accepted['expires_at']))
+            self.assertEqual(fresh_state['parent_acceptance_sha256'],accepted_ref['sha256'])
+            self.assertEqual((current.root/accepted_ref['path']).read_bytes(),old_acceptance_bytes)
+            self.assertFalse(fresh['model_acceptance_issued']);self.assertFalse(fresh['consumable'])
+            self.assertFalse(result['accepted_target_written']);self.assertFalse(result['orders_generated'])
 
     def test_current_review_original_graph_can_conditionally_admit_without_registry_promotion(self):
         case,_=self.current_review()
@@ -1080,6 +1494,57 @@ class A3OriginalInputs(unittest.TestCase):
         self.assertFalse(coverage['source_admission_granted'])
         self.assertFalse(result['accepted_target_written'])
         self.assertFalse(result['orders_generated'])
+
+    def test_current_model_allocation_replays_real_verifiers_into_existing_propose(self):
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        def refresh(cutoff):
+            self.p['as_of']=cutoff
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+            self.original['issuer_id']='CIK:1'
+            self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+            self.stock_review_inputs();self.reseal()
+        refresh('2026-09-19T10:10:00+00:00')
+        origin=ControlPlaneTests('runTest');origin.setUp();self.addCleanup(origin.doCleanups)
+        model_context,model_policy,acceptance,aid=origin.model_incumbents_case(self)
+        model_context,model_policy,_=origin.model_cash_variant(model_context,model_policy,acceptance)
+        self.policy['reviewed_pins']['positions']=model_policy['reviewed_pins']['positions']
+        refresh('2026-09-19T10:20:00+00:00')
+        case=ControlPlaneTests('runTest');case.setUp();self.addCleanup(case.doCleanups)
+        binding,_,principals=case.current_review_case(self,
+            model_binding=(model_context,origin.root),model_policy=self.policy)
+        self.p.update(current_a3_review=binding,position_book_kind='MODEL',
+            model_identity=copy.deepcopy(model_context['model_state']['model_identity']))
+        self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+            purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
+            graph_sha256=binding['review_graph']['sha256'],binding_sha256=digest(binding),
+            policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+            risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=case.at(-5.25),
+            expires_at=min(case.at(30),binding['review_graph']['expires_at']),principals=principals)
+        # Observe the incumbent, unchanged allocator; do not replace its policy
+        # or mock any review/admission/completion verifier.
+        with patch('research.multi_asset_v1.runtime.propose',wraps=propose) as allocator:
+            result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),
+                       review_root=case.root,code_sha=CODE_SHA)
+        self.assertTrue(allocator.called,result.get('a3_reference_coverage'))
+        self.assertEqual(allocator.call_args.args[-1],{})  # admitted all-cash, not unknown/GENESIS
+        self.assertNotEqual(result['proposal']['status'],'BLOCKED',result['proposal'])
+        self.assertEqual(result['proposal_context']['mode'],'MODEL')
+        self.assertEqual(result['proposal_context']['book_kind'],'MODEL')
+        self.assertEqual(result['proposal_context']['cash_weight'],1.0)
+        self.assertEqual(result['proposal']['intent'],'NO_ENTRY_HOLD_CASH')
+        self.assertEqual(result['proposal']['cash'],1.0)
+        self.assertEqual(result['portfolio_exposure']['cash_weight'],1.0)
+        self.assertFalse(result['proposal_context']['actual_holdings_claimed'])
+        self.assertFalse(result['proposal_context']['execution_or_performance_claimed'])
+        self.assertFalse(result['accepted_target_written'])
+        self.assertFalse(result['orders_generated'])
+        # An absent/unusable original ER is UNKNOWN, never an all-cash decision.
+        bad=copy.deepcopy(self.p);bad['a3_reference_entries']=[]
+        blocked=run(bad,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+        self.assertEqual(blocked['proposal']['status'],'BLOCKED')
+        self.assertIsNone(blocked['proposal']['proposed_weights'])
 
     def test_current_review_missing_self_review_or_changed_policy_never_admits(self):
         case,_=self.current_review()

@@ -54,7 +54,294 @@ def account_only_blockers(state: dict) -> set[str]:
     return result
 
 
-def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datetime):
+def verify_current_model_incumbents(context: dict, root: Path, cutoff: datetime,
+                                    now: datetime, *, policy: dict, code_sha: str) -> dict:
+    return _verify_model_allocation_receipt(context, root, cutoff, now,
+        policy=policy, code_sha=code_sha, lineage_policy=None)
+
+
+def verify_model_parent_lineage(context: dict, root: Path, cutoff: datetime,
+                                now: datetime, *, policy: dict, code_sha: str) -> dict:
+    """Past acceptance, explicitly anchored by CURRENT policy, for comparison.
+
+    Current Source/ER/risk/QA authority is not supplied by this parent. Original
+    proof clocks are replayed at its actual accepted observation; current byte
+    reads have separate inventory descriptors and cannot renew those proofs.
+    """
+    if type(policy) is not dict:
+        raise ContractError('a5_model_external_review_required')
+    parent = policy.get('model_lineage_parent')
+    fields = {'schema', 'purpose', 'acceptance', 'accepted_at', 'state_sha256',
+              'model_identity_sha256', 'available_at', 'expires_at'}
+    if (type(parent) is not dict or set(parent) != fields
+            or parent['schema'] != 'model-lineage-parent-policy-v1'
+            or parent['purpose'] != 'PARENT_LINEAGE_ONLY'
+            or not timestamp(parent['available_at']) <= cutoff < timestamp(parent['expires_at'])):
+        raise ContractError('a5_model_explicit_last_parent_required')
+    schema_validate(parent['acceptance'], 'task_packet_schema.json', 'artifact')
+    if (parent['accepted_at'] != parent['acceptance']['collected_at']
+            or timestamp(parent['accepted_at']) > timestamp(parent['available_at'])):
+        raise ContractError('a5_model_parent_acceptance_clock')
+    return _verify_model_allocation_receipt(context, root, cutoff, now,
+        policy=policy, code_sha=code_sha, lineage_policy=parent)
+
+
+def _verify_model_allocation_receipt(context: dict, root: Path, cutoff: datetime,
+                                     now: datetime, *, policy: dict, code_sha: str,
+                                     lineage_policy: dict | None) -> dict:
+    """Replay an externally pinned MODEL allocation, never an executed book.
+
+    The policy is an external review authority, as for existing position pins;
+    it must not be manufactured from this context. Runtime calls this only
+    after its current A3 profile has authenticated the complete context.
+    """
+    from research.multi_asset_v1.contracts import pinned, number, identifier, digest as position_digest
+    from r1000_legacy_input_guard import latest_completed_close
+    if type(policy) is not dict:
+        raise ContractError('a5_model_external_review_required')
+    if type(code_sha) is not str or re.fullmatch('[0-9a-f]{40}', code_sha) is None:
+        raise ContractError('a5_model_consumer_identity_required')
+    schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
+    model = context['model_state']
+    expected_kind = 'PARENT_LINEAGE_ONLY' if lineage_policy is not None else 'INCUMBENTS'
+    if model['kind'] != expected_kind:
+        raise ContractError('a5_model_incumbents_required')
+    proof_cutoff = timestamp(lineage_policy['accepted_at']) if lineage_policy is not None else cutoff
+    proof_now = proof_cutoff if lineage_policy is not None else now
+    acceptance_ref = lineage_policy['acceptance'] if lineage_policy is not None else model['artifact']
+    if (lineage_policy is not None and (model['artifact']['path'] != acceptance_ref['path']
+            or model['artifact']['sha256'] != acceptance_ref['sha256'])):
+        raise ContractError('a5_model_last_parent_identity')
+    inventory = context['artifact_inventory']
+    originals, total, loaded, used, observations = {}, 0, {}, {}, {}
+    for artifact in inventory.values():
+        previous = originals.setdefault(artifact['path'], artifact)
+        if digest(previous) != digest(artifact):
+            raise ContractError('a5_model_artifact_conflict')
+
+    def read_original(artifact):
+        nonlocal total
+        schema_validate(artifact, 'task_packet_schema.json', 'artifact')
+        observation = originals.get(artifact['path'])
+        if lineage_policy is None:
+            if digest(observation) != digest(artifact):
+                raise ContractError('a5_model_original_not_in_inventory')
+        elif observation is not None and observation['sha256'] != artifact['sha256']:
+            raise ContractError('a5_model_parent_original_not_in_inventory')
+        elif observation is None and artifact['path'] == acceptance_ref['path']:
+            raise ContractError('a5_model_parent_original_not_in_inventory')
+        key = digest(artifact)
+        if key not in loaded:
+            path = artifact_path(root, artifact['path'])
+            size = path.stat().st_size
+            if size > 4 * 1024 * 1024 or total + size > 32 * 1024 * 1024:
+                raise ContractError('a5_model_artifact_budget')
+            total += size
+            verify_artifact(root, artifact, proof_cutoff, proof_now)
+            if lineage_policy is not None and observation is not None:
+                verify_artifact(root, observation, cutoff, now)
+            with path.open('rb') as stream:
+                raw = stream.read(4 * 1024 * 1024 + 1)
+            if len(raw) > 4 * 1024 * 1024 or digest_bytes(raw) != artifact['sha256']:
+                raise ContractError('a5_model_artifact_changed')
+            loaded[key] = raw
+            used[key] = artifact
+            observations[key] = observation
+        return loaded[key]
+
+    def load(artifact):
+        # QA operands may be CSV, Parquet or other opaque source bytes. Decode
+        # JSON only for the packet/state/receipt/bundle/report schema roles.
+        try:
+            return json.loads(read_original(artifact), object_pairs_hook=_review_pairs,
+                              parse_constant=_review_invalid)
+        except (UnicodeError, json.JSONDecodeError, RecursionError):
+            raise ContractError('a5_model_original_json') from None
+
+    acceptance = load(acceptance_ref)
+    schema_validate(acceptance, 'system_state_schema.json', 'model_incumbents_acceptance')
+    # A successful A5 proposal or QA receipt is not acceptance. This external
+    # policy pin binds the final allocation-state receipt and all original refs.
+    pinned(acceptance, policy, 'positions', proof_cutoff.isoformat())
+    if (digest(acceptance['model_identity']) != digest(model['model_identity'])
+            or acceptance['as_of'] > context['market_session_date']
+            or latest_completed_close(cutoff)[0] != context['market_session_date']
+            or latest_completed_close(timestamp(acceptance['decision_time']))[0] != acceptance['as_of']
+            or timestamp(context['decision_time']) != cutoff
+            or not timestamp(acceptance['decision_time']) <= proof_cutoff < timestamp(acceptance['expires_at'])
+            or timestamp(acceptance['collected_at']) > timestamp(acceptance_ref['observed_at'])
+            or timestamp(acceptance_ref['expires_at']) > timestamp(acceptance['expires_at'])):
+        raise ContractError('a5_model_identity_or_clock_mismatch')
+    if lineage_policy is not None and (position_digest(acceptance['model_identity']) != lineage_policy['model_identity_sha256']
+            or acceptance['proofs']['state']['sha256'] != lineage_policy['state_sha256']):
+        raise ContractError('a5_model_parent_state_identity')
+    principals = acceptance['principals']
+    if principals['A5'] == principals['A6']:
+        raise ContractError('a5_model_review_not_independent')
+    for principal in principals.values():
+        identifier(principal)
+    proof = {role: load(ref) for role, ref in acceptance['proofs'].items()}
+    state = proof['state']
+    schema_validate(state, 'system_state_schema.json', 'model_allocation_state')
+    for field in ('model_identity', 'as_of', 'decision_time', 'positions', 'cash_weight'):
+        if digest(state[field]) != digest(acceptance[field]):
+            raise ContractError('a5_model_original_state_mismatch')
+    state_ref = acceptance['proofs']['state']
+    if (acceptance['raw_sha256'] != state_ref['sha256']
+            or position_digest(state['positions']) != acceptance['positions_sha256']
+            or timestamp(state['decision_time']) > timestamp(state_ref['observed_at'])):
+        raise ContractError('a5_model_original_state_identity')
+    positions = {}
+    for row in state['positions']:
+        identifier(row['asset_id'])
+        if row['asset_id'] in positions or row['asset_id'] not in context['requested_security_ids']:
+            raise ContractError('a5_model_position_identity')
+        number(row['weight'], 0, 1)
+        positions[row['asset_id']] = row['weight']
+    cash_weight = number(state['cash_weight'], 0, 1)
+    if (not positions and cash_weight != 1) or abs(sum(positions.values()) + cash_weight - 1) > 1e-9:
+        raise ContractError('a5_model_position_weights')
+    parent_roles = ('parent_acceptance', 'parent_state')
+    has_parent = 'parent_state_sha256' in state or 'parent_acceptance_sha256' in state
+    if has_parent:
+        if not all(role in proof for role in parent_roles):
+            raise ContractError('a5_model_parent_physical_proofs_required')
+        parent_acceptance, parent_state = (proof[role] for role in parent_roles)
+        schema_validate(parent_acceptance, 'system_state_schema.json', 'model_incumbents_acceptance')
+        schema_validate(parent_state, 'system_state_schema.json', 'model_allocation_state')
+        if (state['parent_state_sha256'] != acceptance['proofs']['parent_state']['sha256']
+                or state['parent_acceptance_sha256'] != acceptance['proofs']['parent_acceptance']['sha256']
+                or parent_acceptance['raw_sha256'] != state['parent_state_sha256']
+                or any(digest(parent_acceptance[k]) != digest(parent_state[k])
+                       for k in ('model_identity', 'positions', 'cash_weight', 'as_of', 'decision_time'))
+                or digest(parent_state['model_identity']) != digest(state['model_identity'])
+                or timestamp(parent_state['decision_time']) >= timestamp(state['decision_time'])
+                or parent_state['origin_a5_task_key'] == state['origin_a5_task_key']):
+            raise ContractError('a5_model_parent_lineage_identity')
+        if lineage_policy is None:
+            expected_parent = policy.get('model_lineage_parent', {})
+            if ((expected_parent and (expected_parent.get('acceptance', {}).get('sha256') != state['parent_acceptance_sha256']
+                    or expected_parent.get('state_sha256') != state['parent_state_sha256']))
+                    or position_digest(parent_acceptance) not in policy['reviewed_pins'].get('positions', [])):
+                raise ContractError('a5_model_parent_external_last_pin_required')
+        if state.get('assessment_kind') == 'HOLD_REAFFIRMATION' and any(
+                digest(state[k]) != digest(parent_state[k]) for k in ('positions', 'cash_weight')):
+            raise ContractError('a5_model_hold_reaffirmation_changed_weights')
+    elif any(role in proof for role in parent_roles):
+        raise ContractError('a5_model_unbound_parent_proof')
+    schema = read_json(CONTRACT_DIR / 'system_state_schema.json')
+    receipt_schema = {**schema['properties']['completed_tasks']['items'], '$defs': schema['$defs']}
+    qa_packet, qa_receipt = proof['a6_packet'], proof['a6_receipt']
+    for agent in ('A5', 'A6'):
+        packet, receipt = proof[agent.lower() + '_packet'], proof[agent.lower() + '_receipt']
+        schema_validate(packet, 'task_packet_schema.json')
+        if list(Draft202012Validator(receipt_schema, format_checker=FormatChecker()).iter_errors(receipt)):
+            raise ContractError('a5_model_completion_schema')
+        spec = contracts()['agents'][agent]
+        if (packet['agent'] != agent or receipt['agent'] != agent
+                or packet['task_key'] != receipt['task_key']
+                or packet['task_key'] != digest({'agent': agent, **packet['identity']})
+                or packet['status'] not in ('READY', 'SKIP_UNCHANGED')
+                or receipt['status'] != 'SUCCEEDED'
+                or packet['authority'] != AUTHORITY or packet['reasons']
+                or packet['mode'] != spec['mode'] or packet['outputs'] != spec['outputs']
+                or set(packet['inputs']) != set(spec['inputs'])
+                or packet['dependencies'] != spec['dependencies']
+                or set(packet['dependency_outputs']) != set(spec['dependencies'])
+                or packet['identity']['code_sha'] != acceptance['producer_code_sha']
+                or packet['identity']['config_hash'] != acceptance['producer_config_hash']
+                or set(receipt['outputs']) != set(spec['outputs'])):
+            raise ContractError('a5_model_original_task_identity')
+        if agent == 'A5':
+            if portfolio_mode({'parameters': packet['identity']['parameters']}) != 'MODEL_PORTFOLIO':
+                raise ContractError('a5_model_original_account_proposal')
+            original_context = load(packet['inputs']['portfolio_context'])
+            schema_validate(original_context, 'system_state_schema.json', 'a5_portfolio_context')
+            if (original_context['decision_time'] != state['decision_time']
+                    or original_context['market_session_date'] != state['as_of']
+                    or not set(positions) <= set(original_context['requested_security_ids'])):
+                raise ContractError('a5_model_original_selection')
+        causal = list(packet['inputs'].values())
+        for dependency_agent, dependency in packet['dependency_outputs'].items():
+            if dependency.get('agent') != dependency_agent:
+                raise ContractError('a5_model_dependency_agent')
+            for role, artifact in dependency['outputs'].items():
+                if digest(packet['inputs'].get(role)) != digest(artifact):
+                    raise ContractError('a5_model_dependency_operand_mismatch')
+            causal.extend(dependency['outputs'].values())
+        if agent == 'A6':
+            bundle = load(packet['inputs']['review_bundle'])
+            schema_validate(bundle, 'system_state_schema.json', 'qa_bundle')
+            causal.extend(bundle['artifacts'].values())
+        for artifact in causal + list(receipt['outputs'].values()):
+            read_original(artifact)
+        request = dict(agent=agent, inputs=packet['inputs'], model=packet['identity']['model'],
+                       parameters=packet['identity']['parameters'])
+        ready = max(timestamp(a['collected_at']) for a in causal)
+        verify_completion(receipt, packet['identity'], request, packet['dependency_outputs'], ready, proof_cutoff)
+        receipt_ref = acceptance['proofs'][agent.lower() + '_receipt']
+        if timestamp(receipt['available_at']) > timestamp(receipt_ref['observed_at']):
+            raise ContractError('a5_model_completion_descriptor_clock')
+        for artifact in receipt['outputs'].values():
+            if (timestamp(artifact['available_at']) <= ready
+                    or timestamp(artifact['collected_at']) >= timestamp(receipt['created_at'])):
+                raise ContractError('a5_model_completion_output_clock')
+    target = proof['a5_receipt']['outputs']['target_proposal']
+    if ('assessment_inputs_sha256' in state and
+            state['assessment_inputs_sha256'] != position_digest(proof['a5_packet']['inputs'])):
+        raise ContractError('a5_model_assessment_original_inputs_changed')
+    if has_parent and (original_context['model_state']['kind'] not in ('INCUMBENTS', 'PARENT_LINEAGE_ONLY')
+            or original_context['model_state']['artifact']['sha256'] != state['parent_acceptance_sha256']):
+        raise ContractError('a5_model_parent_not_original_a5_comparison')
+    if (state['origin_a5_task_key'] != proof['a5_packet']['task_key']
+            or timestamp(proof['a5_receipt']['available_at']) > timestamp(state_ref['available_at'])):
+        raise ContractError('a5_model_state_predates_proposal')
+    report = load(qa_receipt['outputs']['qa_report'])
+    schema_validate(report, 'system_state_schema.json', 'qa_report')
+    bundle = load(qa_packet['inputs']['review_bundle'])
+    # A6 has no agent-dispatch dependencies. Its existing review-bundle source
+    # hash instead binds these exact A5 causal operands, including provenance.
+    required = [state_ref, target, acceptance['proofs']['a5_packet'],
+                acceptance['proofs']['a5_receipt']] + list(proof['a5_packet']['inputs'].values())
+    if has_parent:
+        required += [acceptance['proofs'][role] for role in parent_roles]
+    scope = {digest(a) for a in report['reviewed_artifacts'].values()}
+    if (report['verdict'] != 'PASS' or report['reviewed_artifacts'] != bundle['artifacts']
+            or report['review_bundle_sha256'] != qa_packet['inputs']['review_bundle']['sha256']
+            or not all(digest(a) in scope for a in required)
+            or timestamp(qa_receipt['available_at']) > timestamp(acceptance['available_at'])):
+        raise ContractError('a5_model_original_qa_scope_or_clock')
+    proof_expiry = [timestamp(a['expires_at']) for key, a in used.items()
+                    if key != digest(acceptance_ref)]
+    if timestamp(acceptance['expires_at']) > min(proof_expiry):
+        raise ContractError('a5_model_acceptance_expiry_extension')
+    result = dict(status='PARENT_LINEAGE_ONLY_VERIFIED' if lineage_policy is not None else 'CURRENT_MODEL_ALLOCATION_VERIFIED', book_kind='MODEL',
+        model_identity=acceptance['model_identity'], as_of=acceptance['as_of'],
+        decision_time=acceptance['decision_time'], producer_code_sha=acceptance['producer_code_sha'],
+        producer_config_hash=acceptance['producer_config_hash'], consumer_code_sha=code_sha,
+        comparison_session=context['market_session_date'], expires_at=acceptance['expires_at'],
+        allocation_relation=('PARENT_LINEAGE_ONLY' if lineage_policy is not None else
+                            'PRIOR_ACTIVE_MODEL_ALLOCATION' if acceptance['as_of'] < context['market_session_date']
+                             else 'SAME_SESSION_MODEL_ALLOCATION'),
+        current_weights=positions, cash_weight=state['cash_weight'],
+        origin_a5_task_key=state['origin_a5_task_key'],
+        original_a5_inputs_sha256=position_digest(proof['a5_packet']['inputs']),
+        acceptance_sha256=model['artifact']['sha256'],
+        parent_acceptance=model['artifact'], parent_state=state_ref,
+        actual_holdings_claimed=False, execution_or_performance_claimed=False,
+        eligible_for_economics=False, accepted_book_write_allowed=False)
+    if lineage_policy is not None:
+        result.update(historical_acceptance_verified_at=lineage_policy['accepted_at'],
+            comparison_authorization_expires_at=lineage_policy['expires_at'],
+            parent_acceptance=observations[digest(acceptance_ref)] or acceptance_ref,
+            parent_state=observations[digest(state_ref)] or state_ref,
+            original_acceptance_descriptor=acceptance_ref,
+            parent_source_or_er_freshness_granted=False)
+    return result
+
+
+def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datetime, *,
+                         model_policy=None, code_sha=None):
     """Replay candidate references for task preparation, never domain admission.
 
     The existing Registry deliberately keeps current selection, independent
@@ -69,10 +356,14 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
     entries = context['a3_reference_entries']
     if set(requested) != {entry['asset_id'] for entry in entries} or len(entries) != len(requested):
         raise ContractError('a5_candidate_roster_mismatch')
-    if context['model_state']['kind'] != 'GENESIS':
-        # Existing model incumbents need their own accepted model-state verifier;
-        # an Actual Broker Book or caller declaration is not a substitute.
-        raise ContractError('a5_model_incumbent_verifier_not_bound')
+    incumbents = None
+    parent_lineage = None
+    if context['model_state']['kind'] == 'INCUMBENTS':
+        incumbents = verify_current_model_incumbents(context, root, cutoff, now,
+                                                   policy=model_policy, code_sha=code_sha)
+    elif context['model_state']['kind'] == 'PARENT_LINEAGE_ONLY':
+        parent_lineage = verify_model_parent_lineage(context, root, cutoff, now,
+                                                    policy=model_policy, code_sha=code_sha)
     from tools import market_analysis_engine as market
     a4 = context['a4_request']
     request_path = artifact_path(root, a4['path'])
@@ -136,12 +427,18 @@ def a5_model_preparation(request: dict, root: Path, cutoff: datetime, now: datet
         raise ContractError('a5_a4_original_report_mismatch')
     reviewed = {'a3:' + aid: artifact for aid, artifact in artifacts.items()}
     reviewed['a4:request'] = a4
-    return dict(portfolio_mode='MODEL_PORTFOLIO', preparation_scope='A0_TASK_PREPARATION_ONLY',
+    info = dict(portfolio_mode='MODEL_PORTFOLIO', preparation_scope='A0_TASK_PREPARATION_ONLY',
+        model_state_kind=context['model_state']['kind'],
         requested_security_ids=requested, reference_index_sha256=index['index_sha256'],
         economic_input_admission='BLOCKED', domain_blockers=sorted({reason for row in index['records']
             for reason in row['consumption_blockers']}), current_a3_review_admitted=False,
         dispatch_allowed=False, target_write_allowed=False, account_rebalance_allowed=False,
-        actual_holdings_claimed=False), reviewed
+        actual_holdings_claimed=False)
+    if incumbents is not None:
+        info['model_incumbents'] = incumbents
+    if parent_lineage is not None:
+        info['model_parent_lineage'] = parent_lineage
+    return info, reviewed
 
 
 def digest_bytes(raw: bytes) -> str:
@@ -251,7 +548,8 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
     code_configs = {r['config_hash'] for r in state['completed_tasks']}
     if len(code_configs) != 1:
         raise ContractError('a3_review_config_conflict')
-    packets = _plan_tasks(state, root, contracts(), cutoff, code_sha, next(iter(code_configs)))
+    packets = _plan_tasks(state, root, contracts(), cutoff, code_sha, next(iter(code_configs)),
+                          model_policy=policy)
     if digest(packets) != digest(graph['task_packets']):
         raise ContractError('a3_review_original_task_packets_mismatch')
     by_agent = {p['agent']: p for p in packets}
@@ -284,12 +582,20 @@ def current_a3_reference_admission(binding: dict, policy: dict, root: Path,
         raise ContractError('a3_review_graph_causal_or_expiry_boundary')
     for artifact in unique_originals.values():
         verify_artifact(root, artifact, cutoff, cutoff)
-    return dict(status='CURRENT_REFERENCE_REVIEW_VERIFIED', purpose=profile['purpose'],
+    result = dict(status='CURRENT_REFERENCE_REVIEW_VERIFIED', purpose=profile['purpose'],
         task_keys={a: by_agent[a]['task_key'] for a in ('A3', 'A5', 'A6')},
         profile_sha256=digest(profile), graph_sha256=binding['review_graph']['sha256'],
         context_sha256=binding['portfolio_context']['sha256'],
         historical_pit_certified=False, source_admission_granted=False,
         portfolio_write_allowed=False)
+    incumbents = by_agent['A5']['identity']['parameters']['a5_preparation'].get('model_incumbents')
+    if incumbents is not None:
+        result['model_incumbents'] = incumbents
+    prepared = by_agent['A5']['identity']['parameters']['a5_preparation']
+    result['model_state_kind'] = prepared['model_state_kind']
+    if prepared.get('model_parent_lineage') is not None:
+        result['model_parent_lineage'] = prepared['model_parent_lineage']
+    return result
 
 
 def _review_pairs(rows):
@@ -749,7 +1055,7 @@ def ohlcv_parameters(request: dict, root: Path, cutoff: datetime, now: datetime)
 
 
 def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
-                code_sha: str, config_hash: str) -> list[dict]:
+                code_sha: str, config_hash: str, *, model_policy=None) -> list[dict]:
     schema_validate(state, 'system_state_schema.json')
     cutoff = timestamp(state['as_of'])
     if not cutoff <= now < timestamp(state['expires_at']):
@@ -769,6 +1075,7 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
         raise ContractError('duplicate_agent_request')
     model_research = 'A5' in requests and portfolio_mode(requests['A5']) == 'MODEL_PORTFOLIO'
     model_genesis = False
+    model_incumbents = None
     if model_research:
         try:
             artifact = requests['A5']['inputs']['portfolio_context']
@@ -777,6 +1084,12 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
             schema_validate(context, 'system_state_schema.json', 'a5_portfolio_context')
             model_genesis = (context['model_state']['kind'] == 'GENESIS'
                              and timestamp(context['decision_time']) == cutoff)
+            if context['model_state']['kind'] == 'INCUMBENTS':
+                model_incumbents = verify_current_model_incumbents(context, root, cutoff, now,
+                    policy=model_policy, code_sha=code_sha)
+            elif context['model_state']['kind'] == 'PARENT_LINEAGE_ONLY':
+                model_incumbents = verify_model_parent_lineage(context, root, cutoff, now,
+                    policy=model_policy, code_sha=code_sha)
         except (OSError, ValueError, KeyError, TypeError):
             pass
     receipts = {r['agent']: r for r in state['completed_tasks']}
@@ -823,6 +1136,13 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
             prior = state.get('source_status', {}).get('model_portfolio', {})
             if model_genesis and prior.get('status') == 'UNKNOWN' and prior.get('reason') == 'source_missing':
                 context_reasons = [r for r in context_reasons if r != 'model_portfolio:source_missing']
+            if model_incumbents is not None:
+                for section in ('source_status', 'books'):
+                    prior = state.get(section, {}).get('model_portfolio', {})
+                    if (prior.get('status') in ('UNKNOWN', 'BLOCKED') and prior.get('reason') in
+                            ('source_missing', 'accepted_domain_receipt_verifier_not_bound')):
+                        context_reasons = [r for r in context_reasons
+                                           if r != 'model_portfolio:' + prior['reason']]
         if context_reasons and agent not in ('A1', 'A6'):
             reasons.append('CONTEXT_BLOCKED')
         if state['context']['current_status_freshness'] != 'VERIFIED' and agent not in ('A1', 'A6'):
@@ -865,7 +1185,8 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
                         reasons.append('dependency_input_mismatch:' + dep + ':' + role)
         if a5_mode == 'MODEL_PORTFOLIO' and not reasons:
             try:
-                parameters['a5_preparation'], a5_reviewed = a5_model_preparation(request, root, cutoff, now)
+                parameters['a5_preparation'], a5_reviewed = a5_model_preparation(request, root, cutoff, now,
+                    model_policy=model_policy, code_sha=code_sha)
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 reasons.append('A5_MODEL_CONTEXT_NOT_VERIFIED')
                 reason = str(exc) if re.fullmatch(r'a5_[a-z_]+', str(exc)) else type(exc).__name__

@@ -185,13 +185,14 @@ def lookthrough(weights, assets, holdings, cutoff, policy):
 
 
 def propose(rows, assets, risk, holdings, cutoff, policy, input_hash, current_weights=None, *, decision_events=None,
-            artifact_resolver=None):
+            artifact_resolver=None,model_review=None):
     pinned(risk,policy,"risk",cutoff)
     require(risk.get("feature_sha256")==input_hash,"risk_feature_mismatch")
     require(risk.get("regime") in {"RISK_ON","CAUTION","RISK_OFF","RECOVERY"},"market_regime")
     if policy.get("stock_cash_research",{}).get("enabled") is True:
         return stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,current_weights,
-                                   decision_events=decision_events,artifact_resolver=artifact_resolver)
+                                   decision_events=decision_events,artifact_resolver=artifact_resolver,
+                                   model_review=model_review)
     gross=number(risk.get("max_gross"),0,1)
     cap=number(risk.get("max_security_weight"),0,1)
     max_corr=number(risk.get("max_pair_correlation"),0,1)
@@ -284,7 +285,7 @@ def stock_research_profile(policy):
 def stock_decision_scope(rows,assets,current_weights,events,cutoff,policy,decision_asset_ids=None):
     """Keep the full denominator; this queue is not a global ER certification."""
     p=stock_research_profile(policy)
-    stocks=[r for r in rows if assets[r["asset_id"]]["asset_class"] in STOCK_CLASSES]
+    stocks=[r for r in rows if assets.get(r["asset_id"],{}).get("asset_class") in STOCK_CLASSES]
     # Discovery can nominate missing-ER names for work, never provide their ER.
     ordered=sorted(stocks,key=lambda r:(r.get("risk_adjusted_expected_alpha") is None,
         -(r.get("risk_adjusted_expected_alpha") or 0),r.get("discovery_rank") or 10**9,r["asset_id"]))
@@ -513,7 +514,7 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk):
 
 
 def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,current_weights=None, *, decision_events=None,
-                        artifact_resolver=None):
+                        artifact_resolver=None,model_review=None):
     """One frozen moment/cost input shared by Control and long-only SLSQP.
 
     Only research comparison weights are returned. Physical fills, integer shares,
@@ -581,7 +582,44 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         if not old and (not entry or not tradable): continue
         require(lo<=hi+1e-10,"stock_winner_hard_limit_conflict:"+aid)
         accepted.append(row);lower.append(lo);upper.append(hi)
-    require(bool(accepted),"stock_no_admitted_candidates")
+    def known_model_cash_decision():
+        profile=policy.get("current_a3_review_profile")
+        require(type(model_review) is dict and type(profile) is dict and
+                model_review.get("status")=="CURRENT_REFERENCE_REVIEW_VERIFIED" and
+                model_review.get("context_sha256")==profile.get("context_sha256") and
+                model_review.get("graph_sha256")==profile.get("graph_sha256") and
+                profile.get("feature_sha256")==input_hash and profile.get("risk_sha256")==digest(risk),
+                "stock_cash_unknown_model_or_genesis")
+        kind=model_review.get("model_state_kind")
+        known=(kind=="GENESIS" and not any(current.values())) or (
+            kind=="INCUMBENTS" and model_review.get("model_incumbents",{}).get("status")=="CURRENT_MODEL_ALLOCATION_VERIFIED") or (
+            kind=="PARENT_LINEAGE_ONLY" and model_review.get("model_parent_lineage",{}).get("status")=="PARENT_LINEAGE_ONLY_VERIFIED")
+        require(known,"stock_cash_unknown_model_or_genesis")
+        return kind
+    if not accepted:
+        kind=known_model_cash_decision()
+        # A genuine no-entry decision has fully observed inputs. Missing price,
+        # ER, identity or costs cannot silently become a cash allocation.
+        require(all(r.get("data_quality")=="PRICE_OBSERVED_RESEARCH_ONLY" and
+                    r.get("evaluation_sha256") is not None and r.get("net_of_costs") is True and
+                    assets[r["asset_id"]]["identity_verified"] is True and
+                    assets[r["asset_id"]]["tradable"] is True for r in rows),"stock_cash_incomplete_decision_inputs")
+        costs={r["asset_id"]:_stock_cost(r,p["cost_bps_per_side"]) for r in rows}
+        quote=review.get("cash_carry")
+        carry=_stock_cash_return(quote,clock,cutoff,policy,artifact_resolver)
+        frozen=dict(feature_sha256=input_hash,risk_sha256=digest(risk),asset_ids=declared,
+            no_entry_cost_inputs=costs,cash_quote_sha256=digest(quote),cash_return=carry,
+            covariance_status="NOT_REQUIRED_ZERO_EQUITY",horizon=p["horizon"])
+        return dict(status="RESEARCH_PROPOSAL",proposed_weights={},cash=1.0,
+            regime=risk["regime"],intent="NO_ENTRY_HOLD_CASH",model_state_kind=kind,
+            carried_position_weights=current,decision_clock=clock,exception_exposure=0,
+            exit_reviews=[],exception_reviews=[],comparison_inputs=frozen,
+            comparison_inputs_sha256=digest(frozen),
+            comparisons={name:dict(weights={},incremental_cost_fraction=0,objective=-carry)
+                         for name in ("CONTROL","COST_AWARE_LONG_ONLY")},
+            accepted_target=False,orders_generated=False,execution_ready=False,
+            realized_integer_fills=False,performance_claimed=False,
+            turnover_cost_scope="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV")
     ids=[r["asset_id"] for r in accepted];n=len(ids)
     returns=np.asarray([[number(x) for x in r.get("daily_log_returns",[])] for r in accepted],dtype=float)
     require(returns.shape==(n,60) and np.isfinite(returns).all(),"stock_common_covariance_history")
@@ -698,6 +736,8 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         chosen=old
         intent="HOLD_UNTIL_SCHEDULED_REVIEW"
     weights={a:float(w) for a,w in zip(ids,chosen) if w>1e-10}
+    if not weights:
+        known_model_cash_decision()
     frozen=dict(asset_ids=ids,expected_return_horizon="12_CALENDAR_MONTHS",gross_er=mu.tolist(),
         embedded_costs=[r["portfolio_cost_basis"]["embedded_cost_fraction"] for r in accepted],
         covariance=covariance.tolist(),cash_return=cash_return,side_cost=side.tolist(),
@@ -714,4 +754,5 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         allocator=p["allocator"],intent=intent,
         control_identity="EXISTING_MULTI_ASSET_SCORE_WITH_STOCK_SCOPE_AND_SHARED_HARD_LIMITS",
         reduction_basis="PINNED_TYPED_EXIT_ONLY",
-        realized_integer_fills=False,performance_claimed=False)
+        realized_integer_fills=False,performance_claimed=False,
+        turnover_cost_scope="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV")

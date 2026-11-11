@@ -145,6 +145,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     require(policy.get("schema")=="multi-asset-policy-v1","policy_schema")
     require(policy.get("baseline_rs_weights")==BASE_RS_WEIGHTS,"unsupported_rs_baseline")
     require(policy.get("baseline_commodity_weights")==COMPONENTS,"unsupported_commodity_baseline")
+    stock_mode=policy.get("stock_cash_research",{}).get("enabled") is True
     cutoff=payload["as_of"]
     stamp(cutoff)
     underlyings,assets=registry_rows(registry)
@@ -165,13 +166,16 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         require(len(requested)==len(set(requested)),"a3_duplicate_requested_security")
     unresolved_base=[]
     for aid in base_ids:
-        if a3_scope and aid not in assets:
+        if (a3_scope or stock_mode) and aid not in assets:
             identifier(aid)
             unresolved_base.append(aid)
+        elif stock_mode:
+            require(aid in assets,"missing_base_equity")
         else:
             require(aid in assets and assets[aid]["asset_class"] in {"US_EQUITY","COMMODITY_EQUITY","CRYPTO_EQUITY"},"missing_base_equity")
     base_pin=payload.get("base_universe_receipt")
     complete_base=False
+    scoped_base_membership=False
     base_blockers=[]
     try:
         require(bool(base_ids) and base_pin is not None,"missing_base_universe")
@@ -183,6 +187,15 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         complete_base=True
     except (ContractError,KeyError,ValueError) as exc:
         base_blockers.append(str(exc))
+    if stock_mode:
+        try:
+            require(bool(base_ids) and base_pin is not None,"missing_base_universe")
+            pinned(base_pin,policy,"base_universe",cutoff)
+            require(base_pin.get("asset_ids")==sorted(base_ids) and base_pin.get("as_of")==as_of,
+                    "base_universe_receipt_mismatch")
+            scoped_base_membership=True
+        except (ContractError,KeyError,ValueError) as exc:
+            base_blockers.append("stock_membership:"+str(exc))
     groups=defaultdict(list)
     for r in payload.get("prices",[]):
         require(r.get("asset_id") in assets,"unregistered_price_asset")
@@ -208,8 +221,40 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                 if isinstance(exc,ContractError) else type(exc).__name__}
     require(set(by_eval)<=set(assets),"unknown_evaluation_asset")
     position_rows=payload.get("positions",[])
-    require(not position_rows or payload.get("position_book_kind") in {"ACTUAL_BROKER","APPROVED_TARGET","PAPER"},"position_book_kind")
-    if position_rows:
+    model_positions=payload.get("position_book_kind")=="MODEL"
+    incumbents=(current_review.get("model_incumbents") or current_review.get("model_parent_lineage")) if current_review else None
+    require(incumbents is None or model_positions,"model_incumbents_kind_required")
+    model_input_blocker=None
+    def verified_model_rows():
+        require(a3_scope and current_review is not None and
+                current_review.get("status")=="CURRENT_REFERENCE_REVIEW_VERIFIED" and
+                incumbents is not None,"current_model_incumbents_required")
+        require(digest(payload.get("model_identity"))==digest(incumbents["model_identity"]),
+                "model_incumbents_identity_mismatch")
+        require("position_receipt" not in payload,"model_position_receipt_is_not_acceptance")
+        if "cash_weight" in payload:
+            number(payload["cash_weight"],0,1)
+            require(digest(payload["cash_weight"])==digest(incumbents["cash_weight"]),
+                    "model_incumbents_cash_mismatch")
+        verified_rows=[dict(asset_id=aid,weight=weight) for aid,weight in
+                       sorted(incumbents["current_weights"].items())]
+        if "positions" in payload:
+            require(type(position_rows) is list and all(type(r) is dict and
+                    set(r)=={"asset_id","weight"} for r in position_rows),"model_position_shape")
+            require(digest(sorted(position_rows,key=lambda r:r["asset_id"]))==digest(verified_rows),
+                    "model_incumbents_weights_mismatch")
+        return verified_rows
+    if model_positions:
+        try:
+            position_rows=verified_model_rows()
+        except (ContractError,KeyError,ValueError,TypeError) as exc:
+            if not stock_mode:raise
+            model_input_blocker=str(exc)
+            position_rows=[]
+            incumbents=None
+    require(not position_rows or payload.get("position_book_kind") in
+            {"ACTUAL_BROKER","APPROVED_TARGET","PAPER","MODEL"},"position_book_kind")
+    if position_rows and not model_positions:
         receipt=payload.get("position_receipt")
         require(receipt is not None,"unreviewed_position_book")
         pinned(receipt,policy,"positions",cutoff)
@@ -217,9 +262,19 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                 and receipt.get("book_kind")==payload["position_book_kind"],"position_receipt_mismatch")
         require(stamp(receipt["available_at"])<=stamp(cutoff),"future_position_book")
     positions=unique(position_rows,"asset_id")
-    require(set(positions)<=set(assets),"unknown_position")
+    if not stock_mode:require(set(positions)<=set(assets),"unknown_position")
     for r in positions.values(): number(r.get("weight"),0,1)
     require(sum(r["weight"] for r in positions.values())<=1+1e-9,"position_weight_sum")
+    stock_membership_blocker=None
+    if stock_mode and a3_scope:
+        held={aid for aid,w in (incumbents or {}).get("current_weights",{}).items() if w>0}
+        exceptions={aid for aid,a in assets.items() if a["symbol"] in {"GLDM","SHY","IEF","TLT"}
+                    and a["identity_verified"] is True}
+        requested_scope=set(payload["requested_security_ids"])
+        declared_scope=set(payload.get("risk",{}).get("stock_cash_allocation",{}).get("decision_asset_ids",[]))
+        if not (requested_scope==declared_scope and requested_scope<=set(base_ids)|exceptions|held
+                and held<=requested_scope):
+            stock_membership_blocker="stock_a0_a3_scope_or_verified_model_holdings_mismatch"
     admitted,errors={},{}
     for aid,a in assets.items():
         try:
@@ -305,6 +360,15 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         if ev and features:
             row["risk_adjusted_expected_alpha"]=ev["expected_alpha_12m"]/ev["expected_drawdown"]
         rows.append(row)
+    if stock_mode:
+        # Keep unmapped names as UNKNOWN; they are not registered/tradable merely
+        # because a canonical tracked roster or request mentioned their IDs.
+        for aid in sorted((set(unresolved_base)|set(payload.get("requested_security_ids",[]))|set(positions))-set(assets)):
+            rows.append(dict(asset_id=aid,symbol=None,asset_class="UNKNOWN",price=None,rank=None,
+                discovery_rank=None,data_quality="BLOCKED",portfolio_status="BLOCKED",leadership_state="UNKNOWN",
+                evaluation_sha256=None,blockers=["UNMAPPED_SECURITY_IDENTITY"],as_of=as_of,
+                **{f"expected_return_{h}":None for h in ER_HORIZONS},
+                **{f"{prefix}{h}":None for prefix in ("ret","RS") for h in HORIZONS}))
     normalization=cross_section(rows)
     # Expected-return rank and discovery rank are separate columns.
     ranking=sorted([r for r in rows if "risk_adjusted_expected_alpha" in r and r["portfolio_status"] in {"CANDIDATE","HOLD","WATCH"}],
@@ -316,7 +380,6 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)
     if global_ranking_ready:
         for i,r in enumerate(ranking,1): r["rank"]=i
-    stock_mode=policy.get("stock_cash_research",{}).get("enabled") is True
     stock_scope=None
     if stock_mode:
         try:
@@ -328,8 +391,10 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     proposal={"status":"BLOCKED","reasons":["missing_reviewed_risk_packet"],"proposed_weights":None,"orders_generated":False}
     if payload.get("risk") is not None:
         try:
-            require(complete_base,"incomplete_base_universe")
             if stock_mode:
+                require(model_input_blocker is None,model_input_blocker or "stock_model_comparison_unknown")
+                require(scoped_base_membership,"stock_base_membership_unverified")
+                require(stock_membership_blocker is None,stock_membership_blocker or "stock_scope_unverified")
                 require(stock_scope["numeric_scope_status"]=="SCOPED_INPUTS_OBSERVED","stock_decision_scope_incomplete")
                 if a3_scope: require(current_review is not None,"a3_current_reference_admission_required")
                 allocation=payload["risk"].get("stock_cash_allocation",{})
@@ -339,6 +404,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                 require(optional<=selected_scope and optional<=set(assets),"stock_exception_security_unregistered_or_unreviewed")
                 proposal_rows=[r for r in rows if r["asset_id"] in selected_scope]
             else:
+                require(complete_base,"incomplete_base_universe")
                 require(a3_complete,"incomplete_a3_reference_coverage")
                 require(all(r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows if r["asset_id"] in base_ids),"incomplete_equity_comparison")
                 require(global_ranking_ready,"incomplete_cross_asset_comparison")
@@ -346,7 +412,8 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
             require(feature_time is not None and stamp(payload["risk"].get("observed_at"))>=stamp(feature_time),"risk_predates_feature_inputs")
             proposal=propose(proposal_rows,assets,payload["risk"],payload.get("holdings",{}),cutoff,policy,identity,
                              {aid:r["weight"] for aid,r in positions.items()},
-                             **({"decision_events":payload.get("events",[]),"artifact_resolver":artifact_resolver}
+                             **({"decision_events":payload.get("events",[]),"artifact_resolver":artifact_resolver,
+                                 "model_review":current_review}
                                 if stock_mode else {}))
             if stock_mode:
                 proposal.update(scope="EXPLICIT_STOCK_REVIEW_SCOPE",global_ranking_ready=global_ranking_ready,
@@ -354,12 +421,14 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         except (ContractError,KeyError,ValueError,TypeError) as exc:
             proposal={"status":"BLOCKED","reasons":[str(exc)],"proposed_weights":None,"orders_generated":False}
     observed_exposure={"status":"NOT_SUPPLIED","book_kind":None}
-    if positions:
+    if positions or model_positions:
         try:
             observed_exposure={"status":"RESEARCH_MEASUREMENT","book_kind":payload["position_book_kind"],
                               **lookthrough({a:r["weight"] for a,r in positions.items()},assets,payload.get("holdings",{}),cutoff,policy)}
         except (ContractError,KeyError,ValueError) as exc:
             observed_exposure={"status":"BLOCKED","reason":str(exc),"book_kind":payload["position_book_kind"]}
+        if model_positions and incumbents is not None:
+            observed_exposure.update(cash_weight=incumbents["cash_weight"],comparison_allocation_only=True)
     crypto=[]
     for aid,a in assets.items():
         if a["asset_class"]!="CRYPTO":continue
@@ -451,9 +520,18 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
             "historical_replay":historical_readiness(payload),"orders_generated":False,
             "accepted_target_written":False,"production_activation_allowed":False}
     if a3_coverage is not None:
-        result["proposal_context"]=dict(mode="MODEL" if not positions else "ACCOUNT_RESEARCH_COMPARISON",
-            book_kind=payload.get("position_book_kind") if positions else None,
+        result["proposal_context"]=dict(mode="MODEL" if model_positions or not positions else "ACCOUNT_RESEARCH_COMPARISON",
+            book_kind=payload.get("position_book_kind") if positions or model_positions else None,
             accepted_book_written=False,live_authority=False)
+        if model_positions and incumbents is not None:
+            result["proposal_context"].update(actual_holdings_claimed=False,
+                execution_or_performance_claimed=False,comparison_weights="ADMITTED_MODEL_ALLOCATION_ONLY",
+                allocation_as_of=incumbents["as_of"],allocation_decision_time=incumbents["decision_time"],
+                allocation_relation=incumbents["allocation_relation"],cash_weight=incumbents["cash_weight"])
+            result["proposal_context"]["turnover_cost_scope"]="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV"
+        elif model_positions:
+            result["proposal_context"].update(model_comparison_status="BLOCKED",model_comparison_blocker=model_input_blocker,
+                actual_holdings_claimed=False,execution_or_performance_claimed=False,cash_weight=None)
         actual={r["asset_id"]:r for r in rows}
         for record in a3_coverage["records"]:
             row=actual.get(record["asset_id"],{})
@@ -466,6 +544,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     result["status"]="PARTIAL_RESEARCH" if any(r["price"] is not None for r in rows) else "BLOCKED"
     if stock_mode:
         result["stock_research"]=dict(decision_scope=stock_scope,
+            scoped_base_membership_verified=scoped_base_membership,
             full_roster_asset_ids=[r["asset_id"] for r in rows],
             unmapped_requested_ids=sorted(set(payload.get("requested_security_ids",[]))-set(assets)),
             comparison_plan=stock_comparison_plan(policy) if "reason" not in stock_scope else

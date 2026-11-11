@@ -10448,3 +10448,29 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   failure and verify exact source bytes through the same parser and exit path.
   The initial fixed risk-aversion coefficient is 1.0 (return minus half the
   variance), chosen before results; no economic validation or tuning is claimed.
+- MODEL continuity separates expired last-parent lineage from current Source,
+  ER, risk and QA. Authenticate the original acceptance at its original clock
+  under a current external whole pin; never disable expiry on the current
+  receiver or renew old proof clocks. A genuinely new A5/QA/OWNER assessment
+  can reaffirm unchanged weights as a new HOLD child; repeating an immutable
+  attempt preserves its exact bytes and expiry. Comparison allocations and
+  planned target-change costs are not executed holdings, fills or NAV.
+- Preserve the full UNKNOWN base roster while reviewing an explicitly pinned
+  A5 cohort, including positive verified MODEL allocations outside that base.
+  Scoped publication must replay the same receipt/result readiness contract;
+  global completeness remains false. Known GENESIS/all-cash with complete
+  inputs may decide NO_ENTRY; missing ER or unknown positions cannot mean cash.
+  New ControlPlane cases run transitively through agent_board_smoke in the
+  existing 236 entry list; StockCash/publisher use the dedicated normal/-O
+  workflow. Do not alter a protected runner based on filename-only registration
+  searches. An archival Reader byte ACK is not Source/PIT/ER/A5 admission.
+- The first parent-lineage run reached the correct unreviewed-position refusal
+  but its test expected the board exception instead of the domain contract's
+  distinct type. Preserve the failed run and assert the exact domain type and
+  reason; never weaken a correctly refusing verifier to match the fixture.
+- The bounded continuity batch timed out after its parent/all-cash methods
+  passed; preserve that NOT_COMPLETE result. The unchanged publisher integration
+  then passed alone in 273.661 seconds, with coarse real-call timing and no
+  validator bypass. Budget the dedicated normal/-O job for the actual graph
+  checks (30 minutes), rather than deleting assertions to fit its old ten-minute
+  limit. The focused four-method bridge is not a whole-suite or optimized pass.

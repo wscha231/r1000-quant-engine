@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MANAGED_INITIAL_POLICY_SHA = '1ac3387de165a091bc99d20e218f7f3140f5f26d21ca6c0b0ea7dba73d66c420'
 MANAGED_ACTIVATION_POLICY_SHA = '4eedd6c91df42b9d54786f08d0b2a56000e528df577c749de302edfec16f41f6'
 sys.path.insert(0, str(ROOT))
+from research.multi_asset_v1.contracts import ContractError as ModelContractError, digest as domain_digest
 from tools import run_agent_board as board
 
 
@@ -46,10 +47,12 @@ class ControlPlaneTests(unittest.TestCase):
         return (self.now + timedelta(minutes=minutes)).isoformat()
 
     def artifact(self, name):
-        path = self.root / (name + '.json')
+        path = self.root / getattr(self, '_artifact_prefix', '') / (name + '.json')
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({'synthetic': name}))
-        return dict(path=path.name, sha256=board.file_hash(path), observed_at=self.at(-30),
-                    available_at=self.at(-20), collected_at=self.at(-10), expires_at=self.at(50), status='VERIFIED')
+        return dict(path=path.relative_to(self.root).as_posix(), sha256=board.file_hash(path), observed_at=self.at(-30),
+                    available_at=self.at(-20), collected_at=self.at(-10),
+                    expires_at=getattr(self, '_fixture_proof_expiry', None) or self.at(50), status='VERIFIED')
 
     def add_request(self, agent):
         request = dict(agent=agent, inputs={role: self.artifact(agent + '_' + role)
@@ -78,7 +81,8 @@ class ControlPlaneTests(unittest.TestCase):
             qa['inputs']['review_bundle']['collected_at']=collected
 
     def tasks(self):
-        return board._plan_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config)
+        return board._plan_tasks(self.state, self.root, self.contract, self.now, self.sha, self.config,
+                                 model_policy=getattr(self, '_model_policy', None))
 
     def complete(self, agent='A1', output_payloads=None):
         packet = next(t for t in self.tasks() if t['agent'] == agent)
@@ -156,11 +160,14 @@ class ControlPlaneTests(unittest.TestCase):
         entry = original.fixture(er=True)
         index = original.build(entry)
         inventory = {}
+        prefix = Path(getattr(self, '_artifact_prefix', ''))
         def put(path, raw):
+            path = (prefix / path).as_posix()
             target = self.root / path; target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(raw)
             return dict(path=path, sha256=board.file_hash(target), observed_at=self.at(-30),
-                available_at=self.at(-20), collected_at=self.at(-10), expires_at=self.at(50), status='VERIFIED')
+                available_at=self.at(-20), collected_at=self.at(-10),
+                expires_at=getattr(self, '_fixture_proof_expiry', None) or self.at(50), status='VERIFIED')
         for n, ((aid, sha), raw) in enumerate(original.raw.items()):
             inventory[aid] = put('original/a3_' + str(n) + '.json', raw)
         session = '2026-09-18'
@@ -179,14 +186,15 @@ class ControlPlaneTests(unittest.TestCase):
         request = dict(schema=market.REQUEST_SCHEMA, market='US', session=session,
             available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
         request_ref = put('a4/request.json', json.dumps(request).encode())
-        risk = market.load_report(self.root / request_ref['path'], self.root / 'a4', request_ref['sha256'],
+        risk = market.load_report(self.root / request_ref['path'], self.root / prefix / 'a4', request_ref['sha256'],
                                   cutoff=decision_cutoff, session=session)
         self.assertEqual(risk['status'], 'READY_RESEARCH_ONLY', risk)
         self._model_case_risk = risk
         context = dict(schema_version='a5-portfolio-context-v1', portfolio_mode='MODEL_PORTFOLIO',
             decision_time=decision_cutoff, market_session_date=session, requested_security_ids=[entry['asset_id']],
             a3_reference_entries=[entry], artifact_inventory=inventory,
-            model_state=dict(kind='GENESIS', artifact=None), a4_request=request_ref, a4_source_root='a4')
+            model_state=dict(kind='GENESIS', artifact=None), a4_request=request_ref,
+            a4_source_root=(prefix / 'a4').as_posix())
         self.set_payload(req['inputs']['portfolio_context'], context)
         self.state['source_status'] = {r: dict(status='UNKNOWN', artifact_identity=None, sha256=None,
             as_of=None, availability=None, reason='source_missing') for r in
@@ -203,7 +211,7 @@ class ControlPlaneTests(unittest.TestCase):
             self.complete('A6')
         return req, context
 
-    def current_review_case(self, candidate=None):
+    def current_review_case(self, candidate=None, *, model_binding=None, model_policy=None):
         """Synthetic original producer receipts; no materializer/PIT approval."""
         from research.candidate_registry_v1 import build_reference_index
         req, context = self.model_case(complete=False, decision_cutoff=candidate.p['as_of'] if candidate else None)
@@ -225,6 +233,17 @@ class ControlPlaneTests(unittest.TestCase):
                       for aid,a in context['artifact_inventory'].items()}
             index = build_reference_index(context['a3_reference_entries'], cutoff=self.state['as_of'],
                                           artifact_resolver=lambda aid,sha:values[(aid,sha)])
+        if model_binding is not None:
+            model_context, model_root = model_binding
+            for n, artifact in enumerate(model_context['artifact_inventory'].values()):
+                raw = (model_root / artifact['path']).read_bytes()
+                target = self.root / artifact['path']; target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists(): self.assertEqual(target.read_bytes(), raw)
+                else: target.write_bytes(raw)
+                context['artifact_inventory']['MODEL:original:' + str(n)] = copy.deepcopy(artifact)
+            context['model_state'] = copy.deepcopy(model_context['model_state'])
+            self._model_policy = model_policy
+            self.set_payload(req['inputs']['portfolio_context'], context)
         risk = self._model_case_risk
         self.complete('A1'); self.complete('A2'); self.complete('A3', {'expected_return':index})
         self.complete('A4', {'regime':risk}); self.bind_qa_scope()
@@ -245,6 +264,8 @@ class ControlPlaneTests(unittest.TestCase):
         artifact = self.artifact('current_review_graph')
         self.set_payload(artifact, graph)
         artifact['observed_at'] = artifact['available_at'] = artifact['collected_at'] = self.at(-5.5)
+        if model_binding is not None:
+            artifact['expires_at'] = min(a['expires_at'] for a in context['artifact_inventory'].values())
         return dict(portfolio_context=req['inputs']['portfolio_context'], review_graph=artifact), graph, principals
 
     def test_current_a3_review_replays_original_completions_and_full_qa(self):
@@ -348,6 +369,331 @@ class ControlPlaneTests(unittest.TestCase):
         req['parameters']['portfolio_mode'] = 'ACCOUNT_REBALANCE'
         current = next(t for t in self.tasks() if t['agent'] == 'A5')
         self.assertNotEqual(legacy['task_key'], current['task_key'])
+
+    def model_incumbents_case(self, candidate=None, *, proof_expiry=None):
+        """Synthetic original packets and a separately pinned MODEL receipt.
+
+        The fixture grants no actual Source/book/PIT/economic authority. Its
+        pre-proposal A6 and post-proposal acceptance A6 are separate attempts.
+        """
+        self._artifact_prefix = 'model_origin'
+        if proof_expiry is not None:
+            # Fixed at original production, before packet hashes/QA exist.
+            # Never renew those descriptors when testing a later comparison.
+            self._fixture_proof_expiry = proof_expiry
+        if candidate is None:
+            req, old_context = self.model_case()
+        else:
+            binding, _, _ = self.current_review_case(candidate)
+            req = next(r for r in self.state['requests'] if r['agent'] == 'A5')
+            old_context = board.read_json(self.root / binding['portfolio_context']['path'])
+        a5_packet = copy.deepcopy(next(p for p in self.tasks() if p['agent'] == 'A5'))
+        aid = old_context['requested_security_ids'][0]
+        a5_receipt = copy.deepcopy(self.complete('A5', {'target_proposal': dict(
+            status='PROPOSAL_ONLY', proposed_weights={aid: .2}, orders_generated=False,
+            accepted_target_written=False)}))
+        decision = board.timestamp(old_context['decision_time'])
+        self.now += timedelta(minutes=10)
+        self.state['as_of'], self.state['expires_at'] = self.at(-5), self.at(60)
+        context = copy.deepcopy(old_context)
+        context['decision_time'] = self.state['as_of']
+        inventory = context['artifact_inventory']
+        identity = dict(model_id='SYNTHETIC:MODEL', model_version='fixture-v1', model_code_sha=self.sha,
+            model_config_sha256='1'*64, model_recipe_sha256='2'*64,
+            data_identity_sha256='3'*64, cost_context_sha256='4'*64)
+        def moment(seconds): return (decision + timedelta(seconds=seconds)).isoformat()
+        expires = proof_expiry or (decision + timedelta(minutes=40)).isoformat()
+        def put(name, payload, seconds):
+            artifact = self.artifact('model_' + name)
+            self.set_payload(artifact, payload)
+            artifact.update(observed_at=moment(seconds), available_at=moment(seconds+1),
+                            collected_at=moment(seconds+2), expires_at=expires)
+            inventory['MODEL:' + name] = artifact
+            return artifact
+        a5_packet_ref = put('a5_packet', a5_packet, 1)
+        a5_receipt_ref = put('a5_receipt', a5_receipt, 1)
+        allocation = dict(schema_version='model-allocation-state-v1', state_role='MODEL_ALLOCATION_STATE',
+            model_identity=identity, as_of=context['market_session_date'], decision_time=old_context['decision_time'],
+            positions=[dict(asset_id=aid, weight=.15)], cash_weight=.85, origin_a5_task_key=a5_packet['task_key'],
+            actual_holdings_claimed=False, execution_or_performance_claimed=False)
+        state_ref = put('allocation', allocation, 5)
+        covered = {'state': state_ref, 'a5_packet': a5_packet_ref, 'a5_receipt': a5_receipt_ref,
+                   'target': a5_receipt['outputs']['target_proposal']}
+        for suffix, raw in (('csv', b'asset_id,weight\nSYNTHETIC:ONLY,0.15\n'),
+                            ('binary', b'PAR1\x00\xffSYNTHETIC-QA-OPERAND')):
+            artifact = put('opaque_' + suffix, {}, 6)
+            (self.root / artifact['path']).write_bytes(raw)
+            artifact['sha256'] = board.file_hash(self.root / artifact['path'])
+            covered['opaque:' + suffix] = artifact
+        covered.update({'input:' + role: ref for role, ref in a5_packet['inputs'].items()})
+        for role, artifact in covered.items(): inventory['MODEL:review:' + role] = artifact
+        for dep, receipt in a5_packet['dependency_outputs'].items():
+            for role, artifact in receipt['outputs'].items():
+                inventory['MODEL:dependency:' + dep + ':' + role] = artifact
+        review_bundle = put('post_bundle', dict(schema_version='qa-review-bundle-v2', artifacts=covered), 8)
+        qa_request = next(r for r in self.state['requests'] if r['agent'] == 'A6')
+        qa_request['inputs']['review_bundle'] = review_bundle
+        self.state['completed_tasks'] = [r for r in self.state['completed_tasks'] if r['agent'] != 'A6']
+        a6_packet = copy.deepcopy(next(p for p in self.tasks() if p['agent'] == 'A6'))
+        original_artifact = self.artifact
+        with patch.object(self, 'artifact', side_effect=lambda name: original_artifact('post_model_' + name)):
+            a6_receipt = copy.deepcopy(self.complete('A6'))
+        for role, artifact in a6_receipt['outputs'].items(): inventory['MODEL:post:' + role] = artifact
+        a6_packet_ref = put('a6_packet', a6_packet, 14)
+        a6_receipt_ref = put('a6_receipt', a6_receipt, 14)
+        acceptance = dict(schema_version='model-incumbents-acceptance-v1', book_kind='MODEL',
+            state_role='ADMITTED_MODEL_ALLOCATION', current=True, model_identity=identity,
+            as_of=allocation['as_of'], decision_time=allocation['decision_time'], expires_at=expires,
+            positions=allocation['positions'], cash_weight=allocation['cash_weight'],
+            positions_sha256=domain_digest(allocation['positions']),
+            producer_code_sha=self.sha, producer_config_hash=self.config,
+            principals=dict(A5='PRODUCER:MODEL', A6='REVIEWER:INDEPENDENT'),
+            proofs=dict(state=state_ref, a5_packet=a5_packet_ref, a5_receipt=a5_receipt_ref,
+                        a6_packet=a6_packet_ref, a6_receipt=a6_receipt_ref),
+            observed_at=moment(15), available_at=moment(16), collected_at=moment(17),
+            source='CANONICAL_BOOK', data_quality='OBSERVED', evidence_kind='FORWARD_CAPTURE',
+            raw_sha256=state_ref['sha256'])
+        accepted_ref = put('acceptance', acceptance, 18)
+        context['model_state'] = dict(kind='INCUMBENTS', artifact=accepted_ref, model_identity=identity)
+        policy = json.loads((ROOT / 'docs/multi_asset_policy_v1.json').read_bytes())
+        policy['reviewed_pins']['positions'] = [domain_digest(acceptance)]
+        return context, policy, acceptance, aid
+
+    def model_cash_variant(self, context, policy, acceptance):
+        """Reuse original A5 bytes; independently review a new synthetic state.
+
+        No A4/model producer or verification outcome is cached or bypassed.
+        Original state and pre/post QA files remain immutable.
+        """
+        context, policy = copy.deepcopy(context), copy.deepcopy(policy)
+        inventory = context['artifact_inventory']
+        clock = board.timestamp(acceptance['decision_time'])
+        def moment(seconds): return (clock + timedelta(seconds=seconds)).isoformat()
+        def put(name, payload, seconds):
+            artifact = self.artifact('all_cash_' + name)
+            self.set_payload(artifact, payload)
+            artifact.update(observed_at=moment(seconds), available_at=moment(seconds+1),
+                            collected_at=moment(seconds+2), expires_at=acceptance['expires_at'])
+            inventory['MODEL:cash:' + name] = artifact
+            return artifact
+        original_proofs = acceptance['proofs']
+        allocation = board.read_json(self.root / original_proofs['state']['path'])
+        allocation.update(positions=[], cash_weight=1.0)
+        state_ref = put('allocation', allocation, 30)
+        prior_qa = board.read_json(self.root / original_proofs['a6_packet']['path'])
+        bundle = board.read_json(self.root / prior_qa['inputs']['review_bundle']['path'])
+        bundle['artifacts']['state'] = state_ref
+        bundle_ref = put('bundle', bundle, 33)
+        request = next(r for r in self.state['requests'] if r['agent'] == 'A6')
+        request['inputs']['review_bundle'] = bundle_ref
+        self.state['completed_tasks'] = [r for r in self.state['completed_tasks'] if r['agent'] != 'A6']
+        packet = copy.deepcopy(next(p for p in self.tasks() if p['agent'] == 'A6'))
+        original_artifact = self.artifact
+        with patch.object(self, 'artifact', side_effect=lambda name: original_artifact('cash_post_' + name)):
+            receipt = copy.deepcopy(self.complete('A6'))
+        for role, ref in receipt['outputs'].items(): inventory['MODEL:cash:output:' + role] = ref
+        packet_ref, receipt_ref = put('packet', packet, 39), put('receipt', receipt, 39)
+        approved = copy.deepcopy(acceptance)
+        approved.update(positions=[], cash_weight=1.0, positions_sha256=domain_digest([]),
+            raw_sha256=state_ref['sha256'], observed_at=moment(42), available_at=moment(43),
+            collected_at=moment(44), proofs=dict(state=state_ref,
+                a5_packet=copy.deepcopy(original_proofs['a5_packet']),
+                a5_receipt=copy.deepcopy(original_proofs['a5_receipt']),
+                a6_packet=packet_ref, a6_receipt=receipt_ref))
+        accepted_ref = put('acceptance', approved, 45)
+        context['model_state']['artifact'] = accepted_ref
+        policy['reviewed_pins']['positions'] = [domain_digest(approved)]
+        return context, policy, approved
+
+    def test_expired_model_parent_is_historical_lineage_not_current_authority(self):
+        from tools.run_multi_asset_leadership import prepare_model_parent_read_observation
+        context, policy, acceptance, aid = self.model_incumbents_case()
+        original = copy.deepcopy(context['model_state']['artifact'])
+        saved = {a['path']:(self.root/a['path']).read_bytes()
+                 for a in context['artifact_inventory'].values()}
+        cutoff = board.timestamp(acceptance['expires_at']) + timedelta(minutes=5)
+        context['decision_time'] = cutoff.isoformat()
+        context['market_session_date'] = acceptance['as_of']
+        with self.assertRaises(board.ContractError):
+            board.verify_current_model_incumbents(context,self.root,cutoff,cutoff,
+                policy=policy,code_sha=self.sha)
+        policy['model_lineage_parent'] = dict(schema='model-lineage-parent-policy-v1',
+            purpose='PARENT_LINEAGE_ONLY',acceptance=original,accepted_at=original['collected_at'],
+            state_sha256=acceptance['proofs']['state']['sha256'],
+            model_identity_sha256=domain_digest(acceptance['model_identity']),
+            available_at=(cutoff-timedelta(minutes=1)).isoformat(),
+            expires_at=(cutoff+timedelta(minutes=30)).isoformat())
+        observation = prepare_model_parent_read_observation(policy,self.root,now=cutoff.isoformat())
+        context['model_state'].update(kind='PARENT_LINEAGE_ONLY',artifact=observation['artifact'])
+        # Original proof descriptors remain inside their immutable bodies. Only
+        # the present read observation is new; it is not current Source/ER/QA.
+        context['artifact_inventory'] = {'MODEL:last_parent':observation['artifact']}
+        result = board.verify_model_parent_lineage(context,self.root,cutoff,cutoff,
+            policy=policy,code_sha=self.sha)
+        self.assertEqual(result['current_weights'],{aid:.15})
+        self.assertEqual(result['status'],'PARENT_LINEAGE_ONLY_VERIFIED')
+        self.assertFalse(result['parent_source_or_er_freshness_granted'])
+        self.assertEqual(result['expires_at'],acceptance['expires_at'])
+        self.assertFalse(observation['acceptance_or_fresh_er_granted'])
+        bad=copy.deepcopy(policy);bad['model_lineage_parent']['accepted_at']=cutoff.isoformat()
+        with self.assertRaisesRegex(board.ContractError,'parent_acceptance_clock'):
+            board.verify_model_parent_lineage(context,self.root,cutoff,cutoff,policy=bad,code_sha=self.sha)
+        bad=copy.deepcopy(policy);bad['reviewed_pins']['positions']=[]
+        with self.assertRaisesRegex(ModelContractError,'^unreviewed_positions$'):
+            board.verify_model_parent_lineage(context,self.root,cutoff,cutoff,policy=bad,code_sha=self.sha)
+        qa_path=self.root/acceptance['proofs']['a6_receipt']['path']
+        qa_path.write_bytes(b'{}')
+        try:
+            with self.assertRaisesRegex(board.ContractError,'artifact_hash_mismatch'):
+                board.verify_model_parent_lineage(context,self.root,cutoff,cutoff,policy=policy,code_sha=self.sha)
+        finally:
+            qa_path.write_bytes(saved[acceptance['proofs']['a6_receipt']['path']])
+        self.assertTrue(all((self.root/path).read_bytes()==raw for path,raw in saved.items()))
+
+    def test_model_incumbents_require_external_acceptance_and_original_post_qa(self):
+        context, policy, acceptance, aid = self.model_incumbents_case(
+            proof_expiry='2026-09-23T04:00:00+00:00')
+        def verify(selected_policy):
+            return board.verify_current_model_incumbents(context, self.root,
+                board.timestamp(self.state['as_of']), self.now, policy=selected_policy, code_sha=self.sha)
+        result = verify(policy)
+        self.assertEqual(result['current_weights'], {aid: .15})  # proposal was .20, not a fill
+        self.assertEqual(result['cash_weight'], .85)
+        self.assertFalse(result['actual_holdings_claimed'])
+        self.assertFalse(result['execution_or_performance_claimed'])
+        self.assertFalse(result['eligible_for_economics'])
+        with self.assertRaisesRegex(board.ContractError, '^a5_model_external_review_required$'): verify(None)
+        from research.multi_asset_v1.contracts import ContractError as DomainError
+        empty_policy = copy.deepcopy(policy); empty_policy['reviewed_pins']['positions'] = []
+        with self.assertRaisesRegex(DomainError, '^unreviewed_positions$'): verify(empty_policy)
+        prior_bytes = {a['path']: board.file_hash(self.root / a['path'])
+                       for a in acceptance['proofs'].values()}
+        carried = copy.deepcopy(context)
+        carried.update(decision_time='2026-09-21T20:05:00+00:00', market_session_date='2026-09-21')
+        later = board.timestamp(carried['decision_time'])
+        result = board.verify_current_model_incumbents(carried, self.root, later, later+timedelta(minutes=1),
+            policy=policy, code_sha='c'*40)
+        self.assertEqual(result['allocation_relation'], 'PRIOR_ACTIVE_MODEL_ALLOCATION')
+        self.assertEqual(result['as_of'], acceptance['as_of'])
+        self.assertEqual(result['decision_time'], acceptance['decision_time'])
+        self.assertEqual(result['producer_code_sha'], self.sha)
+        self.assertEqual(result['consumer_code_sha'], 'c'*40)
+        self.assertNotEqual(result['producer_code_sha'], result['consumer_code_sha'])
+        self.assertEqual(result['current_weights'], {aid: .15})
+        self.assertEqual(prior_bytes, {p: board.file_hash(self.root / p) for p in prior_bytes})
+        cash_context, cash_policy, cash_acceptance = self.model_cash_variant(context, policy, acceptance)
+        self.assertEqual(prior_bytes, {p: board.file_hash(self.root / p) for p in prior_bytes})
+        cash = board.verify_current_model_incumbents(cash_context, self.root,
+            board.timestamp(self.state['as_of']), self.now, policy=cash_policy, code_sha=self.sha)
+        self.assertEqual(cash['current_weights'], {})
+        self.assertEqual(cash['cash_weight'], 1.0)
+        self.assertEqual(cash['book_kind'], 'MODEL')
+        self.assertFalse(cash['actual_holdings_claimed'])
+        carried_cash = copy.deepcopy(cash_context)
+        carried_cash.update(decision_time=carried['decision_time'], market_session_date=carried['market_session_date'])
+        cash = board.verify_current_model_incumbents(carried_cash, self.root, later, later+timedelta(minutes=1),
+            policy=cash_policy, code_sha='c'*40)
+        self.assertEqual(cash['allocation_relation'], 'PRIOR_ACTIVE_MODEL_ALLOCATION')
+        self.assertEqual(cash['current_weights'], {})
+        self.assertEqual(cash['cash_weight'], 1.0)
+        # Explicit, independently pinned emptiness is not inferred from a
+        # missing cash field or an inconsistent total, even after re-pinning.
+        missing = copy.deepcopy(cash_acceptance); del missing['cash_weight']
+        self.set_payload(cash_context['model_state']['artifact'], missing)
+        cash_policy['reviewed_pins']['positions'] = [domain_digest(missing)]
+        with self.assertRaisesRegex(board.ContractError, '^schema_invalid:system_state_schema.json:'):
+            board.verify_current_model_incumbents(cash_context, self.root,
+                board.timestamp(self.state['as_of']), self.now, policy=cash_policy, code_sha=self.sha)
+        invalid_state = board.read_json(self.root / cash_acceptance['proofs']['state']['path'])
+        invalid_state['cash_weight'] = .9
+        self.set_payload(cash_acceptance['proofs']['state'], invalid_state)
+        cash_acceptance.update(cash_weight=.9, raw_sha256=cash_acceptance['proofs']['state']['sha256'])
+        self.set_payload(cash_context['model_state']['artifact'], cash_acceptance)
+        cash_policy['reviewed_pins']['positions'] = [domain_digest(cash_acceptance)]
+        with self.assertRaisesRegex(board.ContractError, '^a5_model_position_weights$'):
+            board.verify_current_model_incumbents(cash_context, self.root,
+                board.timestamp(self.state['as_of']), self.now, policy=cash_policy, code_sha=self.sha)
+        expired = copy.deepcopy(carried)
+        expired.update(decision_time='2026-09-23T04:00:00+00:00', market_session_date='2026-09-22')
+        with self.assertRaisesRegex(board.ContractError, '^artifact_time_boundary$'):
+            at = board.timestamp(expired['decision_time'])
+            board.verify_current_model_incumbents(expired, self.root, at, at, policy=policy, code_sha='c'*40)
+        for key in context['model_state']['model_identity']:
+            changed = copy.deepcopy(context)
+            changed['model_state']['model_identity'][key] = ('0' * len(acceptance['model_identity'][key])
+                if key.endswith(('sha', 'sha256')) else 'OTHER:MODEL')
+            with self.subTest(identity=key), self.assertRaisesRegex(board.ContractError, '^a5_model_identity_or_clock_mismatch$'):
+                board.verify_current_model_incumbents(changed, self.root,
+                    board.timestamp(self.state['as_of']), self.now, policy=policy, code_sha=self.sha)
+
+    def test_model_incumbent_schema_does_not_accept_account_or_proposal_authority(self):
+        context, policy, acceptance, _ = self.model_incumbents_case()
+        original = copy.deepcopy(acceptance)
+        expired = (board.timestamp(self.state['as_of']) - timedelta(seconds=1)).isoformat()
+        for key, value, reason in (('book_kind', 'PAPER', 'schema_invalid:system_state_schema.json:'),
+                                  ('state_role', 'TARGET_PROPOSAL', 'schema_invalid:system_state_schema.json:'),
+                                  ('current', False, 'schema_invalid:system_state_schema.json:'),
+                                  ('producer_code_sha', '0'*40, 'a5_model_original_task_identity'),
+                                  ('as_of', '2026-09-22', 'a5_model_identity_or_clock_mismatch'),
+                                  ('decision_time', self.at(1), 'a5_model_identity_or_clock_mismatch'),
+                                  ('expires_at', expired, 'a5_model_identity_or_clock_mismatch'),
+                                  ('principals', dict(A5='PRODUCER:MODEL', A6='PRODUCER:MODEL'),
+                                   'a5_model_review_not_independent')):
+            changed = copy.deepcopy(original); changed[key] = value
+            self.set_payload(context['model_state']['artifact'], changed)
+            reviewed = copy.deepcopy(policy); reviewed['reviewed_pins']['positions'] = [domain_digest(changed)]
+            with self.subTest(field=key), self.assertRaisesRegex(board.ContractError, '^' + reason):
+                board.verify_current_model_incumbents(context, self.root,
+                    board.timestamp(self.state['as_of']), self.now, policy=reviewed, code_sha=self.sha)
+
+    def test_model_original_packet_keys_and_portfolio_mode_are_replayed(self):
+        context, policy, acceptance, _ = self.model_incumbents_case()
+        refs = acceptance['proofs']
+        packet = board.read_json(self.root / refs['a5_packet']['path'])
+        receipt = board.read_json(self.root / refs['a5_receipt']['path'])
+        allocation = board.read_json(self.root / refs['state']['path'])
+        original_packet, original_allocation = copy.deepcopy(packet), copy.deepcopy(allocation)
+        def repin():
+            acceptance['raw_sha256'] = refs['state']['sha256']
+            self.set_payload(context['model_state']['artifact'], acceptance)
+            policy['reviewed_pins']['positions'] = [domain_digest(acceptance)]
+        def refuse(reason):
+            with self.assertRaisesRegex(board.ContractError, '^' + reason + '$'):
+                board.verify_current_model_incumbents(context, self.root,
+                    board.timestamp(self.state['as_of']), self.now, policy=policy, code_sha=self.sha)
+        packet['task_key'] = allocation['origin_a5_task_key'] = 'f'*64
+        self.set_payload(refs['a5_packet'], packet); self.set_payload(refs['state'], allocation); repin()
+        refuse('a5_model_original_task_identity')
+        packet, allocation = copy.deepcopy(original_packet), copy.deepcopy(original_allocation)
+        packet['identity']['parameters']['portfolio_mode'] = 'ACCOUNT_REBALANCE'
+        packet['task_key'] = board.digest({'agent': 'A5', **packet['identity']})
+        receipt.update(identity=copy.deepcopy(packet['identity']), task_key=packet['task_key'],
+                       parameter_hash=board.digest(packet['identity']['parameters']))
+        for kind in ('runtime_verification', 'focused_tests', 'ci'):
+            evidence = receipt[kind]
+            evidence['identity'] = board.evidence_identity(kind, evidence['reference'], receipt['task_key'],
+                receipt['identity'], evidence['head_sha'], receipt['outputs'], evidence['available_at'])
+        allocation['origin_a5_task_key'] = packet['task_key']
+        self.set_payload(refs['a5_packet'], packet); self.set_payload(refs['a5_receipt'], receipt)
+        self.set_payload(refs['state'], allocation); repin()
+        refuse('a5_model_original_account_proposal')
+
+    def test_model_selection_document_never_grants_itself_acceptance(self):
+        ref=self.artifact('pending_owner_selection')
+        selection=dict(schema_version='model-allocation-selection-v1',change_kind='SELECT_ALLOCATION',
+            owner_principal='OWNER:SYNTHETIC',selected_at=self.at(-5),expires_at=self.at(30),
+            reason='Pending explicit .15/.85 comparison selection',proposal_receipt_sha256='a'*64,
+            a5_packet=ref,a5_receipt=ref,positions=[dict(asset_id='SYNTHETIC:A',weight=.15)],cash_weight=.85,
+            model_identity=dict(model_id='SYNTHETIC:MODEL',model_version='v1',model_code_sha=self.sha,
+                model_config_sha256='1'*64,model_recipe_sha256='2'*64,data_identity_sha256='3'*64,
+                cost_context_sha256='4'*64))
+        board.schema_validate(selection,'system_state_schema.json','model_allocation_selection')
+        for key,value in (('approved',True),('accepted',True),('reviewed_pins',{'positions':['a'*64]}),
+                          ('cash_weight',True),('change_kind','AUTO_ACCEPT')):
+            with self.subTest(key=key):
+                bad=copy.deepcopy(selection);bad[key]=value
+                with self.assertRaises(board.ContractError):
+                    board.schema_validate(bad,'system_state_schema.json','model_allocation_selection')
 
     def test_model_genesis_prepares_without_account_but_never_admits_or_dispatches(self):
         self.model_case()
