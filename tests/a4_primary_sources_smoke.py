@@ -73,8 +73,9 @@ class PrimaryTests(unittest.TestCase):
                'docs/market_analysis_contract_v1.json','tools/build_run287_chameleon_macro_inputs.py',
                'tools/candidate_reassessment_bridge.py','tools/a4_liquidity_analysis.py',
                'tools/a4_macro_bridge.py','docs/market_analysis_contract_v2.json',
-               'tools/a4_macro_learning.py','tools/macro_technical_study.py','tools/a4_data_center.py')
-        self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity())|{'a4_data_center.py'})
+               'tools/a4_macro_learning.py','tools/macro_technical_study.py','tools/a4_data_center.py',
+               'docs/research_data_access.json')
+        self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity())|{'a4_data_center.py','research_data_access.json'})
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())

@@ -10958,3 +10958,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   separate from current context. The index validates the existing reviewed
   learning bundle but does not manufacture a policy, run an unqualified fit,
   promote a trial or treat current revised history as historical PIT.
+- Initial full142-case local regression passed238.139s. A subsequent portability
+  check found the access-route JSON was CRLF on Windows while its Git blob was
+  LF; the catalog also hashes this locator. Pin it to LF alongside the separate
+  index implementation and extend the actual autocrlf checkout regression.
+  Do not ignore raw hashes or publish a cross-host identity claim before the
+  configuration bytes are canonical. Existing18-file risk identity stays intact.
