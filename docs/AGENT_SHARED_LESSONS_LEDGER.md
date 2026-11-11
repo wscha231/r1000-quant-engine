@@ -10875,3 +10875,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   or.gitattributes. Keep synthetic current-publisher proof fixtures self-contained
   and test physical source bytes without requiring absent checkout files. Verify
   actual trusted pins separately through the real protected-gate consumer.
+- Hosted Source43075092235/job130712722935 then found one failure in546
+  tests: the older regression deliberately checks even hypothetical CRLF size.
+  Retain that test and262144 limit; relocate the shared proof body to the
+  existing capture module, leaving the revision wrapper and scoped pins.
+  LF255808/CRLF259434 bytes both fit. Cancel only obsolete side-effect-free
+  PR validation43075092396; never rerun capture or weaken the old guard.
+- After relocation,66/66 focused tests passed in normal and -O, including
+  the unchanged legacy LF+CRLF test. A broader local registered run reached
+  its238.0277331-second finite deadline and was stopped; no broad PASS is
+  claimed or rerun. Hosted exact-head validation remains required. Retain
+  all costs (Source cumulative1622.7422994s) and the partial log.

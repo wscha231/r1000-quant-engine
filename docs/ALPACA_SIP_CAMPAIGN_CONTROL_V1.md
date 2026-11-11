@@ -90,6 +90,11 @@ actual bytes; the byte limit is not increased. Synthetic workflow proof fixtures
 need no extra sparse checkout files; actual protected750 provenance is verified
 separately through the real GitHub metadata/log consumer, without capture.
 
+The shared provenance proof body lives in the existing capture module, behind
+the original revision API. This keeps both LF and hypothetical CRLF source
+bytes below the unchanged262144 limit; the pre-existing two-form regression
+remains unchanged. Runtime proof semantics and legacy pin selection are preserved.
+
 ## Exact historical authorization / corrective Read392 v3 — 2026-10-21
 
 The real frozen v9 authorization `2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e`
