@@ -1332,36 +1332,12 @@ class Lake:
                 quality.get('eligible_for_selector') is False and
                 quality.get('status') in {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'} and
                 quality['status']==receipt.get('quality_status'),'execution_quality_mismatch')
-        if ('cycle_scope' in receipt or 'cycle_scope' in quality
-                or self.catalog.get('config',{}).get('hybrid_refresh') is not None):
-            require(receipt.get('cycle_scope')==quality.get('cycle_scope')
-                    and type(receipt.get('cycle_scope')) is dict
-                    and digest(encoded(receipt['cycle_scope']))==self.catalog.get('config',{}).get(
-                        'hybrid_refresh',{}).get('summary_sha256'),'hybrid_execution_scope_mismatch')
-        if ('materialization_clock' in receipt or 'materialization_prepublication_clock' in quality):
-            detail=self.catalog.get('config',{}).get('hybrid_refresh',{})
-            keys=[k for k in detail.get('checked_keys',[])
-                if k.startswith(('current/','alfred/','worldbank/'))
-                and self.catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
-            clock=receipt.get('materialization_clock')
-            require(type(clock) is dict and bool(keys),'materialization_execution_clock_missing')
-            require(clock==materialization_clock(self,keys,self.catalog['config']['through'],
-                    clock['consumption_cutoff_utc']) and
-                    json.loads(verified.get('materialization-clock.json',b'null'))==clock,
-                    'materialization_execution_clock_mismatch')
-            sql_at=hybrid_clock(clock['consumption_cutoff_utc']);created=hybrid_clock(receipt['created_at'])
-            require(sql_at<=created<=hybrid_clock(utc_now()),'materialization_execution_clock_order')
-            if 'materialization_prepublication_clock' in quality:
-                pre=quality['materialization_prepublication_clock']
-                require(pre==materialization_clock(self,keys,self.catalog['config']['through'],
-                            pre['consumption_cutoff_utc']) and
-                        hybrid_clock(pre['consumption_cutoff_utc'])<=sql_at,
-                        'materialization_prepublication_clock_order')
-            study=json.loads(verified.get('macro-evaluation.json',b'{}'))
-            if 'as_of' in study:
-                study_at=hybrid_clock(study['as_of'])
-                require(receipt.get('study_consumption_cutoff_utc')==study_at.isoformat()
-                        and sql_at<=study_at<=created,'materialization_study_clock_order')
+        report_values={'quality.json':quality}
+        for name in execution_metadata_report_names(receipt,quality):
+            if name!='quality.json' and name in verified:
+                report_values[name]=json.loads(verified[name])
+        validate_execution_metadata(receipt,commit_sha256=self.parent,commit=commit,
+            catalog=self.catalog,quality=quality,report_values=report_values,validation_clock=utc_now())
         readback_verified=False;terminal_verified=False
         if 'source_cycle_readback' in receipt:
             require(receipt['source_cycle_readback']==hybrid_source_scope_readback(self,receipt['cycle_scope'])
@@ -1826,6 +1802,213 @@ def diagnostics(lake):
         provider_failures={k:d.get('last_failure') for k,d in datasets.items() if d['status'] in ('BLOCKED','STALE_RETAINED')},
         provider_coverage_gaps={k:d.get('coverage_gap_reason') for k,d in datasets.items()
             if d['status']=='COVERAGE_GAP'})
+
+
+def execution_metadata_report_names(receipt,quality):
+    """Known raw producer variants; derived readback-view markers are not receipts."""
+    base={'schema','run_id','created_at','catalog_sha256','commit_sha256','reports',
+          'consumer_rows','study_recomputed_from_drive','quality_status','eligible_for_selector'}
+    optional={'recovery','cycle_scope','source_cycle_readback','materialization_clock',
+              'study_consumption_cutoff_utc','producer_cycle_complete','terminal_outcomes_complete'}
+    require(type(receipt) is dict and not ({'execution_receipt_sha256',
+        'source_readback_verified_from_drive','producer_terminal_verified_from_drive'}&set(receipt)),
+        'hybrid_derived_marker_in_receipt')
+    require(base<=set(receipt)<=base|optional,'execution_raw_variant_fields')
+    require(type(quality) is dict and type(receipt['reports']) is dict,'execution_reports')
+    names={'quality.json'}
+    if 'materialization_clock' in receipt or 'materialization_prepublication_clock' in quality:
+        names.add('materialization-clock.json')
+        if 'macro-evaluation.json' in receipt['reports']:names.add('macro-evaluation.json')
+    if 'study_consumption_cutoff_utc' in receipt:names.add('macro-evaluation.json')
+    return tuple(sorted(names))
+
+
+def _execution_source_readback_metadata(proof,scope,detail,catalog,commit_sha256):
+    """Compare producer-reported metadata only; never certify original body reads."""
+    auto=scope.get('standing_auto',{});providers=auto.get('provider_scope',{})
+    keys=detail['checked_keys'];terminal='terminal_outcomes_complete' in scope
+    fields={'schema','commit','catalog','profile_sha256','checked_scope_sha256','checked',
+            'macro_regime_ready','whole_macro_complete','source_admission','historical_pit_certified'}
+    extra={'terminal_outcomes_complete','ready_clocks','held','unmapped_securities_HOLD'} if terminal else set()
+    require(type(proof) is dict and set(proof)==fields|extra and bool(keys)
+            and proof['schema']==('long-history-hybrid-source-readback-v2' if terminal else
+                                  'long-history-hybrid-source-readback-v1')
+            and proof['commit']==commit_sha256 and proof['catalog']==digest(encoded(catalog))
+            and proof['profile_sha256']==auto.get('profile_sha256')
+            and type(proof['profile_sha256']) is str
+            and re.fullmatch('[a-f0-9]{64}',proof['profile_sha256'])
+            and proof['checked_scope_sha256']==scope['checked_scope_sha256']
+            and all(proof[k] is False for k in ('macro_regime_ready','whole_macro_complete',
+                                               'source_admission','historical_pit_certified')),
+            'hybrid_source_scope_metadata')
+    require(providers.get('fred') is False or terminal,'hybrid_source_scope_only')
+    observed=[];held=[]
+    for key in keys:
+        provider=('sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/')
+                  else 'fred' if key.startswith(('current/','alfred/')) else None)
+        require(provider and providers.get(provider) is True,'hybrid_disabled_provider_consumption')
+        entry=catalog['datasets'][key]
+        if terminal and entry['status']=='COVERAGE_GAP':
+            profile={k:entry[k] for k in ('cik','issuer_forms','has_fundamental_issuer_role',
+                                         'issuer_accessions','recent_forms')}
+            require(re.fullmatch('sec/[0-9]{10}',key) and profile['cik']==key[4:]
+                    and entry.get('coverage_gap') is True and entry.get('normalized') is None
+                    and entry.get('evidence')=='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS'
+                    and type(entry.get('raw_objects')) is list and len(entry['raw_objects'])==1
+                    and entry.get('objects')==entry['raw_objects']
+                    and type(entry['raw_objects'][0]) is str
+                    and re.fullmatch('[a-f0-9]{64}',entry['raw_objects'][0])
+                    and type(entry.get('submissions_source_sha256')) is str
+                    and re.fullmatch('[a-f0-9]{64}',entry['submissions_source_sha256'])
+                    and type(profile['recent_forms']) is list
+                    and all(type(v) is str for v in profile['recent_forms'])
+                    and profile['recent_forms']==sorted(set(profile['recent_forms']))
+                    and profile['issuer_forms']==sorted(set(profile['recent_forms'])&FORMS)
+                    and profile['has_fundamental_issuer_role'] is bool(profile['issuer_forms'])
+                    and type(profile['issuer_accessions']) is list
+                    and profile['issuer_accessions']==sorted(set(profile['issuer_accessions']))
+                    and all(type(v) is str and re.fullmatch(r'\d{10}-\d{2}-\d{6}',v)
+                            for v in profile['issuer_accessions']), 'hybrid_gap_metadata')
+            reason=('SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT' if profile['has_fundamental_issuer_role']
+                    else 'SEC_FUNDAMENTAL_ENTITY_ROLE_UNRESOLVED')
+            require(entry.get('coverage_gap_reason')==reason,'hybrid_gap_reason')
+            held.append(dict(key=key,status='COVERAGE_GAP',reason=reason,normalized=None,
+                raw_member_sha256=entry['raw_objects'][0],original_source_sha256=entry['submissions_source_sha256'],
+                identity_role=profile,clocks={k:entry.get(k) for k in ('retrieved_at','available_at','checked_at')}))
+            continue
+        require(entry['status'] in ('COLLECTED','UNCHANGED') and type(entry['rows']) is int
+                and entry['rows']>=0,'hybrid_source_scope_blocked')
+        observed.append(dict(key=key,normalized=entry['normalized'],objects=entry['objects'],rows=entry['rows']))
+    require(proof['checked']==observed,'hybrid_source_scope_checked_metadata')
+    if terminal:
+        unmapped=scope['unmapped_securities_HOLD'];universe=catalog['datasets']['universe/cohort']
+        objects=universe.get('raw_objects');role=universe.get('source_role_contract_version')
+        require(universe.get('evidence')=='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP'
+                and type(objects) is list and len(objects)==2 and objects[0]!=objects[1]
+                and all(type(v) is str and re.fullmatch('[a-f0-9]{64}',v) for v in objects),
+                'cohort_source_role')
+        if role=='cohort-sec-mapping-v1':
+            cohort_object=universe.get('cohort_source_object_sha256')
+            mapping_object=universe.get('sec_ticker_mapping_object_sha256')
+            require(type(cohort_object) is str and type(mapping_object) is str
+                    and set(objects)=={cohort_object,mapping_object}
+                    and type(universe.get('sec_ticker_mapping_retrieved_at')) is str,
+                    'cohort_source_role')
+        else:
+            require(role is None and catalog.get('code_sha') in LEGACY_SEC_MAPPING_PRODUCERS,
+                    'cohort_legacy_producer')
+            cohort_object,mapping_object=objects
+        require(scope['terminal_outcomes_complete'] is True and proof['terminal_outcomes_complete'] is True
+                and proof['held']==held and len(observed)+len(held)==len(keys)
+                and proof['ready_clocks']=={v['key']:{k:catalog['datasets'][v['key']].get(k)
+                    for k in ('retrieved_at','available_at','first_available_at','checked_at')} for v in observed}
+                and proof['unmapped_securities_HOLD']==unmapped and type(unmapped) is dict
+                and set(unmapped)=={'count','missing_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256'}
+                and type(unmapped['count']) is int and unmapped['count']>=0
+                and all(type(unmapped[k]) is str and re.fullmatch('[a-f0-9]{64}',unmapped[k])
+                        for k in ('missing_sha256','cohort_sha256','mapping_object_sha256','mapping_source_sha256'))
+                # Canonical readback hashes decompressed cohort JSON, while the
+                # catalog's source-role references address gzip objects. Their
+                # byte domains must not be equated by metadata validation.
+                and unmapped['cohort_sha256']==COHORT_SHA
+                and unmapped['mapping_object_sha256']==mapping_object
+                and unmapped['mapping_source_sha256']==universe['sec_ticker_mapping_source_sha256'],
+                'hybrid_terminal_metadata')
+
+
+def validate_execution_metadata(receipt,*,commit_sha256,commit,catalog,quality,report_values,validation_clock):
+    """Shared pure raw-receipt consistency, not Lake/Drive or selected-body QA.
+
+    Callers authenticate and bound all metadata/report bytes before this call.
+    Lake retains its real readback below; a bounded Reader supplies selected
+    issuer reconstruction separately and never receives derived Drive markers.
+    """
+    needed=execution_metadata_report_names(receipt,quality)
+    require(receipt['schema']=='long-history-execution-v1' and receipt['commit_sha256']==commit_sha256
+            and receipt['catalog_sha256']==commit['catalog']==digest(encoded(catalog))
+            and receipt['run_id']==commit['run_id']==catalog['run_id']
+            and receipt['eligible_for_selector'] is False
+            and type(receipt['study_recomputed_from_drive']) is bool
+            and type(receipt['consumer_rows']) is int and receipt['consumer_rows']>=0,
+            'execution_schema')
+    require(type(receipt['reports']) is dict and all(type(k) is str and type(v) is str
+            and re.fullmatch('[a-f0-9]{64}',v) for k,v in receipt['reports'].items())
+            and set(needed)<=set(receipt['reports']) and set(needed)<=set(report_values)
+            and report_values['quality.json']==quality
+            and quality['schema']=='long-history-quality-v1' and quality['eligible_for_selector'] is False
+            and quality['status']==receipt['quality_status'] and quality['status'] in
+                {'PARTIAL','PARTIAL_COVERAGE','COLLECTED_NOT_PIT_CERTIFIED'},'execution_quality_mismatch')
+    if 'recovery' in receipt:require(type(receipt['recovery']) is dict,'execution_recovery')
+    detail=catalog.get('config',{}).get('hybrid_refresh')
+    extended={'cycle_scope','source_cycle_readback','materialization_clock','study_consumption_cutoff_utc',
+              'producer_cycle_complete','terminal_outcomes_complete'}&set(receipt)
+    if (not extended and 'cycle_scope' not in quality
+            and 'materialization_prepublication_clock' not in quality and detail is None):return
+    scope=receipt.get('cycle_scope')
+    require(type(scope) is dict and type(detail) is dict and scope==quality.get('cycle_scope')
+            and scope.get('schema')=='long-history-hybrid-cycle-scope-v1'
+            and scope.get('mode') in HYBRID_MODES and scope==detail.get('cycle_scope')
+            and digest(encoded(scope))==detail.get('summary_sha256')
+            and all(scope.get(k) is False for k in ('full_universe_current','historical_pit_certified','source_admission')),
+            'hybrid_execution_scope_mismatch')
+    keys=detail['checked_keys']
+    require(type(keys) is list and all(type(k) is str and k in catalog['datasets'] and
+            k.startswith(('sec/','current/','alfred/','worldbank/')) for k in keys)
+            and keys==sorted(set(keys)) and digest(encoded(keys))==scope.get('checked_scope_sha256')
+            and type(scope.get('checked_datasets')) is int and scope['checked_datasets']==len(keys),
+            'hybrid_source_scope_binding')
+    auto=scope.get('standing_auto')
+    if auto is not None:
+        require(type(auto) is dict and type(auto.get('provider_scope')) is dict,
+                'hybrid_provider_scope_metadata')
+        providers=auto['provider_scope']
+        require(auto==detail.get('standing_auto') and type(providers) is dict
+                and set(providers)=={'sec','fred','worldbank'} and all(type(v) is bool for v in providers.values())
+                and scope.get('provider_scope',providers)==providers,'hybrid_provider_scope_metadata')
+        for key in keys:
+            provider='sec' if key.startswith('sec/') else 'worldbank' if key.startswith('worldbank/') else 'fred'
+            require(providers[provider] is True,'hybrid_disabled_provider_consumption')
+        require(providers['fred'] is not False or receipt['study_recomputed_from_drive'] is False,
+                'hybrid_source_scope_study_mismatch')
+    created=hybrid_clock(receipt['created_at']);require(created<=hybrid_clock(validation_clock),'execution_future_clock')
+    sql_at=None
+    if 'materialization_clock' in receipt or 'materialization_prepublication_clock' in quality:
+        macro_keys=[k for k in keys if k.startswith(('current/','alfred/','worldbank/'))
+                    and catalog['datasets'][k]['status'] in ('COLLECTED','UNCHANGED')]
+        clock=receipt.get('materialization_clock')
+        require(type(clock) is dict and bool(macro_keys),'materialization_execution_clock_missing')
+        # Only catalog metadata is exposed to this existing pure function.
+        class CatalogMetadataView:
+            @property
+            def catalog(self):return catalog
+        view=CatalogMetadataView()
+        require(clock==materialization_clock(view,macro_keys,catalog['config']['through'],clock['consumption_cutoff_utc'])
+                and report_values['materialization-clock.json']==clock,'materialization_execution_clock_mismatch')
+        sql_at=hybrid_clock(clock['consumption_cutoff_utc'])
+        require(sql_at<=created,'materialization_execution_clock_order')
+        if 'materialization_prepublication_clock' in quality:
+            pre=quality['materialization_prepublication_clock']
+            require(pre==materialization_clock(view,macro_keys,catalog['config']['through'],pre['consumption_cutoff_utc'])
+                    and hybrid_clock(pre['consumption_cutoff_utc'])<=sql_at,'materialization_prepublication_clock_order')
+    study=report_values.get('macro-evaluation.json',{})
+    require(type(study) is dict,'materialization_study_report')
+    if 'as_of' in study or 'study_consumption_cutoff_utc' in receipt:
+        require('as_of' in study,'materialization_study_clock_missing')
+        study_at=hybrid_clock(study['as_of'])
+        require(receipt.get('study_consumption_cutoff_utc')==study_at.isoformat()
+                and (sql_at is None or sql_at<=study_at) and study_at<=created,'materialization_study_clock_order')
+    terminal=False
+    if 'source_cycle_readback' in receipt:
+        _execution_source_readback_metadata(receipt['source_cycle_readback'],scope,detail,catalog,commit_sha256)
+        terminal=receipt['source_cycle_readback']['schema']=='long-history-hybrid-source-readback-v2'
+    if 'terminal_outcomes_complete' in scope:
+        require(type(receipt.get('producer_cycle_complete')) is bool
+                and type(receipt.get('terminal_outcomes_complete')) is bool
+                and receipt['producer_cycle_complete']==terminal and receipt['terminal_outcomes_complete']==terminal,
+                'hybrid_terminal_execution_mismatch')
+    else:
+        require('producer_cycle_complete' not in receipt and 'terminal_outcomes_complete' not in receipt,
+                'hybrid_old_partial_not_promoted')
 
 
 def materialization_clock(lake,keys,through,decision_time):

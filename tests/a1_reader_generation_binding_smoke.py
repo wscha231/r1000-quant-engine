@@ -151,17 +151,218 @@ def financial_fixture(*, rows_override=None, durable=False, supplier_expires_at=
     return raw,norm,e,trust,proof,rows
 
 
-def bound_financial_fixture(*, durable=False, supplier_expires_at=None):
-    raw,norm,e,t,proof,rows=financial_fixture(durable=durable,supplier_expires_at=supplier_expires_at)
+def _financial_hybrid_catalog(catalog, variant):
+    """Synthetic canonical metadata shapes; no original readback is simulated."""
+    if variant not in ('scope_only','materialization','study','source_v1','source_v2',
+                       'source_v2_held','source_v2_partial'):
+        raise AssertionError('unknown synthetic producer variant')
+    config=catalog['config'];datasets=catalog['datasets']
+    if variant in ('materialization','study'):
+        datasets['current/UNRATE']=dict(status='COLLECTED',rows=1,evidence='current_only',
+            retrieved_at=catalog['created_at'].replace('12:00:02','12:00:00'),
+            normalized='d'*64,objects=['d'*64],raw_objects=['e'*64])
+    terminal=variant.startswith('source_v2')
+    if terminal:
+        from tools.long_history_lake import COHORT_SHA
+        datasets['universe/cohort']=dict(raw_objects=['5'*64,'6'*64],
+            evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',
+            source_role_contract_version='cohort-sec-mapping-v1',
+            cohort_source_object_sha256='5'*64,sec_ticker_mapping_object_sha256='6'*64,
+            sec_ticker_mapping_source_sha256='7'*64,sec_ticker_mapping_retrieved_at=catalog['created_at'])
+    if variant=='source_v2_held':
+        datasets['sec/0000000002']=dict(cik='0000000002',status='COVERAGE_GAP',coverage_gap=True,
+            normalized=None,raw_objects=['8'*64],objects=['8'*64],submissions_source_sha256='9'*64,
+            evidence='SEC_SUBMISSIONS_ROLE_EVIDENCE_NO_COMPANYFACTS',
+            issuer_forms=['10-K'],has_fundamental_issuer_role=True,
+            issuer_accessions=['0000000002-26-000001'],recent_forms=['10-K','8-K'],
+            coverage_gap_reason='SEC_COMPANYFACTS_UNAVAILABLE_ISSUER_FILINGS_PRESENT',
+            retrieved_at=catalog['created_at'],available_at=catalog['created_at'],
+            checked_at=catalog['created_at'])
+    keys=sorted(k for k in datasets if k.startswith(('sec/','current/')))
+    scope=dict(schema='long-history-hybrid-cycle-scope-v1',mode='HYBRID_DAILY',
+        checked_scope_sha256=digest(encoded(keys)),checked_datasets=len(keys),
+        full_universe_current=False,historical_pit_certified=False,source_admission=False)
+    if variant.startswith('source_'):
+        scope['standing_auto']=dict(profile_sha256='4'*64,
+            provider_scope=dict(sec=True,fred=False,worldbank=False))
+        scope['provider_scope']=dict(scope['standing_auto']['provider_scope'])
+    if terminal:
+        scope.update(terminal_outcomes_complete=True,unmapped_securities_HOLD=dict(
+            count=1,missing_sha256='3'*64,cohort_sha256=COHORT_SHA,
+            mapping_object_sha256='6'*64,mapping_source_sha256='7'*64))
+    config['hybrid_refresh']=dict(cycle_scope=copy.deepcopy(scope),checked_keys=keys,
+        summary_sha256=digest(encoded(scope)))
+    if 'standing_auto' in scope:
+        config['hybrid_refresh']['standing_auto']=copy.deepcopy(scope['standing_auto'])
+    return scope
+
+
+def _financial_hybrid_execution(catalog, commit_sha256, variant):
+    """Reported metadata only, with no derived Lake/Drive verification markers."""
+    detail=catalog['config']['hybrid_refresh'];scope=detail['cycle_scope']
+    extra=dict(cycle_scope=copy.deepcopy(scope));reports={}
+    if variant in ('materialization','study'):
+        from types import SimpleNamespace
+        from tools.long_history_lake import materialization_clock
+        sql=materialization_clock(SimpleNamespace(catalog=catalog),['current/UNRATE'],
+            catalog['config']['through'],catalog['created_at'])
+        extra['materialization_clock']=sql;reports['materialization-clock.json']=sql
+        if variant=='study':
+            at=catalog['created_at'].replace('12:00:02','12:00:03')
+            extra.update(study_consumption_cutoff_utc=access.clock(at).isoformat())
+            reports['macro-evaluation.json']=dict(as_of=at,tests_declared=1)
+    if variant.startswith('source_') and variant!='source_v2_partial':
+        terminal='terminal_outcomes_complete' in scope
+        proof=dict(schema='long-history-hybrid-source-readback-v2' if terminal else
+                         'long-history-hybrid-source-readback-v1',
+            commit=commit_sha256,catalog=digest(encoded(catalog)),profile_sha256='4'*64,
+            checked_scope_sha256=scope['checked_scope_sha256'],checked=[],
+            macro_regime_ready=False,whole_macro_complete=False,
+            source_admission=False,historical_pit_certified=False)
+        held=[]
+        for key in detail['checked_keys']:
+            entry=catalog['datasets'][key]
+            if entry['status']=='COVERAGE_GAP':
+                held.append(dict(key=key,status='COVERAGE_GAP',reason=entry['coverage_gap_reason'],
+                    normalized=None,raw_member_sha256=entry['raw_objects'][0],
+                    original_source_sha256=entry['submissions_source_sha256'],
+                    identity_role={k:entry[k] for k in ('cik','issuer_forms','has_fundamental_issuer_role',
+                                                       'issuer_accessions','recent_forms')},
+                    clocks={k:entry.get(k) for k in ('retrieved_at','available_at','checked_at')}))
+            else:
+                proof['checked'].append(dict(key=key,normalized=entry['normalized'],
+                    objects=entry['objects'],rows=entry['rows']))
+        if terminal:
+            proof.update(terminal_outcomes_complete=True,held=held,
+                ready_clocks={v['key']:{k:catalog['datasets'][v['key']].get(k) for k in
+                    ('retrieved_at','available_at','first_available_at','checked_at')} for v in proof['checked']},
+                unmapped_securities_HOLD=copy.deepcopy(scope['unmapped_securities_HOLD']))
+        extra['source_cycle_readback']=proof
+    if 'terminal_outcomes_complete' in scope:
+        extra.update(producer_cycle_complete=variant!='source_v2_partial',
+                     terminal_outcomes_complete=variant!='source_v2_partial')
+    return extra,reports
+
+
+def verified_financial_fixture(*, producer_change=None, qa_change=None, generation=30, generic=False,
+                               hybrid_variant=None):
+    """Synthetic matched original producer and actual-QA-shaped proof, not R9/G29."""
+    from tools.long_history_lake import SCHEMA,unpacked,packed,sec_rows
+    raw,norm,e,t,proof,rows=financial_fixture()
+    for role in ('source_origin','reconstruction','reconstruction_result'):
+        proof.pop(e['proofs'][role])
+    def put(value):
+        body=encoded(value);h=digest(body);proof[h]=body
+        return dict(sha256=h,bytes=len(body))
+    origin=e['origin']
+    if generation != 30:
+        original=json.loads(unpacked(raw))
+        original['facts']['us-gaap']['Revenues']['units']['USD'].append(dict(start='2025-09-01',end='2026-08-31',
+            filed='2026-10-26',accn='0000000001-26-000003',form='10-K/A',val=1,fy=2026,fp='FY'))
+        origin.update(through='2026-10-26',retrieved_at='2026-10-27T12:00:00Z',checked_at='2026-10-27T12:00:01Z')
+        rows,rejected=sec_rows(encoded(original),t.issuer_cik,origin['start'],origin['through'])
+        if rejected:raise AssertionError('synthetic future extraction failed')
+        raw=packed(encoded(original));norm=packed(b''.join(encoded(row) for row in rows))
+        e['raw']=dict(sha256=digest(raw),bytes=len(raw));e['normalized']=dict(sha256=digest(norm),bytes=len(norm))
+        e['issuer']['archive_through']=origin['through']
+        e.update(first_verified_readback_at='2026-10-27T12:02:00Z',research_valid_from='2026-10-27T12:02:00Z')
+        t=replace(t,raw_sha256=digest(raw),normalized_sha256=digest(norm),normalized_rows=len(rows),
+                  original_through=origin['through'])
+    origin['run_id']='CONTRACT_FIXTURE:completed_original'+('' if generation==30 else str(generation))
+    config=dict(financial_start=origin['start'],through=origin['through'])
+    origin['config_sha256']=digest(encoded(config))
+    dataset=dict(cik=t.issuer_cik,status='COLLECTED',raw_objects=[digest(raw)],normalized=digest(norm),
+        rows=len(rows),objects=[digest(raw),digest(norm)],extraction_sha256=t.extraction_sha256,
+        **{k:origin[k] for k in ('start','through','retrieved_at','checked_at')})
+    catalog=dict(schema=SCHEMA,generation=generation,eligible_for_selector=False,run_id=origin['run_id'],
+        code_sha=origin['source_code_sha'],created_at=origin['retrieved_at'].replace('12:00:00','12:00:02'),config=config,
+        datasets={origin['dataset_key']:dataset},locations={digest(raw):'a'*64,digest(norm):'b'*64})
+    scope=_financial_hybrid_catalog(catalog,hybrid_variant) if hybrid_variant else None
+    origin['config_sha256']=digest(encoded(config))
+    cref=put(catalog);origin['catalog_sha256']=cref['sha256']
+    commit=dict(schema='long-history-commit-v1',generation=generation,run_id=origin['run_id'],
+        created_at=origin['retrieved_at'].replace('12:00:00','12:00:03'),catalog=cref['sha256'],parent='c'*64)
+    kref=put(commit);origin['commit_sha256']=kref['sha256']
+    quality=dict(schema='long-history-quality-v1',status='PARTIAL',eligible_for_selector=False)
+    extra,reports=(_financial_hybrid_execution(catalog,kref['sha256'],hybrid_variant)
+                   if hybrid_variant else ({},{}))
+    if scope is not None:quality['cycle_scope']=copy.deepcopy(scope)
+    if 'materialization_clock' in extra:
+        quality['materialization_prepublication_clock']=copy.deepcopy(extra['materialization_clock'])
+    qref=put(quality)
+    producer=dict(schema='long-history-execution-v1',run_id=origin['run_id'],
+        created_at=origin['retrieved_at'].replace('12:00:00','12:00:04'),catalog_sha256=cref['sha256'],commit_sha256=kref['sha256'],
+        reports={'quality.json':qref['sha256']},consumer_rows=0,
+        study_recomputed_from_drive=False,quality_status='PARTIAL',eligible_for_selector=False)
+    producer.update(extra)
+    producer['reports'].update({name:put(value)['sha256'] for name,value in reports.items()})
+    if hybrid_variant=='study':producer.update(study_recomputed_from_drive=True,consumer_rows=1)
+    if producer_change:producer_change(producer)
+    pref=put(producer);origin['matching_execution_receipt_sha256']=pref['sha256']
+    frozen=dict(schema='a1-financial-verified-producer-origin-v1',generation=generation,
+        dataset_key=origin['dataset_key'],commit=kref,catalog=cref,execution=pref,quality=qref)
+    fref=put(frozen)
+    qa=dict(schema='source-sec-fixed3-gen30-archive-qa-v1',status=
+        'VERIFIED_FIXED_THREE_ORIGINAL_PACKS_MEMBERS_AND_FINANCIAL_DIAGNOSTICS',
+        source_admission=False,pit_verified=False,eligible_for_selector=False,Reader_ACK='NOT_RUN',
+        ER_allowed=False,economic_validation='NOT_RUN',Source_prepare=0,
+        financial_generation_issued=0,qualification_issued=0,
+        started_at_utc='2026-10-24T11:59:57Z',
+        first_observed_complete_local_archive_QA_at='2026-10-24T11:59:58Z',finished_at_utc='2026-10-24T11:59:59Z',
+        source_origin_refs=dict(generation=generation,commit_sha256=kref['sha256'],catalog_sha256=cref['sha256'],
+            execution_sha256=pref['sha256'],catalog_code_sha=origin['source_code_sha'],
+            catalog_config_sha256=origin['config_sha256']),
+        helper=dict(current_extraction_sha256=t.extraction_sha256),datasets=[],packs=[])
+    if generation != 30:
+        qa.update(started_at_utc='2026-10-27T12:01:00Z',
+            first_observed_complete_local_archive_QA_at='2026-10-27T12:01:01Z',finished_at_utc='2026-10-27T12:01:02Z')
+    if generic:
+        qa.update(schema='a1-financial-original-archive-reconstruction-v1',
+            status='VERIFIED_SELECTED_ORIGINAL_ARCHIVE_AND_RECONSTRUCTION',provider='SEC_COMPANYFACTS',
+            identity_scope='ISSUER_FINANCIAL_FACTS',validation_scope='SELECTED_ISSUERS_ONLY',whole_cohort_verified=False)
+    for i in range(1 if generic else 3):
+        cik=str(i+1).zfill(10)
+        qa['datasets'].append(dict(cik=cik,dataset_key='sec/'+cik,raw_cik_matches_canonical=True,
+            actual_normalized_rows=len(rows),extraction=dict(status='EXACT_CANONICAL_SEC_ROWS_REPLAY_MATCH',
+                original_normalized_bytes_equal=True,rejected_original_rows=0,rows=len(rows),
+                extraction_sha256=t.extraction_sha256,start=origin['start'],through=origin['through'])))
+        if generic:qa['datasets'][-1].update(raw_sha256=digest(raw),normalized_sha256=digest(norm))
+        for role,obj,size,pack in (('original_response_gzip',digest(raw),len(raw),'a'*64),
+                                  ('normalized_gzip_jsonl',digest(norm),len(norm),'b'*64)):
+            qa['packs'].append(dict(role=role,selected_object_sha256=(obj if i==0 else digest(encoded([role,i]))),
+                selected_gzip_bytes=size,full_pack_hash_and_all_member_hash_CRC=True,pack_sha256=pack))
+            if generic:qa['packs'][-1]['dataset_key']='sec/'+cik
+    if qa_change:qa_change(qa)
+    aref=put(qa)
+    e['origin_mode']=binding.FINANCIAL_VERIFIED_ORIGIN
+    e['proofs'].update(source_origin=fref['sha256'],reconstruction=aref['sha256'])
+    e['proofs'].pop('reconstruction_result')
+    e['source_documents']=sorted(proof)
+    t=replace(t,evidence_sha256=digest(encoded(e)),proof_sha256=tuple(sorted(proof)),
+        original_config_sha256=origin['config_sha256'],reconstruction_receipt_sha256=aref['sha256'],
+        origin_mode=binding.FINANCIAL_VERIFIED_ORIGIN,original_execution_receipt_sha256=pref['sha256'])
+    return raw,norm,e,t,proof,rows
+
+
+def bound_financial_fixture(*, durable=False, supplier_expires_at=None, verified_original=False,
+                            generic_generation=None, hybrid_variant=None):
+    verified_original=verified_original or generic_generation is not None or hybrid_variant is not None
+    raw,norm,e,t,proof,rows=(verified_financial_fixture(generation=generic_generation or 30,
+        generic=generic_generation is not None,hybrid_variant=hybrid_variant) if verified_original else
+        financial_fixture(durable=durable,supplier_expires_at=supplier_expires_at))
     prepared=binding.prepare_financial_reuse(raw,norm,encoded(e),trusted_source=t,
         proof_objects=tuple(sorted(proof.items())),decision_time='2026-10-31T18:01:00Z')
     if prepared.blockers:raise AssertionError(prepared.blockers)
-    p=encoded(dict(schema='a1-financial-reuse-execution-v1',status='COMPLETED_REUSE_ONLY',
+    payload=dict(schema='a1-financial-reuse-execution-v1',status='COMPLETED_REUSE_ONLY',
         task_key=e['task_key'],run_id=t.reuse_run_id,code_sha=t.reuse_code_sha,adapter_file_sha256=t.adapter_file_sha256,
         config_sha256=t.evidence_sha256,raw_sha256=t.raw_sha256,normalized_sha256=t.normalized_sha256,
         quality_sha256=digest(prepared.quality),rows=t.normalized_rows,provider_gets=0,
         original_matching_execution=False,historical_pit=False,
-        started_at='2026-10-31T18:00:00Z',finished_at='2026-10-31T18:00:01Z'))
+        started_at='2026-10-31T18:00:00Z',finished_at='2026-10-31T18:00:01Z')
+    if verified_original:
+        payload.update(origin_mode=t.origin_mode,original_matching_execution=True,
+            original_matching_execution_receipt_sha256=t.original_execution_receipt_sha256)
+    p=encoded(payload)
     t=replace(t,execution_receipt_sha256=digest(p))
     bound=binding.bind_financial_reuse(prepared,p,trusted_source=t,
         created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
@@ -173,6 +374,190 @@ def bound_financial_fixture(*, durable=False, supplier_expires_at=None):
     if durable:
         t=replace(t,publication_receipt_sha256=digest(pub));blobs[digest(pub)]=pub
     return bound,t,blobs,p,pub
+
+
+class FinancialProducerMetadataTest(unittest.TestCase):
+    """Bounded preparation plus a real local Lake producer; synthetic data only."""
+    def test_financial_canonical_Lake_terminal_v2_distinguishes_gzip_object_and_content_hash(self):
+        """Real LocalTransport/Lake producer, synthetic data; no fake receipt.
+
+        The producer's own cohort parser, finish, complete-consumer and full
+        execution readback create/consume this v2. A metadata-only fixture with
+        the same mistaken hash convention would not catch the regression.
+        """
+        import os
+        import tempfile
+        from types import SimpleNamespace
+        from tools import long_history_lake as lake
+        through='2026-10-23';at='2026-10-23T12:00:05+00:00'
+        members=[dict(ticker='S'+str(i).zfill(4)) for i in range(1000)]
+        cohort=encoded(dict(candidate_count=len(members),as_of='2026-10-22',rows=members))
+        mapping={'0':dict(ticker='S0000',cik_str=1)};mapping_raw=encoded(mapping)
+        cohort_content_sha=digest(cohort);cohort_object_sha=digest(lake.packed(cohort))
+        mapping_object_sha=digest(lake.packed(mapping_raw))
+        self.assertNotEqual(cohort_content_sha,cohort_object_sha)
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(lake,'COHORT_SHA',cohort_content_sha), \
+             patch.object(lake,'utc_now',return_value=at), \
+             patch.object(lake,'get_public',side_effect=AssertionError('NO_PROVIDER')), \
+             patch.dict(os.environ,{'GITHUB_SHA':'3'*40}):
+            root=Path(tmp);transport=lake.LocalTransport(root/'durable')
+            writer=lake.Lake(transport,root/'first')
+            writer.dataset('universe/cohort',[cohort,mapping_raw],members,dict(
+                evidence='CURRENT_COHORT_NOT_HISTORICAL_MEMBERSHIP',rows=len(members),
+                requested_securities=len(members),source_role_contract_version='cohort-sec-mapping-v1',
+                cohort_source_object_sha256=cohort_object_sha,
+                sec_ticker_mapping_object_sha256=mapping_object_sha,
+                sec_ticker_mapping_source_sha256=digest(mapping_raw),
+                sec_ticker_mapping_retrieved_at=at,
+                historical_sec_mapping_object_sha256s=[mapping_object_sha]))
+            writer.dataset('sec/0000000001',[encoded(dict(cik=1))],
+                [dict(filed='2026-10-09',value=0)],dict(cik='0000000001',rows=1,
+                retrieved_at=at,evidence='SEC_FILED_DATE_CURRENT_ARCHIVE_NOT_CERTIFIED_PIT'))
+            config=dict(through=through,financial_start='2016-01-01',cohort_sha256=cohort_content_sha)
+            baseline=writer.publish('synthetic-terminal-base',config)
+            writer=lake.Lake(transport,root/'writer')
+            original,mapping_object,actual_mapping=lake.verified_cohort_source(writer)
+            _,missing,_=lake.issuer_queue(json.loads(original)['rows'],actual_mapping,
+                                          lake.prior_sec_mapping(writer))
+            keys={'sec/0000000001'};providers=dict(sec=True,fred=False,worldbank=False)
+            scope=dict(attempted_keys=set(keys),completed_keys=set(keys),checked_keys=set(keys),
+                focus_keys=set(keys),provider_scope=providers,
+                request=dict(mode='HYBRID_DAILY',through=through,
+                    baseline=dict(commit=baseline['commit_sha256'],catalog=baseline['catalog_sha256'],
+                                  execution='0'*64),
+                    _auto=dict(profile_sha256='4'*64,provider_scope=providers)),
+                request_sha256='1'*64,continuation_identity='CONTRACT_FIXTURE',
+                resolved_parent=writer.parent,resolved_parent_execution='0'*64,
+                descendants_verified=0,authorization=dict(fixture_only=True),
+                budget=SimpleNamespace(summary=lambda:dict(fixture_only=True)),
+                unmapped_securities_HOLD=dict(count=len(missing),missing_sha256=digest(encoded(missing)),
+                    cohort_sha256=digest(original),mapping_object_sha256=mapping_object,
+                    mapping_source_sha256=digest(mapping_raw)))
+            summary=lake.finish_hybrid_cycle(writer,scope)
+            quality=lake.diagnostics(writer);quality['cycle_scope']=summary
+            config=dict(config,hybrid_refresh=scope['detail'])
+            result=writer.publish('synthetic-terminal-hybrid',config)
+            consumer=lake.Lake(transport,root/'consumer')
+            reports=root/'reports';reports.mkdir()
+            (reports/'quality.json').write_bytes(encoded(quality))
+            code=lake.complete_consumer(consumer,result,reports,root/'consume',
+                run_id='synthetic-terminal-hybrid',macro_start='2016-01-01',through=through,
+                report=quality,cycle=scope)
+            self.assertEqual(code,0)
+            verified=consumer.verified_execution()
+            raw_receipt=json.loads(consumer.read_hash('executions',verified['execution_receipt_sha256']))
+            proof=raw_receipt['source_cycle_readback']
+            self.assertEqual(proof['schema'],'long-history-hybrid-source-readback-v2')
+            self.assertEqual(proof['unmapped_securities_HOLD']['cohort_sha256'],cohort_content_sha)
+            self.assertNotIn(cohort_content_sha,consumer.catalog['datasets']['universe/cohort']['raw_objects'])
+            self.assertEqual(proof['unmapped_securities_HOLD']['mapping_object_sha256'],mapping_object_sha)
+            self.assertTrue(verified['source_readback_verified_from_drive'])
+            self.assertTrue(verified['producer_terminal_verified_from_drive'])
+            self.assertNotIn('producer_terminal_verified_from_drive',raw_receipt)
+            wrong_proof=copy.deepcopy(proof);wrong_scope=copy.deepcopy(scope['summary'])
+            for value in (wrong_proof,wrong_scope):
+                value['unmapped_securities_HOLD']['cohort_sha256']=cohort_object_sha
+            with self.assertRaisesRegex(ValueError,'hybrid_terminal_metadata'):
+                lake._execution_source_readback_metadata(wrong_proof,wrong_scope,
+                    consumer.catalog['config']['hybrid_refresh'],consumer.catalog,consumer.parent)
+            # A real fresh restore must still re-read the original pack. No
+            # metadata-only success may hide a changed gzip/body dependency.
+            pack=consumer.catalog['locations'][cohort_object_sha]
+            pack_path=root/'durable'/lake.PREFIX/'packs'/pack
+            pack_path.write_bytes(pack_path.read_bytes()+b'CORRUPTED_SYNTHETIC_PACK')
+            with self.assertRaises(ValueError):
+                lake.Lake(transport,root/'tampered-consumer').verified_execution()
+
+    def prepare_variant(self, variant, change=None):
+        from tools import long_history_lake as lake
+        raw,norm,e,t,proof,rows=verified_financial_fixture(
+            hybrid_variant=variant,producer_change=change)
+        with patch.object(lake.Lake,'__init__',side_effect=AssertionError('NO_LAKE_CONSTRUCTION')), \
+             patch.object(lake.Lake,'get_bytes',side_effect=AssertionError('NO_ORIGINAL_BODY_READ')), \
+             patch.object(lake.Lake,'get_records',side_effect=AssertionError('NO_COHORT_READ')), \
+             patch.object(lake,'hybrid_source_scope_readback',side_effect=AssertionError('NO_READBACK_MINTING')):
+            result=binding.prepare_financial_reuse(raw,norm,encoded(e),trusted_source=t,
+                proof_objects=tuple(sorted(proof.items())),decision_time='2026-10-31T18:01:00Z')
+        return result,t,rows
+
+    def test_financial_all_known_hybrid_producer_variants_use_bounded_existing_preparation(self):
+        for variant in ('scope_only','materialization','study','source_v1','source_v2',
+                        'source_v2_held','source_v2_partial'):
+            with self.subTest(variant=variant):
+                result,t,rows=self.prepare_variant(variant)
+                self.assertFalse(result.blockers)
+                quality=json.loads(result.quality)
+                self.assertEqual(quality['original_producer_execution_receipt_sha256'],
+                                 t.original_execution_receipt_sha256)
+                self.assertEqual(quality['original_producer_quality_status'],'PARTIAL')
+                self.assertIs(quality['original_producer_study_recomputed_from_drive'],variant=='study')
+                self.assertEqual(quality['original_producer_global_completeness'],'NOT_CERTIFIED')
+                self.assertNotIn('source_readback_verified_from_drive',quality)
+                self.assertNotIn('producer_terminal_verified_from_drive',quality)
+
+    def test_financial_hybrid_rejects_derived_or_unknown_raw_receipt_fields(self):
+        for field in ('execution_receipt_sha256','source_readback_verified_from_drive',
+                      'producer_terminal_verified_from_drive','future_unreviewed_field'):
+            with self.subTest(field=field):
+                result,_,_=self.prepare_variant('source_v1',lambda p:p.update({field:True}))
+                self.assertTrue(result.blockers)
+
+    def test_financial_hybrid_rejects_scope_source_and_terminal_replay(self):
+        mutations=(
+            ('scope_only',lambda p:p['cycle_scope'].update(checked_scope_sha256='0'*64)),
+            ('source_v1',lambda p:p['source_cycle_readback'].update(commit='0'*64)),
+            ('source_v1',lambda p:p['source_cycle_readback'].update(catalog='0'*64)),
+            ('source_v1',lambda p:p['source_cycle_readback']['checked'][0].update(rows=999)),
+            ('source_v1',lambda p:p['cycle_scope']['standing_auto']['provider_scope'].update(sec=False)),
+            ('source_v2',lambda p:p['source_cycle_readback']['ready_clocks'].clear()),
+            ('source_v2_held',lambda p:p['source_cycle_readback']['held'][0].update(reason='INVENTED')),
+            ('source_v2',lambda p:p['source_cycle_readback']['unmapped_securities_HOLD'].update(count=0)),
+            ('source_v2_partial',lambda p:p.update(producer_cycle_complete=True)),
+        )
+        for index,(variant,change) in enumerate(mutations):
+            with self.subTest(variant=variant,index=index):
+                result,_,_=self.prepare_variant(variant,change)
+                self.assertTrue(result.blockers)
+
+    def test_financial_shared_helper_rejects_rebound_reports_with_invalid_clock_order(self):
+        from tools.long_history_lake import validate_execution_metadata
+        for kind in ('sql_after_receipt','study_before_sql','receipt_after_verification'):
+            with self.subTest(kind=kind):
+                raw,norm,e,t,proof,rows=verified_financial_fixture(hybrid_variant='study')
+                frozen=json.loads(proof[e['proofs']['source_origin']])
+                commit,catalog,p,q=(json.loads(proof[frozen[k]['sha256']])
+                                     for k in ('commit','catalog','execution','quality'))
+                reports={name:json.loads(proof[sha]) for name,sha in p['reports'].items()}
+                if kind=='sql_after_receipt':
+                    p['materialization_clock']['consumption_cutoff_utc']='2026-10-23T12:00:05+00:00'
+                    reports['materialization-clock.json']=copy.deepcopy(p['materialization_clock'])
+                elif kind=='study_before_sql':
+                    reports['macro-evaluation.json']['as_of']='2026-10-23T12:00:01+00:00'
+                    p['study_consumption_cutoff_utc']='2026-10-23T12:00:01+00:00'
+                else:p['created_at']='2026-10-25T12:00:00+00:00'
+                # Rehash the changed report itself: refusal must be semantic,
+                # rather than an outer stale-hash mismatch.
+                p['reports']={name:digest(encoded(value)) for name,value in reports.items()}
+                with self.assertRaises(ValueError):
+                    validate_execution_metadata(p,commit_sha256=e['origin']['commit_sha256'],
+                        commit=commit,catalog=catalog,quality=q,report_values=reports,
+                        validation_clock=e['first_verified_readback_at'])
+
+    def test_financial_hybrid_requires_original_clock_reports_and_study_order(self):
+        mutations=(
+            ('materialization',lambda p:p['reports'].pop('materialization-clock.json')),
+            ('materialization',lambda p:p.pop('materialization_clock')),
+            ('materialization',lambda p:p['materialization_clock'].update(
+                consumption_cutoff_utc='2026-10-25T12:00:00+00:00')),
+            ('study',lambda p:p['reports'].pop('macro-evaluation.json')),
+            ('study',lambda p:p.update(study_consumption_cutoff_utc='2026-10-22T12:00:00+00:00')),
+            ('source_v1',lambda p:p.update(recovery=dict(schema='INVENTED'))),
+        )
+        for index,(variant,change) in enumerate(mutations):
+            with self.subTest(index=index):
+                result,_,_=self.prepare_variant(variant,change)
+                self.assertTrue(result.blockers)
 
 
 class FixtureOwnerRead:
@@ -850,6 +1235,103 @@ class BindingTest(unittest.TestCase):
     def financial_prepare(self, raw, norm, evidence, trust, proofs):
         return binding.prepare_financial_reuse(raw,norm,encoded(evidence),trusted_source=trust,
             proof_objects=tuple(sorted(proofs.items())),decision_time='2026-10-31T18:01:00Z')
+
+    def test_financial_verified_original_is_separate_from_reuse_and_global_readiness(self):
+        raw,norm,e,t,proof,_=verified_financial_fixture()
+        prepared=self.financial_prepare(raw,norm,e,t,proof)
+        self.assertEqual(prepared.status,'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT')
+        q=json.loads(prepared.quality)
+        self.assertEqual(q['original_producer_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+        self.assertEqual(q['original_producer_quality_status'],'PARTIAL')
+        self.assertFalse(q['original_producer_study_recomputed_from_drive'])
+        self.assertIsNone(prepared.manifest)
+        bound,t,_,p,_=bound_financial_fixture(verified_original=True)
+        source=json.loads(bound.manifest)['datasets'][0]['source']
+        self.assertNotEqual(t.execution_receipt_sha256,t.original_execution_receipt_sha256)
+        self.assertEqual(source['reuse_execution_receipt_sha256'],t.execution_receipt_sha256)
+        self.assertTrue(json.loads(p)['original_matching_execution'])
+        self.assertEqual(source['reuse_origin']['matching_execution_receipt_sha256'],t.original_execution_receipt_sha256)
+        for key in ('qualified_market_join','eligible_for_valuation','eligible_for_er','eligible_for_a5','historical_pit'):
+            self.assertIs(source[key],False)
+        self.assertEqual(source['eligible_purposes'],['research']);self.assertEqual(source['pit_status'],'PIT_PROXY')
+
+    def test_financial_verified_original_wrong_missing_failed_future_crosscatalog_are_blocked(self):
+        for field,value in (('schema','failed-producer-v1'),('status','FAILED'),
+                ('catalog_sha256','f'*64),('commit_sha256','e'*64),('run_id','other-run'),
+                ('created_at','2026-11-01T00:00:00Z'),('consumer_rows',-1),('quality_status','FAILED')):
+            with self.subTest(field=field):
+                raw,norm,e,t,proof,_=verified_financial_fixture(producer_change=lambda p:p.update({field:value}))
+                self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+        raw,norm,e,t,proof,_=verified_financial_fixture()
+        missing=dict(proof);missing.pop(t.original_execution_receipt_sha256)
+        self.assertEqual(self.financial_prepare(raw,norm,e,replace(t,proof_sha256=tuple(sorted(missing))),missing).status,'BLOCKED')
+        for pin in (None,'0'*64):
+            self.assertEqual(self.financial_prepare(raw,norm,e,replace(t,original_execution_receipt_sha256=pin),proof).status,'BLOCKED')
+
+    def test_financial_verified_original_never_falls_back_to_old_false_ACK(self):
+        raw,norm,e,t,proof,_=verified_financial_fixture()
+        self.assertEqual(self.financial_prepare(raw,norm,e,replace(t,origin_mode=binding.FINANCIAL_LEGACY_ORIGIN),proof).status,'BLOCKED')
+        changed=copy.deepcopy(e);changed.pop('origin_mode')
+        self.assertEqual(self.financial_prepare(raw,norm,changed,replace(t,evidence_sha256=digest(encoded(changed))),proof).status,'BLOCKED')
+        raw,norm,e,t,proof,_=financial_fixture()
+        self.assertEqual(self.financial_prepare(raw,norm,e,replace(t,origin_mode=binding.FINANCIAL_VERIFIED_ORIGIN),proof).status,'BLOCKED')
+
+    def test_financial_verified_original_completed_finalization_keeps_original_producer_binding(self):
+        recovery=dict(schema='long-history-finalization-v1',source_run_id='CONTRACT_FIXTURE:completed_original',
+            source_head_sha='3'*40,finalization_run_id='CONTRACT_FIXTURE:original_finalization',
+            finalizer_head_sha='7'*40,provider_requests_executed=0,new_data_commits=0)
+        raw,norm,e,t,proof,_=verified_financial_fixture(producer_change=lambda p:p.update(recovery=recovery))
+        self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT')
+        for field,value in (('source_run_id','wrong'),('source_head_sha','f'*40),
+                            ('provider_requests_executed',1),('new_data_commits',True)):
+            bad=dict(recovery,**{field:value})
+            raw,norm,e,t,proof,_=verified_financial_fixture(producer_change=lambda p:p.update(recovery=bad))
+            self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+
+    def test_financial_verified_original_QA_cannot_claim_admission_or_another_extraction(self):
+        for mutate in (lambda q:q.update(source_admission=True),lambda q:q.update(ER_allowed=True),
+                       lambda q:q.update(Source_prepare=1),lambda q:q.update(financial_generation_issued=1),
+                       lambda q:q.update(Reader_ACK='DONE'),lambda q:q.update(schema='mu-financial-diagnostic-consumer-ack-v1'),
+                       lambda q:q['helper'].update(current_extraction_sha256='0'*64),
+                       lambda q:q.update(first_observed_complete_local_archive_QA_at='2026-11-01T00:00:00Z')):
+            raw,norm,e,t,proof,_=verified_financial_fixture(qa_change=mutate)
+            self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+
+    def test_financial_verified_original_new_receipt_must_keep_both_execution_pins(self):
+        raw,norm,e,t,proof,_=verified_financial_fixture();prepared=self.financial_prepare(raw,norm,e,t,proof)
+        _,accepted,_,p,_=bound_financial_fixture(verified_original=True)
+        for field,value in (('original_matching_execution',False),
+                ('original_matching_execution_receipt_sha256','0'*64),('origin_mode',binding.FINANCIAL_LEGACY_ORIGIN)):
+            changed=json.loads(p);changed[field]=value;body=encoded(changed)
+            result=binding.bind_financial_reuse(prepared,body,
+                trusted_source=replace(accepted,execution_receipt_sha256=digest(body)),
+                created_at='2026-10-31T18:00:02Z',decision_time='2026-10-31T18:01:00Z')
+            self.assertEqual(result.status,'BLOCKED')
+
+    def test_financial_generic_reconstruction_future_generation_has_new_objects_and_clocks(self):
+        old=verified_financial_fixture()
+        raw,norm,e,t,proof,rows=verified_financial_fixture(generation=31,generic=True)
+        self.assertNotEqual((t.raw_sha256,t.normalized_sha256),(old[3].raw_sha256,old[3].normalized_sha256))
+        self.assertNotEqual(e['origin']['retrieved_at'],old[2]['origin']['retrieved_at'])
+        self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT')
+        bound,t,_,_,_=bound_financial_fixture(generic_generation=31)
+        source=json.loads(bound.manifest)['datasets'][0]['source']
+        self.assertEqual(source['original_producer_generation'],31)
+        self.assertEqual(source['original_producer_global_completeness'],'NOT_CERTIFIED')
+        self.assertFalse(source['historical_pit'])
+
+    def test_financial_generic_generation_mismatch_old_QA_unknown_schema_and_provider_refuse(self):
+        for mutate in (lambda q:q['source_origin_refs'].update(generation=30),
+                lambda q:q.update(schema='unknown-new-provider-QA'),lambda q:q.update(provider='OTHER'),
+                lambda q:q.update(whole_cohort_verified=True),lambda q:q.update(datasets=q['datasets']*33)):
+            raw,norm,e,t,proof,_=verified_financial_fixture(generation=31,generic=True,qa_change=mutate)
+            self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
+        raw,norm,e,t,proof,_=verified_financial_fixture(generation=31,generic=True)
+        old=verified_financial_fixture();old_pin=old[3].reconstruction_receipt_sha256
+        proof.pop(t.reconstruction_receipt_sha256);proof[old_pin]=old[4][old_pin]
+        e['proofs']['reconstruction']=old_pin;e['source_documents']=sorted(proof)
+        t=replace(t,reconstruction_receipt_sha256=old_pin,evidence_sha256=digest(encoded(e)),proof_sha256=tuple(sorted(proof)))
+        self.assertEqual(self.financial_prepare(raw,norm,e,t,proof).status,'BLOCKED')
 
     def test_financial_prepare_never_invents_execution_or_publication(self):
         raw,norm,e,t,proof,_=financial_fixture()

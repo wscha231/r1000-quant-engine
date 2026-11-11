@@ -2,6 +2,54 @@
 
 ## Financial reuse alongside the unchanged price preparation
 
+An explicit `TrustedFinancialSourceBinding.origin_mode=VERIFIED_ORIGINAL_PRODUCER_V1`
+supports a separately reviewed original producer. The evidence must name
+the same mode and `original_execution_receipt_sha256` independently pins the old
+completed `long-history-execution-v1` receipt. `execution_receipt_sha256` continues
+to mean the **new reuse execution**. Missing/bad matched evidence cannot fall
+back to `LEGACY_UNMATCHED_G29_V1`, whose existing None/G29/R9 path is unchanged.
+
+The new `a1-financial-verified-producer-origin-v1` proof contains exact byte/hash
+references for the original commit, full catalog, execution and quality report,
+plus the selected dataset key and a positive integer generation. Frozen proof,
+commit, catalog and reconstruction source references must name that same generation.
+Their run, catalog/config/code,
+extraction, issuer CIK, original gzip hashes/count/window and clocks must agree.
+The actual `source-sec-fixed3-gen30-archive-qa-v1` reconstruction receipt is
+accepted as its own type, never renamed to an R9 consumer ACK. It must bind the
+same full-pack/member proofs and exact normalized reconstruction for that issuer.
+This existing fixed proof remains specifically generation30, three datasets and
+six packs; it cannot be relabeled or replayed as evidence for a later generation.
+
+Future original producers under the same SEC contract may instead supply
+`a1-financial-original-archive-reconstruction-v1` with status
+`VERIFIED_SELECTED_ORIGINAL_ARCHIVE_AND_RECONSTRUCTION`, provider
+`SEC_COMPANYFACTS`, identity scope `ISSUER_FINANCIAL_FACTS`, validation scope
+`SELECTED_ISSUERS_ONLY` and `whole_cohort_verified=false`. It declares1..32
+distinct dataset keys/CIKs and exactly one original-response and one normalized
+pack entry per dataset. Dataset entries bind their original gzip raw/normalized
+hashes; pack entries bind dataset key, role, object hash/size and verified ancestor
+pack evidence. The selected issuer still needs the exact reconstruction,
+source/code/config/receipt hashes, rights and clock checks above. Neither a new
+generation number nor this generic schema certifies other issuers or the cohort.
+Unknown schemas/providers and stale proof reused for changed inputs refuse.
+No Lake construction, original collection or raw re-extraction is performed.
+
+A matching completed receipt is evidence of receipt publication, not a green
+whole-universe result. Its original PARTIAL quality and study flag are preserved
+in preparation, generation and both Reader receipts. Selected COLLECTED facts
+remain `LOCAL_ONLY`, research/`ARCHIVAL_RESEARCH_FORWARD_ONLY`, NOT_CURRENT and
+PIT_PROXY, with no certified statement/quarter completeness. Original public
+availability stays unknown. Market joins, valuation, ER, A5, historical PIT,
+economic and accepted-state authority remain false.
+
+New reuse receipts must truthfully carry this origin mode,
+`original_matching_execution=true` and the original matching receipt hash, while
+their own run/hash/code/quality/time remain independently bound. An old execution
+cannot substitute for the new reuse execution. The old producer is not erased
+or falsely changed to an unmatched state. This implementation and synthetic
+fixtures create no real preparation/generation, consumer ACK or publication.
+
 `prepare_financial_reuse(raw_gzip, normalized_gzip, evidence_bytes,
 trusted_source=..., proof_objects=..., decision_time=...)` is pure and opt-in.
 It returns `VERIFIED_INPUTS_AWAITING_ACTUAL_REUSE_RECEIPT` with quality and
@@ -414,3 +462,48 @@ Actual missing rights/identity/clocks/status/trust still block real preparation.
 Existing point asset responses are raw identity facts, not full historical
 identity/lifecycle/halts/volume proof; their existence is not denied because a
 typed consumer document has yet to be prepared.
+
+## Original financial hybrid producer variants
+
+The verified financial origin accepts the existing raw
+`long-history-execution-v1` producer variants through the same pure
+`validate_execution_metadata` function used by `Lake.verified_execution`.
+Known optional fields are recovery, cycle scope, source-cycle readback,
+materialization clock, study cutoff and the two terminal-completion flags.
+Unknown receipt fields and derived Lake-view markers are refused. A parsed
+`execution_receipt_sha256`, `source_readback_verified_from_drive` or
+`producer_terminal_verified_from_drive` cannot authenticate its own raw origin.
+
+The bounded adapter supplies only independently pinned commit/catalog/receipt,
+quality and required report bytes under its existing proof and decoded-byte
+limits. It checks original scope, provider exclusions, checked-key hash,
+reported ready/held/unmapped metadata and SQL/study/receipt/readback clock order.
+An SQL or study marker requires its corresponding original report. Partial
+producer outcomes remain partial; no new study or terminal completion is inferred.
+
+The helper performs no transport, original source read, Lake construction or
+publication. Its catalog-only materialization-clock view cannot read objects.
+The full Lake still performs its actual ready-source, gap, cohort/mapping and
+body readbacks after metadata validation, and only that path can emit derived
+Drive-readback flags. The financial adapter separately retains selected-issuer
+raw reconstruction, extraction, archive QA, identity, rights and cutoff checks.
+It does not borrow a whole-Lake readback or promote source-reported completion.
+
+The existing Reader replays this adapter without a second validator. Original
+producer and new reuse-execution pins remain distinct. Existing actual Gen30
+three-issuer generations and receipts were produced by `df12524b`; this code
+correction neither rewrites them nor relabels them as a later execution. Global
+PARTIAL status, archival currentness and all Source/PIT/market-join/ER/A5 and
+economic boundaries remain unchanged. Added fixtures are synthetic; until run
+on a newly allocated Native slot they are prepared regressions, not PASS proof.
+
+Terminal-v2 `unmapped_securities_HOLD.cohort_sha256` identifies decompressed
+cohort JSON (`COHORT_SHA`), whereas `universe/cohort.raw_objects` contains gzip
+object hashes. Metadata validation uses the canonical source-role contract to
+bind the cohort/mapping objects and compares the content hash in its own byte
+domain. Actual decompression/hash/schema/mapping checks stay in the full Lake.
+The regression uses real LocalTransport, Lake publication, finish and
+complete-consumer APIs to generate a terminal-v2 receipt from gzip objects;
+it explicitly proves that the cohort content hash is absent from raw_objects.
+Its cohort/mapping/facts and patched cohort pin are test data, not real Source
+or rights evidence. This regression is prepared, not yet executed.
