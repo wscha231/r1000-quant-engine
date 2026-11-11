@@ -10408,3 +10408,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   separate identities; no fixed3trillion cutoff or net-liquidity shortcut is
   introduced. The12 synthetic arithmetic/parser/integration cases pass normal
   and -O; real source rights, native ten-axis readiness and ER remain separate.
+- Exact-head independent review caught a v1-only downstream monitor and a valid
+  non-object NYFed JSON escaping as AttributeError. Accept both report versions
+  behind the existing artifact/session/clock gates, and require an object before
+  reading refRates. Regress actual loader DATA_BLOCKED output and the unchanged
+  v1/v2 forward handoff; never treat a parser crash as a completed diagnosis.
