@@ -10396,3 +10396,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Preserve that failure, restore the exact protected runner, register the new
   cases through its existing macro-evidence aggregate, and extend the fixed A6
   dependency closure. No protected lineage/count guard is changed.
+- CI42949428010 then passed235/236: the collector's isolated checkout could not
+  import the new full PR aggregate. Keep default PR execution complete and make
+  the collector explicitly select its original25 Source cases with --portable.
+  Regress that default execution still refuses missing new A4 modules, plus the
+  existing isolated/no-network and missing-contract checks. Workflow/test bytes
+  remain AUTO_PINS inputs; an older standing profile gains no execution rights.
