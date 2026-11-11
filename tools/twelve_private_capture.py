@@ -311,7 +311,7 @@ class OwnerDrive:
         file_id = result.get('id')
         require(isinstance(file_id, str), 'DRIVE_UPLOAD')
         self.check(file_id, folder_id, folder=False)
-        require(self.read(file_id) == raw, 'DRIVE_READBACK')
+        require(self.read(file_id, len(raw)) == raw, 'DRIVE_READBACK')
         if meter is not None:
             meter.confirmed_storage_bytes += len(raw)
             meter.save()
