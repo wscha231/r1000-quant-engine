@@ -1,5 +1,11 @@
 # Agent Shared Lessons Ledger
 
+- Parquet top-level field indices are physical column indices only when the
+  whole schema is flat. Reject even unprojected nested/extension fields before
+  computing projected footer budgets; otherwise an earlier struct can hide a
+  selected column's true decoded size. Keep optional21 label-column absence
+  explicit None/UNKNOWN in supplied binding records, with63/126 labels strict.
+
 - Stock-leader input binding is a local, untested WIP checkpoint while stock
   review fixes take priority. Keep immutable V1/252 contracts unchanged and
   distinguish exact supplied cohort metadata from Source/PIT authentication.

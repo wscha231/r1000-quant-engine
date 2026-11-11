@@ -1488,6 +1488,28 @@ def test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode() -> None:
             try:MOD.load_pre_fit_binding(args,cfg)
             except ValueError as exc:_pre_fit_check('feature_store_text_value_budget' in str(exc),str(exc))
             else:raise AssertionError('unbounded dictionary expansion accepted')
+        nested=pa.StructArray.from_arrays([pa.array(np.arange(250))]*3,names=['a','b','c'])
+        table=table.add_column(0,'unused_struct',nested)
+        pq.write_table(table,args.feature_store)
+        binding['feature_store_sha256']=MOD.sha256_file(Path(args.feature_store))
+        path.write_text(json.dumps(binding),encoding='utf-8');args.expected_input_binding_sha256=MOD.sha256_file(path)
+        inspected=original(args.feature_store)
+        try:
+            top=inspected.schema_arrow.names.index('sector');meta=inspected.metadata
+            physical=next(i for i in range(meta.num_columns) if meta.row_group(0).column(i).path_in_schema=='sector')
+            _pre_fit_check(top!=physical and meta.row_group(0).column(physical).total_uncompressed_size>
+                100*meta.row_group(0).column(top).total_uncompressed_size,'nonvacuous physical-footer index mismatch')
+        finally:inspected.close()
+        class FlatBeforeBudget(Bounded):
+            def __init__(self,*a,**kw):
+                super().__init__(*a,**kw)
+                class NeverCharge:
+                    def row_group(self,*unused):raise AssertionError('nested schema reached physical-column budget')
+                self.metadata=NeverCharge()
+        with patch.object(pq,'ParquetFile',FlatBeforeBudget):
+            try:MOD.load_pre_fit_binding(args,cfg)
+            except ValueError as exc:_pre_fit_check('nested_feature_store_schema' in str(exc),str(exc))
+            else:raise AssertionError('unused nested column bypassed flat-schema preflight')
         for relative in ("../outside.json","https://invalid/x","nested/../../outside"):
             try:MOD._binding_local_file(Path(tmp),relative,1024)
             except ValueError as exc:_pre_fit_check("local_reference_path" in str(exc),str(exc))
@@ -1528,6 +1550,35 @@ def test_pre_fit_optional_timing_and_peer_actual_maturity() -> None:
     original=next(r for r in readiness['labels'] if r['ticker']=='T1' and r['feature_date']=='2024-01-31' and r['horizon']==63)
     _pre_fit_check(original['available_at']!='2025-09-02T21:01:00Z' and
         pd.Timestamp(original['training_available_at'])==pd.Timestamp('2025-09-02T21:01:00Z'),'original clock preserved separately')
+
+
+def test_pre_fit_optional_21_labels_absent_remain_unknown() -> None:
+    frame,values,cfg,decision=_pre_fit_fixture()
+    optional=[cfg['horizons']['21'][name] for name in
+        ('stock_return','benchmark_return','stock_label_end','benchmark_label_end')]
+    frame=frame.drop(columns=optional)
+    for label in values['labels']['rows']:
+        if label['horizon']==21:
+            label.update(stock_return=None,benchmark_return=None,stock_label_end=None,benchmark_label_end=None,available_at=None)
+    checked=_pre_fit_validate(frame,values,cfg,decision)
+    _pre_fit_check(checked['mature_rows']['63']==checked['mature_rows']['126']==200 and
+        len(checked['prediction_keys'])==50,'selection and unlabelled latest remain present')
+    _pre_fit_check(all(r['status']=='UNKNOWN' and not r['training_eligible']
+        for r in checked['labels'] if r['horizon']==21),'absent optional timing outcomes are unknown')
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp);feature=root/'optional.parquet';frame.to_parquet(feature,index=False)
+        binding,_,blobs=_pre_fit_binding(values,decision,MOD.sha256_file(feature))
+        for role,raw in blobs.items():(root/(role+'.json')).write_bytes(raw)
+        path=root/'binding.json';path.write_text(json.dumps(binding),encoding='utf-8')
+        args=Namespace(feature_store=str(feature),input_binding=str(path),input_binding_root=str(root),
+            expected_input_binding_sha256=MOD.sha256_file(path))
+        actual=MOD.git_blob_bytes
+        def current(sha,name):return Path(MOD.__file__).read_bytes() if name=='tools/run_run287_expected_return_challenger.py' else actual(sha,name)
+        with patch.object(MOD,'git_blob_bytes',side_effect=current):loaded,result=MOD.load_pre_fit_binding(args,cfg)
+        _pre_fit_check(len(loaded)==250 and result['mature_rows']['126']==200,'actual bounded Parquet loader preserves optional labels')
+    try:_pre_fit_validate(frame.drop(columns=[cfg['horizons']['63']['stock_return']]),values,cfg,decision)
+    except ValueError as exc:_pre_fit_check('missing_required_columns' in str(exc),str(exc))
+    else:raise AssertionError('required63-session labels became optional')
 
 
 def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None:
@@ -1577,6 +1628,7 @@ def main() -> int:
     test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode()
     test_pre_fit_public_price_reader_replay_is_not_financial_authority()
     test_pre_fit_optional_timing_and_peer_actual_maturity()
+    test_pre_fit_optional_21_labels_absent_remain_unknown()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 

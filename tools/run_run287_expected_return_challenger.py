@@ -133,6 +133,11 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
     asof_frame = frame.loc[dates.dt.normalize() <= completed].copy()
     prepared = prepare_frame(asof_frame, contract)  # Original rules; retain unlabelled latest rows.
     records = {_binding_key(row): row for row in asof_frame.to_dict("records")}
+    for spec in contract["horizons"].values():
+        if spec["score_weight"] == 0:
+            for row in records.values():
+                for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end"):
+                    row.setdefault(spec[name], None)
     _binding_need(len(records) == len(asof_frame) and bool(records), "frame_identity")
     _binding_need(any(key[0] == completed.date().isoformat() for key in records), "latest_prediction_rows_missing")
     def rows_by_key(role):
@@ -333,6 +338,13 @@ def load_pre_fit_binding(args: argparse.Namespace, contract: Mapping[str, Any]):
     parquet = pq.ParquetFile(io.BytesIO(feature_raw))
     try:
         schema, meta = parquet.schema_arrow, parquet.metadata
+        # Top-level indices match physical Parquet columns only for a flat
+        # schema, including columns we do not project. Never charge a sibling
+        # struct leaf in place of the selected string/feature column.
+        for field in schema:
+            kind = field.type.value_type if pa.types.is_dictionary(field.type) else field.type
+            _binding_need(not pa.types.is_nested(kind) and not isinstance(kind, pa.BaseExtensionType),
+                          "nested_feature_store_schema")
         wanted = set(required_columns(contract)) | {name for names in contract["features"].values() for name in names} | {spec[name] for spec in contract["horizons"].values()
             for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end")}
         columns = sorted(wanted & set(schema.names))
