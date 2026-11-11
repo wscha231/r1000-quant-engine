@@ -11033,3 +11033,42 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   for primary/index-enabled runs; leave30 when disabled and all source/object
   quotas unchanged. This is execution capacity, not evidence that any model,
   native risk state or future forecast is qualified.
+- Actual version51 integration and an independent cache-free Drive replay
+  verified six execution references, nineteen selected paired inputs and
+  68,116 native rows. Catalog928163d8 and report7560342f were byte-identical;
+  cold witness e9215bf9b5fba9921b839900d7207a1d8ea7b757d8063a54e0b05a4e6f7e9197
+  was stored/read back with provider calls and original-source writes0. Native
+  metrics/calendar were still absent; this is neither a qualified backtest nor
+  model fitting. Latest legacy metadata was generation32 with1,157 dataset
+  entries and a matching execution reference, not the old generation31 gap.
+- A subsequent audit found the legacy metadata probe used the latest commit
+  and unfiltered matching receipts even for an earlier cutoff. Later valid
+  additions could therefore change the old catalog's metadata view. Select the
+  visible commit prefix and receipts by declared creation clocks, and count
+  only contributing objects in catalog identity. Continue charging all actual
+  discovery reads to the unchanged budget. A future catalog is not needed to
+  reconstruct an earlier view. Keep malformed/missing clocks and broken chains
+  blocked; declared metadata clocks still do not certify PIT. Add regression
+  cases for future commits/receipts, unreadable future catalogs and missing
+  matching-receipt clocks. The native report never used this probe as a signal.
+- The review-complete workflow requires an exact single-line command. Extra
+  prose after the command correctly failed its publisher binding. Preserve the
+  failure, submit the exact command after current clean review/zero threads,
+  and verify the new check; do not weaken the parser or borrow an old head.
+- The as-of follow-up passed24 focused cases35.866s and149 aggregate cases
+  244.093s before publication. Record the tested source tree separately from a
+  frozen older HEAD when an independent read-only verification is in progress.
+  An ancestry-only alignment can preserve the exact validated tree, but fresh
+  current-head review and protected CI are still mandatory.
+- Fresh generation32 common-Reader verification completed in1034.171s:
+  81 historical packs/6033 object dependencies, linked execution c7d25fd1 and
+  quality report4dbe2f01 passed their original checks. Witness
+  ba3b74901fb84d33bc7ea65b4d953ccc715aa76b5f4f528e81dfe241eccabcb4
+  was stored/read back. Of1157 dataset entries,1155 were COLLECTED and2 remained
+  COVERAGE_GAP. Existing receipt consumer_rows652263/study_recomputed true is
+  prior-producer evidence, not a new fit or row reconstruction by this audit.
+  Selected records/provider recollection/original-source writes were0.
+  The unchanged Lake Reader closure matched accepted533bd448 source with
+  checkout CRLF/LF differences explicitly fingerprinted; this does not waive
+  exact paired-normalizer hashes. Source/PIT/rights/training admission remain
+  separate from archive integrity and existing analytical report verification.

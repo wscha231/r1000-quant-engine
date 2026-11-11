@@ -176,6 +176,42 @@ class DataCenterTests(unittest.TestCase):
             def names(self,path):raise ValueError('quota')
         self.assertEqual(d.lake_metadata(Broken(),NOW)['status'],'METADATA_BLOCKED')
 
+    def test_future_legacy_commit_and_receipts_do_not_change_a_prior_view(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            remote=LocalTransport(Path(tmp)/'remote')
+            def put(folder,value):
+                raw=encoded(value);sha=digest(raw);remote.write('long-history-v1/'+folder+'/'+sha,raw);return sha
+            catalog=put('catalogs',dict(schema='long-history-catalog-v1',generation=1,
+                datasets={'current/UNRATE':{'status':'COLLECTED'}},eligible_for_selector=False,locations={}))
+            commit=put('commits',dict(schema='long-history-commit-v1',generation=1,parent=None,
+                catalog=catalog,created_at=NOW,run_id='fixture'))
+            receipt=put('executions',dict(schema='long-history-execution-v1',commit_sha256=commit,created_at=NOW))
+            a=d.lake_metadata(remote,NOW)
+            later=(p.clock(NOW)+timedelta(hours=1)).isoformat()
+            # The future catalog need not be readable to reproduce the earlier view.
+            future_catalog='f'*64
+            future_commit=put('commits',dict(schema='long-history-commit-v1',generation=2,parent=commit,
+                catalog=future_catalog,created_at=later,run_id='future'))
+            put('executions',dict(schema='long-history-execution-v1',commit_sha256=future_commit,created_at=later))
+            put('executions',dict(schema='long-history-execution-v1',commit_sha256=commit,created_at=later))
+            b=d.lake_metadata(remote,NOW)
+            self.assertEqual(a,b)
+            self.assertEqual(b['matching_execution_metadata'],[receipt])
+            self.assertEqual(b['generation'],1)
+            self.assertEqual(d.lake_metadata(remote,later)['status'],'METADATA_BLOCKED')
+
+    def test_matching_legacy_receipt_with_missing_clock_is_not_admitted_as_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            remote=LocalTransport(Path(tmp)/'remote')
+            catalog=encoded(dict(schema='long-history-catalog-v1',generation=1,
+                datasets={},eligible_for_selector=False,locations={}))
+            csha=digest(catalog);remote.write('long-history-v1/catalogs/'+csha,catalog)
+            commit=encoded(dict(schema='long-history-commit-v1',generation=1,parent=None,
+                catalog=csha,created_at=NOW,run_id='fixture'))
+            sha=digest(commit);remote.write('long-history-v1/commits/'+sha,commit)
+            receipt=encoded(dict(commit_sha256=sha));remote.write('long-history-v1/executions/'+digest(receipt),receipt)
+            self.assertEqual(d.lake_metadata(remote,NOW)['status'],'METADATA_BLOCKED')
+
     def test_native_original_is_archived_and_remote_reference_replays_without_an_original_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);native=root/'native';native.mkdir();body=b'[]';sha=digest(body)

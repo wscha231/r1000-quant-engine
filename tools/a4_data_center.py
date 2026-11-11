@@ -159,31 +159,37 @@ def learning_readiness(root,policy_sha,cutoff):
 
 
 def lake_metadata(transport,cutoff):
-    """Discover current legacy storage only. Never restore packs or claim Reader admission."""
+    """Discover as-of legacy metadata only; never restore packs or claim admission."""
     result=dict(status='NOT_PROBED',execution_verified=False,original_packs_verified=False,
         source_admitted=False,training_admitted=False,reader='tools/long_history_lake.py:Lake.verified_execution')
     if transport is None:return result
     try:
         from tools.long_history_lake import PREFIX,SCHEMA as lake_schema
-        used=0
+        used=0;sizes={};asof=p.clock(cutoff)
         def read(folder,sha,limit):
             nonlocal used
             pin(sha);raw=transport.read(PREFIX+'/'+folder+'/'+sha)
             p.check(type(raw) is bytes and 0<len(raw)<=limit and digest(raw)==sha,'DATA_CENTER_LAKE_OBJECT')
             used+=len(raw);p.check(used<=8*1024**2,'DATA_CENTER_LAKE_BUDGET')
+            sizes[(folder,sha)]=len(raw)
             value=p.f.strict_json(raw);p.check(type(value) is dict,'DATA_CENTER_LAKE_SCHEMA');return value
         names=transport.names(PREFIX+'/commits')
         p.check(type(names) is list and len(names)==len(set(names)) and len(names)<=256,'DATA_CENTER_LAKE_INVENTORY')
         entries={pin(name):read('commits',name,128*1024) for name in names}
-        parent=None;generation=0;last=None
+        parent=None;generation=0;chosen=None;visible_commits=[];future_seen=False
         while entries:
             following=[(sha,row) for sha,row in entries.items() if row.get('parent')==parent]
             p.check(len(following)==1,'DATA_CENTER_LAKE_FORK')
             parent,last=following[0];generation+=1
             p.check(last.get('schema')=='long-history-commit-v1' and type(last.get('generation')) is int and last['generation']==generation,
                 'DATA_CENTER_LAKE_CHAIN')
+            if p.clock(last['created_at'])<=asof:
+                p.check(not future_seen,'DATA_CENTER_LAKE_CLOCK_ORDER')
+                chosen=(parent,last,generation);visible_commits.append(parent)
+            else:future_seen=True
             del entries[parent]
-        p.check(last is not None and p.clock(last['created_at'])<=p.clock(cutoff),'DATA_CENTER_LAKE_CLOCK')
+        p.check(chosen is not None,'DATA_CENTER_LAKE_CLOCK')
+        parent,last,generation=chosen
         catalog=read('catalogs',last['catalog'],4*1024**2)
         p.check(catalog.get('schema')==lake_schema and catalog.get('generation')==generation
             and catalog.get('eligible_for_selector') is False and type(catalog.get('datasets')) is dict
@@ -197,12 +203,16 @@ def lake_metadata(transport,cutoff):
         matches=[]
         for sha in executions:
             item=read('executions',sha,256*1024)
-            if item.get('commit_sha256')==parent:matches.append(sha)
+            if item.get('commit_sha256')==parent and p.clock(item['created_at'])<=asof:matches.append(sha)
+        # Actual reads, including future discovery, remain bounded by `used`.
+        # Only objects contributing to this as-of view enter catalog identity.
+        visible_bytes=sum(sizes[('commits',sha)] for sha in visible_commits)+sizes[('catalogs',last['catalog'])]
+        visible_bytes+=sum(sizes[('executions',sha)] for sha in matches)
         result.update(status='METADATA_ONLY',commit_sha256=parent,catalog_sha256=last['catalog'],generation=generation,
             matching_execution_metadata=matches,datasets=[dict(dataset=key,status=value.get('status','UNKNOWN'),
                 source_namespace=key.split('/')[0]) for key,value in sorted(catalog['datasets'].items())],
             blockers=['ORIGINAL_PACKS_AND_MATCHING_EXECUTION_READER_VERIFICATION_REQUIRED',
-                'FRED_ALFRED_RIGHTS_REQUIRED_BEFORE_ANALYSIS_OR_TRAINING'],metadata_bytes=used)
+                'FRED_ALFRED_RIGHTS_REQUIRED_BEFORE_ANALYSIS_OR_TRAINING'],metadata_bytes=visible_bytes)
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         result.update(status='METADATA_BLOCKED',blockers=['LATEST_LAKE_METADATA_UNAVAILABLE_INVALID_OR_OVER_BUDGET'])
     return result

@@ -54,8 +54,14 @@ research bytes, not automatic Source/PIT or training admission.
   through `forecast_release`; learning may propose challengers only.
 
 The optional legacy Lake probe reads bounded commit/catalog/execution
-metadata only. It retains the latest chain and dataset states but never calls
-this original-pack or execution validation. Actual consumption must use
+metadata only. It selects the latest commit available at the requested cutoff
+and matching receipts whose declared creation clock is no later than the cutoff.
+Valid future commits/receipts do not change an earlier view; unavailable
+future catalogs are not read. All discovery reads still consume the existing
+metadata budget, while catalog `metadata_bytes` counts only visible commits,
+the selected catalog and matching visible receipts. These declared metadata
+clocks do not certify historical PIT. The probe retains dataset states but
+never calls this original-pack or execution validation. Actual consumption must use
 `Lake.verified_execution` and the existing Readers. FRED/ALFRED rights remain
 separate, even if old metadata show collected data. Price and financial
 discovery stays with `research_model_inputs`; locator counts are not current
@@ -105,9 +111,9 @@ The existing Daily Crisis Monitor builds/publishes the index after primary
 capture, then consumes its current request. Index failure points the run at
 the attempted root and fails the final gate, never at a restored old success.
 The research cycle runs only after its original state restore and a successful
-index when primary collection is enabled. Existing enable flags, single writer
-and the existing60-minute ceiling covers enabled primary/index work (30 minutes
-when disabled); no additional schedule is installed. This accounts for paired
+index when primary collection is enabled. Existing enable flags and the single
+writer remain in place. Primary/index work uses the existing60-minute ceiling
+(30 minutes when disabled); no additional schedule is installed. This accounts for paired
 readback plus bounded legacy metadata reads without raising object/request caps.
 An index with a blocked core can still retain its diagnostic metadata, but its
 CLI/workflow step fails and cannot start the dependent research cycle.
