@@ -38,7 +38,7 @@ jobs:
       - name: Configure rclone
         env:
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
-          RCLONE_CONFIG_GDRIVE: ${{ secrets.RCLONE_CONFIG_GDRIVE }}
+          RCLONE_CONFIG_GDRIVE: ${{ vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && secrets.A4_RCLONE_CONFIG_GDRIVE || secrets.RCLONE_CONFIG_GDRIVE }}
           GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
         run: |
           if [ -z "${RCLONE_CONFIG_GDRIVE:-}" ] && [ -z "${GOOGLE_SERVICE_ACCOUNT_KEY:-}" ]; then
@@ -252,5 +252,12 @@ jobs:
           PRIMARY: ${{ steps.a4_primary_collect.outcome }}
         run: |
           set -euo pipefail
-          if [ "$RESEARCH_ENABLED" = true ]; then test "$RESTORE" = success && test "$CYCLE" = success && test "$PERSIST" = success; fi
-          if [ "$PRIMARY_ENABLED" = true ]; then test "$PRIMARY_CONFIG" = success && test "$PRIMARY" = success; fi
+          if [ "$RESEARCH_ENABLED" = true ]; then
+            test "$RESTORE" = success || exit 2
+            test "$CYCLE" = success || exit 2
+            test "$PERSIST" = success || exit 2
+          fi
+          if [ "$PRIMARY_ENABLED" = true ]; then
+            test "$PRIMARY_CONFIG" = success || exit 2
+            test "$PRIMARY" = success || exit 2
+          fi

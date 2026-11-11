@@ -22,6 +22,28 @@ from tools.macro_history_sources import digest, encoded, exclusive
 FEED_ORDER = ('sofr', 'tgcr', 'effr', 'h41', 'h8', 'prates')
 
 
+def publish_analysis(transport, request_raw, report_raw, *, cutoff):
+    """Archive a pinned research/blocked analysis, never an accepted model."""
+    source.check(type(report_raw) is bytes and 0<len(report_raw)<=market.MAX_FILE_BYTES, 'PRIMARY_REPORT_SIZE')
+    report=market.clock.decode(report_raw)
+    request=market.verify_request(request_raw, digest(request_raw), cutoff, market.current_session(cutoff))
+    source.check(report.get('schema')=='market-analysis-report-v2' and report.get('request_sha256')==digest(request_raw)
+                 and report.get('session')==request['session'] and report.get('cutoff')==cutoff,
+                 'PRIMARY_REPORT_REQUEST_BINDING')
+    source.check(all(report.get(k) is False for k in ('source_and_pit_admission','source_admission_allowed',
+                 'target_book_write_allowed','ledger_mutation_allowed','order_generation_allowed')),
+                 'PRIMARY_REPORT_AUTHORITY')
+    checked=dict(report); content=checked.pop('content_sha256',None)
+    source.check(content==market.context.digest(checked), 'PRIMARY_REPORT_CONTENT_HASH')
+    references=[]
+    for kind, body in (('request',request_raw),('report',report_raw)):
+        path=source.PREFIX+'/reports/'+digest(body)+'.json'
+        transport.write(path,body)
+        source.check(source.read_object(transport,path,digest(body),market.MAX_FILE_BYTES)==body,'PRIMARY_ANALYSIS_READBACK')
+        references.append(dict(kind=kind,path=path,sha256=digest(body),bytes=len(body)))
+    return references
+
+
 def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_input_root=None):
     root = Path(output_dir)
     source.check(re.fullmatch('[a-f0-9]{40}', code_sha or '') is not None, 'PRIMARY_CODE_PIN')
@@ -54,7 +76,7 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
             status = 'BLOCKED_DURABLE_PUBLICATION'
     session = market.current_session(cutoff)
     inputs = root/'inputs'
-    entries = []
+    entries, analysis_publication = [], []
     if not failures:
         for item in captures:
             manifest = item['manifest']
@@ -100,6 +122,12 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
         exclusive(root/'market_analysis.json', encoded(report))
         exclusive(root/'market_analysis.md', market.render_report(report).encode('utf-8'))
         market_status = report['status']
+        if transport is not None:
+            try:
+                analysis_publication=publish_analysis(transport,raw,encoded(report),cutoff=cutoff)
+            except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError):
+                failures.append(dict(feed='analysis',blocker='PRIMARY_ANALYSIS_PUBLICATION_FAILED'))
+                status='BLOCKED_DURABLE_PUBLICATION'
     else:
         market_status = 'DATA_BLOCKED'
     result = dict(schema='a4-primary-collection-execution-v1', status=status, code_sha=code_sha,
@@ -107,7 +135,7 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
         generation_sha256s=[r['generation_sha256'] for r in captures],
         originals=len(captures), original_bytes=sum(r['manifest']['original_bytes'] for r in captures),
         observations=sum(r['manifest']['observations'] for r in captures),
-        publication=published, failures=failures, market_status=market_status,
+        publication=published, analysis_publication=analysis_publication, failures=failures, market_status=market_status,
         model_fit_performed=False, training_blockers=['REVIEWED_TARGET_PRICE_RIGHTS_AND_HISTORICAL_PIT_INPUT_POLICY_REQUIRED'],
         historical_pit_certified=False, source_admitted=False, orders_generated=False,
         accepted_model_changed=False, accepted_portfolio_changed=False, ledger_mutated=False)

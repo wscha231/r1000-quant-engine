@@ -2,8 +2,11 @@
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import sys
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -173,6 +176,7 @@ class PrimaryTests(unittest.TestCase):
             self.assertEqual(len(calls),6)
             self.assertEqual(result['originals'],6)
             self.assertFalse(result['model_fit_performed'])
+            self.assertEqual({r['kind'] for r in result['analysis_publication']},{'request','report'})
             report=json.loads((Path(d)/'attempt/market_analysis.json').read_bytes())
             self.assertTrue(report['enhanced_readiness']['funding'])
             self.assertTrue(report['enhanced_readiness']['liquidity'])
@@ -210,10 +214,29 @@ class PrimaryTests(unittest.TestCase):
         self.assertIn('--publish',collect['run'])
         self.assertLess(collect['run'].index('A4_INPUT_ROOT='),collect['run'].index('python tools/collect_'))
         self.assertIn('PRIMARY',steps[-1]['run'])
+        legacy=next(s for s in steps if s.get('name')=='Configure rclone')
+        self.assertIn('A4_PRIMARY_COLLECTION_ENABLED',legacy['env']['RCLONE_CONFIG_GDRIVE'])
+        self.assertIn('A4_RCLONE_CONFIG_GDRIVE',legacy['env']['RCLONE_CONFIG_GDRIVE'])
         config=next(s for s in steps if s.get('id')=='a4_primary_config')
         self.assertIn('A4_RCLONE_CONFIG_GDRIVE',config['env']['MACRO_DRIVE_CONFIG'])
         self.assertIn('command -v rclone',config['run'])
         self.assertLess(config['run'].index('sudo install'),config['run'].index('python tools/configure_'))
+
+    def test_cloud_final_gate_propagates_each_failed_prerequisite_in_real_shell(self):
+        workflow=yaml.safe_load((ROOT/'.github/workflows/daily_crisis_monitor.yml').read_text())
+        script=workflow['jobs']['monitor']['steps'][-1]['run']
+        bash = str(Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Git/bin/bash.exe') if os.name=='nt' else shutil.which('bash')
+        self.assertTrue(bash and Path(bash).is_file(),'actual bash required for workflow exit-status validation')
+        for research, primary in (('true','false'),('true','true'),('false','true')):
+            baseline=dict(os.environ,RESEARCH_ENABLED=research,PRIMARY_ENABLED=primary,
+                          RESTORE='success',CYCLE='success',PERSIST='success',PRIMARY_CONFIG='success',PRIMARY='success')
+            self.assertEqual(subprocess.run([bash,'-c',script],env=baseline,capture_output=True,timeout=10).returncode,0)
+            keys=(['RESTORE','CYCLE','PERSIST'] if research=='true' else [])+(['PRIMARY_CONFIG','PRIMARY'] if primary=='true' else [])
+            for key in keys:
+                for outcome in ('failure','skipped','cancelled'):
+                    with self.subTest(research=research,primary=primary,key=key,outcome=outcome):
+                        result=subprocess.run([bash,'-c',script],env=dict(baseline,**{key:outcome}),capture_output=True,timeout=10)
+                        self.assertNotEqual(result.returncode,0)
 
 
 if __name__=='__main__':unittest.main()

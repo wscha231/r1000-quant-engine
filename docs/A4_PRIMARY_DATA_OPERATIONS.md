@@ -29,6 +29,9 @@ checks, under the configured canonical research base:
   native units, normalizer bytes, actual window, attribution and closed authority;
 - `shared-research-v1/macro-primary/executions/<sha256>.json`: the exact attempt,
   its capture pins, readbacks, failures and training blockers.
+- `shared-research-v1/macro-primary/reports/<sha256>.json`: original pinned A4
+  request/report diagnostics, read back before the execution receipt; a blocked
+  report remains blocked, not accepted input or model authority.
 
 This is a new primary-source component of the same data center, not a second
 accepted account or model authority. No `latest`, old-success fallback or
@@ -52,6 +55,10 @@ variable `A4_PRIMARY_COLLECTION_ENABLED=true`. Provide the dedicated
 `A4_RCLONE_CONFIG_GDRIVE` secret in the existing `[gdrive]` config format. The
 existing `configure_macro_research_drive.py` makes a temporary scoped research
 configuration; no global desktop config or shared credential secret is changed.
+When primary capture is enabled the existing job's legacy restore/checkpoint
+transport also selects that dedicated credential, so shared-client quota does
+not leave the consumer on a different failing authentication path. With the
+flag disabled its prior credential selection remains unchanged.
 Existing shared-client quota failures do not count as absence or genesis.
 
 The existing weekday22:30UTC GitHub-hosted run is the scheduler. It continues

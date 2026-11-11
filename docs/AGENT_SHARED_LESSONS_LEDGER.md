@@ -10725,3 +10725,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   install rclone: the older setup exits when legacy credentials are absent.
   Install the binary in the dedicated setup path too; shared secrets are not a
   prerequisite for this independently scoped primary-source configuration.
+- A second review exposed shell status masking: a failed middle command in an
+  && chain is exempt from set-e, and a later if can overwrite that failure.
+  Require explicit nonzero exit for each research and capture prerequisite;
+  execute the actual YAML gate in bash across enabled/failed/skipped cases.
+  Also keep source bytes fixed during identity-bound A4/A5 tests: a mid-test
+  source edit correctly invalidated the public stock-model graph. Stable
+  replay passed15 focused cases and the full94-case aggregate without waivers.
