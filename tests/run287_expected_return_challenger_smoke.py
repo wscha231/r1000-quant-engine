@@ -2,6 +2,7 @@
 """Smoke tests for the PIT-purged Run287 expected-return challenger."""
 from __future__ import annotations
 
+import copy
 import io
 import json
 import sys
@@ -1287,6 +1288,268 @@ def test_er_v2_h1_decision_bounded_by_observed_clock() -> None:
                 raise AssertionError("caller-supplied future decision accepted")
 
 
+def _pre_fit_check(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def _pre_fit_fixture():
+    """200 mature rows on four dates plus 50 unlabelled prediction rows.
+
+    All originals are disposable synthetic metadata, never Source admission.
+    The denominator includes selection failures and unknowns, not winners only.
+    """
+    cfg = contract()
+    days = pd.to_datetime(["2024-01-31", "2024-02-29", "2024-03-28", "2024-04-30", "2026-11-10"])
+    decision = "2026-11-11T08:00:00Z"
+    features = sorted({n for names in cfg["features"].values() for n in names})
+    ends = {h: MOD.expected_nyse_label_ends(pd.Series(days), h) for h in MOD.HORIZONS}
+    rows, universe, actions, clocks, labels = [], [], [], [], []
+    requests = [dict(role=role, dataset_id=dataset, data_generation_id=str(i+1)*64,
+        expected_row_set_sha256=str(i+3)*64, instrument_ids=[role+":T"+str(n) for n in range(50)],
+        required_sessions=[d.date().isoformat() for d in days], required_start=str(days[0].date()),
+        required_end=str(days[-1].date()), minimum_rows=5, consumer_id="SYNTHETIC:PREFIT:"+role)
+        for i, (role, dataset) in enumerate(MOD.PRE_FIT_DATASETS.items())]
+    row_sets = {r["role"]: r["expected_row_set_sha256"] for r in requests}
+    close_cache = {}
+    def after_close(day):
+        day = pd.Timestamp(day)
+        if day not in close_cache:
+            close_cache[day] = (pd.Timestamp(MOD.NYSE.schedule(start_date=day, end_date=day).iloc[0]["market_close"])
+                                + pd.Timedelta(minutes=1)).isoformat()
+        return close_cache[day]
+    for di, day in enumerate(days):
+        for ti in range(50):
+            ticker = "T"+str(ti)
+            key = dict(feature_date=day.date().isoformat(), ticker=ticker)
+            row = dict(feature_date=day, rebalance_date=day, ticker=ticker, sector="S"+str(ti%5),
+                benchmark_identity="SPY", benchmark_source="YF:SPY",
+                **{n: ti/100+ni/1000 for ni,n in enumerate(features)})
+            for h, spec in cfg["horizons"].items():
+                horizon = int(h); latest = di == len(days)-1
+                row[spec["stock_return"]] = np.nan if latest else .10+ti/1000
+                row[spec["benchmark_return"]] = np.nan if latest else .03
+                row[spec["stock_label_end"]] = row[spec["benchmark_label_end"]] = pd.NaT if latest else ends[horizon].iloc[di]
+                labels.append(dict(**key,horizon=horizon,benchmark_identity="SPY",benchmark_source="YF:SPY",
+                    source_row_sets=row_sets,available_at=None if latest else after_close(ends[horizon].iloc[di]),
+                    **{name:MOD.json_clean(row[spec[name]]) for name in
+                       ("stock_return","benchmark_return","stock_label_end","benchmark_label_end")}))
+            rows.append(row)
+            status = ("SELECTED","UNSELECTED","BLOCKED","UNKNOWN")[ti%4]
+            universe.append(dict(**key,selection_status=status,issuer_id="SYNTHETIC:ISSUER:"+str(ti),
+                reader_instrument_ids={role:role+":"+ticker for role in MOD.PRE_FIT_DATASETS}))
+            actions.append(dict(**key,selection_status=status,
+                action={"SELECTED":"HOLD","UNSELECTED":"UNSELECTED","BLOCKED":"BLOCKED","UNKNOWN":"UNKNOWN"}[status],
+                original_decision_sha256=MOD.canonical_sha256(key)))
+            clocks.append(dict(**key,decision_at=after_close(day),available_at=after_close(day),
+                feature_sha256=MOD._binding_features(row,features),source_row_sets=row_sets))
+    values = dict(universe=dict(rows=universe),decisions=dict(rows=actions),features=dict(rows=clocks),
+        labels=dict(rows=labels),reader_requests=dict(requests=requests),
+        experiment=dict(candidate_id="SYNTHETIC:ONE_FIXED_DECISION",experiment_ledger_sha256="a"*64,do_not_repeat_sha256="b"*64))
+    return pd.DataFrame(rows), values, cfg, decision
+
+
+def _pre_fit_binding(values, decision, feature_hash="f"*64):
+    blobs = {role:json.dumps(MOD.json_clean(value),sort_keys=True,allow_nan=False).encode() for role,value in values.items()}
+    refs = {role:dict(path=role+".json",bytes=len(raw),sha256=MOD.hashlib.sha256(raw).hexdigest()) for role,raw in blobs.items()}
+    binding = dict(schema=MOD.PRE_FIT_BINDING_SCHEMA,decision_time=decision,
+        feature_store_sha256=feature_hash,contract_sha256=MOD.EXPECTED_CONTRACT_SHA256,code_sha=MOD.git_head(),refs=refs)
+    return binding, lambda ref:blobs[next(role for role,r in refs.items() if r==ref)], blobs
+
+
+def _pre_fit_validate(frame, values, cfg, decision):
+    binding, resolver, _ = _pre_fit_binding(values, decision)
+    return MOD.validate_pre_fit_binding(frame,binding,cfg,feature_store_sha256="f"*64,artifact_resolver=resolver)
+
+
+def test_pre_fit_full_denominator_and_unlabelled_latest_prefix() -> None:
+    frame,values,cfg,decision = _pre_fit_fixture()
+    result = _pre_fit_validate(frame,values,cfg,decision)
+    _pre_fit_check(result["denominator_rows"]==250 and len(result["prediction_keys"])==50,"latest rows retained")
+    _pre_fit_check(result["mature_rows"]["63"]==result["mature_rows"]["126"]==200,"nonempty mature cohort")
+    _pre_fit_check(all(result["selection_counts"][s]>0 for s in ("SELECTED","UNSELECTED","BLOCKED","UNKNOWN")),"whole denominator")
+    _pre_fit_check(sum(r["status"]=="UNKNOWN" for r in result["labels"])==150,"latest labels remain unknown")
+    _pre_fit_check(not result["learning_eligible"] and result["source_authentication"]=="NOT_REPLAYED","metadata is not authority")
+    future = frame.iloc[-1:].copy();future["feature_date"]=future["rebalance_date"]=pd.Timestamp("2026-11-12")
+    future["mom_3m"] = 1e50
+    extended = _pre_fit_validate(pd.concat([frame,future],ignore_index=True),values,cfg,decision)
+    _pre_fit_check(extended["outside_decision_prefix_rows"]==1 and
+        extended["training_cohort_sha256"]==result["training_cohort_sha256"] and
+        extended["prediction_keys"]==result["prediction_keys"],"future-tail invariance")
+    late = copy.deepcopy(values);late["labels"]["rows"][0]["available_at"]="2026-11-11T09:00:00Z"
+    delayed = _pre_fit_validate(frame,late,cfg,decision)
+    _pre_fit_check(delayed["labels"][0]["status"]=="IMMATURE" and not delayed["labels"][0]["training_eligible"],"late label not training")
+
+
+def test_pre_fit_clock_denominator_provider_and_role_refusals() -> None:
+    frame,values,cfg,decision = _pre_fit_fixture()
+    def refuse(data,reason,other_frame=frame):
+        try:_pre_fit_validate(other_frame,data,cfg,decision)
+        except ValueError as exc:_pre_fit_check(reason in str(exc),str(exc))
+        else:raise AssertionError("invalid input accepted: "+reason)
+    for mutation,reason in (
+        (lambda v:v["universe"]["rows"].pop(),"full_denominator:universe"),
+        (lambda v:v["features"]["rows"][0].update(decision_at="2024-01-31T20:59:00Z",available_at="2024-01-31T20:58:00Z"),"feature_availability"),
+        (lambda v:v["features"]["rows"][0].update(available_at="2024-02-01T22:00:00Z"),"feature_availability"),
+        (lambda v:v["features"]["rows"][0].update(decision_at="2024-01-31T22:00:00"),"aware_clock_required"),
+        (lambda v:v["reader_requests"]["requests"][1].update(dataset_id=MOD.PRE_FIT_DATASETS["prices"]),"reader_role_dataset_identity"),
+        (lambda v:v["labels"]["rows"][0].update(benchmark_source="ALPACA:SPY"),"label_provider_or_source_join"),
+        (lambda v:v["features"]["rows"][0].update(feature_sha256="0"*64),"feature_row_hash")):
+        altered=copy.deepcopy(values);mutation(altered);refuse(altered,reason)
+    old = {role:copy.deepcopy(value) for role,value in values.items()}
+    for role in ("universe","decisions","features","labels"):
+        old[role]["rows"]=[r for r in old[role]["rows"] if r["feature_date"]!="2026-11-10"]
+    refuse(old,"latest_prediction_rows_missing",frame.loc[frame["feature_date"]!=pd.Timestamp("2026-11-10")])
+    for stamp,expected in (("2026-03-09T19:59:00Z","2026-03-06"),("2026-03-09T20:01:00Z","2026-03-09"),
+                           ("2025-07-03T16:59:00Z","2025-07-02"),("2025-07-03T17:01:00Z","2025-07-03")):
+        _pre_fit_check(str(MOD._v2_h1_last_completed_nyse_session(pd.Timestamp(stamp)).date())==expected,"actual close/DST/halfday")
+
+
+def _pre_fit_local(root):
+    frame,values,cfg,decision = _pre_fit_fixture();feature=root/"features.parquet";frame.to_parquet(feature,index=False)
+    binding,_,blobs = _pre_fit_binding(values,decision,MOD.sha256_file(feature))
+    for role,raw in blobs.items():(root/(role+".json")).write_bytes(raw)
+    path=root/"binding.json";path.write_text(json.dumps(binding),encoding="utf-8")
+    args=Namespace(feature_store=str(feature),input_binding=str(path),expected_input_binding_sha256=MOD.sha256_file(path),
+        input_binding_root=str(root),reader_root=str(root),stock_leader_family=True,pre_fit_only=True,
+        output_dir=str(root/"out"),contract=str(CONTRACT_PATH),u0_census=None)
+    return args,frame,cfg
+
+
+def test_pre_fit_cli_without_u0_and_financial_training_fail_closed() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        args,frame,cfg = _pre_fit_local(Path(tmp))
+        actual_blob=MOD.git_blob_bytes
+        def current_code(sha,path):
+            return Path(MOD.__file__).read_bytes() if path=="tools/run_run287_expected_return_challenger.py" else actual_blob(sha,path)
+        with patch.object(MOD,"git_blob_bytes",side_effect=current_code), \
+             patch.object(MOD,"load_canonical_u0_artifact",side_effect=AssertionError("GH called")), \
+             patch.object(MOD,"replay_pre_fit_training_sources",side_effect=AssertionError("Reader called")), \
+             patch.object(MOD,"walk_forward_predictions",side_effect=AssertionError("fit called")):
+            argv=["runner","--feature-store",args.feature_store,"--output-dir",args.output_dir,"--pre-fit-only",
+                "--input-binding",args.input_binding,"--expected-input-binding-sha256",args.expected_input_binding_sha256]
+            with patch.object(sys,"argv",argv),patch("sys.stdout",new_callable=io.StringIO) as output:
+                MOD.main()
+            result=json.loads(output.getvalue())
+            _pre_fit_check(result["denominator_rows"]==250 and len(result["prediction_keys"])==50,"real offline CLI with no U0")
+            _pre_fit_check(not result["model_fit"] and not result["source_admission_granted"],"offline limits")
+        args.pre_fit_only=False
+        with patch.object(MOD,"git_blob_bytes",side_effect=current_code), \
+             patch.object(MOD,"load_canonical_u0_artifact",side_effect=AssertionError("GH before Source admission")), \
+             patch.object(MOD,"walk_forward_predictions",side_effect=AssertionError("fit before Source admission")):
+            result=MOD.run(args)
+        _pre_fit_check(result["status"]==MOD.BLOCKED_STATUS and
+            "FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(result["blockers"]),"normal route typed financial refusal")
+
+
+def test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode() -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    with tempfile.TemporaryDirectory() as tmp:
+        args,frame,cfg = _pre_fit_local(Path(tmp))
+        with patch.object(MOD,"git_blob_bytes",return_value=b"SYNTHETIC:OTHER_CONSUMER_CODE"):
+            try:MOD.load_pre_fit_binding(args,cfg)
+            except ValueError as exc:_pre_fit_check("consumer_code_identity" in str(exc),"changed code rejected")
+            else:raise AssertionError("changed code self-authenticated")
+        args.expected_input_binding_sha256="0"*64
+        with patch.object(pq,"ParquetFile",side_effect=AssertionError("decode before binding hash")):
+            try:MOD.load_pre_fit_binding(args,cfg)
+            except ValueError as exc:_pre_fit_check("binding_hash" in str(exc),str(exc))
+            else:raise AssertionError("wrong binding hash accepted")
+        args.expected_input_binding_sha256=MOD.sha256_file(Path(args.input_binding))
+        original=pq.ParquetFile;reads=[]
+        class Bounded:
+            def __init__(self,*a,**kw):
+                self.original=original(*a,**kw);self.metadata=self.original.metadata;self.schema_arrow=self.original.schema_arrow
+            def read(self,*a,**kw):reads.append(True);raise AssertionError("decoded despite footer budget")
+            def close(self):self.original.close()
+        with patch.object(pq,"ParquetFile",Bounded),patch.object(MOD,"PRE_FIT_MAX_ROWS",249):
+            try:MOD.load_pre_fit_binding(args,cfg)
+            except ValueError as exc:_pre_fit_check("decoded_feature_store_budget" in str(exc),str(exc))
+            else:raise AssertionError("oversized projected rows accepted")
+        _pre_fit_check(not reads,"allocation refused before table read")
+        # Genuine dictionary compression: one 600k-byte sector repeated 250
+        # times would expand past128MiB. Build it dictionary-encoded too, so the
+        # negative fixture never allocates that expanded table itself.
+        table=pa.Table.from_pandas(frame,preserve_index=False)
+        repeated=pa.DictionaryArray.from_arrays(pa.array(np.zeros(250,dtype=np.int32)),pa.array(["X"*600000]))
+        table=table.set_column(table.schema.get_field_index('sector'),'sector',repeated)
+        pq.write_table(table,args.feature_store)
+        path=Path(args.input_binding);binding=json.loads(path.read_bytes())
+        binding['feature_store_sha256']=MOD.sha256_file(Path(args.feature_store))
+        path.write_text(json.dumps(binding),encoding='utf-8');args.expected_input_binding_sha256=MOD.sha256_file(path)
+        class EncodedTable:
+            def __init__(self,value):self.value=value;self.nbytes=value.nbytes
+            def column(self,name):return self.value.column(name)
+            def to_pandas(self):raise AssertionError('dictionary expansion reached pandas')
+        class DictionaryBounded(Bounded):
+            def read(self,*a,**kw):return EncodedTable(self.original.read(*a,**kw))
+        with patch.object(pq,'ParquetFile',DictionaryBounded):
+            try:MOD.load_pre_fit_binding(args,cfg)
+            except ValueError as exc:_pre_fit_check('feature_store_text_value_budget' in str(exc),str(exc))
+            else:raise AssertionError('unbounded dictionary expansion accepted')
+        for relative in ("../outside.json","https://invalid/x","nested/../../outside"):
+            try:MOD._binding_local_file(Path(tmp),relative,1024)
+            except ValueError as exc:_pre_fit_check("local_reference_path" in str(exc),str(exc))
+            else:raise AssertionError("unsafe relative ref accepted")
+
+
+def test_pre_fit_optional_timing_and_peer_actual_maturity() -> None:
+    frame,values,cfg,decision=_pre_fit_fixture()
+    names=sorted({n for columns in cfg['features'].values() for n in columns})
+    row=frame.iloc[0].to_dict()
+    _pre_fit_check(MOD._binding_features(row,names)==MOD.canonical_sha256({n:MOD.json_clean(row[n]) for n in names}),
+        'present timing fields preserve original hash')
+    optional=set(cfg['features']['21'])-(set(cfg['features']['63'])|set(cfg['features']['126']))
+    partial=frame.drop(columns=sorted(optional));modified=copy.deepcopy(values)
+    by_key={MOD._binding_key(r):r for r in partial.to_dict('records')}
+    for clock in modified['features']['rows']:
+        clock['feature_sha256']=MOD._binding_features(by_key[MOD._binding_key(clock)],names)
+    result=_pre_fit_validate(partial,modified,cfg,decision)
+    _pre_fit_check(result['mature_rows']['63']==result['mature_rows']['126']==200,'21 warning absence preserves selection')
+    try:_pre_fit_validate(partial.drop(columns=['mom_6m']),modified,cfg,decision)
+    except ValueError as exc:_pre_fit_check('missing_required_columns' in str(exc),str(exc))
+    else:raise AssertionError('mandatory63/126 feature became optional')
+    # One peer's outcome exists by May but was actually available in September.
+    # Its early peer's sector-neutral target also consumes that return. The
+    # final November supplied frame must not let a January replay train on it.
+    late=copy.deepcopy(values)
+    peer=next(r for r in late['labels']['rows'] if r['feature_date']=='2024-01-31' and r['ticker']=='T0' and r['horizon']==63)
+    peer['available_at']='2025-09-02T21:01:00Z'
+    readiness=_pre_fit_validate(frame,late,cfg,decision)
+    prepared=MOD.prepare_frame(frame,cfg)
+    peer_mask=prepared['feature_date'].eq(pd.Timestamp('2024-01-31'))
+    historical=pd.Timestamp('2025-01-31')
+    _pre_fit_check(prepared.loc[peer_mask,'label_available_at_63d'].lt(historical).all(),'nonvacuous old end-date counterexample')
+    MOD.apply_pre_fit_label_clocks(prepared,readiness)
+    _pre_fit_check(prepared.loc[peer_mask,'label_available_at_63d'].eq(pd.Timestamp('2025-09-02T21:01:00')).all(),
+        'complete peers share derived latest actual availability')
+    _pre_fit_check(not prepared.loc[peer_mask,'label_available_at_63d'].lt(historical).any(),'historical replay excludes every affected peer')
+    original=next(r for r in readiness['labels'] if r['ticker']=='T1' and r['feature_date']=='2024-01-31' and r['horizon']==63)
+    _pre_fit_check(original['available_at']!='2025-09-02T21:01:00Z' and
+        pd.Timestamp(original['training_available_at'])==pd.Timestamp('2025-09-02T21:01:00Z'),'original clock preserved separately')
+
+
+def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None:
+    from tests.research_data_access_smoke import ReaderTest,DECISION
+    holder=ReaderTest('runTest');holder.setUp()
+    try:
+        options=holder.real_session("2026-10-01","2026-10-01T20:00:00Z")
+        generation=holder.generation();observed=holder.read(generation,purpose="training",**options)
+        request=dict(role="prices",dataset_id=MOD.PRE_FIT_DATASETS["prices"],data_generation_id=generation,
+            expected_row_set_sha256=observed.receipt["row_set_sha256"],consumer_id="SYNTHETIC:PREFIT",**options)
+        result=MOD.replay_pre_fit_price_source(request,decision_time=DECISION,root=holder.root/"archive")
+        _pre_fit_check(result["generation"]==generation and result["row_set_sha256"]==request["expected_row_set_sha256"],"actual public Reader join")
+        forged=dict(request,role="financial")
+        try:MOD.replay_pre_fit_price_source(forged,decision_time=DECISION,root=holder.root/"archive")
+        except ValueError as exc:_pre_fit_check("reader_role_dataset_identity" in str(exc),str(exc))
+        else:raise AssertionError("price generation used as financial evidence")
+        try:MOD.replay_pre_fit_training_sources(dict(reader_requests=[dict(forged,dataset_id=MOD.PRE_FIT_DATASETS['financial'])]),holder.root)
+        except ValueError as exc:_pre_fit_check("FINANCIAL_TRAINING_ADMISSION_UNSUPPORTED" in str(exc),str(exc))
+        else:raise AssertionError("research-only financial route trained")
+    finally:holder.doCleanups()
+
+
 def main() -> int:
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
@@ -1308,6 +1571,12 @@ def main() -> int:
     test_er_v2_h1_benchmark_cohort_conflicts()
     test_er_v2_h1_noncanonical_identities()
     test_er_v2_h1_decision_bounded_by_observed_clock()
+    test_pre_fit_full_denominator_and_unlabelled_latest_prefix()
+    test_pre_fit_clock_denominator_provider_and_role_refusals()
+    test_pre_fit_cli_without_u0_and_financial_training_fail_closed()
+    test_pre_fit_hash_path_code_and_parquet_budgets_precede_decode()
+    test_pre_fit_public_price_reader_replay_is_not_financial_authority()
+    test_pre_fit_optional_timing_and_peer_actual_maturity()
     print("run287_expected_return_challenger_smoke: PASS")
     return 0
 

@@ -75,6 +75,7 @@ def _binding_json(raw: bytes):
 
 
 def _binding_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    _binding_need(type(row) is dict, "row_object")
     ticker = row.get("ticker")
     _binding_need(type(ticker) is str and bool(ticker.strip()), "ticker_required")
     return (pd.Timestamp(row["feature_date"]).date().isoformat(),
@@ -82,7 +83,9 @@ def _binding_key(row: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _binding_features(row: Mapping[str, Any], names: list[str]) -> str:
-    return canonical_sha256({name: json_clean(row[name]) for name in names})
+    # The V1's optional 21-session timing columns may be absent. Hash that
+    # absence explicitly; required 63/126 inputs still pass prepare_frame.
+    return canonical_sha256({name: json_clean(row.get(name)) for name in names})
 
 
 def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
@@ -119,6 +122,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
                       charged <= PRE_FIT_MAX_TOTAL and
                       hashlib.sha256(raw).hexdigest() == ref["sha256"], "reference_bytes:" + role)
         values[role] = _binding_json(raw)
+        _binding_need(type(values[role]) is dict, "reference_object:" + role)
         reference_hashes[role] = ref["sha256"]
     features = sorted({name for names in contract["features"].values() for name in names})
     _binding_need(not any(FORBIDDEN_FEATURE_RE.search(name) or EX_POST_FEATURE_RE.search(name)
@@ -168,6 +172,7 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
     _binding_need(type(requests) is list and 1 <= len(requests) <= 8, "reader_requests")
     row_sets, source_roles = {}, set()
     for request in requests:
+        _binding_need(type(request) is dict, "reader_request_object")
         role = request.get("role")
         _binding_need(role in {"prices", "financial"} and role not in source_roles, "reader_component_roles")
         _binding_need(request.get("dataset_id") == PRE_FIT_DATASETS[role], "reader_role_dataset_identity")
@@ -213,17 +218,36 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
             _binding_need(label_closes[end] <= available,
                           "label_availability")
             status = "MATURE" if available < decision else "IMMATURE"
-            eligible = status == "MATURE" and embargo is not None and pd.Timestamp(key[0]) <= embargo
-            if eligible:
-                mature[horizon].append(key[0])
-                training_examples.append(dict(feature_date=key[0],ticker=key[1],horizon=horizon,
-                    feature_sha256=clocks[key]["feature_sha256"],**original,available_at=label["available_at"]))
         else:
             _binding_need(label.get("available_at") is None, "unknown_label_not_mature")
-            status, eligible = "UNKNOWN", False
+            status = "UNKNOWN"
         label_statuses.append(dict(feature_date=key[0],ticker=key[1],horizon=horizon,
-                                   status=status,training_eligible=eligible,
+                                   status=status,training_eligible=False,
                                    available_at=label.get("available_at")))
+    # Sector-neutral targets consume peers' returns. Preserve each original
+    # clock above, but use the complete date/horizon's latest clock for training
+    # just as V1 already does for the exact outcome-session maturity.
+    cohort_clocks = {}
+    for item in label_statuses:
+        if item["available_at"] is not None:
+            group = (item["feature_date"], item["horizon"])
+            available = _binding_stamp(item["available_at"])
+            cohort_clocks[group] = max(cohort_clocks.get(group, available), available)
+    for item in label_statuses:
+        key, horizon = (item["feature_date"], item["ticker"]), item["horizon"]
+        available = cohort_clocks.get((key[0], horizon))
+        item["training_available_at"] = available.isoformat() if available is not None else None
+        eligible = (item["status"] == "MATURE" and available.tz_localize(None) < decision_day
+                    and embargo is not None and pd.Timestamp(key[0]) <= embargo)
+        item["training_eligible"] = eligible
+        if eligible:
+            mature[horizon].append(key[0])
+            spec, row = contract["horizons"][str(horizon)], records[key]
+            training_examples.append(dict(feature_date=key[0],ticker=key[1],horizon=horizon,
+                feature_sha256=clocks[key]["feature_sha256"],
+                **{name: json_clean(row[spec[name]]) for name in
+                   ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end")},
+                available_at=item["available_at"], training_available_at=item["training_available_at"]))
     for horizon in (63, 126):
         _binding_need(len(mature[horizon]) >= contract["model"]["minimum_training_rows"] and
                       len(set(mature[horizon])) >= contract["model"]["minimum_training_decision_dates"],
@@ -239,9 +263,16 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
             "training_cohort_sha256":canonical_sha256(sorted(training_examples,key=lambda r:(r["feature_date"],r["ticker"],r["horizon"]))),
             "prediction_keys":[list(key) for key in sorted(records) if key[0]==max(k[0] for k in records)],
             "completed_decision_session":completed.date().isoformat(),
+            "training_label_cutoff_exclusive": completed.isoformat(),
             "mature_rows": {str(h): len(mature[h]) for h in HORIZONS},
             "reference_sha256": reference_hashes, "reader_requests": requests,
             "source_authentication": "NOT_REPLAYED", "source_admission_granted": False,
+            "selection_source_authentication": "HASH_REFERENCES_NOT_REPLAYED",
+            "local_bounds": {"per_reference_bytes": PRE_FIT_MAX_FILE,
+                             "reference_total_bytes": PRE_FIT_MAX_TOTAL,
+                             "feature_encoded_bytes": PRE_FIT_MAX_FEATURE_STORE,
+                             "feature_projected_decoded_bytes": PRE_FIT_MAX_DECODED,
+                             "feature_max_rows": PRE_FIT_MAX_ROWS},
             "universe_completeness_certified": False,
             "model_fit": False, "learning_eligible": False, "long_hold_252_audit_only": True}
 
@@ -280,17 +311,42 @@ def load_pre_fit_binding(args: argparse.Namespace, contract: Mapping[str, Any]):
                   sum(ref["bytes"] for ref in binding["refs"].values()) <= PRE_FIT_MAX_TOTAL, "reference_total_budget")
     paths = {role: _binding_local_file(root, ref["path"], PRE_FIT_MAX_FILE)
              for role, ref in binding["refs"].items()}
-    cache = {role: path.read_bytes() for role, path in paths.items()}
+    cache = {}
+    for role, local in paths.items():
+        with local.open("rb") as stream:
+            raw = stream.read(PRE_FIT_MAX_FILE + 1)
+        _binding_need(len(raw) == binding["refs"][role]["bytes"], "reference_bytes:" + role)
+        cache[role] = raw
     resolver = lambda ref: cache[next(role for role, value in binding["refs"].items() if value == ref)]
     # Compressed length does not bound decoded allocation. Inspect the existing
     # Parquet footer and project only the immutable V1 inputs before reading.
+    import pyarrow as pa
+    import pyarrow.compute as pc
     import pyarrow.parquet as pq
-    parquet = pq.ParquetFile(feature)
+    with feature.open("rb") as stream:
+        feature_raw = stream.read(PRE_FIT_MAX_FEATURE_STORE + 1)
+    _binding_need(0 < len(feature_raw) <= PRE_FIT_MAX_FEATURE_STORE and
+                  hashlib.sha256(feature_raw).hexdigest() == binding["feature_store_sha256"],
+                  "feature_store_hash")
+    # Decode exactly the bounded buffer whose hash was checked, not a second
+    # mutable pathname read after the footer/row verification.
+    parquet = pq.ParquetFile(io.BytesIO(feature_raw))
     try:
         schema, meta = parquet.schema_arrow, parquet.metadata
-        wanted = set(required_columns(contract)) | {spec[name] for spec in contract["horizons"].values()
+        wanted = set(required_columns(contract)) | {name for names in contract["features"].values() for name in names} | {spec[name] for spec in contract["horizons"].values()
             for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end")}
         columns = sorted(wanted & set(schema.names))
+        text_columns = []
+        for name in columns:
+            kind = schema.field(name).type
+            if pa.types.is_dictionary(kind):
+                kind = kind.value_type
+            if pa.types.is_string(kind) or pa.types.is_large_string(kind):
+                text_columns.append(name)
+            else:
+                _binding_need(pa.types.is_null(kind) or pa.types.is_boolean(kind) or
+                    pa.types.is_integer(kind) or pa.types.is_floating(kind) or
+                    pa.types.is_date(kind) or pa.types.is_timestamp(kind), "unsupported_feature_store_type")
         projected = {schema.names.index(name) for name in columns}
         uncompressed = sum(meta.row_group(r).column(c).total_uncompressed_size
             for r in range(meta.num_row_groups) for c in projected)
@@ -298,13 +354,28 @@ def load_pre_fit_binding(args: argparse.Namespace, contract: Mapping[str, Any]):
         _binding_need(0 < meta.num_rows <= PRE_FIT_MAX_ROWS and len(columns) <= 128 and
             uncompressed + meta.num_rows * (len(columns)*16 + strings*64) <= PRE_FIT_MAX_DECODED,
             "decoded_feature_store_budget")
-        _binding_need(not any(str(schema.field(name).type).startswith(("list", "struct", "map", "large_list"))
-                             for name in columns), "nested_feature_store_type")
-        frame = parquet.read(columns=columns).to_pandas()
+        # Dictionary/RLE page sizes do not bound expanded repeated strings.
+        # Keep them encoded while checking exact value lengths and the maximum
+        # row expansion; do not expand into pandas objects first.
+        parquet.close()
+        parquet = pq.ParquetFile(io.BytesIO(feature_raw), read_dictionary=text_columns)
+        table = parquet.read(columns=columns)
+        _binding_need(table.nbytes <= PRE_FIT_MAX_DECODED, "decoded_feature_store_budget")
+        expanded = meta.num_rows * (len(columns) - len(text_columns)) * 16
+        for name in text_columns:
+            longest = 0
+            for chunk in table.column(name).chunks:
+                _binding_need(pa.types.is_dictionary(chunk.type), "dictionary_feature_store_required")
+                length = pc.max(pc.binary_length(chunk.dictionary)).as_py() or 0
+                _binding_need(length <= 256, "feature_store_text_value_budget")
+                longest = max(longest, length)
+            expanded += meta.num_rows * (longest + 64)
+        _binding_need(table.nbytes + expanded <= PRE_FIT_MAX_DECODED, "expanded_feature_store_budget")
+        frame = table.to_pandas()
     finally:
         parquet.close()
     result = validate_pre_fit_binding(frame, binding, contract,
-        feature_store_sha256=sha256_file(feature), artifact_resolver=resolver)
+        feature_store_sha256=hashlib.sha256(feature_raw).hexdigest(), artifact_resolver=resolver)
     _binding_need(binding["code_sha"] == git_head() and
                   Path(__file__).read_bytes() == git_blob_bytes(binding["code_sha"],
                       "tools/run_run287_expected_return_challenger.py"), "consumer_code_identity")
@@ -318,6 +389,16 @@ def load_pre_fit_binding(args: argparse.Namespace, contract: Mapping[str, Any]):
             for name in ("stock_return", "benchmark_return", "stock_label_end", "benchmark_label_end"):
                 prefix.loc[mask,spec[name]] = pd.NaT if name.endswith("label_end") else np.nan
     return prefix, result
+
+
+def apply_pre_fit_label_clocks(prepared: pd.DataFrame, readiness: Mapping[str, Any]) -> None:
+    """Preserve actual availability at EVERY historical V1 decision, in place."""
+    keys = pd.Series([_binding_key(row) for row in prepared.to_dict("records")],index=prepared.index)
+    for label in readiness["labels"]:
+        mask = keys.map(lambda key:key == (label["feature_date"],label["ticker"]))
+        value = (_binding_stamp(label["training_available_at"]).tz_localize(None)
+                 if label["status"] in {"MATURE", "IMMATURE"} else pd.NaT)
+        prepared.loc[mask,f"label_available_at_{label['horizon']}d"] = value
 
 
 def replay_pre_fit_price_source(request: Mapping[str, Any], *, decision_time: str,
@@ -2054,7 +2135,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             _binding_need(bool(getattr(args, "reader_root", None)), "explicit_training_reader_root_required")
             binding_readiness["training_reader_replay"] = replay_pre_fit_training_sources(
                 binding_readiness, args.reader_root)
-        except (OSError, ValueError, KeyError, TypeError, ImportError) as exc:
+        except (OSError, ValueError, KeyError, TypeError, ImportError, RecursionError, OverflowError) as exc:
             return blocked_artifacts(output_dir, blockers=["pre_fit_input_binding_blocked:" +
                 re.sub(r"[^A-Za-z0-9_.:,=-]+", "_", str(exc))[:240]],
                 contract=contract, inputs={"input_binding_scope": "METADATA_OR_TRAINING_REPLAY_REFUSED"})
@@ -2147,12 +2228,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if binding_readiness is not None:
             # Use actual original availability, not merely the outcome session's
             # date, in the unchanged purge/embargo comparisons. Never restamp.
-            keys = pd.Series([_binding_key(row) for row in prepared.to_dict("records")],index=prepared.index)
-            for label in binding_readiness["labels"]:
-                mask = keys.map(lambda key:key == (label["feature_date"],label["ticker"]))
-                value = (_binding_stamp(label["available_at"]).tz_localize(None)
-                         if label["status"] == "MATURE" else pd.NaT)
-                prepared.loc[mask,f"label_available_at_{label['horizon']}d"] = value
+            apply_pre_fit_label_clocks(prepared, binding_readiness)
     except Exception as exc:
         detail = re.sub(r"[^A-Za-z0-9_.:,=-]+", "_", str(exc)).strip("_")
         return blocked_artifacts(

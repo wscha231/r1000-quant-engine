@@ -6,6 +6,17 @@
   The public price Reader supports training; financial component reads remain
   research-only, so never alias price authority into financial training. Retain
   unlabelled current prediction rows and separate maturity from training eligibility.
+- A metadata-only CLI must branch before optional U0 path resolution. Bound the
+  projected Parquet footer before table allocation and decode the same hashed
+  buffer. Keep the actual completed NYSE session, per-feature close/availability,
+  full as-of denominator and latest unlabelled rows; regenerated report clocks,
+  role labels and matching hashes do not grant financial training admission.
+- Optional21-session warning fields remain explicit UNKNOWN in the fixed hash;
+  never make them a new63/126 selection gate. Date/horizon sector-neutral labels
+  also inherit their complete peers' latest actual availability, while every
+  original per-row clock remains unchanged. A Parquet dictionary page's encoded
+  size does not bound expanded strings: keep dictionaries, bound value lengths
+  and decoded expansion before pandas conversion. Preserve the earlier R1 scope.
 
 ## 2026-11-09 - Separate A5 preparation from economic admission
 
