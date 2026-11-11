@@ -122,6 +122,21 @@ class FinancingTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.normalize(encoded(auction()+auction()[:1]),'auction_notes')
         with self.assertRaises(ValueError):f.amount('1000000000000000.01')
 
+    def test_new_issue_and_mixed_cohort_disagreement_is_visible(self):
+        raw=auction();raw[-1]['reopening']='No';raw[-1]['bidToCoverRatio']='2.46'
+        for row in raw[:-1]:
+            row['reopening']='Yes';row['bidToCoverRatio']='2.60'
+        for month in range(1,7):
+            peer=copy.deepcopy(raw[-1]);peer['competitiveAuctionCloseDate']=f'2025-{month:02d}-06T00:00:00'
+            peer['bidToCoverRatio']='2.45';raw.append(peer)
+        rows,_=self.normalize(encoded(raw),'auction_notes')
+        item=a.analyze(rows,cutoff=NOW)['treasury_auctions'][0]
+        self.assertEqual(item['comparison'],'BELOW_PRIOR_SIX_BTC')
+        self.assertEqual(item['same_issuance_type_comparison'],'AT_OR_ABOVE_PRIOR_SIX_BTC')
+        self.assertEqual(item['cohort_comparison'],'MIXED_COHORT_COMPARISONS')
+        self.assertAlmostEqual(item['prior_six_same_original_term_btc_mean'],2.60)
+        self.assertAlmostEqual(item['prior_six_same_issuance_type_btc_mean'],2.45)
+
     def test_sloos_question_denominators_and_demand_are_separate(self):
         rows,_=self.normalize(survey(),'sloos_domestic',period='202610')
         values={(r['sector'],r['measure']):r for r in rows}
@@ -216,6 +231,7 @@ class FinancingTests(unittest.TestCase):
             self.assertTrue(report['financing_conditions']['readiness']['treasury_auction_context'])
             self.assertEqual(report['status'],'DATA_BLOCKED');self.assertFalse(result['model_fit_performed'])
             self.assertIn('Treasury auction demand',m.render_report(report))
+            self.assertIn('Prior six same-issuance BTC | Cohort comparison',m.render_report(report))
 
     def test_missing_index_keeps_core_partial_and_never_reuses_an_old_survey(self):
         calls=[]

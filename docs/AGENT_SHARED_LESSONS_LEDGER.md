@@ -10883,3 +10883,26 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   earlier numeric decisions to stay unchanged without weakening provenance.
   Conditional financing scenarios do not set a native CAUTION state or exit
   incumbent winners; new features still need independent recipe/input review.
+
+### 2026-11-11 — Financing cold replay and cross-host report identity
+
+- Exact6a5cc4a9 capture durably verified19 original/normalized pairs,
+  34,893,050 original bytes /68,116 observations plus request/report and
+  execution readback. Execution SHA2564577a3ef486568c6a36240004a2618e8c5e174b4fc153cff3f410f1ccec8e79c.
+  A new Drive-only replay reconstructed every pair and the exact report with
+  zero publisher requests; published/reread receipt SHA256
+  6fea7bd5b5a37aca71e9d8b868d5e1f5be3961b574183c79ec720224e514ebb7.
+  Native report remains0/10 DATA_BLOCKED without metrics/calendar; capture
+  success is not native completion, historical PIT, fit or A5 qualification.
+- Paired normalizers were already LF, but14 other A4 identity-bound source/
+  contract files differed between Windows working bytes and Git/Linux blobs.
+  Pin all18 identity paths to LF and test their real bytes through autocrlf.
+  Preserve the completed prior-code replay; do not ignore raw identity hashes
+  or claim a changed implementation reproduces the old report byte-for-byte.
+- Actual Nov10 10-year BTC2.46 is below the mixed-term prior-six mean2.595
+  but above the prior-six new-issue mean2.45. Display both cohorts and their
+  disagreement rather than treating the mixed comparison as conclusive stress.
+- The merged core collector was enabled for first hosted validation in fresh
+  daily-monitor run43054348879 at master6955a4b2; outcome is still pending.
+  Financing/research-learning flags remain off. Source#750 merge sequencing
+  is held; no additional scheduler, fullrun, fit or accepted-state write.

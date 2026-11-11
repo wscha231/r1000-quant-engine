@@ -14,6 +14,10 @@ codec, native ten-axis policy, A3 expected returns, A5 limits or winner exits.
   six same-original-term auctions and separately the same issuance type. A
   current auctioned-security snapshot is not a complete historical universe.
   Indirect bidder participation is not foreign-only demand.
+  Report both peer means and their direction agreement. A lower ratio than a
+  mixed new/reopening cohort can coexist with a higher ratio than the same
+  issuance-type cohort; that disagreement is visible, not a calibrated risk
+  classification.
 - SLOOS discovers the latest published quarter from the official index, then
   parses the domestic table. Question labels, response counts, net tightening
   and net stronger demand stay separate. The respondent population differs
@@ -32,6 +36,9 @@ shared transport limits remain. The setting defaults off and
 does not enable learning. Failed optional sources retain verified core data
 as an explicit partial attempt; the collection process still fails completion.
 All captures keep actual collection availability and no historical PIT grant.
+All18 files bound by the A4 implementation identity use canonical LF bytes.
+The regression exercises actual source/contract bytes through an autocrlf
+checkout; raw code/original hashes are not normalized or ignored at read time.
 The primary collection flag is also required; financing alone fails the final
 configuration gate. Its larger capture/readback budget uses a 60-minute job
 limit while financing is enabled; the existing 30-minute default remains.

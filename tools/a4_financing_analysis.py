@@ -24,6 +24,10 @@ def analyze(rows,*,cutoff):
         all6=prior[-6:];same6=same[-6:]
         baseline=mean(r['bid_to_cover'] for r in all6) if len(all6)==6 else None
         same_baseline=mean(r['bid_to_cover'] for r in same6) if len(same6)==6 else None
+        def comparison(value):
+            return 'INSUFFICIENT_EVIDENCE' if value is None else (
+                'BELOW_PRIOR_SIX_BTC' if latest['bid_to_cover']<value else 'AT_OR_ABOVE_PRIOR_SIX_BTC')
+        all_comparison=comparison(baseline);same_comparison=comparison(same_baseline)
         age=(now.date()-p.day(latest['observation_date'])).days
         auctions.append(dict(latest=latest,status='OBSERVED' if age<=45 else 'STALE',
             prior_six_same_original_term_btc_mean=baseline,
@@ -32,8 +36,9 @@ def analyze(rows,*,cutoff):
             prior_six_same_issuance_type_btc_mean=same_baseline,
             prior_six_same_issuance_type_dates=[r['observation_date'] for r in same6],
             latest_minus_same_original_term_mean=None if baseline is None else latest['bid_to_cover']-baseline,
-            comparison='INSUFFICIENT_EVIDENCE' if baseline is None else
-                'BELOW_PRIOR_SIX_BTC' if latest['bid_to_cover']<baseline else 'AT_OR_ABOVE_PRIOR_SIX_BTC',
+            comparison=all_comparison,same_issuance_type_comparison=same_comparison,
+            cohort_comparison='INSUFFICIENT_EVIDENCE' if baseline is None or same_baseline is None else (
+                'SAME_DIRECTION' if all_comparison==same_comparison else 'MIXED_COHORT_COMPARISONS'),
             tail_bp=None,tail_blocker='VERIFIED_AUCTION_TIME_WHEN_ISSUED_QUOTE_REQUIRED',
             comparison_caveat='All-term peer mean mixes new issues/reopenings; same-issuance cohort is separate.',
             independent_signal_group='TREASURY_AUCTION_DEMAND'))

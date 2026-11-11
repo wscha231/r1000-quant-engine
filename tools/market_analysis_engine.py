@@ -425,12 +425,15 @@ def render_report(value):
             lines.append(f"| {key} | {row['value']} | {row['unit']} | {row['measurement_basis']} | {row['observation_date']} | {row['status']} |")
         extra=value.get('financing_conditions',{})
         if extra:
-            lines += ['', '## Treasury auction demand', '', '| Security | Auction date | High yield % | BTC | Prior six same-term BTC |',
-                '| --- | --- | ---: | ---: | ---: |']
+            lines += ['', '## Treasury auction demand', '', '| Security | Issuance | Auction date | High yield % | BTC | Prior six same-term BTC | Prior six same-issuance BTC | Cohort comparison |',
+                '| --- | --- | --- | ---: | ---: | ---: | ---: | --- |']
             for item in extra['treasury_auctions']:
                 r=item['latest'];baseline=item['prior_six_same_original_term_btc_mean']
                 display=f'{baseline:.2f}' if baseline is not None else 'INSUFFICIENT_EVIDENCE'
-                lines.append(f"| {r['security_type']} {r['original_term_years']}y | {r['observation_date']} | {r['high_yield_percent']:.3f} | {r['bid_to_cover']:.2f} | {display} |")
+                same=item['prior_six_same_issuance_type_btc_mean']
+                same_display=f'{same:.2f}' if same is not None else 'INSUFFICIENT_EVIDENCE'
+                issuance='Reopening' if r['reopening'] else 'New issue'
+                lines.append(f"| {r['security_type']} {r['original_term_years']}y | {issuance} | {r['observation_date']} | {r['high_yield_percent']:.3f} | {r['bid_to_cover']:.2f} | {display} | {same_display} | {item['cohort_comparison']} |")
             lines += ['', 'Peer cohorts preserve original term and report reopening status separately. Auction tail requires a verified when-issued quote.',
                 '', '## Bank lending survey', '', '| Sector | Measure | Net percent | Respondents |', '| --- | --- | ---: | ---: |']
             for r in extra['lending_standards']['series']:
