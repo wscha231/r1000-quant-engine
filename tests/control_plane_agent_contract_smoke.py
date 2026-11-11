@@ -550,6 +550,79 @@ class ControlPlaneTests(unittest.TestCase):
             qa_path.write_bytes(saved[acceptance['proofs']['a6_receipt']['path']])
         self.assertTrue(all((self.root/path).read_bytes()==raw for path,raw in saved.items()))
 
+    def test_public_board_threads_external_model_policy_without_source_promotion(self):
+        from tests import system_state_materializer_smoke as canonical
+        from tools import materialize_system_state as materializer
+        from tools.run_multi_asset_leadership import prepare_model_parent_read_observation
+        context,policy,acceptance,_=self.model_incumbents_case()
+        original_acceptance=copy.deepcopy(context['model_state']['artifact'])
+        for kind in ('INCUMBENTS','PARENT_LINEAGE_ONLY'):
+            with self.subTest(kind=kind):
+                current=copy.deepcopy(context);reviewed=copy.deepcopy(policy)
+                if kind=='PARENT_LINEAGE_ONLY':
+                    cutoff=board.timestamp(acceptance['expires_at'])+timedelta(minutes=5)
+                    reviewed['model_lineage_parent']=dict(schema='model-lineage-parent-policy-v1',
+                        purpose=kind,acceptance=original_acceptance,accepted_at=original_acceptance['collected_at'],
+                        state_sha256=acceptance['proofs']['state']['sha256'],
+                        model_identity_sha256=domain_digest(acceptance['model_identity']),
+                        available_at=(cutoff-timedelta(minutes=1)).isoformat(),
+                        expires_at=(cutoff+timedelta(minutes=30)).isoformat())
+                    observation=prepare_model_parent_read_observation(reviewed,self.root,now=cutoff.isoformat())
+                    current.update(decision_time=cutoff.isoformat(),artifact_inventory={'MODEL:parent':observation['artifact']})
+                    current['model_state'].update(kind=kind,artifact=observation['artifact'])
+                else:cutoff=board.timestamp(current['decision_time'])
+                fixture_now=cutoff+timedelta(minutes=1)
+                class FixedDatetime(datetime):
+                    @classmethod
+                    def now(cls,tz=None):return fixture_now
+                intake=canonical.StateTests('runTest')
+                with patch.object(canonical,'datetime',FixedDatetime):intake.setUp()
+                self.addCleanup(intake.doCleanups)
+                request=copy.deepcopy(next(r for r in self.state['requests'] if r['agent']=='A5'))
+                path=self.root/'public_board'/kind/'context.json';path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_text(json.dumps(current),encoding='utf-8')
+                ref=dict(path=path.relative_to(self.root).as_posix(),sha256=board.file_hash(path),
+                    observed_at=cutoff.isoformat(),available_at=cutoff.isoformat(),collected_at=cutoff.isoformat(),
+                    expires_at=(cutoff+timedelta(minutes=30)).isoformat(),status='VERIFIED')
+                request['inputs']['portfolio_context']=ref
+                intake.manifest.update(observed_at=cutoff.isoformat(),requests=[request],completed_tasks=[])
+                state=materializer.materialize(intake.manifest,intake.root,fixture_now,self.sha)
+                self.assertEqual(materializer.verify_state(state,intake.manifest,intake.root,fixture_now,self.sha)['state_sha256'],state['state_sha256'])
+                native=board.verify_current_model_incumbents if kind=='INCUMBENTS' else board.verify_model_parent_lineage
+                name='verify_current_model_incumbents' if kind=='INCUMBENTS' else 'verify_model_parent_lineage'
+                observed=[]
+                def replay(*args,**kwargs):
+                    value=native(*args,**kwargs);observed.append(value);return value
+                with patch.object(board,name,side_effect=replay):
+                    tasks=board.build_tasks(state,self.root,self.contract,fixture_now,self.sha,self.config,
+                        canonical_inputs=intake.manifest,evidence_root=intake.root,
+                        model_policy=reviewed,expected_model_policy_sha256=domain_digest(reviewed))
+                self.assertTrue(observed)
+                self.assertEqual(observed[0]['status'],'CURRENT_MODEL_ALLOCATION_VERIFIED' if kind=='INCUMBENTS' else 'PARENT_LINEAGE_ONLY_VERIFIED')
+                # Canonical Source/PIT remains incomplete. Policy transport is
+                # not permission to erase those independent public-board gates.
+                self.assertEqual(next(t for t in tasks if t['agent']=='A5')['status'],'BLOCKED')
+                with self.assertRaisesRegex(board.ContractError,'model_policy_review_pin_mismatch'):
+                    board.build_tasks(state,self.root,self.contract,fixture_now,self.sha,self.config,
+                        canonical_inputs=intake.manifest,evidence_root=intake.root,
+                        model_policy=reviewed,expected_model_policy_sha256='0'*64)
+                folder=self.root/'public_board'/kind
+                state_path=folder/'state.json';state_path.write_text(json.dumps(state),encoding='utf-8')
+                inputs=folder/'intake.json';inputs.write_text(json.dumps(intake.manifest),encoding='utf-8')
+                policy_path=folder/'policy.json';policy_path.write_text(json.dumps(reviewed),encoding='utf-8')
+                args=argparse.Namespace(latest_run=str(self.root),system_state=str(state_path),
+                    canonical_inputs=str(inputs),evidence_root=str(intake.root),model_policy=str(policy_path),
+                    expected_model_policy_sha256=board.file_hash(policy_path),output_dir=str(folder/'board'),run_url='',max_tasks=0)
+                observed.clear()
+                with patch.object(board,'datetime',FixedDatetime),patch.object(board,name,side_effect=replay):
+                    result=board.run(args)
+                self.assertTrue(observed)
+                self.assertEqual(result['status'],'BLOCKED')
+                args.expected_model_policy_sha256='0'*64
+                with patch.object(board,'datetime',FixedDatetime):board.run(args)
+                summary=board.read_json(folder/'board/board_summary.json')
+                self.assertEqual(summary['blockers'],['model_policy_file_hash_mismatch'])
+
     def test_model_incumbents_require_external_acceptance_and_original_post_qa(self):
         context, policy, acceptance, aid = self.model_incumbents_case(
             proof_expiry='2026-09-23T04:00:00+00:00')

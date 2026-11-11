@@ -1864,7 +1864,8 @@ class StockCashResearch(unittest.TestCase):
         self.assertFalse(clock["scheduled_due"])
         profile["cadence"]="MONTHLY_CONFIRMED_EVENT"
         self.assertFalse(stock_decision_clock(CUTOFF,profile,review,[])["scheduled_due"])
-        events=[dict(event_id="NEWS:1",confirmed=True,materiality=.8,first_seen="2026-09-18T20:01:00Z")]
+        events=[dict(event_id="NEWS:1",confirmed=True,materiality=.8,first_seen="2026-09-18T20:01:00Z",
+                     material_change_times=["2026-09-18T20:01:00Z"])]
         self.assertTrue(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
         events[0]["confirmed"]=False
         self.assertFalse(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
@@ -2035,6 +2036,88 @@ class StockCashResearch(unittest.TestCase):
             with patch.object(publisher.subprocess,"check_output",side_effect=wrong):
                 with self.assertRaisesRegex(ContractError,"source_differs_from_claimed_commit:"+operand):
                     publisher.verified_source_hashes(CODE_SHA)
+
+    def test_late_confirmation_triggers_once_and_reprints_do_not(self):
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        _,r,policy=self.inputs();assets={a['asset_id']:a for a in r['assets']}
+        profile=policy['stock_cash_research'];profile['cadence']='MONTHLY_CONFIRMED_EVENT'
+        def report(ident,at,confirmed,materiality=.8):
+            return dict(**{**meta('CANONICAL_NEWS'),'observed_at':at,'available_at':at},
+                event_id=ident,published_at=at,event_type='MINE_OUTAGE',confidence=.9,materiality=materiality,
+                confirmed=confirmed,thesis_effect='REVIEW_NEGATIVE',estimated_duration='2_WEEKS',
+                asset_ids=[],commodity_ids=['COPPER'],theme_ids=[],duplicate_cluster='OUTAGE:1')
+        first=report('EVENT:1','2026-09-18T21:00:00Z',False)
+        confirmed=report('EVENT:2','2026-09-18T22:00:00Z',True)
+        review={'previous_decision_at':'2026-09-18T21:30:00Z'}
+        merged=event_memory([confirmed,first],assets,CUTOFF,policy)
+        self.assertEqual(merged[0]['first_seen'],first['available_at'])
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+        reprint=report('EVENT:3','2026-09-18T23:00:00Z',True)
+        unconfirmed=report('EVENT:4','2026-09-19T01:00:00Z',False,1.0)
+        review['previous_decision_at']='2026-09-18T22:30:00Z'
+        merged=event_memory([reprint,first,unconfirmed,confirmed],assets,CUTOFF,policy)
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+        material=report('EVENT:5','2026-09-19T02:00:00Z',True,.9)
+        merged=event_memory([material,reprint,first,confirmed],assets,CUTOFF,policy)
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+
+    def test_joint_replacements_recheck_native_concentration(self):
+        from research.multi_asset_v1.decisions import _stock_exit,stock_cash_proposal,_stock_replacement_concentration
+        p,r,policy=self.inputs();template=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest'][0]
+        original_asset=next(a for a in r['assets'] if a['asset_class'] in {'US_EQUITY','COMMODITY_EQUITY'})
+        assets={};rows=[]
+        sectors=['A','B','C','D','C','C']
+        for i,sector in enumerate(sectors):
+            aid='US:SYNTH'+str(i);row=copy.deepcopy(template)
+            row.update(asset_id=aid,symbol='SYNTH'+str(i),portfolio_status='CANDIDATE')
+            record=dict(ticker=row['symbol'],sector=sector,industry_group='INDUSTRY:'+str(i),
+                alphaops_vnext_score=1.5 if i>=4 else .2,rs_benchmark_1w=.1,rs_benchmark_3m=.3,
+                price_above_ma50=.9,price_above_ma200=.9,rs_sector_3m=.2,industry_group_strength_score=.8,
+                portfolio_risk_entry_block_score=0,portfolio_stale_mega_leader_score=0,leader_tier='DUAL_LEADER')
+            row['hold_exit_evidence']=dict(security_id=aid,as_of=list(SESSIONS)[-1],available_at=CUTOFF,record=record)
+            assets[aid]={**original_asset,'asset_id':aid,'symbol':row['symbol']};rows.append(row)
+        by_id={row['asset_id']:row for row in rows};ids=list(by_id)
+        current=dict(zip(ids[:4],[.12,.12,.08,.08]));exits=[]
+        scored=digest({a:row['hold_exit_evidence']['record'] for a,row in by_id.items()})
+        for i in range(2):
+            own,other=rows[i],rows[i+4]
+            review=dict(taxonomy='REPLACEMENT_EXIT',asset_id=own['asset_id'],reason='NATIVE_REVIEW',
+                evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],max_weight=.08,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',replacement_asset_id=other['asset_id'],
+                replacement_evaluation_sha256=other['evaluation_sha256'],scored_cohort_sha256=scored)
+            self.assertEqual(_stock_exit(review,own,.12,by_id,CUTOFF,current,None,{})[0],.08)
+            exits.append(review)  # Both isolated native transitions really pass.
+        rr=copy.deepcopy(p['risk']);rr['max_security_weight']=.2
+        rr['stock_cash_allocation'].update(decision_asset_ids=ids,
+            evaluation_sha256_by_asset={a:row['evaluation_sha256'] for a,row in by_id.items()},exit_reviews=exits)
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,'combined_replacement_concentration_worse'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        combined={**current,ids[0]:.08,ids[1]:.08,ids[4]:.04,ids[5]:.04}
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            with self.assertRaisesRegex(ContractError,'final_replacement_concentration_worse:'+arm):
+                _stock_replacement_concentration(current,combined,by_id,'stock_final_replacement_concentration_worse:'+arm)
+
+    def test_carried_etf_has_direct_vehicle_and_leaf_caps(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        p,r,policy=self.inputs();rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        assets={a['asset_id']:a for a in r['assets']};fund=copy.deepcopy(rows[0]);aid='US:SYNTHFUND'
+        fund.update(asset_id=aid,symbol='SYNTHFUND')
+        assets[aid]={**assets[rows[0]['asset_id']],'asset_id':aid,'symbol':'SYNTHFUND','asset_class':'ETF','vehicle_type':'EQUITY_ETF'}
+        rows.append(fund)
+        holding=dict(**meta('ISSUER_HOLDINGS'),fund_id=aid,source_id='ISSUER_HOLDINGS',
+            portfolio_scope='FULL_PORTFOLIO',coverage_kind='FULL',weight_unit='FRACTION',
+            holdings_as_of=list(SESSIONS)[-1],expected_unique_rows=2,
+            rows=[dict(security_id=row['asset_id'],instrument='COMMON',identity_verified=True,weight=.5) for row in rows[:2]])
+        policy['reviewed_pins']['holdings'].append(digest(holding))
+        exposure=lookthrough({aid:.3},assets,{aid:holding},CUTOFF,policy)
+        self.assertTrue(all(value<=.2 for value in exposure['security_exposure'].values()))
+        rr=p['risk'];rr['max_security_weight']=.2
+        rr['stock_cash_allocation'].update(decision_asset_ids=[row['asset_id'] for row in rows],
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows})
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,'winner_hard_limit_conflict:'+aid):
+            stock_cash_proposal(rows,assets,rr,{aid:holding},CUTOFF,policy,feature_identity(p,r),{aid:.3},artifact_resolver=self.memory)
 
 
 if __name__=="__main__":unittest.main()

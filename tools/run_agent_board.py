@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import hashlib
 import json
 import os
@@ -1262,13 +1263,21 @@ def _plan_tasks(state: dict, root: Path, contract: dict, now: datetime,
 
 def build_tasks(state: dict, root: Path, contract: dict, now: datetime,
                 code_sha: str, config_hash: str, *, canonical_inputs=None,
-                evidence_root=None) -> list[dict]:
+                evidence_root=None, model_policy=None,
+                expected_model_policy_sha256=None) -> list[dict]:
     # The public consumer cannot reuse a self-declared or self-pinned old state.
     from tools.materialize_system_state import verify_state
     if canonical_inputs is None or evidence_root is None:
         raise ContractError('current_canonical_inputs_required')
     verify_state(state, canonical_inputs, evidence_root, now, code_sha)
-    return _plan_tasks(state, root, contract, now, code_sha, config_hash)
+    if model_policy is not None or expected_model_policy_sha256 is not None:
+        from research.multi_asset_v1.contracts import digest as policy_digest
+        model_policy = copy.deepcopy(model_policy)
+        if (type(model_policy) is not dict or type(expected_model_policy_sha256) is not str
+                or re.fullmatch('[0-9a-f]{64}', expected_model_policy_sha256) is None
+                or policy_digest(model_policy) != expected_model_policy_sha256):
+            raise ContractError('model_policy_review_pin_mismatch')
+    return _plan_tasks(state, root, contract, now, code_sha, config_hash,model_policy=model_policy)
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
@@ -1288,9 +1297,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         state = read_json(state_path)
         inputs_path = getattr(args, 'canonical_inputs', None)
         evidence_root = getattr(args, 'evidence_root', None)
+        policy_path = getattr(args, 'model_policy', None)
+        expected_policy = getattr(args, 'expected_model_policy_sha256', None)
+        model_policy = model_policy_digest = None
+        if policy_path is not None or expected_policy is not None:
+            from research.multi_asset_v1.contracts import digest as policy_digest
+            if (not policy_path or type(expected_policy) is not str or
+                    re.fullmatch('[0-9a-f]{64}', expected_policy) is None):
+                raise ContractError('model_policy_external_hash_required')
+            path = repo_path(policy_path)
+            if not path.is_file() or path.is_symlink() or path.stat().st_size > 4*1024*1024:
+                raise ContractError('model_policy_file_bounds')
+            raw = path.read_bytes()
+            if digest_bytes(raw) != expected_policy:
+                raise ContractError('model_policy_file_hash_mismatch')
+            model_policy = json.loads(raw,object_pairs_hook=_review_pairs,parse_constant=_review_invalid)
+            model_policy_digest = policy_digest(model_policy)
         tasks = build_tasks(state, root, contract, now, code_sha, config_hash,
                             canonical_inputs=read_json(repo_path(inputs_path)) if inputs_path else None,
-                            evidence_root=repo_path(evidence_root) if evidence_root else None)
+                            evidence_root=repo_path(evidence_root) if evidence_root else None,
+                            model_policy=model_policy,expected_model_policy_sha256=model_policy_digest)
         cap = getattr(args, 'max_tasks', 0)
         if cap < 0 or (cap and len(tasks) > cap):
             raise ContractError('task_cap_would_drop_dependencies')
@@ -1343,6 +1369,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--canonical-inputs', help='Separately refreshed trusted source intake; never derive from saved state')
     parser.add_argument('--evidence-root', help='Read-only local materialization of canonical source bytes')
     parser.add_argument('--system-state', help='Explicit current v2 state; otherwise <latest-run>/control_plane/system_state.json')
+    parser.add_argument('--model-policy', help='External reviewed MODEL policy; never extracted from task/context parameters')
+    parser.add_argument('--expected-model-policy-sha256',help='External SHA256 of exact policy file bytes (not economic permission)')
     return parser.parse_args()
 
 

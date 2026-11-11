@@ -42,6 +42,7 @@ def event_memory(events, assets, cutoff, policy):
                       "commodity_ids":set(),"theme_ids":set(),"evidence":[],
                       "affected_asset_ids":set(), "event_types":set(), "thesis_effects":set(),
                       "confidence":0.0, "materiality":0.0, "confirmed":False,
+                      "material_confirmations":{},
                       "score_change":None, "requires_thesis_review":True})
         target["first_seen"] = min(target["first_seen"],row["available_at"],key=stamp)
         target["last_seen"] = max(target["last_seen"],row["available_at"],key=stamp)
@@ -58,6 +59,12 @@ def event_memory(events, assets, cutoff, policy):
         target["confidence"] = max(target["confidence"],row["confidence"])
         target["materiality"] = max(target["materiality"],row["materiality"])
         target["confirmed"] |= row["confirmed"]
+        if row["confirmed"] and row["materiality"]>=.5:
+            # Economic review meaning excludes collection time/source/body SHA.
+            semantic=digest({k:sorted(row[k]) if k in {"asset_ids","commodity_ids","theme_ids"} else row[k]
+                for k in ("event_type","thesis_effect","materiality","asset_ids","commodity_ids","theme_ids")})
+            clocks=target["material_confirmations"]
+            clocks[semantic]=min(clocks.get(semantic,row["available_at"]),row["available_at"],key=stamp)
         for aid,a in assets.items():
             if aid in row["asset_ids"] or a["underlying"] in row["commodity_ids"] or set(a["theme_ids"]) & set(row["theme_ids"]):
                 target["affected_asset_ids"].add(aid)
@@ -65,6 +72,7 @@ def event_memory(events, assets, cutoff, policy):
     for cluster in sorted(clusters):
         row=clusters[cluster]
         row["source_count"]=len(row["source_ids"])
+        row["material_change_times"]=sorted(set(row.pop("material_confirmations").values()),key=stamp)
         for k,v in row.items():
             if isinstance(v,set): row[k]=sorted(v)
         out.append(row)
@@ -333,8 +341,8 @@ def stock_decision_clock(cutoff,profile,review,events):
     require(previous_at is None or previous_at<=stamp(cutoff),"stock_future_previous_decision")
     previous_session=list(grid(previous))[-1] if previous is not None else None
     previous_day=day(previous_session) if previous_session is not None else None
-    changed=[e["event_id"] for e in events if e["confirmed"] and e["materiality"]>=.5 and
-             (previous_at is None or stamp(e["first_seen"])>previous_at)]
+    changed=[e["event_id"] for e in events if e["confirmed"] and e["materiality"]>=.5 and any(
+             previous_at is None or stamp(value)>previous_at for value in e["material_change_times"])]
     month_due=previous_day is None or (previous_day.year,previous_day.month)!=(day(session).year,day(session).month)
     week_due=previous_day is None or previous_day.isocalendar()[:2]!=day(session).isocalendar()[:2]
     due={"MONTHLY":month_due,"WEEKLY":week_due,
@@ -513,6 +521,16 @@ def _stock_exit(review,row,old,by_id,cutoff,current,artifact_resolver,risk):
         **(review_basis if kind in {"REPLACEMENT_EXIT","LIFECYCLE_EXIT"} else {}))
 
 
+def _stock_replacement_concentration(current, after, by_id, reason):
+    from tools.run287_hold_exit_policy import concentration_not_worse
+    def records(weights):
+        return [dict(by_id[aid]["hold_exit_evidence"]["record"],weight=value)
+                for aid,value in weights.items() if value>0]
+    passed,note,before_audit,after_audit=concentration_not_worse(records(current),records(after),portfolio="main")
+    require(passed,reason)
+    return dict(before=before_audit,after=after_audit,note=note)
+
+
 def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,current_weights=None, *, decision_events=None,
                         artifact_resolver=None,model_review=None):
     """One frozen moment/cost input shared by Control and long-only SLSQP.
@@ -579,6 +597,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             hi=min(hi,number(proof.get("max_weight"),0,.20))
         if aid in exits:
             hi,audit=_stock_exit(exits[aid],row,old,by_id,cutoff,current,artifact_resolver,risk);lo=hi;exit_audit.append(audit)
+        hi=min(hi,cap)  # A direct ETF vehicle remains capped after look-through.
         if not old and (not entry or not tradable): continue
         require(lo<=hi+1e-10,"stock_winner_hard_limit_conflict:"+aid)
         accepted.append(row);lower.append(lo);upper.append(hi)
@@ -621,6 +640,17 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             realized_integer_fills=False,performance_claimed=False,
             turnover_cost_scope="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV")
     ids=[r["asset_id"] for r in accepted];n=len(ids)
+    replacements=[audit for audit in exit_audit if "replacement_asset_id" in audit]
+    concentration_audit={}
+    if replacements:
+        combined=dict(current)
+        for audit in replacements:
+            released=audit["prior_weight"]-audit["max_weight"]
+            combined[audit["asset_id"]]-=released
+            aid=audit["replacement_asset_id"]
+            combined[aid]=combined.get(aid,0)+released
+        concentration_audit["COMBINED_REPLACEMENT_TRANSITION"]=_stock_replacement_concentration(
+            current,combined,by_id,"stock_combined_replacement_concentration_worse")
     returns=np.asarray([[number(x) for x in r.get("daily_log_returns",[])] for r in accepted],dtype=float)
     require(returns.shape==(n,60) and np.isfinite(returns).all(),"stock_common_covariance_history")
     require(all(r.get("return_history_sessions")==list(grid(cutoff))[-60:] for r in accepted),
@@ -642,6 +672,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     groups=sorted({g for e in exposures for g in e["risk_group_exposure"]})
     matrix=[np.ones(n)]
     limits=[gross_cap]
+    matrix.extend(np.eye(n));limits.extend([cap]*n)
     for a in leaf_ids:
         matrix.append(np.asarray([e["security_exposure"].get(a,0) for e in exposures]));limits.append(cap)
     for g in groups:
@@ -693,6 +724,11 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     solved=minimize(objective,control,method="SLSQP",bounds=list(zip(lo,hi)),constraints=[constraint],
                     options={"ftol":1e-10,"maxiter":300})
     optimized=checked_solution(solved,lo,hi,"stock_optimizer_constraint_violation")
+    if replacements:
+        for name,values in (("CONTROL",control),("COST_AWARE_LONG_ONLY",optimized)):
+            concentration_audit[name]=_stock_replacement_concentration(current,
+                {aid:float(value) for aid,value in zip(ids,values)},by_id,
+                "stock_final_replacement_concentration_worse:"+name)
     chosen=control if p["allocator"]=="CONTROL" else optimized
     exception_audit=[]
     if any(chosen[i]>old[i]+1e-9 and alt[i]>0 for i in range(n)):
@@ -754,5 +790,6 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         allocator=p["allocator"],intent=intent,
         control_identity="EXISTING_MULTI_ASSET_SCORE_WITH_STOCK_SCOPE_AND_SHARED_HARD_LIMITS",
         reduction_basis="PINNED_TYPED_EXIT_ONLY",
+        replacement_concentration=concentration_audit,
         realized_integer_fills=False,performance_claimed=False,
         turnover_cost_scope="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV")

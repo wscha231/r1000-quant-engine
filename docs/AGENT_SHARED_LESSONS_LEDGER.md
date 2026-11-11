@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+- A verified MODEL helper is insufficient when its public board/CLI drops the
+  externally reviewed policy. Preserve canonical-state replay and transport the
+  separately hash-pinned policy; neither its hash nor task preparation grants
+  Source, economic or book authority.
+- Event cadence follows first confirmed material meaning, not the cluster's
+  original rumour time or a later duplicate's collection time. Check joint
+  replacement transitions and both final allocation arms with native sector/
+  theme concentration; isolated passing swaps need not pass together. Keep
+  direct ETF vehicle caps alongside constituent caps, blocking an over-limit
+  incumbent for reviewed action rather than silently normalizing it away.
+
 ## 2026-11-09 - Separate A5 preparation from economic admission
 
 - Missing actual/approved account state must not masquerade as a missing model
