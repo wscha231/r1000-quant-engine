@@ -446,7 +446,8 @@ def forward_a4_context(source: dict, session: str, now: datetime) -> dict:
             or run.get("conclusion") not in ("success", "failure")
             or report.get("schema_version") != "daily-crisis-monitor-v2"
             or report.get("research_only") is not True or report.get("auto_trade_allowed") is not False
-            or not isinstance(market, dict) or market.get("schema") != "market-analysis-report-v1"
+            or not isinstance(market, dict) or market.get("schema") not in
+                ("market-analysis-report-v1", "market-analysis-report-v2")
             or market.get("market") != "US"):
         return result
     if report.get("expected_session") != session or market.get("session") not in (None, session):
