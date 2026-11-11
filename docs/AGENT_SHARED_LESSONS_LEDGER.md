@@ -10474,6 +10474,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   validator bypass. Budget the dedicated normal/-O job for the actual graph
   checks (30 minutes), rather than deleting assertions to fit its old ten-minute
   limit. The focused four-method bridge is not a whole-suite or optimized pass.
+- After merging accepted A4 changes, even a V1 request reads the V2 contract
+  through implementation identity. A tracked sparse-absent contract caused a
+  genuine DATA_BLOCKED fixture failure. Hydrate only its exact accepted bytes,
+  preserve the skip flag, and attest/filter all three incoming A4 operands.
+  Recheck the changed native API rather than claiming old-head integration.
+- That genuine current-MODEL case contains separate original and all-cash
+  post-QA plus current A3/A4 replay. Its first post-hydration 80-second child
+  limit was insufficient; retain NOT_COMPLETE. The identical case passed alone
+  in 106.728 seconds with real fixture-stage timing. Preserve both costs, and
+  distinguish prior-base publisher coverage from this new-base representative.
 
 ### 2026-11-11 — Bind A4 CSV normalization to original Lake bytes
 

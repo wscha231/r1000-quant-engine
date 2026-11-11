@@ -164,6 +164,8 @@ def verified_source_hashes(code_sha):
         "r1000_config.py", "research/control_plane/agent_contracts_v2.yaml",
         "research/control_plane/task_packet_schema.json", "research/control_plane/system_state_schema.json",
         "tools/market_analysis_engine.py", "tools/free_market_context.py",
+        "tools/a4_liquidity_analysis.py", "tools/a4_macro_bridge.py",
+        "docs/market_analysis_contract_v2.json",
         "tools/chameleon_market_context_v2.py", "tools/build_run287_chameleon_macro_risk.py",
         "tools/daily_crisis_report_clock.py", "docs/market_analysis_contract_v1.json",
         "tools/build_run287_chameleon_macro_inputs.py", "tools/candidate_reassessment_bridge.py",

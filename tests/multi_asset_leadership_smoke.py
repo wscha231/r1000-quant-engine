@@ -2022,7 +2022,8 @@ class StockCashResearch(unittest.TestCase):
 
     def test_publisher_replays_native_dependency_code_bytes(self):
         import tools.run_multi_asset_leadership as publisher
-        native={"tools/run_broker_ledger_replay.py","tools/run287_hold_exit_policy.py","tools/security_lifecycle.py"}
+        native={"tools/run_broker_ledger_replay.py","tools/run287_hold_exit_policy.py","tools/security_lifecycle.py",
+                "tools/a4_liquidity_analysis.py","tools/a4_macro_bridge.py","docs/market_analysis_contract_v2.json"}
         def expected(args,**kwargs):return (ROOT/args[2].split(":",1)[1]).read_bytes()
         with patch.object(publisher.subprocess,"check_output",side_effect=expected):
             checked=publisher.verified_source_hashes(CODE_SHA)
