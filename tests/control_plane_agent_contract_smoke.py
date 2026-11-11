@@ -178,6 +178,14 @@ class ControlPlaneTests(unittest.TestCase):
                               collected_at='2026-09-19T01:00:00Z'))
         request = dict(schema=market.REQUEST_SCHEMA, market='US', session=session,
             available_at='2026-09-19T01:30:00Z', expires_at='2026-09-20T00:00:00Z', inputs=specs)
+        # Optional synthetic v2 originals for the full A5 consumer integration.
+        # The default fixture and all existing oracle behavior remain intact.
+        for sid, raw in getattr(self, 'a4_extra_originals', []):
+            tag='macro_'+sid
+            inventory['A4:'+tag]=put('a4/'+tag+'.csv',raw)
+            specs.append(dict(kind='macro_v2',path=tag+'.csv',source_id='fred:'+sid,
+                sha256=market.sha(raw),status='COLLECTED',collected_at='2026-09-19T01:00:00Z'))
+            request['schema']=market.REQUEST_SCHEMA_V2
         request_ref = put('a4/request.json', json.dumps(request).encode())
         risk = market.load_report(self.root / request_ref['path'], self.root / 'a4', request_ref['sha256'],
                                   cutoff=decision_cutoff, session=session)

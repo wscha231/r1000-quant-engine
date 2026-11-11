@@ -118,5 +118,50 @@ class CloudTests(unittest.TestCase):
             self.assertFalse(second["accepted_model_changed"])
             self.assertFalse(second["durable_remote_verified"])
 
+    def test_fixed_report_replay_does_not_backdate_new_cloud_forecasts(self):
+        from tests.a4_liquidity_analysis_smoke import raw
+        old,old_policy,resolve=fixture(1600)
+        trial=learning.fit_trial(old,old_policy,digest(encoded(old_policy)),resolve)
+        p,policy,resolve=fixture(10000)  # Actual fixture calendar ends 2026-11-06.
+        policy.update(active_trial_sha256=trial['trial_sha256'],reviewed_trial_pins=[trial['trial_sha256']],
+                      expires_at='2026-11-10T00:00:00Z')
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d);inputs=base/'inputs';inputs.mkdir();state=base/'state'
+            learning.store_trial(trial,state)
+            def put(name,value):
+                body=value if type(value) is bytes else encoded(value)
+                (inputs/name).write_bytes(body)
+                return dict(path=name,sha256=digest(body))
+            original=resolve(None);sha=digest(original)
+            request=dict(schema='a4-learning-request-v1',inputs=put('learning_inputs.json',p),
+                policy=put('learning_policy.json',policy),originals={sha:put('original.raw',original)})
+            put('learning_request.json',request)
+            specs=[]
+            for sid,value in (('SOFR',4.2),('IORB',4)):
+                reference=put(sid+'.csv',raw(sid,[('2026-11-06',value)]))
+                specs.append(dict(kind='macro_v2',source_id='fred:'+sid,**reference,status='COLLECTED',
+                                  collected_at='2026-11-06T22:00:00Z'))
+            market_request=dict(schema=cycle.market.REQUEST_SCHEMA_V2,market='US',session='2026-11-06',inputs=specs,
+                available_at='2026-11-07T09:00:00Z',expires_at='2026-11-10T00:00:00Z')
+            reference=put('request.json',market_request);(inputs/'request.sha256').write_text(reference['sha256'])
+            # A pinned clock context selects fixed replay; incomplete A5 evidence
+            # deliberately remains blocked and grants no portfolio admission.
+            model=dict(schema='a5-model-proposal-request-v1',inputs=put('model_inputs.json',dict(as_of=NOW)),
+                registry=put('registry.json',{}),policy=put('model_policy.json',dict(current_a3_review_profile=dict(
+                    available_at='2026-11-07T09:00:00Z',expires_at='2026-11-10T00:00:00Z'))))
+            put('a5_request.json',model)
+            arguments=dict(input_root=inputs,state_root=state,learning_policy_sha256=request['policy']['sha256'],
+                           a5_policy_sha256=model['policy']['sha256'],code_sha='a'*40)
+            first=cycle.run_cycle(**arguments,output_dir=base/'first',cutoff=NOW)
+            self.assertEqual(first['learning_status'],'RESEARCH_CYCLE_COMPLETE',first)
+            paths=list((state/'predictions').iterdir());self.assertEqual(len(paths),1)
+            captured=json.loads(paths[0].read_bytes())['predictions']
+            self.assertTrue(captured);self.assertTrue(all(r['created_at']==NOW for r in captured))
+            late=cycle.run_cycle(**arguments,output_dir=base/'late',cutoff='2026-11-09T21:05:00Z')
+            self.assertEqual(late['decision_cutoff'],NOW)
+            self.assertEqual(late['learning_status'],'BLOCKED',late)
+            self.assertEqual(list((state/'predictions').iterdir()),paths)
+            self.assertEqual(late['a5_status'],'BLOCKED')
+
 
 if __name__=="__main__":unittest.main()

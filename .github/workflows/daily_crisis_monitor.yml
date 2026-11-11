@@ -123,6 +123,7 @@ jobs:
         continue-on-error: true
         env:
           A4_LEARNING_POLICY_SHA256: ${{ vars.A4_LEARNING_POLICY_SHA256 }}
+          A5_MODEL_POLICY_SHA256: ${{ vars.A5_MODEL_POLICY_SHA256 }}
         run: |
           python tools/run_a4_research_cycle.py \
             --input-root outputs/market_analysis_inputs \
