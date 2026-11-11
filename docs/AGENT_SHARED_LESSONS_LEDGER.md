@@ -10413,6 +10413,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   behind the existing artifact/session/clock gates, and require an object before
   reading refRates. Regress actual loader DATA_BLOCKED output and the unchanged
   v1/v2 forward handoff; never treat a parser crash as a completed diagnosis.
+- V2 historical-evidence arrays can exceed the old128KiB A4 ZIP-member bound.
+  Give that source a bounded16MiB member/32MiB archive envelope within the
+  unchanged global caps, retaining exact member/hash/session checks. Regress a
+  real compressed multi-model member and one-byte-over-budget refusal; accepting
+  the new schema alone is insufficient if the transport still rejects its data.
 
 ### 2026-11-11 — Cloud research state and mature labels are separate gates
 

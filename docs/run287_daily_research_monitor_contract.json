@@ -218,8 +218,8 @@
         "workflow_dispatch"
       ],
       "artifact_prefix": "daily-crisis-monitor-",
-      "max_artifact_bytes": 262144,
-      "max_member_bytes": 131072,
+      "max_artifact_bytes": 33554432,
+      "max_member_bytes": 16777216,
       "members": {
         "summary": "summary.json"
       }
