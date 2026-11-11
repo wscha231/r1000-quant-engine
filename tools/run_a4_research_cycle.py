@@ -127,7 +127,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
             matching=[t for t in trials if t["trial_sha256"]==active]
             market.need(len(matching)==1,"A4_FIXED_RELEASE_NOT_RESTORED")
             market.need(report.get("schema")=="market-analysis-report-v2","A4_V2_REPORT_REQUIRED")
-            predictions=learning.forecast_release(report,matching[0],policy,digest(encoded(policy)))
+            predictions=learning.forecast_release(report,matching[0],policy,digest(encoded(policy)),created_at=cutoff)
         forecast_root=state/"predictions"
         if plan["weekly_score_due"]:
             old=[]

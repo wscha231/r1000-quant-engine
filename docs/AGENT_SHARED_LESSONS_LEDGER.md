@@ -10440,3 +10440,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   their restore path (8MiB). A valid100,000-row score population can exceed it;
   retain that attempt as blocked before publication instead of poisoning every
   later restore. The boundary regression proves no file/directory on refusal.
+- Normalized learning rows must preserve the original parser's date boundary:
+  observation_date cannot exceed availability or collection's UTC date. Reject negative-age
+  future values both on input admission and feature replay. Fixed forecasts must
+  also satisfy decision-close <= creation < next-session close before report or
+  checkpoint mutation; the15-minute completed-session grace cannot revive a
+  passed entry. A persisted retrospective prediction would poison later scoring.

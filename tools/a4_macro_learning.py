@@ -90,7 +90,11 @@ def validate_inputs(payload, policy, expected_policy_sha256, artifact_resolver):
         spec=analysis.SERIES[sid]
         check(tuple(row.get(k) for k in ("logical_id","unit","frequency","measurement_basis","seasonal_basis","family","max_age_days"))==spec,
               "A4_LEARNING_SOURCE_SEMANTICS")
-        free.number(row["value"]); free.iso_date(row["observation_date"])
+        free.number(row["value"])
+        check(free.iso_date(row["observation_date"])<=free.utc(row["available_at"]).date(),
+              "A4_LEARNING_OBSERVATION_AFTER_AVAILABILITY")
+        check(free.iso_date(row["observation_date"])<=free.utc(row["collected_at"]).date(),
+              "A4_LEARNING_OBSERVATION_AFTER_COLLECTION")
         check(free.utc(row["available_at"]) <= free.utc(cutoff), "A4_LEARNING_FUTURE_OBSERVATION")
         binding = bindings[row["original_sha256"]]
         check(row["source_id"] in binding.get("source_ids", []), "A4_LEARNING_SOURCE_BINDING")
@@ -117,6 +121,10 @@ def replay_features(observations, sessions):
         cutoff = session["close_utc"]; changed = set()
         while index < len(ordered) and free.utc(ordered[index]["available_at"]) <= free.utc(cutoff):
             row = ordered[index]; index += 1
+            check(free.iso_date(row["observation_date"])<=free.utc(row["available_at"]).date(),
+                  "A4_LEARNING_OBSERVATION_AFTER_AVAILABILITY")
+            check(free.iso_date(row["observation_date"])<=free.utc(row["collected_at"]).date(),
+                  "A4_LEARNING_OBSERVATION_AFTER_COLLECTION")
             key, observed = row["logical_id"], row["observation_date"]
             old = state[key].get(observed)
             check(old is None or free.utc(old["available_at"]) != free.utc(row["available_at"]) or old == row,
@@ -299,7 +307,7 @@ def score_predictions(predictions, prices, sessions, cutoff):
     return out
 
 
-def forecast_release(report, trial, policy, expected_policy_sha256):
+def forecast_release(report, trial, policy, expected_policy_sha256, *, created_at=None):
     """An externally reviewed fixed trial may explain a new report, never size it."""
     verify_trial(trial)
     check(digest(encoded(policy))==expected_policy_sha256 and trial["trial_sha256"] in policy.get("reviewed_trial_pins",[]),
@@ -307,6 +315,10 @@ def forecast_release(report, trial, policy, expected_policy_sha256):
     check(free.utc(trial["cutoff"])<free.utc(report["cutoff"]) and
           free.utc(policy["available_at"])<=free.utc(report["cutoff"])<free.utc(policy["expires_at"]),
           "A4_LEARNING_RELEASE_CLOCK")
+    created_at=created_at or report["cutoff"]
+    check(free.utc(report["cutoff"])<=free.utc(created_at) and
+          free.utc(policy["available_at"])<=free.utc(created_at)<free.utc(policy["expires_at"]),
+          "A4_FORECAST_CREATION_CLOCK")
     check(trial["feature_recipe_sha256"]==digest(encoded(FEATURES)),"A4_LEARNING_RECIPE_CHANGED")
     check(trial.get("code_sha256")==digest(Path(__file__).read_bytes()) and trial.get("math_dependencies")==
           {Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis)},
@@ -328,8 +340,14 @@ def forecast_release(report, trial, policy, expected_policy_sha256):
         check(math.isfinite(estimate),"A4_NONFINITE_FORECAST")
         predictions.append(dict(target=row["target"],horizon_sessions=row["horizon_sessions"],outcome=row["outcome"],
             feature=row["feature"],evidence_family=row["evidence_family"],estimate=estimate,
-            contribution_vs_training_mean=contribution,created_at=report["cutoff"],decision_session=report["session"],
+            contribution_vs_training_mean=contribution,created_at=created_at,decision_session=report["session"],
             reviewed_trial_sha256=trial["trial_sha256"],qualified_company_er=False))
+    if predictions:
+        decision=free.iso_date(report["session"])
+        schedule=mcal.get_calendar("NYSE").schedule(start_date=decision,end_date=decision+timedelta(days=14))
+        check(len(schedule)>=2 and schedule.index[0].date()==decision and
+              schedule.market_close.iloc[0].to_pydatetime()<=free.utc(created_at)<schedule.market_close.iloc[1].to_pydatetime(),
+              "A4_PREDICTION_ENTRY_WINDOW")
     for horizon in report["horizon_outlook"]:
         matched=[p for p in predictions if p["target"]=="SPY" and p["horizon_sessions"]==horizon["horizon_sessions"] and p["outcome"]=="return"]
         signs={np.sign(p["contribution_vs_training_mean"]) for p in matched}
