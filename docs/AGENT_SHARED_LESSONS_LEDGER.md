@@ -11072,3 +11072,45 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   checkout CRLF/LF differences explicitly fingerprinted; this does not waive
   exact paired-normalizer hashes. Source/PIT/rights/training admission remain
   separate from archive integrity and existing analytical report verification.
+- Current7e same-input reassessment and independent Drive-only replay passed
+  with19 paired feeds/68,116 rows. Cold witness
+  6ac1f7ed9a7c93684b695cb9062f9b653092438bd922b18666209015719939e9
+  was stored/read back for catalog9376c686 and execution698f08a8. Market report
+  bytes stayed exactly equal to version51/7560342f. Only the index module's
+  fingerprints and visible metadata byte count changed; native market math
+  files were unchanged. Provider calls/fit/accepted-state changes were0.
+- The fresh generation32 evidence came from scheduled legacy workflow
+  43040722327/job130591475822 at accepted a2ff88ac, not from the newer Source
+  family's unspent allocation. It durably published c7d25fd1 and three reports
+  before the job correctly exited2 for PARTIAL_COVERAGE. Artifact13873237269's
+  API digest is090907ecbd2734ff7eb8c9dcc0af38729f3205005239761bff78f07b17372ff5;
+  artifact metadata is not downloaded-byte verification. Never relabel this
+  scheduled failure as a green full-scope cycle or inherit Source authority.
+- The existing macro-evaluation report8641c4982b970c3747fc12bb52f1a06e69f0511ee74423bc98126227c137b44e
+  contains336 fixed single-feature purged walk-forward tests:253
+  NO_INCREMENTAL_EVIDENCE and83 INSUFFICIENT_INDEPENDENT_EVIDENCE. Preserve all
+  negative/insufficient outcomes. The assets are SP500 and NASDAQCOM price
+  indexes excluding dividends/costs, not the requested fourteen ETFs. The
+  report explicitly lacks historical-PIT/full-portfolio certification and
+  limits multiple testing to its current run; canonical experiment-census
+  integration remains required. Reading this prior report is not a new fit,
+  a learning-policy approval, a promoted model or a source-rights grant.
+- While required current-head CI was still in progress, the connected Actions
+  job-list endpoint repeatedly timed out and the exact gh read returned502.
+  The public status page reported operational; do not infer a global incident
+  or terminal success from either fact. Preserve current executions/evidence
+  and wait for explicit required-check results rather than substitute an old
+  head's green check or replay a transactional workflow.
+- The c4 run then exceeded its90-minute limit while GET remained in_progress:
+  normal cancel and official force-cancel both returned409/not-in-progress,
+  whereas re-run returned403/already-running. None succeeded. One unchanged-
+  tree PR synchronization at145e48ce was used as a bounded recovery; all four
+  new workflows remained queued and no current-head checks were created.
+  The7e job metadata meanwhile showed every step including Complete job as
+  successful, yet its top job/check status remained in_progress. Neither state
+  is substituted for an explicit green required check. Stop retry loops.
+  GitHub's official troubleshooting guide documents this abnormal state and
+  advises Support when self-service/force cancellation cannot clear it:
+  https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
+  Prepare a sanitized support packet; external submission requires explicit
+  user authorization. Keep financial/Drive credentials and raw data out of it.
