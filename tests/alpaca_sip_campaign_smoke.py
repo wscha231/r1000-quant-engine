@@ -9253,3 +9253,419 @@ class New3FiniteAllocationTests(unittest.TestCase):
         self.assertEqual(rendered['INPUT_PRIVATE_ROOT_FOLDER_ID'],inputs['private_root_folder_id'])
         self.assertEqual(rendered['INPUT_PRIVATE_DATA_FOLDER_ID'],inputs['private_data_folder_id'])
         self.assertEqual(rendered['INPUT_CAMPAIGN_CONTROL'],inputs['campaign_control'])
+
+
+class TwoSessionBridgeTests(unittest.TestCase):
+    """Public bounded route over synthetic transport; no price/account evidence."""
+    def setUp(self):
+        self.tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.now = c.utc('2026-11-11T10:00:00Z')
+        real_clock = c.utc
+        self.enterContext(patch.object(c, 'utc', side_effect=lambda x=None:
+            self.now if x is None else real_clock(x)))
+        self.bindings = dict(credential_binding=c.digest(b'fixture-key\0fixture-secret'),
+                             owner_sha256=c.digest(b'fixture-owner'))
+        self.enterContext(patch.dict(c.CONTINUATION, {'bindings': self.bindings}))
+        self.a = dict(schema='a1-two-session-bridge-authorization-v1', task_key=cap.BRIDGE_TASK,
+            allocation_profile=cap.BRIDGE_PROFILE,
+            allocation_reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-999',
+            working_copy_reference='https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-1000',
+            start=cap.BRIDGE_START, end=cap.BRIDGE_END, input_csv=cap.BRIDGE_INPUT.decode(),
+            scope=cap._bridge_scope(), limits=dict(cap.BRIDGE_CAPS), wall_seconds=900,
+            not_before_utc='2026-11-11T09:00:00Z', start_before_utc='2026-11-12T09:00:00Z',
+            expected_master='1'*40, deployment=dict(pull_request=999, reviewed_head='2'*40),
+            code_pins={p:c.digest((c.ROOT/p).read_bytes().replace(b'\r\n', b'\n'))
+                for p in c.PINS+(c.REVISION_MODULE, cap.NEW3_CALENDAR_PATH)},
+            private_root_folder_id='fixture-root-123', private_data_folder_id='fixture-data-123',
+            owner_permission_id='fixture-owner', credential_binding=self.bindings['credential_binding'],
+            rights_documents=[dict(folder_id='fixture-rights-folder',file_id='fixture-rights-001',
+                bytes=3,sha256=c.digest(b'doc'))], asset_ids=dict(cap.BRIDGE_ASSET_IDS),
+            opening=dict(family_prefix_first_sha256='a'*64,family_prefix_sha256='b'*64,
+                event_count=108,dispatches=41,unresolved_costs_reserved=True,
+                usage=dict(provider_gets=1338,drive_requests=12686,drive_bytes=2151048780,storage_bytes=172919995),
+                source_history_sha256=c.digest(c.encoded([])),
+                scope_receipts={'993':'a'*64,'174':'b'*64,
+                    'NEW3':'8c69d6537d98b8cb7ef4c68b401897413a6d64351b1b8c625236d64278651043',
+                    '607':'836c72553d8c7cec8614bdb04d08fe6f20ae98632acdcd7bec54b43e5e4f8003'}))
+
+    def context(self):
+        control = dict(authorization=self.a,nonce=cap._bridge_nonce(c))
+        inputs = dict(private_root_folder_id=self.a['private_root_folder_id'],
+            private_data_folder_id=self.a['private_data_folder_id'],
+            private_research_authorized=True,noncommercial_terms_acknowledged=True,
+            end_date=cap.BRIDGE_END,max_new_symbols='3',resume_file_id='',resume_sha256='',
+            campaign_control=c.encoded(control).decode(),campaign_nonce=control['nonce'])
+        event = Path(self.tmp)/'event.json';event.write_bytes(c.encoded(dict(inputs=inputs)))
+        self.enterContext(patch.dict(os.environ,dict(GITHUB_REPOSITORY=c.REPO,GITHUB_REF='refs/heads/master',
+            GITHUB_SHA=self.a['expected_master'],GITHUB_EVENT_NAME='workflow_dispatch',GITHUB_RUN_ATTEMPT='1',
+            GITHUB_RUN_ID='123',GITHUB_EVENT_PATH=str(event),INPUT_CAMPAIGN_NONCE=control['nonce'],
+            INPUT_PRIVATE_NEW3_R2='true',INPUT_CAMPAIGN_CONTROL='',INPUT_PRIVATE_ROOT_FOLDER_ID='',
+            INPUT_PRIVATE_DATA_FOLDER_ID='',INPUT_RESUME_FILE_ID='',A1_PRIVATE_RESEARCH_AUTHORIZED='true',
+            ALPACA_NONCOMMERCIAL_ACKNOWLEDGED='true',ALPACA_API_KEY='fixture-key',ALPACA_API_SECRET='fixture-secret')))
+        args = SimpleNamespace(private_root_folder_id='',private_data_folder_id='',start=cap.MIN_START,
+            end=cap.BRIDGE_END,max_new_symbols=3,resume_file_id='',resume_sha256='')
+        return control, args, event, inputs
+
+    def test_public_authorization_and_original_parent_byte_pins(self):
+        self.assertEqual(c.validate_authorization(self.a),cap._new3_hash(self.a))
+        self.assertEqual(c.digest(cap.BRIDGE_INPUT),'a251330b8aced31ee93f946a808adfeec84505bd5301443893d5b4265de871e9')
+        scope = cap._bridge_scope();scope['parent_captures']['LITE'][0]='f'*40
+        self.assertEqual(cap._bridge_scope()['parent_captures']['LITE'][0],
+            '3c6c2161753c7f1962ba72a8b24d62adb5be83ee')
+
+    def test_scope_budget_account_and_parent_mutations_refuse(self):
+        variants = [('start','2026-10-12'),('end','2026-10-16'),('input_csv','ticker\nSPY\n'),
+            ('limits',dict(cap.BRIDGE_CAPS,provider_gets=6)),('wall_seconds',901),
+            ('credential_binding','f'*64),('owner_permission_id','another-owner'),
+            ('start_before_utc','2026-11-13T09:00:00Z')]
+        for key,value in variants:
+            with self.subTest(key=key):
+                changed=copy.deepcopy(self.a);changed[key]=value
+                with self.assertRaises(c.Refused):c.validate_authorization(changed)
+        for key in ('scope','opening','asset_ids','code_pins'):
+            changed=copy.deepcopy(self.a)
+            if key=='scope':changed[key]['parent_captures']['MRVL'][0]='f'*40
+            elif key=='opening':changed[key]['scope_receipts']['607']='f'*64
+            elif key=='asset_ids':changed[key]['LITE']='00000000-0000-0000-0000-000000000001'
+            else:del changed[key][cap.NEW3_CALENDAR_PATH]
+            with self.subTest(key=key),self.assertRaises(c.Refused):c.validate_authorization(changed)
+
+    def test_no_second_nonce_from_new_grant_or_control(self):
+        nonce=cap._bridge_nonce(c)
+        changed=copy.deepcopy(self.a);changed['allocation_reference']=changed['working_copy_reference']
+        changed['start_before_utc']='2026-11-12T08:00:00Z'
+        self.assertNotEqual(c.validate_authorization(changed),c.validate_authorization(self.a))
+        self.assertEqual(cap._bridge_nonce(c),nonce)
+        row=dict(id=10,display_title='a1-sip '+nonce,status='completed')
+        with patch.object(c,'campaign_run_pages',return_value=[row]),self.assertRaisesRegex(c.Refused,'BRIDGE_ALREADY_ATTEMPTED'):
+            cap._bridge_history(c,changed)
+
+    def test_real_completed_calendar_is_archival_not_current(self):
+        gate=cap._bridge_archival_gate(c,self.a)
+        self.assertEqual(gate['sessions'],['2026-10-13','2026-10-14'])
+        self.assertEqual(gate['status'],'ARCHIVAL_COLLECTION_ONLY')
+        self.assertFalse(gate['current_price_verified']);self.assertFalse(gate['pit_verified'])
+        self.now=c.utc(self.a['start_before_utc'])
+        with self.assertRaisesRegex(c.Refused,'BRIDGE_ARCHIVAL_WINDOW'):cap._bridge_archival_gate(c,self.a)
+
+    def test_actual_workflow_private_event_route_and_tamper_refusals(self):
+        control,args,event,inputs=self.context()
+        projected=New3FiniteAllocationTests.rendered_private_environment(self,inputs)
+        self.assertEqual(projected['INPUT_PRIVATE_NEW3_R2'],'true')
+        self.assertTrue(all(v=='' for k,v in projected.items() if k!='INPUT_PRIVATE_NEW3_R2'))
+        self.assertEqual(cap._new3_event_control(c),control)
+        for key,value in [('end_date','2026-10-16'),('max_new_symbols','4'),('resume_file_id','old-checkpoint'),
+                          ('campaign_nonce',c.PREFIX+'f'*24)]:
+            changed=dict(inputs,**{key:value});event.write_bytes(c.encoded(dict(inputs=changed)))
+            with self.subTest(key=key),self.assertRaises(c.Refused):cap._new3_event_control(c)
+        event.write_bytes(c.encoded(dict(inputs=inputs)))
+        with patch.dict(os.environ,{'INPUT_PRIVATE_ROOT_FOLDER_ID':'public-leak'}),self.assertRaises(c.Refused):
+            cap._new3_event_control(c)
+
+    def test_public_worker_dispatch_and_legacy_dispatch_stay_distinct(self):
+        control,args,_,_=self.context()
+        with patch.object(cap,'_bridge_worker',return_value={'status':'OFFLINE'}) as bridge,patch.object(cap,'_new3_worker') as old:
+            self.assertEqual(c.worker(args,control,Path(self.tmp)/'meter.json'),{'status':'OFFLINE'})
+        bridge.assert_called_once();old.assert_not_called()
+        old_control=dict(authorization={'allocation_profile':cap.NEW3_PROFILE},nonce='x')
+        with patch.object(cap,'_new3_worker',return_value='OLD') as old,patch.object(cap,'_bridge_worker') as bridge:
+            self.assertEqual(c.worker(args,old_control,Path(self.tmp)/'meter.json'),'OLD')
+        old.assert_called_once();bridge.assert_not_called()
+
+    def test_worker_901_seconds_stops_before_meter_or_capture(self):
+        control,args,_,_=self.context()
+        row=dict(id=123,status='in_progress',created_at=(self.now-timedelta(seconds=901)).isoformat(),
+            run_started_at=(self.now-timedelta(seconds=900)).isoformat())
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=row),patch.object(c,'RuntimeMeter') as factory,\
+                patch.object(cap,'_bridge_capture') as capture,self.assertRaisesRegex(c.Refused,'BRIDGE_START_OR_DEADLINE'):
+            c.worker(args,control,Path(self.tmp)/'meter.json')
+        factory.assert_not_called();capture.assert_not_called()
+
+    def bar_url(self, adjustment='raw', **overrides):
+        from urllib.parse import urlencode
+        query=dict(symbols='LITE,MRVL,PWR',timeframe='1Day',start='2026-10-13T00:00:00Z',
+            end='2026-10-14T23:59:59Z',feed='sip',limit=10000,sort='asc',asof='2026-10-14',adjustment=adjustment)
+        query.update(overrides)
+        return cap.URL+'?'+urlencode(query)
+
+    def test_request_window_symbol_feed_and_pagination_refuse_before_more_IO(self):
+        from unittest.mock import Mock
+        meter=Mock();meter.perform.return_value=c.encoded(dict(bars={},next_page_token=None))
+        for query in (dict(start='2016-01-04T00:00:00Z'),dict(end='2026-10-15T23:59:59Z'),
+                      dict(symbols='LITE,MRVL,PWR,SPY'),dict(feed='iex'),dict(page_token='more')):
+            meter.reset_mock();get=cap._bridge_get(c,self.a,meter,'fixture-key','fixture-secret')
+            with self.subTest(query=query),self.assertRaisesRegex(c.Refused,'BRIDGE_REQUEST_SCOPE'):
+                get(self.bar_url(**query))
+            meter.perform.assert_not_called()
+        get=cap._bridge_get(c,self.a,meter,'fixture-key','fixture-secret')
+        meter.perform.return_value=c.encoded(dict(bars={},next_page_token='more'))
+        with self.assertRaisesRegex(c.Refused,'BRIDGE_PAGINATION_NOT_AUTHORIZED'):get(self.bar_url())
+        self.assertEqual(meter.perform.call_count,1)
+        with self.assertRaisesRegex(c.Refused,'BRIDGE_REQUEST_SCOPE'):get(self.bar_url())
+        self.assertEqual(meter.perform.call_count,1)
+
+    def test_sixth_provider_GET_refuses_and_keeps_five_charges(self):
+        opener=Opener(b'{}')
+        m=c.RuntimeMeter(dict(cap.BRIDGE_CAPS),Path(self.tmp)/'meter.json',
+            (self.now+timedelta(seconds=60)).isoformat(),identity(),opener=opener,clock=c.utc,
+            asset_symbols=tuple(cap.external_cohort(cap.BRIDGE_INPUT)))
+        for _ in range(5):m.perform('https://paper-api.alpaca.markets/v2/assets/LITE',limit=100)
+        with self.assertRaises(c.Refused):m.perform('https://paper-api.alpaca.markets/v2/assets/LITE',limit=100)
+        self.assertEqual(opener.calls,5);self.assertEqual(m.used['provider_gets'],5)
+
+    def run_worker(self, failure=False):
+        control,args,_,_=self.context()
+        row=dict(id=123,status='in_progress',created_at=self.now.isoformat(),run_started_at=self.now.isoformat())
+        checkpoint=dict(file_id='private-checkpoint',bytes=12,sha256='f'*64)
+        def capture(controller,auth,meter,key,secret):
+            meter.debit(dict(provider_gets=1))
+            if failure:raise c.Refused('SYNTHETIC_STORAGE_FAILURE')
+            meter.checkpoint_sha='f'*64;meter.examined=3;meter.rows=12;meter.states['VALID_COLLECTED']=3
+            return checkpoint
+        # Keep the real meter/save/deadline wrapper, replacing only actual transport work.
+        real_meter=c.RuntimeMeter
+        def make_meter(*args,**kwargs):return real_meter(*args,**kwargs,opener=Opener(),clock=c.utc)
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=row),patch.object(cap,'_bridge_capture',side_effect=capture),\
+                patch.object(c,'RuntimeMeter',side_effect=make_meter):
+            if failure:
+                with self.assertRaisesRegex(c.Refused,'SYNTHETIC_STORAGE_FAILURE'):c.worker(args,control,Path(self.tmp)/'meter.json')
+            else:self.assertEqual(c.worker(args,control,Path(self.tmp)/'meter.json')['rows_verified'],12)
+        return c.bounded_json(Path(self.tmp)/'meter.json')
+
+    def test_public_worker_success_and_failure_preserve_meter(self):
+        result=self.run_worker()
+        self.assertEqual(result['status'],'COMPLETE');self.assertEqual(result['usage']['provider_gets'],1)
+        self.assertEqual(result['bridge_scope_sha256'],c.digest(c.encoded(cap._bridge_scope())))
+        self.assertFalse(result['current_price_verified'])
+        failed=self.run_worker(failure=True)
+        self.assertEqual(failed['status'],'BLOCKED');self.assertEqual(failed['usage']['provider_gets'],1)
+
+    def test_host_rejects_foreign_state_and_public_host_routes_bridge(self):
+        with self.assertRaisesRegex(c.Refused,'BRIDGE_HOST_SCOPE'):cap._bridge_host(c,self.a,self.tmp,None)
+        path=Path(self.tmp)/'auth.json';path.write_bytes(c.encoded(self.a))
+        with patch.object(cap,'_bridge_host',return_value={'status':'OFFLINE'}) as bridge,patch.object(cap,'_new3_host') as old:
+            self.assertEqual(c.host(path,Path(self.tmp)/'state',budget_state_dir=self.tmp,max_batches=1),{'status':'OFFLINE'})
+        self.assertFalse(bridge.call_args.kwargs['forbidden']);old.assert_not_called()
+
+    def actual_capture(self, *, fail_write=0, missing=False):
+        outer=self
+        class Provider:
+            calls=0
+            def open(self,request,**kwargs):
+                self.calls+=1;url=request.full_url
+                if '/v2/assets/' in url:
+                    symbol=url.rsplit('/',1)[-1]
+                    payload=dict(id=cap.BRIDGE_ASSET_IDS[symbol],symbol=symbol,exchange='NASDAQ',status='active',
+                        **{'class':'us_equity'})
+                else:
+                    days=['2026-10-13'] if missing else ['2026-10-13','2026-10-14']
+                    payload=dict(bars={s:[dict(t=d+'T04:00:00Z',o=10,h=11,l=9,c=10,v=100) for d in days]
+                        for s in cap.external_cohort(cap.BRIDGE_INPUT)},next_page_token=None)
+                return Reply(c.encoded(payload))
+        class Store:
+            owner='fixture-owner';free=3*1024**3;root_id='fixture-root-123';token='fixture-token'
+            def __init__(self):self.values={'fixture-rights-001':b'doc'};self.writes=0
+            def check(self,*a,**k):return {}
+            def request(self,*a,**k):return c.encoded(dict(files=[],incompleteSearch=False))
+            def read(self,key,limit=16000000):return self.values[key]
+            def write(self,folder,raw,ext):
+                self.writes+=1
+                if self.writes==fail_write:raise c.Refused('SYNTHETIC_CREATE_UNCERTAIN')
+                key='fixture-object-'+str(self.writes);self.values[key]=raw
+                return dict(file_id=key,bytes=len(raw),sha256=c.digest(raw))
+        provider,store=Provider(),Store()
+        control,args,_,_=self.context()
+        current=dict(id=123,status='in_progress',created_at=self.now.isoformat(),run_started_at=self.now.isoformat())
+        original_meter=c.RuntimeMeter
+        class OfflineMeter(original_meter):
+            def __init__(self,*args,**kwargs):super().__init__(*args,**dict(kwargs,opener=provider,clock=c.utc))
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=current),patch.object(cap,'OwnerDrive',return_value=store),\
+                patch.object(c,'RuntimeMeter',OfflineMeter),patch.object(cap.time,'sleep'):
+            if fail_write or missing:
+                with self.assertRaises(c.Refused):c.worker(args,control,Path(self.tmp)/'meter.json')
+            else:
+                result=c.worker(args,control,Path(self.tmp)/'meter.json')
+                self.assertEqual(result['rows_verified'],12)
+        return c.bounded_json(Path(self.tmp)/'meter.json'),provider,store
+
+    def test_public_route_real_archive_normalization_checkpoint_and_five_GETs(self):
+        result,provider,store=self.actual_capture()
+        self.assertEqual(provider.calls,5);self.assertEqual(result['usage']['provider_gets'],5)
+        self.assertEqual(result['rows_verified'],12);self.assertEqual(store.writes,4)
+        checkpoint=c.decode(store.values['fixture-object-4'])
+        self.assertEqual(checkpoint['start'],'2026-10-13');self.assertEqual(checkpoint['end'],'2026-10-15')
+        self.assertEqual(checkpoint['completed'],['LITE','MRVL','PWR'])
+        self.assertEqual(checkpoint['previous_checkpoint'],None)
+        self.assertFalse(checkpoint['pit_verified']);self.assertFalse(checkpoint['source_admission'])
+
+    def test_actual_partial_write_and_incomplete_grid_are_not_complete(self):
+        for options in (dict(fail_write=2),dict(missing=True)):
+            with self.subTest(options=options):
+                result,provider,store=self.actual_capture(**options)
+                self.assertEqual(result['status'],'BLOCKED');self.assertEqual(result['examined_after'],0)
+                self.assertEqual(provider.calls,5);self.assertEqual(result['usage']['provider_gets'],5)
+                self.assertGreaterEqual(store.writes,2)
+
+    def test_actual_meter_artifact_parser_and_settlement_idempotence(self):
+        actual,_,_=self.actual_capture();body=c.encoded(actual)
+        run=dict(id=123,event='workflow_dispatch',head_branch='master',head_sha='1'*40,run_attempt=1,
+            status='completed',display_title='a1-sip '+cap._bridge_nonce(c),conclusion='success',
+            created_at=self.now.isoformat(),updated_at=(self.now+timedelta(seconds=5)).isoformat())
+        self.now += timedelta(seconds=6)
+        def api(path):
+            if '/artifacts?' in path:
+                return dict(total_count=1,artifacts=[dict(name='a1-campaign-meter',expired=False,size_in_bytes=len(body))])
+            return dict(total_count=2,jobs=[dict(status='completed',started_at=self.now.isoformat(),
+                completed_at=(self.now+timedelta(seconds=2)).isoformat())]*2)
+        def download(command,**kwargs):
+            self.assertEqual(command[:3],['gh','run','download'])
+            (Path(command[-1])/'campaign_meter.json').write_bytes(body)
+            return SimpleNamespace(returncode=0)
+        slot=c.WorkJournal(Path(self.tmp)/'bridge-slot',c.digest(cap.BRIDGE_TASK.encode()))
+        self.addCleanup(slot.close)
+        slot.append('BRIDGE_RESERVED',nonce=cap._bridge_nonce(c),control_sha256=cap._new3_hash(self.a),
+            allowance=dict(cap.BRIDGE_CAPS),elapsed_reservation=900,opening_sha256=c.digest(c.encoded(self.a['opening'])))
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority'),\
+                patch.object(c,'campaign_run_pages',return_value=[run]),patch.object(c,'gh_json',side_effect=api),\
+                patch.object(c.subprocess,'run',side_effect=download):
+            first=cap._bridge_settle(c,self.a,slot);second=cap._bridge_settle(c,self.a,slot)
+        self.assertEqual(first,second);self.assertEqual(first['status'],'BRIDGE_COMPLETE')
+        self.assertEqual(len(slot.entries),2)
+        self.assertEqual(first['cumulative_usage']['provider_gets'],self.a['opening']['usage']['provider_gets']+5)
+
+    def test_unknown_POST_once_preserves_spent_family_and_blocks_redispatch(self):
+        budget=Path(self.tmp)/'legacy-budget';budget.mkdir()
+        family_dir=budget.parent/('external-budget-'+c.CONTINUATION['auth'][:16])
+        family=c.WorkJournal(family_dir,c.external_family_genesis())
+        family.append('EXTERNAL_FAMILY_BOUND',budget_state_root=os.path.normcase(str(budget.resolve())),
+            proof_updated_utc=self.a['not_before_utc'],
+            expires_at_utc=self.a['start_before_utc'])
+        for _ in range(107):family.append('SYNTHETIC_RETAINED_COST')
+        self.a['opening'].update(family_prefix_sha256=family.parent,
+            family_prefix_first_sha256=c.digest((family_dir/'000001.json').read_bytes()))
+        family.close()
+        original={p.name:p.read_bytes() for p in family_dir.glob('*.json')}
+        state=budget.parent/cap.BRIDGE_PROFILE
+        def post(command,**kwargs):
+            reservation=c.bounded_json(state/'000001.json')
+            self.assertEqual(reservation['kind'],'BRIDGE_RESERVED')
+            self.assertEqual(reservation['nonce'],json.loads(kwargs['input'])['campaign_nonce'])
+            return SimpleNamespace(returncode=1)
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority'),\
+                patch.object(cap,'_bridge_history'),patch.object(c,'campaign_run_pages',return_value=[]),\
+                patch.object(c.subprocess,'run',side_effect=post) as posts:
+            with self.assertRaisesRegex(c.Refused,'BRIDGE_DISPATCH_UNCERTAIN'):cap._bridge_host(c,self.a,state,budget)
+            with self.assertRaisesRegex(c.Refused,'BRIDGE_DISPATCH_OUTCOME_UNKNOWN'):cap._bridge_host(c,self.a,state,budget)
+        self.assertEqual(posts.call_count,1)
+        self.assertEqual({p.name:p.read_bytes() for p in family_dir.glob('*.json')},original)
+        self.assertFalse((state/'writer.lock').exists());self.assertFalse((family_dir/'writer.lock').exists())
+
+    def test_real_immutable_OWNER_allocation_and_account_review_binding(self):
+        allocation=dict(schema='a1-two-session-bridge-allocation-v1',task_key=cap.BRIDGE_TASK,
+            scope_sha256=c.digest(c.encoded(cap._bridge_scope())),limits=dict(cap.BRIDGE_CAPS),wall_seconds=900,
+            dispatches=1,expected_master=self.a['expected_master'],code_pins_sha256=c.digest(c.encoded(self.a['code_pins'])),
+            opening_sha256=c.digest(c.encoded(self.a['opening'])),credential_binding=self.a['credential_binding'],
+            not_before_utc=self.a['not_before_utc'],start_before_utc=self.a['start_before_utc'],
+            private_noncommercial=True,source_admission=False,economic_authority=False)
+        review=dict(schema='a1-two-session-bridge-working-copy-v1',control_sha256=cap._new3_hash(self.a),
+            allocation_reference=self.a['allocation_reference'],credential_binding=self.a['credential_binding'],
+            owner_sha256=c.digest(self.a['owner_permission_id'].encode()),
+            rights_manifest_sha256=c.digest(c.encoded(self.a['rights_documents'])),
+            purpose='PRIVATE_NONCOMMERCIAL_RESEARCH_WORKING_COPY',historical_sip_reviewed=True,
+            current_account_reviewed=True,private_working_copy_reviewed=True,supplier_rights_verified=False,
+            supplier_expiry=None,permanent_retention_verified=False,redistribution_authorized=False,
+            source_admission=False,economic_authority=False)
+        def comment(number,tag,record,clock):
+            return dict(id=number,issue_url=f'https://api.github.com/repos/{c.REPO}/issues/448',
+                author_association='OWNER',user=dict(id=1,type='User'),created_at=clock,updated_at=clock,
+                body=tag+c.encoded(record).decode())
+        comments={999:comment(999,'A1_SIP_TWO_SESSION_BRIDGE_ALLOCATION ',allocation,'2026-11-11T09:10:00Z'),
+            1000:comment(1000,'A1_SIP_TWO_SESSION_BRIDGE_WORKING_COPY ',review,'2026-11-11T09:11:00Z')}
+        def api(path):
+            return dict(merged_at='2026-11-11T09:05:00Z') if '/pulls/' in path else comments[int(path.rsplit('/',1)[1])]
+        with patch.object(c,'gh_json',side_effect=api):
+            self.assertEqual(cap._bridge_authority(c,self.a),c.digest(c.encoded(review)))
+            comments[999]['updated_at']='2026-11-11T09:12:00Z'
+            with self.assertRaises(c.Refused):cap._bridge_authority(c,self.a)
+            comments[999]['updated_at']=comments[999]['created_at']
+            allocation['limits']['provider_gets']=6
+            comments[999]['body']='A1_SIP_TWO_SESSION_BRIDGE_ALLOCATION '+c.encoded(allocation).decode()
+            with self.assertRaisesRegex(c.Refused,'BRIDGE_ALLOCATION'):cap._bridge_authority(c,self.a)
+
+    def test_missing_run_clock_cannot_default_to_now(self):
+        control,args,_,_=self.context()
+        current=dict(id=123,status='in_progress')
+        with patch.object(cap,'_new3_source'),patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=current),patch.object(c,'RuntimeMeter') as meter,\
+                self.assertRaisesRegex(c.Refused,'BRIDGE_START_OR_DEADLINE'):
+            c.worker(args,control,Path(self.tmp)/'meter.json')
+        meter.assert_not_called()
+
+    def test_real_owner_drive_and_meter_complete_bridge_under_16MiB(self):
+        """Only HTTP responses are fake; real Drive write/readback/meter stay."""
+        control,args,_,_=self.context()
+        meters=[]
+        class BridgeServer(Server):
+            def __init__(server):
+                super().__init__()
+                server.objects['fixture-rights-001']=(dict(name='rights.json',parents=['fixture-rights-folder']),b'doc')
+                server.google_calls=[];server.media_bounds=[];server.settled_google_bytes=0;server.peak_reserved=0
+            def open(server,request,**kwargs):
+                parts=urlsplit(request.full_url);query=parse_qs(parts.query)
+                if parts.netloc=='paper-api.alpaca.markets':
+                    symbol=parts.path.rsplit('/',1)[-1]
+                    return Reply(c.encoded(dict(id=cap.BRIDGE_ASSET_IDS[symbol],symbol=symbol,
+                        exchange='NASDAQ',status='active',**{'class':'us_equity'})))
+                if parts.netloc=='data.alpaca.markets':
+                    names=query['symbols'][0].split(',')
+                    return Reply(c.encoded(dict(bars={t:[dict(t=d+'T04:00:00Z',o=10,h=11,l=9,c=10,v=100)
+                        for d in ['2026-10-13','2026-10-14']] for t in names},next_page_token=None)))
+                meter=meters[0];used=meter.used['drive_bytes'];body_size=len(request.data or b'')
+                reserved_limit=used-server.settled_google_bytes-body_size-65536-1
+                server.peak_reserved=max(server.peak_reserved,used)
+                server.google_calls.append((request.get_method(),request.full_url))
+                if query.get('alt')==['media']:
+                    file_id=parts.path.rsplit('/',1)[-1]
+                    server.media_bounds.append((reserved_limit,len(server.objects[file_id][1])))
+                if parts.path=='/drive/v3/files/fixture-rights-folder':
+                    reply=Reply(c.encoded(dict(id='fixture-rights-folder',mimeType='application/vnd.google-apps.folder',
+                        trashed=False,shared=False,parents=['fixture-root-123'],
+                        permissions=[dict(id='fixture-owner',type='user',role='owner')])))
+                else:
+                    reply=super().open(request,**kwargs)
+                server.settled_google_bytes+=body_size+len(reply.body)+65536
+                return reply
+        server=BridgeServer();original_meter=c.RuntimeMeter
+        def make_meter(*values,**kwargs):
+            meter=original_meter(*values,**kwargs,opener=server,clock=c.utc)
+            meters.append(meter);return meter
+        token=dict(access_token='fixture-access',refresh_token='fixture-refresh',expiry='2030-01-01T00:00:00Z')
+        config='[gdrive]\ntype=drive\ntoken='+json.dumps(token)+'\n'
+        current=dict(id=123,status='in_progress',created_at=self.now.isoformat(),run_started_at=self.now.isoformat())
+        from contextlib import redirect_stdout
+        output=io.StringIO()
+        self.assertIs(cap.OwnerDrive,drive_module.OwnerDrive)
+        with patch.dict(os.environ,{'MACRO_DRIVE_CONFIG':config}),patch.object(cap,'_new3_source'),\
+                patch.object(cap,'_bridge_authority',return_value='a'*64),\
+                patch.object(cap,'_bridge_history',return_value=current),\
+                patch.object(c,'RuntimeMeter',side_effect=make_meter),patch.object(cap.time,'sleep'),redirect_stdout(output):
+            result=c.worker(args,control,Path(self.tmp)/'real-drive-meter.json')
+        self.assertEqual(result['status'],'BRIDGE_CAPTURE_VERIFIED');self.assertEqual(result['rows_verified'],12)
+        self.assertEqual(type(meters[0]),original_meter)
+        saved=c.bounded_json(Path(self.tmp)/'real-drive-meter.json')
+        self.assertTrue(saved['finalized']);self.assertEqual(saved['status'],'COMPLETE')
+        self.assertEqual(saved['usage']['provider_gets'],5)
+        self.assertEqual(saved['usage']['drive_requests'],len(server.google_calls))
+        self.assertGreater(saved['usage']['drive_requests'],0)
+        self.assertLessEqual(saved['usage']['drive_requests'],cap.BRIDGE_CAPS['drive_requests'])
+        self.assertLessEqual(saved['usage']['drive_bytes'],16*1024**2)
+        self.assertLessEqual(server.peak_reserved,16*1024**2)
+        self.assertEqual(len(server.media_bounds),9)
+        self.assertTrue(all(limit==actual for limit,actual in server.media_bounds),server.media_bounds)
+        self.assertEqual(saved['confirmed_storage_bytes'],saved['usage']['storage_bytes'])
+        self.assertEqual(sum(method=='POST' for method,_ in server.google_calls),4)
+        for private in ['fixture-access','fixture-owner','fixture-object-','fixture-root-123']:
+            self.assertNotIn(private,output.getvalue())

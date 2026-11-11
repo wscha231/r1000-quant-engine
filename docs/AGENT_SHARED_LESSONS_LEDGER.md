@@ -10689,6 +10689,36 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+- Adjacent immutable price captures are not overlapping parents. Oct13-ending
+  history and Oct14-starting tails cannot satisfy the existing composition
+  anchor predicate. First reuse exact retained payload/window evidence; an
+  explicitly allocated two-session bridge must enter through the public finite
+  Source controller, with old producer/hash/account/cost chains preserved.
+  Keep actual past-session calendar truth separate from current daily readiness,
+  reject extra pages/replays, and preserve unknown-outcome reservations. Neither
+  cash/noncash discovery nor bridge capture certifies lifecycle, PIT or rights.
+- The first bridge Native run passed16/17 and stopped on a fixture KeyError:
+  a synthetic EXTERNAL_FAMILY_BOUND append omitted its existing proof/expiry
+  clocks before reaching the unknown-POST path. Supply both aware fixture
+  clocks, preserve the failure/cost, and recheck that path plus optimized cases;
+  do not relax WorkJournal's binding-clock guard or rerun the passed normal16.
+- PowerShell receipt finalization needs `$true`, not bare `true`. Save elapsed
+  time/results through a finally-safe path before optional formatting; preserve
+  original logs and conservatively reserve unknown costs without rerunning tests.
+- A fake object store hid a real Drive reservation failure in the16MiB bridge:
+  default16,000,000-byte readbacks exhausted the meter after partial writes.
+  Bound known writes by len(raw) and verified references by declared bytes;
+  retain real OwnerDrive/RuntimeMeter in the full fake-HTTP regression rather
+  than raising budgets or replacing the storage path with an unmetered store.
+- A direct fast-runner entry repeated the known protected236 inventory error.
+  Preserve the failed registration commit, restore the accepted runner bytes,
+  and register the finite bridge through the existing managed-refresh aggregate.
+- An exact-size readback also changes the shared upload test-double call shape.
+  Keep its visibility checks and assert the actual file ID and byte limit rather
+  than weakening production bounds to preserve a one-argument mock.
+- An inline byte-transfer attempt failed before private persistence; preserve
+  that failed read/cost and use bounded chunks with exact size/SHA checks.
+  Reconstructed archival prices remain separate from current/PIT admission.
 - Latest-session extraction must compute its maximum once before filtering.
   Recomputing it for every historical row makes bounded pre-fit inspection
   quadratic; retain the existing denominator/latest-row/future-tail checks.
@@ -10700,6 +10730,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
   blocked it. Build the original accepted model through that same FTI A3 fixture;
   preserve the failed run, current scope checks and original allocation identity.
+- An agent usage-limit stop can leave a valid frozen writer lease behind.
+  Confirm its inactive owner and Native release, preserve SHA/diff/cost evidence,
+  and record a single-writer takeover instead of spawning repeated replacements.
+
+### 2026-11-11 — Preserve process-exit CI failures
+
+- PR750 exact fd442f64 full CI43012938185/job130496790241 ended235/236 in3643.61s. The unchanged sec_13f_cusip_mapping_smoke reported PASS and all15 cases OK, then its process aborted during shutdown. Preserve the failed gate and log; the cause is unconfirmed. Test/mapper/parser/signals/submissions/requirements/protected236 runner blobs match accepted base. Do not weaken mapping, Source or CI guards, hide the exit, or patch unrelated code on that evidence. Prefer one fresh exact-head validation after the next accepted-master alignment over duplicate full checks on a soon-stale base.
 
 ### 2026-11-11 — Actual current A4 diagnosis is separate from full readiness
 
@@ -10793,6 +10830,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   assertion or change the primary codec speculatively; require fresh hosted CI.
   Focused unittest imports need the incumbent tests directory on sys.path;
   a ModuleNotFoundError from a different invocation is not a decoder regression.
+
+- Source143 attempt1 CI43027463530/job130545673754 also failed235/236,
+  this time in an unchanged disclosure-labeler program. One selective ordinary
+  PR validate retry passed236/236 at the SAME143 head (attempt2/job130579858280,
+  4978.89s). Preserve both failures; successful assertions plus a terminate
+  diagnostic and nonzero process result do not establish a shutdown root cause.
+  The runner combines stdout then stderr and omits the child numeric code in its
+  tail, so their precise temporal order/signal cannot be reconstructed. Do not
+  patch unrelated readers or relax gates without a minimal Linux reproduction.
+- PR.base.sha can remain an older snapshot while refs/heads/master advances.
+  Source143 contained accepteda2ff and all current checks passed, but actual
+  master moved to6955a4b2 through A4 PR751 during the validation; the real merge
+  was dirty. Check the actual branch ref before admission, preserve the accepted
+  counterpart, and coordinate a short integration window before another exact-
+  head check. Old-head green is not validation of the new aligned head.
 
 ### 2026-11-11 — Government economic histories remain current vintages
 

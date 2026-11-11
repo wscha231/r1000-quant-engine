@@ -238,6 +238,8 @@ def atomic_json(path, value, *, unique_temporary=False):
 def validate_authorization(auth):
     if isinstance(auth, dict) and "allocation_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
+        if auth.get("allocation_profile") == cap.BRIDGE_PROFILE:
+            return cap._bridge_authorization(_module(), auth)
         return cap._new3_authorization(_module(), auth)
     if isinstance(auth, dict) and "fixed_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
@@ -650,8 +652,9 @@ def receipt_for_run(run, auth_hash, expected_master, limits=None, *, allocation_
         require(caps in (LIMITS, CONTINUED_LIMITS), "CAMPAIGN_LIMITS")
     else:
         from tools import alpaca_sip_private_backfill_v1 as cap
-        require(allocation_profile == cap.NEW3_PROFILE and caps == cap.NEW3_CAPS
-                and all(type(caps[k]) is int for k in cap.NEW3_CAPS), "CAMPAIGN_LIMITS")
+        scoped = {cap.NEW3_PROFILE: cap.NEW3_CAPS, cap.BRIDGE_PROFILE: cap.BRIDGE_CAPS}
+        require(allocation_profile in scoped and caps == scoped[allocation_profile]
+                and all(type(caps[k]) is int for k in scoped[allocation_profile]), "CAMPAIGN_LIMITS")
     require(run.get("status") == "completed" and run.get("run_attempt") == 1
             and run.get("head_sha") == expected_master and run.get("head_branch") == "master",
             "CAMPAIGN_RUN_UNRESOLVED")
@@ -683,10 +686,17 @@ def receipt_for_run(run, auth_hash, expected_master, limits=None, *, allocation_
             and value.get("economic_authority") is False, "CAMPAIGN_RECEIPT_BINDING")
     if allocation_profile is not None:
         require(value.get("allocation_profile") == allocation_profile
-                and value.get("allocation_comment_id") == 6474160005
                 and value.get("allowance") == caps
-                and value.get("archival_time_policy_sha256") == cap.NEW3_ARCHIVAL_POLICY_SHA
                 and value.get("current_price_verified") is False, "CAMPAIGN_RECEIPT_BINDING")
+        if allocation_profile == cap.NEW3_PROFILE:
+            require(value.get("allocation_comment_id") == 6474160005
+                    and value.get("archival_time_policy_sha256") == cap.NEW3_ARCHIVAL_POLICY_SHA,
+                    "CAMPAIGN_RECEIPT_BINDING")
+        else:
+            require(type(value.get("allocation_comment_id")) is int
+                    and value["allocation_comment_id"] > 0
+                    and value.get("bridge_scope_sha256") == digest(encoded(cap._bridge_scope())),
+                    "CAMPAIGN_RECEIPT_BINDING")
     require(set(value.get("usage", {})) == set(LIMITS)
             and set(value.get("allowance", {})) == set(LIMITS), "CAMPAIGN_RECEIPT_COUNTERS")
     for name in LIMITS:
@@ -1511,6 +1521,8 @@ def worker(args, control, journal):
             and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true",
             "USER_AUTHORIZATION_MISSING")
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "allocation_profile" in control["authorization"]:
+        if control["authorization"].get("allocation_profile") == cap.BRIDGE_PROFILE:
+            return cap._bridge_worker(_module(), args, control, journal)
         return cap._new3_worker(_module(), args, control, journal)
     if isinstance(control, dict) and isinstance(control.get("authorization"), dict) and "fixed_profile" in control["authorization"]:
         return cap._fixed_spy_worker(_module(), args, control, journal)
@@ -1717,6 +1729,12 @@ def host(auth_path, state_dir, recovery_run=None, permission_reference=None, pre
     auth_hash = validate_authorization(auth)
     if "allocation_profile" in auth:
         from tools import alpaca_sip_private_backfill_v1 as cap
+        if auth.get("allocation_profile") == cap.BRIDGE_PROFILE:
+            result = cap._bridge_host(_module(), auth, state_dir, budget_state_dir,
+                forbidden=max_batches not in (None, 1) or any(x is not None for x in
+                    (recovery_run, permission_reference, predispatch_recovery, continuation_receipt, cohort_input)))
+            print(json.dumps(result, sort_keys=True))
+            return result
         result = cap._new3_host(_module(), auth, state_dir, budget_state_dir,
             forbidden=any(x is not None for x in (recovery_run, permission_reference, predispatch_recovery,
                 continuation_receipt, cohort_input, max_batches)))
