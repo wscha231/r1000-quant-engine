@@ -1,5 +1,43 @@
 # Agent Shared Lessons Ledger
 
+- A reviewed healthy-winner RISK_EXIT must replay all existing ceilings, not
+  only gross/direct caps. Share the native factor over the original current
+  book, verified ETF look-through and risk groups; require exactly old*factor.
+  Missing review/holdings, a book within its limits or excessive liquidation
+  remain blocked. A new entry failure alone never authorizes a winner trim.
+- The initial synthetic ETF trim fixture omitted its reviewed class risk
+  multiplier; native scoring correctly refused it. Declare that fixture value,
+  preserve the failed run, and keep missing/nonfinite live risk inputs blocking.
+
+- Multiple typed exits into one replacement must sum their released weights
+  before applying the shared hard-cap constraints in both comparison arms.
+  An exited or already eliminated row has zero capacity and cannot veto another
+  candidate through pair correlation. Preserve the active incumbent conflicts.
+- Keep UNKNOWN stub fields consistent with registered rows through admitted
+  history and actual publication/readback; initialize absent signals and lag
+  deltas to None instead of allowing a later history lookup to raise KeyError.
+- The first covariance regression supplied NumPy scalars where the native JSON
+  number contract requires Python int/float. Correct that fixture conversion;
+  retain its failed run and do not widen the production finite-number guard.
+
+- A public stock opt-in consumer must use the same scoped readiness contract
+  as its native allocator, preserve UNKNOWN/global-incomplete output, and compare
+  only verified MODEL allocation weights/cash. Previous proposal weights are
+  not incumbents; Actual/Paper/ApprovedTarget remain separate. Attest the public
+  adapter and every newly consumed A4 implementation-identity/helper operand,
+  and run the existing public suite in the dedicated normal/-O contract job.
+
+- A verified MODEL helper is insufficient when its public board/CLI drops the
+  externally reviewed policy. Preserve canonical-state replay and transport the
+  separately hash-pinned policy; neither its hash nor task preparation grants
+  Source, economic or book authority.
+- Event cadence follows first confirmed material meaning, not the cluster's
+  original rumour time or a later duplicate's collection time. Check joint
+  replacement transitions and both final allocation arms with native sector/
+  theme concentration; isolated passing swaps need not pass together. Keep
+  direct ETF vehicle caps alongside constituent caps, blocking an over-limit
+  incumbent for reviewed action rather than silently normalizing it away.
+
 ## 2026-11-09 - Separate A5 preparation from economic admission
 
 - Missing actual/approved account state must not masquerade as a missing model
@@ -10417,6 +10455,74 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   oracles, and validate the full related suite and shared-fixture callers
   before another hosted CI cycle. Retain failed diagnostic costs.
 
+- Stock research preserves the complete UNKNOWN roster and separates its
+  Top40/held/event work queue from an externally reviewed A5 decision cohort.
+  Inactive optional assets cannot certify or veto that cohort by their absence.
+  Retain normal winners unless same-security current evidence and the existing
+  typed exit policy justify a change; a hard-limit conflict requires review.
+  Compare the same 12-calendar-month ER, covariance, cash and cost inputs. Restore
+  only the original transaction-cost component; keep expense/roll in net ER and
+  charge all-in 25/50/100bps once per proposed side. A hash or quoted yield is
+  not source replay: verify the bounded original and reuse the native cash and
+  lifecycle parsers. A queue or synthetic optimizer grants no PIT/CA, actual
+  MODEL acceptance or economic performance evidence.
+- The first stock-allocation regression passed cost decomposition, then exposed
+  an origin mismatch: hashing the evaluator's augmented result differs from
+  hashing its already reviewed original. Keep the original evaluation digest
+  beside derived scores; never fix this by weakening the cohort hash check.
+- The next focused run exposed a missing import of an existing uniqueness
+  helper; keep that NameError and its measured cost. New native dependencies
+  also belong in the existing code-byte attestation and workflow filters.
+  Replacement requires complete incumbent evidence, and every optimizer result,
+  including a counterfactual solver's claimed success, needs the same finite,
+  shape, bound and exposure checks before it can prove an opportunity.
+- A preexisting multi-asset fixture made its benchmark the strongest series.
+  A nonempty entry test must use an explicitly positive synthetic price path
+  and recompute real relative strength; never bypass an entry gate or infer
+  a new-entry pass from an incumbent-floor-only test. Preserve both failures.
+- Native lifecycle parsing used value-or-empty after CSV numeric conversion,
+  losing valid 0.0 proceeds despite its explicit >=0 terminal contract. Keep
+  None/NaN and negative/unreviewed events blocked; retain the original zero
+  failure and verify exact source bytes through the same parser and exit path.
+  The initial fixed risk-aversion coefficient is 1.0 (return minus half the
+  variance), chosen before results; no economic validation or tuning is claimed.
+- MODEL continuity separates expired last-parent lineage from current Source,
+  ER, risk and QA. Authenticate the original acceptance at its original clock
+  under a current external whole pin; never disable expiry on the current
+  receiver or renew old proof clocks. A genuinely new A5/QA/OWNER assessment
+  can reaffirm unchanged weights as a new HOLD child; repeating an immutable
+  attempt preserves its exact bytes and expiry. Comparison allocations and
+  planned target-change costs are not executed holdings, fills or NAV.
+- Preserve the full UNKNOWN base roster while reviewing an explicitly pinned
+  A5 cohort, including positive verified MODEL allocations outside that base.
+  Scoped publication must replay the same receipt/result readiness contract;
+  global completeness remains false. Known GENESIS/all-cash with complete
+  inputs may decide NO_ENTRY; missing ER or unknown positions cannot mean cash.
+  New ControlPlane cases run transitively through agent_board_smoke in the
+  existing 236 entry list; StockCash/publisher use the dedicated normal/-O
+  workflow. Do not alter a protected runner based on filename-only registration
+  searches. An archival Reader byte ACK is not Source/PIT/ER/A5 admission.
+- The first parent-lineage run reached the correct unreviewed-position refusal
+  but its test expected the board exception instead of the domain contract's
+  distinct type. Preserve the failed run and assert the exact domain type and
+  reason; never weaken a correctly refusing verifier to match the fixture.
+- The bounded continuity batch timed out after its parent/all-cash methods
+  passed; preserve that NOT_COMPLETE result. The unchanged publisher integration
+  then passed alone in 273.661 seconds, with coarse real-call timing and no
+  validator bypass. Budget the dedicated normal/-O job for the actual graph
+  checks (30 minutes), rather than deleting assertions to fit its old ten-minute
+  limit. The focused four-method bridge is not a whole-suite or optimized pass.
+- After merging accepted A4 changes, even a V1 request reads the V2 contract
+  through implementation identity. A tracked sparse-absent contract caused a
+  genuine DATA_BLOCKED fixture failure. Hydrate only its exact accepted bytes,
+  preserve the skip flag, and attest/filter all three incoming A4 operands.
+  Recheck the changed native API rather than claiming old-head integration.
+- That genuine current-MODEL case contains separate original and all-cash
+  post-QA plus current A3/A4 replay. Its first post-hydration 80-second child
+  limit was insufficient; retain NOT_COMPLETE. The identical case passed alone
+  in 106.728 seconds with real fixture-stage timing. Preserve both costs, and
+  distinguish prior-base publisher coverage from this new-base representative.
+
 ### 2026-11-11 — Bind A4 CSV normalization to original Lake bytes
 
 - A4's CSV consumer cannot read an authenticated current JSON response directly.
@@ -10560,6 +10666,11 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+
+- The first public stock/MODEL positive fixture used the generic US:BIO model
+  while its new reviewed A3 cohort contained US:FTI. The held-scope guard rightly
+  blocked it. Build the original accepted model through that same FTI A3 fixture;
+  preserve the failed run, current scope checks and original allocation identity.
 
 ### 2026-11-11 — Actual current A4 diagnosis is separate from full readiness
 

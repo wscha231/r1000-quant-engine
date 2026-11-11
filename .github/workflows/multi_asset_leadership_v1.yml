@@ -6,6 +6,9 @@ on:
       - 'research/multi_asset_v1/**'
       - 'tools/run_multi_asset_leadership.py'
       - 'tests/multi_asset_leadership_smoke.py'
+      - 'tools/run_broker_ledger_replay.py'
+      - 'tools/run287_hold_exit_policy.py'
+      - 'tools/security_lifecycle.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
       - 'research/theme_etf_runtime_v1/**'
@@ -16,6 +19,14 @@ on:
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
       - 'tools/run_agent_board.py'
+      - 'tools/a4_liquidity_analysis.py'
+      - 'tools/a4_macro_bridge.py'
+      - 'tools/a5_model_portfolio.py'
+      - 'tests/a5_model_portfolio_smoke.py'
+      - 'tools/a4_macro_learning.py'
+      - 'tools/macro_technical_study.py'
+      - 'tools/run_a4_research_cycle.py'
+      - 'docs/market_analysis_contract_v2.json'
       - 'research/control_plane/**'
       - 'mission_contract.py'
       - 'r1000_config.py'
@@ -25,6 +36,9 @@ on:
     paths:
       - 'research/multi_asset_v1/**'
       - 'tools/run_multi_asset_leadership.py'
+      - 'tools/run_broker_ledger_replay.py'
+      - 'tools/run287_hold_exit_policy.py'
+      - 'tools/security_lifecycle.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
       - 'research/theme_etf_runtime_v1/**'
@@ -35,6 +49,14 @@ on:
       - 'research/a3_candidate_packet_v1.py'
       - 'research/candidate_registry_v1.py'
       - 'tools/run_agent_board.py'
+      - 'tools/a4_liquidity_analysis.py'
+      - 'tools/a4_macro_bridge.py'
+      - 'tools/a5_model_portfolio.py'
+      - 'tests/a5_model_portfolio_smoke.py'
+      - 'tools/a4_macro_learning.py'
+      - 'tools/macro_technical_study.py'
+      - 'tools/run_a4_research_cycle.py'
+      - 'docs/market_analysis_contract_v2.json'
       - 'research/control_plane/**'
       - 'mission_contract.py'
       - 'r1000_config.py'
@@ -53,7 +75,7 @@ concurrency:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ['3.11', '3.13']
@@ -72,11 +94,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3' 'scipy==1.15.3' 'scikit-learn>=1.4.0'
       - name: Synthetic contract regressions
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
           python -O -W error::ResourceWarning tests/multi_asset_leadership_smoke.py
+          python -W error::ResourceWarning tests/a5_model_portfolio_smoke.py
+          python -O -W error::ResourceWarning tests/a5_model_portfolio_smoke.py
           python tests/theme_etf_runtime_v1_smoke.py
   capture:
     needs: contract
