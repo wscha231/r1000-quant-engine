@@ -10479,3 +10479,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   use the existing authenticated review, fresh-reaction or immutable-receipt
   path. The later bare command passed on the service's fresh clean reaction.
   Never fabricate evidence, widen receipt grammar or merge around the gate.
+- The local expanded control-plane run initially lacked tracked data_static
+  fixtures because sparse checkout excluded that directory. Materialize the
+  canonical27 files (475,340 bytes), preserve hashes/policies, and rerun the70
+  affected managed-input/execution cases; they pass. This is an environment
+  repair, not source admission, changed data or a clean full-run claim.
