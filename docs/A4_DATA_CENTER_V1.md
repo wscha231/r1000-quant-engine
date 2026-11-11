@@ -117,3 +117,21 @@ writer remain in place. Primary/index work uses the existing60-minute ceiling
 readback plus bounded legacy metadata reads without raising object/request caps.
 An index with a blocked core can still retain its diagnostic metadata, but its
 CLI/workflow step fails and cannot start the dependent research cycle.
+
+## Evidence needed to open each remaining gate
+
+| Use | Existing owner route | Required evidence |
+| --- | --- | --- |
+| Native current risk classification | `build_run287_chameleon_macro_inputs.py` and the existing source adapter | Current source originals, availability clocks and hashed NYSE calendar; keep the native eight-ready-axis gate and required breadth/volatility/credit axes. |
+| Fourteen-ETF historical evaluation | `research_model_inputs.py`, original price Readers and `run_a4_research_cycle.py` | Complete retained price arrays, session coverage, adjustment/return basis, original hashes, purpose-specific rights and an externally reviewed learning policy. A rotation summary or price hash alone is insufficient. |
+| Historical macro evidence | `long_history_lake.py:Lake.verified_execution` and the existing original Readers | Matching current catalog/execution/quality, verified packs, usable rights and dated vintage/release evidence. A current revised history is not historical PIT. |
+| ICI / ICE / FINRA context or training | Existing source policy and financing input routes | Provider permission for the intended collection, cloud retention and analytical purpose; public visibility or collection consent is not a rights receipt. |
+| Quantified future forecast | Existing learning cycle and `forecast_release` | Mature outcomes, fixed trial/experiment census, independent recipe and release review. Conditional scenarios alone supply no calibrated probabilities. |
+| A5 model allocation | Existing `MODEL_PORTFOLIO` path | Current original A3 expected returns, exact independent A6 evidence, reviewed risk/cost limits and the A4 report. Missing prerequisites continue to block numerical weights. |
+
+Research-cycle activation additionally requires the existing durable checkpoint restore/readback and reviewed policy pins. Neither the catalog nor these operational instructions create rights, independent reviews, a new accepted model or an accepted paper account.
+
+The daily wrapper also retains its existing current-session source snapshot,
+coverage and clock checks. A fresh A4 capture cannot refresh or authorize a
+stale legacy success row; wrapper completion and A4 context capture remain
+separate results until their respective current inputs pass.

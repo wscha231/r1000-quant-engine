@@ -11114,3 +11114,68 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
   Prepare a sanitized support packet; external submission requires explicit
   user authorization. Keep financial/Drive credentials and raw data out of it.
+
+### 2026-11-12 KST — Preserve finance code while recovering a stuck PR record
+
+- Finance PR753/c4 validation remained in_progress beyond90 minutes; job reads
+  timed out/returned502, and logs returnedBlobNotFound. Normal and force cancel
+  returned409/not-in-progress while re-run returned403/already-running. No
+  control request succeeded. One unchanged-tree synchronization at145e48ce
+  remained queued. GitHub documents such abnormal workflow/check states at
+  https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#canceling-workflows
+- A new unified-head workflow did start normally. Preserve the original PR,
+  run history and finance source tree, and try one replacement branch/PR as a
+  separate recovery path. Its only additional change is this operational
+  lesson; all18 market implementation hashes remain identical to the actual
+  replayed version. Fresh review/required checks and strict default alignment
+  remain mandatory. Do not infer a global incident, passing check, Source
+  admission, training approval or model/account change from the recovery.
+
+### 2026-11-12 KST — Reuse price originals rather than rotation summaries
+
+- The existing ETF rotation producer was inspected before declaring new price collection necessary. It compares retained/Yahoo-adjusted windows and publishes summary rows plus normalized_price_input_sha256; publish_private does not retain the full sessions/closes input array. Its42/42 window count and derived payload are not a qualified fourteen-ETF training bundle, original-price replay, historical adjustment/PIT evidence or source-rights grant. Reuse the existing original price/financial Readers and externally reviewed policy instead of manufacturing learning inputs from summary counts or an input hash.
+
+### 2026-11-12 — Preserve an unexplained child-process failure
+
+- Unified head8401d0e7 validate43099012117/job130784400613 completed235/236
+  in3579.19s. The only failure was run287_chameleon_macro_inputs_smoke.py,
+  which returned nonzero after13.36s with no captured output. The existing
+  runner did not log the child return code. Do not label this an assertion,
+  timeout, dependency regression or infrastructure failure without evidence.
+- The test, builder and contract bytes exactly match accepted533bd448 and
+  prior successful236/236 head51c19ee2. An isolated local faulthandler run
+  passed; the hosted A4 aggregate passed173.22s. Neither success erases the
+  failed required check. Preserve the run/log and require fresh exact-head
+  green validation after the already-planned accepted-parent alignment.
+  Do not weaken the protected runner, skip the test or infer the exit cause.
+- The exact financing parent c2412516 later passed236/236 in3696.39s,
+  including that unchanged test in16.74s. This additional success still does
+  not identify the silent exit cause or erase the failed index check.
+
+### 2026-11-12 KST — Hosted capture success is separate from current diagnosis
+
+- Replacement finance PR756/c2412516 passed fresh exact review, both Python
+  contracts, review_complete and protected236/236. Expected-head merge produced
+  accepted master d13876a9f47f33a8d925b0dfe0eb3612306757b5. Primary and
+  financing collection flags were enabled/read back; research remains off.
+  The older abnormal run records and unsubmitted Support draft remain audit
+  history, not passing checks. No branch protection or runner was changed.
+- Fresh hosted Daily Crisis Monitor43105918576/attempt1/job130809082218 at
+  accepted533bd448 verified13 originals/50,497 observations/20,417,011 bytes.
+  Execution8a5a5a458e73250fef3423cbabf570e0dc7464ecf8edf223743ac2c4fb29f179
+  binds cutoff2026-11-11T21:52:30.769145+00:00 and session2026-11-11.
+  Capture/readback and its durable gate passed; research/fit were skipped.
+- The job still correctly failed: native A4 lacks risk metrics/calendar and
+  the legacy daily wrapper refuses STALE_SUCCESS_NOT_CURRENT_REPORT. Do not
+  relabel fresh official macro context as a current native risk score or a
+  durably completed paper session. Legacy history update remained false.
+- Artifact13894743624 ZIP91f95b3bde451535244b0e70910bada249ede92146fad8d3849c7d2b42397856
+  and daily artifact13894633885 ZIP2af6035eb6d9679e9aae9bb3782a99e398d14f17b0de9c48cb89c67fdd4fbae6
+  were downloaded-byte verified. Author proof5b1d58d83b897d681d1e1a967abd94f021a34db38227bc6aa583fba007ebb580
+  was stored/read back after remote execution/request/report byte parity and
+  all16 canonical Git implementation fingerprints passed. This author check
+  did not independently replay original pairs; the producer's paired-object
+  publication/readbacks are retained separately. Provider/fit/accepted writes0.
+- The first author-witness utility used the wrong helper namespace and failed
+  before writing its witness. Correct the import, retain that failed attempt
+  in the successful proof, and do not infer durability from a local draft.
