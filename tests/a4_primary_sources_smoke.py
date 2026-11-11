@@ -73,8 +73,8 @@ class PrimaryTests(unittest.TestCase):
                'docs/market_analysis_contract_v1.json','tools/build_run287_chameleon_macro_inputs.py',
                'tools/candidate_reassessment_bridge.py','tools/a4_liquidity_analysis.py',
                'tools/a4_macro_bridge.py','docs/market_analysis_contract_v2.json',
-               'tools/a4_macro_learning.py','tools/macro_technical_study.py')
-        self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity()))
+               'tools/a4_macro_learning.py','tools/macro_technical_study.py','tools/a4_data_center.py')
+        self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity())|{'a4_data_center.py'})
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())
@@ -277,9 +277,9 @@ class PrimaryTests(unittest.TestCase):
         self.assertTrue(bash and Path(bash).is_file(),'actual bash required for workflow exit-status validation')
         for research, primary in (('true','false'),('true','true'),('false','true')):
             baseline=dict(os.environ,RESEARCH_ENABLED=research,PRIMARY_ENABLED=primary,
-                          RESTORE='success',CYCLE='success',PERSIST='success',PRIMARY_CONFIG='success',PRIMARY='success')
+                          RESTORE='success',CYCLE='success',PERSIST='success',PRIMARY_CONFIG='success',PRIMARY='success',DATA_CENTER='success')
             self.assertEqual(subprocess.run([bash,'-c',script],env=baseline,capture_output=True,timeout=10).returncode,0)
-            keys=(['RESTORE','CYCLE','PERSIST'] if research=='true' else [])+(['PRIMARY_CONFIG','PRIMARY'] if primary=='true' else [])
+            keys=(['RESTORE','CYCLE','PERSIST'] if research=='true' else [])+(['PRIMARY_CONFIG','PRIMARY','DATA_CENTER'] if primary=='true' else [])
             for key in keys:
                 for outcome in ('failure','skipped','cancelled'):
                     with self.subTest(research=research,primary=primary,key=key,outcome=outcome):

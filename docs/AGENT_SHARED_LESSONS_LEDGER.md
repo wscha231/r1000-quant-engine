@@ -10934,3 +10934,27 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   admission. Preserve R1 failure and do not change product values to fit an
   audit's unit assumption. Primary collection is enabled; financing/learning
   remain off pending their independent deployment/input prerequisites.
+
+### 2026-11-12 KST — Unified data views must preserve purpose and version evidence
+
+- A single index can join primary/economic/financing originals, legacy storage
+  metadata and learning readiness without granting Source/PIT/rights or A5
+  authority. A legacy catalog/execution metadata match is not pack/Reader
+  verification; keep the original common Reader as the consumption gate.
+- Select source versions by capture cutoff before replaying original pairs.
+  Replaying every captured vintage duplicates observations and exhausts the
+  shared150,000-row/64MiB budget without new independent information. Late
+  publication of an older capture cannot replace a fresher capture. Preserve
+  all attempt references and block the latest failed feed rather than falling
+  back to a prior success. Exclude future attempts into a separate audit.
+- Native operands require the original request hash bound by the externally
+  pinned capture execution; recomputing the hash of a changed local request
+  is not authorization. The first index draft was tightened before publication
+  with a rebind refusal. Current native derived operands are retained once by
+  exact object hash for remote replay; capture-only receipts do not themselves
+  prove optional native originals were archived. Sparse remote receipt restore
+  must keep missing/expired native operands blocked, never silently partial.
+- Readiness for historical backtests and calibrated future forecasts is
+  separate from current context. The index validates the existing reviewed
+  learning bundle but does not manufacture a policy, run an unqualified fit,
+  promote a trial or treat current revised history as historical PIT.

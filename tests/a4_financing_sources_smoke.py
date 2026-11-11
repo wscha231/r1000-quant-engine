@@ -276,7 +276,7 @@ class FinancingTests(unittest.TestCase):
         self.assertIsNotNone(shell,'actual bash gate validation required')
         for primary in ('false','true'):
             env=dict(os.environ,RESEARCH_ENABLED='false',PRIMARY_ENABLED=primary,FINANCING_ENABLED='true',
-                PRIMARY_CONFIG='success',PRIMARY='success')
+                PRIMARY_CONFIG='success',PRIMARY='success',DATA_CENTER='success')
             result=subprocess.run([shell,'-c',gate['run']],env=env,capture_output=True,timeout=30)
             self.assertEqual(result.returncode,0 if primary=='true' else 2)
 
