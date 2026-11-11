@@ -691,6 +691,25 @@ class ForwardContextTests(unittest.TestCase):
                     source["data"]["summary"]["market_analysis"]["schema"]=[]
                     self.assertEqual(monitor.forward_a4_context(source,self.session,NOW)["status"],"A4_REPORT_UNVERIFIED")
 
+    def test_v2_relationship_evidence_survives_the_bounded_artifact_handoff(self):
+        payload=self.crisis_payload()
+        market=payload['summary']['market_analysis']
+        market.update(schema='market-analysis-report-v2',status='READY_RESEARCH_ONLY',
+            historical_evidence=dict(predictions=[dict(target='SPY',horizon_sessions=5,
+                feature='funding:sofr_minus_iorb',estimate=i/100000,reviewed_trial_sha256='a'*64)
+                for i in range(1500)]))
+        member_bytes=len(json.dumps(payload['summary']).encode())
+        self.assertGreater(member_bytes,131072)  # The legacy envelope rejected it.
+        feed=self.Feed('a4_forward',payload)
+        source=self.collect('a4_forward',feed)
+        self.assertEqual(source['data']['summary'],payload['summary'])
+        self.assertEqual(monitor.forward_a4_context(source,self.session,NOW)['status'],'RESEARCH_REPORT_AVAILABLE')
+        # An over-budget member still refuses before JSON consumption; no
+        # truncation or trust follows from the larger research-only envelope.
+        with patch.dict(feed.spec,max_member_bytes=member_bytes-1):
+            blocked=self.collect('a4_forward',feed)
+            self.assertEqual(blocked['status'],'BLOCKED_SOURCE')
+
 
     def test_malformed_forward_conclusion_preserves_legacy_report(self):
         feed = self.Feed("a4_forward", self.crisis_payload(), conclusion=[])
