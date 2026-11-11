@@ -210,6 +210,10 @@ class PrimaryTests(unittest.TestCase):
         self.assertIn('--publish',collect['run'])
         self.assertLess(collect['run'].index('A4_INPUT_ROOT='),collect['run'].index('python tools/collect_'))
         self.assertIn('PRIMARY',steps[-1]['run'])
+        config=next(s for s in steps if s.get('id')=='a4_primary_config')
+        self.assertIn('A4_RCLONE_CONFIG_GDRIVE',config['env']['MACRO_DRIVE_CONFIG'])
+        self.assertIn('command -v rclone',config['run'])
+        self.assertLess(config['run'].index('sudo install'),config['run'].index('python tools/configure_'))
 
 
 if __name__=='__main__':unittest.main()

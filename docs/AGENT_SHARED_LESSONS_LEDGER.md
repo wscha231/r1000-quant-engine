@@ -10721,3 +10721,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Accept header produced406; explicitly accepting the original MIME restored
   H.8/policy-rate capture and normalization. Preserve the failed execution,
   include safe HTTP status diagnostics and test negotiation without retries.
+- Exact-head review found that dedicated collection credentials alone did not
+  install rclone: the older setup exits when legacy credentials are absent.
+  Install the binary in the dedicated setup path too; shared secrets are not a
+  prerequisite for this independently scoped primary-source configuration.

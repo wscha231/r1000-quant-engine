@@ -90,7 +90,15 @@ jobs:
         env:
           MACRO_DRIVE_CONFIG: ${{ secrets.A4_RCLONE_CONFIG_GDRIVE }}
           MACRO_RESEARCH_LANE: scheduled
-        run: python tools/configure_macro_research_drive.py
+        run: |
+          set -euo pipefail
+          # Dedicated collection credentials work without the legacy secrets.
+          if ! command -v rclone >/dev/null 2>&1; then
+            curl -fsSLo "$RUNNER_TEMP/a4-rclone.zip" https://downloads.rclone.org/rclone-current-linux-amd64.zip
+            unzip -oq "$RUNNER_TEMP/a4-rclone.zip" -d "$RUNNER_TEMP/a4-rclone"
+            sudo install -m 0755 "$RUNNER_TEMP"/a4-rclone/rclone-*/rclone /usr/local/bin/rclone
+          fi
+          python tools/configure_macro_research_drive.py
 
       - name: Collect and verify primary A4 research data
         id: a4_primary_collect
