@@ -10510,3 +10510,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   also satisfy decision-close <= creation < next-session close before report or
   checkpoint mutation; the15-minute completed-session grace cannot revive a
   passed entry. A persisted retrospective prediction would poison later scoring.
+- Hosted run42964325786/job130337903140 passed235/236 suites; the manual
+  historical reuse positive correctly rejected the changed regression operand
+  with catalog_dependency_changed:tools/macro_technical_study.py. Retain the
+  original18,875-byte catalog-hashed operand in a bounded offline test archive,
+  restore it only in disposable historical positives, and continue testing that
+  current/mutated bytes fail the unchanged production catalog. Do not recertify
+  the catalog or relax its lookup merely to make historical tests pass.
