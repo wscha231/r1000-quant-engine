@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_json,metadata,registry_rows
+from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_json,metadata,registry_rows,stamp
 from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity,feature_availability
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
@@ -1242,6 +1242,333 @@ class A3OriginalInputs(unittest.TestCase):
             self.assertEqual(failed.returncode,2)
             self.assertEqual(load_json((out/'result/latest_attempt.json').read_bytes())['status'],'BLOCKED')
             self.assertEqual((out/'result/last_success.json').read_bytes(),prior)
+
+
+class StockCashResearch(unittest.TestCase):
+    """Existing registered suite; synthetic evidence never issues admission."""
+
+    def inputs(self):
+        p,r,policy=fixture()
+        # The legacy fixture makes SPY the fastest series. Construct a genuine
+        # positive ENTRY case from prices, not by overriding computed RS flags.
+        index={session:i for i,session in enumerate(SESSIONS)}
+        order={a["asset_id"]:i for i,a in enumerate(r["assets"],1)}
+        for price in p["prices"]:
+            t=index[price["session"]]
+            growth=.0002*t+.00005*math.sin(t*.13) if price["asset_id"]=="US:SPY" else (
+                .0004*t+.000008*order[price["asset_id"]]*t*t+.0001*math.sin(t*.17+order[price["asset_id"]]))
+            price["price"]=price["total_return_index"]=100*math.exp(growth)
+        reviewed(p,r,policy)
+        policy["stock_cash_research"]["enabled"]=True
+        policy["stock_cash_research"]["allocator"]="COST_AWARE_LONG_ONLY"
+        for e in p["evaluations"]:
+            e["cost_assumptions"]["commission_bps"]=25
+            e["portfolio_cost_basis"]=dict(schema="reviewed-portfolio-cost-basis-v1",
+                horizon="12_CALENDAR_MONTHS",kind="NET_REFERENCE_ROUND_TRIP",
+                cost_assumptions_sha256=digest(e["cost_assumptions"]),evidence_sha256="c"*64,
+                reference_cost_bps_per_side=25,embedded_cost_fraction=.005,
+                embedded_transaction_cost_fraction=.005,embedded_ongoing_cost_fraction=0,
+                gross_expected_return=e["expected_return_12m"]+.005)
+        policy["reviewed_pins"]["evaluation"]=[digest(e) for e in p["evaluations"]]
+        rr=risk(p,r,policy)
+        from research.a2_research_intake_v1 import MemoryArtifacts
+        raw=b"DATE,DGS3MO\n2026-09-17,3.0\n"
+        sha=hashlib.sha256(raw).hexdigest()
+        self.memory=MemoryArtifacts({"CASH:SOURCE":raw})
+        rr["stock_cash_allocation"]=dict(horizon="12_CALENDAR_MONTHS",events_sha256=digest([]),
+            decision_asset_ids=sorted(e["asset_id"] for e in p["evaluations"]),
+            evaluation_sha256_by_asset={e["asset_id"]:digest(e) for e in p["evaluations"]},
+            cash_carry=dict(**{**meta("FRED_ARCHIVE"),"raw_sha256":sha},metric="dgs3mo",unit="FRACTION",value=.03,
+                observation_date="2026-09-17",original_ref=dict(artifact_id="CASH:SOURCE",sha256=sha,bytes=len(raw))),
+            exception_reviews=[],exit_reviews=[])
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        return p,r,policy
+
+    def test_real_runtime_optin_shared_cost_inputs_and_no_default_change(self):
+        p,r,policy=self.inputs()
+        original=copy.deepcopy(p)
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        proposal=out["proposal"]
+        self.assertEqual(proposal["status"],"RESEARCH_PROPOSAL")
+        self.assertEqual(p,original)
+        source=p["evaluations"][0]
+        corresponding=next(x for x in out["multi_asset_leadership_latest"] if x["asset_id"]==source["asset_id"])
+        self.assertEqual(corresponding["evaluation_sha256"],digest(source))
+        self.assertNotEqual(corresponding["evaluation_sha256"],digest({**source,"expected_alpha_12m":.15,
+                            "fundamental_score":None}))
+        self.assertGreater(sum(proposal["proposed_weights"].values()),0)
+        self.assertLessEqual(sum(proposal["proposed_weights"].values()),.4+1e-8)
+        self.assertTrue(all(abs(x-.205)<1e-12 for x in proposal["comparison_inputs"]["gross_er"]))
+        self.assertEqual(proposal["comparison_inputs"]["side_cost"],[.0025]*3)
+        self.assertEqual(proposal["exception_exposure"],0)
+        self.assertEqual(proposal["decision_clock"]["horizon"],"12_CALENDAR_MONTHS")
+        self.assertGreater(stamp(proposal["decision_clock"]["earliest_fill_at"]),stamp(CUTOFF))
+        self.assertFalse(proposal["orders_generated"])
+        self.assertEqual(len(out["stock_research"]["comparison_plan"]["arms"]),18)
+        policy["stock_cash_research"]["enabled"]=False
+        baseline=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertNotIn("stock_research",baseline)
+        self.assertNotIn("comparisons",baseline["proposal"])
+        policy["stock_cash_research"]["enabled"]=True
+        p["evaluations"][0]["signal_confidence"]+=.01
+        refused=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(refused["proposal"]["status"],"BLOCKED")
+        bad=next(x for x in refused["multi_asset_leadership_latest"] if x["asset_id"]==source["asset_id"])
+        self.assertIsNone(bad.get("evaluation_sha256"))
+
+    def test_inactive_optional_unknown_preserves_full_denominator_but_not_stock_block(self):
+        p,r,policy=self.inputs()
+        complete=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
+        r["assets"].append(next(a for a in complete["assets"] if a["symbol"]=="GLDM"))
+        # Rebind synthetic original evaluators and risk to this exact feature snapshot.
+        for e in p["evaluations"]:e["feature_sha256"]=feature_identity(p,r)
+        policy["reviewed_pins"]["evaluation"]=[digest(e) for e in p["evaluations"]]
+        p["risk"]["feature_sha256"]=feature_identity(p,r)
+        p["risk"]["stock_cash_allocation"]["evaluation_sha256_by_asset"]={e["asset_id"]:digest(e) for e in p["evaluations"]}
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"RESEARCH_PROPOSAL",out["proposal"].get("reasons"))
+        self.assertFalse(out["global_ranking_ready"])
+        self.assertEqual(out["stock_research"]["decision_scope"]["numeric_scope_status"],"SCOPED_INPUTS_OBSERVED")
+        self.assertEqual(len(out["multi_asset_leadership_latest"]),4)
+        missing=next(x for x in out["multi_asset_leadership_latest"] if x["symbol"]=="GLDM")
+        self.assertIsNone(missing["expected_return_12m"])
+        self.assertIsNone(missing["rank"])
+        self.assertEqual(out["stock_research"]["decision_scope"]["unknown_roster_count"],1)
+        self.assertEqual(out["stock_research"]["exception_preparation"][1]["status"],"UNREGISTERED")
+
+    def test_unknown_held_and_ambiguous_costs_block_without_zero_fill(self):
+        p,r,policy=self.inputs()
+        e=p["evaluations"][0]
+        e.pop("portfolio_cost_basis")
+        policy["reviewed_pins"]["evaluation"].append(digest(e))
+        p["risk"]["stock_cash_allocation"]["evaluation_sha256_by_asset"][e["asset_id"]]=digest(e)
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("stock_net_er_cost_basis_missing",out["proposal"]["reasons"][0])
+        self.assertIsNone(out["proposal"]["proposed_weights"])
+        self.assertIsNotNone(out["multi_asset_leadership_latest"][0]["expected_return_12m"])
+
+    def test_scope_union_keeps_top40_outside_winner_and_event_unknown(self):
+        from research.multi_asset_v1.decisions import stock_decision_scope
+        p,r,policy=self.inputs()
+        assets={"S:"+str(i):dict(asset_class="US_EQUITY") for i in range(45)}
+        rows=[dict(asset_id=a,discovery_rank=i+1,data_quality="PRICE_OBSERVED_RESEARCH_ONLY",
+            risk_adjusted_expected_alpha=1/(i+1),evaluation_sha256="d"*64,expected_return_12m=.2)
+            for i,a in enumerate(assets)]
+        rows[44]["expected_return_12m"]=None
+        rows[44]["risk_adjusted_expected_alpha"]=None
+        events=[dict(confirmed=True,materiality=.9,affected_asset_ids=["S:44"])]
+        scope=stock_decision_scope(rows,assets,{"S:43":.15},events,CUTOFF,policy,["S:43"])
+        self.assertEqual(len(scope["asset_ids"]),42)
+        self.assertIn("S:43",scope["asset_ids"])
+        self.assertEqual(scope["full_roster_count"],45)
+        self.assertEqual(scope["numeric_scope_status"],"SCOPED_INPUTS_OBSERVED")
+        self.assertEqual(scope["queue_unknown_count"],1)
+        self.assertEqual(len(rows),45)
+
+    def test_healthy_winner_floor_and_typed_thesis_exit_actual_weights(self):
+        p,r,policy=self.inputs()
+        before=run(p,r,policy,artifact_resolver=self.memory)
+        rows=before["multi_asset_leadership_latest"]
+        assets={a["asset_id"]:a for a in r["assets"]}
+        row=rows[0];aid=row["asset_id"]
+        row.update(portfolio_status="HOLD",RS20_change_5d=-.1,RS60_change_5d=-.1)
+        kept=propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+        self.assertGreaterEqual(kept["proposed_weights"][aid],.08-1e-9)
+        row["thesis_status"]="INVALID"
+        p["risk"]["stock_cash_allocation"]["exit_reviews"]=[dict(asset_id=aid,taxonomy="THESIS_EXIT",
+            evaluation_sha256=row["evaluation_sha256"],thesis_id=row["thesis_id"],reason="ORIGINAL_THESIS_INVALID",
+            available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",max_weight=0)]
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        exited=propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+        self.assertNotIn(aid,exited["proposed_weights"])
+        self.assertEqual(exited["exit_reviews"][0]["taxonomy"],"THESIS_EXIT")
+        row["thesis_status"]="INTACT"
+        with self.assertRaisesRegex(ContractError,"stock_healthy_thesis_exit"):
+            propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+
+    def test_same_week_schedule_and_confirmed_event_calendar_only(self):
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        _,_,policy=self.inputs()
+        profile=policy["stock_cash_research"]
+        profile["cadence"]="WEEKLY"
+        review={"previous_decision_at":"2026-09-17T20:00:00Z"}
+        clock=stock_decision_clock(CUTOFF,profile,review,[])
+        self.assertFalse(clock["scheduled_due"])
+        profile["cadence"]="MONTHLY_CONFIRMED_EVENT"
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,[])["scheduled_due"])
+        events=[dict(event_id="NEWS:1",confirmed=True,materiality=.8,first_seen="2026-09-18T20:01:00Z")]
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
+        events[0]["confirmed"]=False
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
+        profile["cadence"]="MONTHLY"
+        same=stock_decision_clock(CUTOFF,profile,{"previous_decision_at":"2026-09-18T21:00:00Z"},[])
+        self.assertTrue(same["same_session"])
+        self.assertFalse(same["scheduled_due"])
+        boundary=stock_decision_clock("2026-10-01T01:10:00Z",profile,
+            {"previous_decision_at":"2026-10-01T00:10:00Z"},[])
+        self.assertEqual(boundary["decision_session"],"2026-09-30")
+        self.assertFalse(boundary["scheduled_due"])
+
+    def test_cost_components_keep_ongoing_and_all_in_stress_exact(self):
+        from research.multi_asset_v1.decisions import _stock_cost
+        p,_,_=self.inputs()
+        row=copy.deepcopy(p["evaluations"][0])
+        row["cost_assumptions"]["expense_bps"]=100
+        basis=row["portfolio_cost_basis"]
+        basis.update(embedded_cost_fraction=.015,embedded_ongoing_cost_fraction=.01,
+            gross_expected_return=.215,cost_assumptions_sha256=digest(row["cost_assumptions"]))
+        for bps in (25,50,100):
+            annual,side=_stock_cost(row,bps)
+            self.assertAlmostEqual(annual,.205)
+            self.assertEqual(side,bps/10000)
+        basis["embedded_transaction_cost_fraction"]+=.01
+        with self.assertRaisesRegex(ContractError,"component_reconciliation"):_stock_cost(row,25)
+
+    def test_original_dgs3mo_value_date_and_resolver_required(self):
+        p,r,policy=self.inputs()
+        refused=run(p,r,policy)
+        self.assertIn("stock_dgs3mo_original_resolver_required",refused["proposal"]["reasons"])
+        p["risk"]["stock_cash_allocation"]["cash_carry"]["value"]=.04
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        refused=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertIn("stock_dgs3mo_original_value_or_date_mismatch",refused["proposal"]["reasons"])
+
+    def test_opportunity_actual_counterfactual_cap_and_unknown_release(self):
+        p,r,policy=self.inputs()
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        rows=copy.deepcopy(out["multi_asset_leadership_latest"])
+        assets={a["asset_id"]:a for a in r["assets"]}
+        base=copy.deepcopy(rows[0])
+        complete=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
+        metal=copy.deepcopy(next(a for a in complete["assets"] if a["symbol"]=="GLDM"))
+        metal.update(tradable=True,identity_verified=True,corporate_action_quarantine=False)
+        assets["US:GLDM"]=metal
+        base.update(asset_id="US:GLDM",symbol="GLDM",expected_return_12m=.6,expected_alpha_12m=.55,
+                    evaluation_sha256="e"*64)
+        base["portfolio_cost_basis"]["gross_expected_return"]=.605
+        rows.append(base)
+        rr=p["risk"];rr["max_gross"]=1;rr["max_security_weight"]=.5
+        rr["risk_multipliers"][metal["asset_class"]]=1
+        rr["risk_group_limits"].update({g:.6 for a in assets.values() for g in a["risk_group_ids"]})
+        review=rr["stock_cash_allocation"]
+        review.update(decision_asset_ids=sorted(x["asset_id"] for x in rows),
+                      evaluation_sha256_by_asset={x["asset_id"]:x["evaluation_sha256"] for x in rows})
+        proof=dict(asset_id="US:GLDM",basis="OPPORTUNITY",evaluation_sha256="e"*64,
+            thesis_id=base["thesis_id"],reason="REVIEWED_NET_COMPARISON",release_condition="REVIEW_IF_EDGE_DISAPPEARS",
+            available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",max_weight=.2)
+        review["exception_reviews"]=[proof]
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        result=propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        self.assertGreater(result["proposed_weights"]["US:GLDM"],.1)
+        self.assertLessEqual(result["exception_exposure"],.2+1e-8)
+        self.assertGreater(result["exception_reviews"][0]["objective_improvement"],0)
+        from scipy.optimize import minimize as real_minimize
+        from types import SimpleNamespace
+        count=[0]
+        def invalid_second(*args,**kwargs):
+            count[0]+=1
+            answer=real_minimize(*args,**kwargs)
+            return SimpleNamespace(success=True,x=-np.ones_like(answer.x)) if count[0]==2 else answer
+        import numpy as np
+        with patch("scipy.optimize.minimize",side_effect=invalid_second):
+            with self.assertRaisesRegex(ContractError,"counterfactual_failed"):
+                propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        proof["basis"]="SPECIAL_RISK"
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,"joint_evidence_missing"):
+            propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        review["exception_reviews"]=[]
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,"release_proof_missing"):
+            propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{"US:GLDM":.1},artifact_resolver=self.memory)
+
+    def test_native_lifecycle_original_and_same_security_not_free_tag(self):
+        import csv,io
+        from research.a2_research_intake_v1 import MemoryArtifacts
+        from research.multi_asset_v1.decisions import _stock_exit
+        from tools.security_lifecycle import REQUIRED_COLUMNS,SecurityLifecycleError
+        _,_,policy=self.inputs()
+        event={key:"" for key in REQUIRED_COLUMNS}
+        event.update(stable_security_id="US:FTI",stable_issuer_id="CIK:TEST",ticker="FTI",aliases="FTI",
+            event_type="delisting",available_from="2026-09-18T19:00:00Z",effective_date="2026-09-18",
+            last_trading_date="2026-09-17",delisting_proceeds="0",currency="USD",source_url="https://example.test/event",
+            stable_event_id="EVENT:FTI",source_sha256="a"*64,exact_available_from="true",
+            evidence_status="verified",review_status="approved")
+        text=io.StringIO(newline="");writer=csv.DictWriter(text,fieldnames=sorted(REQUIRED_COLUMNS))
+        writer.writeheader();writer.writerow(event);raw=text.getvalue().encode()
+        sha=hashlib.sha256(raw).hexdigest();memory=MemoryArtifacts({"LIFE:1":raw})
+        row=dict(asset_id="US:FTI",symbol="FTI",evaluation_sha256="e"*64,thesis_id="THESIS:FTI")
+        review=dict(taxonomy="LIFECYCLE_EXIT",evaluation_sha256="e"*64,thesis_id="THESIS:FTI",
+            reason="ORIGINAL_TERMINAL_EVENT",max_weight=0,available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",
+            lifecycle_ref=dict(artifact_id="LIFE:1",sha256=sha,bytes=len(raw),available_at=CUTOFF))
+        value,audit=_stock_exit(review,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},memory,{})
+        self.assertEqual(value,0)
+        self.assertEqual(audit["lifecycle_original_sha256"],sha)
+        for field,value in (("delisting_proceeds",""),("delisting_proceeds","NaN"),
+                            ("delisting_proceeds","-1"),("evidence_status","unverified")):
+            with self.subTest(field=field,value=value):
+                bad={**event,field:value};text=io.StringIO(newline="")
+                writer=csv.DictWriter(text,fieldnames=sorted(REQUIRED_COLUMNS));writer.writeheader();writer.writerow(bad)
+                original=text.getvalue().encode();key=hashlib.sha256(original).hexdigest()
+                changed=copy.deepcopy(review)
+                changed["lifecycle_ref"].update(sha256=key,bytes=len(original))
+                with self.assertRaises((ContractError,SecurityLifecycleError)):
+                    _stock_exit(changed,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},
+                                MemoryArtifacts({"LIFE:1":original}),{})
+        with self.assertRaisesRegex(ContractError,"resolver_unbound"):
+            _stock_exit(review,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},None,{})
+
+    def test_native_replacement_policy_recomputed_and_margin_not_rank_exit(self):
+        from research.multi_asset_v1.decisions import _stock_exit
+        p,r,policy=self.inputs()
+        rows=run(p,r,policy,artifact_resolver=self.memory)["multi_asset_leadership_latest"]
+        own,other=rows[:2]
+        other["portfolio_status"]="CANDIDATE"
+        evidence={}
+        for i,row in enumerate(rows):
+            record=dict(ticker=row["symbol"],alphaops_vnext_score=1.5 if i==1 else .2,
+                rs_benchmark_1w=.1,rs_benchmark_3m=.3,price_above_ma50=.9,price_above_ma200=.9,
+                rs_sector_3m=.2,industry_group_strength_score=.8,portfolio_risk_entry_block_score=0,
+                portfolio_stale_mega_leader_score=0,leader_tier="DUAL_LEADER",sector="SECTOR:"+str(i),
+                industry_group="INDUSTRY:"+str(i))
+            row["hold_exit_evidence"]=dict(security_id=row["asset_id"],as_of=list(SESSIONS)[-1],
+                available_at=CUTOFF,record=record)
+            evidence[row["asset_id"]]=record
+        by_id={row["asset_id"]:row for row in rows}
+        review=dict(taxonomy="REPLACEMENT_EXIT",evaluation_sha256=own["evaluation_sha256"],thesis_id=own["thesis_id"],
+            reason="NATIVE_FIXED_MARGIN_AND_CONCENTRATION",max_weight=0,available_at=CUTOFF,
+            expires_at="2026-09-20T10:00:00Z",replacement_asset_id=other["asset_id"],
+            replacement_evaluation_sha256=other["evaluation_sha256"],scored_cohort_sha256=digest(evidence))
+        target,audit=_stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+        self.assertEqual(target,0)
+        self.assertEqual(audit["replacement_asset_id"],other["asset_id"])
+        saved=own["hold_exit_evidence"]["record"].pop("price_above_ma200")
+        review["scored_cohort_sha256"]=digest({a:r["hold_exit_evidence"]["record"] for a,r in by_id.items()})
+        with self.assertRaisesRegex(ContractError,"incomplete_incumbent"):
+            _stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+        own["hold_exit_evidence"]["record"]["price_above_ma200"]=saved
+        other["hold_exit_evidence"]["record"]["alphaops_vnext_score"]=.21
+        review["scored_cohort_sha256"]=digest({a:r["hold_exit_evidence"]["record"] for a,r in by_id.items()})
+        with self.assertRaisesRegex(ContractError,"canonical_replacement_margin_not_met"):
+            _stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+
+    def test_publisher_replays_native_dependency_code_bytes(self):
+        import tools.run_multi_asset_leadership as publisher
+        native={"tools/run_broker_ledger_replay.py","tools/run287_hold_exit_policy.py","tools/security_lifecycle.py"}
+        def expected(args,**kwargs):return (ROOT/args[2].split(":",1)[1]).read_bytes()
+        with patch.object(publisher.subprocess,"check_output",side_effect=expected):
+            checked=publisher.verified_source_hashes(CODE_SHA)
+        self.assertTrue(native<=set(checked))
+        for operand in sorted(native):
+            def wrong(args,**kwargs):
+                relative=args[2].split(":",1)[1]
+                return b"different native code" if relative==operand else (ROOT/relative).read_bytes()
+            with patch.object(publisher.subprocess,"check_output",side_effect=wrong):
+                with self.assertRaisesRegex(ContractError,"source_differs_from_claimed_commit:"+operand):
+                    publisher.verified_source_hashes(CODE_SHA)
 
 
 if __name__=="__main__":unittest.main()

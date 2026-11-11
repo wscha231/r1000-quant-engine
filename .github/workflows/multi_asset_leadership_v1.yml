@@ -6,6 +6,9 @@ on:
       - 'research/multi_asset_v1/**'
       - 'tools/run_multi_asset_leadership.py'
       - 'tests/multi_asset_leadership_smoke.py'
+      - 'tools/run_broker_ledger_replay.py'
+      - 'tools/run287_hold_exit_policy.py'
+      - 'tools/security_lifecycle.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
       - 'research/theme_etf_runtime_v1/**'
@@ -25,6 +28,9 @@ on:
     paths:
       - 'research/multi_asset_v1/**'
       - 'tools/run_multi_asset_leadership.py'
+      - 'tools/run_broker_ledger_replay.py'
+      - 'tools/run287_hold_exit_policy.py'
+      - 'tools/security_lifecycle.py'
       - 'docs/multi_asset_*_v1.json'
       - '.github/workflows/multi_asset_leadership_v1.yml'
       - 'research/theme_etf_runtime_v1/**'
@@ -72,7 +78,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3'
+      - run: python -m pip install 'numpy==2.2.6' 'pandas==2.2.3' 'pandas_market_calendars==4.6.1' 'jsonschema>=4.23,<5' 'requests>=2.31,<3' 'scipy==1.15.3' 'scikit-learn>=1.4.0'
       - name: Synthetic contract regressions
         run: |
           python -W error::ResourceWarning tests/multi_asset_leadership_smoke.py

@@ -8,7 +8,8 @@ import math
 from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, identifier,
                         load_json, metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
-from .decisions import COMPONENTS, classify, evaluation, event_memory, lookthrough, propose
+from .decisions import (COMPONENTS, classify, evaluation, event_memory, lookthrough, propose,
+                        stock_decision_scope, stock_research_profile)
 from .fundamentals import receipt_blockers
 
 
@@ -285,6 +286,13 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
                 row.update({k:v for k,v in ev.items() if k in fields})
+                if policy.get("stock_cash_research",{}).get("enabled") is True:
+                    original_evaluation=a3_candidates[aid] if aid in a3_candidates else by_eval[aid]
+                    row.update(evaluation_sha256=digest(original_evaluation),net_of_costs=ev["net_of_costs"],
+                        cost_assumptions=ev["cost_assumptions"],
+                        portfolio_cost_basis=ev.get("portfolio_cost_basis"),
+                        hold_exit_evidence=ev.get("hold_exit_evidence"),
+                        return_history_sessions=list(sessions)[-60:])
                 row["downside_risk"]=ev["expected_drawdown"]
             except (ContractError,KeyError,ValueError) as exc:
                 row["blockers"].append("evaluation:"+str(exc))
@@ -308,17 +316,42 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows)
     if global_ranking_ready:
         for i,r in enumerate(ranking,1): r["rank"]=i
+    stock_mode=policy.get("stock_cash_research",{}).get("enabled") is True
+    stock_scope=None
+    if stock_mode:
+        try:
+            stock_scope=stock_decision_scope(rows,assets,{aid:r["weight"] for aid,r in positions.items()},
+                events,cutoff,policy,payload.get("risk",{}).get("stock_cash_allocation",{}).get("decision_asset_ids"))
+        except (ContractError,KeyError,ValueError,TypeError) as exc:
+            stock_scope=dict(status="BLOCKED",reason=str(exc),asset_ids=[],records=[],
+                             full_roster_count=len(rows),global_ranking_certified=False)
     proposal={"status":"BLOCKED","reasons":["missing_reviewed_risk_packet"],"proposed_weights":None,"orders_generated":False}
     if payload.get("risk") is not None:
         try:
             require(complete_base,"incomplete_base_universe")
-            require(a3_complete,"incomplete_a3_reference_coverage")
-            require(all(r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows if r["asset_id"] in base_ids),"incomplete_equity_comparison")
-            require(global_ranking_ready,"incomplete_cross_asset_comparison")
+            if stock_mode:
+                require(stock_scope["numeric_scope_status"]=="SCOPED_INPUTS_OBSERVED","stock_decision_scope_incomplete")
+                if a3_scope: require(current_review is not None,"a3_current_reference_admission_required")
+                allocation=payload["risk"].get("stock_cash_allocation",{})
+                require(type(allocation) is dict,"stock_reviewed_allocation_required")
+                optional={r["asset_id"] for r in allocation.get("exception_reviews",[])}
+                selected_scope=set(stock_scope["decision_asset_ids"])
+                require(optional<=selected_scope and optional<=set(assets),"stock_exception_security_unregistered_or_unreviewed")
+                proposal_rows=[r for r in rows if r["asset_id"] in selected_scope]
+            else:
+                require(a3_complete,"incomplete_a3_reference_coverage")
+                require(all(r["data_quality"]=="PRICE_OBSERVED_RESEARCH_ONLY" and "risk_adjusted_expected_alpha" in r for r in rows if r["asset_id"] in base_ids),"incomplete_equity_comparison")
+                require(global_ranking_ready,"incomplete_cross_asset_comparison")
+                proposal_rows=rows
             require(feature_time is not None and stamp(payload["risk"].get("observed_at"))>=stamp(feature_time),"risk_predates_feature_inputs")
-            proposal=propose(rows,assets,payload["risk"],payload.get("holdings",{}),cutoff,policy,identity,
-                             {aid:r["weight"] for aid,r in positions.items()})
-        except (ContractError,KeyError,ValueError) as exc:
+            proposal=propose(proposal_rows,assets,payload["risk"],payload.get("holdings",{}),cutoff,policy,identity,
+                             {aid:r["weight"] for aid,r in positions.items()},
+                             **({"decision_events":payload.get("events",[]),"artifact_resolver":artifact_resolver}
+                                if stock_mode else {}))
+            if stock_mode:
+                proposal.update(scope="EXPLICIT_STOCK_REVIEW_SCOPE",global_ranking_ready=global_ranking_ready,
+                    decision_scope_asset_ids=stock_scope["decision_asset_ids"])
+        except (ContractError,KeyError,ValueError,TypeError) as exc:
             proposal={"status":"BLOCKED","reasons":[str(exc)],"proposed_weights":None,"orders_generated":False}
     observed_exposure={"status":"NOT_SUPPLIED","book_kind":None}
     if positions:
@@ -431,8 +464,48 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         if not a3_complete:
             result["ranking_scope"]="INCOMPLETE_A3_REFERENCE_COVERAGE"
     result["status"]="PARTIAL_RESEARCH" if any(r["price"] is not None for r in rows) else "BLOCKED"
+    if stock_mode:
+        result["stock_research"]=dict(decision_scope=stock_scope,
+            full_roster_asset_ids=[r["asset_id"] for r in rows],
+            unmapped_requested_ids=sorted(set(payload.get("requested_security_ids",[]))-set(assets)),
+            comparison_plan=stock_comparison_plan(policy) if "reason" not in stock_scope else
+                dict(status="BLOCKED",reason=stock_scope["reason"]),
+            exception_preparation=[dict(symbol=s,status="METADATA_ONLY_NOT_TRADE_ADMISSION"
+                if any(a["symbol"]==s for a in assets.values()) else "UNREGISTERED",
+                required=["ORIGINAL_IDENTITY_AND_CA","SAME_CUTOFF_A3_ER_AND_A4_RISK",
+                          "PINNED_EXCEPTION_AND_RELEASE_CONDITION","COST_AND_PRICE_INPUTS"])
+                for s in ("GLDM","SHY","IEF","TLT")],
+            actual_fit_executed=False,actual_backtest_executed=False)
     result["result_sha256"]=digest(result)
     return result
+
+
+def stock_comparison_plan(policy):
+    """Prepare registered comparisons without invoking any fit/fullrunner.
+
+    Actual retraining remains run_run287_expected_return_challenger.run behind
+    its canonical U0 acceptance, mature-label purge and embargo. This plan cannot
+    certify a current 12-calendar-month ER from that runner's 63-session label.
+    """
+    p=stock_research_profile(policy)
+    shared=dict(start="2021-10-01",end="2026-11-06",starting_capital_usd=100000,
+        integer_shares=True,fill="NEXT_NYSE_CLOSE",cash="DGS3MO_CARRY",horizon=p["horizon"],
+        policy_sha256=digest(policy),fullrun_authorized=False)
+    return dict(status="PREPARED_NOT_EXECUTABLE",shared=shared,comparison_family="STOCK_A5_MATCHED_INPUTS",
+        arms=[dict(allocator=a,cadence=c,cost_bps_per_side=b) for a in ("CONTROL","COST_AWARE_LONG_ONLY")
+              for c in ("MONTHLY","WEEKLY","MONTHLY_CONFIRMED_EVENT") for b in (25,50,100)],
+        training_adapter="tools/run_run287_expected_return_challenger.py:run",
+        training_contract="docs/run287_expected_return_challenger_contract.json",
+        mature_label_functions=["prepare_frame","walk_forward_predictions"],
+        training_horizons_nyse_sessions=[21,63,126],allocation_horizon="12_CALENDAR_MONTHS",
+        training_output_is_not_12m_er=True,
+        evaluation_adapters=["tools/evaluate_run287_hold_exit_replacement.py:run_replay",
+                             "tools/run_cagr_walkforward.py:run"],
+        blockers=["NAMED_EXPERIMENT_REGISTRATION_AND_DO_NOT_REPEAT_REPLAY_REQUIRED",
+                  "CANONICAL_U0_AND_ORIGINAL_PIT_UNIVERSE_FINANCIAL_CA_ADMISSION_REQUIRED",
+                  "SAME_SOURCE_CLOCK_COST_CASH_LEDGER_INPUTS_REQUIRED",
+                  "ORIGINAL_VALIDATED_12_CALENDAR_MONTH_ER_REQUIRED"],
+        model_fit=False,targets_written=False,orders_generated=False,promotion_allowed=False)
 
 
 def render(result):

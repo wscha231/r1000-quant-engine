@@ -160,7 +160,9 @@ def verified_source_hashes(code_sha):
         "tools/chameleon_market_context_v2.py", "tools/build_run287_chameleon_macro_risk.py",
         "tools/daily_crisis_report_clock.py", "docs/market_analysis_contract_v1.json",
         "tools/build_run287_chameleon_macro_inputs.py", "tools/candidate_reassessment_bridge.py",
-        "r1000_helpers.py", "docs/run287_chameleon_macro_risk_contract.json"))
+        "r1000_helpers.py", "docs/run287_chameleon_macro_risk_contract.json",
+        "tools/run_broker_ledger_replay.py", "tools/run287_hold_exit_policy.py",
+        "tools/security_lifecycle.py"))
     paths.update(p for p in (ROOT/"research/__init__.py",ROOT/"tools/__init__.py",ROOT/"research/theme_etf_runtime_v1/__init__.py") if p.exists())
     hashes={}
     for path in sorted(paths):

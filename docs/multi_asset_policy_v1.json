@@ -263,6 +263,18 @@
       "TOKEN"
     ]
   },
+  "stock_cash_research": {
+    "schema": "stock-cash-research-v1",
+    "enabled": false,
+    "allocator": "CONTROL",
+    "cadence": "MONTHLY",
+    "horizon": "12_CALENDAR_MONTHS",
+    "deep_review_count": 40,
+    "exception_weight_cap": 0.2,
+    "cash_mode": "DGS3MO_CARRY",
+    "cost_bps_per_side": 25,
+    "risk_aversion": 1.0
+  },
   "production_activation_allowed": false,
   "orders_generated": false
 }

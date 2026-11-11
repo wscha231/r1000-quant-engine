@@ -10416,3 +10416,35 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Preserve intentional missing/corrupt-receipt refusals and all causality
   oracles, and validate the full related suite and shared-fixture callers
   before another hosted CI cycle. Retain failed diagnostic costs.
+
+- Stock research preserves the complete UNKNOWN roster and separates its
+  Top40/held/event work queue from an externally reviewed A5 decision cohort.
+  Inactive optional assets cannot certify or veto that cohort by their absence.
+  Retain normal winners unless same-security current evidence and the existing
+  typed exit policy justify a change; a hard-limit conflict requires review.
+  Compare the same 12-calendar-month ER, covariance, cash and cost inputs. Restore
+  only the original transaction-cost component; keep expense/roll in net ER and
+  charge all-in 25/50/100bps once per proposed side. A hash or quoted yield is
+  not source replay: verify the bounded original and reuse the native cash and
+  lifecycle parsers. A queue or synthetic optimizer grants no PIT/CA, actual
+  MODEL acceptance or economic performance evidence.
+- The first stock-allocation regression passed cost decomposition, then exposed
+  an origin mismatch: hashing the evaluator's augmented result differs from
+  hashing its already reviewed original. Keep the original evaluation digest
+  beside derived scores; never fix this by weakening the cohort hash check.
+- The next focused run exposed a missing import of an existing uniqueness
+  helper; keep that NameError and its measured cost. New native dependencies
+  also belong in the existing code-byte attestation and workflow filters.
+  Replacement requires complete incumbent evidence, and every optimizer result,
+  including a counterfactual solver's claimed success, needs the same finite,
+  shape, bound and exposure checks before it can prove an opportunity.
+- A preexisting multi-asset fixture made its benchmark the strongest series.
+  A nonempty entry test must use an explicitly positive synthetic price path
+  and recompute real relative strength; never bypass an entry gate or infer
+  a new-entry pass from an incumbent-floor-only test. Preserve both failures.
+- Native lifecycle parsing used value-or-empty after CSV numeric conversion,
+  losing valid 0.0 proceeds despite its explicit >=0 terminal contract. Keep
+  None/NaN and negative/unreviewed events blocked; retain the original zero
+  failure and verify exact source bytes through the same parser and exit path.
+  The initial fixed risk-aversion coefficient is 1.0 (return minus half the
+  variance), chosen before results; no economic validation or tuning is claimed.
