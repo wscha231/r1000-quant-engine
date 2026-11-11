@@ -4,6 +4,7 @@ from datetime import date, timedelta
 import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -102,6 +103,21 @@ class LiquidityTests(unittest.TestCase):
         x = rows("SOFR",[("2026-11-06",4)])[0]
         for other in ({**x,"source_id":"nyfed:SOFR"},{**x,"value":5}):
             with self.assertRaises(ValueError): a.visible_histories([x,other],NOW)
+
+    def test_nyfed_non_object_documents_become_blocked_loader_reports(self):
+        for sid in ("SOFR","TGCR","EFFR"):
+            for document in ([],None,"rates",4,True):
+                with self.subTest(sid=sid,document=document),tempfile.TemporaryDirectory() as folder:
+                    root=Path(folder);body=json.dumps(document).encode()
+                    (root/"source.json").write_bytes(body)
+                    request=dict(schema=m.REQUEST_SCHEMA_V2,market="US",session=SESSION,
+                        available_at="2026-11-07T09:00:00Z",expires_at="2026-11-08T09:00:00Z",
+                        inputs=[dict(kind="macro_v2",path="source.json",sha256=m.sha(body),
+                                     source_id="nyfed:"+sid,status="COLLECTED",collected_at=COLLECTED)])
+                    raw_request=json.dumps(request).encode();(root/"request.json").write_bytes(raw_request)
+                    result=m.load_report(root/"request.json",root,m.sha(raw_request),cutoff=NOW,session=SESSION)
+                    self.assertEqual(result["status"],"DATA_BLOCKED")
+                    self.assertFalse(result["order_generation_allowed"])
 
     def test_future_availability_is_excluded_without_changing_past(self):
         old = rows("SOFR",[("2026-11-06",4)])[0]

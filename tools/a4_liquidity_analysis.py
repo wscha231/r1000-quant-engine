@@ -69,6 +69,7 @@ def parse_original(raw, spec):
     data = []
     if provider == "nyfed":
         document = f.strict_json(raw)
+        f.require(type(document) is dict, "A4_NYFED_DOCUMENT")
         values = document.get("refRates")
         f.require(type(values) is list and 0 < len(values) <= 10000, "A4_NYFED_ROWS")
         for item in values:
