@@ -10473,3 +10473,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   unchanged global caps, retaining exact member/hash/session checks. Regress a
   real compressed multi-model member and one-byte-over-budget refusal; accepting
   the new schema alone is insufficient if the transport still rejects its data.
+- Keep FRED format detection identical to the original normalizer: UTF8 BOM
+  JSON accepted by Source must not be reclassified as CSV by the A4 consumer.
+  Use the existing shared detector and regress both byte variants, exact raw
+  hashes, retained nulls and forged normalization refusal.
