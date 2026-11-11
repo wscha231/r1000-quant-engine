@@ -48,7 +48,10 @@ def validate_report(report, payload, policy):
 
 def _explain_result(result, risk, report, *, previous=None, policy=None):
     """Pure presentation of an already computed native result; no new sizing."""
-    require(result["proposal"]["status"]=="RESEARCH_PROPOSAL" and result.get("global_ranking_ready") is True,
+    stock=(policy or {}).get("stock_cash_research",{}).get("enabled") is True
+    from tools.run_multi_asset_leadership import fully_admitted
+    require(result["proposal"]["status"]=="RESEARCH_PROPOSAL" and
+            (fully_admitted(result) if stock else result.get("global_ranking_ready") is True),
             "A5_NATIVE_PROPOSAL_NOT_READY")
     proposal=result["proposal"];weights=proposal["proposed_weights"];cash=number(proposal["cash"],0,1)
     require(type(weights) is dict and all(type(k) is str for k in weights),"A5_WEIGHT_SCHEMA")
@@ -56,8 +59,30 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
     require(math.isclose(sum(weights.values())+cash,1,abs_tol=1e-9),"A5_WEIGHT_SUM")
     require(sum(weights.values())<=number(risk["max_gross"],0,1)+1e-9 and
             all(w<=number(risk["max_security_weight"],0,1)+1e-9 for w in weights.values()),"A5_RISK_CEILING")
-    old={};comparison="GENESIS"
-    if previous is not None:
+    old={};old_cash=1.0;comparison="GENESIS"
+    if stock:
+        require(previous is None,"A5_STOCK_COMPARISON_REQUIRES_VERIFIED_MODEL_NOT_PREVIOUS_PROPOSAL")
+        review=result.get("a3_reference_coverage",{}).get("current_review",{})
+        native_context=result.get("proposal_context",{})
+        require(review.get("status")=="CURRENT_REFERENCE_REVIEW_VERIFIED","A5_CURRENT_A3_A6_NOT_VERIFIED")
+        if native_context.get("book_kind")=="MODEL":
+            verified=review.get("model_incumbents") or review.get("model_parent_lineage")
+            require(type(verified) is dict and verified.get("status") in
+                {"CURRENT_MODEL_ALLOCATION_VERIFIED","PARENT_LINEAGE_ONLY_VERIFIED"} and
+                native_context.get("comparison_weights")=="ADMITTED_MODEL_ALLOCATION_ONLY" and
+                native_context.get("actual_holdings_claimed") is False and
+                native_context.get("execution_or_performance_claimed") is False,"A5_MODEL_COMPARISON_NOT_VERIFIED")
+            old=proposal.get("carried_position_weights")
+            old_cash=number(native_context.get("cash_weight"),0,1)
+            require(type(old) is dict and old==verified["current_weights"] and
+                    old_cash==verified["cash_weight"] and
+                    math.isclose(sum(number(w,0,1) for w in old.values())+old_cash,1,abs_tol=1e-9),
+                    "A5_MODEL_COMPARISON_WEIGHTS_OR_CASH")
+            comparison=verified["allocation_relation"]
+        else:
+            require(native_context.get("book_kind") is None and review.get("model_state_kind")=="GENESIS",
+                    "A5_EXPLICIT_GENESIS_OR_VERIFIED_MODEL_REQUIRED")
+    elif previous is not None:
         require(previous.get("schema")==SCHEMA and previous.get("status")=="RESEARCH_PROPOSAL" and
                 previous.get("proposal_sha256")==digest({k:v for k,v in previous.items() if k!="proposal_sha256"}),
                 "A5_PREVIOUS_PROPOSAL_HASH")
@@ -70,6 +95,7 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
         for value in old.values():number(value,0,1)
         require(math.isclose(sum(old.values())+number(previous["cash"],0,1),1,abs_tol=1e-9),"A5_PREVIOUS_WEIGHT_SUM")
         comparison="PREVIOUS_MODEL_PROPOSAL"
+        old_cash=previous["cash"]
     rows={r["asset_id"]:r for r in result["multi_asset_leadership_latest"]}
     require(set(weights)<=set(rows),"A5_UNEXPLAINED_WEIGHT")
     originals={r["asset_id"]:r for r in result.get("a3_model_input_candidates",[])}
@@ -86,32 +112,57 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
             expected_return_12m=row.get("expected_return_12m"),expected_alpha_12m=row.get("expected_alpha_12m"),
             cost_assumptions=original.get("cost_assumptions"),net_of_costs=original.get("net_of_costs"),
             model_id=original.get("model_id"),validation_sha256=original.get("validation_sha256")))
-    return seal(dict(schema=SCHEMA,status="RESEARCH_PROPOSAL",as_of=result["computed_at"],
+    explained=dict(schema=SCHEMA,status="RESEARCH_PROPOSAL",as_of=result["computed_at"],
         session=result["as_of"],proposed_weights=weights,cash=cash,changes=changes,comparison_basis=comparison,
-        cash_change=None if previous is None else cash-previous["cash"],
+        cash_change=cash-old_cash if stock or previous is not None else None,
         cash_reasons=["ONE_MINUS_NATIVE_SECURITY_WEIGHTS","REVIEWED_GROSS_AND_SECURITY_LIMITS","UNALLOCATED_NATIVE_COMPETITION_BUDGET"],
         reviewed_max_gross=risk["max_gross"],reviewed_max_security_weight=risk["max_security_weight"],
         a4_report_content_sha256=report["content_sha256"],a4_request_sha256=report["request_sha256"],
         macro_reason_evidence=dict(funding=report["funding"],liquidity=report["liquidity"],
             bank_credit=report["bank_credit"],horizon_outlook=report["horizon_outlook"]),
         native_result_sha256=result["result_sha256"],feature_sha256=result["feature_sha256"],
-        policy_sha256=result["policy_sha256"],a3_reference_coverage=result.get("a3_reference_coverage"),**SAFETY))
+        policy_sha256=result["policy_sha256"],a3_reference_coverage=result.get("a3_reference_coverage"),**SAFETY)
+    if stock:
+        explained.update(global_ranking_ready=result["global_ranking_ready"],ranking_scope=result["ranking_scope"],
+            stock_decision_scope=result["stock_research"]["decision_scope"],
+            full_roster_asset_ids=result["stock_research"]["full_roster_asset_ids"],
+            model_comparison_context=result.get("proposal_context"),comparison_allocation_only=True,
+            turnover_cost_scope="PLANNED_TARGET_CHANGE_NOT_REALIZED_TURNOVER_OR_NAV",
+            decision_clock=proposal.get("decision_clock"),intent=proposal.get("intent"),
+            exit_reviews=proposal.get("exit_reviews",[]),exception_reviews=proposal.get("exception_reviews",[]),
+            comparison_inputs_sha256=proposal.get("comparison_inputs_sha256"),comparisons=proposal.get("comparisons"))
+    return seal(explained)
 
 
 def build_model_proposal(payload, registry, policy, report, *, artifact_resolver=None,
                          review_root=None,code_sha=None,previous=None):
     cutoff=payload.get("as_of")
     try:
-        require(not payload.get("positions") and not payload.get("position_book_kind"),"A5_MODEL_ONLY_NO_ACCOUNT_BOOK")
+        stock=policy.get("stock_cash_research",{}).get("enabled") is True
+        if stock:
+            require(payload.get("position_book_kind") in {None,"MODEL"} and
+                    (payload.get("position_book_kind")=="MODEL" or not payload.get("positions")),
+                    "A5_MODEL_ONLY_NO_ACCOUNT_BOOK")
+        else:
+            require(not payload.get("positions") and not payload.get("position_book_kind"),"A5_MODEL_ONLY_NO_ACCOUNT_BOOK")
         require(payload.get("requested_security_ids") and payload.get("a3_reference_entries") is not None
                 and payload.get("current_a3_review") is not None,"A5_CURRENT_A3_GRAPH_REQUIRED")
         require(not payload.get("evaluations"),"A5_UNCOVERED_LEGACY_EVALUATIONS")
         _,assets=registry_rows(registry)
-        require(set(assets)-{policy["benchmark_id"]}==set(payload["requested_security_ids"]),
-                "A5_FULL_ALLOCATOR_COHORT_NEEDS_ORIGINAL_REFERENCES")
+        if not stock:
+            require(set(assets)-{policy["benchmark_id"]}==set(payload["requested_security_ids"]),
+                    "A5_FULL_ALLOCATOR_COHORT_NEEDS_ORIGINAL_REFERENCES")
         validate_report(report,payload,policy)
+        source_hashes=None
+        if stock:
+            from tools.run_multi_asset_leadership import verified_source_hashes
+            source_hashes=verified_source_hashes(code_sha)
         result=runtime.run(payload,registry,policy,artifact_resolver=artifact_resolver,
                            review_root=review_root,code_sha=code_sha)
+        if stock:
+            require(source_hashes==verified_source_hashes(code_sha),"A5_SOURCE_CHANGED_DURING_MODEL_REVIEW")
+            result.update(code_identity_verified=True,code_file_sha256=source_hashes)
+            result.pop("result_sha256",None);result["result_sha256"]=digest(result)
         coverage=result.get("a3_reference_coverage",{})
         require(coverage.get("held_count")==0 and coverage.get("current_review",{}).get("status")=="CURRENT_REFERENCE_REVIEW_VERIFIED",
                 "A5_CURRENT_A3_A6_NOT_VERIFIED")

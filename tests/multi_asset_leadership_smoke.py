@@ -16,11 +16,11 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_json,metadata,registry_rows
+from research.multi_asset_v1.contracts import ContractError,digest,encoded,load_json,metadata,registry_rows,stamp
 from research.multi_asset_v1.prices import grid,admit_prices
 from research.multi_asset_v1.runtime import run,feature_identity,feature_availability
 from research.multi_asset_v1.decisions import classify,evaluation,event_memory,lookthrough,propose
-from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes
+from tools.run_multi_asset_leadership import parse_chart,publish,read_latest,configuration_bytes,verified_source_hashes,prepare_model_snapshot
 from research.multi_asset_v1.sources import candles,capture_spot_metrics,crypto_chart
 
 CUTOFF="2026-09-19T10:00:00+00:00"
@@ -415,6 +415,24 @@ class Decisions(unittest.TestCase):
         self.policy["reviewed_pins"]["positions"].append(digest(receipt));self.p["position_receipt"]=receipt
         with self.assertRaisesRegex(ContractError,"future_or_conflicting_time"):run(self.p,self.r,self.policy)
 
+    def test_model_label_or_account_pin_does_not_admit_model_incumbents(self):
+        original=copy.deepcopy(self.p)
+        for book_kind in ("PAPER","ACTUAL_BROKER","APPROVED_TARGET","MODEL"):
+            self.p=copy.deepcopy(original)
+            self.p["positions"]=[{"asset_id":"US:FTI","weight":.08}]
+            self.p["position_book_kind"]="MODEL"
+            receipt={**meta("CANONICAL_BOOK"),"as_of":list(SESSIONS)[-1],"book_kind":book_kind,
+                     "positions_sha256":digest(self.p["positions"])}
+            self.policy["reviewed_pins"]["positions"].append(digest(receipt))
+            self.p["position_receipt"]=receipt
+            with self.subTest(source=book_kind),self.assertRaisesRegex(ContractError,"^current_model_incumbents_required$"):
+                run(self.p,self.r,self.policy)
+
+    def test_unknown_empty_model_is_not_genesis_or_actual_empty(self):
+        self.p.update(position_book_kind="MODEL",positions=[],cash_weight=1.0)
+        with self.assertRaisesRegex(ContractError,"^current_model_incumbents_required$"):
+            run(self.p,self.r,self.policy)
+
     def test_held_negative_thesis_or_bad_valuation_never_adds(self):
         riskrow=risk(self.p,self.r,self.policy);assets={a["asset_id"]:a for a in self.r["assets"]}
         row=dict(asset_id="US:FTI",portfolio_status="HOLD",thesis_status="POSITIVE",valuation_acceptable=True,expected_alpha_12m=.3,liquidity_pass=True,RS20_change_5d=.1,RS60_change_5d=.1,RS120=.1,RS240=.1,signal_confidence=.8,thesis_confidence=.8,expected_drawdown=.2,daily_log_returns=[math.sin(i) for i in range(60)])
@@ -593,6 +611,83 @@ class ExposureAndPublication(unittest.TestCase):
             self.assertEqual((out/"last_success.json").read_bytes(),saved)
             self.assertEqual((out/"attempts/one/result.json").read_bytes(),result)
             with self.assertRaises(ContractError):read_latest(out)
+
+    def test_model_publication_opt_in_does_not_promote_legacy_or_missing_model(self):
+        p,r,policy=reviewed(*fixture());risk(p,r,policy)
+        with tempfile.TemporaryDirectory() as temp, patch(
+                'tools.run_multi_asset_leadership.verified_source_hashes',return_value={'synthetic-code':'a'*64}):
+            out=Path(temp)
+            publish(p,r,policy,out,'normal-proposal',CODE_SHA)
+            original=(out/'attempts/normal-proposal/receipt.json').read_bytes()
+            self.assertNotIn('model_allocation_ref',load_json(original))
+            with self.assertRaisesRegex(ContractError,'model_publication_current_research_blocked'):
+                publish(p,r,policy,out,'not-model',CODE_SHA,
+                    model_publication=dict(candidate_receipt={},owner_decision={}))
+            self.assertEqual((out/'attempts/normal-proposal/receipt.json').read_bytes(),original)
+            self.assertEqual(load_json((out/'latest_attempt.json').read_bytes())['status'],'BLOCKED')
+            with self.assertRaisesRegex(ContractError,'not_ready'):read_latest(out,consumed_at=CUTOFF)
+            unknown=copy.deepcopy(p)
+            unknown.update(position_book_kind='MODEL',model_identity={'model_id':'UNACCEPTED'})
+            with self.assertRaisesRegex(ContractError,'current_model_incumbents_required'):
+                publish(unknown,r,policy,out,'unknown-model',CODE_SHA,
+                    model_publication=dict(candidate_receipt={},owner_decision={}))
+            self.assertEqual((out/'attempts/normal-proposal/receipt.json').read_bytes(),original)
+
+    def test_model_physical_source_pair_rejects_unbacked_rehash_and_latest_swap(self):
+        from tools import run_multi_asset_leadership as publisher
+        from research.multi_asset_v1.contracts import stamp
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);expiry='2026-09-20T10:00:00+00:00'
+            observed='2026-09-19T10:00:03+00:00';cutoff=stamp('2026-09-19T10:01:00+00:00')
+            def put(name,value):
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True)
+                with path.open('xb') as handle:handle.write(encoded(value))
+                return dict(path=name,sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                    observed_at=observed,available_at=observed,collected_at=observed,expires_at=expiry,status='VERIFIED')
+            context=put('context.json',dict(decision_time=CUTOFF))
+            packet=dict(task_key='a'*64,identity=dict(code_sha=CODE_SHA),inputs=dict(portfolio_context=context))
+            result=dict(as_of=list(SESSIONS)[-1],computed_at=CUTOFF,global_ranking_ready=True,
+                code_identity_verified=True,code_sha=CODE_SHA,proposal=dict(status='RESEARCH_PROPOSAL'),
+                a3_reference_coverage=dict(current_review=dict(context_sha256=context['sha256'],task_keys=dict(A5='a'*64))))
+            result_ref=put('source/attempts/one/result.json',result)
+            receipt=dict(attempt_id='one',as_of=result['as_of'],global_ranking_ready=True,consumable=True,
+                         result_sha256=result_ref['sha256'])
+            receipt_ref=put('source/attempts/one/receipt.json',receipt)
+            (root/'source/latest_attempt.json').write_bytes(encoded(receipt))
+            candidate=dict(proposal_receipt=receipt_ref,proposal_result=result_ref,portfolio_context=context,
+                proposal_receipt_sha256=receipt_ref['sha256'],proposal_result_sha256=result_ref['sha256'],
+                publication_read_at=observed,publication_clock_scope='PREPARE_READ_OBSERVATION_NOT_ORIGINAL_COLLECTION_OR_PUBLICATION',
+                state=dict(expires_at=expiry))
+            selection=dict(proposal_receipt_sha256=receipt_ref['sha256'],selected_at='2026-09-19T10:00:02+00:00')
+            original=dict(available_at='2026-09-19T10:00:01+00:00')
+            def check(value,decision=selection,source_packet=packet):
+                read,_=publisher._model_originals(root,cutoff,cutoff)
+                return publisher._model_candidate_source(value,decision,read,source_packet,original,
+                    candidate_observed_at='2026-09-19T10:00:04+00:00')
+            self.assertEqual(len(check(candidate)),3)  # byte provenance only, no MODEL admission
+            absent=copy.deepcopy(candidate);absent.pop('proposal_result')
+            with self.assertRaisesRegex(ContractError,'model_source_refs_required'):check(absent)
+            missing=copy.deepcopy(candidate);missing['proposal_result']['path']='missing.json'
+            with self.assertRaises(OSError):check(missing)
+            changed=copy.deepcopy(result);changed['code_sha']='b'*40
+            replaced=copy.deepcopy(candidate);replaced['proposal_result']=put('rehashed_result.json',changed)
+            replaced['proposal_result_sha256']=replaced['proposal_result']['sha256']
+            with self.assertRaisesRegex(ContractError,'model_original_publication_pair'):check(replaced)
+            forged=copy.deepcopy(candidate);forged['proposal_receipt_sha256']='f'*64
+            forged_owner={**selection,'proposal_receipt_sha256':'f'*64}
+            with self.assertRaisesRegex(ContractError,'model_original_publication_pair'):check(forged,forged_owner)
+            wrong_packet=copy.deepcopy(packet);wrong_packet['task_key']='b'*64
+            with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):check(candidate,source_packet=wrong_packet)
+            alias=copy.deepcopy(candidate);alias['portfolio_context']=put('alias_context.json',dict(decision_time=CUTOFF))
+            with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):check(alias)
+            def swap_latest(*args,**kwargs):
+                (root/'source/latest_attempt.json').write_bytes(encoded({**receipt,'attempt_id':'other'}))
+                return result
+            with patch.object(publisher,'read_latest',side_effect=swap_latest):
+                with self.assertRaisesRegex(ContractError,'model_original_publication_changed'):
+                    prepare_model_snapshot(root/'source',root/'candidate',proposal_receipt_sha256=receipt_ref['sha256'],
+                        owner_decision={},portfolio_context={},review_root=root,policy={},now=cutoff.isoformat())
+            self.assertFalse((root/'candidate').exists())
 
     def test_result_tampering_rejected(self):
         p,r,policy=reviewed(*fixture());risk(p,r,policy)
@@ -1048,7 +1143,32 @@ class A3OriginalInputs(unittest.TestCase):
     def execute(self):
         return run(self.p,self.r,self.policy,artifact_resolver=self.memory())
 
-    def current_review(self):
+    def stock_review_inputs(self):
+        """Exact synthetic full-base pin; the unreviewed member stays UNKNOWN."""
+        self.policy['stock_cash_research']['enabled']=True
+        self.p['base_equity_ids']=['US:FTI','US:UNMAPPED']
+        self.p['base_universe_receipt']['asset_ids']=sorted(self.p['base_equity_ids'])
+        self.policy['reviewed_pins']['base_universe'].append(digest(self.p['base_universe_receipt']))
+        self.original['feature_sha256']=feature_identity(self.p,self.r)
+        self.original['cost_assumptions']['commission_bps']=25
+        self.original['portfolio_cost_basis']=dict(schema='reviewed-portfolio-cost-basis-v1',
+            horizon='12_CALENDAR_MONTHS',kind='NET_REFERENCE_ROUND_TRIP',
+            cost_assumptions_sha256=digest(self.original['cost_assumptions']),evidence_sha256='c'*64,
+            reference_cost_bps_per_side=25,embedded_cost_fraction=.005,
+            embedded_transaction_cost_fraction=.005,embedded_ongoing_cost_fraction=0,
+            gross_expected_return=self.original['expected_return_12m']+.005)
+        self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+        raw=b'DATE,DGS3MO\n2026-09-17,3.0\n';sha=hashlib.sha256(raw).hexdigest()
+        self.refs.raw[('CASH:SOURCE',sha)]=raw
+        rr=self.p['risk'];rr.update(feature_sha256=feature_identity(self.p,self.r),max_security_weight=.2)
+        rr['stock_cash_allocation']=dict(horizon='12_CALENDAR_MONTHS',events_sha256=digest([]),
+            decision_asset_ids=['US:FTI'],evaluation_sha256_by_asset={'US:FTI':digest(self.original)},
+            cash_carry=dict(**{**meta('FRED_ARCHIVE'),'raw_sha256':sha},metric='dgs3mo',unit='FRACTION',
+                value=.03,observation_date='2026-09-17',original_ref=dict(artifact_id='CASH:SOURCE',sha256=sha,bytes=len(raw))),
+            exception_reviews=[],exit_reviews=[])
+        self.policy['reviewed_pins']['risk'].append(digest(rr))
+
+    def current_review(self, prefix=None, *, stock=False):
         from tests.control_plane_agent_contract_smoke import ControlPlaneTests
         # Actual original evidence exists at 10:00; selection/review happens
         # afterwards, before this later decision. Never backdate QA clocks.
@@ -1058,8 +1178,10 @@ class A3OriginalInputs(unittest.TestCase):
         self.original['issuer_id']='CIK:1'
         self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
         self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+        if stock:self.stock_review_inputs()
         self.reseal()
         case=ControlPlaneTests('runTest');case.setUp();self.addCleanup(case.doCleanups)
+        if prefix is not None: case._artifact_prefix=prefix
         binding,graph,principals=case.current_review_case(self)
         self.p['current_a3_review']=binding
         self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
@@ -1068,6 +1190,298 @@ class A3OriginalInputs(unittest.TestCase):
             feature_sha256=feature_identity(self.p,self.r),risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,
             available_at=case.at(-5.25),expires_at=case.at(30),principals=principals)
         return case,graph
+
+    def test_model_snapshot_publisher_replays_owner_post_qa_and_current_admission(self):
+        from tools import run_agent_board as board
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        case,_=self.current_review(prefix='publisher_origin',stock=True)
+        source_binding=copy.deepcopy(self.p['current_a3_review'])
+        packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A5'))
+        aid=self.p['requested_security_ids'][0]
+        original_target=dict(status='PROPOSAL_ONLY',proposed_weights={aid:.2},
+                             orders_generated=False,accepted_target_written=False)
+        origin=copy.deepcopy(case.complete('A5',{'target_proposal':original_target}))
+        selected=board.timestamp(origin['available_at'])+timedelta(seconds=1)
+        prepared_at=case.now.isoformat()
+        expiry=case.at(30)
+        def put(name,value,at):
+            path=case.root/'publisher_proof'/(name+'.json');path.parent.mkdir(parents=True,exist_ok=True)
+            with path.open('xb') as handle: handle.write(encoded(value))
+            return dict(path=path.relative_to(case.root).as_posix(),sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                observed_at=at,available_at=at,collected_at=at,expires_at=expiry,status='VERIFIED')
+        packet_ref=put('a5_packet',packet,origin['available_at'])
+        receipt_ref=put('a5_receipt',origin,origin['available_at'])
+        identity=dict(model_id='SYNTHETIC:PUBLISHER',model_version='fixture-v1',model_code_sha=CODE_SHA,
+            model_config_sha256='1'*64,model_recipe_sha256='2'*64,data_identity_sha256='3'*64,
+            cost_context_sha256='4'*64)
+        source_out=case.root/'proposal_source';candidate_out=case.root/'model_candidates'
+        # Isolate only publisher Git-source attestation for this dirty synthetic
+        # fixture. Current A3/ER/A4, original completion and MODEL QA verifiers
+        # all execute their real implementations; no Source authority is claimed.
+        synthetic_code={'synthetic-fixture-source': 'a'*64}
+        with patch('tools.run_multi_asset_leadership.verified_source_hashes',return_value=synthetic_code):
+            initial=publish(self.p,self.r,self.policy,source_out,'original',CODE_SHA,
+                    artifact_resolver=self.memory(),review_root=case.root)
+            self.assertFalse(read_latest(source_out,consumed_at=prepared_at)['global_ranking_ready'])
+            self.assertEqual(initial['proposal']['intent'],'NO_ENTRY_HOLD_CASH')
+            self.assertEqual(initial['proposal']['cash'],1.0)
+            self.assertEqual(initial['proposal']['proposed_weights'],{})
+            self.assertTrue(any(r['asset_id']=='US:UNMAPPED' and r['expected_return_12m'] is None
+                for r in initial['multi_asset_leadership_latest']))
+            selected=max(board.timestamp(origin['available_at']),board.timestamp(self.p['as_of']))+timedelta(seconds=1)
+            source_hash=hashlib.sha256((source_out/'latest_attempt.json').read_bytes()).hexdigest()
+            selection=dict(schema_version='model-allocation-selection-v1',change_kind='SELECT_ALLOCATION',
+                owner_principal='OWNER:FIXTURE',selected_at=selected.isoformat(),expires_at=expiry,
+                reason='Explicit comparison allocation .15; preserve original .20 proposal',
+                proposal_receipt_sha256=source_hash,a5_packet=packet_ref,a5_receipt=receipt_ref,
+                model_identity=identity,positions=[dict(asset_id=aid,weight=.15)],cash_weight=.85)
+            # A second genuinely completed MODEL A5 is not the A5 named by
+            # this immutable publication. Reuse the same evidence base while
+            # issuing a different task identity; do not forge a failing receipt.
+            request_a5=next(r for r in case.state['requests'] if r['agent']=='A5')
+            saved_parameters=copy.deepcopy(request_a5['parameters'])
+            saved_completed=copy.deepcopy(case.state['completed_tasks'])
+            saved_prefix=case._artifact_prefix
+            try:
+                request_a5['parameters']['synthetic_unrelated_task']=True
+                case.state['completed_tasks']=[r for r in case.state['completed_tasks'] if r['agent']!='A5']
+                case._artifact_prefix='publisher_unrelated'
+                alternate_packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A5'))
+                alternate_receipt=copy.deepcopy(case.complete('A5',{'target_proposal':original_target}))
+                alternate=copy.deepcopy(selection)
+                alternate['a5_packet']=put('unrelated_packet',alternate_packet,alternate_receipt['available_at'])
+                alternate['a5_receipt']=put('unrelated_receipt',alternate_receipt,alternate_receipt['available_at'])
+                from tools import run_multi_asset_leadership as publisher
+                read,_=publisher._model_originals(case.root,board.timestamp(prepared_at),board.timestamp(prepared_at))
+                replayed,_,_=publisher._model_origin(alternate,read,board.timestamp(prepared_at))
+                self.assertEqual(replayed['task_key'],alternate_packet['task_key'])
+                self.assertNotEqual(replayed['task_key'],packet['task_key'])
+                alternate_ref=put('unrelated_owner',alternate,selected.isoformat())
+                with self.assertRaisesRegex(ContractError,'model_published_a5_origin_mismatch'):
+                    prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                        owner_decision=alternate_ref,portfolio_context=source_binding['portfolio_context'],
+                        review_root=case.root,policy=self.policy,now=prepared_at)
+                self.assertFalse(candidate_out.exists())
+            finally:
+                request_a5['parameters']=saved_parameters
+                case.state['completed_tasks']=saved_completed
+                case._artifact_prefix=saved_prefix
+            owner_ref=put('owner_selection',selection,selected.isoformat())
+            candidate=prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                review_root=case.root,policy=self.policy,now=prepared_at)
+            candidate_path=candidate_out/'attempts'/candidate['attempt_id']/'receipt.json'
+            saved=candidate_path.read_bytes()
+            repeated=prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                review_root=case.root,policy=self.policy,now=prepared_at)
+            self.assertEqual(repeated,candidate);self.assertEqual(candidate_path.read_bytes(),saved)
+            self.assertFalse(candidate['consumable']);self.assertFalse(candidate['model_acceptance_issued'])
+            state_bytes=(case.root/candidate['state']['path']).read_bytes()
+            original_origin=publisher._model_origin
+            latest_bytes=(source_out/'latest_attempt.json').read_bytes()
+            def block_after_real_origin(*args,**kwargs):
+                replay=original_origin(*args,**kwargs)
+                (source_out/'latest_attempt.json').write_bytes(encoded(dict(status='BLOCKED',attempt_id='later')))
+                return replay
+            try:
+                with patch.object(publisher,'_model_origin',side_effect=block_after_real_origin):
+                    with self.assertRaisesRegex(ContractError,'model_original_publication_changed'):
+                        prepare_model_snapshot(source_out,candidate_out,proposal_receipt_sha256=source_hash,
+                            owner_decision=owner_ref,portfolio_context=source_binding['portfolio_context'],
+                            review_root=case.root,policy=self.policy,now=prepared_at)
+                self.assertEqual(candidate_path.read_bytes(),saved)
+                self.assertEqual((case.root/candidate['state']['path']).read_bytes(),state_bytes)
+            finally:
+                # Restore only this isolated synthetic fixture's exact saved
+                # bytes for subsequent cases, never a production latest status.
+                (source_out/'latest_attempt.json').write_bytes(latest_bytes)
+            candidate_ref=dict(path=candidate_path.relative_to(case.root).as_posix(),
+                sha256=hashlib.sha256(saved).hexdigest(),observed_at=prepared_at,available_at=prepared_at,
+                collected_at=prepared_at,expires_at=expiry,status='VERIFIED')
+            state=load_json((case.root/candidate['state']['path']).read_bytes())
+            self.assertEqual(state['positions'],[dict(asset_id=aid,weight=.15)])
+            self.assertEqual(board.read_json(case.root/origin['outputs']['target_proposal']['path']),original_target)
+            covered=dict(state=candidate['state'],target=origin['outputs']['target_proposal'],
+                a5_packet=packet_ref,a5_receipt=receipt_ref,owner_decision=owner_ref,candidate_receipt=candidate_ref)
+            covered.update(proposal_receipt=candidate['proposal_receipt'],proposal_result=candidate['proposal_result'])
+            covered.update({'input:'+k:v for k,v in packet['inputs'].items()})
+            inventory=copy.deepcopy(board.read_json(case.root/source_binding['portfolio_context']['path'])['artifact_inventory'])
+            for key,ref in covered.items(): inventory['MODEL:publication:'+key]=ref
+            for agent,dep in packet['dependency_outputs'].items():
+                for role,ref in dep['outputs'].items(): inventory['MODEL:dependency:'+agent+':'+role]=ref
+            case.now+=timedelta(minutes=10)
+            case.state['as_of'],case.state['expires_at']=case.at(-5),case.at(40)
+            bundle_ref=put('post_bundle',dict(schema_version='qa-review-bundle-v2',artifacts=covered),prepared_at)
+            qa=next(r for r in case.state['requests'] if r['agent']=='A6');qa['inputs']['review_bundle']=bundle_ref
+            case.state['completed_tasks']=[r for r in case.state['completed_tasks'] if r['agent']!='A6']
+            post_packet=copy.deepcopy(next(p for p in case.tasks() if p['agent']=='A6'))
+            case._artifact_prefix='publisher_post_qa'
+            post_receipt=copy.deepcopy(case.complete('A6'))
+            post_at=board.timestamp(post_receipt['available_at'])+timedelta(seconds=1)
+            post_packet_ref=put('a6_packet',post_packet,post_at.isoformat())
+            post_receipt_ref=put('a6_receipt',post_receipt,post_at.isoformat())
+            for role,ref in post_receipt['outputs'].items(): inventory['MODEL:post:'+role]=ref
+            inventory.update({'MODEL:bundle':bundle_ref,'MODEL:a6_packet':post_packet_ref,'MODEL:a6_receipt':post_receipt_ref})
+            accepted=dict(schema_version='model-incumbents-acceptance-v1',book_kind='MODEL',
+                state_role='ADMITTED_MODEL_ALLOCATION',current=True,model_identity=identity,as_of=state['as_of'],
+                decision_time=state['decision_time'],expires_at=candidate['state']['expires_at'],
+                positions=state['positions'],cash_weight=state['cash_weight'],positions_sha256=digest(state['positions']),
+                producer_code_sha=packet['identity']['code_sha'],producer_config_hash=packet['identity']['config_hash'],
+                principals=dict(A5='PRODUCER:MODEL',A6='REVIEWER:INDEPENDENT'),
+                proofs=dict(state=candidate['state'],a5_packet=packet_ref,a5_receipt=receipt_ref,
+                    a6_packet=post_packet_ref,a6_receipt=post_receipt_ref),
+                observed_at=(post_at+timedelta(seconds=1)).isoformat(),available_at=(post_at+timedelta(seconds=2)).isoformat(),
+                collected_at=(post_at+timedelta(seconds=3)).isoformat(),source='CANONICAL_BOOK',
+                data_quality='OBSERVED',evidence_kind='FORWARD_CAPTURE',raw_sha256=candidate['state']['sha256'])
+            accepted_ref=put('external_acceptance',accepted,(post_at+timedelta(seconds=4)).isoformat())
+            inventory['MODEL:acceptance']=accepted_ref
+            model_context=copy.deepcopy(board.read_json(case.root/source_binding['portfolio_context']['path']))
+            model_context.update(artifact_inventory=inventory,
+                model_state=dict(kind='INCUMBENTS',artifact=accepted_ref,model_identity=identity))
+            self.p['as_of']='2026-09-19T10:30:00+00:00'
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+            self.original['issuer_id']='CIK:1';self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI'];self.reseal()
+            self.stock_review_inputs();self.reseal()
+            self.policy.pop('current_a3_review_profile',None)
+            self.policy['reviewed_pins']['positions']=[digest(accepted)]  # External fixture OWNER, not publisher code.
+            current=ControlPlaneTests('runTest');current.setUp();self.addCleanup(current.doCleanups)
+            binding,_,principals=current.current_review_case(self,model_binding=(model_context,case.root),model_policy=self.policy)
+            self.p.update(current_a3_review=binding,position_book_kind='MODEL',model_identity=identity)
+            self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+                purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
+                graph_sha256=binding['review_graph']['sha256'],binding_sha256=digest(binding),
+                policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+                risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=current.at(-5.25),
+                expires_at=min(current.at(30),binding['review_graph']['expires_at']),principals=principals)
+            request=dict(candidate_receipt=candidate_ref,owner_decision=owner_ref)
+            out=current.root/'published'
+            source_packet=copy.deepcopy(next(p for p in current.tasks() if p['agent']=='A5'))
+            current._artifact_prefix='publisher_no_change_source'
+            source_receipt=copy.deepcopy(current.complete('A5',{'target_proposal':original_target}))
+            current_source_refs={}
+            for role,value in (('a5_packet',source_packet),('a5_receipt',source_receipt)):
+                ref=current.artifact('current_'+role);current.set_payload(ref,value)
+                ref['observed_at']=ref['available_at']=ref['collected_at']=source_receipt['available_at']
+                current_source_refs[role]=ref
+            result=publish(self.p,self.r,self.policy,out,'accepted-once',CODE_SHA,
+                artifact_resolver=self.memory(),review_root=current.root,model_publication=request)
+            receipt=load_json((out/'attempts/accepted-once/receipt.json').read_bytes())
+            self.assertEqual(receipt['model_allocation_ref']['artifact'],accepted_ref)
+            self.assertEqual(result['model_allocation_publication']['model_identity'],identity)
+            self.assertFalse(receipt['model_allocation_ref']['accepted_model_state_written'])
+            self.assertEqual(read_latest(out,consumed_at=self.p['as_of'])['proposal_context']['book_kind'],'MODEL')
+            original_bytes=(out/'attempts/accepted-once/receipt.json').read_bytes()
+            # A NEW current A5 assessment may reaffirm the same allocation.
+            # Its immutable parent and original QA are never restamped.
+            no_change=copy.deepcopy(selection)
+            no_change.update(change_kind='REAFFIRM_HOLD',proposal_receipt_sha256=hashlib.sha256(
+                (out/'latest_attempt.json').read_bytes()).hexdigest(),
+                selected_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=1)).isoformat(),**current_source_refs)
+            nc_path=current.root/'no_change_selection.json'
+            with nc_path.open('xb') as handle: handle.write(encoded(no_change))
+            nc_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=2)).isoformat()
+            nc_ref=dict(path=nc_path.relative_to(current.root).as_posix(),
+                sha256=hashlib.sha256(nc_path.read_bytes()).hexdigest(),observed_at=no_change['selected_at'],
+                available_at=no_change['selected_at'],collected_at=no_change['selected_at'],expires_at=expiry,status='VERIFIED')
+            nc=prepare_model_snapshot(out,current.root/'no_change',proposal_receipt_sha256=no_change['proposal_receipt_sha256'],
+                owner_decision=nc_ref,portfolio_context=binding['portfolio_context'],review_root=current.root,
+                policy=self.policy,now=nc_at)
+            self.assertEqual(nc['status'],'PENDING_MODEL_REVIEW');self.assertFalse(nc['consumable'])
+            held_state=board.read_json(current.root/nc['state']['path'])
+            self.assertEqual(held_state['assessment_kind'],'HOLD_REAFFIRMATION')
+            self.assertEqual(held_state['positions'],state['positions'])
+            self.assertEqual(held_state['cash_weight'],state['cash_weight'])
+            self.assertNotEqual(nc['state']['sha256'],candidate['state']['sha256'])
+            self.assertEqual(held_state['parent_state_sha256'],candidate['state']['sha256'])
+            self.assertEqual(held_state['parent_acceptance_sha256'],accepted_ref['sha256'])
+            same=prepare_model_snapshot(out,current.root/'no_change',
+                proposal_receipt_sha256=no_change['proposal_receipt_sha256'],owner_decision=nc_ref,
+                portfolio_context=binding['portfolio_context'],review_root=current.root,policy=self.policy,now=nc_at)
+            self.assertEqual(same,nc)
+            self.assertEqual((case.root/candidate['state']['path']).read_bytes(),state_bytes)
+            with self.assertRaisesRegex(ContractError,'model_publication_fields'):
+                publish(self.p,self.r,self.policy,out,'forged',CODE_SHA,artifact_resolver=self.memory(),
+                    review_root=current.root,model_publication={**request,'approved':True})
+            self.assertEqual((out/'attempts/accepted-once/receipt.json').read_bytes(),original_bytes)
+            # A later assessment can use an EXPIRED, explicitly authenticated
+            # last parent as lineage. Its fresh Source/A3/A4/pre-QA are genuinely
+            # rebuilt; the old QA/ER is not made current by a new read timestamp.
+            from tools.run_multi_asset_leadership import prepare_model_parent_read_observation
+            old_acceptance_bytes=(current.root/accepted_ref['path']).read_bytes()
+            self.p['as_of']='2026-09-19T11:10:00+00:00'
+            self.policy.pop('current_a3_review_profile')
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']==aid)
+            self.original['issuer_id']='CIK:1'
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!=aid]
+            self.stock_review_inputs()
+            # Verified MODEL-only positive weight remains reviewable after it
+            # leaves the base. Membership alone never creates a SELL.
+            self.p['base_equity_ids']=['US:UNMAPPED']
+            self.p['base_universe_receipt']['asset_ids']=['US:UNMAPPED']
+            self.policy['reviewed_pins']['base_universe'].append(digest(self.p['base_universe_receipt']))
+            self.original['feature_sha256']=feature_identity(self.p,self.r)
+            self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['risk']['feature_sha256']=feature_identity(self.p,self.r)
+            self.p['risk']['stock_cash_allocation']['evaluation_sha256_by_asset']={aid:digest(self.original)}
+            self.policy['reviewed_pins']['risk'].append(digest(self.p['risk']));self.reseal()
+            parent_expiry='2026-09-19T12:00:00+00:00'
+            self.policy['model_lineage_parent']=dict(schema='model-lineage-parent-policy-v1',
+                purpose='PARENT_LINEAGE_ONLY',acceptance=accepted_ref,accepted_at=accepted_ref['collected_at'],
+                state_sha256=candidate['state']['sha256'],model_identity_sha256=digest(identity),
+                available_at='2026-09-19T11:00:00+00:00',expires_at=parent_expiry)
+            parent_context=copy.deepcopy(model_context)
+            for ref in parent_context['artifact_inventory'].values():
+                ref.update(observed_at='2026-09-19T11:00:00+00:00',available_at='2026-09-19T11:00:00+00:00',
+                    collected_at='2026-09-19T11:00:00+00:00',expires_at=parent_expiry)
+            observed=prepare_model_parent_read_observation(self.policy,current.root,now='2026-09-19T11:00:00+00:00')
+            parent_context['model_state'].update(kind='PARENT_LINEAGE_ONLY',artifact=observed['artifact'])
+            for key,ref in parent_context['artifact_inventory'].items():
+                if ref['path']==accepted_ref['path']:parent_context['artifact_inventory'][key]=observed['artifact']
+            later=ControlPlaneTests('runTest');later.setUp();self.addCleanup(later.doCleanups)
+            later_binding,_,later_principals=later.current_review_case(self,
+                model_binding=(parent_context,current.root),model_policy=self.policy)
+            self.p['current_a3_review']=later_binding
+            self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+                purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=later_binding['portfolio_context']['sha256'],
+                graph_sha256=later_binding['review_graph']['sha256'],binding_sha256=digest(later_binding),
+                policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+                risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=later.at(-5.25),
+                expires_at=min(later.at(30),later_binding['review_graph']['expires_at']),principals=later_principals)
+            latest_packet=copy.deepcopy(next(p for p in later.tasks() if p['agent']=='A5'))
+            later._artifact_prefix='new_hold_source'
+            latest_receipt=copy.deepcopy(later.complete('A5',{'target_proposal':original_target}))
+            latest_refs={}
+            for role,value in (('a5_packet',latest_packet),('a5_receipt',latest_receipt)):
+                ref=later.artifact('current_'+role);later.set_payload(ref,value)
+                ref['observed_at']=ref['available_at']=ref['collected_at']=latest_receipt['available_at']
+                latest_refs[role]=ref
+            later_out=later.root/'new_proposal'
+            later_result=publish(self.p,self.r,self.policy,later_out,'fresh-hold',CODE_SHA,
+                artifact_resolver=self.memory(),review_root=later.root)
+            self.assertEqual(later_result['proposal']['proposed_weights'].get(aid),.15)
+            self.assertFalse(later_result['global_ranking_ready'])
+            selected_at=(board.timestamp(self.p['as_of'])+timedelta(seconds=1)).isoformat()
+            new_owner={**no_change,**latest_refs,'selected_at':selected_at,'expires_at':parent_expiry,
+                'proposal_receipt_sha256':hashlib.sha256((later_out/'latest_attempt.json').read_bytes()).hexdigest()}
+            owner_path=later.root/'fresh_hold_owner.json';owner_path.write_bytes(encoded(new_owner))
+            new_owner_ref=dict(path=owner_path.name,sha256=hashlib.sha256(owner_path.read_bytes()).hexdigest(),
+                observed_at=selected_at,available_at=selected_at,collected_at=selected_at,
+                expires_at=parent_expiry,status='VERIFIED')
+            fresh=prepare_model_snapshot(later_out,later.root/'fresh_hold',
+                proposal_receipt_sha256=new_owner['proposal_receipt_sha256'],owner_decision=new_owner_ref,
+                portfolio_context=later_binding['portfolio_context'],review_root=later.root,policy=self.policy,
+                now=(board.timestamp(selected_at)+timedelta(seconds=1)).isoformat())
+            fresh_state=board.read_json(later.root/fresh['state']['path'])
+            self.assertEqual(fresh_state['assessment_kind'],'HOLD_REAFFIRMATION')
+            self.assertGreater(stamp(fresh['state']['expires_at']),stamp(accepted['expires_at']))
+            self.assertEqual(fresh_state['parent_acceptance_sha256'],accepted_ref['sha256'])
+            self.assertEqual((current.root/accepted_ref['path']).read_bytes(),old_acceptance_bytes)
+            self.assertFalse(fresh['model_acceptance_issued']);self.assertFalse(fresh['consumable'])
+            self.assertFalse(result['accepted_target_written']);self.assertFalse(result['orders_generated'])
 
     def test_current_review_original_graph_can_conditionally_admit_without_registry_promotion(self):
         case,_=self.current_review()
@@ -1080,6 +1494,57 @@ class A3OriginalInputs(unittest.TestCase):
         self.assertFalse(coverage['source_admission_granted'])
         self.assertFalse(result['accepted_target_written'])
         self.assertFalse(result['orders_generated'])
+
+    def test_current_model_allocation_replays_real_verifiers_into_existing_propose(self):
+        from tests.control_plane_agent_contract_smoke import ControlPlaneTests
+        def refresh(cutoff):
+            self.p['as_of']=cutoff
+            reviewed(self.p,self.r,self.policy);risk(self.p,self.r,self.policy)
+            self.original=next(e for e in self.p['evaluations'] if e['asset_id']=='US:FTI')
+            self.original['issuer_id']='CIK:1'
+            self.policy['reviewed_pins']['evaluation'].append(digest(self.original))
+            self.p['evaluations']=[e for e in self.p['evaluations'] if e['asset_id']!='US:FTI']
+            self.stock_review_inputs();self.reseal()
+        refresh('2026-09-19T10:10:00+00:00')
+        origin=ControlPlaneTests('runTest');origin.setUp();self.addCleanup(origin.doCleanups)
+        model_context,model_policy,acceptance,aid=origin.model_incumbents_case(self)
+        model_context,model_policy,_=origin.model_cash_variant(model_context,model_policy,acceptance)
+        self.policy['reviewed_pins']['positions']=model_policy['reviewed_pins']['positions']
+        refresh('2026-09-19T10:20:00+00:00')
+        case=ControlPlaneTests('runTest');case.setUp();self.addCleanup(case.doCleanups)
+        binding,_,principals=case.current_review_case(self,
+            model_binding=(model_context,origin.root),model_policy=self.policy)
+        self.p.update(current_a3_review=binding,position_book_kind='MODEL',
+            model_identity=copy.deepcopy(model_context['model_state']['model_identity']))
+        self.policy['current_a3_review_profile']=dict(schema='current-a3-review-profile-v1',
+            purpose='CURRENT_RESEARCH_FORWARD_ONLY',context_sha256=binding['portfolio_context']['sha256'],
+            graph_sha256=binding['review_graph']['sha256'],binding_sha256=digest(binding),
+            policy_base_sha256=digest(self.policy),feature_sha256=feature_identity(self.p,self.r),
+            risk_sha256=digest(self.p['risk']),code_sha=CODE_SHA,available_at=case.at(-5.25),
+            expires_at=min(case.at(30),binding['review_graph']['expires_at']),principals=principals)
+        # Observe the incumbent, unchanged allocator; do not replace its policy
+        # or mock any review/admission/completion verifier.
+        with patch('research.multi_asset_v1.runtime.propose',wraps=propose) as allocator:
+            result=run(self.p,self.r,self.policy,artifact_resolver=self.memory(),
+                       review_root=case.root,code_sha=CODE_SHA)
+        self.assertTrue(allocator.called,result.get('a3_reference_coverage'))
+        self.assertEqual(allocator.call_args.args[-1],{})  # admitted all-cash, not unknown/GENESIS
+        self.assertNotEqual(result['proposal']['status'],'BLOCKED',result['proposal'])
+        self.assertEqual(result['proposal_context']['mode'],'MODEL')
+        self.assertEqual(result['proposal_context']['book_kind'],'MODEL')
+        self.assertEqual(result['proposal_context']['cash_weight'],1.0)
+        self.assertEqual(result['proposal']['intent'],'NO_ENTRY_HOLD_CASH')
+        self.assertEqual(result['proposal']['cash'],1.0)
+        self.assertEqual(result['portfolio_exposure']['cash_weight'],1.0)
+        self.assertFalse(result['proposal_context']['actual_holdings_claimed'])
+        self.assertFalse(result['proposal_context']['execution_or_performance_claimed'])
+        self.assertFalse(result['accepted_target_written'])
+        self.assertFalse(result['orders_generated'])
+        # An absent/unusable original ER is UNKNOWN, never an all-cash decision.
+        bad=copy.deepcopy(self.p);bad['a3_reference_entries']=[]
+        blocked=run(bad,self.r,self.policy,artifact_resolver=self.memory(),review_root=case.root,code_sha=CODE_SHA)
+        self.assertEqual(blocked['proposal']['status'],'BLOCKED')
+        self.assertIsNone(blocked['proposal']['proposed_weights'])
 
     def test_current_review_missing_self_review_or_changed_policy_never_admits(self):
         case,_=self.current_review()
@@ -1242,6 +1707,623 @@ class A3OriginalInputs(unittest.TestCase):
             self.assertEqual(failed.returncode,2)
             self.assertEqual(load_json((out/'result/latest_attempt.json').read_bytes())['status'],'BLOCKED')
             self.assertEqual((out/'result/last_success.json').read_bytes(),prior)
+
+
+class StockCashResearch(unittest.TestCase):
+    """Existing registered suite; synthetic evidence never issues admission."""
+
+    def inputs(self):
+        p,r,policy=fixture()
+        # The legacy fixture makes SPY the fastest series. Construct a genuine
+        # positive ENTRY case from prices, not by overriding computed RS flags.
+        index={session:i for i,session in enumerate(SESSIONS)}
+        order={a["asset_id"]:i for i,a in enumerate(r["assets"],1)}
+        for price in p["prices"]:
+            t=index[price["session"]]
+            growth=.0002*t+.00005*math.sin(t*.13) if price["asset_id"]=="US:SPY" else (
+                .0004*t+.000008*order[price["asset_id"]]*t*t+.0001*math.sin(t*.17+order[price["asset_id"]]))
+            price["price"]=price["total_return_index"]=100*math.exp(growth)
+        reviewed(p,r,policy)
+        policy["stock_cash_research"]["enabled"]=True
+        policy["stock_cash_research"]["allocator"]="COST_AWARE_LONG_ONLY"
+        for e in p["evaluations"]:
+            e["cost_assumptions"]["commission_bps"]=25
+            e["portfolio_cost_basis"]=dict(schema="reviewed-portfolio-cost-basis-v1",
+                horizon="12_CALENDAR_MONTHS",kind="NET_REFERENCE_ROUND_TRIP",
+                cost_assumptions_sha256=digest(e["cost_assumptions"]),evidence_sha256="c"*64,
+                reference_cost_bps_per_side=25,embedded_cost_fraction=.005,
+                embedded_transaction_cost_fraction=.005,embedded_ongoing_cost_fraction=0,
+                gross_expected_return=e["expected_return_12m"]+.005)
+        policy["reviewed_pins"]["evaluation"]=[digest(e) for e in p["evaluations"]]
+        rr=risk(p,r,policy)
+        from research.a2_research_intake_v1 import MemoryArtifacts
+        raw=b"DATE,DGS3MO\n2026-09-17,3.0\n"
+        sha=hashlib.sha256(raw).hexdigest()
+        self.memory=MemoryArtifacts({"CASH:SOURCE":raw})
+        rr["stock_cash_allocation"]=dict(horizon="12_CALENDAR_MONTHS",events_sha256=digest([]),
+            decision_asset_ids=sorted(e["asset_id"] for e in p["evaluations"]),
+            evaluation_sha256_by_asset={e["asset_id"]:digest(e) for e in p["evaluations"]},
+            cash_carry=dict(**{**meta("FRED_ARCHIVE"),"raw_sha256":sha},metric="dgs3mo",unit="FRACTION",value=.03,
+                observation_date="2026-09-17",original_ref=dict(artifact_id="CASH:SOURCE",sha256=sha,bytes=len(raw))),
+            exception_reviews=[],exit_reviews=[])
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        return p,r,policy
+
+    def test_real_runtime_optin_shared_cost_inputs_and_no_default_change(self):
+        p,r,policy=self.inputs()
+        original=copy.deepcopy(p)
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        proposal=out["proposal"]
+        self.assertEqual(proposal["status"],"RESEARCH_PROPOSAL")
+        self.assertEqual(p,original)
+        source=p["evaluations"][0]
+        corresponding=next(x for x in out["multi_asset_leadership_latest"] if x["asset_id"]==source["asset_id"])
+        self.assertEqual(corresponding["evaluation_sha256"],digest(source))
+        self.assertNotEqual(corresponding["evaluation_sha256"],digest({**source,"expected_alpha_12m":.15,
+                            "fundamental_score":None}))
+        self.assertGreater(sum(proposal["proposed_weights"].values()),0)
+        self.assertLessEqual(sum(proposal["proposed_weights"].values()),.4+1e-8)
+        self.assertTrue(all(abs(x-.205)<1e-12 for x in proposal["comparison_inputs"]["gross_er"]))
+        self.assertEqual(proposal["comparison_inputs"]["side_cost"],[.0025]*3)
+        self.assertEqual(proposal["exception_exposure"],0)
+        self.assertEqual(proposal["decision_clock"]["horizon"],"12_CALENDAR_MONTHS")
+        self.assertGreater(stamp(proposal["decision_clock"]["earliest_fill_at"]),stamp(CUTOFF))
+        self.assertFalse(proposal["orders_generated"])
+        self.assertEqual(len(out["stock_research"]["comparison_plan"]["arms"]),18)
+        policy["stock_cash_research"]["enabled"]=False
+        baseline=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertNotIn("stock_research",baseline)
+        self.assertNotIn("comparisons",baseline["proposal"])
+        policy["stock_cash_research"]["enabled"]=True
+        p["evaluations"][0]["signal_confidence"]+=.01
+        refused=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(refused["proposal"]["status"],"BLOCKED")
+        bad=next(x for x in refused["multi_asset_leadership_latest"] if x["asset_id"]==source["asset_id"])
+        self.assertIsNone(bad.get("evaluation_sha256"))
+
+    def test_inactive_optional_unknown_preserves_full_denominator_but_not_stock_block(self):
+        p,r,policy=self.inputs()
+        complete=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
+        r["assets"].append(next(a for a in complete["assets"] if a["symbol"]=="GLDM"))
+        # Rebind synthetic original evaluators and risk to this exact feature snapshot.
+        for e in p["evaluations"]:e["feature_sha256"]=feature_identity(p,r)
+        policy["reviewed_pins"]["evaluation"]=[digest(e) for e in p["evaluations"]]
+        p["risk"]["feature_sha256"]=feature_identity(p,r)
+        p["risk"]["stock_cash_allocation"]["evaluation_sha256_by_asset"]={e["asset_id"]:digest(e) for e in p["evaluations"]}
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"RESEARCH_PROPOSAL",out["proposal"].get("reasons"))
+        self.assertFalse(out["global_ranking_ready"])
+        self.assertEqual(out["stock_research"]["decision_scope"]["numeric_scope_status"],"SCOPED_INPUTS_OBSERVED")
+        self.assertEqual(len(out["multi_asset_leadership_latest"]),4)
+        missing=next(x for x in out["multi_asset_leadership_latest"] if x["symbol"]=="GLDM")
+        self.assertIsNone(missing["expected_return_12m"])
+        self.assertIsNone(missing["rank"])
+        self.assertEqual(out["stock_research"]["decision_scope"]["unknown_roster_count"],1)
+        self.assertEqual(out["stock_research"]["exception_preparation"][1]["status"],"UNREGISTERED")
+
+    def test_unknown_held_and_ambiguous_costs_block_without_zero_fill(self):
+        p,r,policy=self.inputs()
+        e=p["evaluations"][0]
+        e.pop("portfolio_cost_basis")
+        policy["reviewed_pins"]["evaluation"].append(digest(e))
+        p["risk"]["stock_cash_allocation"]["evaluation_sha256_by_asset"][e["asset_id"]]=digest(e)
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("stock_net_er_cost_basis_missing",out["proposal"]["reasons"][0])
+        self.assertIsNone(out["proposal"]["proposed_weights"])
+        self.assertIsNotNone(out["multi_asset_leadership_latest"][0]["expected_return_12m"])
+
+    def test_scope_union_keeps_top40_outside_winner_and_event_unknown(self):
+        from research.multi_asset_v1.decisions import stock_decision_scope
+        p,r,policy=self.inputs()
+        assets={"S:"+str(i):dict(asset_class="US_EQUITY") for i in range(45)}
+        rows=[dict(asset_id=a,discovery_rank=i+1,data_quality="PRICE_OBSERVED_RESEARCH_ONLY",
+            risk_adjusted_expected_alpha=1/(i+1),evaluation_sha256="d"*64,expected_return_12m=.2)
+            for i,a in enumerate(assets)]
+        rows[44]["expected_return_12m"]=None
+        rows[44]["risk_adjusted_expected_alpha"]=None
+        events=[dict(confirmed=True,materiality=.9,affected_asset_ids=["S:44"])]
+        scope=stock_decision_scope(rows,assets,{"S:43":.15},events,CUTOFF,policy,["S:43"])
+        self.assertEqual(len(scope["asset_ids"]),42)
+        self.assertIn("S:43",scope["asset_ids"])
+        self.assertEqual(scope["full_roster_count"],45)
+        self.assertEqual(scope["numeric_scope_status"],"SCOPED_INPUTS_OBSERVED")
+        self.assertEqual(scope["queue_unknown_count"],1)
+        self.assertEqual(len(rows),45)
+
+    def test_healthy_winner_floor_and_typed_thesis_exit_actual_weights(self):
+        p,r,policy=self.inputs()
+        before=run(p,r,policy,artifact_resolver=self.memory)
+        rows=before["multi_asset_leadership_latest"]
+        assets={a["asset_id"]:a for a in r["assets"]}
+        row=rows[0];aid=row["asset_id"]
+        row.update(portfolio_status="HOLD",RS20_change_5d=-.1,RS60_change_5d=-.1)
+        kept=propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+        self.assertGreaterEqual(kept["proposed_weights"][aid],.08-1e-9)
+        row["thesis_status"]="INVALID"
+        p["risk"]["stock_cash_allocation"]["exit_reviews"]=[dict(asset_id=aid,taxonomy="THESIS_EXIT",
+            evaluation_sha256=row["evaluation_sha256"],thesis_id=row["thesis_id"],reason="ORIGINAL_THESIS_INVALID",
+            available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",max_weight=0)]
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        exited=propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+        self.assertNotIn(aid,exited["proposed_weights"])
+        self.assertEqual(exited["exit_reviews"][0]["taxonomy"],"THESIS_EXIT")
+        row["thesis_status"]="INTACT"
+        with self.assertRaisesRegex(ContractError,"stock_healthy_thesis_exit"):
+            propose(rows,assets,p["risk"],{},CUTOFF,policy,feature_identity(p,r),{aid:.08},artifact_resolver=self.memory)
+
+    def test_same_week_schedule_and_confirmed_event_calendar_only(self):
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        _,_,policy=self.inputs()
+        profile=policy["stock_cash_research"]
+        profile["cadence"]="WEEKLY"
+        review={"previous_decision_at":"2026-09-17T20:00:00Z"}
+        clock=stock_decision_clock(CUTOFF,profile,review,[])
+        self.assertFalse(clock["scheduled_due"])
+        profile["cadence"]="MONTHLY_CONFIRMED_EVENT"
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,[])["scheduled_due"])
+        events=[dict(event_id="NEWS:1",confirmed=True,materiality=.8,first_seen="2026-09-18T20:01:00Z",
+                     material_change_times=["2026-09-18T20:01:00Z"])]
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
+        events[0]["confirmed"]=False
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,events)["scheduled_due"])
+        profile["cadence"]="MONTHLY"
+        same=stock_decision_clock(CUTOFF,profile,{"previous_decision_at":"2026-09-18T21:00:00Z"},[])
+        self.assertTrue(same["same_session"])
+        self.assertFalse(same["scheduled_due"])
+        boundary=stock_decision_clock("2026-10-01T01:10:00Z",profile,
+            {"previous_decision_at":"2026-10-01T00:10:00Z"},[])
+        self.assertEqual(boundary["decision_session"],"2026-09-30")
+        self.assertFalse(boundary["scheduled_due"])
+
+    def test_cost_components_keep_ongoing_and_all_in_stress_exact(self):
+        from research.multi_asset_v1.decisions import _stock_cost
+        p,_,_=self.inputs()
+        row=copy.deepcopy(p["evaluations"][0])
+        row["cost_assumptions"]["expense_bps"]=100
+        basis=row["portfolio_cost_basis"]
+        basis.update(embedded_cost_fraction=.015,embedded_ongoing_cost_fraction=.01,
+            gross_expected_return=.215,cost_assumptions_sha256=digest(row["cost_assumptions"]))
+        for bps in (25,50,100):
+            annual,side=_stock_cost(row,bps)
+            self.assertAlmostEqual(annual,.205)
+            self.assertEqual(side,bps/10000)
+        basis["embedded_transaction_cost_fraction"]+=.01
+        with self.assertRaisesRegex(ContractError,"component_reconciliation"):_stock_cost(row,25)
+
+    def test_original_dgs3mo_value_date_and_resolver_required(self):
+        p,r,policy=self.inputs()
+        refused=run(p,r,policy)
+        self.assertIn("stock_dgs3mo_original_resolver_required",refused["proposal"]["reasons"])
+        p["risk"]["stock_cash_allocation"]["cash_carry"]["value"]=.04
+        policy["reviewed_pins"]["risk"].append(digest(p["risk"]))
+        refused=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertIn("stock_dgs3mo_original_value_or_date_mismatch",refused["proposal"]["reasons"])
+
+    def test_opportunity_actual_counterfactual_cap_and_unknown_release(self):
+        p,r,policy=self.inputs()
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        rows=copy.deepcopy(out["multi_asset_leadership_latest"])
+        assets={a["asset_id"]:a for a in r["assets"]}
+        base=copy.deepcopy(rows[0])
+        complete=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
+        metal=copy.deepcopy(next(a for a in complete["assets"] if a["symbol"]=="GLDM"))
+        metal.update(tradable=True,identity_verified=True,corporate_action_quarantine=False)
+        assets["US:GLDM"]=metal
+        base.update(asset_id="US:GLDM",symbol="GLDM",expected_return_12m=.6,expected_alpha_12m=.55,
+                    evaluation_sha256="e"*64)
+        base["portfolio_cost_basis"]["gross_expected_return"]=.605
+        rows.append(base)
+        rr=p["risk"];rr["max_gross"]=1;rr["max_security_weight"]=.5
+        rr["risk_multipliers"][metal["asset_class"]]=1
+        rr["risk_group_limits"].update({g:.6 for a in assets.values() for g in a["risk_group_ids"]})
+        review=rr["stock_cash_allocation"]
+        review.update(decision_asset_ids=sorted(x["asset_id"] for x in rows),
+                      evaluation_sha256_by_asset={x["asset_id"]:x["evaluation_sha256"] for x in rows})
+        proof=dict(asset_id="US:GLDM",basis="OPPORTUNITY",evaluation_sha256="e"*64,
+            thesis_id=base["thesis_id"],reason="REVIEWED_NET_COMPARISON",release_condition="REVIEW_IF_EDGE_DISAPPEARS",
+            available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",max_weight=.2)
+        review["exception_reviews"]=[proof]
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        result=propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        self.assertGreater(result["proposed_weights"]["US:GLDM"],.1)
+        self.assertLessEqual(result["exception_exposure"],.2+1e-8)
+        self.assertGreater(result["exception_reviews"][0]["objective_improvement"],0)
+        from scipy.optimize import minimize as real_minimize
+        from types import SimpleNamespace
+        count=[0]
+        def invalid_second(*args,**kwargs):
+            count[0]+=1
+            answer=real_minimize(*args,**kwargs)
+            return SimpleNamespace(success=True,x=-np.ones_like(answer.x)) if count[0]==2 else answer
+        import numpy as np
+        with patch("scipy.optimize.minimize",side_effect=invalid_second):
+            with self.assertRaisesRegex(ContractError,"counterfactual_failed"):
+                propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        proof["basis"]="SPECIAL_RISK"
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,"joint_evidence_missing"):
+            propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),artifact_resolver=self.memory)
+        review["exception_reviews"]=[]
+        policy["reviewed_pins"]["risk"].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,"release_proof_missing"):
+            propose(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{"US:GLDM":.1},artifact_resolver=self.memory)
+
+    def test_native_lifecycle_original_and_same_security_not_free_tag(self):
+        import csv,io
+        from research.a2_research_intake_v1 import MemoryArtifacts
+        from research.multi_asset_v1.decisions import _stock_exit
+        from tools.security_lifecycle import REQUIRED_COLUMNS,SecurityLifecycleError
+        _,_,policy=self.inputs()
+        event={key:"" for key in REQUIRED_COLUMNS}
+        event.update(stable_security_id="US:FTI",stable_issuer_id="CIK:TEST",ticker="FTI",aliases="FTI",
+            event_type="delisting",available_from="2026-09-18T19:00:00Z",effective_date="2026-09-18",
+            last_trading_date="2026-09-17",delisting_proceeds="0",currency="USD",source_url="https://example.test/event",
+            stable_event_id="EVENT:FTI",source_sha256="a"*64,exact_available_from="true",
+            evidence_status="verified",review_status="approved")
+        text=io.StringIO(newline="");writer=csv.DictWriter(text,fieldnames=sorted(REQUIRED_COLUMNS))
+        writer.writeheader();writer.writerow(event);raw=text.getvalue().encode()
+        sha=hashlib.sha256(raw).hexdigest();memory=MemoryArtifacts({"LIFE:1":raw})
+        row=dict(asset_id="US:FTI",symbol="FTI",evaluation_sha256="e"*64,thesis_id="THESIS:FTI")
+        review=dict(taxonomy="LIFECYCLE_EXIT",evaluation_sha256="e"*64,thesis_id="THESIS:FTI",
+            reason="ORIGINAL_TERMINAL_EVENT",max_weight=0,available_at=CUTOFF,expires_at="2026-09-20T10:00:00Z",
+            lifecycle_ref=dict(artifact_id="LIFE:1",sha256=sha,bytes=len(raw),available_at=CUTOFF))
+        value,audit=_stock_exit(review,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},memory,{})
+        self.assertEqual(value,0)
+        self.assertEqual(audit["lifecycle_original_sha256"],sha)
+        for field,value in (("delisting_proceeds",""),("delisting_proceeds","NaN"),
+                            ("delisting_proceeds","-1"),("evidence_status","unverified")):
+            with self.subTest(field=field,value=value):
+                bad={**event,field:value};text=io.StringIO(newline="")
+                writer=csv.DictWriter(text,fieldnames=sorted(REQUIRED_COLUMNS));writer.writeheader();writer.writerow(bad)
+                original=text.getvalue().encode();key=hashlib.sha256(original).hexdigest()
+                changed=copy.deepcopy(review)
+                changed["lifecycle_ref"].update(sha256=key,bytes=len(original))
+                with self.assertRaises((ContractError,SecurityLifecycleError)):
+                    _stock_exit(changed,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},
+                                MemoryArtifacts({"LIFE:1":original}),{})
+        with self.assertRaisesRegex(ContractError,"resolver_unbound"):
+            _stock_exit(review,row,.1,{"US:FTI":row},CUTOFF,{"US:FTI":.1},None,{})
+
+    def test_native_replacement_policy_recomputed_and_margin_not_rank_exit(self):
+        from research.multi_asset_v1.decisions import _stock_exit
+        p,r,policy=self.inputs()
+        rows=run(p,r,policy,artifact_resolver=self.memory)["multi_asset_leadership_latest"]
+        own,other=rows[:2]
+        other["portfolio_status"]="CANDIDATE"
+        evidence={}
+        for i,row in enumerate(rows):
+            record=dict(ticker=row["symbol"],alphaops_vnext_score=1.5 if i==1 else .2,
+                rs_benchmark_1w=.1,rs_benchmark_3m=.3,price_above_ma50=.9,price_above_ma200=.9,
+                rs_sector_3m=.2,industry_group_strength_score=.8,portfolio_risk_entry_block_score=0,
+                portfolio_stale_mega_leader_score=0,leader_tier="DUAL_LEADER",sector="SECTOR:"+str(i),
+                industry_group="INDUSTRY:"+str(i))
+            row["hold_exit_evidence"]=dict(security_id=row["asset_id"],as_of=list(SESSIONS)[-1],
+                available_at=CUTOFF,record=record)
+            evidence[row["asset_id"]]=record
+        by_id={row["asset_id"]:row for row in rows}
+        review=dict(taxonomy="REPLACEMENT_EXIT",evaluation_sha256=own["evaluation_sha256"],thesis_id=own["thesis_id"],
+            reason="NATIVE_FIXED_MARGIN_AND_CONCENTRATION",max_weight=0,available_at=CUTOFF,
+            expires_at="2026-09-20T10:00:00Z",replacement_asset_id=other["asset_id"],
+            replacement_evaluation_sha256=other["evaluation_sha256"],scored_cohort_sha256=digest(evidence))
+        target,audit=_stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+        self.assertEqual(target,0)
+        self.assertEqual(audit["replacement_asset_id"],other["asset_id"])
+        saved=own["hold_exit_evidence"]["record"].pop("price_above_ma200")
+        review["scored_cohort_sha256"]=digest({a:r["hold_exit_evidence"]["record"] for a,r in by_id.items()})
+        with self.assertRaisesRegex(ContractError,"incomplete_incumbent"):
+            _stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+        own["hold_exit_evidence"]["record"]["price_above_ma200"]=saved
+        other["hold_exit_evidence"]["record"]["alphaops_vnext_score"]=.21
+        review["scored_cohort_sha256"]=digest({a:r["hold_exit_evidence"]["record"] for a,r in by_id.items()})
+        with self.assertRaisesRegex(ContractError,"canonical_replacement_margin_not_met"):
+            _stock_exit(review,own,.15,by_id,CUTOFF,{own["asset_id"]:.15},None,{})
+
+    def test_publisher_replays_native_dependency_code_bytes(self):
+        import tools.run_multi_asset_leadership as publisher
+        native={"tools/run_broker_ledger_replay.py","tools/run287_hold_exit_policy.py","tools/security_lifecycle.py",
+                "tools/a4_liquidity_analysis.py","tools/a4_macro_bridge.py","docs/market_analysis_contract_v2.json",
+                "tools/a5_model_portfolio.py","tools/a4_macro_learning.py","tools/macro_technical_study.py",
+                "tools/run_a4_research_cycle.py"}
+        def expected(args,**kwargs):return (ROOT/args[2].split(":",1)[1]).read_bytes()
+        with patch.object(publisher.subprocess,"check_output",side_effect=expected):
+            checked=publisher.verified_source_hashes(CODE_SHA)
+        self.assertTrue(native<=set(checked))
+        for operand in sorted(native):
+            def wrong(args,**kwargs):
+                relative=args[2].split(":",1)[1]
+                return b"different native code" if relative==operand else (ROOT/relative).read_bytes()
+            with patch.object(publisher.subprocess,"check_output",side_effect=wrong):
+                with self.assertRaisesRegex(ContractError,"source_differs_from_claimed_commit:"+operand):
+                    publisher.verified_source_hashes(CODE_SHA)
+
+    def test_late_confirmation_triggers_once_and_reprints_do_not(self):
+        from research.multi_asset_v1.decisions import stock_decision_clock
+        _,r,policy=self.inputs();assets={a['asset_id']:a for a in r['assets']}
+        profile=policy['stock_cash_research'];profile['cadence']='MONTHLY_CONFIRMED_EVENT'
+        def report(ident,at,confirmed,materiality=.8):
+            return dict(**{**meta('CANONICAL_NEWS'),'observed_at':at,'available_at':at},
+                event_id=ident,published_at=at,event_type='MINE_OUTAGE',confidence=.9,materiality=materiality,
+                confirmed=confirmed,thesis_effect='REVIEW_NEGATIVE',estimated_duration='2_WEEKS',
+                asset_ids=[],commodity_ids=['COPPER'],theme_ids=[],duplicate_cluster='OUTAGE:1')
+        first=report('EVENT:1','2026-09-18T21:00:00Z',False)
+        confirmed=report('EVENT:2','2026-09-18T22:00:00Z',True)
+        review={'previous_decision_at':'2026-09-18T21:30:00Z'}
+        merged=event_memory([confirmed,first],assets,CUTOFF,policy)
+        self.assertEqual(merged[0]['first_seen'],first['available_at'])
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+        reprint=report('EVENT:3','2026-09-18T23:00:00Z',True)
+        unconfirmed=report('EVENT:4','2026-09-19T01:00:00Z',False,1.0)
+        review['previous_decision_at']='2026-09-18T22:30:00Z'
+        merged=event_memory([reprint,first,unconfirmed,confirmed],assets,CUTOFF,policy)
+        self.assertFalse(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+        material=report('EVENT:5','2026-09-19T02:00:00Z',True,.9)
+        merged=event_memory([material,reprint,first,confirmed],assets,CUTOFF,policy)
+        self.assertTrue(stock_decision_clock(CUTOFF,profile,review,merged)['scheduled_due'])
+
+    def test_joint_replacements_recheck_native_concentration(self):
+        from research.multi_asset_v1.decisions import _stock_exit,stock_cash_proposal,_stock_replacement_concentration
+        p,r,policy=self.inputs();template=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest'][0]
+        original_asset=next(a for a in r['assets'] if a['asset_class'] in {'US_EQUITY','COMMODITY_EQUITY'})
+        assets={};rows=[]
+        sectors=['A','B','C','D','C','C']
+        for i,sector in enumerate(sectors):
+            aid='US:SYNTH'+str(i);row=copy.deepcopy(template)
+            row.update(asset_id=aid,symbol='SYNTH'+str(i),portfolio_status='CANDIDATE')
+            record=dict(ticker=row['symbol'],sector=sector,industry_group='INDUSTRY:'+str(i),
+                alphaops_vnext_score=1.5 if i>=4 else .2,rs_benchmark_1w=.1,rs_benchmark_3m=.3,
+                price_above_ma50=.9,price_above_ma200=.9,rs_sector_3m=.2,industry_group_strength_score=.8,
+                portfolio_risk_entry_block_score=0,portfolio_stale_mega_leader_score=0,leader_tier='DUAL_LEADER')
+            row['hold_exit_evidence']=dict(security_id=aid,as_of=list(SESSIONS)[-1],available_at=CUTOFF,record=record)
+            assets[aid]={**original_asset,'asset_id':aid,'symbol':row['symbol']};rows.append(row)
+        by_id={row['asset_id']:row for row in rows};ids=list(by_id)
+        current=dict(zip(ids[:4],[.12,.12,.08,.08]));exits=[]
+        scored=digest({a:row['hold_exit_evidence']['record'] for a,row in by_id.items()})
+        for i in range(2):
+            own,other=rows[i],rows[i+4]
+            review=dict(taxonomy='REPLACEMENT_EXIT',asset_id=own['asset_id'],reason='NATIVE_REVIEW',
+                evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],max_weight=.08,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',replacement_asset_id=other['asset_id'],
+                replacement_evaluation_sha256=other['evaluation_sha256'],scored_cohort_sha256=scored)
+            self.assertEqual(_stock_exit(review,own,.12,by_id,CUTOFF,current,None,{})[0],.08)
+            exits.append(review)  # Both isolated native transitions really pass.
+        rr=copy.deepcopy(p['risk']);rr['max_security_weight']=.2
+        rr['stock_cash_allocation'].update(decision_asset_ids=ids,
+            evaluation_sha256_by_asset={a:row['evaluation_sha256'] for a,row in by_id.items()},exit_reviews=exits)
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,'combined_replacement_concentration_worse'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        combined={**current,ids[0]:.08,ids[1]:.08,ids[4]:.04,ids[5]:.04}
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            with self.assertRaisesRegex(ContractError,'final_replacement_concentration_worse:'+arm):
+                _stock_replacement_concentration(current,combined,by_id,'stock_final_replacement_concentration_worse:'+arm)
+
+    def test_carried_etf_has_direct_vehicle_and_leaf_caps(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        p,r,policy=self.inputs();rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        assets={a['asset_id']:a for a in r['assets']};fund=copy.deepcopy(rows[0]);aid='US:SYNTHFUND'
+        fund.update(asset_id=aid,symbol='SYNTHFUND')
+        assets[aid]={**assets[rows[0]['asset_id']],'asset_id':aid,'symbol':'SYNTHFUND','asset_class':'ETF','vehicle_type':'EQUITY_ETF'}
+        rows.append(fund)
+        holding=dict(**meta('ISSUER_HOLDINGS'),fund_id=aid,source_id='ISSUER_HOLDINGS',
+            portfolio_scope='FULL_PORTFOLIO',coverage_kind='FULL',weight_unit='FRACTION',
+            holdings_as_of=list(SESSIONS)[-1],expected_unique_rows=2,
+            rows=[dict(security_id=row['asset_id'],instrument='COMMON',identity_verified=True,weight=.5) for row in rows[:2]])
+        policy['reviewed_pins']['holdings'].append(digest(holding))
+        exposure=lookthrough({aid:.3},assets,{aid:holding},CUTOFF,policy)
+        self.assertTrue(all(value<=.2 for value in exposure['security_exposure'].values()))
+        rr=p['risk'];rr['max_security_weight']=.2
+        rr['stock_cash_allocation'].update(decision_asset_ids=[row['asset_id'] for row in rows],
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows})
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        with self.assertRaisesRegex(ContractError,'winner_hard_limit_conflict:'+aid):
+            stock_cash_proposal(rows,assets,rr,{aid:holding},CUTOFF,policy,feature_identity(p,r),{aid:.3},artifact_resolver=self.memory)
+
+    def test_same_replacement_receives_all_released_weights_and_cap_conflict_blocks(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal,_stock_exit
+        p,r,policy=self.inputs();challenger=p['evaluations'][-1]
+        delta=.02-challenger['expected_return_12m']
+        challenger['expected_return_12m']=.02;challenger['benchmark_expected_return_12m']=-.03
+        for scenario in challenger['scenarios']['12m'].values():scenario['return']+=delta
+        challenger['portfolio_cost_basis']['gross_expected_return']=.025
+        rr=p['risk'];rr['max_security_weight']=.2
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        assets={a['asset_id']:a for a in r['assets']};target=rows[-1]['asset_id']
+        for i,row in enumerate(rows):
+            record=dict(ticker=row['symbol'],sector='SAME',industry_group='SAME',
+                alphaops_vnext_score=1.5 if row['asset_id']==target else .2,
+                rs_benchmark_1w=.1,rs_benchmark_3m=.3,price_above_ma50=.9,price_above_ma200=.9,
+                rs_sector_3m=.2,industry_group_strength_score=.8,portfolio_risk_entry_block_score=0,
+                portfolio_stale_mega_leader_score=0,leader_tier='DUAL_LEADER')
+            row['hold_exit_evidence']=dict(security_id=row['asset_id'],as_of=list(SESSIONS)[-1],available_at=CUTOFF,record=record)
+        by_id={x['asset_id']:x for x in rows};current={row['asset_id']:.08 for row in rows[:-1]}
+        scored=digest({a:row['hold_exit_evidence']['record'] for a,row in by_id.items()});exits=[]
+        for own in rows[:-1]:
+            review=dict(asset_id=own['asset_id'],taxonomy='REPLACEMENT_EXIT',reason='NATIVE_ORIGINAL_REVIEW',
+                evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],max_weight=0,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',replacement_asset_id=target,
+                replacement_evaluation_sha256=by_id[target]['evaluation_sha256'],scored_cohort_sha256=scored)
+            self.assertEqual(_stock_exit(review,own,.08,by_id,CUTOFF,current,None,{})[0],0)
+            exits.append(review)
+        rr['stock_cash_allocation']['exit_reviews']=exits;policy['reviewed_pins']['risk'].append(digest(rr))
+        result=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        # C's expected return including reference-trade addback is below cash:
+        # voluntary optimizer purchases cannot hide a missing replacement floor.
+        self.assertLess(by_id[target]['expected_return_12m']+.005,.03)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertAlmostEqual(result['comparisons'][arm]['weights'][target],.16,places=8)
+        rr['max_security_weight']=.12;policy['reviewed_pins']['risk'].append(digest(rr))
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            policy['stock_cash_research']['allocator']=arm
+            with self.assertRaisesRegex(ContractError,'winner_hard_limits_require_review'):
+                stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+
+    def test_zero_capacity_rows_do_not_suppress_active_correlated_entries(self):
+        import numpy as np
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        def prepared(returns,invalid=False):
+            p,r,policy=self.inputs()
+            for i,(original,value) in enumerate(zip(p['evaluations'],returns)):
+                delta=value-original['expected_return_12m'];original['expected_return_12m']=value
+                for scenario in original['scenarios']['12m'].values():scenario['return']+=delta
+                original['portfolio_cost_basis']['gross_expected_return']=value+.005
+                if invalid and i==0:original['thesis_status']='INVALID'
+            policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+            rr=p['risk'];rr['max_security_weight']=.2;rr['max_pair_correlation']=.5
+            rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+            policy['reviewed_pins']['risk'].append(digest(rr))
+            rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+            return p,r,policy,rr,rows,{a['asset_id']:a for a in r['assets']}
+        p,r,policy,rr,rows,assets=prepared([.6,.2,.2],True)
+        own=rows[0];first=rows[1]['asset_id']
+        for row in rows:row['daily_log_returns']=list(rows[0]['daily_log_returns'])
+        rr['stock_cash_allocation']['exit_reviews']=[dict(asset_id=own['asset_id'],taxonomy='THESIS_EXIT',
+            reason='ORIGINAL_THESIS_INVALID',evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],
+            max_weight=0,available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z')]
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        out=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{own['asset_id']:.08},artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertNotIn(own['asset_id'],out['comparisons'][arm]['weights'])
+            self.assertGreater(out['comparisons'][arm]['weights'][first],0)
+        # A is carried, eliminates higher-mu B, but does not correlate with C.
+        # The already eliminated B must not become a second ghost constraint.
+        p,r,policy,rr,rows,assets=prepared([.2,.6,.4])
+        x=np.sin(np.arange(60)*.53);x-=x.mean();x/=np.linalg.norm(x)
+        y=np.cos(np.arange(60)*.83);y-=y.mean();y-=x*(x@y);y/=np.linalg.norm(y)
+        values=[x,.8*x+.6*y,y]
+        for row,series in zip(rows,values):row['daily_log_returns']=[float(value) for value in series*.01]
+        correlations=np.corrcoef(values)
+        self.assertGreater(correlations[0,1],.5);self.assertGreater(correlations[1,2],.5)
+        self.assertLess(abs(correlations[0,2]),.5)
+        ids=[row['asset_id'] for row in rows]
+        out=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{ids[0]:.08},artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertNotIn(ids[1],out['comparisons'][arm]['weights'])
+            self.assertGreater(out['comparisons'][arm]['weights'][ids[2]],0)
+        with self.assertRaisesRegex(ContractError,'carried_correlation_review_required'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),
+                {ids[0]:.08,ids[1]:.08},artifact_resolver=self.memory)
+
+    def test_unmapped_unknown_survives_real_lag_history_and_scoped_publication(self):
+        import tools.run_multi_asset_leadership as publisher
+        p,r,policy=self.inputs();unknown='US:UNMAPPED'
+        p['base_equity_ids'].append(unknown)
+        p['base_universe_receipt']['asset_ids']=sorted(p['base_equity_ids'])
+        policy['reviewed_pins']['base_universe'].append(digest(p['base_universe_receipt']))
+        for original in p['evaluations']:original['feature_sha256']=feature_identity(p,r)
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr=p['risk'];rr['feature_sha256']=feature_identity(p,r)
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        current=run(p,r,policy,artifact_resolver=self.memory);history=[]
+        for lag in (5,20):
+            session=list(SESSIONS)[-1-lag];close=SESSIONS[session];at=(close+timedelta(minutes=1)).isoformat()
+            old_rows=[dict(asset_id=row['asset_id'],as_of=session,rank=None,
+                RS_composite=None if row['asset_id']==unknown else row['RS_composite']-lag/100,
+                latest_session=None if row['asset_id']==unknown else session)
+                for row in current['multi_asset_leadership_latest']]
+            snapshot=dict(as_of=session,computed_at=at,registry_sha256=digest(r),multi_asset_leadership_latest=old_rows)
+            receipt=dict(**{**meta('CANONICAL_HISTORY'),'observed_at':close.isoformat(),
+                'available_at':at,'evidence_kind':'PIT_ARCHIVE'},snapshot_sha256=digest(snapshot))
+            snapshot['availability_receipt']=receipt
+            policy['reviewed_pins']['history_availability'].append(digest(receipt))
+            policy['reviewed_pins']['history'].append(digest(snapshot));history.append(snapshot)
+        p['history']=history
+        with tempfile.TemporaryDirectory() as folder,patch.object(publisher,'verified_source_hashes',
+                return_value={'SYNTHETIC:DIRTY_CODE_ONLY':'a'*64}):
+            # Only dirty-source attestation is isolated; runtime history checks,
+            # publication/readback and all original synthetic PIT receipts run.
+            publisher.publish(p,r,policy,Path(folder),'lag-5-20',CODE_SHA,artifact_resolver=self.memory)
+            result=publisher.read_latest(Path(folder),consumed_at=CUTOFF)
+        self.assertFalse(result['global_ranking_ready'])
+        self.assertEqual(len(result['multi_asset_leadership_latest']),4)
+        stub=next(row for row in result['multi_asset_leadership_latest'] if row['asset_id']==unknown)
+        for key in ('RS_composite','rank','rank_change_5d','rank_change_20d','score_change_5d','score_change_20d'):
+            self.assertIsNone(stub[key])
+        known=next(row for row in result['multi_asset_leadership_latest'] if row['asset_id']!=unknown)
+        self.assertAlmostEqual(known['score_change_5d'],.05)
+        self.assertAlmostEqual(known['score_change_20d'],.20)
+
+    def test_reviewed_group_risk_trim_replays_ceiling_without_selling_unreviewed_winner(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        p,r,policy=self.inputs();ids=[e['asset_id'] for e in p['evaluations'][:2]]
+        for asset in r['assets']:
+            if asset['asset_id'] in ids:asset['risk_group_ids']=['SYNTHETIC:GROUP']
+        for original in p['evaluations']:original['feature_sha256']=feature_identity(p,r)
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr=p['risk'];rr.update(feature_sha256=feature_identity(p,r),max_gross=.4,max_security_weight=.2)
+        rr['risk_group_limits']['SYNTHETIC:GROUP']=.2
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        result=run(p,r,policy,artifact_resolver=self.memory)
+        rows=[row for row in result['multi_asset_leadership_latest'] if row['asset_id'] in ids]
+        assets={a['asset_id']:a for a in r['assets']};current={aid:.15 for aid in ids}
+        self.assertLess(sum(current.values()),rr['max_gross'])
+        self.assertLess(max(current.values()),rr['max_security_weight'])
+        self.assertAlmostEqual(lookthrough(current,assets,{},CUTOFF,policy)['risk_group_exposure']['SYNTHETIC:GROUP'],.30)
+        def review(row,target):
+            return dict(asset_id=row['asset_id'],taxonomy='RISK_EXIT',reason='REVIEWED_ORIGINAL_GROUP_CEILING',
+                evaluation_sha256=row['evaluation_sha256'],thesis_id=row['thesis_id'],max_weight=target,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',risk_feature_sha256=digest({k:row.get(k)
+                    for k in ('expected_drawdown','downside_probability','RS120','RS240')}))
+        packet=rr['stock_cash_allocation'];packet.update(decision_asset_ids=ids,
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows},
+            exit_reviews=[review(row,.10) for row in rows])
+        def execute():
+            policy['reviewed_pins']['risk'].append(digest(rr))
+            return stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        trimmed=execute()
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            for aid in ids:self.assertAlmostEqual(trimmed['comparisons'][arm]['weights'][aid],.10)
+        # Existing intact winners retain their floor unless each applicable
+        # partial trim has its own reviewed, exactly recomputable RISK_EXIT.
+        self.assertTrue(all(row['thesis_status'] in {'POSITIVE','INTACT'} for row in rows))
+        original=copy.deepcopy(packet['exit_reviews']);packet['exit_reviews']=original[:1]
+        with self.assertRaisesRegex(ContractError,'winner_hard_limits_require_review'):execute()
+        packet['exit_reviews']=copy.deepcopy(original);packet['exit_reviews'][0]['max_weight']=0
+        with self.assertRaisesRegex(ContractError,'risk_exit_not_recomputed_ceiling'):execute()
+        packet['exit_reviews']=copy.deepcopy(original);rr['risk_group_limits']['SYNTHETIC:GROUP']=.4
+        with self.assertRaisesRegex(ContractError,'risk_exit_not_recomputed_ceiling'):execute()
+
+    def test_reviewed_lookthrough_risk_trim_needs_original_holdings(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal,_stock_exit
+        p,r,policy=self.inputs();native=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        direct=native[0];fund=copy.deepcopy(native[1]);aid='US:SYNTHRISKFUND'
+        fund.update(asset_id=aid,symbol='SYNTHRISKFUND');rows=[direct,fund]
+        assets={a['asset_id']:a for a in r['assets']}
+        assets[aid]={**assets[direct['asset_id']],'asset_id':aid,'symbol':fund['symbol'],
+            'asset_class':'ETF','vehicle_type':'EQUITY_ETF'}
+        holding=dict(**meta('ISSUER_HOLDINGS'),fund_id=aid,source_id='ISSUER_HOLDINGS',
+            portfolio_scope='FULL_PORTFOLIO',coverage_kind='FULL',weight_unit='FRACTION',
+            holdings_as_of=list(SESSIONS)[-1],expected_unique_rows=1,
+            rows=[dict(security_id=direct['asset_id'],instrument='COMMON',identity_verified=True,weight=1.0)])
+        policy['reviewed_pins']['holdings'].append(digest(holding));holdings={aid:holding}
+        current={direct['asset_id']:.15,aid:.15};rr=p['risk'];rr['max_security_weight']=.2
+        rr['risk_multipliers']['ETF']=1
+        exposure=lookthrough(current,assets,holdings,CUTOFF,policy)
+        self.assertAlmostEqual(exposure['security_exposure'][direct['asset_id']],.30)
+        self.assertTrue(all(value<=rr['risk_group_limits'][group] for group,value in exposure['risk_group_exposure'].items()))
+        exits=[dict(asset_id=row['asset_id'],taxonomy='RISK_EXIT',reason='REVIEWED_ORIGINAL_LEAF_CEILING',
+            evaluation_sha256=row['evaluation_sha256'],thesis_id=row['thesis_id'],max_weight=.1,
+            available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',risk_feature_sha256=digest({k:row.get(k)
+                for k in ('expected_drawdown','downside_probability','RS120','RS240')})) for row in rows]
+        rr['stock_cash_allocation'].update(decision_asset_ids=[row['asset_id'] for row in rows],
+            evaluation_sha256_by_asset={row['asset_id']:row['evaluation_sha256'] for row in rows},exit_reviews=exits)
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        result=stock_cash_proposal(rows,assets,rr,holdings,CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            weights=result['comparisons'][arm]['weights']
+            for security in current:self.assertAlmostEqual(weights[security],.1)
+            self.assertAlmostEqual(lookthrough(weights,assets,holdings,CUTOFF,policy)['security_exposure'][direct['asset_id']],.2)
+        with self.assertRaisesRegex(ContractError,'missing_etf_holdings'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        with self.assertRaisesRegex(ContractError,'original_exposure_context_required'):
+            _stock_exit(exits[0],direct,.15,{row['asset_id']:row for row in rows},CUTOFF,current,None,rr)
 
 
 if __name__=="__main__":unittest.main()
