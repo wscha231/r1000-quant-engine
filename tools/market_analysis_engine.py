@@ -24,6 +24,7 @@ from tools import daily_crisis_report_clock as clock
 
 SCHEMA = "market-analysis-report-v1"
 REQUEST_SCHEMA = "market-analysis-request-v1"
+REQUEST_SCHEMA_V2 = "market-analysis-request-v2"
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "docs/market_analysis_contract_v1.json"
 SAFETY = {**context.SAFETY, "source_admission_allowed": False,
           "portfolio_overlay_allowed": False, "policy_handoff_implemented": False,
@@ -89,7 +90,7 @@ def verify_request(raw, expected_sha, cutoff, session):
          and sha(raw) == expected_sha, "REQUEST_HASH_REQUIRED")
     need(len(raw) <= 256*1024, "REQUEST_SIZE")
     request = free.strict_json(raw)
-    need(type(request) is dict and request.get("schema") == REQUEST_SCHEMA
+    need(type(request) is dict and request.get("schema") in {REQUEST_SCHEMA, REQUEST_SCHEMA_V2}
          and request.get("market") == "US", "REQUEST_SCHEMA_OR_MARKET")
     now = clock.stamp(cutoff)
     available, expires = clock.stamp(request.get("available_at")), clock.stamp(request.get("expires_at"))
@@ -97,14 +98,17 @@ def verify_request(raw, expected_sha, cutoff, session):
          and expires-available <= timedelta(days=4), "REQUEST_CLOCK_OR_EXPIRY")
     need(request.get("session") == session == current_session(cutoff), "REQUEST_SESSION_NOT_CURRENT")
     entries = request.get("inputs")
-    need(type(entries) is list and len(entries) <= MAX_INPUTS, "INPUT_COUNT")
+    v2 = request["schema"] == REQUEST_SCHEMA_V2
+    need(type(entries) is list and len(entries) <= (64 if v2 else MAX_INPUTS), "INPUT_COUNT")
     names, roles = set(), set()
     for spec in entries:
         need(type(spec) is dict, "INPUT_SPEC")
         kind = spec.get("kind")
-        need(kind in {"macro", "cot_tff", "price_context", "sce_export",
-                      "risk_metrics", "risk_calendar", "risk_context"}, "INPUT_KIND")
-        role = (kind, spec.get("source_id") if kind == "macro" else None)
+        if kind in {"macro", "macro_v2"}:
+            need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
+        kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
+        need(kind in kinds or (v2 and kind == "macro_v2"), "INPUT_KIND")
+        role = ("macro" if kind == "macro_v2" else kind, spec.get("source_id") if kind in {"macro", "macro_v2"} else None)
         need(role not in roles, "DUPLICATE_INPUT_ROLE"); roles.add(role)
         path = spec.get("path"); safe_path(path)
         need(path not in names, "DUPLICATE_INPUT_PATH"); names.add(path)
@@ -191,6 +195,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     req = verify_request(raw_request, expected_sha, cutoff, session)
     need(type(supplied) is dict and set(supplied) == {s["path"] for s in req["inputs"]}, "INPUT_SET")
     macro, public, prices, surveys, native, receipts = [], [], [], [], {}, []
+    enhanced_originals = []
     need(all(type(x) is bytes for x in supplied.values()), "INPUT_BYTES_TYPE")
     need(sum(len(x) for x in supplied.values()) <= MAX_TOTAL_BYTES, "TOTAL_INPUT_BUDGET")
     for spec in req["inputs"]:
@@ -198,8 +203,14 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         need(type(raw) is bytes and 0 < len(raw) <= input_limit(spec) and sha(raw) == spec["sha256"], "INPUT_BYTES_HASH")
         kind, collected = spec["kind"], spec["collected_at"]
         receipts.append({k: spec[k] for k in ("kind", "path", "sha256", "status", "collected_at")})
+        if req["schema"] == REQUEST_SCHEMA_V2 and kind in {"macro", "macro_v2"}:
+            from tools import a4_liquidity_analysis as enhanced
+            if spec.get("source_id", "").partition(":")[2] in enhanced.SERIES:
+                enhanced_originals.append((raw, spec))
         if kind == "macro":
             macro.extend(context.macro_source_rows(raw, source_id=spec.get("source_id"), collected_at=collected, cutoff=cutoff))
+        elif kind == "macro_v2":
+            need(bool(enhanced_originals) and enhanced_originals[-1][1] is spec, "A4_UNREGISTERED_SOURCE")
         elif kind == "cot_tff":
             public.extend(free.cot_observations(raw, report_kind="TFF_FUTURES", collected_at=collected, cutoff=cutoff))
         elif kind == "price_context":
@@ -238,6 +249,9 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             "SCE 12-month mean probability cannot be spliced into AAII bullish share",
             "TFF net position is not a one-way market bet; retain market code and participant class"],
         **SAFETY}
+    if req["schema"] == REQUEST_SCHEMA_V2:
+        from tools.a4_liquidity_analysis import enrich
+        enrich(result, enhanced_originals)
     result["content_sha256"] = context.digest(result)
     return result
 
@@ -272,6 +286,9 @@ def implementation_identity():
     from tools import build_run287_chameleon_macro_inputs as normalizer
     from tools import candidate_reassessment_bridge as bridge
     paths.extend([Path(normalizer.__file__), Path(bridge.__file__)])
+    from tools import a4_liquidity_analysis, a4_macro_bridge
+    paths.extend([Path(a4_liquidity_analysis.__file__), Path(a4_macro_bridge.__file__),
+                  CONTRACT_PATH.with_name("market_analysis_contract_v2.json")])
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 
@@ -325,6 +342,20 @@ def render_report(value):
         lines.append(f"| {key} | {record['observation_date']} | {record['value']} | {record['status']} |")
     for r in [*ctx.get("public", []), *value.get("household_expectations", [])]:
         lines.append(f"| {r['provider']} / {r['entity_id']} / {r['metric']} | {r['observation_date']} | {r['current_value']} | {r['status']} |")
+    if value.get("schema") == "market-analysis-report-v2":
+        lines += ["", "## Funding spreads", "", "| Spread | bp | Observation | Status |", "| --- | ---: | --- | --- |"]
+        for key, row in value["funding"]["spreads"].items():
+            lines.append(f"| {key} | {row['value']} | {row['observation_date']} | {row['status']} |")
+        lines += ["", "## Bank balances", "", "Balance changes do not identify transfers from stocks or MMFs.",
+                  "", "| Series | Level | Unit | 1 week change | 4 week change | 13 week change | Status |",
+                  "| --- | ---: | --- | ---: | ---: | ---: | --- |"]
+        for key, row in value["bank_credit"]["series"].items():
+            if row is None: lines.append(f"| {key} | | | | | | MISSING |")
+            else:
+                changes = [row["changes"].get(str(n), {}).get("value") for n in (1, 4, 13)]
+                lines.append(f"| {key} | {row['value']} | {row['unit']} | {changes[0]} | {changes[1]} | {changes[2]} | {row['status']} |")
+        lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
+        lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
     lines += ["", "Missing optional: " + ", ".join(value.get("missing_optional_sources", [])),
               "Blockers: " + ", ".join(value.get("blockers", model.get("blockers", []))), ""]
     return "\n".join(lines)

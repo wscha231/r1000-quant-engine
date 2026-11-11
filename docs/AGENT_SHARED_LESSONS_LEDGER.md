@@ -10474,3 +10474,64 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   validator bypass. Budget the dedicated normal/-O job for the actual graph
   checks (30 minutes), rather than deleting assertions to fit its old ten-minute
   limit. The focused four-method bridge is not a whole-suite or optimized pass.
+
+### 2026-11-11 — Bind A4 CSV normalization to original Lake bytes
+
+- A4's CSV consumer cannot read an authenticated current JSON response directly.
+  Replay the original parser, retain latest nulls, and bind separate original,
+  normalized, Lake object, commit/catalog and execution identities. A stored
+  generation without a completed native study remains blocked; normalization
+  grants no source, historical PIT or learning permission.
+- Eight disposable synthetic local-Lake integration cases pass normal and -O.
+  The first corruption fixture correctly hit the transport's immutable-write
+  guard before exercising the consumer; inject corruption only in the temporary
+  test storage. The actual Drive read remains refused by quota, and the local
+  Python launcher referenced a missing installation; direct verified Python3.14
+  works. Neither environment finding is a completed real-data replay.
+- Full CI42944844092 passed235/237: direct runner registration broke the frozen
+  236-program contract and the A6 temporary fixture lacked the new program.
+  Preserve that failure, restore the exact protected runner, register the new
+  cases through its existing macro-evidence aggregate, and extend the fixed A6
+  dependency closure. No protected lineage/count guard is changed.
+- CI42949428010 then passed235/236: the collector's isolated checkout could not
+  import the new full PR aggregate. Keep default PR execution complete and make
+  the collector explicitly select its original25 Source cases with --portable.
+  Regress that default execution still refuses missing new A4 modules, plus the
+  existing isolated/no-network and missing-contract checks. Workflow/test bytes
+  remain AUTO_PINS inputs; an older standing profile gains no execution rights.
+- Integrating current master8fb890639 exposed the A4 fixture's missing raw
+  execution created_at under the shared producer validator. Use its actual
+  synthetic publication commit clock, not the historical observation cutoff;
+  preserve the validator and negative oracles. Old synthetic success is not
+  proof that the new master or actual Drive generation has been replayed.
+  Publish a genuine new STALE_RETAINED generation for its refusal control;
+  mutating a restored catalog beneath its old content hash correctly fails the
+  shared metadata gate before the downstream dataset-status check.
+  Restore a fresh writer for that next publication; reusing the already
+  published writer correctly triggers its stale-writer guard.
+
+### 2026-11-11 — Keep funding, reserve and bank balance semantics separate
+
+- V2 funding spreads are percentage-point differences multiplied by100 to bp;
+  shared inputs are one evidence family, never four independent risk votes.
+  Latest nulls or mismatched observation dates cannot reuse an older spread.
+  H8 large+small reconciles to domestic, not all-bank deposits including foreign
+  institutions. Weekly deltas require every intervening weekly observation.
+- Reserve week averages, Wednesday balances and repo operation amounts retain
+  separate identities; no fixed3trillion cutoff or net-liquidity shortcut is
+  introduced. The12 synthetic arithmetic/parser/integration cases pass normal
+  and -O; real source rights, native ten-axis readiness and ER remain separate.
+- Exact-head independent review caught a v1-only downstream monitor and a valid
+  non-object NYFed JSON escaping as AttributeError. Accept both report versions
+  behind the existing artifact/session/clock gates, and require an object before
+  reading refRates. Regress actual loader DATA_BLOCKED output and the unchanged
+  v1/v2 forward handoff; never treat a parser crash as a completed diagnosis.
+- V2 historical-evidence arrays can exceed the old128KiB A4 ZIP-member bound.
+  Give that source a bounded16MiB member/32MiB archive envelope within the
+  unchanged global caps, retaining exact member/hash/session checks. Regress a
+  real compressed multi-model member and one-byte-over-budget refusal; accepting
+  the new schema alone is insufficient if the transport still rejects its data.
+- Keep FRED format detection identical to the original normalizer: UTF8 BOM
+  JSON accepted by Source must not be reclassified as CSV by the A4 consumer.
+  Use the existing shared detector and regress both byte variants, exact raw
+  hashes, retained nulls and forged normalization refusal.
