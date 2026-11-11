@@ -10377,6 +10377,45 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Source; validate frozen positives and exact current/changed-source refusals.
   The separately reviewed ETF pin covers producer review-handoff code only,
   with Source/PIT/financial/ER admission still false. Keep all failed proofs.
+- Keep a known original financial producer separate from a new reuse execution.
+  A matched Gen30 origin needs its own explicit trusted mode, original receipt
+  pin and commit/catalog/config/issuer/extraction/QA linkage; do not erase that
+  evidence to satisfy the old unmatched G29/R9 contract. Preserve PARTIAL global
+  quality and the actual study flag. A completed receipt is neither whole-cohort
+  completeness nor PIT/market-join/valuation/ER/A5 or economic authority. Reject
+  invalid matched evidence without legacy fallback and carry resource charges
+  through preparation, binding and the existing Reader replay.
+- Do not turn a fixed successful Gen30/three-issuer archive-QA receipt into a
+  permanent generation or cohort-size gate. Preserve that exact proof variant,
+  and use a separately versioned bounded selected-issuer reconstruction proof
+  for later generations of the same producer. Bind the positive generation and
+  changed object/clock identity through commit/catalog/execution/QA; reject old
+  QA replay and retain all forward-only, partial-global and no-admission flags.
+- A raw financial producer receipt may carry the canonical hybrid scope, clock
+  and source-outcome fields. Reuse the same metadata validator as the full Lake,
+  with bounded original report bytes; do not replace an exact-key refusal with
+  blanket trust or a fake Lake/derived Drive marker. Keep actual source/gap/body
+  readback in the full Lake and selected-issuer reconstruction in the Reader.
+  Reported held/unmapped outcomes and partial study status are not admission.
+  Preserve earlier actual generations under their real producer HEAD; a later
+  code correction and unexecuted fixtures cannot relabel those receipts.
+- Independent static review caught a shared wrong-shape fixture: terminal-v2
+  cohort_sha256 hashes decompressed cohort JSON, while catalog raw_objects
+  hashes gzip bytes. Comparing them would reject the real canonical producer.
+  Preserve source-role metadata and the full Lake decompression checks, and
+  use a receipt generated through actual local Lake/finish/complete-consumer
+  APIs so a fixture cannot repeat the implementation's byte-domain mistake.
+- A shared producer validator also governs registered Lake regressions. Keep
+  their synthetic bare receipts and hybrid scopes canonical, not only the new
+  Reader fixtures. Isolate missing receipt clocks from missing report proofs,
+  and assert each exact earliest refusal without weakening runtime gates or
+  relabeling an older fixture run as current-head validation.
+- A shared Lake validator change reaches older Reader and macro integration
+  fixtures too. Their raw receipts need the actual synthetic publication
+  commit clock; a historical observation cutoff is not a receipt clock.
+  Preserve intentional missing/corrupt-receipt refusals and all causality
+  oracles, and validate the full related suite and shared-fixture callers
+  before another hosted CI cycle. Retain failed diagnostic costs.
 
 ### 2026-11-11 — Bind A4 CSV normalization to original Lake bytes
 
@@ -10402,3 +10441,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Regress that default execution still refuses missing new A4 modules, plus the
   existing isolated/no-network and missing-contract checks. Workflow/test bytes
   remain AUTO_PINS inputs; an older standing profile gains no execution rights.
+- Integrating current master8fb890639 exposed the A4 fixture's missing raw
+  execution created_at under the shared producer validator. Use its actual
+  synthetic publication commit clock, not the historical observation cutoff;
+  preserve the validator and negative oracles. Old synthetic success is not
+  proof that the new master or actual Drive generation has been replayed.
+  Publish a genuine new STALE_RETAINED generation for its refusal control;
+  mutating a restored catalog beneath its old content hash correctly fails the
+  shared metadata gate before the downstream dataset-status check.
+  Restore a fresh writer for that next publication; reusing the already
+  published writer correctly triggers its stale-writer guard.

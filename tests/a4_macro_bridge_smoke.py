@@ -41,12 +41,16 @@ class BridgeTests(unittest.TestCase):
         self.lake.dataset("current/SOFR", [raw], rows, dict(series="SOFR", evidence="current_only",
             requested_start="2026-10-01", requested_through="2026-11-06", retrieved_at=COLLECTED,
             missing_observation_dates=missing))
+        self.publish_reader()
+
+    def publish_reader(self):
         self.publication = self.lake.publish("fixture", {})
         quality = source.encoded(dict(schema="long-history-quality-v1", eligible_for_selector=False,
                                      status="COLLECTED_NOT_PIT_CERTIFIED"))
         qsha = source.digest(quality)
         self.transport.write(PREFIX+"/reports/"+qsha, quality)
         self.receipt = dict(schema="long-history-execution-v1", run_id="fixture",
+            created_at=json.loads(self.lake.read_hash("commits",self.publication["commit_sha256"]))["created_at"],
             commit_sha256=self.publication["commit_sha256"], catalog_sha256=self.publication["catalog_sha256"],
             reports={"quality.json": qsha}, consumer_rows=1, study_recomputed_from_drive=True,
             quality_status="COLLECTED_NOT_PIT_CERTIFIED", eligible_for_selector=False)
@@ -92,8 +96,9 @@ class BridgeTests(unittest.TestCase):
 
     def test_blocked_dataset_and_absent_series_do_not_fall_back(self):
         with self.assertRaises(ValueError): self.read(series_ids=["IORB"])
-        self.reader.catalog["datasets"]["current/SOFR"]["status"] = "STALE_RETAINED"
-        self.reader.before = copy.deepcopy(self.reader.catalog)
+        self.lake=Lake(self.transport,self.root/"stale-writer")
+        self.lake.blocked("current/SOFR",ValueError("synthetic_source_failed"))
+        self.publish_reader()
         with self.assertRaisesRegex(ValueError, "a4_dataset_unavailable"): self.read()
 
     def test_storage_success_without_study_is_not_consumer_success(self):
