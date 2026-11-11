@@ -232,16 +232,20 @@ class PrivateCaptureTests(unittest.TestCase):
         drive = object.__new__(m.OwnerDrive)
         drive.root_id = 'root-canary'
         drive.free = 32_000_000
-        checks, requests = [], []
+        checks, requests, reads = [], [], []
         drive.check = lambda *args, **kwargs: checks.append((args, kwargs))
         raw = b'private-storage-canary'
-        drive.read = lambda _: raw
+        def readback(file_id, limit):
+            reads.append((file_id, limit))
+            return raw
+        drive.read = readback
         def request(url, **kwargs):
             requests.append((url, kwargs))
             return m.encoded(dict(id='file-canary'))
         drive.request = request
         out = drive.write('folder-canary', raw, '.json')
         self.assertEqual(out['sha256'], m.digest(raw))
+        self.assertEqual(reads, [('file-canary', len(raw))])
         self.assertEqual(len(requests), 1)
         query = parse_qs(urlsplit(requests[0][0]).query)
         self.assertEqual(query['ignoreDefaultVisibility'], ['true'])

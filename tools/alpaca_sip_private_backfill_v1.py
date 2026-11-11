@@ -331,7 +331,7 @@ def _private_object(drive: OwnerDrive, folder: str, ref: dict,
             and type(ref.get("bytes")) is int
             and 0 < ref["bytes"] <= max_bytes, "RESUME_REFERENCE")
     drive.check(ref["file_id"], folder, folder=False)
-    raw = drive.read(ref["file_id"], max_bytes)
+    raw = drive.read(ref["file_id"], ref["bytes"])
     require(len(raw) == ref["bytes"] and digest(raw) == ref["sha256"],
             "RESUME_OBJECT_HASH")
     return raw
@@ -1624,6 +1624,39 @@ NEW3_ARCHIVAL_POLICY_SHA = "a001000deb232f52615355151da1cc88c5af46e4e43cff5d0ff4
 NEW3_SUPERSEDED_TASK = "R1000-A0-NEW3-OHLCV-20261028-ONE"
 NEW3_SUPERSEDED_ALLOCATION = "https://github.com/wscha231/r1000-quant-engine/issues/448#issuecomment-6471394173"
 
+# A distinct, single-use archival compatibility scope; no old grant is renewed.
+BRIDGE_PROFILE = "selected3-two-session-bridge-20261111-r1"
+BRIDGE_TASK = "R1000-A1-TWO-SESSION-ARCHIVAL-BRIDGE-20261111-R1"
+BRIDGE_INPUT = b"ticker\nLITE\nMRVL\nPWR\n"
+BRIDGE_START, BRIDGE_END = "2026-10-13", "2026-10-15"
+BRIDGE_CAPS = dict(provider_gets=5, drive_requests=128, drive_bytes=16*1024**2,
+                   storage_bytes=1024**2)
+BRIDGE_ASSET_IDS = dict(LITE="363b9094-c5ae-4899-bbc0-f94b27c87a6e",
+    MRVL="723c21be-11af-4450-9b64-20346a6905fc", PWR="922c81b2-d99a-4a7f-bf54-6ebd6f8305bd")
+BRIDGE_PARENTS = {
+    "LITE": ["3c6c2161753c7f1962ba72a8b24d62adb5be83ee",
+        "0c005413c1d8b74526a5a399b9ef2051c9746ba9f00bc8f2ae3eabd9987c7d12",
+        "01bb78d0a6a407b50eb066393c8757f2dc54134cca57b068bec7e36d0f933869",
+        "768cc9652dee02e9330a5de357a7c72e30320c7a670d952a5e00e1aa348e5783",
+        "209cad21cef7cdbac48cb7df665ea991d90cee0bd7df46e79d3e0651fb705677",
+        "62cc58e72818ac50e18195b1cf7bbc67d7b7142416e704df9a10df2007438290",
+        "0647560462bbfb82529e0318bb73489e0d4f30e14450eadb4cd241780ce3024f"],
+    "MRVL": ["b268ef972b3f157501e489ab4d1ba67fe9dfd874",
+        "b67f272ff626cb2af1295bae1b5dcac32552eef62c057efa99490ef68bcc8cf1",
+        "ec46730e5504ba741b978304d2c19479dd2ac976e22f71e27f758df319e3524b",
+        "fcfe21af2dfb4a26244f31c023a06c53f7efa22bf977addf0a4154c57bab4aa7",
+        "e19ca21421199c8565aa4ba7e696536ee1bc56570ff72265df404ff6cd4c8876",
+        "791bc9b31ef7182eda69bcf45572420b2d25714b87ae044e62b3fda93e5dafbc",
+        "8b9d217f094f2c5a76048b9fd5bb5066d1b27ee51aeaefec6200ad6097bc5359"],
+    "PWR": ["18571d9ab03b45abd33fe76edfbb03744e7eb917",
+        "89a37d16e6b0b61cf052038d56e4876b3eddd9bfa3cbcd7f88e7f29691891703",
+        "bdad5e3386e75a349d6ebb825d68d787c291dff30ecd53746f1a1579d2c41300",
+        "759d53d9258cf16d2f6a8a054e22dc4072eaf074acd6a3b5ccdf3c853a3e44e0",
+        "af23e8f96d012519edb46a6711c41ce0ded3cec6aa8ecdfdeff048300dc939ba",
+        "cf4406765dcc6143d89ceffbb6db55b5b602a044800fdcba5c8626a09925fc99",
+        "444aa4caab389123dd653f44a4eeb7a6c1aa3bf9f442c8b0f69dd96c84e5b661"],
+}
+
 
 def _new3_scope():
     return dict(task_key=NEW3_TASK, namespace="owner-new3-20261029-r2", input_sha256=digest(NEW3_INPUT))
@@ -1850,6 +1883,8 @@ def _new3_event_control(c, expected=None):
     control = c.decode(inputs["campaign_control"])
     require(isinstance(control, dict) and set(control) == {"authorization", "nonce"}, "NEW_THREE_PRIVATE_EVENT")
     auth = control["authorization"]
+    if isinstance(auth, dict) and auth.get("allocation_profile") == BRIDGE_PROFILE:
+        return _bridge_event_inputs(c, inputs, control, expected)
     _new3_authorization(c, auth)
     require(control["nonce"] == inputs.get("campaign_nonce") == _new3_nonce(c)
         and inputs.get("private_root_folder_id") == auth["private_root_folder_id"]
@@ -2052,6 +2087,400 @@ def _new3_settle(c, auth, slot):
         last = slot.entries[1]
         require(last.get("kind") == "NEW_THREE_SETTLED" and all(last.get(k) == v for k, v in record.items()), "NEW_THREE_SETTLEMENT_DRIFT")
     return dict(record, status="NEW_THREE_" + status, source_admission=False, economic_authority=False)
+
+
+def _bridge_scope():
+    return dict(task_key=BRIDGE_TASK, namespace=BRIDGE_PROFILE,
+        input_sha256=digest(BRIDGE_INPUT), start=BRIDGE_START, end=BRIDGE_END,
+        parent_captures={ticker: list(refs) for ticker, refs in BRIDGE_PARENTS.items()},
+        tail_origin=dict(run_id=42776143924, attempt=1,
+            source_sha="75734a2bef9b427d9b755e56fc27c4955afa82b6",
+            checkpoint_sha256="5bdefe9f01a05ce7b52148ea3b512742e7e535709b576586ea55e72b44904f63"))
+
+
+def _bridge_nonce(c):
+    # Changing the control, expiry or grant cannot manufacture a second slot.
+    return c.PREFIX + digest(encoded(_bridge_scope()))[:24]
+
+
+def _bridge_authorization(c, auth):
+    fields = {"schema", "task_key", "allocation_profile", "allocation_reference", "start", "end",
+        "input_csv", "scope", "limits", "wall_seconds", "not_before_utc", "start_before_utc",
+        "expected_master", "code_pins", "deployment", "private_root_folder_id", "private_data_folder_id",
+        "owner_permission_id", "credential_binding", "working_copy_reference", "rights_documents",
+        "opening", "asset_ids"}
+    require(type(auth) is dict and set(auth) == fields
+        and auth.get("schema") == "a1-two-session-bridge-authorization-v1"
+        and auth.get("allocation_profile") == BRIDGE_PROFILE and auth.get("task_key") == BRIDGE_TASK,
+        "BRIDGE_AUTHORIZATION")
+    require(auth["start"] == BRIDGE_START and auth["end"] == BRIDGE_END
+        and auth["input_csv"] == BRIDGE_INPUT.decode() and auth["scope"] == _bridge_scope()
+        and digest(BRIDGE_INPUT) == "a251330b8aced31ee93f946a808adfeec84505bd5301443893d5b4265de871e9",
+        "BRIDGE_SCOPE")
+    require(auth["limits"] == BRIDGE_CAPS and all(type(auth["limits"][k]) is int for k in BRIDGE_CAPS)
+        and type(auth["wall_seconds"]) is int and auth["wall_seconds"] == 900,
+        "BRIDGE_LIMITS")
+    require(all(isinstance(auth[k], str) for k in ("start_before_utc", "not_before_utc"))
+        and timedelta(0) < c.utc(auth["start_before_utc"]) - c.utc(auth["not_before_utc"])
+        <= timedelta(hours=24), "BRIDGE_WINDOW")
+    require(isinstance(auth["expected_master"], str) and re.fullmatch("[0-9a-f]{40}", auth["expected_master"])
+        and type(auth["code_pins"]) is dict
+        and set(auth["code_pins"]) == set(c.PINS + (c.REVISION_MODULE, NEW3_CALENDAR_PATH))
+        and all(isinstance(h, str) and re.fullmatch("[0-9a-f]{64}", h)
+                for h in auth["code_pins"].values()), "BRIDGE_CODE_PINS")
+    d = auth["deployment"]
+    require(type(d) is dict and set(d) == {"pull_request", "reviewed_head"}
+        and type(d["pull_request"]) is int and d["pull_request"] > 0
+        and isinstance(d["reviewed_head"], str) and re.fullmatch("[0-9a-f]{40}", d["reviewed_head"]),
+        "BRIDGE_DEPLOYMENT")
+    for k in ("allocation_reference", "working_copy_reference"):
+        require(isinstance(auth[k], str) and re.fullmatch(
+            r"https://github\.com/wscha231/r1000-quant-engine/issues/448#issuecomment-[0-9]+", auth[k]),
+            "BRIDGE_OWNER_REFERENCE")
+    for k in ("private_root_folder_id", "private_data_folder_id"):
+        require(isinstance(auth[k], str) and re.fullmatch("[A-Za-z0-9_-]{10,100}", auth[k]), "BRIDGE_PRIVATE_REF")
+    require(auth["private_root_folder_id"] != auth["private_data_folder_id"]
+        and isinstance(auth["owner_permission_id"], str)
+        and digest(auth["owner_permission_id"].encode()) == c.CONTINUATION["bindings"]["owner_sha256"]
+        and auth["credential_binding"] == c.CONTINUATION["bindings"]["credential_binding"], "BRIDGE_ACCOUNT")
+    docs = auth["rights_documents"]
+    require(type(docs) is list and 1 <= len(docs) <= 8, "BRIDGE_RIGHTS_REFERENCES")
+    for ref in docs:
+        require(type(ref) is dict and set(ref) == {"folder_id", "file_id", "sha256", "bytes"}
+            and all(isinstance(ref[k], str) and re.fullmatch("[A-Za-z0-9_-]{10,100}", ref[k])
+                    for k in ("folder_id", "file_id"))
+            and isinstance(ref["sha256"], str) and re.fullmatch("[0-9a-f]{64}", ref["sha256"])
+            and type(ref["bytes"]) is int and 0 < ref["bytes"] <= 262144, "BRIDGE_RIGHTS_REFERENCES")
+    require(len({r["file_id"] for r in docs}) == len(docs), "BRIDGE_RIGHTS_REFERENCES")
+    opening = auth["opening"]
+    require(type(opening) is dict and set(opening) == {"family_prefix_first_sha256", "family_prefix_sha256",
+        "event_count", "dispatches", "usage", "source_history_sha256", "unresolved_costs_reserved", "scope_receipts"}
+        and type(opening["event_count"]) is int and 108 <= opening["event_count"] <= 10000
+        and type(opening["dispatches"]) is int and opening["dispatches"] >= 41
+        and opening["unresolved_costs_reserved"] is True, "BRIDGE_OPENING")
+    for k in ("family_prefix_first_sha256", "family_prefix_sha256", "source_history_sha256"):
+        require(isinstance(opening[k], str) and re.fullmatch("[0-9a-f]{64}", opening[k]), "BRIDGE_OPENING")
+    refs = opening["scope_receipts"]
+    require(type(refs) is dict and set(refs) == {"993", "174", "NEW3", "607"}
+        and all(isinstance(h, str) and re.fullmatch("[0-9a-f]{64}", h) for h in refs.values())
+        and refs["NEW3"] == "8c69d6537d98b8cb7ef4c68b401897413a6d64351b1b8c625236d64278651043"
+        and refs["607"] == "836c72553d8c7cec8614bdb04d08fe6f20ae98632acdcd7bec54b43e5e4f8003", "BRIDGE_OPENING")
+    floors = dict(provider_gets=1338, drive_requests=12686, drive_bytes=2151048780, storage_bytes=172919995)
+    require(type(opening["usage"]) is dict and set(opening["usage"]) == set(BRIDGE_CAPS), "BRIDGE_OPENING")
+    for k, floor in floors.items():
+        require(c.integer(opening["usage"][k], 2**53-1, "BRIDGE_OPENING") >= floor, "BRIDGE_OPENING")
+    ids = auth["asset_ids"]
+    require(type(ids) is dict and ids == BRIDGE_ASSET_IDS and set(ids) == set(external_cohort(BRIDGE_INPUT))
+        and len(set(ids.values())) == 3 and all(isinstance(v, str) and re.fullmatch(
+            r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", v) for v in ids.values()), "BRIDGE_ASSET_IDS")
+    require(len(encoded(auth)) <= 12000, "BRIDGE_CONTROL_SIZE")
+    return _new3_hash(auth)
+
+
+def _bridge_authority(c, auth, *, accounting=False):
+    window = (auth["not_before_utc"], auth["start_before_utc"])
+    allocation = _fixed_spy_owner_record(c, auth["allocation_reference"],
+        "A1_SIP_TWO_SESSION_BRIDGE_ALLOCATION ", window=window)
+    require(allocation == dict(schema="a1-two-session-bridge-allocation-v1", task_key=BRIDGE_TASK,
+        scope_sha256=digest(encoded(_bridge_scope())), limits=BRIDGE_CAPS, wall_seconds=900, dispatches=1,
+        expected_master=auth["expected_master"], code_pins_sha256=digest(encoded(auth["code_pins"])),
+        opening_sha256=digest(encoded(auth["opening"])), credential_binding=auth["credential_binding"],
+        not_before_utc=window[0], start_before_utc=window[1], private_noncommercial=True,
+        source_admission=False, economic_authority=False), "BRIDGE_ALLOCATION")
+    reviewed = _fixed_spy_owner_record(c, auth["working_copy_reference"],
+        "A1_SIP_TWO_SESSION_BRIDGE_WORKING_COPY ", window=window)
+    expected = dict(schema="a1-two-session-bridge-working-copy-v1", control_sha256=_new3_hash(auth),
+        allocation_reference=auth["allocation_reference"], credential_binding=auth["credential_binding"],
+        owner_sha256=digest(auth["owner_permission_id"].encode()),
+        rights_manifest_sha256=digest(encoded(auth["rights_documents"])),
+        purpose="PRIVATE_NONCOMMERCIAL_RESEARCH_WORKING_COPY", historical_sip_reviewed=True,
+        current_account_reviewed=True, private_working_copy_reviewed=True,
+        supplier_rights_verified=False, supplier_expiry=None, permanent_retention_verified=False,
+        redistribution_authorized=False, source_admission=False, economic_authority=False)
+    require(reviewed == expected, "BRIDGE_ACCOUNT_REVIEW")
+    pr = c.gh_json(f"repos/{c.REPO}/pulls/{auth['deployment']['pull_request']}")
+    clocks = [c.gh_json(f"repos/{c.REPO}/issues/comments/{auth[k].rsplit('-', 1)[1]}")["created_at"]
+              for k in ("allocation_reference", "working_copy_reference")]
+    require(isinstance(pr.get("merged_at"), str) and all(isinstance(t, str) for t in clocks)
+        and c.utc(pr["merged_at"]) <= c.utc(clocks[0]) <= c.utc(clocks[1]) <= c.utc()
+        and (accounting or c.utc(window[0]) <= c.utc() < c.utc(window[1])), "BRIDGE_OWNER_CLOCK")
+    return digest(encoded(reviewed))
+
+
+def _bridge_history(c, auth, current=None, *, accounting=False):
+    rows = c.campaign_run_pages(c)
+    matches = [r for r in rows if r.get("display_title") == "a1-sip " + _bridge_nonce(c)]
+    require(len(matches) == (0 if current is None else 1), "BRIDGE_ALREADY_ATTEMPTED_OR_UNKNOWN")
+    if current is not None:
+        require(matches[0].get("id") == current and matches[0].get("run_attempt") == 1
+            and matches[0].get("head_sha") == auth["expected_master"]
+            and matches[0].get("head_branch") == "master" and matches[0].get("event") == "workflow_dispatch",
+            "BRIDGE_CURRENT_RUN")
+    if not accounting:
+        prior = [r for r in rows if r.get("id") != current]
+        require(all(r.get("status") == "completed" for r in prior), "BRIDGE_FOREIGN_ACTIVE_RUN")
+        fields = ("id", "run_number", "run_attempt", "head_sha", "head_branch", "event", "status",
+                  "conclusion", "display_title", "created_at", "updated_at")
+        snapshot = [{k: r.get(k) for k in fields} for r in sorted(prior, key=lambda r: r["id"])]
+        require(digest(encoded(snapshot)) == auth["opening"]["source_history_sha256"], "BRIDGE_HISTORY_DRIFT")
+    return matches[0] if current is not None else None
+
+
+def _bridge_archival_gate(c, auth, *, observed=None):
+    from tools.run_daily_market_session_gate import evaluate_market_session, mcal
+    now = c.utc() if observed is None else observed
+    require(auth["start"] == BRIDGE_START and auth["end"] == BRIDGE_END
+        and c.utc(auth["not_before_utc"]) <= now < c.utc(auth["start_before_utc"]), "BRIDGE_ARCHIVAL_WINDOW")
+    schedule = mcal.get_calendar("NYSE").schedule(start_date=BRIDGE_START, end_date="2026-10-14")
+    require([label.date().isoformat() for label in schedule.index] == [BRIDGE_START, "2026-10-14"],
+            "BRIDGE_ARCHIVAL_SESSIONS")
+    closes = [c.utc(row["market_close"].isoformat()) for _, row in schedule.iterrows()]
+    require(all(close + timedelta(minutes=120) <= now for close in closes)
+        and c.utc("2026-10-14T23:59:59Z") + timedelta(minutes=15) <= now, "BRIDGE_ARCHIVAL_UNSETTLED")
+    return dict(schema="a1-two-session-bridge-time-gate-v1", status="ARCHIVAL_COLLECTION_ONLY",
+        observed_at_utc=now.isoformat(), sessions=[BRIDGE_START, "2026-10-14"],
+        market_closes_utc=[close.isoformat() for close in closes],
+        daily_market_gate=evaluate_market_session(now_utc=now, min_close_age_minutes=120),
+        current_price_verified=False, source_admission=False, pit_verified=False)
+
+
+def _bridge_event_inputs(c, inputs, control, expected=None):
+    auth = control["authorization"]
+    _bridge_authorization(c, auth)
+    require(control["nonce"] == inputs.get("campaign_nonce") == _bridge_nonce(c)
+        and inputs.get("private_root_folder_id") == auth["private_root_folder_id"]
+        and inputs.get("private_data_folder_id") == auth["private_data_folder_id"]
+        and inputs.get("resume_file_id", "") == inputs.get("resume_sha256", "") == ""
+        and inputs.get("end_date") == BRIDGE_END
+        and (type(inputs.get("max_new_symbols")) is int and inputs["max_new_symbols"] == 3
+             or inputs.get("max_new_symbols") == "3")
+        and all(inputs.get(k) is True or inputs.get(k) == "true" for k in
+            ("private_research_authorized", "noncommercial_terms_acknowledged"))
+        and (expected is None or encoded(expected) == encoded(control)), "BRIDGE_PRIVATE_EVENT")
+    return control
+
+
+def _bridge_get(c, auth, meter, key, secret):
+    from urllib.parse import parse_qs, urlsplit
+    seen = set()
+    def get(url, **kwargs):
+        endpoint = urlsplit(url)
+        if endpoint.netloc == "data.alpaca.markets":
+            query = parse_qs(endpoint.query, keep_blank_values=True)
+            expected = dict(symbols=["LITE,MRVL,PWR"], timeframe=["1Day"],
+                start=[BRIDGE_START+"T00:00:00Z"], end=["2026-10-14T23:59:59Z"],
+                feed=["sip"], limit=["10000"], sort=["asc"], asof=["2026-10-14"])
+            adjustment = query.pop("adjustment", None)
+            require(endpoint.path == "/v2/stocks/bars" and query == expected
+                and adjustment in (["raw"], ["split"]) and adjustment[0] not in seen,
+                "BRIDGE_REQUEST_SCOPE")
+            seen.add(adjustment[0])
+            raw = meter.perform(url, **kwargs)
+            payload = credential_safe_json(raw, (key, secret))
+            require(type(payload) is dict and type(payload.get("bars")) is dict, "BRIDGE_BARS_SCHEMA")
+            require(payload.get("next_page_token") is None, "BRIDGE_PAGINATION_NOT_AUTHORIZED")
+            return raw
+        symbol = endpoint.path.rsplit("/", 1)[-1]
+        require(endpoint.netloc == "paper-api.alpaca.markets" and symbol in auth["asset_ids"]
+            and endpoint.path == "/v2/assets/"+symbol and not endpoint.query, "BRIDGE_REQUEST_SCOPE")
+        raw = meter.perform(url, **kwargs)
+        require(asset_record(raw, symbol)["id"] == auth["asset_ids"][symbol], "BRIDGE_ASSET_CHANGED")
+        return raw
+    return get
+
+
+def _bridge_capture(c, auth, meter, key, secret):
+    names = external_cohort(BRIDGE_INPUT)
+    scope = dict(task_key=BRIDGE_TASK, namespace=BRIDGE_PROFILE, input_sha256=digest(BRIDGE_INPUT))
+    with tempfile.TemporaryDirectory(prefix="a1-archival-bridge-") as temp:
+        drive = OwnerDrive(auth["private_root_folder_id"], temp, meter=meter)
+        require(drive.owner == auth["owner_permission_id"] and drive.free >= 2*1024**3, "BRIDGE_OWNER_OR_SPACE")
+        drive.check(auth["private_data_folder_id"], drive.root_id)
+        for ref in auth["rights_documents"]:
+            drive.check(ref["folder_id"])
+            _private_object(drive, ref["folder_id"], ref, 262144)
+        get = _bridge_get(c, auth, meter, key, secret)
+        assets = precheck_assets(names, key, secret, get)
+        require(all(asset_supported(a) for a in assets), "BRIDGE_ASSET_UNAVAILABLE")
+        objects, valid, no_data, count = capture_one_group(drive, auth["private_data_folder_id"], names,
+            BRIDGE_START, BRIDGE_END, key, secret, digest(BRIDGE_INPUT), auth["expected_master"],
+            get=get, scope=scope, asset_evidence=assets)
+        originals = [_private_object(drive, auth["private_data_folder_id"], ref, 16_000_000) for ref in objects]
+        receipt = decode(originals[2])
+        verify_archived_group(originals[0], originals[1], receipt)
+        rows = [decode(line) for line in gzip.decompress(originals[1]).splitlines()]
+        require(valid == names and not no_data and count == len(rows) == 12
+            and {(r["ticker"], r["date"], r["adjustment"]) for r in rows}
+                == {(t, s, b) for t in names for s in (BRIDGE_START, "2026-10-14") for b in ("raw", "split")},
+            "BRIDGE_INCOMPLETE_GRID")
+        state = dict(schema=SCHEMA, state="PRIVATE_RESEARCH_ONLY", source=SOURCE,
+            seed_sha256=digest(BRIDGE_INPUT), source_sha=auth["expected_master"], start=BRIDGE_START,
+            end=BRIDGE_END, asof="2026-10-14", examined=names, completed=names, held=[],
+            last_status="VERIFIED_RAW_SPLIT", last_objects=objects, previous_checkpoint=None,
+            last_collected=valid, last_no_bars=[], last_held=[], cohort_scope=scope,
+            historical_identity_verified=False, pit_verified=False, source_admission=False,
+            commercial_use_authorized=False)
+        checkpoint = persist_object(drive, auth["private_data_folder_id"], encoded(state), ".json")
+        require(decode(_private_object(drive, auth["private_data_folder_id"], checkpoint, 262144)) == state,
+                "BRIDGE_CHECKPOINT_READBACK")
+        meter.checkpoint_sha, meter.examined, meter.rows = checkpoint["sha256"], 3, 12
+        meter.states["VALID_COLLECTED"] = 3
+        meter.save()
+        return checkpoint
+
+
+def _bridge_worker(c, args, control, journal):
+    require(type(control) is dict and set(control) == {"authorization", "nonce"}, "BRIDGE_CONTROL")
+    auth = control["authorization"]
+    h = _bridge_authorization(c, auth)
+    require(os.getenv("A1_PRIVATE_RESEARCH_AUTHORIZED") == "true"
+        and os.getenv("ALPACA_NONCOMMERCIAL_ACKNOWLEDGED") == "true"
+        and os.getenv("GITHUB_REPOSITORY") == c.REPO and os.getenv("GITHUB_REF") == "refs/heads/master"
+        and os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch" and os.getenv("GITHUB_RUN_ATTEMPT") == "1"
+        and os.getenv("GITHUB_SHA") == auth["expected_master"]
+        and control["nonce"] == os.getenv("INPUT_CAMPAIGN_NONCE") == _bridge_nonce(c), "BRIDGE_CONTEXT")
+    _new3_event_control(c, control)  # Existing workflow private event channel, not job environment.
+    require(args.private_root_folder_id == args.private_data_folder_id == ""
+        and args.start == MIN_START and args.end == BRIDGE_END and args.max_new_symbols == 3
+        and args.resume_file_id == args.resume_sha256 == "", "BRIDGE_ARGUMENTS")
+    _new3_source(c, auth)  # Existing exact protected deployment/check/code verifier.
+    reviewed = _bridge_authority(c, auth)
+    gate = _bridge_archival_gate(c, auth)
+    run_id = int(os.environ["GITHUB_RUN_ID"])
+    current = _bridge_history(c, auth, run_id)
+    require(isinstance(current.get("created_at"), str) and isinstance(current.get("run_started_at"), str),
+            "BRIDGE_START_OR_DEADLINE")
+    start = c.utc(current.get("created_at"))
+    require(current.get("status") == "in_progress"
+        and start <= c.utc(current.get("run_started_at")) <= c.utc()
+        and c.utc() < start + timedelta(seconds=840), "BRIDGE_START_OR_DEADLINE")
+    _new3_source(c, auth)  # No master drift after metadata/history and before credentials.
+    key, secret = os.getenv("ALPACA_API_KEY", "").strip(), os.getenv("ALPACA_API_SECRET", "").strip()
+    require(key and secret and digest((key+"\0"+secret).encode()) == auth["credential_binding"], "BRIDGE_CREDENTIALS")
+    identity = dict(task_key=BRIDGE_TASK, auth_sha256=h, source_sha=auth["expected_master"],
+        nonce=_bridge_nonce(c), run_id=run_id, run_attempt=1, preflight_only=False,
+        allocation_profile=BRIDGE_PROFILE, allocation_comment_id=int(auth["allocation_reference"].rsplit("-", 1)[1]),
+        bridge_scope_sha256=digest(encoded(_bridge_scope())), opening_accounting_sha256=digest(encoded(auth["opening"])),
+        cohort_scope=dict(task_key=BRIDGE_TASK, namespace=BRIDGE_PROFILE, input_sha256=digest(BRIDGE_INPUT)),
+        parent_checkpoint_sha256=c.external_genesis(dict(task_key=BRIDGE_TASK, namespace=BRIDGE_PROFILE,
+            input_sha256=digest(BRIDGE_INPUT))), examined_before=0, current_price_verified=False,
+        bindings=dict(c.CONTINUATION["bindings"]), account_permission_record_sha256=reviewed,
+        account_permission_reference_sha256=digest(auth["working_copy_reference"].encode()),
+        archival_time_gate=gate)
+    deadline = min(c.utc(auth["start_before_utc"]), start+timedelta(seconds=840))
+    meter = c.RuntimeMeter(dict(BRIDGE_CAPS), journal, deadline.isoformat(), identity,
+        asset_symbols=tuple(external_cohort(BRIDGE_INPUT)))
+    try:
+        with meter.process_deadline():
+            _bridge_archival_gate(c, auth)  # Recompute the real clock before all price I/O.
+            checkpoint = _bridge_capture(c, auth, meter, key, secret)
+        meter.finish("COMPLETE")
+        result = dict(status="BRIDGE_CAPTURE_VERIFIED", allocation_profile=BRIDGE_PROFILE,
+            checkpoint_sha256=checkpoint["sha256"], rows_verified=12, examined=3,
+            current_price_verified=False, source_admission=False, pit_verified=False, economic_authority=False)
+        print(c.json.dumps(result, sort_keys=True))
+        return result
+    except BaseException:
+        meter.finish("BLOCKED", "BRIDGE_CAPTURE_FAILED")
+        raise
+
+
+def _bridge_settle(c, auth, slot):
+    require(len(slot.entries) in (1, 2), "BRIDGE_RESERVATION")
+    first = slot.entries[0]
+    require(first.get("kind") == "BRIDGE_RESERVED" and first.get("nonce") == _bridge_nonce(c)
+        and first.get("control_sha256") == _new3_hash(auth) and first.get("allowance") == BRIDGE_CAPS
+        and first.get("opening_sha256") == digest(encoded(auth["opening"]))
+        and first.get("elapsed_reservation") == 900, "BRIDGE_RESERVATION")
+    _new3_source(c, auth, accounting=True)
+    _bridge_authority(c, auth, accounting=True)
+    matches = [r for r in c.campaign_run_pages(c) if r.get("display_title") == "a1-sip "+_bridge_nonce(c)]
+    require(len(matches) == 1, "BRIDGE_DISPATCH_OUTCOME_UNKNOWN")
+    run = _bridge_history(c, auth, matches[0]["id"], accounting=True)
+    if run.get("status") != "completed":
+        return dict(status="BRIDGE_OUTCOME_PENDING", run_id=run["id"], automatic_retry=False)
+    receipt = c.receipt_for_run(run, _new3_hash(auth), auth["expected_master"], dict(BRIDGE_CAPS),
+        allocation_profile=BRIDGE_PROFILE)
+    require(receipt.get("allocation_comment_id") == int(auth["allocation_reference"].rsplit("-", 1)[1])
+        and receipt.get("opening_accounting_sha256") == digest(encoded(auth["opening"]))
+        and receipt.get("examined_before") == 0
+        and receipt.get("parent_checkpoint_sha256") == c.external_genesis(dict(
+            task_key=BRIDGE_TASK, namespace=BRIDGE_PROFILE, input_sha256=digest(BRIDGE_INPUT)))
+        and receipt.get("archival_time_gate") == _bridge_archival_gate(c, auth,
+            observed=c.utc(receipt.get("archival_time_gate", {}).get("observed_at_utc"))), "BRIDGE_RECEIPT")
+    require(all(isinstance(run.get(k), str) for k in ("created_at", "updated_at"))
+        and c.utc(run["created_at"]) <= c.utc(receipt["archival_time_gate"]["observed_at_utc"])
+            <= c.utc(run["updated_at"]) <= c.utc(), "BRIDGE_SETTLEMENT_CLOCK")
+    elapsed = (c.utc(run["updated_at"])-c.utc(run["created_at"])).total_seconds()
+    seconds = c.job_seconds(run)
+    complete = (receipt["status"] == "COMPLETE" and run.get("conclusion") == "success"
+        and receipt["examined_after"] == 3 and receipt["rows_verified"] == 12
+        and 0 <= seconds <= elapsed <= 900)
+    record = dict(run_id=run["id"], receipt_sha256=digest(encoded(receipt)), usage=receipt["usage"],
+        checkpoint_sha256=receipt["checkpoint_sha256"], canonical_elapsed_seconds=elapsed,
+        measured_job_seconds=seconds, status="COMPLETE" if complete else "BLOCKED")
+    if len(slot.entries) == 1:
+        slot.append("BRIDGE_SETTLED", **record)
+    else:
+        require(slot.entries[1].get("kind") == "BRIDGE_SETTLED"
+            and all(slot.entries[1].get(k) == v for k, v in record.items()), "BRIDGE_SETTLEMENT_DRIFT")
+    return dict(record, status="BRIDGE_"+record["status"],
+        cumulative_usage={k: auth["opening"]["usage"][k]+receipt["usage"][k] for k in BRIDGE_CAPS},
+        automatic_retry=False, source_admission=False, economic_authority=False)
+
+
+def _bridge_host(c, auth, state_dir, budget_state_dir, *, forbidden=False):
+    _bridge_authorization(c, auth)
+    require(not forbidden and budget_state_dir is not None, "BRIDGE_HOST_SCOPE")
+    budget, state = Path(budget_state_dir), Path(state_dir)
+    family_dir = budget.resolve().parent / ("external-budget-"+c.CONTINUATION["auth"][:16])
+    require(budget.is_dir() and not budget.is_symlink() and family_dir.is_dir() and not family_dir.is_symlink()
+        and not state.is_symlink() and state.resolve() == budget.resolve().parent / BRIDGE_PROFILE,
+        "BRIDGE_JOURNAL_PATH")
+    family = c.WorkJournal(family_dir, c.external_family_genesis())
+    slot = None
+    try:
+        opening = auth["opening"]
+        require(len(family.entries) == opening["event_count"] and family.parent == opening["family_prefix_sha256"]
+            and digest(c.bounded_bytes(family_dir/"000001.json")) == opening["family_prefix_first_sha256"]
+            and family.entries[0].get("kind") == "EXTERNAL_FAMILY_BOUND"
+            and family.entries[0].get("budget_state_root") == os.path.normcase(str(budget.resolve())),
+            "BRIDGE_LEGACY_PREFIX_DRIFT")
+        slot = c.WorkJournal(state, digest(BRIDGE_TASK.encode()))
+        if slot.entries:
+            return _bridge_settle(c, auth, slot)
+        _new3_source(c, auth)
+        _bridge_authority(c, auth)
+        _bridge_history(c, auth)
+        _bridge_archival_gate(c, auth)
+        # Reserve the single slot durably before the sole POST. Unknown outcome
+        # stays reserved; another path/control/nonce cannot restart it.
+        slot.append("BRIDGE_RESERVED", nonce=_bridge_nonce(c), control_sha256=_new3_hash(auth),
+            allowance=dict(BRIDGE_CAPS), elapsed_reservation=900,
+            opening_sha256=digest(encoded(opening)))
+        _new3_source(c, auth)
+        _bridge_history(c, auth)
+        _bridge_archival_gate(c, auth)
+        control = dict(authorization=auth, nonce=_bridge_nonce(c))
+        inputs = dict(private_root_folder_id=auth["private_root_folder_id"],
+            private_data_folder_id=auth["private_data_folder_id"], private_research_authorized="true",
+            noncommercial_terms_acknowledged="true", end_date=BRIDGE_END, max_new_symbols="3",
+            resume_file_id="", resume_sha256="", campaign_control=encoded(control).decode(),
+            campaign_nonce=_bridge_nonce(c))
+        try:
+            sent = c.subprocess.run(["gh", "workflow", "run", c.WORKFLOW, "--repo", c.REPO, "--ref", "master", "--json"],
+                input=c.json.dumps(inputs).encode(), stdout=c.subprocess.DEVNULL, stderr=c.subprocess.DEVNULL, timeout=45)
+            require(sent.returncode == 0, "BRIDGE_DISPATCH_UNCERTAIN")
+        except Exception:
+            raise c.Refused("BRIDGE_DISPATCH_UNCERTAIN") from None
+        return dict(status="BRIDGE_POST_ACCEPTED_OUTCOME_PENDING", nonce=_bridge_nonce(c),
+            automatic_retry=False, source_admission=False)
+    finally:
+        try:
+            if slot is not None:
+                slot.close()
+        finally:
+            family.close()
 
 
 def run(args):

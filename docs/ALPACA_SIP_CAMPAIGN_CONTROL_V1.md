@@ -1,5 +1,65 @@
 # Finite private SIP campaign control
 
+## Selected-three two-session archival bridge — code contract, not a grant
+
+`selected3-two-session-bridge-20261111-r1` reuses the existing public campaign
+host/worker and private-backfill collector. It fixes LITE/MRVL/PWR in that order,
+CSV SHA256 `a251330b8aced31ee93f946a808adfeec84505bd5301443893d5b4265de871e9`,
+start2026-10-13/end-exclusive2026-10-15, SIP/1Day/raw+split and twelve normalized
+rows on two actual NYSE sessions. The exact original three historical and
+Source607 ZIP/gzip/receipt hashes, distinct historical producer SHAs and
+Source607 run/checkpoint are fixed scope inputs. SPY has a different boundary
+and is excluded. Existing composition-overlap/factor guards are unchanged.
+
+The existing workflow masks typed allocation controls and reads private refs
+from `GITHUB_EVENT_PATH`; the bridge reuses that same channel without a workflow
+or schedule change. Collector CLI still requires `--campaign-control-file`.
+The public host uses `--authorization`, `--state-dir`, `--budget-state-dir` and
+at most `--max-batches 1`. Supplying `--start` or calling a private primitive
+does not grant collection. Legacy2016, NEW3, SPY, external-cohort and ordinary
+managed-cadence guards retain their original behavior.
+
+`a1-two-session-bridge-authorization-v1` binds the protected deployment and
+existing transitive code pins, original account/owner, applicable private
+rights-document refs, current asset UUIDs, exact spent family prefix, canonical
+Source history and993/174/NEW3/607 receipt references. Two actual immutable
+post-deployment OWNER records in #448 must carry the exact terms, tagged
+`A1_SIP_TWO_SESSION_BRIDGE_ALLOCATION` and
+`A1_SIP_TWO_SESSION_BRIDGE_WORKING_COPY`. No legal form, signature, secret value,
+new credential hash, perpetual-retention or redistribution right is invented.
+
+Future finite grant terms are exactly one capture/five provider GETs (three
+assets plus one page per basis),128 Drive requests,16MiB transfer reservation,
+1MiB new storage and900 canonical elapsed seconds. Code is not that grant.
+Extra pages, repeated bases, different symbols/feed/dates and automatic retries
+refuse. Actual NYSE close+120minutes and inclusive UTC end+15minutes must pass;
+the unchanged current daily gate remains separately recorded. Clocks and
+coverage are never spoofed to make these archival dates current.
+
+The scope-derived nonce cannot be renewed by changing authorization or expiry.
+The existing WorkJournal locks/validates the spent family, preserves every old
+byte and reserves the new single attempt before its only dispatch. Unknown
+outcomes stay reserved. Re-entry only settles that same attempt, including
+actual failure costs after expiry. RuntimeMeter retains debit-before-I/O,
+timeout/signal cleanup and storage reservations;60seconds remain for final save.
+Successful completion requires full original/normalized reconstruction and
+immutable checkpoint readback. Missing or conflicting rows remain a failure.
+
+Actual capture requires exact review/CI/protected deployment and a new accepted
+finite allocation, original account/right refs, private OAuth/storage and writer
+lease. Existing cash63 and the separate noncash capture are reused. Capture does
+not grant selected-window CA/lifecycle/Reader eligibility, Source/PIT/ER/A5,
+recurring operation, accepted state, portfolio, book or order changes.
+
+For the next separately authorized daily-focus or weekend-broad managed
+control, deliberately set the existing `include_previous_close=true` option.
+It retains one verified previous-close session in the normal incremental fetch,
+providing the overlap required by unchanged composition. This adds rows to the
+existing request path, not another collector or scheduler; reconcile actual
+page/row/transfer/storage/runtime costs when issuing that new control. The
+fixed bridge repairs the old gap and this option prevents repeating it. Do not
+edit an expired607 control, change current settings or activate cadence here.
+
 ## Exact historical authorization / corrective Read392 v3 — 2026-10-21
 
 The real frozen v9 authorization `2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e`
