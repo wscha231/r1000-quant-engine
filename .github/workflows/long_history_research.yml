@@ -176,7 +176,7 @@ jobs:
       - name: Offline regressions before source or Drive access
         run: |
           python tests/long_history_lake_smoke.py
-          python tests/macro_technical_evidence_smoke.py
+          python tests/macro_technical_evidence_smoke.py --portable
           python tests/macro_research_cycle_smoke.py
       - name: Install verified research transport
         env:

@@ -1836,7 +1836,7 @@ class HistoryTest(unittest.TestCase):
                 {'long_history_lake_smoke','macro_technical_evidence_smoke','macro_research_cycle_smoke'})
             # Module import alone cannot prove deferred runtime file reads.
             # Execute the actual portable macro suite in the declared checkout.
-            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py']
+            macro_command=[sys.executable,*flags,'-B','tests/macro_technical_evidence_smoke.py','--portable']
             macro=subprocess.run(macro_command,cwd=baseline,env=env,
                                  capture_output=True,text=True,timeout=60)
             self.assertLessEqual(len(macro.stdout)+len(macro.stderr),32768)
@@ -1844,6 +1844,13 @@ class HistoryTest(unittest.TestCase):
             self.assertEqual(macro.returncode,0,macro.stdout+macro.stderr)
             self.assertEqual([int(n) for n in re.findall(r'Ran (\d+) tests?',macro.stderr)],
                              [json.loads(positive.stdout)['macro_technical_evidence_smoke']])
+            # Only the collector explicitly selects the original Source suite.
+            # Default PR execution must still require every new A4 dependency;
+            # a missing module cannot silently shrink that registered suite.
+            full=subprocess.run(macro_command[:-1],cwd=baseline,env=env,
+                                capture_output=True,text=True,timeout=60)
+            self.assertNotEqual(full.returncode,0)
+            self.assertIn('a4_macro_bridge_smoke',full.stderr)
             missing_contract=root/'missing-a4-contract';shutil.copytree(baseline,missing_contract)
             (missing_contract/'docs/run287_chameleon_macro_inputs_contract.json').unlink()
             refused=subprocess.run(macro_command,cwd=missing_contract,env=env,

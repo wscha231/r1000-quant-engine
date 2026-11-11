@@ -1082,6 +1082,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/verify_sec_13f_publication.py',
     'tools/write_run287_price_refresh_attempt.py',
     'tests/market_analysis_engine_smoke.py',
+    'tests/a4_macro_bridge_smoke.py',
+    'tools/a4_macro_bridge.py',
     'tools/market_analysis_engine.py',
     'tests/daily_crisis_report_clock_smoke.py',
     'tools/daily_crisis_report_clock.py',
