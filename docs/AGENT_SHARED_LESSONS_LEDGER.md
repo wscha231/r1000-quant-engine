@@ -10584,3 +10584,6 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+- Latest-session extraction must compute its maximum once before filtering.
+  Recomputing it for every historical row makes bounded pre-fit inspection
+  quadratic; retain the existing denominator/latest-row/future-tail checks.

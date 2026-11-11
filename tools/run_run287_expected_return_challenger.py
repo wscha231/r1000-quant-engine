@@ -261,12 +261,13 @@ def validate_pre_fit_binding(frame: pd.DataFrame, binding: Mapping[str, Any],
     _binding_need(type(experiment.get("candidate_id")) is str and bool(experiment["candidate_id"]) and
                   all(type(experiment.get(name)) is str and SHA256_RE.fullmatch(experiment[name]) is not None
                       for name in ("experiment_ledger_sha256", "do_not_repeat_sha256")), "experiment_original_refs")
+    latest_feature_date = max(key[0] for key in records)
     return {"schema": PRE_FIT_BINDING_SCHEMA, "status": "PRE_FIT_METADATA_BOUND_NOT_TRAINING_ADMISSION",
             "binding_sha256": canonical_sha256(binding), "decision_time": binding["decision_time"],
             "denominator_rows": len(asof_frame), "outside_decision_prefix_rows": len(frame)-len(asof_frame),
             "selection_counts": counts, "prepared_rows": len(prepared), "labels":label_statuses,
             "training_cohort_sha256":canonical_sha256(sorted(training_examples,key=lambda r:(r["feature_date"],r["ticker"],r["horizon"]))),
-            "prediction_keys":[list(key) for key in sorted(records) if key[0]==max(k[0] for k in records)],
+            "prediction_keys":[list(key) for key in sorted(records) if key[0]==latest_feature_date],
             "completed_decision_session":completed.date().isoformat(),
             "training_label_cutoff_exclusive": completed.isoformat(),
             "mature_rows": {str(h): len(mature[h]) for h in HORIZONS},
