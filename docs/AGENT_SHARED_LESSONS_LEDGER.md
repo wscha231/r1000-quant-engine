@@ -10377,3 +10377,17 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Source; validate frozen positives and exact current/changed-source refusals.
   The separately reviewed ETF pin covers producer review-handoff code only,
   with Source/PIT/financial/ER admission still false. Keep all failed proofs.
+
+### 2026-11-11 — Bind A4 CSV normalization to original Lake bytes
+
+- A4's CSV consumer cannot read an authenticated current JSON response directly.
+  Replay the original parser, retain latest nulls, and bind separate original,
+  normalized, Lake object, commit/catalog and execution identities. A stored
+  generation without a completed native study remains blocked; normalization
+  grants no source, historical PIT or learning permission.
+- Eight disposable synthetic local-Lake integration cases pass normal and -O.
+  The first corruption fixture correctly hit the transport's immutable-write
+  guard before exercising the consumer; inject corruption only in the temporary
+  test storage. The actual Drive read remains refused by quota, and the local
+  Python launcher referenced a missing installation; direct verified Python3.14
+  works. Neither environment finding is a completed real-data replay.
