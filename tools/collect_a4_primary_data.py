@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import sys
+from urllib.error import HTTPError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tools import a4_primary_sources as source
@@ -36,6 +37,8 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
             if feed in {'sofr', 'tgcr', 'effr'}:
                 funding_dates.append(manifest['last_observation'])
             captures.append(prepared)
+        except HTTPError as exc:
+            failures.append(dict(feed=feed, blocker='PRIMARY_HTTP_STATUS', http_status=exc.code))
         except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError):
             failures.append(dict(feed=feed, blocker='PRIMARY_CAPTURE_OR_NORMALIZATION_FAILED'))
     cutoff = source.now()

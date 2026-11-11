@@ -260,7 +260,9 @@ def capture(feed, *, fetcher=None):
         raw = fetcher(FEEDS[feed][0], MAX_ORIGINAL)
     else:
         with build_opener(NoRedirect()).open(Request(FEEDS[feed][0], headers={
-                'User-Agent': 'r1000-primary-macro-research/1.0', 'Accept': 'application/zip, application/json'}), timeout=30) as response:
+                'User-Agent': 'r1000-primary-macro-research/1.0',
+                'Accept': 'application/json' if feed in {'sofr', 'tgcr', 'effr'} else
+                          'application/x-zip-compressed, application/zip, application/octet-stream'}), timeout=30) as response:
             check(response.status == 200, 'PRIMARY_HTTP_STATUS')
             raw = response.read(MAX_ORIGINAL + 1)
     check(type(raw) is bytes and 0 < len(raw) <= MAX_ORIGINAL, 'PRIMARY_ORIGINAL_BYTE_BUDGET')

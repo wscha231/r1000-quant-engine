@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zipfile
+from urllib.error import HTTPError
 
 import yaml
 
@@ -59,6 +60,20 @@ def nyfed(feed):
 
 
 class PrimaryTests(unittest.TestCase):
+    def test_official_zip_mime_type_is_accepted_without_provider_retry(self):
+        raw=archive('h8'); calls=[]
+        class Opener:
+            def open(self, request, timeout):
+                calls.append(request.full_url)
+                if 'application/x-zip-compressed' not in request.get_header('Accept'):
+                    raise HTTPError(request.full_url,406,'not acceptable',{},None)
+                response=io.BytesIO(raw);response.status=200
+                return response
+        with patch.object(p,'build_opener',return_value=Opener()):
+            actual,_=p.capture('h8')
+        self.assertEqual(actual,raw)
+        self.assertEqual(calls,[p.FEEDS['h8'][0]])
+
     def test_bank_native_millions_become_billions_with_all_scopes(self):
         rows, receipt = p.normalize(archive('h8'), 'h8', collected_at=NOW)
         self.assertEqual(len(rows), 20)

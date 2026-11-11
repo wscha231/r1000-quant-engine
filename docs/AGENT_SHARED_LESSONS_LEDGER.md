@@ -10715,3 +10715,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   A failed live capture must select its attempted input root, not fall back to
   a restored current-looking request. Failure receipts may be archived as
   closed-authority audit records but never accepted as completed input.
+- First actual six-feed attempt kept three NYFed originals but Board ZIP
+  requests failed; no aggregate request or generation was published. Official
+  downloads advertise application/x-zip-compressed. The narrower zip/json
+  Accept header produced406; explicitly accepting the original MIME restored
+  H.8/policy-rate capture and normalization. Preserve the failed execution,
+  include safe HTTP status diagnostics and test negotiation without retries.
