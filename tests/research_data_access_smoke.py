@@ -996,6 +996,7 @@ class ReaderTest(unittest.TestCase):
         quality_sha = digest(quality_raw)
         self.transport.write(f'{PREFIX}/reports/{quality_sha}', quality_raw)
         receipt_raw = encoded(dict(schema='long-history-execution-v1', run_id='fixture_one',
+            created_at=json.loads(lake.read_hash('commits', publication['commit_sha256']))['created_at'],
             commit_sha256=publication['commit_sha256'], catalog_sha256=publication['catalog_sha256'],
             reports={'quality.json': quality_sha}, consumer_rows=3,
             study_recomputed_from_drive=completed, quality_status='PARTIAL', eligible_for_selector=False))

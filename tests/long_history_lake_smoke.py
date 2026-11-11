@@ -2835,7 +2835,7 @@ class AutoHybridTest(unittest.TestCase):
         bad['source_cycle_readback']['held'][0]['reason']='MADE_UP'
         original_path.unlink();changed=encoded(bad);bad_path=self.t.root/PREFIX/'executions'/digest(changed)
         self.t.write(PREFIX+'/executions/'+digest(changed),changed)
-        with self.assertRaisesRegex(ValueError,'source_scope_readback_mismatch'):
+        with self.assertRaisesRegex(ValueError,'^hybrid_terminal_metadata$'):
             self.next_terminal_scope(p,sha,consumer)
         bad_path.unlink()
         with self.assertRaisesRegex(ValueError,'execution_receipt_missing'):

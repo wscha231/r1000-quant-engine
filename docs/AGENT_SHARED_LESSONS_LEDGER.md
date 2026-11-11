@@ -10410,3 +10410,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Reader fixtures. Isolate missing receipt clocks from missing report proofs,
   and assert each exact earliest refusal without weakening runtime gates or
   relabeling an older fixture run as current-head validation.
+- A shared Lake validator change reaches older Reader and macro integration
+  fixtures too. Their raw receipts need the actual synthetic publication
+  commit clock; a historical observation cutoff is not a receipt clock.
+  Preserve intentional missing/corrupt-receipt refusals and all causality
+  oracles, and validate the full related suite and shared-fixture callers
+  before another hosted CI cycle. Retain failed diagnostic costs.
