@@ -44,6 +44,11 @@ Normalized gzip headers use explicit level6, empty filename and mtime0. Readers
 verify the archived compressed hash, then compare bounded canonical JSONL rows
 against the original replay. They do not recompress as an equality check:
 Python3.12/3.14 and zlib versions can encode identical rows differently.
+Both hash-bound normalizer files use explicit `text eol=lf` Git attributes.
+Their exact source bytes stay identical after Windows autocrlf checkout and
+Linux checkout; this preserves existing LF-bound captures without weakening
+code-hash checks or rewriting stored originals. The regression executes an
+actual Git checkout with autocrlf enabled in a disposable test repository.
 
 Data objects precede capture manifests. Every published object is reread and
 the full original/normalized pair is replayed. An execution is written last

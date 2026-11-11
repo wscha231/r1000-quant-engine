@@ -10825,3 +10825,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   ffc4d9e8a47ff3a85368643a5108c44142b56b770120f2119a7237da30db1478
   is durable research evidence, not deployed-default or historical PIT proof.
   Native report remains DATA_BLOCKED; no model fit or portfolio was produced.
+- A fresh-process Drive replay verified all six core feeds, then correctly
+  refused H.10: Windows checkout had converted the economic normalizer to CRLF.
+  Its Git-LF bytes still matched the original a5790295 source pin. Preserve
+  exact code hashing and old manifests; pin both paired normalizers to LF with
+  Git attributes and test a real autocrlf checkout. Do not rehash accepted
+  source manifests or treat this closed failed replay as successful recovery.

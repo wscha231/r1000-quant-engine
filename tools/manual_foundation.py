@@ -1090,6 +1090,7 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tests/a4_liquidity_analysis_smoke.py',
     'tools/a4_liquidity_analysis.py',
     'tools/a4_primary_sources.py',
+    '.gitattributes',
     'tools/collect_a4_primary_data.py',
     'tests/a4_primary_sources_smoke.py',
     'tools/a4_primary_macro_sources.py',
