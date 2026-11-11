@@ -32,6 +32,9 @@ shared transport limits remain. The setting defaults off and
 does not enable learning. Failed optional sources retain verified core data
 as an explicit partial attempt; the collection process still fails completion.
 All captures keep actual collection availability and no historical PIT grant.
+The primary collection flag is also required; financing alone fails the final
+configuration gate. Its larger capture/readback budget uses a 60-minute job
+limit while financing is enabled; the existing 30-minute default remains.
 
 ## Licensed and unverified evidence
 

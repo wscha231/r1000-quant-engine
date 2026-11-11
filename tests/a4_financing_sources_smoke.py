@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import os
+import shutil
+import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -239,6 +242,24 @@ class FinancingTests(unittest.TestCase):
         with self.assertRaises(ValueError):m.verify_request(encoded(request),digest(encoded(request)),NOW,request['session'])
         request['schema']=m.REQUEST_SCHEMA_V2;spec['feed']='ici_unverified'
         with self.assertRaises(ValueError):m.verify_request(encoded(request),digest(encoded(request)),NOW,request['session'])
+
+    def test_financing_requires_primary_in_the_actual_workflow_gate(self):
+        import yaml
+        config=yaml.safe_load((ROOT/'.github/workflows/daily_crisis_monitor.yml').read_bytes())
+        job=config['jobs']['monitor'];steps=job['steps']
+        gate=next(r for r in steps if r.get('name')=='Require A4 computation and durable readback')
+        self.assertIn('A4_FINANCING_COLLECTION_ENABLED',gate['if'])
+        shell=shutil.which('bash')
+        if not shell:
+            git=shutil.which('git')
+            candidate=Path(git).parents[1]/'bin/bash.exe' if git else Path('/missing')
+            shell=str(candidate) if candidate.is_file() else None
+        self.assertIsNotNone(shell,'actual bash gate validation required')
+        for primary in ('false','true'):
+            env=dict(os.environ,RESEARCH_ENABLED='false',PRIMARY_ENABLED=primary,FINANCING_ENABLED='true',
+                PRIMARY_CONFIG='success',PRIMARY='success')
+            result=subprocess.run([shell,'-c',gate['run']],env=env,capture_output=True,timeout=30)
+            self.assertEqual(result.returncode,0 if primary=='true' else 2)
 
 
 if __name__=='__main__':unittest.main(verbosity=1)
