@@ -1,5 +1,16 @@
 # Agent Shared Lessons Ledger
 
+- Multiple typed exits into one replacement must sum their released weights
+  before applying the shared hard-cap constraints in both comparison arms.
+  An exited or already eliminated row has zero capacity and cannot veto another
+  candidate through pair correlation. Preserve the active incumbent conflicts.
+- Keep UNKNOWN stub fields consistent with registered rows through admitted
+  history and actual publication/readback; initialize absent signals and lag
+  deltas to None instead of allowing a later history lookup to raise KeyError.
+- The first covariance regression supplied NumPy scalars where the native JSON
+  number contract requires Python int/float. Correct that fixture conversion;
+  retain its failed run and do not widen the production finite-number guard.
+
 - A public stock opt-in consumer must use the same scoped readiness contract
   as its native allocator, preserve UNKNOWN/global-incomplete output, and compare
   only verified MODEL allocation weights/cash. Previous proposal weights are

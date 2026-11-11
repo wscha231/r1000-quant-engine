@@ -365,7 +365,9 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
         # because a canonical tracked roster or request mentioned their IDs.
         for aid in sorted((set(unresolved_base)|set(payload.get("requested_security_ids",[]))|set(positions))-set(assets)):
             rows.append(dict(asset_id=aid,symbol=None,asset_class="UNKNOWN",price=None,rank=None,
-                discovery_rank=None,data_quality="BLOCKED",portfolio_status="BLOCKED",leadership_state="UNKNOWN",
+                discovery_rank=None,RS_composite=None,rank_change_5d=None,rank_change_20d=None,
+                score_change_5d=None,score_change_20d=None,
+                data_quality="BLOCKED",portfolio_status="BLOCKED",leadership_state="UNKNOWN",
                 evaluation_sha256=None,blockers=["UNMAPPED_SECURITY_IDENTITY"],as_of=as_of,
                 **{f"expected_return_{h}":None for h in ER_HORIZONS},
                 **{f"{prefix}{h}":None for prefix in ("ret","RS") for h in HORIZONS}))

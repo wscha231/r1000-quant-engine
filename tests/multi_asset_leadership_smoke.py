@@ -2121,5 +2121,133 @@ class StockCashResearch(unittest.TestCase):
         with self.assertRaisesRegex(ContractError,'winner_hard_limit_conflict:'+aid):
             stock_cash_proposal(rows,assets,rr,{aid:holding},CUTOFF,policy,feature_identity(p,r),{aid:.3},artifact_resolver=self.memory)
 
+    def test_same_replacement_receives_all_released_weights_and_cap_conflict_blocks(self):
+        from research.multi_asset_v1.decisions import stock_cash_proposal,_stock_exit
+        p,r,policy=self.inputs();challenger=p['evaluations'][-1]
+        delta=.02-challenger['expected_return_12m']
+        challenger['expected_return_12m']=.02;challenger['benchmark_expected_return_12m']=-.03
+        for scenario in challenger['scenarios']['12m'].values():scenario['return']+=delta
+        challenger['portfolio_cost_basis']['gross_expected_return']=.025
+        rr=p['risk'];rr['max_security_weight']=.2
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+        assets={a['asset_id']:a for a in r['assets']};target=rows[-1]['asset_id']
+        for i,row in enumerate(rows):
+            record=dict(ticker=row['symbol'],sector='SAME',industry_group='SAME',
+                alphaops_vnext_score=1.5 if row['asset_id']==target else .2,
+                rs_benchmark_1w=.1,rs_benchmark_3m=.3,price_above_ma50=.9,price_above_ma200=.9,
+                rs_sector_3m=.2,industry_group_strength_score=.8,portfolio_risk_entry_block_score=0,
+                portfolio_stale_mega_leader_score=0,leader_tier='DUAL_LEADER')
+            row['hold_exit_evidence']=dict(security_id=row['asset_id'],as_of=list(SESSIONS)[-1],available_at=CUTOFF,record=record)
+        by_id={x['asset_id']:x for x in rows};current={row['asset_id']:.08 for row in rows[:-1]}
+        scored=digest({a:row['hold_exit_evidence']['record'] for a,row in by_id.items()});exits=[]
+        for own in rows[:-1]:
+            review=dict(asset_id=own['asset_id'],taxonomy='REPLACEMENT_EXIT',reason='NATIVE_ORIGINAL_REVIEW',
+                evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],max_weight=0,
+                available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z',replacement_asset_id=target,
+                replacement_evaluation_sha256=by_id[target]['evaluation_sha256'],scored_cohort_sha256=scored)
+            self.assertEqual(_stock_exit(review,own,.08,by_id,CUTOFF,current,None,{})[0],0)
+            exits.append(review)
+        rr['stock_cash_allocation']['exit_reviews']=exits;policy['reviewed_pins']['risk'].append(digest(rr))
+        result=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+        # C's expected return including reference-trade addback is below cash:
+        # voluntary optimizer purchases cannot hide a missing replacement floor.
+        self.assertLess(by_id[target]['expected_return_12m']+.005,.03)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertAlmostEqual(result['comparisons'][arm]['weights'][target],.16,places=8)
+        rr['max_security_weight']=.12;policy['reviewed_pins']['risk'].append(digest(rr))
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            policy['stock_cash_research']['allocator']=arm
+            with self.assertRaisesRegex(ContractError,'winner_hard_limits_require_review'):
+                stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),current,artifact_resolver=self.memory)
+
+    def test_zero_capacity_rows_do_not_suppress_active_correlated_entries(self):
+        import numpy as np
+        from research.multi_asset_v1.decisions import stock_cash_proposal
+        def prepared(returns,invalid=False):
+            p,r,policy=self.inputs()
+            for i,(original,value) in enumerate(zip(p['evaluations'],returns)):
+                delta=value-original['expected_return_12m'];original['expected_return_12m']=value
+                for scenario in original['scenarios']['12m'].values():scenario['return']+=delta
+                original['portfolio_cost_basis']['gross_expected_return']=value+.005
+                if invalid and i==0:original['thesis_status']='INVALID'
+            policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+            rr=p['risk'];rr['max_security_weight']=.2;rr['max_pair_correlation']=.5
+            rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+            policy['reviewed_pins']['risk'].append(digest(rr))
+            rows=run(p,r,policy,artifact_resolver=self.memory)['multi_asset_leadership_latest']
+            return p,r,policy,rr,rows,{a['asset_id']:a for a in r['assets']}
+        p,r,policy,rr,rows,assets=prepared([.6,.2,.2],True)
+        own=rows[0];first=rows[1]['asset_id']
+        for row in rows:row['daily_log_returns']=list(rows[0]['daily_log_returns'])
+        rr['stock_cash_allocation']['exit_reviews']=[dict(asset_id=own['asset_id'],taxonomy='THESIS_EXIT',
+            reason='ORIGINAL_THESIS_INVALID',evaluation_sha256=own['evaluation_sha256'],thesis_id=own['thesis_id'],
+            max_weight=0,available_at=CUTOFF,expires_at='2026-09-20T10:00:00Z')]
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        out=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{own['asset_id']:.08},artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertNotIn(own['asset_id'],out['comparisons'][arm]['weights'])
+            self.assertGreater(out['comparisons'][arm]['weights'][first],0)
+        # A is carried, eliminates higher-mu B, but does not correlate with C.
+        # The already eliminated B must not become a second ghost constraint.
+        p,r,policy,rr,rows,assets=prepared([.2,.6,.4])
+        x=np.sin(np.arange(60)*.53);x-=x.mean();x/=np.linalg.norm(x)
+        y=np.cos(np.arange(60)*.83);y-=y.mean();y-=x*(x@y);y/=np.linalg.norm(y)
+        values=[x,.8*x+.6*y,y]
+        for row,series in zip(rows,values):row['daily_log_returns']=[float(value) for value in series*.01]
+        correlations=np.corrcoef(values)
+        self.assertGreater(correlations[0,1],.5);self.assertGreater(correlations[1,2],.5)
+        self.assertLess(abs(correlations[0,2]),.5)
+        ids=[row['asset_id'] for row in rows]
+        out=stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),{ids[0]:.08},artifact_resolver=self.memory)
+        for arm in ('CONTROL','COST_AWARE_LONG_ONLY'):
+            self.assertNotIn(ids[1],out['comparisons'][arm]['weights'])
+            self.assertGreater(out['comparisons'][arm]['weights'][ids[2]],0)
+        with self.assertRaisesRegex(ContractError,'carried_correlation_review_required'):
+            stock_cash_proposal(rows,assets,rr,{},CUTOFF,policy,feature_identity(p,r),
+                {ids[0]:.08,ids[1]:.08},artifact_resolver=self.memory)
+
+    def test_unmapped_unknown_survives_real_lag_history_and_scoped_publication(self):
+        import tools.run_multi_asset_leadership as publisher
+        p,r,policy=self.inputs();unknown='US:UNMAPPED'
+        p['base_equity_ids'].append(unknown)
+        p['base_universe_receipt']['asset_ids']=sorted(p['base_equity_ids'])
+        policy['reviewed_pins']['base_universe'].append(digest(p['base_universe_receipt']))
+        for original in p['evaluations']:original['feature_sha256']=feature_identity(p,r)
+        policy['reviewed_pins']['evaluation']=[digest(e) for e in p['evaluations']]
+        rr=p['risk'];rr['feature_sha256']=feature_identity(p,r)
+        rr['stock_cash_allocation']['evaluation_sha256_by_asset']={e['asset_id']:digest(e) for e in p['evaluations']}
+        policy['reviewed_pins']['risk'].append(digest(rr))
+        current=run(p,r,policy,artifact_resolver=self.memory);history=[]
+        for lag in (5,20):
+            session=list(SESSIONS)[-1-lag];close=SESSIONS[session];at=(close+timedelta(minutes=1)).isoformat()
+            old_rows=[dict(asset_id=row['asset_id'],as_of=session,rank=None,
+                RS_composite=None if row['asset_id']==unknown else row['RS_composite']-lag/100,
+                latest_session=None if row['asset_id']==unknown else session)
+                for row in current['multi_asset_leadership_latest']]
+            snapshot=dict(as_of=session,computed_at=at,registry_sha256=digest(r),multi_asset_leadership_latest=old_rows)
+            receipt=dict(**{**meta('CANONICAL_HISTORY'),'observed_at':close.isoformat(),
+                'available_at':at,'evidence_kind':'PIT_ARCHIVE'},snapshot_sha256=digest(snapshot))
+            snapshot['availability_receipt']=receipt
+            policy['reviewed_pins']['history_availability'].append(digest(receipt))
+            policy['reviewed_pins']['history'].append(digest(snapshot));history.append(snapshot)
+        p['history']=history
+        with tempfile.TemporaryDirectory() as folder,patch.object(publisher,'verified_source_hashes',
+                return_value={'SYNTHETIC:DIRTY_CODE_ONLY':'a'*64}):
+            # Only dirty-source attestation is isolated; runtime history checks,
+            # publication/readback and all original synthetic PIT receipts run.
+            publisher.publish(p,r,policy,Path(folder),'lag-5-20',CODE_SHA,artifact_resolver=self.memory)
+            result=publisher.read_latest(Path(folder),consumed_at=CUTOFF)
+        self.assertFalse(result['global_ranking_ready'])
+        self.assertEqual(len(result['multi_asset_leadership_latest']),4)
+        stub=next(row for row in result['multi_asset_leadership_latest'] if row['asset_id']==unknown)
+        for key in ('RS_composite','rank','rank_change_5d','rank_change_20d','score_change_5d','score_change_20d'):
+            self.assertIsNone(stub[key])
+        known=next(row for row in result['multi_asset_leadership_latest'] if row['asset_id']!=unknown)
+        self.assertAlmostEqual(known['score_change_5d'],.05)
+        self.assertAlmostEqual(known['score_change_20d'],.20)
+
 
 if __name__=="__main__":unittest.main()

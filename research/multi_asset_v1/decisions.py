@@ -660,11 +660,14 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     costs=[_stock_cost(r,p["cost_bps_per_side"]) for r in accepted]
     mu=np.asarray([v[0] for v in costs]);side=np.asarray([v[1] for v in costs])
     old=np.asarray([current.get(a,0) for a in ids]);lo=np.asarray(lower);hi=np.asarray(upper)
+    replacement_inflows=defaultdict(float)
     for audit in exit_audit:
         if "replacement_asset_id" in audit:
             require(audit["replacement_asset_id"] in ids,"stock_replacement_not_entry_eligible")
-            j=ids.index(audit["replacement_asset_id"])
-            lo[j]=max(lo[j],old[j]+audit["prior_weight"]-audit["max_weight"])
+            replacement_inflows[audit["replacement_asset_id"]]+=audit["prior_weight"]-audit["max_weight"]
+    for aid,released in replacement_inflows.items():
+        j=ids.index(aid)
+        lo[j]=max(lo[j],old[j]+released)
     quote=review.get("cash_carry")
     cash_return=_stock_cash_return(quote,clock,cutoff,policy,artifact_resolver)
     exposures=[lookthrough({a:1.0},assets,holdings,cutoff,policy) for a in ids]
@@ -688,6 +691,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     corr=np.corrcoef(returns) if n>1 else np.ones((1,1))
     for i in range(n):
         for j in range(i):
+            if hi[i]<=0 or hi[j]<=0:continue
             if abs(corr[i,j])>max_corr:
                 require(not (lo[i]>0 and lo[j]>0),"stock_carried_correlation_review_required")
                 loser=j if lo[i]>0 or (lo[j]==0 and mu[i]>mu[j]) else i
