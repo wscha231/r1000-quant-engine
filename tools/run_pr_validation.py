@@ -233,6 +233,8 @@ DEFAULT_TESTS: list[tuple[str, list[str]]] = [
     ("tests/macro_technical_evidence_smoke.py", []),
     ("tests/a4_macro_bridge_smoke.py", []),
     ("tests/a4_liquidity_analysis_smoke.py", []),
+    ("tests/a4_macro_learning_smoke.py", []),
+    ("tests/a4_cloud_cycle_smoke.py", []),
     ("tests/macro_research_cycle_smoke.py", []),
     ("tests/long_history_lake_smoke.py", []),
     ("tests/run287_benchmark_event_sidecar_smoke.py", []),

@@ -153,13 +153,23 @@ def hac_association(x, y, lag):
 
 
 def evaluate(feature, target, horizon, *, kind="continuous", min_train=504,
-             initial=756, fold_size=252, entry_delay=1):
+             initial=756, fold_size=252, entry_delay=1, label_available_at=None,
+             decision_times=None):
     x, y = feature.to_numpy(float), target.to_numpy(float)
     positions = np.arange(len(x))
     forecast, baseline, z_oos = [np.full(len(x), np.nan) for _ in range(3)]
     folds = []
+    if label_available_at is not None:
+        require(decision_times is not None and len(label_available_at)==len(x)==len(decision_times),
+                "label_availability_shape")
+        available=pd.to_datetime(label_available_at,utc=True)
+        decisions=pd.to_datetime(decision_times,utc=True)
+        require(not decisions.isna().any() and decisions.is_monotonic_increasing,
+                "label_decision_clocks")
     for start in range(initial, len(x), fold_size):
         train = (positions + entry_delay + horizon < start) & np.isfinite(x) & np.isfinite(y)
+        if label_available_at is not None:
+            train &= np.asarray(available < decisions[start]) & ~np.asarray(available.isna())
         test = (positions >= start) & (positions < start+fold_size) & np.isfinite(x) & np.isfinite(y)
         if train.sum() < min_train or not test.any() or np.std(x[train]) < 1e-12:
             continue

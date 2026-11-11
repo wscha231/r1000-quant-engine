@@ -10403,3 +10403,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   separate identities; no fixed3trillion cutoff or net-liquidity shortcut is
   introduced. The12 synthetic arithmetic/parser/integration cases pass normal
   and -O; real source rights, native ten-axis readiness and ER remain separate.
+
+### 2026-11-11 — Cloud research state and mature labels are separate gates
+
+- Keep daily diagnosis, weekly fixed-prediction scores and monthly challenger
+  fits on the existing hosted workflow, with immutable Drive state/readback and
+  one writer. Quota/auth failure cannot imply an empty namespace; explicit first
+  genesis also requires successful parent inventory proving absence. Defaults
+  stay off until current inputs, source rights and external policy pins exist.
+- The first nonempty learning controls exposed string-date price reindexing
+  that silently produced all-null targets. Preserve the failure, use actual
+  DatetimeIndex keys, and require a real expanding fit positive control beside
+  missing/late-label refusals. The source fixture also needed primitive floats
+  and a datetime index; native strict-number/index guards were preserved.
+- Label maturity uses actual price availability at each fold, not only session
+  offsets. Weekly release samples, one-session unknown volatility, all declared
+  negative tests and current-source collection clocks remain explicit. Monthly
+  models are externally reviewed releases only; current FRED rights-disabled
+  Source configuration is not permission to train on retained bytes.
