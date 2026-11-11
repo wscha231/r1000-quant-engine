@@ -1,5 +1,12 @@
 # Agent Shared Lessons Ledger
 
+- Stock-leader input binding is a local, untested WIP checkpoint while stock
+  review fixes take priority. Keep immutable V1/252 contracts unchanged and
+  distinguish exact supplied cohort metadata from Source/PIT authentication.
+  The public price Reader supports training; financial component reads remain
+  research-only, so never alias price authority into financial training. Retain
+  unlabelled current prediction rows and separate maturity from training eligibility.
+
 ## 2026-11-09 - Separate A5 preparation from economic admission
 
 - Missing actual/approved account state must not masquerade as a missing model
