@@ -44,17 +44,21 @@ def publish_analysis(transport, request_raw, report_raw, *, cutoff):
     return references
 
 
-def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_input_root=None):
+def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_input_root=None, include_economic=False):
     root = Path(output_dir)
     source.check(re.fullmatch('[a-f0-9]{40}', code_sha or '') is not None, 'PRIMARY_CODE_PIN')
     source.check(not any(p.is_symlink() for p in (root, *root.parents)) and not root.exists(), 'PRIMARY_ATTEMPT_EXISTS_OR_SYMLINK')
     root.mkdir(parents=True)
     captures, failures, funding_dates = [], [], []
-    for feed in FEED_ORDER:
+    from tools import a4_primary_macro_sources as economic
+    order=FEED_ORDER+economic.FEEDS if include_economic else FEED_ORDER
+    for feed in order:
+        adapter=economic if feed in economic.FEEDS else source
+        parameters=dict(request_year=source.clock(source.now()).year) if feed.startswith('ust_') else {}
         try:
-            raw, collected = source.capture(feed, fetcher=fetcher)
+            raw, collected = adapter.capture(feed, fetcher=fetcher,**parameters)
             through = min(funding_dates) if feed == 'prates' and len(funding_dates) == 3 else None
-            prepared = source.store_capture(root/'archive', raw, feed, collected_at=collected, through=through)
+            prepared = adapter.store_capture(root/'archive', raw, feed, collected_at=collected, through=through,**parameters)
             manifest = prepared['manifest']
             if feed in {'sofr', 'tgcr', 'effr'}:
                 funding_dates.append(manifest['last_observation'])
@@ -65,19 +69,22 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
             failures.append(dict(feed=feed, blocker='PRIMARY_CAPTURE_OR_NORMALIZATION_FAILED'))
     cutoff = source.now()
     published = []
-    status = 'BLOCKED_SOURCE_CAPTURE' if failures else 'LOCAL_RESEARCH_CAPTURE_COMPLETE'
-    if not failures and transport is not None:
+    core_failed=any(r['feed'] in FEED_ORDER for r in failures)
+    status = 'BLOCKED_SOURCE_CAPTURE' if core_failed else 'PARTIAL_RESEARCH_CAPTURE' if failures else 'LOCAL_RESEARCH_CAPTURE_COMPLETE'
+    if not core_failed and transport is not None:
         try:
             for item in captures:
-                published.append(source.publish_capture(transport, root/'archive', item['generation_sha256'], cutoff=cutoff))
-            status = 'DURABLE_RESEARCH_CAPTURE_COMPLETE' if transport.remote_verified is True else 'LOCAL_TRANSPORT_CHECKED'
+                adapter=economic if item['manifest']['feed'] in economic.FEEDS else source
+                published.append(adapter.publish_capture(transport, root/'archive', item['generation_sha256'], cutoff=cutoff))
+            status = ('DURABLE_PARTIAL_RESEARCH_CAPTURE' if transport.remote_verified is True else 'LOCAL_PARTIAL_RESEARCH_CAPTURE') if failures else (
+                'DURABLE_RESEARCH_CAPTURE_COMPLETE' if transport.remote_verified is True else 'LOCAL_TRANSPORT_CHECKED')
         except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError):
             failures.append(dict(feed='archive', blocker='PRIMARY_PUBLICATION_OR_READBACK_FAILED'))
             status = 'BLOCKED_DURABLE_PUBLICATION'
     session = market.current_session(cutoff)
     inputs = root/'inputs'
     entries, analysis_publication = [], []
-    if not failures:
+    if not core_failed and not any(r['feed']=='archive' for r in failures):
         for item in captures:
             manifest = item['manifest']
             path = 'originals/'+manifest['original_sha256']
@@ -86,6 +93,8 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
             entries.append(dict(kind='macro_primary', feed=manifest['feed'], path=path,
                 sha256=manifest['original_sha256'], status='COLLECTED', collected_at=manifest['collected_at'],
                 observation_start=manifest['requested_start'], observation_through=manifest['requested_through']))
+            if manifest['feed'] in economic.FEEDS:
+                entries[-1]['source_request_year']=manifest['request_year']
         # Only a current, valid original request may supply native risk operands.
         # A stale or corrupt restore never becomes a partial native-risk input.
         if existing_input_root is not None:
@@ -133,6 +142,8 @@ def collect(output_dir, *, code_sha, fetcher=None, transport=None, existing_inpu
     result = dict(schema='a4-primary-collection-execution-v1', status=status, code_sha=code_sha,
         completed_at=source.now(), cutoff=cutoff, session=session,
         generation_sha256s=[r['generation_sha256'] for r in captures],
+        requested_feeds=list(order),economic_inputs_enabled=include_economic,
+        provider_request_upper_bound=len(order),provider_retries=0,
         originals=len(captures), original_bytes=sum(r['manifest']['original_bytes'] for r in captures),
         observations=sum(r['manifest']['observations'] for r in captures),
         publication=published, analysis_publication=analysis_publication, failures=failures, market_status=market_status,
@@ -160,6 +171,7 @@ def main():
     parser.add_argument('--output-dir', required=True)
     parser.add_argument('--existing-input-root')
     parser.add_argument('--publish', action='store_true')
+    parser.add_argument('--include-economic-inputs', action='store_true')
     args = parser.parse_args()
     try:
         transport = None
@@ -167,7 +179,7 @@ def main():
             from tools.macro_research_checkpoint import RcloneTransport
             transport = RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE'])
         result = collect(args.output_dir, code_sha=os.environ.get('GITHUB_SHA'), transport=transport,
-                         existing_input_root=args.existing_input_root)
+                         existing_input_root=args.existing_input_root,include_economic=args.include_economic_inputs)
         print(json.dumps({k: result[k] for k in ('status', 'originals', 'original_bytes', 'observations', 'market_status', 'training_blockers')}))
         return 2 if result['failures'] else 0
     except (ValueError, OSError, KeyError, TypeError, OverflowError, RecursionError):

@@ -110,7 +110,8 @@ def verify_request(raw, expected_sha, cutoff, session):
         need(kind in kinds or (v2 and kind in {"macro_v2", "macro_primary", "learning_release"}), "INPUT_KIND")
         if kind == "macro_primary":
             from tools.a4_primary_sources import FEEDS
-            need(spec.get("feed") in FEEDS and type(spec.get("observation_start")) is str
+            from tools.a4_primary_macro_sources import FEEDS as ECONOMIC_FEEDS
+            need(spec.get("feed") in {*FEEDS,*ECONOMIC_FEEDS} and type(spec.get("observation_start")) is str
                  and type(spec.get("observation_through")) is str, "PRIMARY_FEED_WINDOW")
         if kind == "learning_release":
             need(type(spec.get("policy_sha256")) is str and re.fullmatch(r"[a-f0-9]{64}",spec["policy_sha256"]),
@@ -225,9 +226,13 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         elif kind == "macro_v2":
             need(bool(enhanced_originals) and enhanced_originals[-1][1] is spec, "A4_UNREGISTERED_SOURCE")
         elif kind == "macro_primary":
-            from tools.a4_primary_sources import normalize
+            from tools import a4_primary_sources as primary
+            from tools import a4_primary_macro_sources as economic
+            adapter=economic if spec['feed'] in economic.FEEDS else primary
+            normalize=adapter.normalize
+            parameters=dict(request_year=spec.get('source_request_year')) if adapter is economic else {}
             records, _ = normalize(raw, spec["feed"], collected_at=collected,
-                start=spec["observation_start"], through=spec["observation_through"])
+                start=spec["observation_start"], through=spec["observation_through"],**parameters)
             need(len(primary_rows)+len(records) <= 150000, "A4_OBSERVATION_BUDGET")
             primary_rows.extend(records)
         elif kind == "learning_release":
@@ -276,6 +281,10 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
         if primary_rows:
             from tools.a4_primary_sources import notices
             result['primary_source_notices'] = notices()
+            if any(r['source_id'].startswith('bls:') for r in primary_rows):
+                result['primary_source_notices'].append('Source: U.S. Bureau of Labor Statistics; retrieval times are in observation provenance. BLS.gov cannot vouch for the data or analyses derived from these data after the data have been retrieved from BLS.gov.')
+            if any(r['source_id'].startswith('ust:') for r in primary_rows):
+                result['primary_source_notices'].append('Source: U.S. Department of the Treasury; downloaded current-vintage par-yield data, not original historical releases.')
         if learning_release is not None:
             from tools import a4_macro_learning as learning
             body, spec = learning_release
@@ -324,6 +333,8 @@ def implementation_identity():
     paths.extend([Path(a4_macro_learning.__file__),Path(macro_technical_study.__file__)])
     from tools import a4_primary_sources
     paths.append(Path(a4_primary_sources.__file__))
+    from tools import a4_primary_macro_sources
+    paths.append(Path(a4_primary_macro_sources.__file__))
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 

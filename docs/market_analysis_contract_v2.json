@@ -27,6 +27,19 @@
     "shared_archive_prefix": "shared-research-v1/macro-primary",
     "authority": "RESEARCH_BYTES_ONLY; not Lake completion, Source admission, PIT or training approval"
   },
+  "economic_primary_component": {
+    "adapter_reader": "tools/a4_primary_macro_sources.py",
+    "schema": "a4-primary-economic-bundle-v1",
+    "feeds": ["h10", "ust_nominal", "ust_real", "bls_1996_2005", "bls_2006_2015", "bls_2016_2025", "bls_recent"],
+    "original_max_bytes": 8388608,
+    "request_field": "source_request_year is the explicit Treasury year; null for H.10/BLS",
+    "source_identity": "Current BRD broad-dollar series only; Treasury par nominal/real curves; four fixed BLS SA series and at most four10-year API windows",
+    "historical_use": "FORWARD_CAPTURE_ONLY; Atom updated and reference-month labels are not historical publication clocks",
+    "partial_policy": "Optional economic failure preserves independently verified core captures with explicit PARTIAL status; no full completion or trading authority",
+    "bank_codec_changed": false,
+    "native_credit_replaced": false,
+    "training_admitted": false
+  },
   "learning_release": "Exact trial plus externally pinned policy; immutable request replay and fixed code/math/recipe binding; maximum32MiB within the existing64MiB total",
   "source_register": "tools/a4_liquidity_analysis.py:SERIES",
   "fred_current_json": "Exact a4-macro-normalization-v1 binding required; recompute CSV from original bytes",

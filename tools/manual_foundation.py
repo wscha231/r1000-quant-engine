@@ -1092,6 +1092,8 @@ A6_FIXED_PROOF_PROGRAMS = (
     'tools/a4_primary_sources.py',
     'tools/collect_a4_primary_data.py',
     'tests/a4_primary_sources_smoke.py',
+    'tools/a4_primary_macro_sources.py',
+    'tests/a4_primary_macro_sources_smoke.py',
     'tests/a4_macro_learning_smoke.py',
     'tests/a4_cloud_cycle_smoke.py',
     'tools/a4_macro_learning.py',

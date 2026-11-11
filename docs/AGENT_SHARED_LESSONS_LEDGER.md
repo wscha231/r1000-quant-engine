@@ -10751,3 +10751,30 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   header as valid, but reject changed normalized values with updated hashes.
   Current normalization changes require a newly pinned capture or explicit
   reviewed migration; retain original old receipts and code for their replay.
+
+### 2026-11-11 — Government economic histories remain current vintages
+
+- Actual BLS four-series responses cover1996–2026 in four public API calls.
+  Preserve exact request windows, original bytes, SA identity and preliminary
+  footnotes. A reference-month label is not release availability; all downloaded
+  revised histories keep actual collection clocks and no historical PIT grant.
+- H.10/H.15 business-day SDMX uses FREQ9, unlike policy-rate calendar-day FREQ8.
+  Current H.10 BRD is separate from V0 goods-only series; keep native base labels
+  and definition caveats rather than silently rebasing or joining the histories.
+  The H.15 full archive contains third-party corporate-bond series. Its private
+  bootstrap was not admitted or uploaded as a government-only training source;
+  select Treasury's own official curve feed for the automated public source.
+- Treasury Atom updated describes current feed regeneration, not original
+  historical availability. Require explicit year and native nominal/real fields,
+  preserve negative real rates/nulls and reject pagination or mixed-year data.
+  Actual latest Treasury observations reachedNov10 while H.15 still showedNov9;
+  source/date selection can materially change a current-rate diagnosis.
+- Keep the economic adapter/manifest separate from the accepted bank/funding
+  codec so adding source definitions does not invalidate those old captures.
+  Optional provider failures retain verified core history and an explicit
+  partial diagnostic; they never count as full collection/model completion.
+  Original native credit/readiness and independent policy gates stay closed.
+- Feature replay must reject unreviewed alternate-source splices for one
+  logical series, not merely hash each original. Apply the same guard during
+  input validation and at the time a row becomes visible in replay; future
+  alternate sources cannot change an earlier prefix.
