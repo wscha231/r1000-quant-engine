@@ -126,12 +126,16 @@ class LiquidityTests(unittest.TestCase):
 
     def test_current_json_requires_replayable_original_normalization(self):
         from tests.a4_macro_bridge_smoke import original
-        body = original(); csv, manifest = bridge.normalize_current(body,series_id="SOFR",
-            start="2026-10-01",through="2026-11-06",collected_at=COLLECTED)
-        spec = dict(source_id="fred:SOFR",collected_at=COLLECTED,normalization=manifest)
-        self.assertIsNone(a.parse_original(body,spec)[-1]["value"])
-        spec["normalization"] = {**manifest,"published_at":COLLECTED}
-        with self.assertRaises(ValueError): a.parse_original(body,spec)
+        for body in (original(),b'\xef\xbb\xbf'+original()):
+            with self.subTest(bom=body.startswith(b'\xef\xbb\xbf')):
+                csv, manifest = bridge.normalize_current(body,series_id="SOFR",
+                    start="2026-10-01",through="2026-11-06",collected_at=COLLECTED)
+                spec = dict(source_id="fred:SOFR",collected_at=COLLECTED,normalization=manifest)
+                parsed=a.parse_original(body,spec)
+                self.assertIsNone(parsed[-1]["value"])
+                self.assertEqual(parsed[-1]["original_sha256"],m.sha(body))
+                spec["normalization"] = {**manifest,"published_at":COLLECTED}
+                with self.assertRaises(ValueError): a.parse_original(body,spec)
 
     def test_engine_v2_preserves_incumbent_block_and_exposes_all_horizons(self):
         out = analyze([("fred:SOFR",raw("SOFR",[("2026-11-06",4)])),

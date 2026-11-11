@@ -11,7 +11,7 @@ import math
 
 from tools import free_market_context as f
 from tools import a4_macro_bridge as bridge
-from tools.macro_history_sources import digest, encoded
+from tools.macro_history_sources import digest, encoded, _is_current_api_object
 
 HORIZONS = (1, 5, 10, 21, 63, 126, 252)
 TARGETS = ("SPY", "QQQ", "IWM", "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY")
@@ -84,7 +84,7 @@ def parse_original(raw, spec):
             data.append(dict(observation_date=item.get("effectiveDate"), value=f.number(item.get("percentRate")), **extras))
     else:
         csv_raw = raw
-        if raw.lstrip().startswith(b"{"):
+        if _is_current_api_object(raw):
             normalization = spec.get("normalization")
             f.require(type(normalization) is dict and normalization.get("series_id") == sid
                       and f.utc(normalization["collected_at"]) == collected, "A4_JSON_BINDING_REQUIRED")
