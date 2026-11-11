@@ -82,6 +82,10 @@ class LearningTests(unittest.TestCase):
             next(iter(q["source_bindings"].values()))["source_ids"]=source_ids
             with self.subTest(source_ids=source_ids),self.assertRaisesRegex(ValueError,"PRICE_SOURCE_BINDING"):
                 l.fit_trial(p,q,digest(encoded(q)),resolve)
+        q=copy.deepcopy(policy)
+        next(iter(q["source_bindings"].values()))["source_ids"]="fred:SOFR fred:IORB price:SPY"
+        with self.assertRaisesRegex(ValueError,"SOURCE_MEMBERSHIP_SCHEMA"):
+            l.validate_inputs(p,q,digest(encoded(q)),resolve)
 
     def test_future_versions_do_not_change_prior_feature_prefix(self):
         p,_,_=fixture()
@@ -89,6 +93,23 @@ class LearningTests(unittest.TestCase):
         future={**p["observations"][0],"value":100,"available_at":(l.free.utc(p["cutoff"])+timedelta(days=1)).isoformat()}
         after=l.replay_features(p["observations"]+[future],p["sessions"])
         for key in before:pd.testing.assert_series_equal(before[key],after[key])
+
+    def test_future_observation_cannot_become_a_past_feature(self):
+        p,policy,resolve=fixture()
+        p['observations'][0]['observation_date']=(l.free.utc(p['cutoff'])+timedelta(days=7)).date().isoformat()
+        policy['input_pins']=[digest(encoded(p))]
+        with self.assertRaisesRegex(ValueError,'OBSERVATION_AFTER_AVAILABILITY'):
+            l.validate_inputs(p,policy,digest(encoded(policy)),resolve)
+        with self.assertRaisesRegex(ValueError,'OBSERVATION_AFTER_AVAILABILITY'):
+            l.replay_features(p['observations'],p['sessions'])
+        p,policy,resolve=fixture()
+        p['observations'][0].update(observation_date=p['sessions'][1]['session'],
+                                   available_at=p['sessions'][1]['close_utc'])
+        policy['input_pins']=[digest(encoded(p))]
+        with self.assertRaisesRegex(ValueError,'OBSERVATION_AFTER_COLLECTION'):
+            l.validate_inputs(p,policy,digest(encoded(policy)),resolve)
+        with self.assertRaisesRegex(ValueError,'OBSERVATION_AFTER_COLLECTION'):
+            l.replay_features(p['observations'],p['sessions'])
 
     def test_weekly_release_count_is_not_daily_sample_count(self):
         days=sessions(100);records=[]
@@ -220,6 +241,17 @@ class LearningTests(unittest.TestCase):
         self.assertEqual(native["horizon_outlook"],report["horizon_outlook"])
         self.assertEqual(native["content_sha256"],market.context.digest({k:v for k,v in native.items() if k!="content_sha256"}))
         self.assertFalse(native["order_generation_allowed"])
+        # The current-session grace period must not admit a forecast after its
+        # next-close entry. Reject before changing the report or storing it.
+        late=copy.deepcopy(report);late['cutoff']='2026-11-09T21:05:00Z'
+        late_policy={**release,'expires_at':'2026-11-10T00:00:00Z'}
+        before=copy.deepcopy(late)
+        with self.assertRaisesRegex(ValueError,'PREDICTION_ENTRY_WINDOW'):
+            l.forecast_release(late,trial,late_policy,digest(encoded(late_policy)))
+        self.assertEqual(late,before)
+        # A fixed report replay cannot backdate a newly created cloud forecast.
+        with self.assertRaisesRegex(ValueError,'PREDICTION_ENTRY_WINDOW'):
+            l.forecast_release(report,trial,late_policy,digest(encoded(late_policy)),created_at=late['cutoff'])
 
 
 if __name__=="__main__":unittest.main()

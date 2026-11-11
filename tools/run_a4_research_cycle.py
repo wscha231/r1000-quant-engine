@@ -147,7 +147,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
             # A3/A6 graph. An independently pinned auxiliary view is separate
             # until its release is explicitly included in an A4 request.
             learning_context=copy.deepcopy(report)
-            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)))
+            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)),created_at=cutoff)
         forecast_root=state/"predictions"
         if plan["weekly_score_due"]:
             old=[]
