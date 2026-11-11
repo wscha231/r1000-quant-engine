@@ -10831,3 +10831,21 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   exact code hashing and old manifests; pin both paired normalizers to LF with
   Git attributes and test a real autocrlf checkout. Do not rehash accepted
   source manifests or treat this closed failed replay as successful recovery.
+- Fixed-reader28a2cc53 independently reread all13 Drive pairs and reproduced
+  the original A4 report exactly, with50,497 observations and zero publisher
+  requests. Cold receipt cd14e06f0029768a92f6f93e400285ae22032dbd5fcf195f54cb7a2cad16b812
+  was published and reread. This closes that replay attempt only; native
+  DATA_BLOCKED, historical PIT, qualified target labels and policy gates remain.
+- A fresh14:13UTC legacy metadata preflight still found generation31 at
+  commit83ff1624e5af7f800e90e309b7902ca6ff26335bcaaac7cb3dc21f6c14f25c89,
+  source2eecbebd and run42841756603 (cancelled). Its46 current/ALFRED datasets
+  have legacy config without a FRED-disabled source-only scope. Existing
+  finalization would recompute the retained FRED study; do not dispatch it
+  without reviewed rights or relabel this old catalog as a source-only cycle.
+  Metadata hashes do not certify original pack bodies or a current execution.
+- A long local ManualTests diagnostic spanned branch/source integration and
+  was stopped without a result; it is not exact-head PASS evidence. Freeze
+  source/HEAD for suites that reconstruct CLI fixtures as well as A4/A5 graph
+  tests. Hosted exact955f6824 run43031475824/job130559337676 independently
+  passed236/236 (3708.54s), including the frozen positives and unchanged broker
+  assertions. Final child28a2cc53 aggregate passed107/107 (276.99s).
