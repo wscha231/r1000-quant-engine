@@ -10780,3 +10780,16 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   header as valid, but reject changed normalized values with updated hashes.
   Current normalization changes require a newly pinned capture or explicit
   reviewed migration; retain original old receipts and code for their replay.
+- Required CI run43017058968/job130510648847 passed234/236 suites. The new
+  locator paragraph correctly invalidated current-source reuse of the frozen
+  data-access guide. Restore its reviewed12833-byte original (403680df3e2856e2
+  48a552687f776c10697d0951ce233ee78a3df7a7365beb3a) only inside disposable
+  historical positives. Keep the production reuse catalog unchanged and retain
+  bounded archive/hash checks plus changed-current-source refusal.
+- The same CI observed one existing malformed-Parquet CLI subprocess exit-6
+  with "terminate called without an active exception" on hosted Python3.12.
+  Its unchanged assertion passed three local repetitions and all69 broker
+  cases (250.2s); this does not establish the Linux cause. Do not suppress the
+  assertion or change the primary codec speculatively; require fresh hosted CI.
+  Focused unittest imports need the incumbent tests directory on sys.path;
+  a ModuleNotFoundError from a different invocation is not a decoder regression.
