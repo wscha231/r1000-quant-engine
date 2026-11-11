@@ -10560,3 +10560,47 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   file-reference responses: log only opaque IDs, hashes and byte counts, and
   retain no signed URL values in source, PRs or operational evidence. A file
   listing or empty text preview is not original-byte/hash verification.
+
+### 2026-11-11 — Actual current A4 diagnosis is separate from full readiness
+
+- A user-requested one-off current-vintage run captured32 public originals
+  (48,102 bytes), reached all four enhanced-domain readiness gates, verified
+  every input hash and reproduced the exact report without network requests.
+  The native ten-axis metrics/calendar were absent: overall DATA_BLOCKED,
+  null risk score and unconnected historical forecasts remain the correct result.
+  This did not verify Lake/Drive consumption, perform training or activate a job.
+- RRPTSYD measures Treasury temporary-open-market RRP operations. Its current
+  logical label total_rrp must not be interpreted as the H.4.1 balance-sheet
+  total including foreign official accounts. Preserve this semantic caveat in
+  the diagnosis; compare native measurement bases and avoid double-counting it
+  with overnight RRP when their observed operations coincide.
+- Latest pre-integration daily run42943132761/job130269440134 remained
+  DATA_BLOCKED/STALE_SUCCESS_NOT_CURRENT_REPORT. A successful restore or status
+  upload step does not establish a current diagnosis. No transactional rerun
+  or accepted-state publication was performed for this one-off investigation.
+
+### 2026-11-11 — Primary macro capture is not historical PIT or Lake recovery
+
+- Owner-client Drive reads verified generation31 commit83ff1624e5af7f800e90e309b7902ca6ff26335bcaaac7cb3dc21f6c14f25c89
+  and cataloga8f3d201b6ceffdfa83484789c586fe7c37914fedb0ab08164858d299dfc80e2,
+  but none of12 execution receipts matched the current head. Do not fabricate a
+  replacement receipt, select an older success or treat metadata-only reads as
+  original pack verification. Shared-client403 quota and owner-client success
+  are different transport evidence; preserve both without changing global auth.
+- Direct Board H.4.1/H.8 ZIPs contained about17.55MB compressed originals and
+  over206MB XML. Stream selected observations, bound actual decompression and
+  retained row memory, reject XML declarations/UTF16 and ZIP path tricks, and
+  verify native series/currency/UNIT_MULT before converting H.8 millions to
+  billions. Native weekly averages remain distinct from Wednesday levels.
+- Current Board history is revised, even when it spans decades. Store it with
+  actual collection availability and null publication clocks in the existing
+  shared research namespace; primary capture is not Source admission or a
+  replacement long-history execution. Refuse historical archive use of frb:
+  learning bindings; qualified ETF labels/rights and original dated vintages
+  are still required. Never bypass FRED's disabled AUTO rights setting by
+  relabeling retained bytes; direct originals retain their actual provider.
+- Collection/readback, native ten-axis readiness, a reviewed learning policy,
+  actual model fitting and A5 proposal acceptance are separate milestones.
+  A failed live capture must select its attempted input root, not fall back to
+  a restored current-looking request. Failure receipts may be archived as
+  closed-authority audit records but never accepted as completed input.

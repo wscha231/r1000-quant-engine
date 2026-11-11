@@ -1,5 +1,9 @@
 # A4 cloud research and recovery
 
+Primary-source capture is an additive opt-in producer in this same workflow;
+see [its bounded collection/storage contract](A4_PRIMARY_DATA_OPERATIONS.md).
+Its separate enable flag does not imply reviewed learning inputs or A5 readiness.
+
 The existing Daily Crisis Monitor runs on GitHub-hosted Ubuntu. Its schedule
 and manual dispatch are independent of the developer's PC. Google Drive under
 the existing configured base stores `outputs/a4_research/state` and immutable

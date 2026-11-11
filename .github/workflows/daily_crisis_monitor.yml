@@ -84,6 +84,27 @@ jobs:
             fi
           done
 
+      - name: Configure primary A4 research transport
+        id: a4_primary_config
+        if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
+        env:
+          MACRO_DRIVE_CONFIG: ${{ secrets.A4_RCLONE_CONFIG_GDRIVE }}
+          MACRO_RESEARCH_LANE: scheduled
+        run: python tools/configure_macro_research_drive.py
+
+      - name: Collect and verify primary A4 research data
+        id: a4_primary_collect
+        if: vars.A4_PRIMARY_COLLECTION_ENABLED == 'true' && steps.a4_primary_config.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          DEST="outputs/a4_primary_collection/${{ github.run_id }}-${{ github.run_attempt }}"
+          # Set the attempted input root even on failure; never fall back to a
+          # restored current-looking report after today's collection failed.
+          echo "A4_INPUT_ROOT=$DEST/inputs" >> "$GITHUB_ENV"
+          python tools/collect_a4_primary_data.py --output-dir "$DEST" \
+            --existing-input-root outputs/market_analysis_inputs --publish
+
       - name: Restore A4 research checkpoint
         id: a4_restore
         if: vars.A4_RESEARCH_ENABLED == 'true'
@@ -126,7 +147,7 @@ jobs:
           A5_MODEL_POLICY_SHA256: ${{ vars.A5_MODEL_POLICY_SHA256 }}
         run: |
           python tools/run_a4_research_cycle.py \
-            --input-root outputs/market_analysis_inputs \
+            --input-root "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}" \
             --state-root outputs/a4_research/state \
             --output-dir "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}"
 
@@ -161,9 +182,9 @@ jobs:
           python tools/run_daily_crisis_monitor.py \
             --latest-run outputs \
             --output-dir outputs/daily_crisis_monitor \
-            --market-analysis-request outputs/market_analysis_inputs/request.json \
-            --market-analysis-root outputs/market_analysis_inputs \
-            --market-analysis-request-sha-file outputs/market_analysis_inputs/request.sha256 \
+            --market-analysis-request "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.json" \
+            --market-analysis-root "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}" \
+            --market-analysis-request-sha-file "${A4_INPUT_ROOT:-outputs/market_analysis_inputs}/request.sha256" \
             --update-history
 
       - name: Upload daily crisis artifact
@@ -180,6 +201,18 @@ jobs:
         with:
           name: a4-cloud-research-${{ github.run_id }}-${{ github.run_attempt }}
           path: outputs/a4_research/attempts/
+          retention-days: 30
+
+      - name: Upload primary A4 capture receipt
+        if: always() && vars.A4_PRIMARY_COLLECTION_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-primary-capture-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            outputs/a4_primary_collection/*/execution.json
+            outputs/a4_primary_collection/*/publication_failed.json
+            outputs/a4_primary_collection/*/market_analysis.json
+            outputs/a4_primary_collection/*/market_analysis.md
           retention-days: 30
 
       - name: Sync daily crisis status to Google Drive
@@ -200,10 +233,16 @@ jobs:
           rclone copy outputs/daily_crisis_monitor "$DEST/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
 
       - name: Require A4 computation and durable readback
-        if: always() && vars.A4_RESEARCH_ENABLED == 'true'
+        if: always() && (vars.A4_RESEARCH_ENABLED == 'true' || vars.A4_PRIMARY_COLLECTION_ENABLED == 'true')
         env:
           RESTORE: ${{ steps.a4_restore.outcome }}
           CYCLE: ${{ steps.a4_cycle.outcome }}
           PERSIST: ${{ steps.a4_persist.outcome }}
+          RESEARCH_ENABLED: ${{ vars.A4_RESEARCH_ENABLED }}
+          PRIMARY_ENABLED: ${{ vars.A4_PRIMARY_COLLECTION_ENABLED }}
+          PRIMARY_CONFIG: ${{ steps.a4_primary_config.outcome }}
+          PRIMARY: ${{ steps.a4_primary_collect.outcome }}
         run: |
-          test "$RESTORE" = success && test "$CYCLE" = success && test "$PERSIST" = success
+          set -euo pipefail
+          if [ "$RESEARCH_ENABLED" = true ]; then test "$RESTORE" = success && test "$CYCLE" = success && test "$PERSIST" = success; fi
+          if [ "$PRIMARY_ENABLED" = true ]; then test "$PRIMARY_CONFIG" = success && test "$PRIMARY" = success; fi
