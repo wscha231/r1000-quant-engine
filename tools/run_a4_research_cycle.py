@@ -23,6 +23,13 @@ from tools import a4_macro_learning as learning
 from tools.macro_history_sources import digest,encoded,exclusive
 
 MAX_STATE_FILES=5000
+MAX_CHECKPOINT_BYTES=8*1024**2
+
+
+def store_checkpoint(path, value):
+    raw=encoded(value)
+    market.need(len(raw)<=MAX_CHECKPOINT_BYTES,"A4_CHECKPOINT_SIZE")
+    exclusive(path,raw)
 
 
 def json_ref(root, reference, limit=64*1024**2):
@@ -118,7 +125,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
             files=list(weekly_path.iterdir())
             market.need(len(files)<=MAX_STATE_FILES,"A4_STATE_FILE_BUDGET")
             for file in files:
-                value=market.clock.decode(market.bounded(file,8*1024**2))
+                value=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
                 market.need(file.name==digest(encoded(value))+".json","A4_WEEKLY_STATE_HASH")
                 market.need(market.clock.stamp(value["cutoff"])<=market.clock.stamp(cutoff),"A4_FUTURE_WEEKLY_STATE")
                 weeks.append(value["week"])
@@ -148,17 +155,17 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
                 files=list(forecast_root.iterdir())
                 market.need(len(files)<=MAX_STATE_FILES,"A4_STATE_FILE_BUDGET")
                 for file in files:
-                    item=market.clock.decode(market.bounded(file,8*1024**2))
+                    item=market.clock.decode(market.bounded(file,MAX_CHECKPOINT_BYTES))
                     market.need(file.name==digest(encoded(item))+".json","A4_PREDICTION_HASH")
                     old.extend(item["predictions"])
             market.need(len(old)<=100000,"A4_PREDICTION_BUDGET")
             scores=learning.score_predictions(old,payload["prices"],payload["sessions"],cutoff)
             weekly=dict(schema="a4-weekly-score-v1",week=plan["week"],cutoff=cutoff,scores=scores)
-            exclusive(weekly_path/(digest(encoded(weekly))+".json"),encoded(weekly))
+            store_checkpoint(weekly_path/(digest(encoded(weekly))+".json"),weekly)
             events.append(dict(kind="WEEKLY_FIXED_PREDICTIONS_SCORED",count=len(scores)))
         if predictions:
             snapshot=dict(schema="a4-forward-predictions-v1",cutoff=cutoff,predictions=predictions)
-            exclusive(forecast_root/(digest(encoded(snapshot))+".json"),encoded(snapshot))
+            store_checkpoint(forecast_root/(digest(encoded(snapshot))+".json"),snapshot)
         status="RESEARCH_CYCLE_COMPLETE"
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")

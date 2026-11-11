@@ -10436,6 +10436,10 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Cache weekly outcome paths per target/horizon, preserve missingness and order,
   and enforce the same32MiB trial budget before write and during restore. A
   successful oversized write would otherwise poison the next cloud restart.
+- Apply the same pre-write bound to weekly scores and forward predictions as to
+  their restore path (8MiB). A valid100,000-row score population can exceed it;
+  retain that attempt as blocked before publication instead of poisoning every
+  later restore. The boundary regression proves no file/directory on refusal.
 
 ### 2026-11-11 — A5 must consume the exact original reviewed A4 report
 
@@ -10455,7 +10459,8 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   separately checking execution freshness/expiry. The first narrowed fixture
   correctly failed the incumbent all-row comparison; rebuild the entire reviewed
   cohort before rerunning, never waive the native ranking gate.
-- A completed mutable Codex summary is not the immutable clean receipt required
-  by review_complete. The PR744 summary-pin attempt was correctly refused;
-  retain the failed gate and obtain the service's exact-head receipt instead.
-  Never fabricate evidence, widen the gate's receipt grammar or merge around it.
+- A completed mutable Codex summary alone is not accepted review_complete
+  evidence. The PR744 summary-pin attempt was correctly refused; preserve it and
+  use the existing authenticated review, fresh-reaction or immutable-receipt
+  path. The later bare command passed on the service's fresh clean reaction.
+  Never fabricate evidence, widen receipt grammar or merge around the gate.

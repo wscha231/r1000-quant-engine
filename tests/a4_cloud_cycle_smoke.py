@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import shutil
 from datetime import timedelta
+from unittest.mock import patch
 
 import yaml
 
@@ -60,6 +61,19 @@ class CloudTests(unittest.TestCase):
             self.assertEqual(cycle.restored_trials(d,NOW),[trial])
             path=next((Path(d)/"trials").iterdir());path.write_bytes(b"corrupt")
             with self.assertRaises(ValueError):cycle.restored_trials(d,NOW)
+
+    def test_checkpoint_writer_refuses_oversize_before_durable_state_mutation(self):
+        value=dict(schema="a4-weekly-score-v1",week="2026-W45",cutoff=NOW,scores=[])
+        raw=encoded(value)
+        with tempfile.TemporaryDirectory() as d:
+            target=Path(d)/"weekly"/(digest(raw)+".json")
+            with patch.object(cycle,"MAX_CHECKPOINT_BYTES",len(raw)-1),self.assertRaisesRegex(ValueError,"CHECKPOINT_SIZE"):
+                cycle.store_checkpoint(target,value)
+            self.assertFalse(target.parent.exists())
+            with patch.object(cycle,"MAX_CHECKPOINT_BYTES",len(raw)):
+                cycle.store_checkpoint(target,value)
+                self.assertEqual(cycle.market.bounded(target,cycle.MAX_CHECKPOINT_BYTES),raw)
+            self.assertEqual(json.loads(raw),value)
 
     def test_existing_workflow_runs_hosted_and_fails_without_transport_readback(self):
         workflow=yaml.safe_load((ROOT/".github/workflows/daily_crisis_monitor.yml").read_text())
