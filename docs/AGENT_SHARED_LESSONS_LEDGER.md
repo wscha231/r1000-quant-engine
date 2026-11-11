@@ -10845,3 +10845,35 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   was dirty. Check the actual branch ref before admission, preserve the accepted
   counterpart, and coordinate a short integration window before another exact-
   head check. Old-head green is not validation of the new aligned head.
+
+
+## 2026-11-12 — Freeze submitted shares before using next-close outcomes
+
+- The existing synthetic C0 seam queues target weights and sizes at the next
+  close/equity. A future-close change can alter both order side and quantity.
+  This is a target-weight accounting proxy, not established fixed-share MOC
+  submission evidence; future fill prices used for NAV alone are not leakage.
+- Add only an explicit SIGNAL_CLOSE_FIXED_SHARES_V1 research policy: observed
+  decision-close marks/equity/held shares determine integer requested deltas,
+  fee-aware reference cash determines submissions, and immutable shares/side
+  persist through next-close fills. Audit requested versus submitted quantities.
+- Fill-time cash shortage rejects that BUY in full, without sizing, reallocating
+  or retrying. Earlier sells stay filled; fatal price/state/invariant failures
+  roll back the whole advance, including orders and outcomes. An incumbent
+  affordability clamp may never silently change a submitted quantity.
+- Keep legacy default25bps, real-basis/Source/CA/PIT rejection and cash-carry
+  guards. Daily close, full fills, same-auction proceeds reuse and zero rejection
+  fees remain explicit research assumptions; no real broker auction contract,
+  Fullrun, learned alpha, performance or portfolio mutation is certified.
+- The first focused H1 run failed one of15 tests because its expected error
+  label combined missing and duplicate rows, whereas an unknown ticker uses
+  the existing missing-series error. Fix only that test expectation; preserve
+  the4.4335529-second failed receipt. Zero submitted shares create no holding
+  and do not require a future fill quote for an unsubmitted candidate.
+- Final focused H1 tests passed16/16 normal and -O (2.255/2.351s). The
+  broader registered broker smoke reached its118.0216759-second finite cap
+  and was stopped without claiming a full PASS. Retain failed/partial costs;
+  both Native slots returned idle and no matching test Python remained.
+- A new scoped contract outside the existing sparse patterns needs explicit
+  git add --sparse for that exact path. Verify staged paths before publication;
+  do not broaden sparse checkout or leave the contract out of its feature.

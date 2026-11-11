@@ -2820,6 +2820,175 @@ class CausalLedgerSeamTests(unittest.TestCase):
             self.assertNotIn("causal_profile", result)
 
 
+
+class SignalCloseFixedSharesTests(unittest.TestCase):
+    prices = CausalLedgerSeamTests.prices
+
+    def session(self, prices=None, capital=10000.0, cost=25.0):
+        return broker.ResearchNextCloseSession(
+            self.prices() if prices is None else prices, evidence_end_date="2026-01-30",
+            starting_capital=capital, execution_policy=broker.SIGNAL_CLOSE_FIXED_SHARES_V1,
+            cost_bps=cost)
+
+    def test_future_fill_prices_cannot_change_submitted_direction_or_shares(self):
+        intents = []
+        for future in (50.0, 150.0):
+            prices = self.prices();prices["AAA"].loc["2026-01-05":,"close"] = future
+            session = self.session(prices);session.advance("2026-01-02")
+            session.queue("2026-01-02", {"AAA": .5, "CASH": .5})
+            self.assertEqual([(o.side, o.quantity) for o in session.submitted_orders], [("BUY", 50)])
+            intents.append(session.intents)
+            after = session.advance("2026-01-05")
+            self.assertEqual(after.positions[0].shares, 50)
+            self.assertEqual(session.trades[0]["quantity"], 50)
+            self.assertEqual(session.trades[0]["date"], "2026-01-05")
+        self.assertEqual(*intents)
+
+    def test_unchanged_half_weight_does_not_reverse_orders_using_future_equity(self):
+        intents = []
+        for future in (50.0, 200.0):
+            prices = self.prices();prices["AAA"].loc["2026-01-06":,"close"] = future
+            session = self.session(prices, capital=2002.5)
+            session.advance("2026-01-02");session.queue("2026-01-02", {"AAA": .5})
+            before = session.advance("2026-01-05")
+            self.assertEqual((before.cash,before.positions[0].shares),(1000.,10))
+            session.queue("2026-01-05", {"AAA": .5})
+            self.assertEqual(session.submitted_orders, ())
+            intents.append(session.intents[-1])
+            after = session.advance("2026-01-06")
+            self.assertEqual(after.positions[0].shares,10)
+            self.assertEqual(len(session.trades),1)
+        self.assertEqual(*intents)
+
+    def test_sell_quantity_remains_fixed_across_opposite_future_moves(self):
+        for future in (50.0,200.0):
+            prices=self.prices();prices["AAA"].loc["2026-01-06":,"close"]=future
+            session=self.session(prices,capital=2002.5)
+            session.advance("2026-01-02");session.queue("2026-01-02",{"AAA":.5})
+            session.advance("2026-01-05");session.queue("2026-01-05",{"AAA":.25})
+            self.assertEqual([(o.side,o.quantity) for o in session.submitted_orders],[("SELL",5)])
+            after=session.advance("2026-01-06")
+            self.assertEqual(after.positions[0].shares,5)
+            self.assertEqual((session.trades[-1]["side"],session.trades[-1]["quantity"]),("SELL",5))
+
+    def test_gap_cash_failure_rejects_whole_order_and_never_resizes_or_retries(self):
+        prices=self.prices();prices["AAA"].loc["2026-01-05","close"]=300.
+        session=self.session(prices);session.advance("2026-01-02")
+        session.queue("2026-01-02",{"AAA":1.})
+        self.assertEqual(session.submitted_orders[0].quantity,99)
+        after=session.advance("2026-01-05")
+        self.assertEqual((after.cash,after.positions),(10000.,()))
+        self.assertEqual(session.trades,())
+        self.assertEqual(session.execution_outcomes[0]["status"],"REJECTED_INSUFFICIENT_FILL_CASH")
+        self.assertEqual(session.execution_outcomes[0]["submitted_quantity"],99)
+        self.assertEqual(session.execution_outcomes[0]["filled_quantity"],0)
+        self.assertIsNone(session.pending)
+        self.assertEqual(session.advance("2026-01-06").positions,())
+        prices=self.prices();prices["AAA"].loc["2026-01-05","close"]=50.
+        cheaper=self.session(prices);cheaper.advance("2026-01-02");cheaper.queue("2026-01-02",{"AAA":1.})
+        self.assertEqual(cheaper.advance("2026-01-05").positions[0].shares,99)
+
+    def test_deterministic_signal_cash_budget_and_fixed_cost_sensitivities(self):
+        results=[]
+        for weights in ({"AAA":.5,"BBB":.5},{"BBB":.5,"AAA":.5}):
+            session=self.session();session.advance("2026-01-02");session.queue("2026-01-02",weights)
+            results.append(session.submitted_orders)
+            planned=sum(o.quantity*o.reference_close*1.0025 for o in session.submitted_orders)
+            self.assertLessEqual(planned,10000.)
+            after=session.advance("2026-01-05")
+            gross=sum(o["gross_value"] for o in session.trades)
+            fees=sum(o["fee_usd"] for o in session.trades)
+            self.assertAlmostEqual(after.cash+gross+fees,10000.)
+        self.assertEqual(*results)
+        for bps in (25.,50.,100.):
+            session=self.session(cost=bps);session.advance("2026-01-02");session.queue("2026-01-02",{"AAA":1.})
+            after=session.advance("2026-01-05")
+            self.assertEqual(after.positions[0].shares,99)
+            self.assertAlmostEqual(session.trades[0]["fee_usd"],9900*bps/10000)
+            self.assertAlmostEqual(after.cash,10000.-9900.-9900*bps/10000)
+
+    def test_future_suffix_and_missing_signal_price_cannot_mutate_past_intent(self):
+        full=self.prices();short={k:v.loc[:"2026-01-02"] for k,v in full.items()}
+        results=[]
+        for prices in (full,short):
+            session=self.session(prices);session.advance("2026-01-02");session.queue("2026-01-02",{"AAA":.5})
+            results.append((session.intents,session.submitted_orders))
+        self.assertEqual(*results)
+        session=self.session();session.advance("2026-01-02")
+        with self.assertRaisesRegex(ValueError,"causal_missing_exact_close"):
+            session.queue("2026-01-02",{"UNKNOWN":.5})
+        self.assertEqual((session.pending,session.submitted_orders,session.intents),(None,(),()))
+
+    def test_failed_multi_session_advance_rolls_back_orders_and_execution_outcomes(self):
+        prices=self.prices();prices["AAA"]=prices["AAA"].drop(pd.Timestamp("2026-01-06"))
+        session=self.session(prices);initial=session.advance("2026-01-02")
+        session.queue("2026-01-02",{"AAA":.5});orders=session.submitted_orders
+        with self.assertRaisesRegex(ValueError,"causal_missing_or_duplicate_exact_close"):
+            session.advance("2026-01-06")
+        self.assertEqual(session.submitted_orders,orders)
+        self.assertEqual((session.trades,session.execution_outcomes),((),()))
+        self.assertEqual(session.advance("2026-01-02"),initial)
+        self.assertEqual(session.advance("2026-01-05").positions[0].shares,50)
+
+    def test_fixed_orders_are_immutable_and_actual_unadmitted_boundaries_remain(self):
+        from dataclasses import FrozenInstanceError
+        session=self.session();session.advance("2026-01-02");session.queue("2026-01-02",{"AAA":.5})
+        with self.assertRaises(FrozenInstanceError):session.submitted_orders[0].quantity=999
+        session.advance("2026-01-05");copy_outcome=session.execution_outcomes[0]
+        copy_outcome["filled_quantity"]=999
+        self.assertEqual(session.execution_outcomes[0]["filled_quantity"],50)
+        metadata=session.execution_metadata
+        self.assertFalse(metadata["Source_admitted"])
+        self.assertFalse(metadata["executable_broker_contract_verified"])
+        self.assertIn("NOT_AUCTION_CERTIFIED",metadata["price_semantics"])
+        for kwargs in ({"execution_policy":"unknown"},{"cost_bps":True},{"cost_bps":26.},
+                       {"execution_policy":broker.NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY,"cost_bps":50.},
+                       {"price_basis":"RAW_EXECUTABLE","execution_policy":broker.SIGNAL_CLOSE_FIXED_SHARES_V1}):
+            with self.subTest(kwargs=kwargs),self.assertRaises(ValueError):
+                broker.ResearchNextCloseSession(self.prices(),evidence_end_date="2026-01-30",**kwargs)
+
+    def test_rotation_can_sell_then_reject_buy_without_resizing_other_submissions(self):
+        prices=self.prices();prices['BBB'].loc['2026-01-06','close']=500.
+        session=self.session(prices);session.advance('2026-01-02');session.queue('2026-01-02',{'AAA':.9})
+        session.advance('2026-01-05');session.queue('2026-01-05',{'BBB':1.})
+        orders=session.submitted_orders
+        self.assertEqual(orders[0].side,'SELL');self.assertEqual(orders[1].side,'BUY')
+        after=session.advance('2026-01-06')
+        self.assertEqual(after.positions,())
+        self.assertEqual([r['status'] for r in session.execution_outcomes[-2:]],
+            ['FILLED_FIXED_QUANTITY','REJECTED_INSUFFICIENT_FILL_CASH'])
+        self.assertEqual(session.trades[-1]['side'],'SELL')
+        self.assertEqual(session.trades[-1]['quantity'],orders[0].quantity)
+        self.assertEqual(session.execution_outcomes[-1]['submitted_quantity'],orders[1].quantity)
+        self.assertFalse(any(r['ticker']=='BBB' for r in session.trades))
+        plan={row[0]:row[1:] for row in session.intents[-1]['signal_quantity_plan']}
+        self.assertGreaterEqual(plan['BBB'][0],plan['BBB'][1])
+
+    def test_exact_cash_boundary_and_unexpected_native_resize_remain_fail_closed(self):
+        prices=self.prices();session=self.session(prices,capital=1002.5)
+        session.advance('2026-01-02');session.queue('2026-01-02',{'AAA':1.})
+        self.assertEqual(session.submitted_orders[0].quantity,10)
+        after=session.advance('2026-01-05')
+        self.assertEqual((after.cash,after.positions[0].shares),(0.,10))
+        broken=self.session();initial=broken.advance('2026-01-02');broken.queue('2026-01-02',{'AAA':.5})
+        planned=broken.submitted_orders;original=broker.execute_order
+        def resize(**kwargs):
+            row=original(**kwargs);row['quantity']-=1;return row
+        with patch.object(broker,'execute_order',side_effect=resize),self.assertRaisesRegex(ValueError,'causal_fixed_quantity_changed'):
+            broken.advance('2026-01-05')
+        self.assertEqual((broken.trades,broken.execution_outcomes),((),()))
+        self.assertEqual(broken.submitted_orders,planned)
+        self.assertEqual(broken.advance('2026-01-02'),initial)
+
+    def test_zero_submission_is_not_a_holding_and_needs_no_unsubmitted_fill(self):
+        prices=self.prices();prices['AAA']=prices['AAA'].drop(pd.Timestamp('2026-01-05'))
+        session=self.session(prices,capital=50.)
+        session.advance('2026-01-02');session.queue('2026-01-02',{'AAA':.9})
+        self.assertEqual(session.submitted_orders,())
+        self.assertEqual(session.intents[-1]['signal_quantity_plan'],(('AAA',0,0,100.),))
+        after=session.advance('2026-01-05')
+        self.assertEqual((after.positions,after.cash,session.trades,session.execution_outcomes),((),50.,(),()))
+
 def main() -> int:
     test_missing_liquidation_fill_fails_closed_before_state_mutation()
     test_multi_day_transition_fails_closed_before_state_mutation()
@@ -2833,7 +3002,7 @@ def main() -> int:
         for case in (
             ForwardNextCloseClockTests, OpeningClockAdmissionTests, GeneratedOutputLifecycleTests,
             CallerInputCollisionTests, ResearchNavCallerTests,
-            CausalLedgerSeamTests,
+            CausalLedgerSeamTests, SignalCloseFixedSharesTests,
         )
     )
     if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():

@@ -1349,6 +1349,18 @@ class ResearchDecisionSnapshot:
     weights: tuple[tuple[str, float], ...]
 
 
+NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY = "NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY"
+SIGNAL_CLOSE_FIXED_SHARES_V1 = "SIGNAL_CLOSE_FIXED_SHARES_V1"
+
+
+@dataclass(frozen=True)
+class ResearchSubmittedOrder:
+    ticker: str
+    side: str
+    quantity: int
+    reference_close: float
+
+
 class ResearchNextCloseSession:
     """Incremental synthetic research use of the incumbent ledger primitives.
 
@@ -1359,9 +1371,16 @@ class ResearchNextCloseSession:
     """
 
     def __init__(self, prices, *, evidence_end_date, starting_capital=100000.0,
-                 price_basis="SYNTHETIC_UNADMITTED"):
+                 price_basis="SYNTHETIC_UNADMITTED",
+                 execution_policy=NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY,
+                 cost_bps=25.0):
         if price_basis != "SYNTHETIC_UNADMITTED":
             raise ValueError("causal_real_price_source_ca_admission_required")
+        if execution_policy not in (NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY, SIGNAL_CLOSE_FIXED_SHARES_V1):
+            raise ValueError("causal_execution_policy")
+        if (type(cost_bps) not in (int, float) or cost_bps not in (25.0, 50.0, 100.0)
+                or (execution_policy == NEXT_CLOSE_TARGET_WEIGHT_ACCOUNTING_PROXY and cost_bps != 25.0)):
+            raise ValueError("causal_execution_cost_policy")
         end = _parse_forward_close_date(evidence_end_date)
         if end is None:
             raise ValueError("causal_invalid_evidence_end")
@@ -1386,6 +1405,10 @@ class ResearchNextCloseSession:
         self._cash_config = CashCarryConfig(mode=CASH_CARRY_MODE_NONE)
         self._episodes = {}
         self._pending = None
+        self._pending_orders = ()
+        self._execution_policy = execution_policy
+        self._cost_bps = float(cost_bps)
+        self._execution_outcomes = []
         self._last_date = None
         self._snapshot = None
         self._trade_rows = []
@@ -1420,6 +1443,25 @@ class ResearchNextCloseSession:
     @property
     def pending(self):
         return self._pending  # dates + tuple of weights; no mutable account state
+
+    @property
+    def submitted_orders(self):
+        return self._pending_orders
+
+    @property
+    def execution_outcomes(self):
+        return tuple(dict(row) for row in self._execution_outcomes)
+
+    @property
+    def execution_policy(self):
+        return self._execution_policy
+
+    @property
+    def execution_metadata(self):
+        return dict(policy=self._execution_policy, cost_bps_per_side=self._cost_bps,
+                    price_semantics="NEXT_NYSE_DAILY_CLOSE_PROXY_NOT_AUCTION_CERTIFIED",
+                    price_basis="SYNTHETIC_UNADMITTED", Source_admitted=False,
+                    historical_PIT_verified=False, executable_broker_contract_verified=False)
 
     def _exact_close(self, ticker, session):
         frame = self._prices.get(ticker)
@@ -1478,6 +1520,8 @@ class ResearchNextCloseSession:
         self._validate_state()
         target = {ticker: weight for ticker, weight in weights if ticker not in CASH_TICKERS}
         transition = set(target) | set(self._state.shares)
+        if self._execution_policy == SIGNAL_CLOSE_FIXED_SHARES_V1:
+            transition = {order.ticker for order in self._pending_orders} | set(self._state.shares)
         # All exits, holds and entries are checked before a single order mutates.
         fill_prices = {ticker: self._exact_close(ticker, due) for ticker in transition}
         for ticker in transition:
@@ -1490,19 +1534,74 @@ class ResearchNextCloseSession:
                             self._state.cash_interest_accrued, self._state.last_cash_accrual_date,
                             self._state.cash_rate_future_use_count)
         trades = []
-        _execute_transition_orders(
-            state=trial, prices=self._prices, fill_dt=due, target_weights=target,
-            fill_px_by_ticker=fill_prices, fill_dt_by_ticker={ticker: due for ticker in transition},
-            signal_dt=signal, fill_mode="next_close", cost_bps=25.0, integer_shares=True,
-            execution_cost_model=None, partial_resize_two_signal_confirmation=False,
-            risk_gross_reduction=False, pending_partial_resizes={}, signal_index=0,
-            trade_rows=trades, partial_resize_rows=[])
+        outcomes = []
+        if self._execution_policy == SIGNAL_CLOSE_FIXED_SHARES_V1:
+            outcomes = self._fill_submitted_orders(trial, fill_prices, signal, due, trades)
+        else:
+            _execute_transition_orders(
+                state=trial, prices=self._prices, fill_dt=due, target_weights=target,
+                fill_px_by_ticker=fill_prices, fill_dt_by_ticker={ticker: due for ticker in transition},
+                signal_dt=signal, fill_mode="next_close", cost_bps=25.0, integer_shares=True,
+                execution_cost_model=None, partial_resize_two_signal_confirmation=False,
+                risk_gross_reduction=False, pending_partial_resizes={}, signal_index=0,
+                trade_rows=trades, partial_resize_rows=[])
         episodes = {}
         for ticker in trial.shares:
             episodes[ticker] = self._episodes.get(ticker, (due.date().isoformat(), fill_prices[ticker]))
         self._state, self._episodes = trial, episodes
         self._trade_rows.extend(trades)
+        self._execution_outcomes.extend(outcomes)
         self._pending = None
+        self._pending_orders = ()
+
+    def _fill_submitted_orders(self, trial, fill_prices, signal, due, trades):
+        outcomes = []
+        for submitted in self._pending_orders:
+            price = fill_prices[submitted.ticker]
+            outcome = dict(ticker=submitted.ticker, side=submitted.side,
+                           submitted_quantity=submitted.quantity, reference_close=submitted.reference_close,
+                           signal_date=signal.date().isoformat(), date=due.date().isoformat(),
+                           execution_policy=self._execution_policy, filled_quantity=0)
+            if submitted.side == "BUY" and submitted.quantity * price * (1 + self._cost_bps / 10000) > trial.cash:
+                # Fill-time cash is an execution outcome, never a new share-size decision.
+                outcome["status"] = "REJECTED_INSUFFICIENT_FILL_CASH"
+            else:
+                order = execute_order(state=trial, ticker=submitted.ticker, side=submitted.side,
+                                      desired_qty=submitted.quantity, price=price, cost_bps=self._cost_bps,
+                                      integer_shares=True, fill_date=due, execution_cost_model=None)
+                if order is None or order["quantity"] != submitted.quantity:
+                    raise ValueError("causal_fixed_quantity_changed")
+                order.update(date=due.date().isoformat(), signal_date=signal.date().isoformat(),
+                             reason="signal_close_fixed_shares", fill_mode="next_close",
+                             execution_policy=self._execution_policy,
+                             submitted_quantity=submitted.quantity, reference_close=submitted.reference_close)
+                trades.append(order)
+                outcome.update(status="FILLED_FIXED_QUANTITY", filled_quantity=submitted.quantity)
+            outcomes.append(outcome)
+        return outcomes
+
+    def _submit_fixed_orders(self, normalized):
+        # Only this already-observed decision close is read, including every exit.
+        names = sorted((set(normalized) - CASH_TICKERS) | set(self._state.shares))
+        marks = {ticker: self._exact_close(ticker, self._last_date) for ticker in names}
+        requested = {ticker: math.floor(normalized.get(ticker, 0.0) * self._snapshot.equity / marks[ticker])
+                     - int(self._state.shares.get(ticker, 0)) for ticker in names}
+        sells = tuple(ResearchSubmittedOrder(ticker, "SELL", -requested[ticker], marks[ticker])
+                      for ticker in names if requested[ticker] < 0)
+        rate = self._cost_bps / 10000
+        budget = self._snapshot.cash + sum(order.quantity * order.reference_close * (1-rate) for order in sells)
+        buys = []
+        for ticker in names:
+            if requested[ticker] > 0:
+                unit = marks[ticker] * (1+rate)
+                quantity = min(requested[ticker], max(0, math.floor(budget / unit)))
+                if quantity:
+                    buys.append(ResearchSubmittedOrder(ticker, "BUY", quantity, marks[ticker]))
+                    budget -= quantity * unit
+        orders = sells + tuple(buys)
+        submitted = {order.ticker: order.quantity * (-1 if order.side == "SELL" else 1) for order in orders}
+        plan = tuple((ticker, requested[ticker], submitted.get(ticker, 0), marks[ticker]) for ticker in names)
+        return orders, plan
 
     def advance(self, as_of_date):
         # A failed multi-session advance must not leak partial fills/marks into
@@ -1512,12 +1611,14 @@ class ResearchNextCloseSession:
                               dict(state.realized_pnl), state.cash_interest_accrued,
                               state.last_cash_accrual_date, state.cash_rate_future_use_count),
                   dict(self._episodes), self._pending, self._last_date, self._snapshot,
-                  list(self._trade_rows), list(self._nav_rows), self._peak_equity)
+                  list(self._trade_rows), list(self._nav_rows), self._peak_equity,
+                  self._pending_orders, list(self._execution_outcomes))
         try:
             return self._advance(as_of_date)
         except Exception:
             (self._state, self._episodes, self._pending, self._last_date, self._snapshot,
-             self._trade_rows, self._nav_rows, self._peak_equity) = backup
+             self._trade_rows, self._nav_rows, self._peak_equity,
+             self._pending_orders, self._execution_outcomes) = backup
             raise
 
     def _advance(self, as_of_date):
@@ -1569,9 +1670,18 @@ class ResearchNextCloseSession:
             raise ValueError("causal_target_leverage")
         normalized["CASH"] = normalized.get("CASH", 0.0) + max(0.0, 1.0 - total)
         due = earliest_nyse_fill_date(signal.date().isoformat(), "next_close")
+        orders, plan = (self._submit_fixed_orders(normalized)
+                        if self._execution_policy == SIGNAL_CLOSE_FIXED_SHARES_V1 else ((), ()))
         self._pending = (signal, due, tuple(sorted(normalized.items())))
-        self._intent_rows.append(dict(signal_date=signal.date().isoformat(), due=due.date().isoformat(),
-                                      weights=tuple(sorted(normalized.items()))))
+        self._pending_orders = orders
+        intent = dict(signal_date=signal.date().isoformat(), due=due.date().isoformat(),
+                      weights=tuple(sorted(normalized.items())))
+        if self._execution_policy == SIGNAL_CLOSE_FIXED_SHARES_V1:
+            intent.update(execution_policy=self._execution_policy, reference_equity=self._snapshot.equity,
+                          reference_cash=self._snapshot.cash,
+                          orders=tuple((o.ticker, o.side, o.quantity, o.reference_close) for o in orders),
+                          signal_quantity_plan=plan)
+        self._intent_rows.append(intent)
 
     def finish(self):
         schedule = NYSE_CALENDAR.schedule(start_date=(self._last_date or self.evidence_end).date(),
