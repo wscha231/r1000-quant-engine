@@ -107,7 +107,10 @@ def verify_request(raw, expected_sha, cutoff, session):
         if kind in {"macro", "macro_v2"}:
             need(type(spec.get("source_id")) is str, "MACRO_SOURCE_ID_REQUIRED")
         kinds = {"macro", "cot_tff", "price_context", "sce_export", "risk_metrics", "risk_calendar", "risk_context"}
-        need(kind in kinds or (v2 and kind == "macro_v2"), "INPUT_KIND")
+        need(kind in kinds or (v2 and kind in {"macro_v2", "learning_release"}), "INPUT_KIND")
+        if kind == "learning_release":
+            need(type(spec.get("policy_sha256")) is str and re.fullmatch(r"[a-f0-9]{64}",spec["policy_sha256"]),
+                 "LEARNING_POLICY_PIN_REQUIRED")
         role = ("macro" if kind == "macro_v2" else kind, spec.get("source_id") if kind in {"macro", "macro_v2"} else None)
         need(role not in roles, "DUPLICATE_INPUT_ROLE"); roles.add(role)
         path = spec.get("path"); safe_path(path)
@@ -188,7 +191,7 @@ def native_risk(blobs, session, cutoff):
 def input_limit(spec):
     # Full six-year native metric panels exceed the ordinary source-file cap.
     # Match the incumbent report reader's32MiB metric bound, not its risk policy.
-    return MAX_NATIVE_METRIC_BYTES if spec["kind"] == "risk_metrics" else MAX_FILE_BYTES
+    return MAX_NATIVE_METRIC_BYTES if spec["kind"] in {"risk_metrics", "learning_release"} else MAX_FILE_BYTES
 
 
 def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
@@ -196,6 +199,7 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     need(type(supplied) is dict and set(supplied) == {s["path"] for s in req["inputs"]}, "INPUT_SET")
     macro, public, prices, surveys, native, receipts = [], [], [], [], {}, []
     enhanced_originals = []
+    learning_release = None
     need(all(type(x) is bytes for x in supplied.values()), "INPUT_BYTES_TYPE")
     need(sum(len(x) for x in supplied.values()) <= MAX_TOTAL_BYTES, "TOTAL_INPUT_BUDGET")
     for spec in req["inputs"]:
@@ -211,6 +215,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             macro.extend(context.macro_source_rows(raw, source_id=spec.get("source_id"), collected_at=collected, cutoff=cutoff))
         elif kind == "macro_v2":
             need(bool(enhanced_originals) and enhanced_originals[-1][1] is spec, "A4_UNREGISTERED_SOURCE")
+        elif kind == "learning_release":
+            learning_release = (raw, spec)
         elif kind == "cot_tff":
             public.extend(free.cot_observations(raw, report_kind="TFF_FUTURES", collected_at=collected, cutoff=cutoff))
         elif kind == "price_context":
@@ -252,6 +258,13 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
     if req["schema"] == REQUEST_SCHEMA_V2:
         from tools.a4_liquidity_analysis import enrich
         enrich(result, enhanced_originals)
+        if learning_release is not None:
+            from tools import a4_macro_learning as learning
+            body, spec = learning_release
+            release = clock.decode(body)
+            need(type(release) is dict and set(release) == {"trial", "policy"}, "LEARNING_RELEASE_SCHEMA")
+            learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"])
+            result.pop("content_sha256", None)
     result["content_sha256"] = context.digest(result)
     return result
 
@@ -289,6 +302,8 @@ def implementation_identity():
     from tools import a4_liquidity_analysis, a4_macro_bridge
     paths.extend([Path(a4_liquidity_analysis.__file__), Path(a4_macro_bridge.__file__),
                   CONTRACT_PATH.with_name("market_analysis_contract_v2.json")])
+    from tools import a4_macro_learning, macro_technical_study
+    paths.extend([Path(a4_macro_learning.__file__),Path(macro_technical_study.__file__)])
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 

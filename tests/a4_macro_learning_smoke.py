@@ -1,5 +1,6 @@
 """Maturity, observation-time, fixed forecasts and monthly trial regressions."""
 import copy
+import json
 from datetime import timedelta
 from pathlib import Path
 import sys
@@ -166,6 +167,25 @@ class LearningTests(unittest.TestCase):
         self.assertTrue(forecasts)
         self.assertTrue(all(not r["qualified_company_er"] for r in forecasts))
         self.assertFalse(report["portfolio_overlay_allowed"])
+        # A released model must also replay inside the native A4 request so
+        # A3/A6 and the cloud consumer see exactly the same report identity.
+        from tools import market_analysis_engine as market
+        bodies={"sofr.csv":raw("SOFR",[("2026-11-06",4.2)]),
+                "iorb.csv":raw("IORB",[("2026-11-06",4)]),
+                "release.json":encoded(dict(trial=trial,policy=release))}
+        entries=[dict(kind="macro_v2",source_id="fred:"+sid,path=name,sha256=market.sha(bodies[name]),
+                      status="COLLECTED",collected_at="2026-11-06T22:00:00Z")
+                 for sid,name in (("SOFR","sofr.csv"),("IORB","iorb.csv"))]
+        entries.append(dict(kind="learning_release",path="release.json",sha256=market.sha(bodies["release.json"]),
+            policy_sha256=digest(encoded(release)),status="COLLECTED",collected_at="2026-11-06T23:00:00Z"))
+        request=dict(schema=market.REQUEST_SCHEMA_V2,market="US",session="2026-11-06",inputs=entries,
+                     available_at="2026-11-07T09:00:00Z",expires_at="2026-11-08T09:00:00Z")
+        request_raw=json.dumps(request).encode()
+        native=market.analyze(request_raw,bodies,expected_sha=market.sha(request_raw),cutoff=NOW,session="2026-11-06")
+        self.assertEqual(native["historical_evidence"],report["historical_evidence"])
+        self.assertEqual(native["horizon_outlook"],report["horizon_outlook"])
+        self.assertEqual(native["content_sha256"],market.context.digest({k:v for k,v in native.items() if k!="content_sha256"}))
+        self.assertFalse(native["order_generation_allowed"])
 
 
 if __name__=="__main__":unittest.main()

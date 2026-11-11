@@ -8,6 +8,7 @@ Drive persistence/readback belongs to the existing hosted workflow.
 from __future__ import annotations
 
 import argparse
+import copy
 from datetime import datetime, timezone
 import json
 import os
@@ -78,7 +79,7 @@ def load_learning(root, expected_policy_sha256):
 
 
 def run_cycle(*, input_root, state_root, output_dir, cutoff,
-              learning_policy_sha256=None):
+              learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None):
     root,state,out=Path(input_root),Path(state_root),Path(output_dir)
     market.need(not any(p.is_symlink() for path in (root,state,out) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
     resolved=[p.resolve() for p in (root,state,out)]
@@ -91,6 +92,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     except (OSError,ValueError,UnicodeError):raw_pin=None
     report=market.load_report(root/"request.json",root,raw_pin,cutoff=cutoff)
     events=[];status="BLOCKED";blockers=[];scores=[];predictions=[]
+    learning_context=None
     try:
         trials=restored_trials(state,cutoff)
         previous=max((t["month"] for t in trials),default=None)
@@ -120,7 +122,11 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
             matching=[t for t in trials if t["trial_sha256"]==active]
             market.need(len(matching)==1,"A4_FIXED_RELEASE_NOT_RESTORED")
             market.need(report.get("schema")=="market-analysis-report-v2","A4_V2_REPORT_REQUIRED")
-            predictions=learning.forecast_release(report,matching[0],policy,digest(encoded(policy)))
+            # Keep the native request-replay report immutable for the existing
+            # A3/A6 graph. An independently pinned auxiliary view is separate
+            # until its release is explicitly included in an A4 request.
+            learning_context=copy.deepcopy(report)
+            predictions=learning.forecast_release(learning_context,matching[0],policy,digest(encoded(policy)))
         forecast_root=state/"predictions"
         if plan["weekly_score_due"]:
             old=[]
@@ -143,15 +149,30 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")
         plan=learning.cadence(cutoff)
+    from tools import a5_model_portfolio as a5
+    portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
+    try:
+        request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
+        portfolio=a5.load_and_build(root,request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha)
+    except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+        pass
+    exclusive(out/"model_portfolio.json",encoded(portfolio))
+    exclusive(out/"model_portfolio.md",a5.render(portfolio).encode("utf-8"))
+    if portfolio["status"]=="RESEARCH_PROPOSAL":
+        exclusive(state/"model_proposals"/(portfolio["proposal_sha256"]+".json"),encoded(portfolio))
     exclusive(out/"market_analysis.json",encoded(report))
     exclusive(out/"market_analysis.md",market.render_report(report).encode("utf-8"))
+    if learning_context is not None:
+        exclusive(out/"learning_context.json",encoded(learning_context))
     cycle=dict(schema="a4-cloud-research-cycle-v1",cutoff=cutoff,market_session=report["session"],
         market_status=report["status"],learning_status=status,learning_blockers=blockers,
+        a5_status=portfolio["status"],a5_blockers=portfolio.get("reasons",[]),
         cadence=plan,events=events,source_collection_requests=0,
         process_host_dependency="GITHUB_HOSTED_RUNNER_ONLY",durable_remote_verified=False,
         accepted_model_changed=False,accepted_portfolio_changed=False,orders_generated=False)
     complete=(report.get("schema")=="market-analysis-report-v2" and report["status"]=="READY_RESEARCH_ONLY"
-              and all(report.get("enhanced_readiness",{}).values()) and not blockers)
+              and all(report.get("enhanced_readiness",{}).values()) and not blockers
+              and portfolio["status"]=="RESEARCH_PROPOSAL")
     cycle["status"]="COMPLETE_RESEARCH_ONLY" if complete else "PARTIAL_RESEARCH"
     exclusive(out/"cycle.json",encoded(cycle))
     return cycle
@@ -167,7 +188,8 @@ def main():
     cutoff=args.cutoff or datetime.now(timezone.utc).isoformat()
     try:
         result=run_cycle(input_root=args.input_root,state_root=args.state_root,output_dir=args.output_dir,
-                         cutoff=cutoff,learning_policy_sha256=os.environ.get("A4_LEARNING_POLICY_SHA256"))
+                         cutoff=cutoff,learning_policy_sha256=os.environ.get("A4_LEARNING_POLICY_SHA256"),
+                         a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256"),code_sha=os.environ.get("GITHUB_SHA"))
         print(json.dumps({k:result[k] for k in ("status","market_status","learning_status","learning_blockers")}))
         return 0 if result["status"]=="COMPLETE_RESEARCH_ONLY" else 2
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):

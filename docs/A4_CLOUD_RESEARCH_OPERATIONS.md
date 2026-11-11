@@ -74,12 +74,39 @@ external policy must explicitly bind active_trial_sha256 and reviewed_trial_pins
 Code/math/feature-recipe changes refuse the old release until independently
 reviewed. There is no best-trial auto-selection or champion replacement.
 
+For the fixed release to be part of the report reviewed by A3/A6, include one
+`learning_release` input in the native A4 v2 request. Its original JSON contains
+exactly `trial` and `policy`; `sha256` binds those file bytes and `policy_sha256`
+binds the canonical encoded reviewed policy. The source owner must independently
+review this pin. The separate `learning_context.json` cloud diagnostic does not
+replace the native request-replay report or enter A5 as an alternate A4 report.
+
 Persist and `rclone check` the state and attempt before recording a separate
 transport readback witness. A computation result itself keeps
 durable_remote_verified=false. Upload failures fail the job; failed attempts
 remain diagnostics and never advance an accepted model or portfolio pointer.
 Recovery starts from the verified Drive state, not files on this PC. Do not
 blindly rerun transactional legacy steps; follow their existing contracts.
+
+## Independent A5 model proposals
+
+The optional `a5_request.json` uses schema `a5-model-proposal-request-v1` with
+hash-bound `inputs`, `registry`, `policy` and optional `previous_proposal` paths.
+`A5_MODEL_POLICY_SHA256` independently pins the original policy file. Inputs
+reuse the existing MODEL_PORTFOLIO request, bounded A3 original artifact loader
+and current A6 review graph. The graph must replay the exact native A4 v2 report.
+The reviewed risk packet additionally binds `a4_report_content_sha256` and
+`a4_request_sha256`; current A3 net returns and reviewed allocation limits pass
+through the incumbent independent allocator.
+
+The output includes security and cash weights, selection/exclusion reasons,
+original cost assumptions, macro evidence and changes against an externally
+reviewed previous model proposal. `reviewed_pins.model_proposal_history` binds
+that previous decoded proposal's canonical digest. This comparison is research
+history and never an account position book. Successful proposals are immutable
+under `state/model_proposals`; no accepted portfolio pointer is advanced.
+Missing A3/A4/A6 or policy evidence writes a BLOCKED diagnostic with null weights
+and cash plus owner routes. It is not the first completed portfolio.
 
 ## Deployment status
 
