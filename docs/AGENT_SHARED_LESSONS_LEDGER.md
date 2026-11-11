@@ -10436,3 +10436,7 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Cache weekly outcome paths per target/horizon, preserve missingness and order,
   and enforce the same32MiB trial budget before write and during restore. A
   successful oversized write would otherwise poison the next cloud restart.
+- Apply the same pre-write bound to weekly scores and forward predictions as to
+  their restore path (8MiB). A valid100,000-row score population can exceed it;
+  retain that attempt as blocked before publication instead of poisoning every
+  later restore. The boundary regression proves no file/directory on refusal.

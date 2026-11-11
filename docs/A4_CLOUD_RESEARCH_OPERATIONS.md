@@ -73,6 +73,9 @@ bytes and conflicts refuse. All 14 targets, seven horizons and three outcomes
 remain in the declared family. Writer and restore share a32MiB per-trial budget;
 oversized trials are refused before entering state. Weekly scoring caches each
 target/horizon path once per call without changing missing or immature results.
+Weekly-score and forward-prediction checkpoints share an8MiB write/restore
+budget. Oversized populations are blocked before checkpoint publication; the
+attempt remains visible and does not certify a completed weekly checkpoint.
 Insufficient evidence remains in the family. New trials are
 challenger proposals. To explain a later A4 report with a fixed release, an
 external policy must explicitly bind active_trial_sha256 and reviewed_trial_pins.
