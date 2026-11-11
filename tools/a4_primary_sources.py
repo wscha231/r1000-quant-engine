@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import zlib
 from urllib.request import Request, build_opener
 import xml.etree.ElementTree as ET
 import zipfile
@@ -28,6 +29,8 @@ MAX_EXPANDED = 220 * 1024**2
 MAX_TOTAL = 256 * 1024**2
 MAX_ROWS = 150000
 MAX_SERIES = 10000
+MAX_NORMALIZED_BYTES = 128 * 1024**2
+MAX_LINE_BYTES = 64 * 1024
 PREFIX = 'shared-research-v1/macro-primary'
 FEEDS = {
     'h41': ('https://www.federalreserve.gov/releases/h41/data/FRB_h41_xml.zip', 'H41_data.xml', 'H41_struct.xml'),
@@ -269,13 +272,31 @@ def capture(feed, *, fetcher=None):
     return raw, now()
 
 
+def _normalized_lines(rows):
+    total = 0
+    for row in rows:
+        line = encoded(row); total += len(line)
+        check(len(line) <= MAX_LINE_BYTES and total <= MAX_NORMALIZED_BYTES, 'PRIMARY_NORMALIZED_DECODED_BUDGET')
+        yield line
+
+
+def _capture_manifest(receipt, normalized):
+    manifest = dict(schema=SCHEMA, **receipt, source_notices=notices(), normalizer_sha256=digest(Path(__file__).read_bytes()),
+                    normalized_object_sha256=digest(normalized), normalized_object_bytes=len(normalized),
+                    fullrun_executed=False, accepted_state_written=False)
+    return manifest
+
+
 def prepare(raw, feed, *, collected_at, start='1996-01-01', through=None):
     rows, receipt = normalize(raw, feed, collected_at=collected_at, start=start, through=through)
-    normalized = gzip.compress(b''.join(encoded(r) for r in rows), mtime=0)
+    buffer = io.BytesIO()
+    # GzipFile fixes the OS header byte across Python3.12/3.14. Reader replay
+    # compares canonical decompressed rows, not a recompressed zlib encoding.
+    with gzip.GzipFile(fileobj=buffer, mode='wb', filename='', mtime=0, compresslevel=6) as stream:
+        for line in _normalized_lines(rows): stream.write(line)
+    normalized = buffer.getvalue()
     check(len(normalized) <= MAX_ORIGINAL, 'PRIMARY_NORMALIZED_BYTE_BUDGET')
-    receipt.update(normalized_object_sha256=digest(normalized), normalized_object_bytes=len(normalized))
-    manifest = dict(schema=SCHEMA, **receipt, source_notices=notices(), normalizer_sha256=digest(Path(__file__).read_bytes()),
-                    fullrun_executed=False, accepted_state_written=False)
+    manifest = _capture_manifest(receipt, normalized)
     manifest_raw = encoded(manifest)
     files = {f'objects/{digest(raw)}': raw, f'objects/{digest(normalized)}': normalized,
              f'generations/{digest(manifest_raw)}.json': manifest_raw}
@@ -317,10 +338,17 @@ def read_generation(transport, generation_sha256, *, cutoff):
     check(clock(manifest['collected_at']) <= clock(cutoff), 'PRIMARY_FUTURE_CAPTURE')
     original = read_object(transport, PREFIX+'/objects/'+manifest['original_sha256'], manifest['original_sha256'], MAX_ORIGINAL)
     normalized = read_object(transport, PREFIX+'/objects/'+manifest['normalized_object_sha256'], manifest['normalized_object_sha256'], MAX_ORIGINAL)
-    rows, replay, files = prepare(original, manifest['feed'], collected_at=manifest['collected_at'],
-                                 start=manifest['requested_start'], through=manifest['requested_through'])
-    check(replay == manifest and files['objects/'+digest(normalized)] == normalized
-          and encoded(replay) == raw_manifest, 'PRIMARY_NORMALIZATION_REPLAY')
+    rows, receipt = normalize(original, manifest['feed'], collected_at=manifest['collected_at'],
+                              start=manifest['requested_start'], through=manifest['requested_through'])
+    replay = _capture_manifest(receipt, normalized)
+    check(replay == manifest and encoded(replay) == raw_manifest, 'PRIMARY_NORMALIZATION_REPLAY')
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(normalized), mode='rb') as stream:
+            for expected in _normalized_lines(rows):
+                check(stream.readline(MAX_LINE_BYTES+1) == expected, 'PRIMARY_NORMALIZATION_REPLAY')
+            check(stream.read(1) == b'', 'PRIMARY_NORMALIZATION_REPLAY')
+    except (OSError, EOFError, zlib.error):
+        raise ValueError('PRIMARY_NORMALIZATION_REPLAY') from None
     return rows, manifest
 
 

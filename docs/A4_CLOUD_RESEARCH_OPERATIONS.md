@@ -3,6 +3,10 @@
 Primary-source capture is an additive opt-in producer in this same workflow;
 see [its bounded collection/storage contract](A4_PRIMARY_DATA_OPERATIONS.md).
 Its separate enable flag does not imply reviewed learning inputs or A5 readiness.
+With primary capture enabled, market inputs use the capture attempt directory;
+`--learning-input-root` keeps the original restored learning bundle independently
+available and validated. Without that option, the library/CLI retains its single
+input-root behavior. Neither mode creates or approves a learning policy.
 
 The existing Daily Crisis Monitor runs on GitHub-hosted Ubuntu. Its schedule
 and manual dispatch are independent of the developer's PC. Google Drive under

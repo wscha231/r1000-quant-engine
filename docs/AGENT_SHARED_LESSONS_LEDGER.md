@@ -10732,3 +10732,22 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   Also keep source bytes fixed during identity-bound A4/A5 tests: a mid-test
   source edit correctly invalidated the public stock-model graph. Stable
   replay passed15 focused cases and the full94-case aggregate without waivers.
+- Corrected actual capture36663e9 stored and reread all six originals
+  (17,627,102 bytes),42,929 observations and their normalized pairs. A separate
+  process reused only Drive originals, reproduced the same report with zero
+  provider requests and stored cold-replay receipt
+  3c8454b0ca944da845f211678927a694ddb165211878a05b1e56f9c3b06260d0.
+  The real learning-cycle attempt was BLOCKED for missing verified policy/input
+  evidence; no fit, accepted model or portfolio resulted. This evidence pins
+  its original producer/normalizer code, not later reader versions.
+- A later review found primary market selection hid a valid restored learning
+  bundle. Keep a separate learning input root, validate original pins/clocks
+  there and refuse overlap with writable state/output. Do not copy, regenerate
+  or self-approve a policy as a side effect of fresh market collection.
+- Cross-host review found gzip.compress(mtime=0) uses an OS header supplied by
+  zlib in Python3.12 but forces255 in3.13+. Preserve exact compressed hash/size
+  and compare bounded decompressed canonical rows to original replay instead
+  of requiring recompression equality. Test a different compression level/OS
+  header as valid, but reject changed normalized values with updated hashes.
+  Current normalization changes require a newly pinned capture or explicit
+  reviewed migration; retain original old receipts and code for their replay.

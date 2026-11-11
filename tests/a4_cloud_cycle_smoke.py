@@ -21,6 +21,31 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def test_primary_market_root_preserves_separate_reviewed_learning_bundle(self):
+        p,policy,resolve=fixture();cutoff=(learning.free.utc(p['cutoff'])+timedelta(minutes=20)).isoformat()
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);market_root=root/'primary';market_root.mkdir();learn=root/'restored';learn.mkdir()
+            original=resolve(None);sha=digest(original);policy_raw=encoded(policy)
+            (learn/'original.raw').write_bytes(original);(learn/'policy.json').write_bytes(policy_raw)
+            (learn/'inputs.json').write_bytes(encoded(p))
+            request=dict(schema='a4-learning-request-v1',policy=dict(path='policy.json',sha256=digest(policy_raw)),
+                inputs=dict(path='inputs.json',sha256=digest(encoded(p))),originals={sha:dict(path='original.raw',sha256=sha)})
+            (learn/'learning_request.json').write_bytes(encoded(request))
+            result=cycle.run_cycle(input_root=market_root,learning_input_root=learn,state_root=root/'state',
+                output_dir=root/'attempt',cutoff=cutoff,learning_policy_sha256=digest(policy_raw))
+            self.assertEqual(result['learning_status'],'RESEARCH_CYCLE_COMPLETE')
+            self.assertTrue(any(e['kind']=='MONTHLY_CHALLENGER_STORED' for e in result['events']))
+            self.assertEqual(result['market_status'],'DATA_BLOCKED')
+            self.assertFalse(result['accepted_model_changed'])
+            self.assertFalse((market_root/'learning_request.json').exists())
+            (learn/'original.raw').write_bytes(b'corrupt')
+            bad=cycle.run_cycle(input_root=market_root,learning_input_root=learn,state_root=root/'state',
+                output_dir=root/'bad',cutoff=cutoff,learning_policy_sha256=digest(policy_raw))
+            self.assertEqual(bad['learning_status'],'BLOCKED')
+            with self.assertRaisesRegex(ValueError,'LEARNING_STATE_OUTPUT_OVERLAP'):
+                cycle.run_cycle(input_root=market_root,learning_input_root=root/'state',state_root=root/'state',
+                    output_dir=root/'overlap',cutoff=cutoff)
+
     def test_missing_inputs_publish_only_new_blocked_attempt_not_old_success(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);inputs=root/"inputs";inputs.mkdir()

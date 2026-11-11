@@ -40,6 +40,10 @@ cutoff=...)` requires an exact manifest pin, verifies both objects and replays
 normalization from the original. A changed normalizer fails closed until a
 reviewed migration; no original or manifest is overwritten. Same-byte originals
 reuse their hash paths. Different actual collection times are distinct captures.
+Normalized gzip headers use explicit level6, empty filename and mtime0. Readers
+verify the archived compressed hash, then compare bounded canonical JSONL rows
+against the original replay. They do not recompress as an equality check:
+Python3.12/3.14 and zlib versions can encode identical rows differently.
 
 Data objects precede capture manifests. Every published object is reread and
 the full original/normalized pair is replayed. An execution is written last
@@ -73,6 +77,12 @@ may succeed while the complete report truthfully remains `DATA_BLOCKED`.
 `A4_RESEARCH_ENABLED` and `A4_RESEARCH_ALLOW_STATE_GENESIS` remain separate
 consumer/checkpoint settings. Collection does not enable a learning policy,
 manufacture an independent review, renew an expired policy or run a fullrun.
+The cycle uses `--learning-input-root outputs/market_analysis_inputs` to retain
+the separately restored, externally pinned learning request/policy/payload and
+originals. The new market capture directory does not replace or copy that bundle.
+All existing policy/hash/clock checks still run; input roots cannot overlap state
+or attempt output. A changed A4 request still requires a new current A3/A6 graph
+before A5 can consume it.
 Dispatch success is separate from a verified scheduled run and from actual
 model/portfolio completion.
 

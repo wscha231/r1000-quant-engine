@@ -1,5 +1,6 @@
 """Primary-original scope, units, PIT clocks, immutable readback and cloud hook."""
 import copy
+import gzip
 import io
 import json
 import os
@@ -151,6 +152,23 @@ class PrimaryTests(unittest.TestCase):
             (transport.root/p.PREFIX/'objects'/manifest['original_sha256']).write_bytes(b'tampered')
             with self.assertRaises(ValueError):p.read_generation(transport,prepared['generation_sha256'],cutoff=NOW)
 
+    def test_cross_platform_gzip_encoding_does_not_change_semantic_replay(self):
+        raw=archive('h8'); rows,manifest,files=p.prepare(raw,'h8',collected_at=NOW)
+        canonical=b''.join(encoded(r) for r in rows)
+        alternate=bytearray(gzip.compress(canonical,compresslevel=1,mtime=0));alternate[9]=3
+        with tempfile.TemporaryDirectory() as d:
+            transport=LocalTransport(d)
+            for body in (bytes(alternate),gzip.compress(canonical.replace(b'120000.0',b'120001.0'),mtime=0)):
+                altered=dict(manifest,normalized_object_sha256=digest(body),normalized_object_bytes=len(body))
+                pin=digest(encoded(altered))
+                transport.write(p.PREFIX+'/objects/'+digest(raw),raw)
+                transport.write(p.PREFIX+'/objects/'+digest(body),body)
+                transport.write(p.PREFIX+'/generations/'+pin+'.json',encoded(altered))
+                if body==bytes(alternate):
+                    replay,_=p.read_generation(transport,pin,cutoff=NOW);self.assertEqual(replay,rows)
+                else:
+                    with self.assertRaisesRegex(ValueError,'NORMALIZATION_REPLAY'):p.read_generation(transport,pin,cutoff=NOW)
+
     def test_v2_engine_consumes_each_primary_original_once_and_v1_refuses(self):
         raw=archive('h8'); spec=dict(kind='macro_primary',feed='h8',path='original.zip',sha256=digest(raw),
             status='COLLECTED',collected_at=NOW,observation_start='1996-01-01',observation_through='2026-11-07')
@@ -217,6 +235,8 @@ class PrimaryTests(unittest.TestCase):
         legacy=next(s for s in steps if s.get('name')=='Configure rclone')
         self.assertIn('A4_PRIMARY_COLLECTION_ENABLED',legacy['env']['RCLONE_CONFIG_GDRIVE'])
         self.assertIn('A4_RCLONE_CONFIG_GDRIVE',legacy['env']['RCLONE_CONFIG_GDRIVE'])
+        cycle=next(s for s in steps if s.get('id')=='a4_cycle')
+        self.assertIn('--learning-input-root outputs/market_analysis_inputs',cycle['run'])
         config=next(s for s in steps if s.get('id')=='a4_primary_config')
         self.assertIn('A4_RCLONE_CONFIG_GDRIVE',config['env']['MACRO_DRIVE_CONFIG'])
         self.assertIn('command -v rclone',config['run'])
