@@ -13,6 +13,9 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: a4-daily-cloud-research-single-writer
+      cancel-in-progress: false
 
     steps:
       - name: Checkout
@@ -81,6 +84,78 @@ jobs:
             fi
           done
 
+      - name: Restore A4 research checkpoint
+        id: a4_restore
+        if: vars.A4_RESEARCH_ENABLED == 'true'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+          ALLOW_GENESIS: ${{ vars.A4_RESEARCH_ALLOW_STATE_GENESIS }}
+        run: |
+          set -euo pipefail
+          test "${GDRIVE_READY:-no}" = yes
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE='gdrive:'; else BASE="gdrive:${GDRIVE_FOLDER_NAME}/"; fi
+          mkdir -p outputs/a4_research/state
+          if timeout 30s rclone lsf "${BASE}outputs/a4_research/state" > "$RUNNER_TEMP/a4-state-files.txt" 2>/dev/null; then
+            timeout 5m rclone copy "${BASE}outputs/a4_research/state" outputs/a4_research/state --checksum --transfers 2 --checkers 2 --max-duration 4m
+            timeout 2m rclone check "${BASE}outputs/a4_research/state" outputs/a4_research/state --one-way --checkers 2 --max-duration 90s
+          elif [ "${ALLOW_GENESIS:-false}" = true ]; then
+            # Prove the parent is reachable and the namespace is absent. Quota,
+            # auth or an existing-but-unreadable state can never start afresh.
+            timeout 30s rclone lsjson "${BASE}outputs" --dirs-only --max-depth 1 > "$RUNNER_TEMP/a4-parent.json"
+            python - <<'PY'
+            import json, os
+            from pathlib import Path
+            entries=json.loads((Path(os.environ['RUNNER_TEMP'])/'a4-parent.json').read_bytes())
+            if not isinstance(entries,list) or any(r.get('Name')=='a4_research' for r in entries):
+                raise SystemExit('A4 namespace exists or parent inventory is invalid; genesis refused')
+            Path('outputs/a4_research/state/namespace.json').write_text('{"schema":"a4-research-state-v1","accepted_model":false}\n')
+            PY
+            echo 'Explicit research-state genesis; no prior history certified.'
+          else
+            echo 'A4 checkpoint unavailable; refuse an implicit fresh start.'
+            exit 2
+          fi
+
+      - name: Run hosted A4 research cycle
+        id: a4_cycle
+        if: vars.A4_RESEARCH_ENABLED == 'true' && steps.a4_restore.outcome == 'success'
+        continue-on-error: true
+        env:
+          A4_LEARNING_POLICY_SHA256: ${{ vars.A4_LEARNING_POLICY_SHA256 }}
+          A5_MODEL_POLICY_SHA256: ${{ vars.A5_MODEL_POLICY_SHA256 }}
+        run: |
+          python tools/run_a4_research_cycle.py \
+            --input-root outputs/market_analysis_inputs \
+            --state-root outputs/a4_research/state \
+            --output-dir "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: Persist and verify A4 research checkpoint
+        id: a4_persist
+        if: always() && vars.A4_RESEARCH_ENABLED == 'true' && steps.a4_restore.outcome == 'success'
+        env:
+          GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID || secrets.GDRIVE_ROOT_FOLDER_ID }}
+          GDRIVE_FOLDER_NAME: r1000_top30_institutional
+        run: |
+          set -euo pipefail
+          test "${GDRIVE_READY:-no}" = yes
+          if [ -n "${GDRIVE_ROOT_FOLDER_ID:-}" ]; then BASE='gdrive:'; else BASE="gdrive:${GDRIVE_FOLDER_NAME}/"; fi
+          DEST="${BASE}outputs/a4_research"
+          timeout 5m rclone copy outputs/a4_research "$DEST" --immutable --checksum --transfers 2 --checkers 2 --max-duration 4m
+          timeout 2m rclone check outputs/a4_research "$DEST" --one-way --checkers 2 --max-duration 90s
+          # This is a transport readback witness, not Source/PIT or model approval.
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path('outputs/a4_research/attempts') / (os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT'])
+          p.mkdir(parents=True, exist_ok=True)
+          (p/'drive-readback.json').write_text(json.dumps(dict(schema='a4-drive-readback-v1',
+              run_id=os.environ['GITHUB_RUN_ID'], attempt=os.environ['GITHUB_RUN_ATTEMPT'],
+              tree_copy_and_check_passed=True, accepted_model_changed=False))+'\n')
+          PY
+          timeout 30s rclone copy "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}/drive-readback.json" "$DEST/attempts/${{ github.run_id }}-${{ github.run_attempt }}" --immutable --checksum
+          timeout 30s rclone check "outputs/a4_research/attempts/${{ github.run_id }}-${{ github.run_attempt }}" "$DEST/attempts/${{ github.run_id }}-${{ github.run_attempt }}" --one-way --checkers 2
+
       - name: Run daily crisis monitor
         run: |
           python tools/run_daily_crisis_monitor.py \
@@ -99,6 +174,14 @@ jobs:
           path: outputs/daily_crisis_monitor/
           retention-days: 30
 
+      - name: Upload A4 cloud research attempt
+        if: always() && vars.A4_RESEARCH_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: a4-cloud-research-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/a4_research/attempts/
+          retention-days: 30
+
       - name: Sync daily crisis status to Google Drive
         if: always()
         env:
@@ -115,3 +198,12 @@ jobs:
             DEST="gdrive:${GDRIVE_FOLDER_NAME}/daily_crisis_monitor"
           fi
           rclone copy outputs/daily_crisis_monitor "$DEST/" --transfers 4 --checkers 8 --stats 30s --stats-one-line || true
+
+      - name: Require A4 computation and durable readback
+        if: always() && vars.A4_RESEARCH_ENABLED == 'true'
+        env:
+          RESTORE: ${{ steps.a4_restore.outcome }}
+          CYCLE: ${{ steps.a4_cycle.outcome }}
+          PERSIST: ${{ steps.a4_persist.outcome }}
+        run: |
+          test "$RESTORE" = success && test "$CYCLE" = success && test "$PERSIST" = success

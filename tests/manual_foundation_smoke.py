@@ -74,6 +74,96 @@ HISTORICAL_LAKE_SHA256 = 'fc1cddbdaa9f96241f5a058a6398027751dec3b86ac78e2b164fe4
 # Immutable historical test inputs, not current-source reuse certification.
 # These exact Git-LF bytes are bound by the unchanged historical catalog.
 HISTORICAL_READER_INPUTS = {
+    # Frozen catalog operand only; current learning code remains unqualified.
+    'tools/macro_technical_study.py': ('3be72cfe62c39c9e4fe6508548f17ef8a6884d600094121bed8311c2e516a18c', 18875,
+        b'H4sIAAAAAAAC/71cbW/jRpL+7l/BZYA7cizJL9nJYr1hEK+tZIyd2BPbyW5OEAhapCTGFKmQlG1NkP9+T1V1N5sU5ZnF4m6QzEjN'
+        b'7urq6nqvor7409GmKo8e0vwoyZ+c9bZeFvmXB67rvkuruijTWZQNnPWmXCSx8xxlj8N5UT5HZewkT2mc5LPEwYCT5nHy4tTJbJnT'
+        b'iqNVNCsLZ7ldF/UyqZJqdHDwXfoCEFWaL7JkOE+ielMmzqqIk6xyInycFas1/sUuab106jJKc8wdFnm2dTb5rMjjtE6LPMqcVRLl'
+        b'gHhPkHnpGsvSWZ0+4WtVFbM0opnVwMmL2plFmwqLkvk8mdWVA2STl2S2qaOHDCuLsp4XWVoA3sWmLJO8Hj6leR0tEnWmJZNh65TJ'
+        b'ChhVzne343H44fbmX7/8zZmpFYyjHLksnvk4B3nylJSETrrIcag54cfYLw1dATNLIpyhTldEIhD9YF4WKycM5xsiTxg66YpQdKIc'
+        b'R5FTHRzosXIBglWJrImjOiE4egV9H5jRgdP8DYrXkQbya1XkAmAd1cssfdDrP+CrnlRtHtZlMUuqyoxsK1n1sciTNJ8Xetn/4PsV'
+        b'vhss881qvQUdnHyth9ZRHmMA/61jgVLN0vV2VOGElQaUF+Xq4OD25ubeCRgZD1RJM9DEH5VJVWRPieePiGPyupqcTA+A0ojOMMIt'
+        b'JWXtHQ+cqi49guD7sk1dFFk14osK1b2GVbEpcTK9rXc7/v7q7v72F9AuXSRVPXDA5ODSGB9eZtmmApcNDhz8yYooDh82eZyBsGWy'
+        b'AMByS59+26RlQrtHq/XA2dSzMC+e/YODgziZO9i7IiHwsmQO4GW6WOKfzTq4LzeJf8aQn6IsjXFsmjLCxeeR5zv/JXOt7/y4Wqbz'
+        b'2jvxd+Z1HzBkMGVeA7LH2zvfyFxa5LWgOV8HHTC+76Rz4OlAXhPHY2j0RwB9vRfQN7uAeG2ZgMNzQWgUVfV2nXhzkLT2R8/LpEw8'
+        b'JoKmmtEsodIclTfLigpUfsD1LFdR+ahop58PnEcIcIWz/v7HAP/zwwgyCdHm0fzMYRCjssgyupB84KzSPFwnZVrEVZD7I1I0oCgp'
+        b'uBzqwPFOwVRv8f/JMf46PT72BSxPGGjoNFNvNErrZFV5Cjcbv8ncjcExETRoWK2i3/M/3CnQYpSONKShc9K3sMqKtV4Vnh7zQrVE'
+        b'L1XkPj32DRADwI0eiidejyPwYiEm2EHjPcGTqd97L60pFtcJMdV3uWO+gZ7tXJL0xG1oF5FuAm8RjT13UWSwLCFLSvj2OKRlA4fl'
+        b'Y+B4boxzLLtPv4vAln4fnQk4U1YLnjnA2+PpoH1iQsI3IAR9vd5lVrWQNhzx1bG17xfOmNREDK1exNH2vyshjCMKaJk4D2USPRab'
+        b'GhIwBz1x/zAkxQZiOU/Lqoa6gRoZGXiwbU9psamgsBZLzSCNcL/CvNGL15yFKW7fdAtu/023prx+0x0G1WcMNVt7nkIgcE5YSfDX'
+        b'Rktg/Njvx8LAN8ewUGmD2cVJrrAHodduE/JNH07/bN9r8Zwb6q9ndThbRvkiIbrDKmXhKoHjFAfXMH+9FFkVK+y3WRkEAK9vHlyC'
+        b'iByZEMYkyRdgdGsBRNmou89CQinZjk5UOjWLHqDLtR5dwieBMR8I/4VwEqJtcKIIAM/kDn4MXJaodmqhwt9kJo8cnpixl7R2lg5c'
+        b'voqcFSea13CDFE8zrA9AJCnhqpEwkNOXJWAM2FY+y1CtdBZlGo+c76M1THPOtoD4h9YAGOwrw1pCU4D72XfBtKpOotgp5gy2TFjc'
+        b'yZPkOewc4aa1/0oU47Xwxcj7UudUdGMb7imiQFyO4YLFNm3IsJ0MHJepGD6DrsWzK1TP+OJwZXr5YWvhodLHfKiQUQ/aMmWkWiC1'
+        b'RVvG/FG1WWGmsP5QzRzCvJIsyTebBTxbbwz1wQ4tvHz/qDXHfgS4tlVmpLVpjsrZkhhWObOKJyuvTGZFGYPnNC8M5JAhe7vgWCIy'
+        b'uHnb8NhNnjhVRBzhgGpJNFs61+N/NopyKDTQfrP492B2B+MYXIPN4WpD6ypWu4PqHuKrAzZp1j6lwpqbtWGpB0ADwfEhAXsginDy'
+        b'5NlRK9KKgcXpXKEBvrxVUMT1Z10iUQzIjTABWECdEGRxL52HTS3BCCn6JBZnpOIQY53gL2h/2lEdrBo5P0fZJlGBkRBURTPAPMmr'
+        b'TQWnvATrVvtYN8oyr5y4OkojFQKtF2UgexzSwUN1cS7rPwrhHHVlsLJuE6WEKh4KFeTY1bql2mTkS67j0R0ohSvP16M8ggrhyClo'
+        b'7j0mrR6IVue12CWhUC8AfUrQo2GWx2QbZNHqIY6c8ozNxGpN54ieojSjkC2MancKDDFWPJAi4aiIT4RxAc9WAVFrUXHIOICqq+oQ'
+        b'ihX+vHIIod9JTRr9Dy4Bf27qYj4nSnxM114v31oW4XmZcgQpm8AFhtR56mQ+qwvBXg1N9MzpzmnI25a9z1rWTqhCur8LYtcoTmRy'
+        b'H1XIesjT1jKD+WFguZlw8onPGGYbG7BeneabxAwagpKrwQt8G4x+HNjk/wTIL5xz5QZVOVT/EpgkL4QoFPUqylmSlVxCeipGlcdb'
+        b'0tPGorl6tYAunu9HDX+zH0G9lWHUzjFtD41EQaZPhqdT3hsMoYYQCDknEjsZvrOwNMqQpXQFsiyzrdvGxRBssVG76Y2754JEfuBt'
+        b'PTmTKNvA/cGFJqcdmgkahjWltSnUYhe73zYRSFH+H+D346fx+/HT+D0nyeN/gJyHze9J1Fl4BUF/2BrUa+GxQm9UtOtfOlhVyf/j'
+        b'/lAff27tFiEuJp5lxSAgpgPlLC+S2qLq73+06ckWnVNpSif7u+cAxeUZw3KfyFS5Ph2EDrE733JDOEzbmQALaFTUBC5wlJGuDTHs'
+        b'Tvt25/m46b/iz/DkdPjlifvqrhQ67jz/wrmrI5Uoq5xn6FeHnR2YJdjoNKNdhsV8SM//BptQk1bl0aoH1moDRbKpxJ2AD6OAjZxr'
+        b'zgOWya/IPuJ+WYExxeDfQIZ6QP1KoB4SyluSJ0LXV7LxH26TehjFq7QmN0c7MkT3RySY8tEuXV/WMNjEbToPOIJnjFxv4tHAiGLS'
+        b'tCpg/1ZR7eFk/qFJEHrEWcGpP+gl7J4/tNqDcdZZQM89XyXkRRxdJ8/hL0X56Pr+wZ5bUtb3a412a55OiZFbo/nTbzwXjzi+Azqd'
+        b'2xJHosVAznr2J09mlBWzCQ7NyZSJ4urp8MF8tOye7U3IB9vXFnjKPbZcPBUlVJ62vJUJu5SUsXs4UPIAF2V4YhwUY61xWrP+zLZ0'
+        b'ZsY3BKBraCnB0DL0jeA1joBGxz4NL1WHWUaz0Mqwey8DZ0ve1cLy4d/fgf/z+DmF935xJdn8v0PQEObVzrvzC5pekX9PknJze/X9'
+        b'1fX5e6cV9mlfVl86/Mq0mqMeUCfeC4X99sBWbh0E4OkSF4GL3lKwh4lVHXsvE35GnpZzkkBlNNRRpzRGOU4oYy+bzopss8oRikez'
+        b'R2+CAUyqPGsbsLoGPRU0HuD/y2LEE1G2GGVVXf3mCVRQS82G/0oVDQnVJ8fCW4hzE+TzW8vXGFSrR/fOtwo95eZCX7J0Y/rHBOkt'
+        b'yuriUoDVqW9PUZuSHpDTvXE8jclQhr4lxP3JmbjFgg/Sn8TgAoN3l4+GJx85aOAUxAkHqTBXi4EjSCBmPDyxrMciWq0iA27yeDa1'
+        b'QE7Oho+NgPHGYFbvZPh4RDAPKa4F0gLjUGCN7n0lNE9RmVIiFdA1Db8VIN+agTc2exzZlzg8VbRSlK9+Q/WAXFoIYAN7ghOe6ABj'
+        b'jZkczninb6hQMarmXvRQeURE1CKOKBXJ+XJOtRHHve34fortqGzlSWlK4iMNAneYFc/tseHJ6K9fvakoC0oZufbDw+bhOljr4Dwh'
+        b'3QUF5akUECpAKBsltZXveSNZocBVzjiUpSsZB67BBW+P/9yxASR3aZQFf3n7FdwyGLSwSj8mwenb0/7sEWkJIpigMKqLkItCKs2n'
+        b'UeqOH9gxiuLySJhNGMzXfAhTST6kDuIHzsewKGgFiex8A4uhxUICVLEbYcO8X/pTBStjX38yNSxesY9gZqqjax63jm9xOtONkp4N'
+        b'9t0MkM4MfS0bdHXaPiXH0MXsWMC/CRoo1rCCfdig+G/sAt7lYxh1ahiC1SocVsJjhNALT21Fy3P6FG1vvEcVFjimsZEnwOGqiwFE'
+        b'NNZPWjs0uH4UxOjeNXH0rCEB848qVO9ojPxgM3TQ+LyfUvkWKfyB3m/aYDArIMPpLOU00GvaXxb2an+bmQVTSgtagDHxsPX9ZPpG'
+        b'TmzWaxEw6zU59c420SAjZl4HDgvCKFqT4+KxjmJWCrQIc4JnwmPTEbmSyEQ2jiQJmlIecJvbxGuxQ867yiTiJk1gdrB0B0AoGVbN'
+        b'1zyb5Bp+V17kZPdkB38yhBa0xOxQ+1btTTm9wBs3MPkkA5valG4VFMIqVpq2Q/wO3BVSRCgil6h1Uao/aPMz3QBzX/uK/DdvTofm'
+        b'Wfv66Zmvy6V9rpCeLjNytn51yz1pJ+r4IhVRQp3dCvoS/81Ta3CgcrMhmwv6qyEAeCmk1ocAcOhzH7uIvwEu7uEYTjs1JrINGEzY'
+        b'DwoX/u/AArvgcsosWmtPPOjzzjvMJZSHZn2R6hXDp9NzCCplJNmtb6HfuPhiLKqA/26wYgghe9mat+ny9HbYWQDt37d9SvEmGv4l'
+        b'EaqQsl+zuhno57P0r2+bwXXIQU6wS/wuW8t8ehIjSOOmljCaoRMmmm3VQ83ie2e0q5JhUYZCBJKUUDyjEOUtBQ70fO15C9imCtyr'
+        b'67ufvvvu6uJqfH0fXp7fn8OdAT6LlPKtYBIwdwa0ijKQovGBlfbMdwIDFcxZcaLUDbw+4uzIvPKxjdCrMERJvXpqxL55amvKPbTu'
+        b'7NUBQiUrLgWZbXjEhvvaNXWAd/DfC9zQkvmU4nLFqANd87fcJNG+T3TDyYKLntBRXWkbdEaO/YN22D5xX2cirp3KcbYTveVUtXa8'
+        b'QSOH38TOT4lyaHbztHqzvczY2kcfaGcf/aB3HyuypuJhJ9Zmg83xdl/xThPeWnHWQV4z7n4FYS1G5YinuVPCfV8SqKNLJi0AiF/U'
+        b'aqc1TrGLPFDuSJIXm8UyVFW0QJjnT42SoySPIr+lLEFwOL6nx/rk5JGzauWeoy854WPdWkfz69WqrGsjQCOfQUatMltnW7sqz0qK'
+        b'6H58dz++DO/enV/e/FPlrduZYZuFN5U0JrTU19X15fjDGH/h8/jnK/x7MXb35pqimHKH4TxapdnWk0dVk5r5e5L/ikd5OvwledzU'
+        b'KUTaibgthtJqcINnGTdgkvdRURWP+lio8jJHtUqPm+TMihvUcrONrUZXXTWqfZgN5ysmpWSOFQldFo3dMSsxzoJyMjq2a5W87bSp'
+        b'J+oQcUGlGk82E6yWUYmSSjqj7ANM68nRY1/6gpIMQtpNTkKB2djRRIKYaC1YDSQ/Z+kz6RcVJ4wRmtAS+CiWyjKQKVmivg0UYSYM'
+        b'YPpm9Ubje0QArNXFM6fJ+eBqtv1w4srNh78pGnLhT21JFC6eP0njltKTNTZ7gj/bXN2O7yxbyPc8n7gdE+myqWCCcqFV0CaxRZ2y'
+        b'Xfxs7wxTIluGF+fXl1ew62OXEVTnQw1kdPxWpJ5W9phn2XtHldESbensA7AeGX0ldHGvbyCMF7fjHyCK5+8bYdSZlqrexFuPiubc'
+        b'DTpL0nXNfRKk/cJiPpAG4VA9qgJPd6u1umJD6u1JoOIiyFaM9l5qE1hRszAqAzdr1UMsBQrkwTf4oqdS+WGkdAPvMSCxDlVpnaS1'
+        b'aVjtQ9Rv9Q9IpYlR91WGgSrxMn/izkputtDVeJcnhtI+Af2cZeJRKK2X5mv0Xi2jainyL621Hrf1tlBAay/huIWqAX2aNIxq8OnQ'
+        b'sGG+5AWmbOC8etbmjPY5eSXYFC2+rR4J16rgd6mg1nRp0EIuZIh79+OKZUWrOVTC1l8HjqHu7lMg01Pe6YCqlyUZMrFtPcDM8x1k'
+        b'W/1LJvfFXR0D6Wlv2kN2e1pbfMOLWKuw/3f34S03aLrX53eX5z9e3PzQfIEL4O4SjhuyQrLXqAUknXqvxdET2YqVHDC09HDDbE0O'
+        b'o2G4HkbTyfJlEm8yckNJ4khXGjn03Otf7iDtIz1JMiLcYRHsvzcrLMul7SYgzW+zVW/+5LXL28VWf5yYD65WI9S5Isxl7zlVCW/V'
+        b'pMcF90tVIrwiu+JpSBJw+6P6Y4j6GFzxj4nX9BdajTEk1pzDXW91sVG1TjMj7MNMYbJOZtyUjW7hFEXfM6cSDhS2k9Z6z4c94Ct3'
+        b'p9J3La17iEbnc3NR7YZvBpLGn8mKtteiFYnFcGw8K2pK36mEV/3C0N+EpV4bCal3rL/7SkQgi3LTdVWFetWijNZLt9uCQoSYVFLk'
+        b'aRqyfm+1DfS3TJ1RK5X2F7rI/NFu3oLUpMIeinXaaNj3oJHRDV59e+9s97m1ZorYPn0yrYT6kdV35FnEG8VlsebWYopnR3R9dB0I'
+        b'H3SAGPL5Wy1wYMAFepW4WCRt+1RBGPD/bTZUnWRcwpWu0x1VanodKRQQhuU6UioRkRpRLolh4yam1+3B3GHCWxDTGqiDT3br9TR0'
+        b'N69SfM5rGC0Twpq9scv0ZoQlT72GhE5L6mDCa9Est4DeWyvR4TPta+3JNzt9Vf9JF+TuLs0bFGKxpDMzdA8FVdIWe5ph93SnvN4h'
+        b'2yaDaXJyp7stFOpNi31ouQqfhlFMB6LpPdasbxU1hJ21JHP6mJO8FPYZAJTXpJR6QG9bmVGxGyMydtrCdfLllOTvX0MvLpg1iJS4'
+        b'j9ukpCGBQCjRL3BxznSXH/hI1NHRi9FZ755T2GBuv+6rVWi9Fibyekes3hxjLqqCHdU32FE2Ysa5tqHOwsfX57Ky2d3KgqIAOouz'
+        b'JjNP5zaL+dWdniP1n0VlrZDVS5Gm+HB7dTHmTMO/wvG/Lt7/dHl1/X14ecURzuVdiHArvLi5u7+jPKoSpMBt3oPseI3yMo9+wTNt'
+        b'3j7oF3fJaAsDs66S9XY1us3utIcun3a9A4rBXMiKeg5Hoafbh6Po3cJ47+sQvlUo7yl7tG9JF72+Om6l6rXsidZGOd3vw0mnlZBO'
+        b'SiAXZCwUaoFQxGjYoNHmvYioZWFzV+fvcVuXlAsfh+e3F++ufpbYeQ+K/XfbzlkZz7qkVxtbNu5zlb1R9CQujZr/k1HzkolDovTf'
+        b'dqHat07WuV3MZAMYKGwjvAIbuBc/3d5Slu3nK8T334/D65v78B3eBEWH0gXi/dvx+/H53diK++XU/Sm3A2kD2J5ZyhQqq1pyA4x5'
+        b'm3YEp3j2GOK9JEQsHkiQcqYcnX1DfrOXvrwbn19SwDZ7jgN6lxXtEoj75G1RFMRLNKqrzOLLLFnjBdabu3FZFugYtPa5Mx/5md+L'
+        b'l0n98JgJ1n8n9jtTb8N6/D7tEQ11Qigj++xrG/guv3N71PvO7Wi9pRPaMxoHg2VZzYiLmZ4AjsVjQAm14I/oFWZXvYlpt9VQyLGK'
+        b'AjGKQwN5qFlp+HTiquRMoFI0mhqB/jBoE4pfQMbw6duvAotKAxVz6ghWzVAkU+8Pe3ZcamtkY1nay0wEhphqVj3BLAkgNoraNgf6'
+        b'A/QDrN0jDAwfN2CPtNUzgiKSSvAGdtp2oAU6MN4s9FAkRV73dgzehyYgrr9VxTQD1XpHZJ0iosNb1+k8BXyuq0F/ofUmNG/Yw9zM'
+        b'HrnsLu/fm3kWIehN/VAVFeiS2vD4xwKQHihWRbP6tdJeAzpGWYvm4C1+rA1BsxZkZQ0odkA/GsIdV36nQLu5ofwAQkg/gBCqF8gs'
+        b'QqxAt5Qq43Q89lUEiNZSyFGypsKLnlFeMBfaPwOAflfgQzlHZ6be7UF6L3OsF27Uu+PyEwlW+7baQQm0Dmn0c1hElgFRmmpuM8hW'
+        b'liAi9UAH51H1gk5GRvl3fvOGDBJNxmdFDvWt20ogwWSjjRs0FGvpuJ36o0PiZasPHum0joR1sN593MBi0WoB6xPIDsD+KaIBxW1v'
+        b't4KR45DmzXpzKKukiXcWKAMB8rEv43EquqEgJ7stGtL3Hiq2EgwM86yvvZ+f6EJdTz3PbPHKjLaPK8du2UrxR9rn0I5J9zw7vSV7'
+        b'Drjrt3CLmpTN1Kl05p+qw8/6WasmsAtFlyMl/kFB8mEYcRS485LFQ3/lox8x09yiUNPfNXLmuSk8yNP2Lx2ITdKcH5hPA2FhxYdB'
+        b'w88NMlENO49XCClkoELExbvz6+/FhWtEidPVjTCIJ3d1/eGnezgvF+OrD/dqHbz5d+OLf4Q/n7//aXzXgSLLLm4ux+z3f7i5u7v6'
+        b'+/tfWPXr9a7dc1FuUIUoobb5FeuQyye51quKoQL1r9Zj9Esq2hNcc9Qsv2QyOi8XG9KDH+hbSX1zMzg4fO4whBeAH/+QRaMoRt5d'
+        b'zfbc4ZBz/K759Y1YHKQ9kxWtP3e6+GefO1vrIHffBPFHGhyimVysSB0GQKIImiWYqECfSpok7iMmEsGqvE5rl1Sf6MlIVTv4sykE'
+        b'qR8hoWwWP2hl3JvmAXqk8d+tUjfGQn6qQlkj8r9GVG+pJL/egtLxErW3YVxW+UEVWSN0Nj+4olwU3XJdUsDLe8XoEkZu0217Ne6Z'
+        b'xrMzLnZO3KRmkhmx9IjKnyhPyj1r/KSJ23KvpN6jnQ00qJFzgQXM9n+05f5YssTdXUXSTiEReByG5Dnj534otglDko8wVGkuKGxM'
+        b'vNsie7Aa4+16T6THP/hfdrqxoLtJAAA='),
     'tools/macro_history_sources.py': ('84a958b3c6aaf6e6e6c3133eceed8326aff768f1f24ca050fa3fa06b54f281c8', 20361,
         b'H4sIAAAAAAACCs08/XPbtpK/66/AY+bmyIT6sF/a3rnlu1EdpfXUjf1k5/VanYZDi5DFmiJVgrSjZvK/3+4CIAGSUtzeu5vztLFE'
         b'AIvFYr936Rd/GVeiGN8l2Zhnj2y3Lzd59teB4zjf5lUW85i9nc/ejKeX+IsVXPCoWG3YKk9TviqTPPuaJdttVUZ3KWdF9MTyu19h'
@@ -4165,6 +4255,13 @@ class ManualTests(unittest.TestCase):
                     target = self.root / name
                     target.write_bytes(historical_catalog_fixture_bytes(target.read_bytes(), expected_sha))
 
+        # Preserve the reviewed regression operand only in this disposable
+        # historical positive. Do not repin the production reuse catalog.
+        name = 'tools/macro_technical_study.py'
+        expected = HISTORICAL_READER_INPUTS[name][0]
+        if any(row['dependency_hashes'].get(name) == expected for row in catalog['entries']):
+            (self.root / name).write_bytes(historical_reader_fixture_bytes(name))
+
         # Frozen577 import positives retain their reviewed Source bytes. Current
         # Source changes must continue to fail production catalog lookup.
         frozen_sec = historical_sec_fixture_bytes()
@@ -5902,7 +5999,10 @@ class ManualTests(unittest.TestCase):
             frozen = historical_reader_fixture_bytes(name)
             target = self.root / name
             current = fixture_dependency_bytes(name, 'HEAD')
-            entries = ('group_423_574', 'group_591') if name.endswith('.py') else ('group_591',)
+            entries = tuple(row['entry_id'] for row in manual.load_catalog(self.root)['entries']
+                            if row['entry_id'] in {'group_423_574', 'group_591'}
+                            and name in row['dependency_hashes'])
+            self.assertTrue(entries, name)
             for changed in (current, frozen + b'\n# SYNTHETIC_CHANGED_HISTORICAL_INPUT\n'):
                 with self.subTest(name=name, current=changed == current):
                     target.write_bytes(changed)
