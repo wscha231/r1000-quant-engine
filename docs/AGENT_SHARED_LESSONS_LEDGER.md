@@ -10584,3 +10584,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - A direct fast-runner entry repeated the known protected236 inventory error.
   Preserve the failed registration commit, restore the accepted runner bytes,
   and register the finite bridge through the existing managed-refresh aggregate.
+- An exact-size readback also changes the shared upload test-double call shape.
+  Keep its visibility checks and assert the actual file ID and byte limit rather
+  than weakening production bounds to preserve a one-argument mock.
+- An inline byte-transfer attempt failed before private persistence; preserve
+  that failed read/cost and use bounded chunks with exact size/SHA checks.
+  Reconstructed archival prices remain separate from current/PIT admission.
