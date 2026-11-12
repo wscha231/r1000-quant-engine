@@ -2135,6 +2135,8 @@ def blocked_artifacts(
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "calendar_exposure_audit", False):
+        return run_calendar_exposure_audit(args)
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     contract_path = repo_path(args.contract)
@@ -2618,6 +2620,97 @@ def audit_v2_h1_252_labels(
     }
 
 
+CALENDAR_EXPOSURE_CONTRACT = "docs/run287_calendar_exposure_audit_contract.json"
+CALENDAR_EXPOSURE_CONTRACT_SHA256 = "25fc096b9979fdd76de9bfd75b045189aeb9edb192f22c533664d198f36aecb6"
+
+
+def audit_calendar_12m_exposure(*, decision_at: str, contract: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare the actual A5 clock to a proposed executable exposure window.
+
+    This resolves calendar metadata only. No prices, outcomes, source admission,
+    fit or default A5 clock changes; a consistent calendar is never an ER label.
+    """
+    if not isinstance(contract, dict) or canonical_sha256(contract) != CALENDAR_EXPOSURE_CONTRACT_SHA256:
+        raise ValueError("calendar_exposure_contract_changed")
+    observed = _v2_h1_observed_at()
+    decision = _v2_h1_aware_stamp(decision_at)
+    if decision > observed or decision.year < 1990:
+        raise ValueError("calendar_exposure_decision_out_of_range")
+    session = _v2_h1_last_completed_nyse_session(decision)
+    from research.multi_asset_v1.decisions import stock_decision_clock
+    baseline = stock_decision_clock(decision.isoformat(), {"cadence": "MONTHLY"}, {}, [])
+    if baseline["decision_session"] != session.date().isoformat():
+        raise ValueError("calendar_exposure_completed_session_disagreement")
+    anniversary = session + pd.DateOffset(months=12)
+    schedule = NYSE.schedule(start_date=session + pd.Timedelta(days=1), end_date=anniversary)
+    if len(schedule) < 2:
+        raise ValueError("calendar_exposure_insufficient_sessions")
+    entry, mark = schedule.index[0], schedule.index[-1]
+    entry_at, mark_at = schedule["market_close"].iloc[0], schedule["market_close"].iloc[-1]
+    if (pd.Timestamp(baseline["earliest_fill_at"]) != entry_at
+            or baseline["horizon_end"] != anniversary.date().isoformat()
+            or baseline["fill_mode"] != "NEXT_NYSE_CLOSE"
+            or baseline["horizon"] != "12_CALENDAR_MONTHS"):
+        raise ValueError("calendar_exposure_native_clock_disagreement")
+    if any(type(baseline[key]) is not int for key in ("covariance_scale_sessions", "carry_calendar_days")):
+        raise ValueError("calendar_exposure_native_counts_invalid")
+    held_intervals, target_cash_days = len(schedule) - 1, (mark.date() - entry.date()).days
+    covariance_gap = baseline["covariance_scale_sessions"] - held_intervals
+    cash_gap = baseline["carry_calendar_days"] - target_cash_days
+    blockers = ["AUTHENTIC_ER_ENTRY_MARK_BINDING_REQUIRED"]
+    if covariance_gap:
+        blockers.append("A5_COVARIANCE_DIFFERS_FROM_PROPOSED_EXECUTABLE_WINDOW")
+    if cash_gap:
+        blockers.append("A5_CASH_DIFFERS_FROM_PROPOSED_EXECUTABLE_WINDOW")
+    return {
+        "schema_version": contract["schema_version"],
+        "contract_sha256": CALENDAR_EXPOSURE_CONTRACT_SHA256,
+        "scope": "CALENDAR_METADATA_ONLY_NOT_A_FINANCIAL_LABEL",
+        "status": "BLOCKED_CALENDAR_ER_EXPOSURE_CONTRACT",
+        "audit_completed": True,
+        "decision_at": decision.isoformat(), "observed_at": observed.isoformat(),
+        "decision_completed_nyse_session": session.date().isoformat(),
+        "calendar_schedule_is_assumption_not_future_price_evidence": True,
+        "actual_a5_clock": baseline,
+        "proposed_executable_window": {
+            "entry_session": entry.date().isoformat(), "entry_at": entry_at.isoformat(),
+            "calendar_anniversary": anniversary.date().isoformat(),
+            "mark_session": mark.date().isoformat(), "mark_at": mark_at.isoformat(),
+            "held_price_intervals": held_intervals, "target_cash_calendar_days": target_cash_days,
+            "pre_entry_incumbent_exposure_is_separate": True,
+        },
+        "comparison": {"covariance_interval_difference": covariance_gap,
+                       "target_cash_day_difference": cash_gap},
+        "blockers": blockers,
+        "baseline_a5_clock_changed": False,
+        "source_data_read": False, "source_pit_authenticated": False,
+        "model_fit_allowed": False, "validated_er_available": False,
+        "A5_eligible_input": False, "fullrun_executed": False,
+        "portfolio_or_ledger_mutated": False, "orders_generated": False,
+        "production_or_live_trading_enabled": False,
+    }
+
+
+def run_calendar_exposure_audit(args: argparse.Namespace) -> dict[str, Any]:
+    # This branch precedes normal feature-store/U0 I/O. It cannot replay Source,
+    # train a model or use calendar consistency to open any existing gate.
+    disallowed = ("feature_store", "u0_census", "u0_accepted_evidence", "u0_accepted_artifact_id",
+                  "input_binding", "expected_input_binding_sha256", "input_binding_root", "reader_root",
+                  "stock_leader_family", "pre_fit_only")
+    if any(getattr(args, key, None) for key in disallowed):
+        raise ValueError("calendar_exposure_audit_excludes_training_inputs")
+    result = audit_calendar_12m_exposure(
+        decision_at=args.decision_at,
+        contract=read_json(REPO_ROOT / CALENDAR_EXPOSURE_CONTRACT),
+    )
+    output = repo_path(args.output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    # Create-only diagnostics: never replace an earlier result or accepted state.
+    with (output / "calendar_exposure_audit.json").open("x", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n")
+    return result
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -2627,7 +2720,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--u0-census")
     parser.add_argument("--u0-accepted-evidence")
     parser.add_argument("--u0-accepted-artifact-id", type=int)
-    parser.add_argument("--feature-store", required=True)
+    parser.add_argument("--feature-store")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--input-binding", help="Exact local stock-leader input binding; no source self-approval")
     parser.add_argument("--expected-input-binding-sha256")
@@ -2635,7 +2728,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reader-root", help="Existing local immutable Source transport; training replay only")
     parser.add_argument("--stock-leader-family", action="store_true", help="Require binding/hash before the existing V1 gates")
     parser.add_argument("--pre-fit-only", action="store_true", help="Offline metadata binding only: no GH/Reader/fit")
+    parser.add_argument("--calendar-exposure-audit", action="store_true", help="Calendar-only A5/ER period comparison; no data or fit")
+    parser.add_argument("--decision-at", help="Explicit aware cutoff for --calendar-exposure-audit only")
     args = parser.parse_args()
+    if args.calendar_exposure_audit:
+        if not args.decision_at or args.contract != "docs/run287_expected_return_challenger_contract.json":
+            parser.error("calendar audit requires --decision-at and uses its own pinned contract")
+        if any(getattr(args, key) for key in ("feature_store", "u0_census", "u0_accepted_evidence",
+                "u0_accepted_artifact_id", "input_binding", "expected_input_binding_sha256",
+                "input_binding_root", "reader_root", "stock_leader_family", "pre_fit_only")):
+            parser.error("calendar audit excludes all feature/Source/training inputs")
+        return args
+    if not args.feature_store or args.decision_at:
+        parser.error("normal/pre-fit mode requires --feature-store; --decision-at is calendar-audit only")
     if (args.stock_leader_family or args.pre_fit_only or args.input_binding) and not (
             args.input_binding and args.expected_input_binding_sha256):
         parser.error("stock-leader inputs require --input-binding and --expected-input-binding-sha256")
