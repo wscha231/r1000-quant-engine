@@ -131,6 +131,13 @@ CLI/workflow step fails and cannot start the dependent research cycle.
 
 Research-cycle activation additionally requires the existing durable checkpoint restore/readback and reviewed policy pins. Neither the catalog nor these operational instructions create rights, independent reviews, a new accepted model or an accepted paper account.
 
+The offline native-request format handoff is
+[native input handoff](A4_NATIVE_INPUT_HANDOFF_V1.md). It replays the
+unchanged native readiness gate before emitting the request consumed by the
+existing collector. The Source owner still supplies the independently pinned,
+qualified original normalizer result; local preparation is not supplier-rights
+review, Source/PIT admission, historical learning or a new cloud activation.
+
 The daily wrapper also retains its existing current-session source snapshot,
 coverage and clock checks. A fresh A4 capture cannot refresh or authorize a
 stale legacy success row; wrapper completion and A4 context capture remain

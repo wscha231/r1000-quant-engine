@@ -1,5 +1,33 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-12 KST — Native A4 handoff needs qualified current originals
+
+- The mounted legacy consumer cache contains SPY/QQQ for two of the fourteen
+  A4 targets, both ending2026-07-02; GLD ends2026-03-20. Missing cache keys are
+  not global Source absence, and recent filesystem times do not renew sessions,
+  supplier rights or original row availability. No price recollection occurred.
+- Generated the existing normalizer's actual1,507-session NYSE calendar through
+  2026-11-11 and validated its hash with the native reader. DST, the July3
+  holiday and the2025 Thanksgiving early close passed. A valid calendar alone
+  does not supply500 breadth symbols, eight ready axes or the required credit
+  and volatility originals.
+- Package an explicitly pinned current normalizer result through the existing
+  A4 reader, not a new indicator model. Recheck member/row-lineage/calendar/code
+  hashes and native readiness before writing; preserve FREE_PROXY and all
+  original row clocks. Write request.sha256 last, so an interrupted preparation
+  has no usable commit marker. Hashes and local preparation never grant rights,
+  Source/PIT or learning admission; upstream qualification remains required.
+- The existing hosted workflow may prepare the independently pinned native
+  result after restore, but defaults off. Set its attempted root before replay,
+  propagate failed native preparation through the final gate, and never fall
+  back to the restored request. No source pin or learning flag was activated.
+- The two grounded license folders remain empty; the separately verified
+  three-document Alpaca archive still has no new account-purpose training or
+  long-retention evidence. FRED's current official terms retain their explicit
+  software/ML restriction; do not train on old FRED cache bytes or create an
+  affirmative learning policy from these missing records. Current account
+  contract details were requested while offline connection work continued.
+
 ### 2026-11-12 KST — A4 condition explanations do not complete return prediction
 
 - Scheduled run43146534856/job130945549357 at accepted531a872f captured19
