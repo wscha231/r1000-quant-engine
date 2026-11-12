@@ -74,7 +74,8 @@ class PrimaryTests(unittest.TestCase):
                'tools/candidate_reassessment_bridge.py','tools/a4_liquidity_analysis.py',
                'tools/a4_macro_bridge.py','docs/market_analysis_contract_v2.json',
                'tools/a4_macro_learning.py','tools/macro_technical_study.py','tools/a4_data_center.py',
-               'docs/research_data_access.json')
+               'docs/research_data_access.json','tools/a4_macro_diagnosis.py',
+               'docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md')
         self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity())|{'a4_data_center.py','research_data_access.json'})
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

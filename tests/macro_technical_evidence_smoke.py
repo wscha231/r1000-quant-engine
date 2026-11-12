@@ -400,7 +400,8 @@ def run_tests(*, portable=False):
         from a4_primary_macro_sources_smoke import EconomicTests
         from a4_financing_sources_smoke import FinancingTests
         from a4_data_center_smoke import DataCenterTests
-        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests,PrimaryTests,EconomicTests,FinancingTests,DataCenterTests))
+        from a4_macro_diagnosis_smoke import DiagnosisTests
+        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests,PrimaryTests,EconomicTests,FinancingTests,DataCenterTests,DiagnosisTests))
     suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in classes])
     result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():

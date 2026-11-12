@@ -1,5 +1,26 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-12 KST — A4 condition explanations do not complete return prediction
+
+- Scheduled run43146534856/job130945549357 at accepted531a872f captured19
+  originals/68,116 rows and published its index; all three artifact ZIP hashes
+  and Drive execution/catalog/request/report bytes were checked. Witness
+  9bae766fa087673172b8f924aa607f333443aad85a0b316676d69f2677f80ffc was stored
+  and read back. Original pairs were not independently replayed by this witness.
+  Native risk still lacks operands; legacy daily failure is separately
+  STALE_SUCCESS_NOT_CURRENT_REPORT. No rerun, learning or A3/A5 execution occurred.
+- The examined ETF265/116 Drive folder contains summary matrices and blocked
+  research evidence, not a qualified daily-price bundle. This bounded search
+  does not prove absence across Drive. Capture consent, a successful API and
+  public product docs do not establish supplier licensing or historical PIT.
+- Fixed observations can explain funding, balances, growth and discount-rate
+  pressure, including contrary directions and gaps. Such explanations must not
+  fill horizon return directions, manufacture independent signals, lower native
+  readiness, backdate current histories or assert successful training.
+- The first159-case aggregate found the new diagnosis files missing from the
+  cross-platform byte-identity closure. Add both to its LF checkout rules and
+  explicit round-trip test; do not weaken the closure comparison or drop it.
+
 - Parquet top-level field indices are physical column indices only when the
   whole schema is flat. Reject even unprojected nested/extension fields before
   computing projected footer budgets; otherwise an earlier struct can hide a
