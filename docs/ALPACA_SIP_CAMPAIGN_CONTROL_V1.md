@@ -60,6 +60,41 @@ page/row/transfer/storage/runtime costs when issuing that new control. The
 fixed bridge repairs the old gap and this option prevents repeating it. Do not
 edit an expired607 control, change current settings or activate cadence here.
 
+### Current protected review publisher compatibility
+
+The first actual protected750 public-host attempt stopped at
+`NAMED_READ_GATE_PROVENANCE` before reservation, dispatch, provider calls or
+Drive writes. The reused Read392 consumer recognized only the two historical
+summary forms and frozen historical gate code, while the current protected
+publisher also emits an immutable comment-receipt binding and publisher
+verification. No failed collector or transaction is being rerun.
+
+Only the fixed bridge selects `TWO_SESSION_BRIDGE_CURRENT_REVIEW_GATE_V1`.
+It pins the protected750 gate workflow and evaluator, accepts their three
+existing evidence types, and reproduces the complete published summary from
+the structured evaluation. Comment receipts must bind repository, PR, exact
+head, evidence ID and evidence time. The existing canonical workflow/job,
+successful steps, full published-check parity and both run/checkout code-pin
+checks remain mandatory. A display-only green check is insufficient. Missing,
+changed or conflicting publisher/evaluation evidence refuses before capture.
+
+Read392/default and historical settlement retain their original two evidence
+types, summaries and code pins. This compatibility fix changes no gate,
+authority, scope, nonce, provider budget, scheduler, ledger or accepted state.
+A new protected deployment needs fresh exact code/control pins and immutable
+OWNER records; the unused750 grant is not silently renewed. The fixed scope
+nonce still permits at most one capture attempt across changed controls.
+The revision module is pinned to LF in `.gitattributes`: Windows CRLF expansion
+would exceed the unchanged262144-byte physical source-read bound. Tests verify
+actual bytes; the byte limit is not increased. Synthetic workflow proof fixtures
+need no extra sparse checkout files; actual protected750 provenance is verified
+separately through the real GitHub metadata/log consumer, without capture.
+
+The shared provenance proof body lives in the existing capture module, behind
+the original revision API. This keeps both LF and hypothetical CRLF source
+bytes below the unchanged262144 limit; the pre-existing two-form regression
+remains unchanged. Runtime proof semantics and legacy pin selection are preserved.
+
 ## Exact historical authorization / corrective Read392 v3 — 2026-10-21
 
 The real frozen v9 authorization `2a1339c50cad5971d4ea06d9a01d430e9ea28a5f22a1c6b031b79e6aab52a02e`

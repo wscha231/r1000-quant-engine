@@ -10846,6 +10846,47 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   counterpart, and coordinate a short integration window before another exact-
   head check. Old-head green is not validation of the new aligned head.
 
+## 2026-11-12 — Review publisher evolution must be tested at the actual consumer
+
+- Protected750 passed236/236 and merged, but its first actual public Source
+  host stopped at NAMED_READ_GATE_PROVENANCE before reservation/POST/provider
+  or Drive writes. The reused legacy consumer accepted old display summaries
+  and frozen old gate bytes; the current publisher adds verified comment
+  receipt bindings. Collector tests alone missed this cross-edge mismatch.
+- Add an explicit bridge-only current-publisher profile with independently
+  pinned protected code, structured evaluation/full published-check parity,
+  canonical workflow/job/step/log proof and exact repository/PR/head/ID/time.
+  Preserve legacy default and settlement pins. Never forge an old summary,
+  remove protection or replay a failed transaction to obtain a green result.
+- Keep the refused host's zero-side-effect receipt and unused grant. A repaired
+  protected deployment requires fresh control/OWNER evidence; changing the
+  grant cannot change the fixed capture nonce or erase earlier family costs.
+
+- The first64-test focused normal run failed five cases at the unchanged
+  262144-byte physical source-read bound: Windows CRLF expansion made the
+  revision module264859 bytes. Pin that module to LF (261163 bytes), retain
+  the failed23.4806789-second receipt and keep the bound unchanged.
+- After LF checkout repair,65/65 focused tests passed in both normal and -O
+  modes (45.8007481 seconds). The actual protected750 review gate also passed
+  through the new consumer (five GitHub metadata reads and one46733-byte log,
+  6.147729 native seconds). No reservation, dispatch, provider/Drive call or
+  Source admission resulted; real protected-gate compatibility is now tested.
+- The Source job uses an explicit sparse checkout without gate publisher files
+  or.gitattributes. Keep synthetic current-publisher proof fixtures self-contained
+  and test physical source bytes without requiring absent checkout files. Verify
+  actual trusted pins separately through the real protected-gate consumer.
+- Hosted Source43075092235/job130712722935 then found one failure in546
+  tests: the older regression deliberately checks even hypothetical CRLF size.
+  Retain that test and262144 limit; relocate the shared proof body to the
+  existing capture module, leaving the revision wrapper and scoped pins.
+  LF255808/CRLF259434 bytes both fit. Cancel only obsolete side-effect-free
+  PR validation43075092396; never rerun capture or weaken the old guard.
+- After relocation,66/66 focused tests passed in normal and -O, including
+  the unchanged legacy LF+CRLF test. A broader local registered run reached
+  its238.0277331-second finite deadline and was stopped; no broad PASS is
+  claimed or rerun. Hosted exact-head validation remains required. Retain
+  all costs (Source cumulative1622.7422994s) and the partial log.
+
 ### 2026-11-11 — Government economic histories remain current vintages
 
 - Actual BLS four-series responses cover1996–2026 in four public API calls.
@@ -11179,3 +11220,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The first author-witness utility used the wrong helper namespace and failed
   before writing its witness. Correct the import, retain that failed attempt
   in the successful proof, and do not infer durability from a local draft.
+
+### 2026-11-12 — Align accepted concurrent changes before protected closure
+
+- Source754 head21d66f completed its required CI and review, but accepted A4
+  master531a872 created attribute/lesson append conflicts. Preserve both sides
+  through normal merge, keep A4 runtime files identical to accepted master,
+  and obtain new exact-head evidence; old-head green does not qualify alignment.
+- Even --no-commit merge checks committer identity. Reuse the existing Codex
+  identity through command-scoped options; the first pre-merge identity failure
+  made no worktree changes. Do not alter global identity or trust settings.
