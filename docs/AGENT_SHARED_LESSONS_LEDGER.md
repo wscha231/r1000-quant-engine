@@ -11377,3 +11377,14 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   unchanged A4 runtime bytes do not make the old head a final merge approval.
 - Recheck the aligned exact head, review threads and protected CI. This is
   source alignment only, never an A3/A5 execution or a qualified data/model run.
+- Aligned head004517241 run43213702855/job131167476443 hit its90-minute
+  execution cap after229/236 scripts passed; no assertion failure was logged.
+  Cancellation occurred in catchup-price-capture, so the remaining seven are
+  unverified, not passes. Preserve the annotations and cancelled attempt.
+  Increase only the PR job cap to120 minutes, retaining every test, command,
+  permission and gate. A timeout is never a substitute for full exact-head CI.
+- The local Windows workflow smoke passed its112 embedded cases, then failed
+  a separate existing operating-capture path assertion (`/` versus `\\`). Do
+  not call that invocation passed or mix an unrelated path repair into A4.
+  The same smoke passed in the cancelled Linux run before its time cap;
+  retain the failure and require the new full hosted result.

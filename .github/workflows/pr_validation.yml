@@ -1,6 +1,6 @@
 name: PR Validation (Fast)
 
-# Tier 1 validator: ~2-3 minute code-level smoke test runner.
+# Tier 1 validator: bounded code-level smoke test runner.
 # Runs automatically on pull requests (and manual dispatch) so code
 # changes get rapid feedback without waiting on a
 # manual full rebuild (Tier 3, 2-6 h).
@@ -25,7 +25,8 @@ name: PR Validation (Fast)
 #     full_rebuild_manual.yml (Tier 3, ~2-6 h).
 #
 # Runtime target: < 80 minutes on the free GitHub runner, including
-# sparse checkout and dependency setup; keep a 90-minute fail-safe. Add new
+# sparse checkout and dependency setup. Runner variation can exceed that
+# target; keep all tests and a bounded 120-minute fail-safe. Add new
 # critical smoke tests to tools/run_pr_validation.py's DEFAULT_TESTS so
 # both this workflow and the local runner stay in sync.
 
@@ -39,7 +40,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
