@@ -46,8 +46,8 @@
   execution cap after229/236 scripts passed; no assertion failure was logged.
   Cancellation occurred in catchup-price-capture, so the remaining seven are
   unverified, not passes. Preserve the annotations and cancelled attempt.
-  Increase only the PR job cap to120 minutes, retaining every test, command,
-  permission and gate. A timeout is never a substitute for full exact-head CI.
+  An attempted120-minute cap retained the test commands but was later rejected
+  by frozen publication (see correction below). A timeout is never a full pass.
 - The local Windows workflow smoke passed its112 embedded cases, then failed
   a separate existing operating-capture path assertion (`/` versus `\\`). Do
   not call that invocation passed or mix an unrelated path repair into A4.
@@ -61,6 +61,15 @@
   required conflict resolution; retain that attempt separately from the
   earlier90-minute timeout. Never apply this retry to a transactional daily
   or paper workflow, and never count an interrupted check as a pass.
+- After that stop made logs available, e17's run showed a real P0-4 inventory
+  failure at14:12UTC. The runner deferred failure details until its final
+  summary, so incomplete step metadata was not evidence of no failing tests.
+  Local reproduction4.845s identified post_publication_protected_delta for
+  .github/workflows/pr_validation.yml: the cap edit violated its frozen byte
+  contract despite parsed-YAML equivalence elsewhere. Restore accepted workflow
+  bytes exactly; preserve pins/tests and both failed/superseded attempts.
+  Stop the known-bad ebf prior-head ordinary CI43239703767 before replacement,
+  then require focused P0-4 replay and a fresh complete exact-head CI.
 
 ### 2026-11-12 KST — A4 condition explanations do not complete return prediction
 
