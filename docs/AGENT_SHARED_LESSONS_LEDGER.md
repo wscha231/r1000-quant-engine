@@ -1,5 +1,76 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-12 KST — Native A4 handoff needs qualified current originals
+
+- The mounted legacy consumer cache contains SPY/QQQ for two of the fourteen
+  A4 targets, both ending2026-07-02; GLD ends2026-03-20. Missing cache keys are
+  not global Source absence, and recent filesystem times do not renew sessions,
+  supplier rights or original row availability. No price recollection occurred.
+- Generated the existing normalizer's actual1,507-session NYSE calendar through
+  2026-11-11 and validated its hash with the native reader. DST, the July3
+  holiday and the2025 Thanksgiving early close passed. A valid calendar alone
+  does not supply500 breadth symbols, eight ready axes or the required credit
+  and volatility originals.
+- Package an explicitly pinned current normalizer result through the existing
+  A4 reader, not a new indicator model. Recheck member/row-lineage/calendar/code
+  hashes and native readiness before writing; preserve FREE_PROXY and all
+  original row clocks. Write request.sha256 last, so an interrupted preparation
+  has no usable commit marker. Hashes and local preparation never grant rights,
+  Source/PIT or learning admission; upstream qualification remains required.
+- The existing hosted workflow may prepare the independently pinned native
+  result after restore, but defaults off. Set its attempted root before replay,
+  propagate failed native preparation through the final gate, and never fall
+  back to the restored request. No source pin or learning flag was activated.
+- The two grounded license folders remain empty; the separately verified
+  three-document Alpaca archive still has no new account-purpose training or
+  long-retention evidence. FRED's current official terms retain their explicit
+  software/ML restriction; do not train on old FRED cache bytes or create an
+  affirmative learning policy from these missing records. Current account
+  contract details were requested while offline connection work continued.
+- BLS's official archive and public-domain policy are visible through the web
+  reader, but four bounded direct HTML preflights (policy plus three dated
+  releases) returned403. Record the raw-byte access failure separately from
+  data-use rights; do not substitute rendered text for original bytes, retry
+  around the refusal, or call these samples verified historical/PIT inputs.
+  This does not change the working BLS API captures or create a new collector.
+
+### 2026-11-12 — Revalidate native A4 handoff after accepted master advances
+
+- PR760 head0d68ba082d passed236/236 protected checks in3905.69s, but accepted
+  master advanced toceba0bc685 through independent A5 PR759 during that run.
+  Preserve both lesson sections and accepted A5 bytes through normal merge;
+  unchanged A4 runtime bytes do not make the old head a final merge approval.
+- Recheck the aligned exact head, review threads and protected CI. This is
+  source alignment only, never an A3/A5 execution or a qualified data/model run.
+- Aligned head004517241 run43213702855/job131167476443 hit its90-minute
+  execution cap after229/236 scripts passed; no assertion failure was logged.
+  Cancellation occurred in catchup-price-capture, so the remaining seven are
+  unverified, not passes. Preserve the annotations and cancelled attempt.
+  An attempted120-minute cap retained the test commands but was later rejected
+  by frozen publication (see correction below). A timeout is never a full pass.
+- The local Windows workflow smoke passed its112 embedded cases, then failed
+  a separate existing operating-capture path assertion (`/` versus `\\`). Do
+  not call that invocation passed or mix an unrelated path repair into A4.
+  The same smoke passed in the cancelled Linux run before its time cap;
+  retain the failure and require the new full hosted result.
+- Accepted master then advanced to7d92b821ff via independent ER PR761.
+  Resolve only the shared lesson append conflict, preserve accepted ER bytes,
+  and keep these alignment notes beside the A4 entry rather than the shared
+  append boundary. Recheck the resolved exact head before publication.
+- Stop only the superseded side-effect-free PR run43228490855 for this
+  required conflict resolution; retain that attempt separately from the
+  earlier90-minute timeout. Never apply this retry to a transactional daily
+  or paper workflow, and never count an interrupted check as a pass.
+- After that stop made logs available, e17's run showed a real P0-4 inventory
+  failure at14:12UTC. The runner deferred failure details until its final
+  summary, so incomplete step metadata was not evidence of no failing tests.
+  Local reproduction4.845s identified post_publication_protected_delta for
+  .github/workflows/pr_validation.yml: the cap edit violated its frozen byte
+  contract despite parsed-YAML equivalence elsewhere. Restore accepted workflow
+  bytes exactly; preserve pins/tests and both failed/superseded attempts.
+  Stop the known-bad ebf prior-head ordinary CI43239703767 before replacement,
+  then require focused P0-4 replay and a fresh complete exact-head CI.
+
 ### 2026-11-12 KST — A4 condition explanations do not complete return prediction
 
 - Scheduled run43146534856/job130945549357 at accepted531a872f captured19

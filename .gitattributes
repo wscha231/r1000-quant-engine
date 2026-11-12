@@ -39,3 +39,4 @@ tools/a4_data_center.py text eol=lf
 docs/research_data_access.json text eol=lf
 tools/a4_macro_diagnosis.py text eol=lf
 docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md text eol=lf
+tools/prepare_a4_native_inputs.py text eol=lf
