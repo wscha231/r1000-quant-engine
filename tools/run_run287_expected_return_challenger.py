@@ -15,6 +15,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,9 @@ from sklearn.preprocessing import StandardScaler
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Direct `python tools/...py` starts on tools/, unlike the imported smoke path.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 SCHEMA_VERSION = "run287-expected-return-challenger-v1"
 READY_STATUS = "READY_EXPECTED_RETURN_FORWARD_REVIEW_ONLY"
 BLOCKED_STATUS = "BLOCKED_EXPECTED_RETURN_CHALLENGER"

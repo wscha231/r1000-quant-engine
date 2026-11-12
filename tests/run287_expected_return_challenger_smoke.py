@@ -1774,7 +1774,26 @@ def test_calendar_exposure_cli_isolated_and_create_only():
                 raise AssertionError("normal training U0 gate bypassed")
 
 
+def test_calendar_exposure_direct_script_outside_repository():
+    import os
+    import subprocess
+    with tempfile.TemporaryDirectory() as folder:
+        output = Path(folder) / "direct"
+        argv = [sys.executable, "-B"] + (["-O"] if sys.flags.optimize else []) + [
+            str(ROOT / "tools/run_run287_expected_return_challenger.py"), "--calendar-exposure-audit",
+            "--decision-at", "2021-10-01T23:00:00Z", "--output-dir", str(output)]
+        env = {key: value for key, value in os.environ.items() if key.upper() != "PYTHONPATH"}
+        done = subprocess.run(argv, cwd=folder, env=env, capture_output=True, text=True, timeout=20, check=False)
+        _calendar_check(done.returncode == 0, "direct script failed:" + done.stderr[-1000:])
+        result = json.loads(done.stdout)
+        _calendar_check(result["audit_completed"] is True and result["model_fit_allowed"] is False,
+                        "direct path audit only")
+        _calendar_check(result == json.loads((output / "calendar_exposure_audit.json").read_text(encoding="utf-8")),
+                        "direct CLI artifact readback")
+
+
 def main() -> int:
+    test_calendar_exposure_direct_script_outside_repository()
     test_calendar_exposure_native_clock_is_not_252_or_a_label()
     test_calendar_exposure_leap_dst_and_actual_early_close()
     test_calendar_exposure_refuses_future_naive_or_changed_contract()
