@@ -11328,3 +11328,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
   connector API calls were0; Drive filesystem/OS network wire remains UNKNOWN.
   Archived Reader currentness stays NOT_CURRENT. Financial research is not
   current-market, historical PIT, A3 completeness, ER or A5 approval.
+
+### 2026-11-12 — Certify A5 solver objectives on the existing frozen inputs
+
+- Optimizer success and feasible weights do not prove an improved objective. Recompute the finite objective from returned weights and require non-inferiority to the same feasible Control (or the no-alternative feasible starting point), within a fixed numerical tolerance. Never trust reported fun, silently select a failed result, or claim global optimality or realized return improvement.
+- Existing cost-aware allocation, covariance shrinkage, Winner floors and conditional exception caps are reused. The current 21/63/126-session training output is not a 12-calendar-month ER; preserve that bridge refusal and the original A3/A4/A6 admission gates.
+- The dominance negative test exposed a real Control bug: integer zero incumbent/lower arrays truncated fractional score allocations in-place, leaving Control at cash. Use explicit float arrays before allocation and assert fractional positive Control weights. Preserve the failed exploratory fixtures and their costs; their zero-versus-zero result was not optimizer dominance evidence.

@@ -670,7 +670,8 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     covariance=LedoitWolf().fit(returns.T).covariance_*clock["covariance_scale_sessions"]
     costs=[_stock_cost(r,p["cost_bps_per_side"]) for r in accepted]
     mu=np.asarray([v[0] for v in costs]);side=np.asarray([v[1] for v in costs])
-    old=np.asarray([current.get(a,0) for a in ids]);lo=np.asarray(lower);hi=np.asarray(upper)
+    old=np.asarray([current.get(a,0) for a in ids],dtype=float)
+    lo=np.asarray(lower,dtype=float);hi=np.asarray(upper,dtype=float)
     replacement_inflows=defaultdict(float)
     for audit in exit_audit:
         if "replacement_asset_id" in audit:
@@ -713,12 +714,18 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         return float(-(mu@w+cash_return*(1-sum(w))-side@np.abs(w-old))+
                      p["risk_aversion"]*(w@covariance@w)/2)
     constraint={"type":"ineq","fun":lambda w:limits-matrix@w}
-    def checked_solution(result,minimum,maximum,reason):
+    def checked_solution(result,minimum,maximum,reason,reference):
         require(result.success,reason)
         values=np.asarray(result.x,dtype=float)
         require(values.shape==(n,) and np.isfinite(values).all() and
                 np.all(values>=minimum-1e-8) and np.all(values<=maximum+1e-8) and
                 np.all(matrix@values<=limits+1e-8),reason)
+        value=objective(values)
+        reference_value=objective(reference)
+        require(math.isfinite(value) and math.isfinite(reference_value),
+                "stock_optimizer_nonfinite_objective")
+        tolerance=1e-8*max(1.0,abs(reference_value))
+        require(value<=reference_value+tolerance,"stock_optimizer_worse_than_feasible_reference")
         return values
     # Same frozen moments, costs, cash and incumbent floors for both arms.
     control=lo.copy()
@@ -736,9 +743,9 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         for line,limit in zip(matrix,limits):
             if line[i]>0:room=min(room,max(0,(limit-line@control)/line[i]))
         control[i]+=max(0,room)
-    solved=minimize(objective,control,method="SLSQP",bounds=list(zip(lo,hi)),constraints=[constraint],
+    solved=minimize(objective,control.copy(),method="SLSQP",bounds=list(zip(lo,hi)),constraints=[constraint],
                     options={"ftol":1e-10,"maxiter":300})
-    optimized=checked_solution(solved,lo,hi,"stock_optimizer_constraint_violation")
+    optimized=checked_solution(solved,lo,hi,"stock_optimizer_constraint_violation",control)
     if replacements:
         for name,values in (("CONTROL",control),("COST_AWARE_LONG_ONLY",optimized)):
             concentration_audit[name]=_stock_replacement_concentration(current,
@@ -749,9 +756,9 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     if any(chosen[i]>old[i]+1e-9 and alt[i]>0 for i in range(n)):
         no_alt_lo=lo.copy();no_alt_hi=hi.copy()
         no_alt_lo[alt>0]=0;no_alt_hi[alt>0]=0
-        baseline=minimize(objective,no_alt_lo,method="SLSQP",bounds=list(zip(no_alt_lo,no_alt_hi)),
+        baseline=minimize(objective,no_alt_lo.copy(),method="SLSQP",bounds=list(zip(no_alt_lo,no_alt_hi)),
             constraints=[constraint],options={"ftol":1e-10,"maxiter":300})
-        checked_solution(baseline,no_alt_lo,no_alt_hi,"stock_exception_counterfactual_failed")
+        checked_solution(baseline,no_alt_lo,no_alt_hi,"stock_exception_counterfactual_failed",no_alt_lo)
         for i,aid in enumerate(ids):
             if not (chosen[i]>old[i]+1e-9 and alt[i]>0):continue
             proof=alternatives.get(aid)
@@ -802,6 +809,13 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         comparisons={name:dict(weights={a:float(w) for a,w in zip(ids,values) if w>1e-10},
             objective=objective(values),incremental_cost_fraction=float(side@np.abs(values-old)))
             for name,values in (("CONTROL",control),("COST_AWARE_LONG_ONLY",optimized))},
+        optimizer_certificate=dict(schema="stock-optimizer-objective-certificate-v1",
+            objective_horizon=p["horizon"],reference="SAME_FROZEN_FEASIBLE_CONTROL",
+            control_objective=objective(control),optimized_objective=objective(optimized),
+            improvement=objective(control)-objective(optimized),
+            numerical_tolerance=1e-8*max(1.0,abs(objective(control))),
+            solver_reported_fun_used=False,global_optimality_claimed=False,
+            performance_claimed=False),
         allocator=p["allocator"],intent=intent,
         control_identity="EXISTING_MULTI_ASSET_SCORE_WITH_STOCK_SCOPE_AND_SHARED_HARD_LIMITS",
         reduction_basis="PINNED_TYPED_EXIT_ONLY",
