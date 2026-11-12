@@ -68,6 +68,7 @@
     "native_risk_axes_changed": false
   },
   "learning_release": "Exact trial plus externally pinned policy; immutable request replay and fixed code/math/recipe binding; maximum32MiB within the existing64MiB total",
+  "macro_condition_diagnosis": "docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md; descriptive family pressures and completion blockers; no calibrated equity-return direction or native-risk override",
   "source_register": "tools/a4_liquidity_analysis.py:SERIES",
   "fred_current_json": "Exact a4-macro-normalization-v1 binding required; recompute CSV from original bytes",
   "nyfed_json": "Original refRates with exact type/effectiveDate and rate/volume/percentile fields; availability is collection unless original publication is separately verified",

@@ -309,6 +309,8 @@ def analyze(raw_request, supplied, *, expected_sha, cutoff, session):
             need(type(release) is dict and set(release) == {"trial", "policy"}, "LEARNING_RELEASE_SCHEMA")
             learning.forecast_release(result, release["trial"], release["policy"], spec["policy_sha256"])
             result.pop("content_sha256", None)
+        from tools.a4_macro_diagnosis import diagnose
+        diagnose(result)
     result["content_sha256"] = context.digest(result)
     return result
 
@@ -354,6 +356,9 @@ def implementation_identity():
     paths.append(Path(a4_primary_macro_sources.__file__))
     from tools import a4_financing_sources,a4_financing_analysis
     paths.extend([Path(a4_financing_sources.__file__),Path(a4_financing_analysis.__file__)])
+    from tools import a4_macro_diagnosis
+    paths.append(Path(a4_macro_diagnosis.__file__))
+    paths.append(CONTRACT_PATH.with_name('A4_MACRO_CONDITION_DIAGNOSIS_V1.md'))
     return {p.name: sha(bounded(p, MAX_FILE_BYTES)) for p in paths}
 
 
@@ -451,6 +456,22 @@ def render_report(value):
                     '| --- | --- | ---: | ---: | ---: |',
                     f"| {latest['observation_date']} | {latest['frequency']} | {display('term_premium_10y_percent')} | {display('fitted_yield_10y_percent')} | {display('expected_short_rate_10y_percent')} |",
                     '', term['caveat']]
+        diagnosis=value.get('macro_diagnosis')
+        if diagnosis:
+            lines += ['', '## Observed macro conditions', '',
+                'Current descriptive pressures; future return direction still requires reviewed historical evidence.',
+                '', '| Lookback | Family | Observed condition | Coverage |', '| --- | --- | --- | --- |']
+            for window,entry in diagnosis['windows'].items():
+                for family in entry['families']:
+                    lines.append(f"| {window} | {family['family']} | {family['observed_condition']} | {family['status']} |")
+            lines += ['']+[family['family']+': '+family['caveat'] for family in diagnosis['windows']['SHORT']['families']]
+            lines += ['', '| Series | Window | Change | Unit | Observation |', '| --- | --- | ---: | --- | --- |']
+            for family in diagnosis['windows']['SHORT']['families']:
+                for measure in family['measures']:
+                    dates=', '.join(sorted({r['observation_date'] for r in measure.get('evidence',[])}))
+                    lines.append(f"| {measure['series']} | {measure.get('window')} {measure.get('window_unit','')} | {measure.get('change')} | {measure.get('change_unit')} | {dates} |")
+            lines += ['', 'Diagnosis only; calibrated forecasts: '+str(diagnosis['return_forecast_calibrated']),
+                'Completion blockers: '+', '.join(r['code'] for r in diagnosis['completion_blockers'])]
         lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
         lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
     for notice in value.get('primary_source_notices', []):

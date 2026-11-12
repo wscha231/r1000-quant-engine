@@ -1,5 +1,47 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-12 KST — A4 condition explanations do not complete return prediction
+
+- Scheduled run43146534856/job130945549357 at accepted531a872f captured19
+  originals/68,116 rows and published its index; all three artifact ZIP hashes
+  and Drive execution/catalog/request/report bytes were checked. Witness
+  9bae766fa087673172b8f924aa607f333443aad85a0b316676d69f2677f80ffc was stored
+  and read back. Original pairs were not independently replayed by this witness.
+  Native risk still lacks operands; legacy daily failure is separately
+  STALE_SUCCESS_NOT_CURRENT_REPORT. No rerun, learning or A3/A5 execution occurred.
+- The examined ETF265/116 Drive folder contains summary matrices and blocked
+  research evidence, not a qualified daily-price bundle. This bounded search
+  does not prove absence across Drive. Capture consent, a successful API and
+  public product docs do not establish supplier licensing or historical PIT.
+- Fixed observations can explain funding, balances, growth and discount-rate
+  pressure, including contrary directions and gaps. Such explanations must not
+  fill horizon return directions, manufacture independent signals, lower native
+  readiness, backdate current histories or assert successful training.
+- The first159-case aggregate found the new diagnosis files missing from the
+  cross-platform byte-identity closure. Add both to its LF checkout rules and
+  explicit round-trip test; do not weaken the closure comparison or drop it.
+- Actual-input review then found the draft bank explanation omitted falling
+  cash assets while deposits and loans rose. Retain all four quantities and
+  use expansion/contraction labels, not inferred credit/funding easing. Labor
+  and dollar directions also need their own vocabulary. A clean code review
+  does not replace checking the financial meaning against actual inputs.
+- The current Lake Reader subsequently reverified generation32,1,157 datasets
+  (1,155 COLLECTED/two COVERAGE_GAP), historical pack dependencies and linked
+  report hashes in1,076.598s. Stored/read-back proof
+  b959f6383a57dfb1cface31a72d846076e7664300db3f92fb9e977708f7c2fff
+  confirms bytes and PARTIAL_COVERAGE, not learning rights, PIT or a new fit.
+- The original three-document account-rights archive was located and its
+  current connector ZIP bytes matched retained archive1337e9f1; every member
+  hash passed. It contains general terms, API FAQ and a consent audit explicitly
+  retaining UNKNOWN supplier rights. The separate scoped SPY665 working-copy
+  review is not a blanket A4 training, perpetual-retention or commercial grant.
+  Preserve the human hold on unverified new price training/distribution.
+- Empty indexed folder searches were contradicted by direct folder fetch.
+  Two bounded raw CLIcopyto attempts failed UNCLASSIFIED; do not infer quota,
+  account denial or a license conclusion. Connector bytes plus the retained
+  hash-bound ZIP resolved the read without another download. Missing PDF text
+  tooling was handled by reviewing all four rendered pages; no source changed.
+
 - Parquet top-level field indices are physical column indices only when the
   whole schema is flat. Reject even unprojected nested/extension fields before
   computing projected footer budgets; otherwise an earlier struct can hide a
