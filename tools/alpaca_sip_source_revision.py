@@ -238,75 +238,50 @@ def named_read_gate_log(c,job_id):
     return raw.decode("utf-8")
 
 
-def named_read_gate(c,control,check):
-    # These are the existing trusted gate bytes at reviewed base3c6c216, not
-    # newly trusted PR/runner pins. A changed protected implementation must stop.
-    output=check.get("output",{})
-    evidence=("ATTESTED_EXACT_HEAD_REVIEW","MAINTAINER_BOUND_CLEAN_REACTION")
-    summaries={"Evidence: "+e+"\n\nFailures: none\n\nUnresolved conversations are enforced separately by master branch protection." for e in evidence}
-    c.require(type(check.get("id")) is int and type(check.get("check_suite",{}).get("id")) is int
-        and output.get("title")=="PASS_REVIEW_COMPLETE" and output.get("summary") in summaries
-        and isinstance(check.get("started_at"),str) and isinstance(check.get("completed_at"),str),
-        "NAMED_READ_GATE_PROVENANCE")
-    started=c.utc(check["started_at"]);completed=c.utc(check["completed_at"])
-    c.require(started<=completed,"NAMED_READ_GATE_PROVENANCE")
-    query=c.urlencode(dict(created=(started-c.timedelta(hours=1)).isoformat()+".."+completed.isoformat(),per_page=100))
-    runs=c.gh_json(f"repos/{c.REPO}/actions/workflows/317164841/runs?{query}")
-    c.require(isinstance(runs.get("workflow_runs"),list)
-        and runs.get("total_count")==len(runs["workflow_runs"])<=100,"NAMED_READ_GATE_PROVENANCE")
-    candidates=[r for r in runs["workflow_runs"] if r.get("workflow_id")==317164841
-        and r.get("path")==".github/workflows/review_complete_gate.yml"
-        and r.get("event") in {"issue_comment","workflow_dispatch"}
-        and r.get("status")=="completed" and r.get("conclusion")=="success"
-        and r.get("repository",{}).get("full_name")==c.REPO and r.get("head_repository",{}).get("full_name")==c.REPO
-        and isinstance(r.get("created_at"),str) and isinstance(r.get("updated_at"),str)
-        and c.utc(r["created_at"])<=started<=completed<=c.utc(r["updated_at"])]
-    c.require(0<len(candidates)<=5,"NAMED_READ_GATE_PROVENANCE")
-    proofs=[]
-    for run in candidates:
-        c.require(type(run.get("id")) is int and type(run.get("run_attempt")) is int
-            and run["run_attempt"]>=1 and c.re.fullmatch("[0-9a-f]{40}",run.get("head_sha", "")),
+BRIDGE_CURRENT_GATE_PROFILE = "TWO_SESSION_BRIDGE_CURRENT_REVIEW_GATE_V1"
+# Protected master2e6cf4bb (PR750) already publishes v2 comment receipts and
+# verifies its publisher. These pins apply only to the new bridge profile;
+# READ392_GATE_PINS and every historical/default named-read proof stay intact.
+BRIDGE_CURRENT_GATE_PINS = {
+    ".github/workflows/review_complete_gate.yml": "513a9f4366ac74be398fa3f6687e34776491e0ea62057ba0e25334595ae932a3",
+    "tools/check_pr_review_complete.py": "ca4f3cf06e446aea1fb68d5b7cf6d674eec115ce9ca02e5a91e0ab762d5fbc4d",
+}
+
+
+def _bridge_gate_summary(c,result,control,completed):
+    """Reproduce the pinned publisher, never accept a display-only green check."""
+    kind=result.get("evidence_type")
+    binding=result.get("comment_receipt_binding")
+    c.require(type(result.get("evidence_id")) is int and result["evidence_id"]>0
+        and isinstance(result.get("evidence_at"),str)
+        and "comment_receipt_binding" in result,"NAMED_READ_GATE_PROVENANCE")
+    try:
+        c.require(c.utc(result["evidence_at"])<=completed,"NAMED_READ_GATE_PROVENANCE")
+        serialized=c.json.dumps(binding,sort_keys=True,separators=(",",":"),allow_nan=False)
+    except (TypeError,ValueError,OverflowError):
+        raise c.Refused("NAMED_READ_GATE_PROVENANCE") from None
+    if kind=="MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT":
+        c.require(type(binding) is dict
+            and binding.get("schema_version")=="trusted-codex-issue-comment-receipt-v1"
+            and binding.get("repository")==c.REPO
+            and binding.get("pull_request_number")==control["deployment"]["pull_request"]
+            and binding.get("head_sha")==control["deployment"]["reviewed_head"]
+            and binding.get("receipt_comment_id")==result["evidence_id"]
+            and binding.get("receipt_created_at")==result["evidence_at"],
             "NAMED_READ_GATE_PROVENANCE")
-        jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/jobs?per_page=100")
-        c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==1,"NAMED_READ_GATE_PROVENANCE")
-        job=jobs["jobs"][0]
-        c.require(type(job.get("id")) is int and job.get("run_id")==run["id"]
-            and job.get("name")=="evaluate" and job.get("status")=="completed" and job.get("conclusion")=="success"
-            and isinstance(job.get("started_at"),str) and isinstance(job.get("completed_at"),str)
-            and c.utc(job["started_at"])<=started<=completed<=c.utc(job["completed_at"]),"NAMED_READ_GATE_PROVENANCE")
-        for name in ("Checkout trusted gate implementation","Resolve trusted head observation and maintainer attestation",
-                     "Evaluate Codex review evidence for current head","Publish required review_complete check on PR head"):
-            steps=[s for s in job.get("steps",[]) if s.get("name")==name]
-            c.require(len(steps)==1 and steps[0].get("status")=="completed"
-                and steps[0].get("conclusion")=="success","NAMED_READ_GATE_PROVENANCE")
-        text="\n".join(line.partition(" ")[2] for line in named_read_gate_log(c,job["id"]).splitlines())
-        records=[]
-        for match in c.re.finditer(r"(?m)^\{",text):
-            try:records.append(c.json.JSONDecoder().raw_decode(text,match.start())[0])
-            except ValueError:continue
-        published=[r for r in records if isinstance(r,dict) and r.get("id")==check["id"] and r.get("name")=="review_complete"]
-        if not published:continue
-        c.require(len(published)==1 and all(published[0].get(k)==check.get(k) for k in
-            ("head_sha","status","conclusion","check_suite","output")),"NAMED_READ_GATE_PROVENANCE")
-        evaluations=[r for r in records if isinstance(r,dict) and r.get("schema_version")=="run287-review-complete-gate-v2"]
-        c.require(len(evaluations)==1,"NAMED_READ_GATE_PROVENANCE")
-        result=evaluations[0]
-        c.require(result.get("status")=="PASS_REVIEW_COMPLETE" and result.get("passed") is True
-            and result.get("head_sha")==control["deployment"]["reviewed_head"]
-            and result.get("pull_request_number")==control["deployment"]["pull_request"]
-            and result.get("evidence_type") in evidence and result.get("failures")==[],"NAMED_READ_GATE_PROVENANCE")
-        checkouts=c.re.findall(r"(?m)^\[command\].*git log -1 --format=%H\n([0-9a-f]{40})$",text)
-        c.require(len(checkouts)==1,"NAMED_READ_GATE_PROVENANCE")
-        for ref in {run["head_sha"],checkouts[0]}:
-            for path,sha in READ392_GATE_PINS.items():
-                remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={ref}")
-                c.require(remote.get("encoding")=="base64"
-                    and c.digest(c.base64.b64decode(remote.get("content","")))==sha,"NAMED_READ_GATE_PROVENANCE")
-        proofs.append((run["id"],job["id"]))
-    c.require(len(proofs)==1,"NAMED_READ_GATE_PROVENANCE")
+    else:
+        c.require(binding is None,"NAMED_READ_GATE_PROVENANCE")
+    return ("Evidence: "+kind+"\n\nFailures: none\n\nComment receipt binding: "+serialized
+        +"\n\nPublisher verification: verified\n\nUnresolved conversations are enforced separately by master branch protection.")
 
 
-def named_read_checks(c,control):
+def named_read_gate(c,control,check,*,gate_profile=None):
+    # Shared proof body lives in the existing capture module to retain the
+    # original physical source-size bound under both LF and CRLF checkout.
+    from tools import alpaca_sip_private_backfill_v1 as cap
+    cap._source_named_read_gate(c,c._revision_module(),control,check,gate_profile=gate_profile)
+
+def named_read_checks(c,control,*,gate_profile=None):
     head=control["deployment"]["reviewed_head"]
     checks=c.gh_json(f"repos/{c.REPO}/commits/{head}/check-runs?per_page=100")
     c.require(checks.get("total_count")==len(checks.get("check_runs",[]))<=100,"NAMED_READ_CHECKS")
@@ -315,7 +290,9 @@ def named_read_checks(c,control):
         c.require(len(selected)==1 and selected[0].get("head_sha")==head
             and selected[0].get("status")=="completed" and selected[0].get("conclusion")=="success"
             and selected[0].get("app",{}).get("slug")=="github-actions","NAMED_READ_CHECKS")
-        if name=="review_complete":named_read_gate(c,control,selected[0])
+        if name=="review_complete":
+            if gate_profile is None:named_read_gate(c,control,selected[0])
+            else:named_read_gate(c,control,selected[0],gate_profile=gate_profile)
 
 
 def named_read_origin(c,control):
