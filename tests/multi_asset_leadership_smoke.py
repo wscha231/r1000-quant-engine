@@ -1781,6 +1781,52 @@ class StockCashResearch(unittest.TestCase):
         bad=next(x for x in refused["multi_asset_leadership_latest"] if x["asset_id"]==source["asset_id"])
         self.assertIsNone(bad.get("evaluation_sha256"))
 
+    def test_optimizer_certificate_uses_recomputed_shared_input_objectives(self):
+        p,r,policy=self.inputs()
+        out=run(p,r,policy,artifact_resolver=self.memory)
+        proposal=out["proposal"]
+        self.assertEqual(proposal["status"],"RESEARCH_PROPOSAL")
+        self.assertGreater(sum(proposal["comparisons"]["CONTROL"]["weights"].values()),0,
+                           "fractional Control additions must not be truncated by an integer array")
+        certificate=proposal["optimizer_certificate"]
+        self.assertEqual(certificate["objective_horizon"],"12_CALENDAR_MONTHS")
+        self.assertAlmostEqual(certificate["control_objective"],proposal["comparisons"]["CONTROL"]["objective"])
+        self.assertAlmostEqual(certificate["optimized_objective"],proposal["comparisons"]["COST_AWARE_LONG_ONLY"]["objective"])
+        self.assertGreaterEqual(certificate["improvement"],-certificate["numerical_tolerance"])
+        self.assertFalse(certificate["solver_reported_fun_used"])
+        self.assertFalse(certificate["global_optimality_claimed"])
+        self.assertFalse(certificate["performance_claimed"])
+
+    def test_optimizer_rejects_feasible_worse_x_despite_success_and_reported_good_fun(self):
+        import numpy as np
+        from types import SimpleNamespace
+        p,r,policy=self.inputs()
+        def worse(fun,x0,**kwargs):
+            # Zero is feasible at genesis, but its all-cash objective is worse
+            # than the unchanged positive-entry Control from this fixture.
+            candidate=np.zeros_like(x0)
+            self.assertGreater(fun(candidate),fun(x0),"fixture must provide a strictly worse feasible point")
+            return SimpleNamespace(success=True,x=candidate,fun=-1e100)
+        with patch("scipy.optimize.minimize",side_effect=worse):
+            out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("stock_optimizer_worse_than_feasible_reference",json.dumps(out["proposal"]))
+        self.assertFalse(out["proposal"].get("orders_generated",False))
+
+    def test_optimizer_rejects_nonfinite_actual_objective_despite_finite_x(self):
+        import numpy as np
+        from types import SimpleNamespace
+        p,r,policy=self.inputs()
+        def poisoned_covariance(values):
+            return SimpleNamespace(covariance_=np.full((values.shape[1],values.shape[1]),np.nan))
+        def apparent_success(fun,x0,**kwargs):
+            return SimpleNamespace(success=True,x=np.asarray(x0),fun=0.0)
+        with patch("sklearn.covariance.LedoitWolf") as covariance,patch("scipy.optimize.minimize",side_effect=apparent_success):
+            covariance.return_value.fit.side_effect=poisoned_covariance
+            out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("stock_optimizer_nonfinite_objective",json.dumps(out["proposal"]))
+
     def test_inactive_optional_unknown_preserves_full_denominator_but_not_stock_block(self):
         p,r,policy=self.inputs()
         complete=json.loads((ROOT/"docs/multi_asset_registry_v1.json").read_bytes())
