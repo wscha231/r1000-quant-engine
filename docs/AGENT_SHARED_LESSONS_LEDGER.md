@@ -11179,3 +11179,40 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - The first author-witness utility used the wrong helper namespace and failed
   before writing its witness. Correct the import, retain that failed attempt
   in the successful proof, and do not infer durability from a local draft.
+
+### 2026-11-12 — Reuse actual financial Reader facts before adding another collector
+
+- Retained three-issuer Companyfacts/Reader receipts already exist. Reuse the
+  actual component bytes, externally pinned filing index and captured original
+  submissions response. The missing acceptance metadata was filled by the existing
+  SEC collector in three bounded GETs (102 statement rows/458154 entity bytes);
+  no Companyfacts or price was recollected. Raw HTTP entity bytes remain distinct
+  from the collector reserialized JSON and both hashes are retained.
+- Filter the reported-acceptance accession prefix before amendment choice and
+  native quarter/TTM arithmetic. Filed date is never a fallback. Verify issuer,
+  form, report period and explicit UTC offset against the original response.
+  Missing native parents remain UNKNOWN; a current archive and an exact clock
+  lexeme do not certify historical PIT, market joins, valuation, ER or A5.
+- Keep financial training admission blocked. This adapter creates reviewable
+  current/forward A3 research evidence, not an accepted Registry or portfolio.
+- The first local full B002 aggregate stopped at its118.0243411-second bound
+  during existing native-context cases, before new adapter cases; it is not a
+  PASS. Preserve the partial log/cost and isolate the changed adapter tests for
+  local feedback; the complete registered hosted gate remains mandatory.
+- Independent draft QA found a real label-binding P2: caller ticker could be
+  changed while all genuine issuer facts/pins stayed unchanged. Bind it to the
+  captured SEC submissions current tickers list; this proves a current issuer
+  label only, never historical class/MIC or market-price admission. Add an
+  explicit relabel counterexample and preserve the pre-fix finding.
+- The reused native derivator carries flows2/balances4 quarters. Preserve its
+  original per-field context/provenance and expose that policy; a finite value
+  or fund_panel_ttm_ready is not proof of current filing completeness or ER
+  eligibility. Actual execution must replay Reader at the new consumer clock,
+  not attach newer SEC metadata to an older receipt or backdate capture.
+- After the issuer-label fix,11 focused cases passed in normal and -O
+  (46.2478224s total). Those use synthetic typed ReadResult fixtures; actual
+  Reader-to-analysis success requires a separately recorded genuine replay.
+- The first independent financial draft review exceeded its declared logical
+  read budget through Git diff input reads. Preserve its READ_BUDGET_EXCEEDED
+  report and concrete P2; it is not a final approval. Distinguish returned
+  payload, logical code/blob reads and unknown Git/OS physical I/O explicitly.

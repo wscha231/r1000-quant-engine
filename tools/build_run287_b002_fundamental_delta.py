@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -554,6 +555,166 @@ def extract_exact_companyfacts_records(
                         counters["exact_joined_fact_count"] += 1
     return pd.DataFrame(rows), counters
 
+
+
+def build_reader_financial_asof(
+    read_result, index_bytes: bytes, submissions_bytes: bytes, metadata_bytes: bytes, *,
+    ticker: str, issuer_cik: str, decision_time: str, expected_reader_receipt_sha256: str,
+    expected_metadata_sha256: str, asof_time: str | None = None,
+) -> dict[str, Any]:
+    """Bind an actual financial component read to current/forward research.
+
+    The accepted-prefix calculation reuses B002's original native-context math.
+    SEC's reported UTC lexemes are preserved, without certifying their original
+    publication semantics or treating a current Companyfacts archive as PIT.
+    No training, market-security join, valuation, ER or A5 authority is issued.
+    """
+    from tools import research_data_access as access
+    from tools.prepare_a1_reader_generation import _financial_rows_digest
+
+    def need(ok, code):
+        if not ok:
+            raise ValueError('financial_asof_' + code)
+
+    def utc(value):
+        need(type(value) is str and bool(value), 'explicit_offset_clock')
+        try:
+            parsed = pd.Timestamp(value)
+            need(parsed.tzinfo is not None and not pd.isna(parsed), 'explicit_offset_clock')
+            return parsed.tz_convert('UTC')
+        except (TypeError, OverflowError):
+            raise ValueError('financial_asof_explicit_offset_clock') from None
+
+    def decoded(raw):
+        def pairs(items):
+            obj = {}
+            for key, value in items:
+                need(key not in obj, 'duplicate_json_key')
+                obj[key] = value
+            return obj
+        return json.loads(raw, object_pairs_hook=pairs,
+                          parse_constant=lambda _: need(False, 'nonfinite_json'))
+
+    def encoded(value):
+        return (json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False) + '\n').encode()
+
+    need(type(read_result) is access.ReadResult, 'actual_component_result')
+    need(type(issuer_cik) is str and len(issuer_cik) == 10 and issuer_cik.isascii() and issuer_cik.isdigit(), 'issuer')
+    need(type(ticker) is str and bool(ticker) and ticker == ticker.upper().strip(), 'ticker')
+    decision, cutoff = utc(decision_time), utc(asof_time or decision_time)
+    need(cutoff <= decision, 'future_cutoff')
+    need(all(type(b) is bytes and 0 < len(b) <= 4 * 1024**2
+             for b in (index_bytes, submissions_bytes, metadata_bytes, read_result.receipt_bytes)), 'input_bound')
+    need(type(read_result.rows) is tuple and 0 < len(read_result.rows) <= 50000, 'row_bound')
+    need(hashlib.sha256(read_result.receipt_bytes).hexdigest() == expected_reader_receipt_sha256, 'reader_receipt_pin')
+    receipt = decoded(read_result.receipt_bytes)
+    need(access._freeze(receipt) == read_result.receipt, 'reader_receipt_view')
+    need(receipt.get('schema') == 'research-data-financial-component-read-receipt-v1'
+         and receipt.get('dataset_id') == access.FINANCIAL_DATASET and receipt.get('purpose') == 'research'
+         and receipt.get('issuer_cik') == issuer_cik and utc(receipt.get('decision_time')) == decision,
+         'reader_scope')
+    embedded = dict(receipt); self_hash = embedded.pop('receipt_sha256', None)
+    need(hashlib.sha256(access.encoded(embedded)).hexdigest() == self_hash, 'reader_self_hash')
+    need(receipt.get('data_generation_id') == receipt.get('manifest_sha256'), 'reader_generation')
+    need(type(read_result.files) is tuple and 0 < len(read_result.files) <= 38, 'file_bound')
+    files = {}
+    total_bytes = 0
+    for key, raw in read_result.files:
+        need(type(raw) is bytes and key not in files, 'file_inventory')
+        total_bytes += len(raw)
+        need(total_bytes <= 64 * 1024**2 and hashlib.sha256(raw).hexdigest() == key, 'file_proof')
+        files[key] = raw
+    expected_files = set(receipt.get('verified_file_sha256', []))
+    if receipt.get('publication_receipt_sha256') is not None:
+        expected_files.add(receipt['publication_receipt_sha256'])
+    need(set(files) == expected_files, 'reader_files')
+    row_hash, _ = _financial_rows_digest(read_result.rows, 256 * 1024**2)
+    need(row_hash == receipt.get('row_set_sha256') and len(read_result.rows) == receipt.get('rows'), 'reader_rows')
+    need(hashlib.sha256(metadata_bytes).hexdigest() == expected_metadata_sha256, 'metadata_pin')
+    metadata = decoded(metadata_bytes)
+    need(metadata.get('schema') == 'r1000-existing-sec-collector-metadata-result-v1'
+         and metadata.get('status') == 'METADATA_CAPTURE_COMPLETE'
+         and metadata.get('source_coverage', {}).get('complete') is True, 'metadata_capture')
+    index_sha = hashlib.sha256(index_bytes).hexdigest()
+    need(metadata.get('outputs_sha256', {}).get('csv') == index_sha, 'index_pin')
+    events = [e for e in metadata.get('events', []) if e.get('cik') == issuer_cik]
+    need(len(events) == 1 and events[0].get('http_status') == 200
+         and utc(events[0].get('captured_at')) <= decision
+         and events[0].get('entity_bytes') == len(submissions_bytes)
+         and events[0].get('entity_sha256') == hashlib.sha256(submissions_bytes).hexdigest(), 'submissions_pin')
+    source = decoded(submissions_bytes)
+    need(type(source.get('cik')) in (str, int) and clean_cik(source.get('cik')) == issuer_cik,
+         'submissions_issuer')
+    need(type(source.get('tickers')) is list and ticker in source['tickers'],
+         'current_ticker_issuer_binding')
+    recent = source.get('filings', {}).get('recent', {})
+    columns = ('accessionNumber', 'acceptanceDateTime', 'reportDate', 'form')
+    need(all(type(recent.get(c)) is list for c in columns), 'submissions_shape')
+    count = len(recent['accessionNumber'])
+    need(0 < count <= 10000 and all(len(recent[c]) == count for c in columns), 'submissions_shape')
+    lookup = {}
+    for i in range(count):
+        if recent['form'][i] in STATEMENT_FORMS:
+            accession = clean_accession(recent['accessionNumber'][i])
+            need(accession and accession not in lookup, 'submissions_accession')
+            lookup[accession] = (recent['form'][i], utc(recent['acceptanceDateTime'][i]), recent['reportDate'][i])
+    index = pd.read_csv(io.BytesIO(index_bytes), dtype=str, keep_default_na=False)
+    required = {'cik10', 'accession_number', 'form_type', 'accepted_at', 'available_from', 'period_of_report'}
+    need(required <= set(index.columns) and len(index) <= 10000, 'index_shape')
+    index = index.loc[index.cik10.eq(issuer_cik) & index.form_type.isin(STATEMENT_FORMS)].copy()
+    for row in index.to_dict('records'):
+        original = lookup.get(clean_accession(row['accession_number']))
+        need(original is not None and original[0] == row['form_type']
+             and original[1] == utc(row['accepted_at']) == utc(row['available_from'])
+             and original[2] == row['period_of_report'], 'index_original_join')
+    # Filter before deduplication, amendment choice, quarter math or TTM.
+    index = index.loc[index.accepted_at.map(utc) <= cutoff].copy()
+    statements, failures = prepare_statement_index(index, issuer_cik)
+    need(not failures, 'statement_index:' + ','.join(failures))
+    facts = {}
+    for row in read_result.rows:
+        need(row.get('cik') == issuer_cik and type(row.get('value')) in (int, float)
+             and np.isfinite(row['value']), 'fact_issuer_value')
+        namespace, concept, unit = row['namespace'], row['concept'], row['unit']
+        values = facts.setdefault(namespace, {}).setdefault(concept, {'units': {}})['units'].setdefault(unit, [])
+        values.append(dict(start=row['start'], end=row['end'], val=row['value'], accn=row['accession'],
+                           fy=row['fy'], fp=row['fp'], frame=row['frame'], form=row['form'], filed=row['filed']))
+    records, counters = extract_exact_companyfacts_records({'facts': facts}, cik10=issuer_cik,
+        ticker=ticker, statement_index=statements, decision_time=cutoff)
+    selected = select_accession_field_records(records)
+    if not selected.empty:
+        selected['availability_basis'] = 'SEC_REPORTED_OFFSET_TIME_NOT_INDEPENDENTLY_CONFIRMED'
+        selected['exact_acceptance'] = False
+    panel = build_exact_fundamental_panel(selected)
+    if not panel.empty:
+        panel['source'] = 'CURRENT_ARCHIVE_REPORTED_ACCEPTANCE_RESEARCH'
+        panel['asof_quarter'] = 'REPORTED_ACCEPTANCE_PREFIX_NOT_CERTIFIED_PIT'
+    selected_rows = json.loads(selected.to_json(orient='records', date_format='iso', double_precision=15))
+    panel_rows = json.loads(panel.to_json(orient='records', date_format='iso', double_precision=15))
+    unknown = {str(row.get('period')): [key for key in CORE_FUNDAMENTAL_MINIMUM_FIELDS
+                                      if row.get(key) is None] for row in panel_rows}
+    return dict(schema_version='run287-current-financial-asof-research-v1',
+        status='PARTIAL_CURRENT_FINANCIAL_RESEARCH' if panel_rows else 'DATA_BLOCKED_NO_ELIGIBLE_FACTS',
+        ticker=ticker, issuer_cik=issuer_cik, decision_time=decision.isoformat(), asof_time=cutoff.isoformat(),
+        ticker_binding_scope='SEC_SUBMISSIONS_CURRENT_ISSUER_LABEL_ONLY', historical_ticker_identity_verified=False,
+        acceptance_time_semantics='SEC_REPORTED_OFFSET_TIME_NOT_INDEPENDENTLY_CONFIRMED',
+        historical_cutoff_diagnostic=cutoff < decision, source_admitted=False, historical_PIT=False,
+        training_allowed=False, qualified_market_join=False, eligible_for_valuation=False,
+        eligible_for_er=False, eligible_for_a5=False, eligible_for_selector=False,
+        parent_refs=dict(data_generation_id=receipt['data_generation_id'], row_set_sha256=row_hash,
+            reader_receipt_sha256=expected_reader_receipt_sha256, raw_sha256=receipt.get('raw_sha256'),
+            normalized_sha256=receipt.get('normalized_sha256'), filing_index_sha256=index_sha,
+            submissions_sha256=events[0]['entity_sha256'], metadata_receipt_sha256=expected_metadata_sha256,
+            adapter_code_sha256=hashlib.sha256(Path(__file__).read_bytes().replace(b'\r\n', b'\n')).hexdigest()),
+        statement_accessions=sorted(statements.accession_number.tolist()),
+        statements_without_selected_fact=sorted(set(statements.accession_number) -
+            set(selected.accession_number if not selected.empty else [])),
+        source_read_currentness=receipt.get('currentness'), original_collected_at=receipt.get('original_collected_at'),
+        panel_carry_policy=dict(flow_ffill_quarters=2, balance_ffill_quarters=4,
+            finite_value_proves_current_statement_coverage=False),
+        exact_join_counters=counters, selected_facts=selected_rows, fiscal_rows=panel_rows,
+        selected_facts_sha256=hashlib.sha256(encoded(selected_rows)).hexdigest(),
+        unknown_core_fields_by_period=unknown)
 
 def select_accession_field_records(records: pd.DataFrame) -> pd.DataFrame:
     if records is None or records.empty:

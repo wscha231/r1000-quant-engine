@@ -2866,6 +2866,154 @@ class NativeFinancialContextTests(unittest.TestCase):
         self.assertEqual(len(p.prefer_dated_financial_history(unknown)), 2)
 
 
+
+class ReaderFinancialAsOfTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=self.enterContext(tempfile.TemporaryDirectory())
+        self.args=fixture(Path(self.tmp))
+        with zipfile.ZipFile(self.args.companyfacts_zip) as z:
+            self.payload=json.loads(z.read('CIK0000000001.json'))
+        self.index=pd.read_parquet(self.args.sec_index)
+        self.decision='2026-07-11T00:00:00Z'
+        self.rows=[]
+        for namespace,concepts in self.payload['facts'].items():
+            for concept,f in concepts.items():
+                for unit,items in f['units'].items():
+                    for item in items:
+                        self.rows.append(dict(cik='0000000001',namespace=namespace,concept=concept,unit=unit,
+                            start=item.get('start'),end=item['end'],filed=item['filed'],accession=item['accn'],
+                            form=item['form'],value=item['val'],fy=item.get('fy'),fp=item.get('fp'),frame=item.get('frame')))
+
+    @staticmethod
+    def encoded(value):
+        return (json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False)+'\n').encode()
+
+    def inputs(self,index=None,rows=None):
+        from tools import research_data_access as a
+        from tools.prepare_a1_reader_generation import _financial_rows_digest
+        index=self.index.copy() if index is None else index.copy()
+        rows=self.rows if rows is None else rows
+        index_bytes=index.to_csv(index=False).encode()
+        raw={'cik':1,'tickers':['AAA'],'filings':{'recent':{
+            'accessionNumber':index.accession_number.tolist(),'form':index.form_type.tolist(),
+            'acceptanceDateTime':index.accepted_at.tolist(),'reportDate':index.period_of_report.tolist()}}}
+        raw_bytes=self.encoded(raw)
+        meta=dict(schema='r1000-existing-sec-collector-metadata-result-v1',status='METADATA_CAPTURE_COMPLETE',
+            source_coverage=dict(complete=True),outputs_sha256={'csv':hashlib.sha256(index_bytes).hexdigest()},
+            events=[dict(cik='0000000001',http_status=200,captured_at='2026-07-10T00:00:00Z',
+                         entity_bytes=len(raw_bytes),entity_sha256=hashlib.sha256(raw_bytes).hexdigest())])
+        meta_bytes=self.encoded(meta)
+        file_bytes=b'ISOLATED_SYNTHETIC_READER_PROOF';file_sha=hashlib.sha256(file_bytes).hexdigest()
+        row_sha,_=_financial_rows_digest(rows,64*1024**2)
+        receipt=dict(schema='research-data-financial-component-read-receipt-v1',dataset_id=a.FINANCIAL_DATASET,
+            purpose='research',issuer_cik='0000000001',decision_time=self.decision,rows=len(rows),
+            data_generation_id='a'*64,manifest_sha256='a'*64,row_set_sha256=row_sha,
+            verified_file_sha256=[file_sha],raw_sha256=file_sha,normalized_sha256=file_sha)
+        receipt['receipt_sha256']=hashlib.sha256(self.encoded(receipt)).hexdigest()
+        receipt_bytes=self.encoded(receipt)
+        read=a.ReadResult(tuple(a._freeze(dict(r)) for r in rows),((file_sha,file_bytes),),a._freeze(receipt),receipt_bytes)
+        kwargs=dict(ticker='AAA',issuer_cik='0000000001',decision_time=self.decision,
+            expected_reader_receipt_sha256=hashlib.sha256(receipt_bytes).hexdigest(),
+            expected_metadata_sha256=hashlib.sha256(meta_bytes).hexdigest())
+        return read,index_bytes,raw_bytes,meta_bytes,kwargs
+
+    def invoke(self,inputs=None,**extra):
+        from tools.build_run287_b002_fundamental_delta import build_reader_financial_asof
+        read,index,raw,meta,kwargs=self.inputs() if inputs is None else inputs
+        return build_reader_financial_asof(read,index,raw,meta,**dict(kwargs,**extra))
+
+    def test_actual_row_and_index_join_reuses_native_math_without_new_authority(self):
+        result=self.invoke()
+        self.assertEqual(result['status'],'PARTIAL_CURRENT_FINANCIAL_RESEARCH')
+        latest=sorted(result['fiscal_rows'],key=lambda r:r['period'])[-1]
+        self.assertEqual(latest['revenues'],999.)
+        self.assertIsNone(latest['capex_ttm'])
+        self.assertTrue(result['unknown_core_fields_by_period'])
+        for key in ('source_admitted','historical_PIT','training_allowed','qualified_market_join',
+                    'eligible_for_valuation','eligible_for_er','eligible_for_a5','eligible_for_selector'):
+            self.assertIs(result[key],False)
+        self.assertTrue(all(r['exact_acceptance'] is False for r in result['selected_facts']))
+        self.assertTrue(all(pd.Timestamp(r['accepted'])<=pd.Timestamp(self.decision) for r in result['selected_facts']))
+
+    def test_future_suffix_cannot_change_prior_facts_or_values(self):
+        full=self.invoke()
+        index=self.index.loc[pd.to_datetime(self.index.accepted_at,utc=True)<=pd.Timestamp(self.decision)]
+        prefix=self.invoke(self.inputs(index=index))
+        self.assertEqual(full['selected_facts_sha256'],prefix['selected_facts_sha256'])
+        self.assertEqual(full['fiscal_rows'],prefix['fiscal_rows'])
+        self.assertNotEqual(full['parent_refs']['filing_index_sha256'],prefix['parent_refs']['filing_index_sha256'])
+
+    def test_amendment_becomes_visible_only_at_its_reported_acceptance(self):
+        before=self.invoke(asof_time='2026-04-20T20:00:00Z')
+        after=self.invoke(asof_time='2026-04-21T20:00:00Z')
+        self.assertTrue(before['historical_cutoff_diagnostic'])
+        left=sorted(before['fiscal_rows'],key=lambda r:r['period'])[-1]
+        right=sorted(after['fiscal_rows'],key=lambda r:r['period'])[-1]
+        self.assertEqual(left['revenues'],140.)
+        self.assertEqual(right['revenues'],999.)
+        self.assertFalse(after['historical_PIT'])
+
+    def test_filed_date_does_not_make_a_future_amendment_available(self):
+        rows=[dict(r) for r in self.rows]
+        for row in rows:
+            if row['accession']=='0000000001-26-000004':row['filed']='2025-01-01'
+        base=self.invoke();changed=self.invoke(self.inputs(rows=rows))
+        self.assertEqual(base['selected_facts_sha256'],changed['selected_facts_sha256'])
+        self.assertEqual(base['fiscal_rows'],changed['fiscal_rows'])
+
+    def test_wrong_reader_receipt_files_rows_or_plain_dict_cannot_be_consumed(self):
+        from dataclasses import replace
+        inputs=self.inputs();read,index,raw,meta,kwargs=inputs
+        cases=[dict(kwargs,expected_reader_receipt_sha256='0'*64),dict(kwargs,expected_metadata_sha256='0'*64)]
+        for params in cases:
+            with self.assertRaises(ValueError):self.invoke((read,index,raw,meta,params))
+        for bad in (replace(read,files=((read.files[0][0],b'changed'),)),replace(read,rows=read.rows[:-1]),{}):
+            with self.assertRaises(ValueError):self.invoke((bad,index,raw,meta,kwargs))
+
+    def test_wrong_issuer_and_forged_index_clock_or_form_block(self):
+        for column,value in [('issuer_cik','0000000002'),('decision_time','2026-07-12T00:00:00Z')]:
+            with self.subTest(column=column),self.assertRaises(ValueError):self.invoke(**{column:value})
+        from tools.build_run287_b002_fundamental_delta import build_reader_financial_asof
+        read,index,raw,meta,kwargs=self.inputs()
+        forged=self.index.copy();forged.loc[0,'accepted_at']='2025-04-20T19:00:00Z'
+        forged_bytes=forged.to_csv(index=False).encode();m=json.loads(meta)
+        m['outputs_sha256']['csv']=hashlib.sha256(forged_bytes).hexdigest();mb=self.encoded(m)
+        with self.assertRaises(ValueError):
+            build_reader_financial_asof(read,forged_bytes,raw,mb,**dict(kwargs,expected_metadata_sha256=hashlib.sha256(mb).hexdigest()))
+
+    def test_naive_timestamp_future_cutoff_and_unavailable_metadata_block(self):
+        for key,value in [('decision_time','2026-07-11T00:00:00'),('asof_time','2026-08-01T20:00:00Z')]:
+            with self.subTest(key=key),self.assertRaises(ValueError):self.invoke(**{key:value})
+        read,index,raw,meta,kwargs=self.inputs();m=json.loads(meta)
+        m['events'][0]['captured_at']='2026-07-12T00:00:00Z';mb=self.encoded(m)
+        with self.assertRaises(ValueError):self.invoke((read,index,raw,mb,dict(kwargs,expected_metadata_sha256=hashlib.sha256(mb).hexdigest())))
+
+    def test_missing_parent_facts_stay_unknown_and_unmatched_accessions_do_not_invent_values(self):
+        rows=[r for r in self.rows if r['concept'] not in ('OperatingIncomeLoss','Assets')]
+        result=self.invoke(self.inputs(rows=rows))
+        self.assertTrue(all(r.get('op_income_ttm') is None for r in result['fiscal_rows']))
+        self.assertTrue(all(r.get('assets') is None for r in result['fiscal_rows']))
+        self.assertGreater(result['exact_join_counters']['unmatched_accession_fact_count'],0)
+
+    def test_future_statement_is_excluded_before_amendment_dedup(self):
+        index=self.index.copy()
+        extra=index.iloc[0].copy();extra['accepted_at']=extra['available_from']='2026-09-01T20:00:00Z'
+        extra['accession_number']='0000000001-26-000009'
+        index=pd.concat([index,pd.DataFrame([extra])],ignore_index=True)
+        self.assertEqual(self.invoke()['fiscal_rows'],self.invoke(self.inputs(index=index))['fiscal_rows'])
+
+    def test_boolean_fact_is_not_a_numeric_one(self):
+        rows=[dict(r) for r in self.rows];rows[0]['value']=True
+        with self.assertRaises(ValueError):self.inputs(rows=rows)
+
+    def test_wrong_ticker_cannot_relabel_another_issuers_genuine_facts(self):
+        with self.assertRaisesRegex(ValueError,'financial_asof_current_ticker_issuer_binding'):
+            self.invoke(ticker='PWR')
+        result=self.invoke()
+        self.assertEqual(result['ticker_binding_scope'],'SEC_SUBMISSIONS_CURRENT_ISSUER_LABEL_ONLY')
+        self.assertFalse(result['historical_ticker_identity_verified'])
+        self.assertFalse(result['panel_carry_policy']['finite_value_proves_current_statement_coverage'])
+
 def main() -> int:
     test_exact_acceptance_amendment_and_missing_neutral()
     test_current_only_statement_uses_pinned_universe_identity_and_sec_baseline()
@@ -2873,7 +3021,7 @@ def main() -> int:
     test_missing_expected_exact_accession_fails_closed()
     test_empty_exact_accession_requires_explicit_missing_neutral_policy()
     test_declared_single_partial_core_field_is_missing_neutral()
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(NativeFinancialContextTests))
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls) for cls in (NativeFinancialContextTests, ReaderFinancialAsOfTests)))
     if not result.wasSuccessful():
         return 1
     print(f"run287_b002_fundamental_delta_smoke: PASS (6 legacy + {result.testsRun} native context cases)")
