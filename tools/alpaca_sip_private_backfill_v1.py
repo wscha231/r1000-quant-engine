@@ -1781,6 +1781,83 @@ def _new3_authority(c, auth, *, accounting=False):
     return digest(encoded(record))
 
 
+def _source_named_read_gate(c,revision,control,check,*,gate_profile=None):
+    # The legacy default retains base3c6c216; only the explicit bridge profile
+    # selects the separately pinned protected publisher. Other changes stop.
+    output=check.get("output",{})
+    c.require(gate_profile in (None,revision.BRIDGE_CURRENT_GATE_PROFILE),"NAMED_READ_GATE_PROFILE")
+    current=gate_profile==revision.BRIDGE_CURRENT_GATE_PROFILE
+    evidence=("ATTESTED_EXACT_HEAD_REVIEW","MAINTAINER_BOUND_CLEAN_REACTION")
+    if current:evidence+=("MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT",)
+    gate_pins=revision.BRIDGE_CURRENT_GATE_PINS if current else revision.READ392_GATE_PINS
+    summaries={"Evidence: "+e+"\n\nFailures: none\n\nUnresolved conversations are enforced separately by master branch protection." for e in evidence}
+    c.require(type(check.get("id")) is int and type(check.get("check_suite",{}).get("id")) is int
+        and output.get("title")=="PASS_REVIEW_COMPLETE"
+        and (isinstance(output.get("summary"),str) if current else output.get("summary") in summaries)
+        and isinstance(check.get("started_at"),str) and isinstance(check.get("completed_at"),str),
+        "NAMED_READ_GATE_PROVENANCE")
+    started=c.utc(check["started_at"]);completed=c.utc(check["completed_at"])
+    c.require(started<=completed,"NAMED_READ_GATE_PROVENANCE")
+    query=c.urlencode(dict(created=(started-c.timedelta(hours=1)).isoformat()+".."+completed.isoformat(),per_page=100))
+    runs=c.gh_json(f"repos/{c.REPO}/actions/workflows/317164841/runs?{query}")
+    c.require(isinstance(runs.get("workflow_runs"),list)
+        and runs.get("total_count")==len(runs["workflow_runs"])<=100,"NAMED_READ_GATE_PROVENANCE")
+    candidates=[r for r in runs["workflow_runs"] if r.get("workflow_id")==317164841
+        and r.get("path")==".github/workflows/review_complete_gate.yml"
+        and r.get("event") in {"issue_comment","workflow_dispatch"}
+        and r.get("status")=="completed" and r.get("conclusion")=="success"
+        and r.get("repository",{}).get("full_name")==c.REPO and r.get("head_repository",{}).get("full_name")==c.REPO
+        and isinstance(r.get("created_at"),str) and isinstance(r.get("updated_at"),str)
+        and c.utc(r["created_at"])<=started<=completed<=c.utc(r["updated_at"])]
+    c.require(0<len(candidates)<=5,"NAMED_READ_GATE_PROVENANCE")
+    proofs=[]
+    for run in candidates:
+        c.require(type(run.get("id")) is int and type(run.get("run_attempt")) is int
+            and run["run_attempt"]>=1 and c.re.fullmatch("[0-9a-f]{40}",run.get("head_sha", "")),
+            "NAMED_READ_GATE_PROVENANCE")
+        jobs=c.gh_json(f"repos/{c.REPO}/actions/runs/{run['id']}/jobs?per_page=100")
+        c.require(jobs.get("total_count")==len(jobs.get("jobs",[]))==1,"NAMED_READ_GATE_PROVENANCE")
+        job=jobs["jobs"][0]
+        c.require(type(job.get("id")) is int and job.get("run_id")==run["id"]
+            and job.get("name")=="evaluate" and job.get("status")=="completed" and job.get("conclusion")=="success"
+            and isinstance(job.get("started_at"),str) and isinstance(job.get("completed_at"),str)
+            and c.utc(job["started_at"])<=started<=completed<=c.utc(job["completed_at"]),"NAMED_READ_GATE_PROVENANCE")
+        for name in ("Checkout trusted gate implementation","Resolve trusted head observation and maintainer attestation",
+                     "Evaluate Codex review evidence for current head","Publish required review_complete check on PR head"):
+            steps=[s for s in job.get("steps",[]) if s.get("name")==name]
+            c.require(len(steps)==1 and steps[0].get("status")=="completed"
+                and steps[0].get("conclusion")=="success","NAMED_READ_GATE_PROVENANCE")
+        text="\n".join(line.partition(" ")[2] for line in revision.named_read_gate_log(c,job["id"]).splitlines())
+        records=[]
+        for match in c.re.finditer(r"(?m)^\{",text):
+            try:records.append(c.json.JSONDecoder().raw_decode(text,match.start())[0])
+            except ValueError:continue
+        published=[r for r in records if isinstance(r,dict) and r.get("id")==check["id"] and r.get("name")=="review_complete"]
+        if not published:continue
+        c.require(len(published)==1 and all(published[0].get(k)==check.get(k) for k in
+            ("head_sha","status","conclusion","check_suite","output")),"NAMED_READ_GATE_PROVENANCE")
+        evaluations=[r for r in records if isinstance(r,dict) and r.get("schema_version")=="run287-review-complete-gate-v2"]
+        c.require(len(evaluations)==1,"NAMED_READ_GATE_PROVENANCE")
+        result=evaluations[0]
+        c.require(result.get("status")=="PASS_REVIEW_COMPLETE" and result.get("passed") is True
+            and result.get("head_sha")==control["deployment"]["reviewed_head"]
+            and result.get("pull_request_number")==control["deployment"]["pull_request"]
+            and result.get("evidence_type") in evidence and result.get("failures")==[],"NAMED_READ_GATE_PROVENANCE")
+        if current:
+            c.require(output["summary"]==revision._bridge_gate_summary(c,result,control,completed),
+                "NAMED_READ_GATE_PROVENANCE")
+        checkouts=c.re.findall(r"(?m)^\[command\].*git log -1 --format=%H\n([0-9a-f]{40})$",text)
+        c.require(len(checkouts)==1,"NAMED_READ_GATE_PROVENANCE")
+        for ref in {run["head_sha"],checkouts[0]}:
+            for path,sha in gate_pins.items():
+                remote=c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={ref}")
+                c.require(remote.get("encoding")=="base64"
+                    and c.digest(c.base64.b64decode(remote.get("content","")))==sha,"NAMED_READ_GATE_PROVENANCE")
+        proofs.append((run["id"],job["id"]))
+    c.require(len(proofs)==1,"NAMED_READ_GATE_PROVENANCE")
+
+
+
 def _new3_source(c, auth, *, accounting=False):
     if not accounting:
         master = c.gh_json(f"repos/{c.REPO}/branches/master")
@@ -1794,7 +1871,11 @@ def _new3_source(c, auth, *, accounting=False):
         and pr.get("base", {}).get("repo", {}).get("full_name") == c.REPO
         and pr.get("head", {}).get("sha") == auth["deployment"]["reviewed_head"]
         and pr.get("merge_commit_sha") == auth["expected_master"], "NEW_THREE_DEPLOYMENT")
-    c._revision_module().named_read_checks(c, auth)
+    revision = c._revision_module()
+    if auth.get("allocation_profile") == BRIDGE_PROFILE:
+        revision.named_read_checks(c, auth, gate_profile=revision.BRIDGE_CURRENT_GATE_PROFILE)
+    else:
+        revision.named_read_checks(c, auth)
     for path, sha in auth["code_pins"].items():
         value = c.gh_json(f"repos/{c.REPO}/contents/{path}?ref={auth['expected_master']}")
         require(value.get("encoding") == "base64" and digest(c.base64.b64decode(value["content"])) == sha

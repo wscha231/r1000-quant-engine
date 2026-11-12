@@ -5846,7 +5846,7 @@ class NamedRead39235028468Tests(unittest.TestCase):
     def deployment_fixture(self):
         # Saved genuine gate shapes (649/39223863645), isolated synthetic IDs.
         self.trusted_gate_bytes={p:("isolated-fixture:"+p).encode() for p in self.s.READ392_GATE_PINS}
-        patch.object(self.s,"READ392_GATE_PINS",{p:c.digest(b) for p,b in self.trusted_gate_bytes.items()}).start()
+        self.enterContext(patch.object(self.s,"READ392_GATE_PINS",{p:c.digest(b) for p,b in self.trusted_gate_bytes.items()}))
         self.deployment_pins={p:c.digest((c.ROOT/p).read_bytes().replace(b"\r\n",b"\n")) for p in self.s.V6_PINS}
         self.control["code_pins_sha256"]=c.digest(c.encoded(self.deployment_pins))
         event=c.bounded_json(self.event_path);event["inputs"]["campaign_control"]=c.encoded(self.control).decode()
@@ -9287,6 +9287,142 @@ class TwoSessionBridgeTests(unittest.TestCase):
                 scope_receipts={'993':'a'*64,'174':'b'*64,
                     'NEW3':'8c69d6537d98b8cb7ef4c68b401897413a6d64351b1b8c625236d64278651043',
                     '607':'836c72553d8c7cec8614bdb04d08fe6f20ae98632acdcd7bec54b43e5e4f8003'}))
+
+    def current_gate_fixture(self,kind='MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT'):
+        # Reuse the full workflow/job/log proof shape. Synthetic publisher bytes
+        # keep the existing sparse Source checkout valid; the real two pins
+        # were separately checked through actual protected750 provenance.
+        self.s=c._revision_module();self.root=Path(self.tmp)
+        self.control=dict(expected_master='4'*40,deployment=dict(pull_request=123,reviewed_head='5'*40))
+        self.event_path=self.root/'gate-event.json'
+        self.event_path.write_bytes(c.encoded(dict(inputs={})))
+        gh=NamedRead39235028468Tests.deployment_fixture(self)
+        self.trusted_gate_bytes={p:('current-publisher-fixture:'+p).encode()
+            for p in self.s.BRIDGE_CURRENT_GATE_PINS}
+        self.enterContext(patch.object(self.s,'BRIDGE_CURRENT_GATE_PINS',
+            {p:c.digest(b) for p,b in self.trusted_gate_bytes.items()}))
+        binding=None
+        if kind=='MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT':
+            binding=dict(schema_version='trusted-codex-issue-comment-receipt-v1',repository=c.REPO,
+                pull_request_number=123,head_sha='5'*40,commit_prefix='5'*10,
+                receipt_comment_id=601,receipt_created_at='2026-10-19T10:25:30Z',receipt_body_sha256='a'*64,
+                summary_comment_id=602,summary_updated_at='2026-10-19T10:25:29Z',summary_body_sha256='b'*64,
+                summary_finding_flags=dict(has_any_findings=False,has_unresolved_findings=False),
+                resolved_thread_count=0,thread_page_count=1,thread_snapshot_sha256='c'*64)
+        self.evaluation.update(evidence_type=kind,evidence_id=601,evidence_at='2026-10-19T10:25:30Z',
+            comment_receipt_binding=binding)
+        self.checks['check_runs'][2]['output']['summary']=(
+            'Evidence: '+kind+'\n\nFailures: none\n\nComment receipt binding: '
+            +json.dumps(binding,sort_keys=True,separators=(',',':'))
+            +'\n\nPublisher verification: verified\n\n'
+            'Unresolved conversations are enforced separately by master branch protection.')
+        self.published=copy.deepcopy(self.checks['check_runs'][2])
+        return gh
+
+    def test_bridge_revision_keeps_original_physical_source_read_bound_on_windows(self):
+        raw=(c.ROOT/c.REVISION_MODULE).read_bytes()
+        self.assertLessEqual(len(raw),262144)
+        self.assertNotIn(b'\r\n',raw)
+
+    def run_current_gate(self,gh):
+        with patch.object(c,'gh_json',side_effect=gh),\
+             patch.object(self.s,'named_read_gate_log',side_effect=lambda *a:self.gate_log()):
+            self.s.named_read_checks(c,self.control,gate_profile=self.s.BRIDGE_CURRENT_GATE_PROFILE)
+
+    def test_bridge_current_gate_accepts_three_verified_publisher_shapes_only_explicitly(self):
+        for kind in ('ATTESTED_EXACT_HEAD_REVIEW','MAINTAINER_BOUND_CLEAN_REACTION',
+                     'MAINTAINER_BOUND_CLEAN_ISSUE_COMMENT_RECEIPT'):
+            with self.subTest(kind=kind):
+                gh=self.current_gate_fixture(kind);self.run_current_gate(gh)
+                with patch.object(c,'gh_json',side_effect=gh),self.assertRaises(c.Refused):
+                    self.s.named_read_checks(c,self.control)
+        with patch.object(c,'gh_json') as remote,self.assertRaisesRegex(c.Refused,'NAMED_READ_GATE_PROFILE'):
+            self.s.named_read_gate(c,self.control,self.checks['check_runs'][2],gate_profile='unreviewed-profile')
+        remote.assert_not_called()
+
+    def test_bridge_current_gate_rejects_inconsistent_evidence_and_receipt_binding(self):
+        gh=self.current_gate_fixture()
+        original=copy.deepcopy(self.evaluation)
+        changes=[lambda:self.evaluation.update(evidence_id=True),
+            lambda:self.evaluation.update(evidence_id=0),lambda:self.evaluation.update(evidence_id=999),
+            lambda:self.evaluation.update(evidence_at='2026-10-19T10:25:42Z'),
+            lambda:self.evaluation.update(evidence_at='invalid'),
+            lambda:self.evaluation.pop('comment_receipt_binding'),
+            lambda:self.evaluation.update(comment_receipt_binding=None),
+            lambda:self.evaluation['comment_receipt_binding'].update(schema_version='other'),
+            lambda:self.evaluation['comment_receipt_binding'].update(repository='other/repo'),
+            lambda:self.evaluation['comment_receipt_binding'].update(pull_request_number=124),
+            lambda:self.evaluation['comment_receipt_binding'].update(head_sha='0'*40),
+            lambda:self.evaluation['comment_receipt_binding'].update(receipt_created_at='2026-10-19T10:25:29Z')]
+        for index,change in enumerate(changes):
+            self.evaluation.clear();self.evaluation.update(copy.deepcopy(original));change()
+            with self.subTest(case=index),self.assertRaises(c.Refused):self.run_current_gate(gh)
+        gh=self.current_gate_fixture('ATTESTED_EXACT_HEAD_REVIEW')
+        self.evaluation['comment_receipt_binding']={}
+        with self.assertRaises(c.Refused):self.run_current_gate(gh)
+
+    def test_bridge_current_gate_rejects_forged_summary_steps_evaluation_and_protected_bytes(self):
+        gh=self.current_gate_fixture()
+        objects=[self.gate,self.gate_jobs,self.evaluation,self.published,self.checks]
+        originals=copy.deepcopy(objects)
+        changes=[lambda:self.gate.update(workflow_id=999),lambda:self.gate.update(event='pull_request'),
+            lambda:self.gate['head_repository'].update(full_name='other/repo'),
+            lambda:self.gate_jobs['jobs'][0]['steps'].pop(),
+            lambda:self.evaluation.update(head_sha='0'*40),lambda:self.evaluation.update(passed=False),
+            lambda:self.evaluation.update(evidence_type='LOCAL_A6'),
+            lambda:self.evaluation.update(failures=['blocked']),
+            lambda:self.published['check_suite'].update(id=999),
+            lambda:self.published['output'].update(summary='forged'),
+            lambda:self.checks['check_runs'][2]['app'].update(slug='untrusted'),
+            lambda:self.checks['check_runs'][2]['output'].update(summary='PASS_REVIEW_COMPLETE')]
+        for index,change in enumerate(changes):
+            for obj,original in zip(objects,originals):obj.clear();obj.update(copy.deepcopy(original))
+            change()
+            with self.subTest(case=index),self.assertRaises(c.Refused):self.run_current_gate(gh)
+        gh=self.current_gate_fixture()
+        self.trusted_gate_bytes['tools/check_pr_review_complete.py']+=b'\n# changed\n'
+        with self.assertRaises(c.Refused):self.run_current_gate(gh)
+
+    def test_bridge_current_gate_requires_both_run_and_checkout_publisher_pins(self):
+        gh=self.current_gate_fixture();old_log=self.gate_log
+        self.gate_log=lambda:old_log().replace('[command]/usr/bin/git log -1 --format=%H\n'
+            '2026-10-19T10:25:41.0000000Z '+'7'*40,
+            '[command]/usr/bin/git log -1 --format=%H\n2026-10-19T10:25:41.0000000Z '+'8'*40)
+        self.run_current_gate(gh)
+        self.assertTrue(any('?ref='+'7'*40 in p for p in self.github_reads if '/contents/' in p))
+        self.assertTrue(any('?ref='+'8'*40 in p for p in self.github_reads if '/contents/' in p))
+        def changed_checkout(path):
+            value=gh(path)
+            if '/contents/' in path and path.endswith('?ref='+'8'*40):
+                return dict(encoding='base64',content=c.base64.b64encode(b'unreviewed').decode())
+            return value
+        with self.assertRaises(c.Refused):self.run_current_gate(changed_checkout)
+
+    def test_bridge_source_selects_current_gate_legacy_source_keeps_default(self):
+        revision=c._revision_module()
+        def api(path):
+            if path.endswith('/branches/master'):
+                return dict(protected=True,commit=dict(sha=self.a['expected_master']))
+            if '/pulls/' in path:
+                return dict(number=999,merged=True,draft=False,merge_commit_sha=self.a['expected_master'],
+                    base=dict(ref='master',repo=dict(full_name=c.REPO)),
+                    head=dict(sha=self.a['deployment']['reviewed_head'],repo=dict(full_name=c.REPO)))
+            if '/contents/' in path:
+                name=path.split('/contents/',1)[1].split('?ref=',1)[0]
+                return dict(encoding='base64',content=c.base64.b64encode(
+                    (c.ROOT/name).read_bytes().replace(b'\r\n',b'\n')).decode())
+            raise AssertionError(path)
+        with patch.object(c,'gh_json',side_effect=api),patch.object(revision,'named_read_checks') as checks:
+            cap._new3_source(c,self.a)
+            checks.assert_called_once_with(c,self.a,gate_profile=revision.BRIDGE_CURRENT_GATE_PROFILE)
+            checks.reset_mock();legacy=dict(self.a,allocation_profile=cap.NEW3_PROFILE)
+            cap._new3_source(c,legacy);checks.assert_called_once_with(c,legacy)
+        with patch.object(c,'gh_json',side_effect=api),\
+             patch.object(revision,'named_read_checks',side_effect=c.Refused('NAMED_READ_GATE_PROVENANCE')),\
+             patch.object(c,'RuntimeMeter') as meter,patch.object(c.subprocess,'run') as dispatch,\
+             patch.object(drive_module,'OwnerDrive') as drive,self.assertRaises(c.Refused):
+            cap._new3_source(c,self.a)
+        meter.assert_not_called();dispatch.assert_not_called();drive.assert_not_called()
 
     def context(self):
         control = dict(authorization=self.a,nonce=cap._bridge_nonce(c))
