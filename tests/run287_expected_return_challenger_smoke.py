@@ -1655,7 +1655,150 @@ def test_pre_fit_public_price_reader_replay_is_not_financial_authority() -> None
     finally:holder.doCleanups()
 
 
+def _calendar_check(condition, reason):
+    if not condition:
+        raise AssertionError(reason)
+
+
+def _calendar_audit(cutoff):
+    cfg = MOD.read_json(ROOT / MOD.CALENDAR_EXPOSURE_CONTRACT)
+    with patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp("2030-01-01T00:00:00Z")):
+        return MOD.audit_calendar_12m_exposure(decision_at=cutoff, contract=cfg)
+
+
+def test_calendar_exposure_native_clock_is_not_252_or_a_label():
+    result = _calendar_audit("2021-10-01T20:05:00Z")
+    proposed = result["proposed_executable_window"]
+    _calendar_check(proposed["entry_session"] == "2021-10-04", "next-close entry")
+    _calendar_check(proposed["calendar_anniversary"] == "2022-10-01", "calendar anniversary")
+    _calendar_check(proposed["mark_session"] == "2022-09-30", "weekend anniversary rolls mark only")
+    exact252 = MOD.expected_nyse_label_ends(pd.Series([pd.Timestamp("2021-10-01")]), 252).iloc[0]
+    _calendar_check(exact252.date().isoformat() != proposed["mark_session"], "252 is not calendar12m")
+    _calendar_check(result["comparison"]["covariance_interval_difference"] == 1, "pre-entry interval disclosed")
+    _calendar_check(result["comparison"]["target_cash_day_difference"] == 4, "entry gap and weekend cash disclosed")
+    _calendar_check(result["actual_a5_clock"]["covariance_scale_sessions"] == proposed["held_price_intervals"] + 1,
+                    "actual A5 count retained")
+    for key in ("baseline_a5_clock_changed", "source_data_read", "source_pit_authenticated", "model_fit_allowed",
+                "validated_er_available", "A5_eligible_input", "fullrun_executed", "orders_generated",
+                "portfolio_or_ledger_mutated", "production_or_live_trading_enabled"):
+        _calendar_check(result[key] is False, key)
+
+
+def test_calendar_exposure_leap_dst_and_actual_early_close():
+    leap = _calendar_audit("2024-02-29T21:05:00Z")["proposed_executable_window"]
+    _calendar_check(leap["calendar_anniversary"] == "2025-02-28", "leap clip")
+    dst = _calendar_audit("2024-03-08T21:05:00Z")["proposed_executable_window"]
+    _calendar_check(dst["entry_at"] == "2024-03-11T20:00:00+00:00", "DST next close")
+    before = _calendar_audit("2024-11-29T17:59:00Z")
+    after = _calendar_audit("2024-11-29T18:01:00Z")
+    _calendar_check(before["decision_completed_nyse_session"] == "2024-11-27", "no future early-close session")
+    _calendar_check(after["decision_completed_nyse_session"] == "2024-11-29", "early close completed")
+    _calendar_check(after["proposed_executable_window"]["entry_at"] == "2024-12-02T21:00:00+00:00",
+                    "weekend next close")
+
+
+def test_calendar_exposure_refuses_future_naive_or_changed_contract():
+    cfg = MOD.read_json(ROOT / MOD.CALENDAR_EXPOSURE_CONTRACT)
+    cases = [("2031-01-01T00:00:00Z", cfg), ("2024-01-01T00:00:00", cfg),
+             ("1980-01-01T00:00:00Z", cfg),
+             ("2024-01-01T00:00:00Z", dict(cfg, mode="FIT"))]
+    for cutoff, candidate in cases:
+        with patch.object(MOD, "_v2_h1_observed_at", return_value=pd.Timestamp("2030-01-01T00:00:00Z")):
+            try:
+                MOD.audit_calendar_12m_exposure(decision_at=cutoff, contract=candidate)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid calendar audit accepted")
+
+
+def test_calendar_exposure_matching_counts_still_cannot_issue_er():
+    from research.multi_asset_v1 import decisions
+    actual = _calendar_audit("2021-10-01T20:05:00Z")
+    baseline = copy.deepcopy(actual["actual_a5_clock"])
+    proposed = actual["proposed_executable_window"]
+    baseline["covariance_scale_sessions"] = proposed["held_price_intervals"]
+    baseline["carry_calendar_days"] = proposed["target_cash_calendar_days"]
+    with patch.object(decisions, "stock_decision_clock", return_value=baseline):
+        aligned = _calendar_audit("2021-10-01T20:05:00Z")
+    _calendar_check(aligned["blockers"] == ["AUTHENTIC_ER_ENTRY_MARK_BINDING_REQUIRED"], "no clock self-admission")
+    _calendar_check(aligned["status"] == "BLOCKED_CALENDAR_ER_EXPOSURE_CONTRACT", "still blocked")
+    baseline["earliest_fill_at"] = "2021-10-05T20:00:00Z"
+    with patch.object(decisions, "stock_decision_clock", return_value=baseline):
+        try:
+            _calendar_audit("2021-10-01T20:05:00Z")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("native next-close disagreement accepted")
+
+
+def test_calendar_exposure_cli_isolated_and_create_only():
+    import contextlib
+    with tempfile.TemporaryDirectory() as folder:
+        output = Path(folder) / "audit"
+        argv = ["runner", "--calendar-exposure-audit", "--decision-at", "2021-10-01T20:05:00Z",
+                "--output-dir", str(output)]
+        with patch.object(sys, "argv", argv), contextlib.ExitStack() as stack:
+            for target in ("validate_contract", "load_canonical_u0_artifact", "replay_pre_fit_training_sources",
+                           "fit_regression_pair", "write_json"):
+                stack.enter_context(patch.object(MOD, target, side_effect=AssertionError("normal path used")))
+            stack.enter_context(patch.object(MOD.pd, "read_parquet", side_effect=AssertionError("feature store read")))
+            args = MOD.parse_args()
+            result = MOD.run(args)
+            path = output / "calendar_exposure_audit.json"
+            original = path.read_bytes()
+            _calendar_check(json.loads(original) == result, "actual CLI artifact")
+            try:
+                MOD.run(args)
+            except FileExistsError:
+                pass
+            else:
+                raise AssertionError("prior audit overwritten")
+            _calendar_check(path.read_bytes() == original, "prior audit retained")
+        for extra in (["--feature-store", "missing.parquet"], ["--pre-fit-only"], ["--u0-census", "missing.json"]):
+            with patch.object(sys, "argv", argv + extra), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    MOD.parse_args()
+                except SystemExit as exc:
+                    _calendar_check(exc.code == 2, "bad mixed mode")
+                else:
+                    raise AssertionError("calendar audit mixed with training accepted")
+        with patch.object(sys, "argv", ["runner", "--feature-store", "missing.parquet", "--output-dir", str(output)]), \
+                contextlib.redirect_stderr(io.StringIO()):
+            try:
+                MOD.parse_args()
+            except SystemExit as exc:
+                _calendar_check(exc.code == 2, "original U0 arguments still required")
+            else:
+                raise AssertionError("normal training U0 gate bypassed")
+
+
+def test_calendar_exposure_direct_script_outside_repository():
+    import os
+    import subprocess
+    with tempfile.TemporaryDirectory() as folder:
+        output = Path(folder) / "direct"
+        argv = [sys.executable, "-B"] + (["-O"] if sys.flags.optimize else []) + [
+            str(ROOT / "tools/run_run287_expected_return_challenger.py"), "--calendar-exposure-audit",
+            "--decision-at", "2021-10-01T23:00:00Z", "--output-dir", str(output)]
+        env = {key: value for key, value in os.environ.items() if key.upper() != "PYTHONPATH"}
+        done = subprocess.run(argv, cwd=folder, env=env, capture_output=True, text=True, timeout=20, check=False)
+        _calendar_check(done.returncode == 0, "direct script failed:" + done.stderr[-1000:])
+        result = json.loads(done.stdout)
+        _calendar_check(result["audit_completed"] is True and result["model_fit_allowed"] is False,
+                        "direct path audit only")
+        _calendar_check(result == json.loads((output / "calendar_exposure_audit.json").read_text(encoding="utf-8")),
+                        "direct CLI artifact readback")
+
+
 def main() -> int:
+    test_calendar_exposure_direct_script_outside_repository()
+    test_calendar_exposure_native_clock_is_not_252_or_a_label()
+    test_calendar_exposure_leap_dst_and_actual_early_close()
+    test_calendar_exposure_refuses_future_naive_or_changed_contract()
+    test_calendar_exposure_matching_counts_still_cannot_issue_er()
+    test_calendar_exposure_cli_isolated_and_create_only()
     test_contract_is_fixed_and_leakage_features_are_rejected()
     test_u0_gate_blocks_model_fit_and_all_mutations()
     test_u0_canonical_artifact_is_verified_from_github()
