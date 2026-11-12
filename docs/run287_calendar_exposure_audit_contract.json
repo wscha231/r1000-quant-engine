@@ -1,0 +1,24 @@
+{
+  "anniversary": "DECISION_SESSION_PLUS_12_CALENDAR_MONTHS_CLIPPED",
+  "baseline": "ACTUAL_EXISTING_A5_STOCK_DECISION_CLOCK",
+  "baseline_unchanged": true,
+  "calendar": "NYSE",
+  "decision_anchor": "LAST_COMPLETED_NYSE_SESSION",
+  "entry": "FIRST_NYSE_CLOSE_STRICTLY_AFTER_DECISION_SESSION",
+  "mark": "LAST_NYSE_CLOSE_ON_OR_BEFORE_ANNIVERSARY",
+  "mode": "CALENDAR_EXPOSURE_AUDIT_ONLY",
+  "return_intervals": "ENTRY_CLOSE_TO_MARK_CLOSE",
+  "safety": {
+    "A5_eligible_input": false,
+    "fullrun_allowed": false,
+    "model_fit_allowed": false,
+    "orders_generated": false,
+    "portfolio_mutation_allowed": false,
+    "production_or_live_trading_enabled": false,
+    "research_only": true,
+    "source_pit_authenticated": false,
+    "validated_er_available": false
+  },
+  "schema_version": "run287-calendar12m-exposure-audit-contract-v1",
+  "target_cash_days": "ENTRY_SESSION_DATE_TO_MARK_SESSION_DATE"
+}

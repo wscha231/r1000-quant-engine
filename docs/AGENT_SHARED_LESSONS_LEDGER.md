@@ -34,6 +34,34 @@
   around the refusal, or call these samples verified historical/PIT inputs.
   This does not change the working BLS API captures or create a new collector.
 
+### 2026-11-12 — Revalidate native A4 handoff after accepted master advances
+
+- PR760 head0d68ba082d passed236/236 protected checks in3905.69s, but accepted
+  master advanced toceba0bc685 through independent A5 PR759 during that run.
+  Preserve both lesson sections and accepted A5 bytes through normal merge;
+  unchanged A4 runtime bytes do not make the old head a final merge approval.
+- Recheck the aligned exact head, review threads and protected CI. This is
+  source alignment only, never an A3/A5 execution or a qualified data/model run.
+- Aligned head004517241 run43213702855/job131167476443 hit its90-minute
+  execution cap after229/236 scripts passed; no assertion failure was logged.
+  Cancellation occurred in catchup-price-capture, so the remaining seven are
+  unverified, not passes. Preserve the annotations and cancelled attempt.
+  Increase only the PR job cap to120 minutes, retaining every test, command,
+  permission and gate. A timeout is never a substitute for full exact-head CI.
+- The local Windows workflow smoke passed its112 embedded cases, then failed
+  a separate existing operating-capture path assertion (`/` versus `\\`). Do
+  not call that invocation passed or mix an unrelated path repair into A4.
+  The same smoke passed in the cancelled Linux run before its time cap;
+  retain the failure and require the new full hosted result.
+- Accepted master then advanced to7d92b821ff via independent ER PR761.
+  Resolve only the shared lesson append conflict, preserve accepted ER bytes,
+  and keep these alignment notes beside the A4 entry rather than the shared
+  append boundary. Recheck the resolved exact head before publication.
+- Stop only the superseded side-effect-free PR run43228490855 for this
+  required conflict resolution; retain that attempt separately from the
+  earlier90-minute timeout. Never apply this retry to a transactional daily
+  or paper workflow, and never count an interrupted check as a pass.
+
 ### 2026-11-12 KST — A4 condition explanations do not complete return prediction
 
 - Scheduled run43146534856/job130945549357 at accepted531a872f captured19
@@ -11369,22 +11397,9 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Existing cost-aware allocation, covariance shrinkage, Winner floors and conditional exception caps are reused. The current 21/63/126-session training output is not a 12-calendar-month ER; preserve that bridge refusal and the original A3/A4/A6 admission gates.
 - The dominance negative test exposed a real Control bug: integer zero incumbent/lower arrays truncated fractional score allocations in-place, leaving Control at cash. Use explicit float arrays before allocation and assert fractional positive Control weights. Preserve the failed exploratory fixtures and their costs; their zero-versus-zero result was not optimizer dominance evidence.
 
-### 2026-11-12 — Revalidate native A4 handoff after accepted master advances
+### 2026-11-12 — Audit the actual A5 calendar exposure before adding ER labels
 
-- PR760 head0d68ba082d passed236/236 protected checks in3905.69s, but accepted
-  master advanced toceba0bc685 through independent A5 PR759 during that run.
-  Preserve both lesson sections and accepted A5 bytes through normal merge;
-  unchanged A4 runtime bytes do not make the old head a final merge approval.
-- Recheck the aligned exact head, review threads and protected CI. This is
-  source alignment only, never an A3/A5 execution or a qualified data/model run.
-- Aligned head004517241 run43213702855/job131167476443 hit its90-minute
-  execution cap after229/236 scripts passed; no assertion failure was logged.
-  Cancellation occurred in catchup-price-capture, so the remaining seven are
-  unverified, not passes. Preserve the annotations and cancelled attempt.
-  Increase only the PR job cap to120 minutes, retaining every test, command,
-  permission and gate. A timeout is never a substitute for full exact-head CI.
-- The local Windows workflow smoke passed its112 embedded cases, then failed
-  a separate existing operating-capture path assertion (`/` versus `\\`). Do
-  not call that invocation passed or mix an unrelated path repair into A4.
-  The same smoke passed in the cancelled Linux run before its time cap;
-  retain the failure and require the new full hosted result.
+- A decision-to-anniversary clock has N future closes, while a new target filled at the first future close and marked at the last has N-1 held intervals. Target cash also excludes its pre-entry gap and needs an explicit holiday mark endpoint. Audit the actual native A5 clock against this proposed exposure without changing the existing clock or claiming the historical strategy was wrong.
+- Calendar consistency is metadata, not source/PIT evidence or a realized/expected label. The additive ER audit mode keeps ER/A5/training false even if period counts agree, precedes normal feature/U0 I/O, rejects mixed training inputs and preserves create-only diagnostics. Original21/63/126 and252 audit contracts remain unchanged.
+- This sparse checkout refused staging the new contract outside its patterns after staging the existing files. Inspect the partial index and add only that explicit contract with --sparse; preserve the original sparse definition and unrelated paths. Code/test bytes and their prior scoped result remain unchanged.
+- The first real direct-script audit failed before output creation: imported smoke tests had inserted repository root, masking research-module import failure from tools/. Preserve the failed receipt and3.6017712s, bootstrap the resolved repository root, and exercise a real subprocess from outside the repository with no PYTHONPATH before reusing a fresh create-only output namespace.
