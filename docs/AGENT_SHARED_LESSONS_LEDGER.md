@@ -30,6 +30,17 @@
   report hashes in1,076.598s. Stored/read-back proof
   b959f6383a57dfb1cface31a72d846076e7664300db3f92fb9e977708f7c2fff
   confirms bytes and PARTIAL_COVERAGE, not learning rights, PIT or a new fit.
+- The original three-document account-rights archive was located and its
+  current connector ZIP bytes matched retained archive1337e9f1; every member
+  hash passed. It contains general terms, API FAQ and a consent audit explicitly
+  retaining UNKNOWN supplier rights. The separate scoped SPY665 working-copy
+  review is not a blanket A4 training, perpetual-retention or commercial grant.
+  Preserve the human hold on unverified new price training/distribution.
+- Empty indexed folder searches were contradicted by direct folder fetch.
+  Two bounded raw CLIcopyto attempts failed UNCLASSIFIED; do not infer quota,
+  account denial or a license conclusion. Connector bytes plus the retained
+  hash-bound ZIP resolved the read without another download. Missing PDF text
+  tooling was handled by reviewing all four rendered pages; no source changed.
 
 - Parquet top-level field indices are physical column indices only when the
   whole schema is flat. Reject even unprojected nested/extension fields before
