@@ -16,6 +16,30 @@ desktop scheduler, trading process or second accepted-state authority is used.
 
 ## Activation prerequisites
 
+The hosted research step defaults to `A4_RESEARCH_SCOPE=A4_ONLY`. It performs
+the A4 request replay, diagnosis and original learning/checkpoint checks without
+opening `a5_request.json`, importing the A5 allocator, evaluating A3/A6 inputs or
+writing portfolio/proposal files. Existing model-proposal history is retained.
+An explicitly supplied `A4_A5` scope retains the former combined path and all
+of its independent A3/A4/A6 and allocation-policy gates. Invalid scopes fail
+before creating an attempt or changing research state. No enable flag or data
+policy is supplied by this default.
+
+Direct library and CLI callers retain the compatible `A4_A5` default; request
+the independent path with `--scope A4_ONLY`. `cycle.json` records the scope,
+`a4_cycle_status`, `completion_scope`, `a5_executed` and `a5_status`. A4-only
+attempts report `NOT_REQUESTED` for A5; a missing A5 packet cannot block their
+A4 cycle. The combined path still requires a valid A5 proposal for its overall
+completion. Missing/stale native data, incomplete enhanced analysis or failed
+learning-policy/original checks keep either A4 cycle partial.
+
+Cycle completion describes the requested computation, not qualification of the
+whole A4 system. In particular, `fixed_forecast_count=0` and
+`quantitative_outlook_status=INSUFFICIENT_EVIDENCE` remain visible when no
+independently reviewed release yields a forecast. A completed computation with
+insufficient or negative trials is not a validated predictive model, a qualified
+backtest, Drive readback, or evidence of a first completed portfolio.
+
 The feature defaults OFF. Merge only after exact-head independent review,
 required CI, review_complete and expected-head protection. Then supply the
 existing source owner with the required current-session A4 v2 request and its
