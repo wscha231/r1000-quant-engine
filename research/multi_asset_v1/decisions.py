@@ -743,7 +743,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
         for line,limit in zip(matrix,limits):
             if line[i]>0:room=min(room,max(0,(limit-line@control)/line[i]))
         control[i]+=max(0,room)
-    solved=minimize(objective,control,method="SLSQP",bounds=list(zip(lo,hi)),constraints=[constraint],
+    solved=minimize(objective,control.copy(),method="SLSQP",bounds=list(zip(lo,hi)),constraints=[constraint],
                     options={"ftol":1e-10,"maxiter":300})
     optimized=checked_solution(solved,lo,hi,"stock_optimizer_constraint_violation",control)
     if replacements:
@@ -756,7 +756,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     if any(chosen[i]>old[i]+1e-9 and alt[i]>0 for i in range(n)):
         no_alt_lo=lo.copy();no_alt_hi=hi.copy()
         no_alt_lo[alt>0]=0;no_alt_hi[alt>0]=0
-        baseline=minimize(objective,no_alt_lo,method="SLSQP",bounds=list(zip(no_alt_lo,no_alt_hi)),
+        baseline=minimize(objective,no_alt_lo.copy(),method="SLSQP",bounds=list(zip(no_alt_lo,no_alt_hi)),
             constraints=[constraint],options={"ftol":1e-10,"maxiter":300})
         checked_solution(baseline,no_alt_lo,no_alt_hi,"stock_exception_counterfactual_failed",no_alt_lo)
         for i,aid in enumerate(ids):

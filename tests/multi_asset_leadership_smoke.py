@@ -1813,6 +1813,19 @@ class StockCashResearch(unittest.TestCase):
         self.assertIn("stock_optimizer_worse_than_feasible_reference",json.dumps(out["proposal"]))
         self.assertFalse(out["proposal"].get("orders_generated",False))
 
+    def test_optimizer_cannot_mutate_the_control_reference_through_x0(self):
+        import numpy as np
+        from types import SimpleNamespace
+        p,r,policy=self.inputs()
+        def mutating_backend(fun,x0,**kwargs):
+            self.assertGreater(sum(x0),0)
+            x0[:]=0
+            return SimpleNamespace(success=True,x=x0,fun=-1e100)
+        with patch("scipy.optimize.minimize",side_effect=mutating_backend):
+            out=run(p,r,policy,artifact_resolver=self.memory)
+        self.assertEqual(out["proposal"]["status"],"BLOCKED")
+        self.assertIn("stock_optimizer_worse_than_feasible_reference",json.dumps(out["proposal"]))
+
     def test_optimizer_rejects_nonfinite_actual_objective_despite_finite_x(self):
         import numpy as np
         from types import SimpleNamespace
