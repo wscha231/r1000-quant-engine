@@ -27,7 +27,7 @@ class DiagnosisTests(unittest.TestCase):
     def test_nominal_real_counter_evidence_remains_mixed_and_uses_bp(self):
         out=d.diagnose(report())['macro_diagnosis']
         family=next(r for r in out['windows']['SHORT']['families'] if r['family']=='rates')
-        self.assertEqual(family['observed_pressure'],'MIXED')
+        self.assertEqual(family['observed_condition'],'MIXED')
         self.assertEqual(family['status'],'OBSERVED')
         self.assertAlmostEqual(family['measures'][0]['change'],20)
         self.assertAlmostEqual(family['measures'][1]['change'],-10)
@@ -80,15 +80,42 @@ class DiagnosisTests(unittest.TestCase):
         measure=d.measurement({'reserves_week_average':point},'reserves_week_average',1,-1,NOW)
         self.assertEqual(measure['change'],100000)
         self.assertEqual(measure['change_unit'],'millions_usd')
-        self.assertEqual(measure['pressure'],'EASING')
+        self.assertEqual(measure['condition'],'EASING')
         self.assertEqual(measure['evidence'][0]['measurement_basis'],'WEEK_AVERAGE')
         self.assertIsNone(d.measurement({'reserves_week_average':point},'reserves_week_average',4,-1,NOW)['change'])
+
+    def test_bank_cash_contraction_is_retained_without_claiming_credit_easing(self):
+        source=report();panel={}
+        for sid,value in [('DPSACBW027SBOG',110),('TOTLL',105),('TOTCI',102),('CASACBW027SBOG',90)]:
+            point=a.summarize(rows(sid,[('2026-10-28',100),('2026-11-04',value)]),NOW)
+            panel[point['logical_id']]=point
+        source['bank_credit']=dict(series=panel)
+        result=d.diagnose(source)['macro_diagnosis']['windows']['SHORT']
+        family=next(r for r in result['families'] if r['family']=='bank_credit')
+        self.assertEqual(family['observed_condition'],'MIXED')
+        self.assertEqual(family['status'],'OBSERVED')
+        self.assertEqual([r['condition'] for r in family['measures']],['EXPANDING']*3+['CONTRACTING'])
+        del panel['cash_assets_all']
+        family=next(r for r in d.diagnose(source)['macro_diagnosis']['windows']['SHORT']['families'] if r['family']=='bank_credit')
+        self.assertEqual(family['observed_condition'],'EXPANDING');self.assertEqual(family['status'],'PARTIAL')
+        self.assertIn('cash_assets_all',family['missing'])
+
+    def test_labor_and_dollar_labels_do_not_assert_financing_easing(self):
+        source=report()
+        for sid,values in [('PAYEMS',[100,110]),('UNRATE',[5,4])]:
+            point=a.summarize(rows(sid,list(zip(['2026-09-01','2026-10-01'],values))),NOW)
+            source['macro_direction_inputs'][point['logical_id']]=point
+        point=a.summarize(rows('DTWEXBGS',[('2026-11-05',100),('2026-11-06',101)]),NOW)
+        point['changes']['5']=dict(point['changes']['1']);source['macro_direction_inputs']['broad_usd']=point
+        families={r['family']:r for r in d.diagnose(source)['macro_diagnosis']['windows']['SHORT']['families']}
+        self.assertEqual(families['labor']['observed_condition'],'STRENGTHENING')
+        self.assertEqual(families['dollar']['observed_condition'],'APPRECIATING')
 
     def test_overflow_and_null_changes_do_not_produce_pressure(self):
         for value in (None,float('nan'),float('inf'),1e308):
             source=report();point=source['macro_direction_inputs']['yield_10y'];point['changes']['5']['value']=value
             result=d.measurement({'yield_10y':point},'yield_10y',5,1,NOW)
-            self.assertIsNone(result['pressure'])
+            self.assertIsNone(result['condition'])
 
     def test_funding_differences_are_one_family_and_keep_conflicting_changes(self):
         source=report();spreads={}
@@ -96,10 +123,10 @@ class DiagnosisTests(unittest.TestCase):
             spreads[key]=dict(status='OBSERVED',value=1,observation_date='2026-11-06',changes_bp={'5':change},original_sha256=['a'*64])
         source['funding']=dict(spreads=spreads)
         result=d.funding(source,5)
-        self.assertEqual(result['observed_pressure'],'MIXED')
+        self.assertEqual(result['observed_condition'],'MIXED')
         self.assertFalse(result['independent_risk_vote'])
         for row in spreads.values():row['observation_date']='2026-10-01'
-        self.assertEqual(d.funding(source,5)['observed_pressure'],'INSUFFICIENT_EVIDENCE')
+        self.assertEqual(d.funding(source,5)['observed_condition'],'INSUFFICIENT_EVIDENCE')
 
     def test_actual_v2_path_and_markdown_preserve_native_block(self):
         result=analyze([('fred:DGS10',raw('DGS10',[('2026-11-05',4),('2026-11-06',4.2)]))])

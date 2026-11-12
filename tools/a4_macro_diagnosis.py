@@ -28,7 +28,7 @@ def observed(row, cutoff):
 
 def measurement(panel, key, period, orientation, cutoff):
     row = panel.get(key)
-    item = dict(series=key, status='INSUFFICIENT_EVIDENCE', pressure=None,
+    item = dict(series=key, status='INSUFFICIENT_EVIDENCE', condition=None,
         value=None, change=None, change_unit=None, window=period,
         blocker='FRESH_ORIGINAL_AND_COMPLETE_CHANGE_WINDOW_REQUIRED', evidence=[])
     if not observed(row, cutoff): return item
@@ -44,17 +44,17 @@ def measurement(panel, key, period, orientation, cutoff):
         change_unit='basis_points' if scale == 100 else row['unit'],
         window_unit='weeks' if row['frequency'] == 'weekly' else 'months' if row['frequency'] == 'monthly' else 'source_observations',
         previous_observation_date=delta.get('previous_observation_date'), blocker=None,
-        pressure='UNCHANGED' if value == 0 else 'TIGHTENING' if value*orientation > 0 else 'EASING')
+        condition='UNCHANGED' if value == 0 else 'TIGHTENING' if value*orientation > 0 else 'EASING')
     return item
 
 
 def group(name, measures, *, caveat):
-    pressures = {m['pressure'] for m in measures if m['status'] == 'OBSERVED'}-{'UNCHANGED'}
+    pressures = {m['condition'] for m in measures if m['status'] == 'OBSERVED'}-{'UNCHANGED'}
     missing = [m['series'] for m in measures if m['status'] != 'OBSERVED']
-    state = ('MIXED' if pressures == {'EASING', 'TIGHTENING'} else next(iter(pressures))
+    state = ('MIXED' if len(pressures)>1 else next(iter(pressures))
         if pressures else 'UNCHANGED' if not missing else 'INSUFFICIENT_EVIDENCE')
     return dict(family=name, status='PARTIAL' if missing else 'OBSERVED',
-        observed_pressure=state, measures=measures, missing=missing, caveat=caveat,
+        observed_condition=state, measures=measures, missing=missing, caveat=caveat,
         independent_risk_vote=False, causal_equity_effect_established=False)
 
 
@@ -67,12 +67,12 @@ def funding(report, period):
         measures.append(dict(series=key, status='OBSERVED' if valid else 'INSUFFICIENT_EVIDENCE',
             value=row['value'], unit='basis_points', change=delta if valid else None,
             change_unit='basis_points', window=period, window_unit='source_observations',
-            pressure=('UNCHANGED' if delta==0 else 'TIGHTENING' if delta>0 else 'EASING') if valid else None,
+            condition=('UNCHANGED' if delta==0 else 'TIGHTENING' if delta>0 else 'EASING') if valid else None,
             positive_observation_streak=row.get('positive_observation_streak'),
             evidence=[dict(original_sha256=sha,observation_date=row['observation_date']) for sha in row['original_sha256']],
             blocker=None if valid else 'COMPLETE_SAME_DATE_FUNDING_WINDOW_REQUIRED'))
     if not measures:
-        measures=[dict(series='funding_spreads',status='INSUFFICIENT_EVIDENCE',pressure=None)]
+        measures=[dict(series='funding_spreads',status='INSUFFICIENT_EVIDENCE',condition=None)]
     return group('funding', measures, caveat='Spread changes share rates; a positive spread alone is not a crisis threshold.')
 
 
@@ -82,21 +82,27 @@ def condition_windows(report):
         **report.get('bank_credit',{}).get('series',{}),**report.get('macro_direction_inputs',{})}
     out={}
     for name,window in WINDOWS.items():
-        def take(key, orientation):
+        def take(key, orientation, vocabulary=None):
             row=panel.get(key)
             period=window.get(row.get('frequency'),window['weekly']) if row else window['weekly']
-            return measurement(panel,key,period,orientation,cutoff)
+            result=measurement(panel,key,period,orientation,cutoff)
+            if vocabulary and result['condition'] in vocabulary:
+                result['condition']=vocabulary[result['condition']]
+            return result
+        quantities={'EASING':'EXPANDING','TIGHTENING':'CONTRACTING'}
+        labor={'EASING':'STRENGTHENING','TIGHTENING':'WEAKENING'}
         families=[funding(report,window['daily']),
             group('liquidity',[take('reserves_week_average',-1),take('tga_week_average',1)],
                 caveat='Separate weekly average balances; no net-liquidity sum, fixed reserve cutoff or identified asset transfer.'),
-            group('bank_credit',[take('deposits_all',-1),take('loans_all',-1),take('commercial_industrial_loans',-1)],
-                caveat='Balance expansion/contraction only; deposits do not identify stock/MMF flows or credit quality.'),
-            group('labor',[take('payrolls',-1),take('unemployment',1)],
+            group('bank_credit',[take(key,-1,quantities) for key in
+                ('deposits_all','loans_all','commercial_industrial_loans','cash_assets_all')],
+                caveat='Balance quantities only, including contrary cash-asset changes; neither funding/credit easing, asset transfers nor credit quality is inferred.'),
+            group('labor',[take('payrolls',-1,labor),take('unemployment',1,labor)],
                 caveat='Employment quantities describe growth resilience; policy and equity effects can differ.'),
             group('rates',[take('yield_10y',1),take('real_yield_10y',1)],
                 caveat='Rising yields indicate higher discount-rate pressure; nominal and real yields overlap.'),
-            group('dollar',[take('broad_usd',1)],
-                caveat='Broad dollar appreciation indicates currency pressure; no universal equity-return effect.')]
+            group('dollar',[take('broad_usd',1,{'TIGHTENING':'APPRECIATING','EASING':'DEPRECIATING'})],
+                caveat='Broad-dollar direction only; no universal financing or equity-return effect.')]
         # Family descriptions are deliberately not averaged or tallied into
         # an equity direction, native risk score or confidence probability.
         out[name]=dict(lookback=window,families=families,

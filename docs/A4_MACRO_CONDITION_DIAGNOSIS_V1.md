@@ -19,12 +19,13 @@ an older successful observation. Macro readiness is not completion of A4.
 - Funding spread increases describe tightening pressure; shared rates overlap.
 - Reserves rising and TGA falling describe easing balance conditions separately.
   No balance-sheet components are summed or compared with a fixed reserve cutoff.
-- Deposit and loan increases describe quantity expansion only. They identify
-  neither stock/MMF transfers nor loan quality; H.8 scope remains unchanged.
-- Payroll growth and declining unemployment describe labor resilience. They
+- Deposit, loan and cash-asset changes use EXPANDING/CONTRACTING quantity
+  labels, with MIXED for contrary changes. They identify neither funding or
+  credit easing, stock/MMF transfers nor loan quality; H.8 scope is unchanged.
+- Payroll growth and declining unemployment use STRENGTHENING/WEAKENING. They
   do not establish a favorable policy response or an equity-return effect.
-- Nominal/real yield increases describe discount-rate pressure; dollar strength
-  describes currency pressure. The equity response is not assumed causal.
+- Nominal/real yield increases describe discount-rate pressure. Dollar changes
+  use APPRECIATING/DEPRECIATING without a financing or equity-return effect.
 - CPI changes are displayed separately without an invented equity-return sign.
   Consumption gaps and the existing SLOOS status remain explicit.
 

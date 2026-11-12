@@ -460,10 +460,11 @@ def render_report(value):
         if diagnosis:
             lines += ['', '## Observed macro conditions', '',
                 'Current descriptive pressures; future return direction still requires reviewed historical evidence.',
-                '', '| Lookback | Family | Observed pressure | Coverage |', '| --- | --- | --- | --- |']
+                '', '| Lookback | Family | Observed condition | Coverage |', '| --- | --- | --- | --- |']
             for window,entry in diagnosis['windows'].items():
                 for family in entry['families']:
-                    lines.append(f"| {window} | {family['family']} | {family['observed_pressure']} | {family['status']} |")
+                    lines.append(f"| {window} | {family['family']} | {family['observed_condition']} | {family['status']} |")
+            lines += ['']+[family['family']+': '+family['caveat'] for family in diagnosis['windows']['SHORT']['families']]
             lines += ['', '| Series | Window | Change | Unit | Observation |', '| --- | --- | ---: | --- | --- |']
             for family in diagnosis['windows']['SHORT']['families']:
                 for measure in family['measures']:

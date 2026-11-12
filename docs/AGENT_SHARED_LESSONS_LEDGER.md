@@ -20,6 +20,16 @@
 - The first159-case aggregate found the new diagnosis files missing from the
   cross-platform byte-identity closure. Add both to its LF checkout rules and
   explicit round-trip test; do not weaken the closure comparison or drop it.
+- Actual-input review then found the draft bank explanation omitted falling
+  cash assets while deposits and loans rose. Retain all four quantities and
+  use expansion/contraction labels, not inferred credit/funding easing. Labor
+  and dollar directions also need their own vocabulary. A clean code review
+  does not replace checking the financial meaning against actual inputs.
+- The current Lake Reader subsequently reverified generation32,1,157 datasets
+  (1,155 COLLECTED/two COVERAGE_GAP), historical pack dependencies and linked
+  report hashes in1,076.598s. Stored/read-back proof
+  b959f6383a57dfb1cface31a72d846076e7664300db3f92fb9e977708f7c2fff
+  confirms bytes and PARTIAL_COVERAGE, not learning rights, PIT or a new fit.
 
 - Parquet top-level field indices are physical column indices only when the
   whole schema is flat. Reject even unprojected nested/extension fields before
