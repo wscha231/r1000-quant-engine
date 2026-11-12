@@ -1,0 +1,51 @@
+{
+  "schema": "run287-current-financial-asof-research-v1",
+  "mode": "CURRENT_FORWARD_RESEARCH_ONLY",
+  "reader": "Existing ResearchDataReader.read_components financial purpose=research",
+  "adapter": "tools/build_run287_b002_fundamental_delta.py:build_reader_financial_asof",
+  "input_bindings": [
+    "Exact component receipt/file/row hashes",
+    "Externally pinned SEC collection metadata",
+    "CSV index hash",
+    "Selected issuer original HTTP entity hash and row-level accession/form/report-period/offset timestamp equality"
+  ],
+  "clock_policy": "Explicit offset only. Consumer decision time equals actual Reader time. As-of cutoff cannot exceed it. Filter accession prefix before latest/amendment/native quarter/TTM arithmetic.",
+  "publication_semantics": "SEC reported offset timestamp, not independent confirmation of original publication clock. Current Companyfacts is not certified historical PIT.",
+  "amount_policy": "Reuse original B002/native unit/context arithmetic; absent required parents are UNKNOWN/null; no price join or valuation authority.",
+  "bounds": {
+    "rows_per_issuer": 50000,
+    "files": 38,
+    "reader_encoded_file_bytes": 67108864,
+    "metadata_each_bytes": 4194304
+  },
+  "eligibility": {
+    "Source": false,
+    "historical_PIT": false,
+    "training": false,
+    "market_join": false,
+    "valuation": false,
+    "ER": false,
+    "A5": false,
+    "selector": false
+  },
+  "side_effects": {
+    "provider": 0,
+    "collector": 0,
+    "accepted_Registry": 0,
+    "portfolio": 0,
+    "orders": 0,
+    "Fullrun": 0
+  },
+  "further_requirements": [
+    "Independently confirmed original publication clock and original filing amounts for historical PIT",
+    "Qualified issuer/security and current price join",
+    "A3 review, calibrated ER and independent A5 original gates"
+  ],
+  "ticker_binding": "Exact membership in entity-hash-pinned SEC submissions current tickers; current issuer label only, no historical share-class/MIC/price join",
+  "carry_policy": {
+    "flow_ffill_quarters": 2,
+    "balance_ffill_quarters": 4,
+    "finite_value_proves_current_statement_coverage": false,
+    "per_field_context_and_provenance_preserved": true
+  }
+}
