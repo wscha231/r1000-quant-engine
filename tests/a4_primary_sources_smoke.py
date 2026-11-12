@@ -64,6 +64,35 @@ def nyfed(feed):
 
 
 class PrimaryTests(unittest.TestCase):
+    def test_checkout_preserves_hash_bound_normalizer_bytes(self):
+        paths=('tools/a4_primary_sources.py','tools/a4_primary_macro_sources.py',
+               'tools/a4_financing_sources.py','tools/a4_financing_analysis.py',
+               'tools/market_analysis_engine.py','tools/chameleon_market_context_v2.py',
+               'tools/free_market_context.py','tools/build_run287_chameleon_macro_risk.py',
+               'tools/daily_crisis_report_clock.py','docs/run287_chameleon_macro_risk_contract.json',
+               'docs/market_analysis_contract_v1.json','tools/build_run287_chameleon_macro_inputs.py',
+               'tools/candidate_reassessment_bridge.py','tools/a4_liquidity_analysis.py',
+               'tools/a4_macro_bridge.py','docs/market_analysis_contract_v2.json',
+               'tools/a4_macro_learning.py','tools/macro_technical_study.py','tools/a4_data_center.py',
+               'docs/research_data_access.json')
+        self.assertEqual({Path(name).name for name in paths},set(m.implementation_identity())|{'a4_data_center.py','research_data_access.json'})
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'.gitattributes').write_bytes((ROOT/'.gitattributes').read_bytes())
+            def git(*args):
+                return subprocess.run(['git','-C',str(root),*args],check=True,
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+            git('init','-q');git('config','core.autocrlf','true')
+            originals={name:(ROOT/name).read_bytes() for name in paths}
+            for name in paths:
+                target=root/name;target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes(originals[name])
+                self.assertNotIn(b'\r\n',originals[name])
+            git('add','--','.gitattributes',*paths)
+            for name in paths:(root/name).unlink()
+            git('checkout-index','-f','--',*paths)
+            for name in paths:self.assertEqual((root/name).read_bytes(),originals[name])
+
     def test_official_zip_mime_type_is_accepted_without_provider_retry(self):
         raw=archive('h8'); calls=[]
         class Opener:
@@ -249,9 +278,9 @@ class PrimaryTests(unittest.TestCase):
         self.assertTrue(bash and Path(bash).is_file(),'actual bash required for workflow exit-status validation')
         for research, primary in (('true','false'),('true','true'),('false','true')):
             baseline=dict(os.environ,RESEARCH_ENABLED=research,PRIMARY_ENABLED=primary,
-                          RESTORE='success',CYCLE='success',PERSIST='success',PRIMARY_CONFIG='success',PRIMARY='success')
+                          RESTORE='success',CYCLE='success',PERSIST='success',PRIMARY_CONFIG='success',PRIMARY='success',DATA_CENTER='success')
             self.assertEqual(subprocess.run([bash,'-c',script],env=baseline,capture_output=True,timeout=10).returncode,0)
-            keys=(['RESTORE','CYCLE','PERSIST'] if research=='true' else [])+(['PRIMARY_CONFIG','PRIMARY'] if primary=='true' else [])
+            keys=(['RESTORE','CYCLE','PERSIST'] if research=='true' else [])+(['PRIMARY_CONFIG','PRIMARY','DATA_CENTER'] if primary=='true' else [])
             for key in keys:
                 for outcome in ('failure','skipped','cancelled'):
                     with self.subTest(research=research,primary=primary,key=key,outcome=outcome):

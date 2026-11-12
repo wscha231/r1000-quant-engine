@@ -1,5 +1,10 @@
 # A4 primary-original collection
 
+The separately enabled [financing component](A4_FINANCING_CONDITIONS_V1.md)
+adds Treasury auction cohorts, domestic SLOOS and native daily/monthly ACM
+inputs through its own typed Reader in this same archive. Missing licensed
+credit/flow evidence remains blocked and does not alter native risk readiness.
+
 The existing Daily Crisis Monitor workflow can capture the Board's H.4.1,
 H.8 and policy-rate SDMX originals, plus the New York Fed's last30 SOFR,
 TGCR and EFFR observations. This bounded research capture does not call FRED,
@@ -44,12 +49,20 @@ Normalized gzip headers use explicit level6, empty filename and mtime0. Readers
 verify the archived compressed hash, then compare bounded canonical JSONL rows
 against the original replay. They do not recompress as an equality check:
 Python3.12/3.14 and zlib versions can encode identical rows differently.
+Both hash-bound normalizer files use explicit `text eol=lf` Git attributes.
+Their exact source bytes stay identical after Windows autocrlf checkout and
+Linux checkout; this preserves existing LF-bound captures without weakening
+code-hash checks or rewriting stored originals. The regression executes an
+actual Git checkout with autocrlf enabled in a disposable test repository.
 
 Data objects precede capture manifests. Every published object is reread and
 the full original/normalized pair is replayed. An execution is written last
 and reread. A local transport never proves Drive publication. Failure receipts
 are audit records, not accepted input. A failed feed prevents publication of
-the aggregate input request. A failed execution readback leaves a separate
+the aggregate input request for the core six-feed component. Optional economic
+failures preserve independently verified captures and publish an explicitly
+partial diagnostic, while CLI/workflow completion still fails. No missing input
+is filled by an older report. A failed execution readback leaves a separate
 immutable `publication_failed.json` witness and a failing process.
 
 ## Existing cloud cadence
@@ -85,6 +98,53 @@ or attempt output. A changed A4 request still requires a new current A3/A6 graph
 before A5 can consume it.
 Dispatch success is separate from a verified scheduled run and from actual
 model/portfolio completion.
+
+## Government economic input component
+
+The workflow also passes `--include-economic-inputs` for seven additional
+closed requests, each at most8MiB: H.10 broad dollar, current-year Treasury
+nominal and real par curves, and four BLS decade-window responses. The Python
+library's default remains the original six feeds; the explicit option adds
+these seven. The complete configured run has at most13 provider calls, no
+provider retries or arbitrary endpoints; BLS needs no credential and uses four
+calls, not one call per series/month. A provider quota/error is retained and
+not circumvented. The64MiB A4 total remains unchanged.
+
+`tools/a4_primary_macro_sources.py` implements the separate
+`a4-primary-economic-bundle-v1` capture/Reader in the same shared namespace.
+It binds its own normalizer plus the unchanged base codec; old bank/funding
+manifests still use the original Reader and are not rewritten. Exact original,
+normalized and manifest hashes and bounded decompressed replay remain mandatory.
+
+BLS captures SA unemployment, total nonfarm payroll, CPI and core CPI via
+four fixed requests:1996–2005,2006–2015,2016–2025 and2026–current year, through
+the reviewed2035 ceiling. Keep original request JSON, native series IDs,
+preliminary footnotes, missing values, actual periods and access timestamps.
+Annual/foreign/duplicate periods, unknown series and partial/error messages
+are refused. These are current revised histories, not as-published vintages.
+
+Treasury captures the current year's two nominal maturities and10-year real
+par rate; this is not a claim of complete Treasury historical backfill.
+The request year is explicit, negative real rates are valid and null stays
+null. Require the official Atom/EDM fields, one reference year and no next-page
+link. Atom `updated` is current feed regeneration and is never used as a
+historical publication timestamp. Empty rollover-year data remain a visible
+optional failure. The H.15 bulk archive is not automatically used: it also
+contains third-party corporate-bond observations outside this source scope.
+
+H.10 uses only native `JRXWTFB_N.B` / `BRD`, starting2006 in the actual current
+archive. Its native1997 base label is retained verbatim with a definition
+caveat; no silent rebasing or splice with `V0` goods-only history is performed.
+Learning requires one explicit source ID for each logical series, including
+in direct feature replay. A later alternate publisher cannot change a fixed
+earlier feature prefix.
+
+Growth/inflation/rates/FX context does not replace licensed native credit
+spreads, ETF prices, the original ten-axis risk policy or independent A3/A6
+evidence. Missing credit still leaves enhanced macro readiness false. The
+new `bls:` and `ust:` learning sources accept forward-capture bindings only,
+with the existing independent policy/rights/original checks; no training or
+portfolio authority is created by downloading government data.
 
 ## Historical learning boundary
 

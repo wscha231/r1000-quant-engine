@@ -34,3 +34,4 @@ pandas_market_calendars>=4.4.0  # exact NYSE holidays for after-close tactical r
 # For SEC/IWB HTTP fetches (universe loader)
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
+xlrd==2.0.2             # bounded NYFed ACM .xls originals; macros are not executed
