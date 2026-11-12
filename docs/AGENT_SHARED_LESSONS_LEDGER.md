@@ -27,6 +27,12 @@
   software/ML restriction; do not train on old FRED cache bytes or create an
   affirmative learning policy from these missing records. Current account
   contract details were requested while offline connection work continued.
+- BLS's official archive and public-domain policy are visible through the web
+  reader, but four bounded direct HTML preflights (policy plus three dated
+  releases) returned403. Record the raw-byte access failure separately from
+  data-use rights; do not substitute rendered text for original bytes, retry
+  around the refusal, or call these samples verified historical/PIT inputs.
+  This does not change the working BLS API captures or create a new collector.
 
 ### 2026-11-12 KST — A4 condition explanations do not complete return prediction
 
