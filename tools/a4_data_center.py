@@ -13,6 +13,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools import a4_primary_sources as p,a4_primary_macro_sources as e,a4_financing_sources as f
 from tools import market_analysis_engine as market,collect_a4_primary_data as collector
 from tools import a4_macro_learning as learning,run_a4_research_cycle as cycle
+from tools import a4_rtdsm_sources as vintage
 from tools.macro_history_sources import digest,encoded,exclusive
 from tools.macro_research_checkpoint import LocalTransport,RcloneTransport
 
@@ -31,6 +32,7 @@ LOADED_INDEX_SHA256=digest(Path(__file__).read_bytes())
 def index_identity():
     identity=market.implementation_identity()
     identity[Path(__file__).name]=digest(Path(__file__).read_bytes())
+    identity[Path(vintage.__file__).name]=digest(Path(vintage.__file__).read_bytes())
     path=Path(__file__).resolve().parents[1]/'docs/research_data_access.json'
     identity[path.name]=digest(path.read_bytes())
     return identity
@@ -57,6 +59,44 @@ class OriginalReader:
             self.cache[path]=raw
         return self.cache[path]
     def write(self,*args):raise ValueError('DATA_CENTER_ORIGINAL_READ_ONLY')
+
+
+def vintage_context(references,cutoff,*,remote=None,budget=None):
+    """Explicit dated-vintage pins, separate from revised-current risk operands."""
+    p.check(type(references) is list and len(references)<=MAX_CAPTURES,'DATA_CENTER_VINTAGE_BUDGET')
+    selected={};seen=set();audit=[];result=[];used=0
+    for ref in references:
+        p.check(type(ref) is dict and set(ref)=={'root','generation_sha256'},'DATA_CENTER_VINTAGE_REFERENCE')
+        sha=pin(ref['generation_sha256']);p.check(sha not in seen,'DATA_CENTER_DUPLICATE_VINTAGE');seen.add(sha)
+        if ref['root'] is None:
+            p.check(remote is not None,'DATA_CENTER_VINTAGE_TRANSPORT');reader=remote
+        else:
+            path=Path(ref['root']);p.check(path.is_dir() and not any(q.is_symlink() for q in (path,*path.parents)),
+                'DATA_CENTER_SOURCE_SYMLINK')
+            reader=OriginalReader(LocalTransport(path),local=True,budget=budget)
+        raw=p.read_object(reader,p.PREFIX+'/generations/'+sha+'.json',sha,65536);meta=p.f.strict_json(raw)
+        p.check(meta.get('schema')==vintage.SCHEMA and meta.get('feed') in vintage.FEEDS,'DATA_CENTER_VINTAGE_SCHEMA')
+        if p.clock(meta['collected_at'])>p.clock(cutoff):
+            audit.append(dict(generation_sha256=sha,status='EXCLUDED_FUTURE_VINTAGE_CAPTURE'));continue
+        feed=meta['feed'];old=selected.get(feed)
+        p.check(old is None or p.clock(old[2]['collected_at'])!=p.clock(meta['collected_at']),
+            'DATA_CENTER_AMBIGUOUS_VINTAGE_CAPTURE')
+        if old is None or p.clock(old[2]['collected_at'])<p.clock(meta['collected_at']):selected[feed]=(reader,sha,meta)
+    for feed,(reader,sha,_) in sorted(selected.items()):
+        rows,meta=vintage.read_generation(reader,sha,cutoff=cutoff);used+=len(rows)
+        p.check(used<=MAX_ROWS,'DATA_CENTER_ROW_BUDGET')
+        visible=vintage.asof_rows(rows,cutoff);latest=max(visible,key=lambda r:r['observation_date'])
+        result.append(dict(feed=feed,generation_sha256=sha,status='VERIFIED_DATED_VINTAGE_RESEARCH_ONLY',
+            original_sha256=meta['original_sha256'],normalized_object_sha256=meta['normalized_object_sha256'],
+            documentation_sha256=meta['documentation_sha256'],rights_notice_sha256=meta['rights_notice_sha256'],
+            normalizer_sha256=meta['normalizer_sha256'],source_uri=meta['source_uri'],
+            collected_at=meta['collected_at'],observations=len(rows),vintages=meta['vintages'],
+            first_vintage_month=meta['first_vintage_month'],last_vintage_month=meta['last_vintage_month'],
+            retained_months_per_vintage=meta['retained_months_per_vintage'],latest=latest,
+            historical_use=meta['historical_use'],publication_time_verified=False,
+            original_pairs_remote_verified=reader is remote and remote is not None
+                and remote.transport.remote_verified is True,**SAFETY))
+    return result,audit,used
 
 
 def summarise(rows,feed,cutoff):
@@ -281,11 +321,22 @@ def render_catalog(catalog):
     for item in catalog['retrospective_descriptions']:
         value='INSUFFICIENT_EVIDENCE' if item['pearson_correlation'] is None else f"{item['pearson_correlation']:.4f}"
         lines.append(f"| {item['left']} / {item['right']} | {item['paired_changes']} | {item['first_change']} .. {item['last_change']} | {value} |")
+    for item in catalog.get('dated_vintage_sources',[]):
+        row=item['latest']
+        lines+=['',f"RTDSM {item['feed']}: {item['vintages']} retained vintages; {row['vintage_label']}, "
+            f"observation {row['observation_date']}, value {row['value']} {row['unit']}; "
+            f"research availability bound {row['available_at']} ({row['availability_basis']}).",
+            'Monthly observations and quarterly vintage releases remain distinct. Exact publication time and training admission are unverified.']
+    if 'long_horizon_preparation' in catalog:
+        capacity=catalog['long_horizon_preparation']
+        lines+=['',f"504-session preparation: dense maximum at the current input ceiling is "
+            f"{capacity['dense_mature_nonoverlap_window_upper_bound']} mature windows before OOS training; "
+            f"{capacity['required_nonoverlap_windows']} are required. This is arithmetic, not a backtest or an extended forecast release."]
     return '\n'.join(lines)
 
 
 def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,probe_lake=False,learning_root=None,
-          learning_policy_sha256=None,code_sha=None):
+          learning_policy_sha256=None,code_sha=None,vintage_references=None):
     """Produce a hash-bound as-of view; old successes never hide newer failed attempts."""
     now=p.clock(cutoff);cutoff=now.isoformat()
     identity=index_identity();p.check(identity[Path(__file__).name]==LOADED_INDEX_SHA256,'DATA_CENTER_LOADED_CODE_CHANGED')
@@ -445,6 +496,8 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
     report=market.load_report(inputs/'request.json',inputs,digest(raw),cutoff=cutoff) if core else market.blocked(
         'DATA_CENTER_LATEST_CORE_INPUT_FAILED_OR_MISSING',cutoff=cutoff,session=request['session'])
     learn=learning_readiness(learning_root,learning_policy_sha256,cutoff)
+    dated,vintage_audit,vintage_rows=vintage_context([] if vintage_references is None else vintage_references,cutoff,remote=remote,budget=budget)
+    p.check(rows_used+vintage_rows<=MAX_ROWS,'DATA_CENTER_ROW_BUDGET');audit.extend(vintage_audit)
     legacy=lake_metadata(source_transport if probe_lake else None,cutoff)
     p.check(identity==index_identity(),'DATA_CENTER_IMPLEMENTATION_CHANGED')
     catalog=dict(schema=SCHEMA,cutoff=cutoff,mode='RESEARCH_ONLY',status='PARTIAL_RESEARCH',
@@ -455,7 +508,8 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
         selected_sources={key:selected[key] for key in sorted(selected)},native_frequencies_preserved=True,
         retrospective_descriptions=[dict(item,generation_sha256=s['generation_sha256'],original_sha256=s['original_sha256'])
             for _,s in sorted(selected.items()) for item in s.get('retrospective_descriptions',[])],
-        native_input_state=native_state,
+        native_input_state=native_state,dated_vintage_sources=dated,
+        long_horizon_preparation=learning.prospective_horizon_capacity(10000,504),
         legacy_lake=legacy,price_and_financial_route=dict(status='LOCATOR_ONLY_NOT_COVERAGE',
             reader='tools/research_model_inputs.py:replay_model_inputs',source_originals_reverified_here=False),
         learning=learn,current_diagnosis=dict(status=report['status'],report_sha256=digest(encoded(report)),
@@ -518,13 +572,16 @@ def main():
     parser.add_argument('--publish',action='store_true');parser.add_argument('--probe-lake-metadata',action='store_true')
     parser.add_argument('--code-sha',default=os.environ.get('GITHUB_SHA'))
     parser.add_argument('--learning-input-root');parser.add_argument('--learning-policy-sha256')
+    parser.add_argument('--vintage-generation-sha256',action='append',default=[])
+    parser.add_argument('--vintage-archive-root',help='Existing local archive; omit to read the explicit vintage pins from Drive')
     args=parser.parse_args()
     attempt_root=Path(args.output_dir)
     owned=not attempt_root.exists() and not any(q.is_symlink() for q in (attempt_root,*attempt_root.parents))
     try:
         p.check(len(args.capture_root)==len(args.execution_sha256),'DATA_CENTER_CAPTURE_BINDING')
         if args.publish:p.check(type(args.code_sha) is str and re.fullmatch('[a-f0-9]{40}',args.code_sha),'DATA_CENTER_PUBLICATION_CODE_PIN')
-        reader=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']) if args.publish or args.remote_execution_sha256 else None
+        reader=RcloneTransport(os.environ['MACRO_RESEARCH_REMOTE']) if args.publish or args.remote_execution_sha256 or (
+            args.vintage_generation_sha256 and args.vintage_archive_root is None) else None
         specs=[dict(root=r,execution_sha256=s) for r,s in zip(args.capture_root,args.execution_sha256)]
         p.check(len(specs)+len(args.remote_execution_sha256)<=MAX_CAPTURES,'DATA_CENTER_CAPTURE_BUDGET')
         cache=Path(args.output_dir).with_name(Path(args.output_dir).name+'-references')
@@ -532,7 +589,8 @@ def main():
         catalog,receipt=build(specs,
             cutoff=args.cutoff,output_dir=args.output_dir,transport=reader if args.publish else None,source_transport=reader,
             probe_lake=args.probe_lake_metadata,
-            learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256,code_sha=args.code_sha)
+            learning_root=args.learning_input_root,learning_policy_sha256=args.learning_policy_sha256,code_sha=args.code_sha,
+            vintage_references=[dict(root=args.vintage_archive_root,generation_sha256=s) for s in args.vintage_generation_sha256])
         print(encoded(dict(status=receipt['status'],catalog_sha256=receipt['catalog_sha256'],
             current_diagnosis=catalog['current_diagnosis']['status'],historical_evaluation=catalog['historical_evaluation']['status'],
             future_view=catalog['future_view']['status'])).decode().strip())

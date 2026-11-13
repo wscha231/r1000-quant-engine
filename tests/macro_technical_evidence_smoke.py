@@ -402,7 +402,8 @@ def run_tests(*, portable=False):
         from a4_data_center_smoke import DataCenterTests
         from a4_macro_diagnosis_smoke import DiagnosisTests
         from a4_native_inputs_smoke import NativeHandoffTests
-        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests,PrimaryTests,EconomicTests,FinancingTests,DataCenterTests,DiagnosisTests,NativeHandoffTests))
+        from a4_rtdsm_sources_smoke import RtdsmTests
+        classes.extend((BridgeTests,LiquidityTests,LearningTests,CloudTests,ModelTests,PrimaryTests,EconomicTests,FinancingTests,DataCenterTests,DiagnosisTests,NativeHandoffTests,RtdsmTests))
     suite=unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(c) for c in classes])
     result=unittest.TextTestRunner(verbosity=1).run(suite)
     if not result.wasSuccessful():

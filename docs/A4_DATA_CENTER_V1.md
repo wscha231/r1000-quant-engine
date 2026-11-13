@@ -1,5 +1,12 @@
 # Unified A4 research data center
 
+Explicit Philadelphia Fed vintage pins are documented in
+[dated-vintage research](A4_RTDSM_VINTAGES_V1.md). Their original replay and
+conservative availability bounds appear separately under `dated_vintage_sources`;
+they do not replace revised-current risk operands or grant learning admission.
+The504-session preparation field is a sample-capacity bound, not a new fitted
+horizon or a change to the released seven-horizon family.
+
 The index is a bounded view over the existing primary archive and shared
 data-access routes. It creates no provider collector, scheduler, portfolio
 policy or accepted account/ledger. Original data stay in their existing
