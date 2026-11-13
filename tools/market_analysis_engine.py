@@ -474,6 +474,30 @@ def render_report(value):
                 'Completion blockers: '+', '.join(r['code'] for r in diagnosis['completion_blockers'])]
         lines += ["", "## Horizon outlook", "", "| Sessions | Direction |", "| ---: | --- |"]
         lines += [f"| {r['horizon_sessions']} | {r['direction']} |" for r in value["horizon_outlook"]]
+        if value.get('benchmark_outlook'):
+            lines += ['', '## Benchmark direction research', '',
+                'SPY proxies the S&P 500; QQQ proxies the Nasdaq-100, not the Nasdaq Composite.',
+                'Direction is agreement of reviewed return-estimate signs. Macro contribution is relative to the training mean; neither is an up probability.', '',
+                '| Target | Sessions | Return direction | Macro contribution | Released estimates |',
+                '| --- | ---: | --- | --- | ---: |']
+            for row in value['benchmark_outlook']:
+                lines.append(f"| {row['target']} | {row['horizon_sessions']} | {row['direction']} | {row['macro_contribution_direction']} | {len(row['evidence'])} |")
+            lines += ['', '| Target | Sessions | Feature | OOS hit rate | Training-mean baseline hit rate | Hit-rate improvement | BY q | Independent windows |',
+                '| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |']
+            for row in value['benchmark_outlook']:
+                for evidence in row['evidence']:
+                    lines.append(f"| {row['target']} | {row['horizon_sessions']} | {evidence['feature']} | {evidence['oos_direction_accuracy']} | {evidence['baseline_direction_accuracy']} | {evidence['direction_accuracy_improvement']} | {evidence['family_q_value']} | {evidence['nonoverlap_windows']} |")
+        if value.get('qe_assessment'):
+            qe=value['qe_assessment']
+            lines += ['', '## QE research context', '',
+                'Status: '+qe['status']+'; official policy: '+qe['policy_state'],
+                'QE-start probability: not estimated. Balance growth, reserve increases, QT cessation and rate cuts alone do not verify QE.',
+                'Reviewed policy episodes and dated official announcements are required before QE likelihood training.']
+            lines += ['', '| Observed driver | Level | Level unit | Change | Change unit | Observation |',
+                '| --- | ---: | --- | ---: | --- | --- |']
+            for driver in qe['observed_drivers']:
+                dates=', '.join(sorted({r['observation_date'] for r in driver['evidence']}))
+                lines.append(f"| {driver['series']} | {driver['value']} | {driver['value_unit']} | {driver['change']} | {driver['change_unit']} | {dates} |")
     for notice in value.get('primary_source_notices', []):
         lines.extend(['', notice])
     lines += ["", "Missing optional: " + ", ".join(value.get("missing_optional_sources", [])),

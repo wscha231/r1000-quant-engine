@@ -127,6 +127,50 @@ class DataCenterTests(unittest.TestCase):
             value=d.learning_readiness('/unused/private',None,NOW)
         self.assertEqual(value['status'],'BLOCKED');self.assertFalse(value['model_fit_performed'])
 
+    def test_focused_benchmark_readiness_uses_actual_session_records(self):
+        from tests.a4_macro_learning_smoke import fixture
+        payload,policy,resolve=fixture()
+        payload['prices']['QQQ']=copy.deepcopy(payload['prices']['SPY'])
+        binding=next(iter(policy['source_bindings'].values()))
+        binding['source_ids'].append('price:QQQ')
+        policy['input_pins']=[d.digest(d.encoded(payload))]
+        with patch.object(d.cycle,'load_learning',return_value=(payload,policy,resolve)):
+            out=d.learning_readiness('/synthetic',d.digest(d.encoded(policy)),payload['cutoff'])
+        self.assertEqual(out['status'],'PARTIAL_VALIDATED_INPUTS')
+        self.assertEqual(out['benchmark_research_status'],'VALIDATED_BENCHMARK_INPUTS_NOT_EXECUTED')
+        self.assertEqual(out['missing_benchmark_targets'],[])
+        self.assertEqual(len(out['missing_targets']),12)
+        self.assertEqual(out['target_prices']['QQQ']['valid_prices'],len(payload['sessions']))
+        self.assertFalse(out['model_fit_performed'])
+        for row in payload['prices']['QQQ']:row['value']=None
+        policy['input_pins']=[d.digest(d.encoded(payload))]
+        with patch.object(d.cycle,'load_learning',return_value=(payload,policy,resolve)):
+            out=d.learning_readiness('/synthetic',d.digest(d.encoded(policy)),payload['cutoff'])
+        self.assertEqual(out['benchmark_research_status'],'BLOCKED')
+        self.assertEqual(out['missing_benchmark_targets'],['QQQ'])
+        self.assertEqual(out['target_prices']['QQQ']['valid_prices'],0)
+
+    def test_bad_benchmark_price_basis_does_not_open_focused_readiness(self):
+        from tests.a4_macro_learning_smoke import fixture
+        payload,policy,resolve=fixture()
+        for row in payload['prices']['SPY']:row['return_basis']='RAW_UNADJUSTED'
+        policy['input_pins']=[d.digest(d.encoded(payload))]
+        with patch.object(d.cycle,'load_learning',return_value=(payload,policy,resolve)):
+            out=d.learning_readiness('/synthetic',d.digest(d.encoded(policy)),payload['cutoff'])
+        self.assertEqual(out['status'],'BLOCKED')
+        self.assertEqual(out['benchmark_research_status'],'BLOCKED')
+
+    def test_policy_expiry_at_execution_blocks_old_benchmark_inputs(self):
+        from tests.a4_macro_learning_smoke import fixture
+        payload,policy,resolve=fixture()
+        policy['expires_at']=(p.clock(payload['cutoff'])+timedelta(minutes=10)).isoformat()
+        cutoff=(p.clock(payload['cutoff'])+timedelta(minutes=20)).isoformat()
+        with patch.object(d.cycle,'load_learning',return_value=(payload,policy,resolve)):
+            out=d.learning_readiness('/synthetic',d.digest(d.encoded(policy)),cutoff)
+        self.assertEqual(out['status'],'BLOCKED')
+        self.assertEqual(out['benchmark_research_status'],'BLOCKED')
+        self.assertEqual(out['target_prices'],{})
+
     def test_duplicate_wrong_pin_existing_output_and_overlapping_root_refuse(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);spec=capture(root/'capture')

@@ -251,6 +251,12 @@ def enrich(report, originals, *, primary_rows=()):
                                bank_credit=bank["status"] == "OBSERVED", macro=macro_ready),
         horizon_outlook=[dict(horizon_sessions=h, direction="INSUFFICIENT_EVIDENCE",
             blockers=["REVIEWED_HISTORICAL_RELATIONSHIP_RELEASE_REQUIRED"], evidence=[], contrary_evidence=[]) for h in HORIZONS],
+        benchmark_outlook=[dict(target=target,benchmark=name,horizon_sessions=h,
+            direction="INSUFFICIENT_EVIDENCE",macro_contribution_direction="INSUFFICIENT_EVIDENCE",
+            up_probability=None,evidence=[],independent_vote_count=None,
+            forecast_aggregation="SIGN_AGREEMENT_ONLY_NO_WEIGHTED_RETURN",
+            blockers=["REVIEWED_TARGET_SPECIFIC_RELATIONSHIP_RELEASE_REQUIRED"])
+            for target,name in (("SPY","S&P 500 ETF proxy"),("QQQ","Nasdaq-100 ETF proxy")) for h in HORIZONS],
         historical_evidence=dict(status="NOT_CONNECTED", causal_effect_identified=False),
         learning_provenance=dict(status="NOT_CONNECTED", automatic_model_promotion_allowed=False),
         a4_observation_provenance=[dict({k: history[-1][k] for k in ("source_id", "observation_date", "available_at", "collected_at",

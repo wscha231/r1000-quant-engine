@@ -21,6 +21,20 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def test_benchmark_learning_policy_must_still_be_valid_at_execution(self):
+        p,policy,resolve=fixture()
+        cutoff=(learning.free.utc(p['cutoff'])+timedelta(minutes=20)).isoformat()
+        policy['expires_at']=(learning.free.utc(p['cutoff'])+timedelta(minutes=10)).isoformat()
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);inputs=root/'inputs';inputs.mkdir()
+            with patch.object(cycle,'load_learning',return_value=(p,policy,resolve)), \
+                 patch.object(learning,'fit_trial',side_effect=AssertionError('expired input fit')):
+                result=cycle.run_cycle(input_root=inputs,state_root=root/'state',output_dir=root/'attempt',
+                                       cutoff=cutoff,scope='A4_ONLY')
+            self.assertEqual(result['learning_status'],'BLOCKED')
+            self.assertFalse((root/'state').exists())
+            self.assertFalse(result['a5_executed'])
+
     def test_a4_only_never_reads_a5_packet_or_writes_portfolio_history(self):
         from tools import a5_model_portfolio as a5
         with tempfile.TemporaryDirectory() as d:
@@ -258,6 +272,8 @@ class CloudTests(unittest.TestCase):
             paths=list((state/'predictions').iterdir());self.assertEqual(len(paths),1)
             captured=json.loads(paths[0].read_bytes())['predictions']
             self.assertTrue(captured);self.assertTrue(all(r['created_at']==NOW for r in captured))
+            self.assertTrue((base/'first/learning_context.md').is_file())
+            self.assertIn('Benchmark direction research',(base/'first/learning_context.md').read_text())
             late=cycle.run_cycle(**arguments,output_dir=base/'late',cutoff='2026-11-09T21:05:00Z')
             self.assertEqual(late['decision_cutoff'],NOW)
             self.assertEqual(late['learning_status'],'BLOCKED',late)
