@@ -27,6 +27,17 @@
 - Keep the504-session capacity bound separate from the seven-horizon learning
   family. No price collection, actual price fitting, policy activation, A3/A5
   connection or accepted model/portfolio mutation accompanies this preparation.
+- The supplementary labor release workbook labels reference months, not release
+  months. Join on observation_date, retain its premature/delayed-release notes
+  and exclude dates marked tentative for2010. The179 matched latest-observation
+  dates support initial-release consistency only, not every revision in a vintage.
+- An additional BLS PDF preflight repeated the already documented raw-archive
+  403. Apply the existing refusal lesson to PDF as well as HTML: stop, preserve
+  the failed attempt and never substitute rendered headers for original bytes.
+  This optional check does not invalidate the independently replayed RTDSM pairs.
+- While exact-head validation was running, PR764 advanced master to17cd8155.
+  Retain its accepted A5 files during local alignment, require fresh final-head
+  review/checks and keep the prior preparation/cancelled CI receipts distinct.
 
 ### 2026-11-13 KST — Separate account entitlement from retained-file qualification
 
@@ -11542,3 +11553,13 @@ Actual POSIX signal delivery and product CI remain future deployment checks.
 - Calendar consistency is metadata, not source/PIT evidence or a realized/expected label. The additive ER audit mode keeps ER/A5/training false even if period counts agree, precedes normal feature/U0 I/O, rejects mixed training inputs and preserves create-only diagnostics. Original21/63/126 and252 audit contracts remain unchanged.
 - This sparse checkout refused staging the new contract outside its patterns after staging the existing files. Inspect the partial index and add only that explicit contract with --sparse; preserve the original sparse definition and unrelated paths. Code/test bytes and their prior scoped result remain unchanged.
 - The first real direct-script audit failed before output creation: imported smoke tests had inserted repository root, masking research-module import failure from tools/. Preserve the failed receipt and3.6017712s, bootstrap the resolved repository root, and exercise a real subprocess from outside the repository with no PYTHONPATH before reusing a fresh create-only output namespace.
+
+
+### 2026-11-13 — Compare frozen original A5 targets through E2 net NAV
+
+- The existing allocation objective comparison was not realized performance. Serialize only externally pinned original A5 comparisons with their identity/decision/source hashes. Preserve all-cash dates explicitly; skip HOLD intents so price drift does not turn a hold into a rebalance. These paired fixed targets share original incumbent states and cannot certify two closed-loop learned policies.
+- Join the existing broker E2 measurements at the same grid, initial capital, cash and execution policy. Per-arm NAV/context hashes legitimately differ. Keep cumulative return and CAGR separate, preserve the prefill loss/MDD and never charge expected transaction costs again against supplied net NAV. One refused arm withholds the whole paired comparison.
+- Independent draft QA found a P2: the requested cost_bps_per_side can remain25 while an enabled spread/impact model changes actual fees. Require the existing fixed_bps mode and no enabled variable-cost audit for these fixed25/50/100 cases. Preserve the finding and the externally repinned negative regression; do not change ledger fee math.
+- Seven focused functions passed normally and under-O, including actual broker/E2 BUY then CASH liquidation and monotone25/50/100 cost loss. The initial113.6356817s cumulative local scope includes27.0518726s failed attempt,49.0923727s repaired subset,11.6272903s baseline diagnosis and25.8641461s P2 checks. An unchanged heavy stock fixture refused in A4 before any A5 consumer call; the original3413 A5 reproduced it. Preserve that local dependency failure and require complete exact-head hosted CI; no A4 code or gate was changed.
+- Exact-head Codex then found a separate P1: fill_mode next_close alone could admit the legacy lag-tolerant path when evidence_end_date was absent. Require target_fill_coverage explicit_cutoff_exact_next_close_v1, complete coverage and chronology safety. Preserve the18fb finding/cancelled ordinary CI; two focused methods passed normal/-O in12.4913151s, including actual broker/E2 proof and externally repinned missing/legacy/gap refusals. The original113.6356817s scope remains unchanged; this new review repair has its separate60s bound and is not a reset of prior cost.
+- Hosted contract43350305413 failed both new broker/E2 cases because its Python3.11/3.13 matrix lacked a Parquet engine; the prior multi-asset140 cases passed normal/-O. Keep the real file/replay regressions and add the repository's existing pyarrow23.0.1 dependency only to the contract install. Do not skip tests, change the broker cache format, or treat this failed head as merge-ready.
