@@ -1,5 +1,12 @@
 # 다른 채팅·에이전트의 공통 연구 데이터 이용
 
+필라델피아 연준의 과거 빈티지는 [RTDSM 계약](A4_RTDSM_VINTAGES_V1.md)과
+`tools/a4_rtdsm_sources.py`의 고정 원본 Reader를 사용한다. 고용·CPI의 월별
+빈티지와 실업률의 분기별 빈티지를 구분하며, 관측 월을 실제 발표 시각으로
+해석하지 않는다. 이 자료는 기존 원발행기관의 현재 수정 이력과 별도인
+`DATE_ARCHIVE_RESEARCH_ONLY` 자료이며, 가격 이용 권한·검토된 학습 정책을
+대신하지 않는다. 기존 학습 보류와 운영 설정은 유지한다.
+
 A4 연준 원발행기관 자료는 [전용 구성요소 계약](A4_PRIMARY_DATA_OPERATIONS.md)을
 따른다. 같은 연구 전송 경로의 `shared-research-v1/macro-primary`에 원본·정규화
 해시와 실제 수집 시각을 보존한다. 이 구성요소의 저장 성공이 기존 Lake의
