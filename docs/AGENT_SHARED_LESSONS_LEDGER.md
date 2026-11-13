@@ -1,5 +1,31 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-13 KST — Benchmark direction and QE are separate research questions
+
+- The existing expanding study already measures OOS direction accuracy against
+  its training-mean baseline, but the report's horizon field described only
+  SPY's contribution-relative tailwind/headwind. Expose separate SPY/QQQ return
+  signs and relative contributions with their original per-feature validation.
+  Opposing estimates remain mixed; shared signals are not independent votes,
+  accuracy is not a calibrated current up probability, and no best-row selection
+  or smaller multiple-testing family is introduced by the benchmark focus.
+- A verified two-benchmark input subset can use the existing research route;
+  other targets remain insufficient in the fourteen-target declared family.
+  Native ten-axis readiness and whole-system completion remain separate.
+- H.4.1 asset/reserve growth and policy-rate changes cannot label a QE event.
+  Keep TGA redistribution, reserve-management purchases, repos/emergency loans,
+  reinvestment and QT cessation distinct. Official dated policy originals and
+  episode-level independence are still needed for a QE likelihood model.
+  Reference-page reading does not create historical training originals or rights.
+- The first QE-driver fixture supplied only four-week endpoints; the unchanged
+  weekly-gap guard correctly returned UNKNOWN. Supply all five weekly points
+  in the fixture rather than weakening contiguous-change validation.
+- Data-center readiness passed validate_inputs' DatetimeIndex into price_series,
+  which expects original session/close dictionaries, falsely blocking a valid
+  price packet. Pass the actual payload sessions and report two-benchmark input
+  readiness separately from full fourteen-target coverage. All-null price arrays
+  remain missing evidence; schema/rights/PIT/basis checks still precede readiness.
+
 ### 2026-11-12 KST — Native A4 handoff needs qualified current originals
 
 - The mounted legacy consumer cache contains SPY/QQQ for two of the fourteen

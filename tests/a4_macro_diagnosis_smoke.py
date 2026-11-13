@@ -24,6 +24,28 @@ def report():
 
 
 class DiagnosisTests(unittest.TestCase):
+    def test_balance_growth_and_reserve_increase_do_not_label_qe_or_equity_up(self):
+        source=report();panel={}
+        for sid in ('WALCL','WRESBAL','WTREGEN'):
+            days=['2026-10-07','2026-10-14','2026-10-21','2026-10-28','2026-11-04']
+            history=rows(sid,[(day,100+i*(10 if sid!='WTREGEN' else -10)) for i,day in enumerate(days)])
+            point=a.summarize(history,NOW);panel[point['logical_id']]=point
+        source['liquidity']=dict(series=panel)
+        out=d.diagnose(source)['qe_assessment']
+        self.assertEqual(out['status'],'INSUFFICIENT_EVIDENCE')
+        self.assertEqual(out['policy_state'],'OFFICIAL_POLICY_NOT_VERIFIED')
+        self.assertIsNone(out['qe_start_probability'])
+        self.assertFalse(out['confirmed_qe_from_balance_growth'])
+        self.assertFalse(out['equity_direction_inferred'])
+        self.assertFalse(out['reference_pages_are_training_originals'])
+        self.assertTrue(all('condition' not in r for r in out['observed_drivers']))
+        self.assertEqual(out['observed_drivers'][0]['observed_change_direction'],'INCREASE')
+        self.assertEqual(out['observed_drivers'][2]['observed_change_direction'],'DECREASE')
+        panel['fed_assets']['available_at']='2026-12-01T00:00:00Z'
+        out=d.diagnose(source)['qe_assessment']
+        self.assertEqual(out['observed_drivers'][0]['observed_change_direction'],'UNKNOWN')
+        self.assertEqual(out['observed_drivers'][0]['evidence'],[])
+
     def test_nominal_real_counter_evidence_remains_mixed_and_uses_bp(self):
         out=d.diagnose(report())['macro_diagnosis']
         family=next(r for r in out['windows']['SHORT']['families'] if r['family']=='rates')
@@ -136,6 +158,11 @@ class DiagnosisTests(unittest.TestCase):
         self.assertIn('Observed macro conditions',m.render_report(result))
         self.assertTrue(result['macro_diagnosis']['missing_consumption'])
         self.assertIn('a4_macro_diagnosis.py',m.implementation_identity())
+        self.assertEqual(len(result['benchmark_outlook']),14)
+        self.assertEqual({r['target'] for r in result['benchmark_outlook']},{'SPY','QQQ'})
+        self.assertTrue(all(r['direction']=='INSUFFICIENT_EVIDENCE' for r in result['benchmark_outlook']))
+        self.assertIn('Benchmark direction research',m.render_report(result))
+        self.assertIn('QE research context',m.render_report(result))
 
     def test_identical_input_is_deterministic_and_source_report_is_not_rewritten(self):
         source=report();original=copy.deepcopy(source['macro_direction_inputs'])

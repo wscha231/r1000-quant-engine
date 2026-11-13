@@ -41,6 +41,16 @@ research bytes, not automatic Source/PIT or training admission.
   expanding windows, purge/overlap controls, maturity and do-not-repeat gates.
   Outcomes remain return, maximum drawdown and realized volatility for
   1/5/10/21/63/126/252 sessions and the existing fourteen ETF targets.
+  SPY/QQQ focus readiness is additionally reported as
+  `learning.benchmark_research_status`; it does not require the other twelve
+  targets to be present before an independently reviewed benchmark-only input
+  subset can enter the existing research cycle. Full-family coverage/status
+  remains separate, and the original fourteen-target test family is retained.
+  Price validation uses the actual session/close records, not the validated
+  date index, and a target with only missing prices is still missing evidence.
+  Original policy validity is also checked at this view's actual cutoff.
+  This is input verification only: maturity, independent windows, fitting and
+  fixed-release review still belong to their existing gates.
   An observed historical range is distinct from a qualified historical-PIT
   range. Current revised government histories cannot be backdated.
   A separate current-vintage description reports three fixed weekly-change
