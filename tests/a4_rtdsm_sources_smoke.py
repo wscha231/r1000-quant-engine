@@ -273,5 +273,16 @@ class RtdsmTests(unittest.TestCase):
         for n in (-1,10001,True):
             with self.assertRaises(ValueError):learning.prospective_horizon_capacity(n)
 
+    def test_dated_vintage_challenger_cannot_use_an_unaligned_current_report_clock(self):
+        from tests.a4_macro_learning_smoke import synthetic_direction_release
+        report,trial,policy=synthetic_direction_release()
+        trial['dated_vintage_sources']=['rtdsm:PCPI']
+        trial['trial_sha256']=digest(encoded({k:v for k,v in trial.items() if k!='trial_sha256'}))
+        policy['reviewed_trial_pins']=[trial['trial_sha256']]
+        before=encoded(report)
+        with self.assertRaisesRegex(ValueError,'A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED'):
+            learning.forecast_release(report,trial,policy,digest(encoded(policy)))
+        self.assertEqual(before,encoded(report))
+
 
 if __name__=='__main__':unittest.main()

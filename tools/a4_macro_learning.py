@@ -305,6 +305,7 @@ def fit_trial(payload, policy, expected_policy_sha256, artifact_resolver, *, reg
         input_sha256=digest(encoded(payload)),policy_sha256=expected_policy_sha256,
         feature_recipe_sha256=digest(encoded(FEATURES)),code_sha256=digest(Path(__file__).read_bytes()),
         math_dependencies={Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
+        dated_vintage_sources=sorted({r['source_id'] for r in payload['observations'] if r['source_id'].startswith('rtdsm:')}),
         targets=list(analysis.TARGETS),horizons=list(analysis.HORIZONS),outcomes=list(OUTCOMES),
         tests_declared=len(rows),results=rows,do_not_repeat=preflight,
         status="CHALLENGER_PROPOSAL_ONLY",promotion_state="INDEPENDENT_REVIEW_REQUIRED",**SAFETY)
@@ -390,6 +391,10 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
     check(trial.get("code_sha256")==digest(Path(__file__).read_bytes()) and trial.get("math_dependencies")==
           {Path(module.__file__).name:digest(Path(module.__file__).read_bytes()) for module in (study,analysis,vintage)},
           "A4_LEARNING_MODEL_CODE_CHANGED")
+    # The current report uses current-source points, which may arrive before
+    # the deliberately delayed RTDSM research bounds. A reviewed challenger
+    # alone cannot validate that different prediction clock/source mapping.
+    check(not trial.get('dated_vintage_sources'), 'A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED')
     points={"funding:"+key:r["value"] if r["status"]=="OBSERVED" else None
             for key,r in report["funding"]["spreads"].items()}
     panel={**report["liquidity"]["series"],**report["bank_credit"]["series"],**report["macro_direction_inputs"]}

@@ -85,6 +85,13 @@ is created. Keep unverified-price learning disabled while supplier review is
 pending. Recipe/code/release review, purge, outcome maturity and the complete
 fourteen-target multiple-testing family remain mandatory.
 
+Dated-vintage trials identify their source IDs and remain challenger proposals.
+The current report can contain BLS points available earlier than these delayed
+research bounds. `forecast_release` therefore refuses RTDSM trials with
+`A4_DATED_VINTAGE_FORECAST_CLOCK_ALIGNMENT_REQUIRED`. A source/clock-aligned
+forward consumer needs its own implementation and independent release review
+before these relationships can supply a current direction prediction.
+
 ## 504-session preparation
 
 `prospective_horizon_capacity` reports an optimistic arithmetic upper bound,

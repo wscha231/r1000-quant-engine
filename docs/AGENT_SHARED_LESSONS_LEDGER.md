@@ -16,6 +16,14 @@
   independent purpose/source-policy pins. A caller's edited earlier clock must
   fail even if it supplies a newly hashed input policy. Extra resolver objects
   share the existing object/byte budget; frozen releases also bind this adapter.
+- Current BLS report points may be available before the deliberately delayed
+  vintage bounds. Identify dated-vintage trials and refuse their forward release
+  until a source/clock-aligned consumer is implemented and independently reviewed.
+  A reviewed challenger by itself cannot establish that timing alignment.
+- A clean bot review's decorative sentence may be outside the protected receipt
+  parser. Inspect its actual evidence and retain failed attestations. A fresh
+  trusted reaction on the PR body is an existing supported evidence route; do
+  not synthesize receipts, edit bot comments or weaken the evaluator.
 - Keep the504-session capacity bound separate from the seven-horizon learning
   family. No price collection, actual price fitting, policy activation, A3/A5
   connection or accepted model/portfolio mutation accompanies this preparation.
