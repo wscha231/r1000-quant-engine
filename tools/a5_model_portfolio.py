@@ -131,7 +131,205 @@ def _explain_result(result, risk, report, *, previous=None, policy=None):
             decision_clock=proposal.get("decision_clock"),intent=proposal.get("intent"),
             exit_reviews=proposal.get("exit_reviews",[]),exception_reviews=proposal.get("exception_reviews",[]),
             comparison_inputs_sha256=proposal.get("comparison_inputs_sha256"),comparisons=proposal.get("comparisons"))
+        explained["replay_requirements"]=dict(fill_mode="next_close",integer_shares=True,
+            model_cost_bps_per_side=policy["stock_cash_research"]["cost_bps_per_side"],
+            cash_carry_mode="risk_free_rate",cash_rate_source="DGS3MO",cash_rate_lag_days=1,
+            cash_carry_haircut_bps=0,cash_carry_day_count=365)
+        explained["optimizer_certificate"]=proposal.get("optimizer_certificate")
     return seal(explained)
+
+
+REPLAY_ARMS=("CONTROL","COST_AWARE_LONG_ONLY")
+_HASH=re.compile(r"[a-f0-9]{64}\Z")
+
+
+def prepare_model_replay_targets(proposals, registry, *, expected_proposal_hashes,
+                                 expected_registry_sha256):
+    """Serialize frozen original comparisons; never rerun A5 or authenticate Source.
+
+    The two arms share each original decision's incumbent state. This is a
+    fixed-target allocation comparison, not two closed-loop policy backtests.
+    External pins are mandatory byte/semantic bindings, not review authority.
+    Nothing is written and no target, ledger, fit or replay is executed here.
+    """
+    import pandas_market_calendars as mcal
+    from datetime import timedelta
+    require(type(proposals) is list and 0<len(proposals)<=10000,"A5_REPLAY_PROPOSAL_COUNT")
+    require(type(expected_proposal_hashes) is list and len(expected_proposal_hashes)==len(proposals),
+            "A5_REPLAY_EXTERNAL_ORIGINAL_PINS")
+    require(type(expected_registry_sha256) is str and _HASH.fullmatch(expected_registry_sha256)
+            and digest(registry)==expected_registry_sha256,"A5_REPLAY_REGISTRY_PIN")
+    _,assets=registry_rows(registry)
+    targets={arm:[] for arm in REPLAY_ARMS};decisions=[];seen=set();last=None;requirements=None
+    calendar=mcal.get_calendar("NYSE")
+    for proposal,pin in zip(proposals,expected_proposal_hashes):
+        require(type(pin) is str and _HASH.fullmatch(pin) and digest(proposal)==pin,
+                "A5_REPLAY_ORIGINAL_PIN")
+        require(proposal.get("schema")==SCHEMA and proposal.get("status")=="RESEARCH_PROPOSAL"
+                and proposal.get("proposal_sha256")==digest({k:v for k,v in proposal.items()
+                                                            if k!="proposal_sha256"}),"A5_REPLAY_ORIGINAL_SCHEMA")
+        require(proposal.get("mode")=="MODEL_PORTFOLIO" and all(proposal.get(k) is False
+                for k in SAFETY if k!="mode"),"A5_REPLAY_ORIGINAL_AUTHORITY")
+        at=stamp(proposal["as_of"]);session=proposal["session"];clock=proposal.get("decision_clock",{})
+        require(type(session) is str and session not in seen and (last is None or at>last)
+                and clock.get("decision_session")==session and stamp(clock["decision_at"])==at,
+                "A5_REPLAY_DECISION_SEQUENCE")
+        schedule=calendar.schedule(start_date=session,end_date=stamp(session+"T00:00:00Z").date()+timedelta(days=10))
+        require(not schedule.empty and schedule.index[0].date().isoformat()==session
+                and schedule["market_close"].iloc[0].to_pydatetime()<=at
+                and len(schedule)>1 and at<schedule["market_close"].iloc[1].to_pydatetime(),
+                "A5_REPLAY_COMPLETED_DECISION_SESSION")
+        require(clock.get("fill_mode")=="NEXT_NYSE_CLOSE" and
+                stamp(clock["earliest_fill_at"])==schedule["market_close"].iloc[1].to_pydatetime(),
+                "A5_REPLAY_NEXT_CLOSE")
+        for key in ("native_result_sha256","feature_sha256","policy_sha256",
+                    "comparison_inputs_sha256","a4_report_content_sha256","a4_request_sha256"):
+            require(type(proposal.get(key)) is str and _HASH.fullmatch(proposal[key]),
+                    "A5_REPLAY_ORIGINAL_REFERENCE")
+        req=proposal.get("replay_requirements")
+        require(type(req) is dict and set(req)=={"fill_mode","integer_shares","model_cost_bps_per_side",
+                "cash_carry_mode","cash_rate_source","cash_rate_lag_days","cash_carry_haircut_bps",
+                "cash_carry_day_count"} and req["fill_mode"]=="next_close" and req["integer_shares"] is True
+                and type(req["model_cost_bps_per_side"]) is int and req["model_cost_bps_per_side"] in (25,50,100)
+                and req["cash_carry_mode"]=="risk_free_rate" and req["cash_rate_source"]=="DGS3MO"
+                and req["cash_rate_lag_days"]==1 and req["cash_carry_haircut_bps"]==0
+                and req["cash_carry_day_count"]==365,"A5_REPLAY_EXPLICIT_COST_CASH_POLICY")
+        require(requirements is None or req==requirements,"A5_REPLAY_CHANGED_COST_CASH_POLICY")
+        requirements=dict(req)
+        comparisons=proposal.get("comparisons")
+        require(type(comparisons) is dict and set(comparisons)==set(REPLAY_ARMS),"A5_REPLAY_TWO_ARMS")
+        intent=proposal.get("intent")
+        require(intent in {"REVIEW_REBALANCE","NO_ENTRY_HOLD_CASH","HOLD_UNTIL_SCHEDULED_REVIEW"},
+                "A5_REPLAY_INTENT")
+        require(decisions or intent!="HOLD_UNTIL_SCHEDULED_REVIEW","A5_REPLAY_INITIAL_HOLD_NEEDS_ALLOCATION")
+        roster=proposal.get("full_roster_asset_ids")
+        require(type(roster) is list and len(roster)==len(set(roster)),"A5_REPLAY_FULL_ROSTER")
+        symbols={}
+        for arm in REPLAY_ARMS:
+            comparison=comparisons[arm];weights=comparison.get("weights")
+            require(type(weights) is dict and set(weights)<=set(roster),"A5_REPLAY_UNCOVERED_WEIGHT")
+            number(comparison.get("objective"));number(comparison.get("incremental_cost_fraction"),0)
+            clean={aid:number(w,0,1) for aid,w in weights.items()}
+            require(sum(clean.values())<=1+1e-9 and sum(clean.values())<=number(proposal["reviewed_max_gross"],0,1)+1e-9
+                    and all(w<=number(proposal["reviewed_max_security_weight"],0,1)+1e-9 for w in clean.values()),
+                    "A5_REPLAY_WEIGHT_LIMITS")
+            for aid,w in clean.items():
+                if not w:continue
+                asset=assets.get(aid,{})
+                require(asset.get("identity_verified") is True and asset.get("tradable") is True
+                        and asset.get("corporate_action_quarantine") is False,"A5_REPLAY_SECURITY_IDENTITY")
+                symbol=asset["symbol"]
+                require(re.fullmatch(r"[A-Z][A-Z0-9.-]{0,19}",symbol) and symbol!="CASH"
+                        and (symbol not in symbols or symbols[symbol]==aid),"A5_REPLAY_TICKER_COLLISION")
+                symbols[symbol]=aid
+            require(intent!="NO_ENTRY_HOLD_CASH" or not any(clean.values()),"A5_REPLAY_CASH_INTENT_CONFLICT")
+            if intent!="HOLD_UNTIL_SCHEDULED_REVIEW":
+                targets[arm].extend(dict(rebalance_date=session,ticker=assets[aid]["symbol"],weight=w)
+                                    for aid,w in sorted(clean.items()) if w>0)
+                # An empty security dictionary is a real cash decision, not an absent date.
+                targets[arm].append(dict(rebalance_date=session,ticker="CASH",weight=max(0.0,1-sum(clean.values()))))
+        decisions.append(dict(session=session,as_of=proposal["as_of"],intent=intent,original_sha256=pin,
+            proposal_sha256=proposal["proposal_sha256"],native_result_sha256=proposal["native_result_sha256"],
+            feature_sha256=proposal["feature_sha256"],policy_sha256=proposal["policy_sha256"],
+            comparison_inputs_sha256=proposal["comparison_inputs_sha256"],
+            a3_reference_coverage_sha256=digest(proposal.get("a3_reference_coverage")),
+            full_roster_asset_ids=list(roster),ticker_to_asset_id=symbols,decision_clock=dict(clock),
+            rebalance_exported=intent!="HOLD_UNTIL_SCHEDULED_REVIEW"))
+        seen.add(session);last=at
+    result=dict(schema="a5-fixed-target-replay-export-v1",status="PREPARED_NOT_EXECUTED",
+        comparison_scope="FIXED_TARGET_ALLOCATION_NOT_CLOSED_LOOP_POLICY",arms=targets,decisions=decisions,
+        target_rows_sha256_by_arm={a:digest(rows) for a,rows in targets.items()},
+        registry_sha256=expected_registry_sha256,replay_requirements=requirements,
+        source_authentication="NOT_CERTIFIED_BY_SERIALIZATION_OR_HASH_PINS",Source_admitted=False,
+        historical_PIT=False,replay_executed=False,model_fit=False,performance_claimed=False,**SAFETY)
+    result["content_sha256"]=digest(result)
+    return result
+
+
+def compare_model_replay_reports(export, reports, bindings, *, expected_export_sha256,
+                                 expected_report_sha256_by_arm,expected_binding_sha256_by_arm,
+                                 cost_bps_per_side):
+    """Join original E2 results; never recompute prices, NAV, fees or choose a winner.
+
+    Both real replay calls must use run_broker_ledger_replay.replay with an
+    independently supplied measurement_context. Per-arm NAV/context hashes may
+    differ. Missing/refused E2 evidence withholds the entire paired measurement.
+    Source, PIT and closed-loop policy validation remain separate.
+    """
+    from tools import nav_metrics_v2 as nav
+    from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
+    empty=dict(schema="a5-paired-replay-measurement-v1",status="BLOCKED",metrics=None,deltas=None,
+        paired_measurement_ready=False,economically_validated=False,model_fit=False,
+        closed_loop_policy_tested=False,Source_admitted=False,historical_PIT=False,**SAFETY)
+    try:
+        require(digest(export)==expected_export_sha256 and export.get("schema")=="a5-fixed-target-replay-export-v1"
+                and export.get("content_sha256")==digest({k:v for k,v in export.items() if k!="content_sha256"}),
+                "A5_PAIR_EXPORT_PIN")
+        for value in (reports,bindings,expected_report_sha256_by_arm,expected_binding_sha256_by_arm):
+            require(type(value) is dict and set(value)==set(REPLAY_ARMS),"A5_PAIR_BOTH_ARMS_REQUIRED")
+        require(type(cost_bps_per_side) is int and cost_bps_per_side in (25,50,100)
+                and cost_bps_per_side>=export["replay_requirements"]["model_cost_bps_per_side"],"A5_PAIR_COST_SCENARIO")
+        common=None;shared=None;summary={}
+        for arm in REPLAY_ARMS:
+            report=reports[arm];binding=bindings[arm]
+            require(digest(report)==expected_report_sha256_by_arm[arm] and
+                    digest(binding)==expected_binding_sha256_by_arm[arm],"A5_PAIR_ORIGINAL_PIN")
+            require(report.get("status")==nav.COMPLETE and report.get("metric_mode")==nav.MODE
+                    and report.get("metric_admission_complete") is True
+                    and report.get("execution_status")=="completed"
+                    and report.get("cost_basis")=="SUPPLIED_NET_NAV_NO_SECOND_FEE"
+                    and all(report.get(k) is False for k in nav.AUTHORITY if k!="research_only")
+                    and report.get("research_only") is True,"A5_PAIR_E2_NOT_ADMITTED")
+            keys={"schema","arm","export_sha256","target_rows_sha256","metrics_sha256",
+                  "price_input_sha256","identity_sha256","source_pit_binding_sha256","cash_policy_sha256",
+                  "execution_policy_sha256","session_grid_sha256","measurement_context_sha256",
+                  "valuation_binding_sha256"}
+            require(type(binding) is dict and set(binding)==keys and binding["schema"]=="a5-fixed-target-replay-binding-v1"
+                    and binding["arm"]==arm,"A5_PAIR_BINDING_SCHEMA")
+            require(all(type(binding[k]) is str and _HASH.fullmatch(binding[k]) for k in keys-{"schema","arm"}),
+                    "A5_PAIR_BINDING_HASHES")
+            require(binding["export_sha256"]==expected_export_sha256 and binding["metrics_sha256"]==digest(report)
+                    and binding["target_rows_sha256"]==export["target_rows_sha256_by_arm"][arm]
+                    and binding["measurement_context_sha256"]==report.get("measurement_context_sha256")
+                    and binding["valuation_binding_sha256"]==report.get("valuation_binding_provenance",{}).get("sha256"),
+                    "A5_PAIR_INPUT_BINDING")
+            current_shared={k:binding[k] for k in ("price_input_sha256","identity_sha256","source_pit_binding_sha256",
+                "cash_policy_sha256","execution_policy_sha256","session_grid_sha256")}
+            require(shared is None or current_shared==shared,"A5_PAIR_SHARED_INPUTS_CHANGED");shared=current_shared
+            req=export["replay_requirements"]
+            for key in ("fill_mode","integer_shares","cash_carry_mode","cash_rate_source","cash_rate_lag_days",
+                        "cash_carry_haircut_bps","cash_carry_day_count"):
+                require(report.get(key)==req[key],"A5_PAIR_EXECUTION_POLICY_CHANGED")
+            require(report.get("cost_bps_per_side")==cost_bps_per_side,"A5_PAIR_COST_CHANGED")
+            coverage=report.get("target_fill_coverage")
+            require(type(coverage) is dict and coverage.get("execution_clock_contract")==
+                    "explicit_cutoff_exact_next_close_v1" and coverage.get("coverage_complete") is True
+                    and coverage.get("chronology_safe") is True,"A5_PAIR_EXACT_NEXT_CLOSE_NOT_VERIFIED")
+            cost_config=report.get("execution_cost_config")
+            require(report.get("execution_cost_mode",EXECUTION_COST_MODE_FIXED)==EXECUTION_COST_MODE_FIXED
+                    and (cost_config is None or (type(cost_config) is dict
+                         and cost_config.get("mode")==EXECUTION_COST_MODE_FIXED
+                         and cost_config.get("enabled") is False)),"A5_PAIR_VARIABLE_COST_NOT_FIXED_ALL_IN")
+            current_common={k:report[k] for k in ("start_date","end_date","frequency","annualization","anchor_timestamp",
+                "ending_timestamp","starting_capital_usd","years","input_row_count")}
+            require(common is None or current_common==common,"A5_PAIR_WINDOW_OR_CAPITAL_CHANGED");common=current_common
+            for key in ("total_return","cagr","max_dd","ending_capital_usd","years"):
+                number(report.get(key))
+            require(type(report.get("trade_count")) is int and report["trade_count"]>=0,"A5_PAIR_TRADE_COUNT")
+            summary[arm]={k:report[k] for k in ("total_return","cagr","max_dd","ending_capital_usd","trade_count")}
+            summary[arm]["total_fees_usd"]=(number(report["total_fees_usd"],0)
+                if report.get("total_fees_usd") is not None else None)
+        return dict(empty,status="PAIRED_RESEARCH_MEASUREMENT_COMPLETE",metrics=summary,
+            deltas={k:summary[REPLAY_ARMS[1]][k]-summary[REPLAY_ARMS[0]][k]
+                    for k in ("total_return","cagr","max_dd","ending_capital_usd","trade_count")},
+            paired_measurement_ready=True,comparison_scope=export["comparison_scope"],shared_inputs=shared,
+            measurement_window=common,cost_bps_per_side=cost_bps_per_side,
+            cost_relation=("ORIGINAL_MODEL_COST" if cost_bps_per_side==req["model_cost_bps_per_side"]
+                           else "FIXED_TARGET_COST_STRESS_NO_REOPTIMIZATION"),
+            fee_application="EXISTING_LEDGER_ONCE; SUPPLIED_NET_NAV_NOT_CHARGED_AGAIN",
+            input_authentication="EXTERNAL_HASH_BINDINGS_NOT_PRODUCER_OR_PIT_CERTIFICATION")
+    except (ValueError,KeyError,TypeError,OverflowError):
+        return dict(empty,reason="A5_PAIR_ORIGINAL_E2_OR_MATCHED_INPUTS_NOT_VERIFIED")
 
 
 def build_model_proposal(payload, registry, policy, report, *, artifact_resolver=None,
