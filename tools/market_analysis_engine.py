@@ -493,11 +493,11 @@ def render_report(value):
                 'Status: '+qe['status']+'; official policy: '+qe['policy_state'],
                 'QE-start probability: not estimated. Balance growth, reserve increases, QT cessation and rate cuts alone do not verify QE.',
                 'Reviewed policy episodes and dated official announcements are required before QE likelihood training.']
-            lines += ['', '| Observed driver | Level | Change | Change unit | Observation |',
-                '| --- | ---: | ---: | --- | --- |']
+            lines += ['', '| Observed driver | Level | Level unit | Change | Change unit | Observation |',
+                '| --- | ---: | --- | ---: | --- | --- |']
             for driver in qe['observed_drivers']:
                 dates=', '.join(sorted({r['observation_date'] for r in driver['evidence']}))
-                lines.append(f"| {driver['series']} | {driver['value']} | {driver['change']} | {driver['change_unit']} | {dates} |")
+                lines.append(f"| {driver['series']} | {driver['value']} | {driver['value_unit']} | {driver['change']} | {driver['change_unit']} | {dates} |")
     for notice in value.get('primary_source_notices', []):
         lines.extend(['', notice])
     lines += ["", "Missing optional: " + ", ".join(value.get("missing_optional_sources", [])),

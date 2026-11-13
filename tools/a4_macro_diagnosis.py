@@ -67,6 +67,7 @@ def qe_assessment(report):
         ('iorb',5,1),('unemployment',1,1),('core_cpi',1,1))]
     for driver in drivers:
         driver.pop('condition',None)
+        driver['value_unit']=panel.get(driver['series'],{}).get('unit') if driver['value'] is not None else None
         delta=driver['change']
         driver['observed_change_direction']=('UNKNOWN' if delta is None else
             'INCREASE' if delta>0 else 'DECREASE' if delta<0 else 'UNCHANGED')

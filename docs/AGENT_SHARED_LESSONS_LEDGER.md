@@ -29,6 +29,9 @@
   actual execution, including a same-session grace/weekend replay. Check actual
   policy validity before fitting or opening focus readiness. Keep the reviewed
   auxiliary forecast Markdown separate from the native A4/A3/A6 graph.
+- QE-driver displays need distinct level/change units: an IORB level is percent
+  while its displayed rate change is bp. Preserve both rather than applying
+  the change-unit label to the level; bank/central-bank amount bases stay native.
 
 ### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
 

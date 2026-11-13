@@ -31,6 +31,8 @@ class DiagnosisTests(unittest.TestCase):
             history=rows(sid,[(day,100+i*(10 if sid!='WTREGEN' else -10)) for i,day in enumerate(days)])
             point=a.summarize(history,NOW);panel[point['logical_id']]=point
         source['liquidity']=dict(series=panel)
+        dates=['2026-10-30','2026-11-02','2026-11-03','2026-11-04','2026-11-05','2026-11-06']
+        source['funding']=dict(series={'iorb':a.summarize(rows('IORB',[(day,4.1 if i<4 else 4.) for i,day in enumerate(dates)]),NOW)})
         out=d.diagnose(source)['qe_assessment']
         self.assertEqual(out['status'],'INSUFFICIENT_EVIDENCE')
         self.assertEqual(out['policy_state'],'OFFICIAL_POLICY_NOT_VERIFIED')
@@ -41,6 +43,10 @@ class DiagnosisTests(unittest.TestCase):
         self.assertTrue(all('condition' not in r for r in out['observed_drivers']))
         self.assertEqual(out['observed_drivers'][0]['observed_change_direction'],'INCREASE')
         self.assertEqual(out['observed_drivers'][2]['observed_change_direction'],'DECREASE')
+        self.assertEqual(out['observed_drivers'][0]['value_unit'],'millions_usd')
+        rate=out['observed_drivers'][3]
+        self.assertEqual(rate['value_unit'],'percent');self.assertEqual(rate['value'],4.)
+        self.assertEqual(rate['change_unit'],'basis_points');self.assertAlmostEqual(rate['change'],-10.)
         panel['fed_assets']['available_at']='2026-12-01T00:00:00Z'
         out=d.diagnose(source)['qe_assessment']
         self.assertEqual(out['observed_drivers'][0]['observed_change_direction'],'UNKNOWN')
