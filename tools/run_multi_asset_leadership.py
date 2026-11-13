@@ -167,7 +167,7 @@ def verified_source_hashes(code_sha):
         "tools/market_analysis_engine.py", "tools/free_market_context.py",
         "tools/a4_liquidity_analysis.py", "tools/a4_macro_bridge.py",
         "tools/a5_model_portfolio.py",
-        "tools/a4_macro_learning.py", "tools/macro_technical_study.py",
+        "tools/a4_macro_learning.py", "tools/a4_rtdsm_sources.py", "tools/macro_technical_study.py",
         "tools/run_a4_research_cycle.py",
         "docs/market_analysis_contract_v2.json",
         "tools/chameleon_market_context_v2.py", "tools/build_run287_chameleon_macro_risk.py",
