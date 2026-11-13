@@ -80,6 +80,10 @@ def event_memory(events, assets, cutoff, policy):
 
 
 def evaluation(row, asset, cutoff, policy, feature_hash, feature_available_at):
+    from research.er_horizon_v1 import SESSION_ER_SCHEMA, SESSION_HORIZON, validate_session63_er
+    session_mode=(policy.get("stock_cash_research",{}).get("enabled") is True and
+                  stock_research_profile(policy)["horizon"] == SESSION_HORIZON)
+    require((row.get("schema") == SESSION_ER_SCHEMA) == session_mode,"evaluation_horizon_profile_mismatch")
     pinned(row,policy,"evaluation",cutoff)
     require(row.get("asset_id") == asset["asset_id"], "evaluation_identity")
     require(row.get("feature_sha256") == feature_hash, "evaluation_feature_mismatch")
@@ -89,6 +93,10 @@ def evaluation(row, asset, cutoff, policy, feature_hash, feature_available_at):
     require(row.get("validation_status") == "WALK_FORWARD_VALIDATED", "unvalidated_model")
     require(row.get("model_id") in policy["validated_models"], "model_not_admitted")
     model=policy["validated_models"][row["model_id"]]
+    if session_mode:
+        require(model.get("horizon") == SESSION_HORIZON,"evaluation_model_horizon")
+        from .prices import grid
+        validate_session63_er(row,decision_session=list(grid(cutoff))[-1])
     require(row.get("benchmark_id") == model.get("benchmark_id") == policy["benchmark_id"] == asset["benchmark"],
             "evaluation_benchmark_mismatch")
     require(asset["asset_class"] in model["asset_classes"], "unsupported_model_asset_class")
@@ -105,7 +113,7 @@ def evaluation(row, asset, cutoff, policy, feature_hash, feature_available_at):
     number(row.get("thesis_confidence"),0,1)
     number(row.get("downside_probability"),0,1)
     require(number(row.get("expected_drawdown"),0,1)>0,"positive_downside_risk")
-    for h in ER_HORIZONS:
+    for h in (("63s",) if session_mode else ER_HORIZONS):
         er=number(row.get("expected_return_"+h),-1)
         number(row.get("benchmark_expected_return_"+h),-1)
         scenarios=row["scenarios"][h]
@@ -121,8 +129,9 @@ def evaluation(row, asset, cutoff, policy, feature_hash, feature_available_at):
     fundamental=None
     if all(k in components for k in COMPONENTS):
         fundamental=sum(number(components[k],0,1)*w for k,w in COMPONENTS.items())
+    suffix="63s" if session_mode else "12m"
     return {**row,"fundamental_score":fundamental,
-            "expected_alpha_12m":row["expected_return_12m"]-row["benchmark_expected_return_12m"]}
+            "expected_alpha_"+suffix:row["expected_return_"+suffix]-row["benchmark_expected_return_"+suffix]}
 
 
 def classify(features, evaluation_row, held=False):
@@ -285,11 +294,13 @@ EXCEPTION_SYMBOLS = frozenset({"GLDM","SHY","IEF","TLT"})
 def stock_research_profile(policy):
     """An opt-in policy, authenticated by the existing current A3 policy hash."""
     p=policy.get("stock_cash_research")
-    require(type(p) is dict and p.get("schema")=="stock-cash-research-v1","stock_research_profile")
+    from research.er_horizon_v1 import SESSION_PROFILE_SCHEMA, SESSION_HORIZON
+    require(type(p) is dict and p.get("schema") in {"stock-cash-research-v1",SESSION_PROFILE_SCHEMA},"stock_research_profile")
     require(p.get("enabled") is True,"stock_research_disabled")
     require(p.get("allocator") in {"CONTROL","COST_AWARE_LONG_ONLY"},"stock_allocator")
     require(p.get("cadence") in {"MONTHLY","WEEKLY","MONTHLY_CONFIRMED_EVENT"},"stock_cadence")
-    require(p.get("horizon")=="12_CALENDAR_MONTHS" and p.get("deep_review_count")==40,
+    horizon=SESSION_HORIZON if p["schema"]==SESSION_PROFILE_SCHEMA else "12_CALENDAR_MONTHS"
+    require(p.get("horizon")==horizon and p.get("deep_review_count")==40,
             "stock_horizon_or_queue_changed")
     require(p.get("exception_weight_cap")==.20 and p.get("cash_mode")=="DGS3MO_CARRY",
             "stock_exception_or_cash_policy")
@@ -298,9 +309,14 @@ def stock_research_profile(policy):
     return p
 
 
+def stock_er_suffix(policy):
+    return "63s" if stock_research_profile(policy)["horizon"]=="63_NYSE_SESSIONS" else "12m"
+
+
 def stock_decision_scope(rows,assets,current_weights,events,cutoff,policy,decision_asset_ids=None):
     """Keep the full denominator; this queue is not a global ER certification."""
     p=stock_research_profile(policy)
+    suffix=stock_er_suffix(policy)
     stocks=[r for r in rows if assets.get(r["asset_id"],{}).get("asset_class") in STOCK_CLASSES]
     # Discovery can nominate missing-ER names for work, never provide their ER.
     ordered=sorted(stocks,key=lambda r:(r.get("risk_adjusted_expected_alpha") is None,
@@ -316,7 +332,7 @@ def stock_decision_scope(rows,assets,current_weights,events,cutoff,policy,decisi
     for aid in sorted(ids):
         r=by_id.get(aid,{})
         ready=(r.get("data_quality")=="PRICE_OBSERVED_RESEARCH_ONLY" and
-               r.get("evaluation_sha256") is not None and r.get("expected_return_12m") is not None)
+               r.get("evaluation_sha256") is not None and r.get("expected_return_"+suffix) is not None)
         records.append(dict(asset_id=aid,status="INPUTS_OBSERVED" if ready else "UNKNOWN",
             reasons=sorted(((["TOP40"] if aid in top else [])+(["HELD"] if aid in held else [])+
                             (["IMPORTANT_EVENT"] if aid in important else [])+
@@ -341,7 +357,15 @@ def stock_decision_clock(cutoff,profile,review,events):
     sessions=grid(cutoff)
     session=list(sessions)[-1]
     close=sessions[session]
-    horizon_end=(pd.Timestamp(session)+pd.DateOffset(months=12)).date()
+    require(profile.get("schema")!="stock-cash-research-v2" or
+            profile.get("horizon")=="63_NYSE_SESSIONS","stock_horizon_or_queue_changed")
+    session_mode=profile.get("horizon","12_CALENDAR_MONTHS")=="63_NYSE_SESSIONS"
+    if session_mode:
+        from research.er_horizon_v1 import session63_exposure
+        exposure=session63_exposure(session)
+        horizon_end=stamp(exposure["mark_at"]).date()
+    else:
+        horizon_end=(pd.Timestamp(session)+pd.DateOffset(months=12)).date()
     schedule=mcal.get_calendar("NYSE").schedule(start_date=day(session)+timedelta(days=1),end_date=horizon_end)
     require(not schedule.empty,"stock_next_close_calendar")
     previous=review.get("previous_decision_at")
@@ -355,21 +379,32 @@ def stock_decision_clock(cutoff,profile,review,events):
     week_due=previous_day is None or previous_day.isocalendar()[:2]!=day(session).isocalendar()[:2]
     due={"MONTHLY":month_due,"WEEKLY":week_due,
          "MONTHLY_CONFIRMED_EVENT":month_due or bool(changed)}[profile["cadence"]]
-    return dict(decision_session=session,previous_decision_session=previous_session,
+    clock=dict(decision_session=session,previous_decision_session=previous_session,
         same_session=previous_session==session,decision_at=cutoff,scheduled_due=due,
         cadence=profile["cadence"],confirmed_new_event_ids=sorted(changed),
         earliest_fill_at=schedule["market_close"].iloc[0].isoformat(),fill_mode="NEXT_NYSE_CLOSE",
         horizon="12_CALENDAR_MONTHS",horizon_end=horizon_end.isoformat(),
         covariance_scale_sessions=len(schedule),carry_calendar_days=(horizon_end-day(session)).days,
         realized_fills=False)
+    if session_mode:
+        clock.update(horizon=profile["horizon"],forecast_clock=exposure,mark_at=exposure["mark_at"],
+            covariance_scale_sessions=63,carry_calendar_days=exposure["carry_calendar_days"],
+            pre_entry_calendar_days=exposure["pre_entry_calendar_days"],
+            holding_horizon_is_not_an_exit_instruction=True)
+    return clock
 
 
-def _stock_cost(row,side_bps):
+def _stock_cost(row,side_bps,profile=None):
+    session_mode=(profile or {}).get("horizon")=="63_NYSE_SESSIONS"
+    suffix="63s" if session_mode else "12m"
     basis=row.get("portfolio_cost_basis")
-    require(type(basis) is dict and basis.get("schema")=="reviewed-portfolio-cost-basis-v1",
+    require(type(basis) is dict and basis.get("schema")==("reviewed-portfolio-cost-basis-v2" if session_mode else "reviewed-portfolio-cost-basis-v1"),
             "stock_net_er_cost_basis_missing:"+row["asset_id"])
-    require(basis.get("horizon")=="12_CALENDAR_MONTHS" and
+    require(basis.get("horizon")==("63_NYSE_SESSIONS" if session_mode else "12_CALENDAR_MONTHS") and
             basis.get("kind")=="NET_REFERENCE_ROUND_TRIP","stock_er_cost_horizon")
+    if session_mode:
+        require(row.get("cost_horizon")==profile["horizon"] and
+                basis.get("ongoing_cost_period")=="HORIZON_TOTAL_BPS","stock_er_ongoing_cost_period")
     require(basis.get("cost_assumptions_sha256")==digest(row["cost_assumptions"]),"stock_er_cost_measurement_changed")
     require(type(basis.get("evidence_sha256")) is str and len(basis["evidence_sha256"])==64 and
             all(c in "0123456789abcdef" for c in basis["evidence_sha256"]),"stock_er_cost_original_required")
@@ -378,7 +413,7 @@ def _stock_cost(row,side_bps):
     transaction=number(basis.get("embedded_transaction_cost_fraction"),0)
     ongoing=number(basis.get("embedded_ongoing_cost_fraction"),0)
     gross=number(basis.get("gross_expected_return"),-1)
-    require(math.isclose(gross-embedded,number(row["expected_return_12m"],-1),abs_tol=1e-9),
+    require(math.isclose(gross-embedded,number(row["expected_return_"+suffix],-1),abs_tol=1e-9),
             "stock_net_gross_cost_reconciliation")
     assumptions=row["cost_assumptions"]
     measured_side=sum(number(assumptions[k],0) for k in ("spread_bps","commission_bps","slippage_bps","tax_bps"))
@@ -389,7 +424,7 @@ def _stock_cost(row,side_bps):
             math.isclose(embedded,transaction+ongoing,abs_tol=1e-9),"stock_embedded_cost_component_reconciliation")
     # Only the reference transaction is restored. Annual expense/roll remains
     # in the ER. The named 25/50/100bps scenarios are ALL-IN per actual side.
-    return number(row["expected_return_12m"],-1)+transaction,side_bps/10000
+    return number(row["expected_return_"+suffix],-1)+transaction,side_bps/10000
 
 
 def _stock_cash_return(quote,clock,cutoff,policy,artifact_resolver):
@@ -552,10 +587,13 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     from sklearn.covariance import LedoitWolf
     from .prices import grid
     p=stock_research_profile(policy)
+    suffix=stock_er_suffix(policy)
     pinned(risk,policy,"risk",cutoff)
     require(risk.get("feature_sha256")==input_hash,"risk_feature_mismatch")
     review=risk.get("stock_cash_allocation")
     require(type(review) is dict and review.get("horizon")==p["horizon"],"stock_reviewed_allocation_required")
+    if suffix=="63s":
+        require(review.get("minimum_expected_alpha_horizon")==p["horizon"],"stock_alpha_threshold_horizon")
     declared=review.get("decision_asset_ids")
     require(type(declared) is list and bool(declared) and len(declared)==len(set(declared)),"stock_explicit_a5_cohort_required")
     require(set(declared)=={r["asset_id"] for r in rows},"stock_explicit_a5_cohort_mismatch")
@@ -585,9 +623,12 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             require(old==0,"stock_held_input_unknown:"+aid)
             continue
         require(row.get("net_of_costs") is True,"stock_net_er_required")
+        if suffix=="63s":
+            from research.er_horizon_v1 import validate_session63_er
+            validate_session63_er(row,decision_session=clock["decision_session"])
         entry=(row.get("portfolio_status") in {"CANDIDATE","HOLD"} and
             row.get("thesis_status") in {"POSITIVE","INTACT"} and row.get("valuation_acceptable") is True and
-            row.get("liquidity_pass") is True and row["expected_alpha_12m"]>risk["minimum_expected_alpha"] and
+            row.get("liquidity_pass") is True and row["expected_alpha_"+suffix]>risk["minimum_expected_alpha"] and
             row["RS20_change_5d"]>0 and row["RS60_change_5d"]>0 and row["RS120"]>=0 and row["RS240"]>=0)
         tradable=asset["tradable"] is True and asset["identity_verified"] is True
         lo=old;hi=cap if entry and tradable and (stock or exception) else old
@@ -634,7 +675,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
                     r.get("evaluation_sha256") is not None and r.get("net_of_costs") is True and
                     assets[r["asset_id"]]["identity_verified"] is True and
                     assets[r["asset_id"]]["tradable"] is True for r in rows),"stock_cash_incomplete_decision_inputs")
-        costs={r["asset_id"]:_stock_cost(r,p["cost_bps_per_side"]) for r in rows}
+        costs={r["asset_id"]:_stock_cost(r,p["cost_bps_per_side"],p) for r in rows}
         quote=review.get("cash_carry")
         carry=_stock_cash_return(quote,clock,cutoff,policy,artifact_resolver)
         frozen=dict(feature_sha256=input_hash,risk_sha256=digest(risk),asset_ids=declared,
@@ -668,7 +709,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
             "stock_covariance_session_alignment")
     require(np.all(np.std(returns,axis=1)>1e-12),"stock_undefined_covariance")
     covariance=LedoitWolf().fit(returns.T).covariance_*clock["covariance_scale_sessions"]
-    costs=[_stock_cost(r,p["cost_bps_per_side"]) for r in accepted]
+    costs=[_stock_cost(r,p["cost_bps_per_side"],p) for r in accepted]
     mu=np.asarray([v[0] for v in costs]);side=np.asarray([v[1] for v in costs])
     old=np.asarray([current.get(a,0) for a in ids],dtype=float)
     lo=np.asarray(lower,dtype=float);hi=np.asarray(upper,dtype=float)
@@ -732,7 +773,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     # Reuse existing propose's alpha/confidence/drawdown score, inside this
     # explicit stock scope and the same reviewed constraints as the challenger.
     # This is the multi_asset Control, NOT native Main/Con or ALPHA15/5.
-    raw=np.asarray([max(0,r["expected_alpha_12m"]*r["signal_confidence"]*r["thesis_confidence"]/
+    raw=np.asarray([max(0,r["expected_alpha_"+suffix]*r["signal_confidence"]*r["thesis_confidence"]/
         (r["expected_drawdown"]*number(risk["risk_multipliers"].get(assets[r["asset_id"]]["asset_class"]),1)))
         for r in accepted])
     budget=max(0,gross_cap-sum(lo))
@@ -796,7 +837,7 @@ def stock_cash_proposal(rows,assets,risk,holdings,cutoff,policy,input_hash,curre
     weights={a:float(w) for a,w in zip(ids,chosen) if w>1e-10}
     if not weights:
         known_model_cash_decision()
-    frozen=dict(asset_ids=ids,expected_return_horizon="12_CALENDAR_MONTHS",gross_er=mu.tolist(),
+    frozen=dict(asset_ids=ids,expected_return_horizon=p["horizon"],gross_er=mu.tolist(),
         embedded_costs=[r["portfolio_cost_basis"]["embedded_cost_fraction"] for r in accepted],
         covariance=covariance.tolist(),cash_return=cash_return,side_cost=side.tolist(),
         lower=lo.tolist(),upper=hi.tolist(),current_weights=old.tolist(),risk_aversion=p["risk_aversion"],

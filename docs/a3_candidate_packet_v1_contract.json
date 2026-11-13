@@ -35,7 +35,24 @@
     "validation_status": "WALK_FORWARD_VALIDATED",
     "net_of_costs_required": true,
     "benchmark_identity_must_match_market_snapshot": true,
-    "unit": "RETURN_FRACTION"
+    "unit": "RETURN_FRACTION",
+    "nyse_session_optin": {
+      "schema": "validated-er-nyse-sessions-v1",
+      "horizon": "63_NYSE_SESSIONS",
+      "horizon_unit": "NYSE_PRICE_INTERVALS",
+      "horizon_count": 63,
+      "required_fields": [
+        "expected_return_63s",
+        "benchmark_expected_return_63s",
+        "forecast_clock",
+        "cost_horizon",
+        "downside_horizon"
+      ],
+      "clock": "First next NYSE close through64th future close;63 held intervals. Cash day count is entry-to-mark, and the pre-entry gap is separate.",
+      "a5_profile": "stock-cash-research-v2, explicit opt-in only; current default v1/12calendar unchanged.",
+      "cost_basis": "reviewed-portfolio-cost-basis-v2; ongoing_cost_period=HORIZON_TOTAL_BPS, no implicit annual prorating.",
+      "admission": "Original walk-forward validation, reviewed model/policy/A3/A4/A6 and Source gates remain required; gross predictions or blended selection scores are not net ER."
+    }
   },
   "artifact_integrity": {
     "reviewed_status_required": true,

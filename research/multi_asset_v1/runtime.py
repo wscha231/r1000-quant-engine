@@ -9,7 +9,7 @@ from .contracts import (ContractError, ER_HORIZONS, HORIZONS, day, digest, ident
                         load_json, metadata, number, pinned, registry_rows, require, stamp, unique)
 from .prices import BASE_RS_WEIGHTS, admit_prices, cross_section, grid, one_asset
 from .decisions import (COMPONENTS, classify, evaluation, event_memory, lookthrough, propose,
-                        stock_decision_scope, stock_research_profile)
+                        stock_decision_scope, stock_research_profile, stock_er_suffix)
 from .fundamentals import receipt_blockers
 
 
@@ -146,6 +146,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
     require(policy.get("baseline_rs_weights")==BASE_RS_WEIGHTS,"unsupported_rs_baseline")
     require(policy.get("baseline_commodity_weights")==COMPONENTS,"unsupported_commodity_baseline")
     stock_mode=policy.get("stock_cash_research",{}).get("enabled") is True
+    er_suffix=stock_er_suffix(policy) if stock_mode else "12m"
     cutoff=payload["as_of"]
     stamp(cutoff)
     underlyings,assets=registry_rows(registry)
@@ -340,6 +341,9 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                 ev=checked
                 fields={"fundamental_score","expected_alpha_12m","expected_drawdown","downside_probability","signal_confidence","thesis_confidence","thesis_id","thesis_status","valuation_acceptable","scenarios","model_id","validation_sha256"}
                 fields.update("expected_return_"+h for h in ER_HORIZONS)
+                if er_suffix=="63s":
+                    fields.update({"expected_return_63s","expected_alpha_63s","benchmark_expected_return_63s",
+                        "schema","horizon","horizon_unit","horizon_count","forecast_clock","cost_horizon","downside_horizon"})
                 row.update({k:v for k,v in ev.items() if k in fields})
                 if policy.get("stock_cash_research",{}).get("enabled") is True:
                     original_evaluation=a3_candidates[aid] if aid in a3_candidates else by_eval[aid]
@@ -358,7 +362,7 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
             row["portfolio_status"]="BLOCKED"
             row["blockers"].append("liquidity_failed")
         if ev and features:
-            row["risk_adjusted_expected_alpha"]=ev["expected_alpha_12m"]/ev["expected_drawdown"]
+            row["risk_adjusted_expected_alpha"]=ev["expected_alpha_"+er_suffix]/ev["expected_drawdown"]
         rows.append(row)
     if stock_mode:
         # Keep unmapped names as UNKNOWN; they are not registered/tradable merely
@@ -557,6 +561,8 @@ def run(payload, registry, policy, *, artifact_resolver=None, review_root=None, 
                           "PINNED_EXCEPTION_AND_RELEASE_CONDITION","COST_AND_PRICE_INPUTS"])
                 for s in ("GLDM","SHY","IEF","TLT")],
             actual_fit_executed=False,actual_backtest_executed=False)
+    if stock_mode and er_suffix=="63s":
+        result["allocation_horizon"]="63_NYSE_SESSIONS"
     result["result_sha256"]=digest(result)
     return result
 
@@ -578,7 +584,7 @@ def stock_comparison_plan(policy):
         training_adapter="tools/run_run287_expected_return_challenger.py:run",
         training_contract="docs/run287_expected_return_challenger_contract.json",
         mature_label_functions=["prepare_frame","walk_forward_predictions"],
-        training_horizons_nyse_sessions=[21,63,126],allocation_horizon="12_CALENDAR_MONTHS",
+        training_horizons_nyse_sessions=[21,63,126],allocation_horizon=p["horizon"],
         training_output_is_not_12m_er=True,
         evaluation_adapters=["tools/a5_model_portfolio.py:prepare_model_replay_targets",
                              "tools/run_broker_ledger_replay.py:replay",
@@ -589,18 +595,21 @@ def stock_comparison_plan(policy):
         blockers=["NAMED_EXPERIMENT_REGISTRATION_AND_DO_NOT_REPEAT_REPLAY_REQUIRED",
                   "CANONICAL_U0_AND_ORIGINAL_PIT_UNIVERSE_FINANCIAL_CA_ADMISSION_REQUIRED",
                   "SAME_SOURCE_CLOCK_COST_CASH_LEDGER_INPUTS_REQUIRED",
-                  "ORIGINAL_VALIDATED_12_CALENDAR_MONTH_ER_REQUIRED"],
+                  ("ORIGINAL_VALIDATED_NET_63_SESSION_ER_REQUIRED" if p["horizon"]=="63_NYSE_SESSIONS" else
+                   "ORIGINAL_VALIDATED_12_CALENDAR_MONTH_ER_REQUIRED")],
         model_fit=False,targets_written=False,orders_generated=False,promotion_allowed=False)
 
 
 def render(result):
     rows=result["multi_asset_leadership_latest"]
+    er_label="63 NYSE intervals" if result.get("allocation_horizon")=="63_NYSE_SESSIONS" else "12m"
     lines=["# MULTI-ASSET LEADERSHIP", "", f"As of: {result['as_of']} | {result['status']}",
            "", "Research discovery and proposed reviews only. Missing expected returns are not neutral scores.",
            f"Ranking scope: {result['ranking_scope']}; global ranking ready: {result['global_ranking_ready']}",
-           "", "| Asset | Price status | Discovery rank | ER 12m | Portfolio status |", "|---|---|---:|---:|---|"]
+           "", f"| Asset | Price status | Discovery rank | ER {er_label} | Portfolio status |", "|---|---|---:|---:|---|"]
     for r in rows:
-        lines.append(f"| {r['symbol']} | {r['data_quality']} | {r['discovery_rank']} | {r['expected_return_12m']} | {r['portfolio_status']} |")
+        key="expected_return_63s" if result.get("allocation_horizon")=="63_NYSE_SESSIONS" else "expected_return_12m"
+        lines.append(f"| {r['symbol']} | {r['data_quality']} | {r['discovery_rank']} | {r.get(key)} | {r['portfolio_status']} |")
     lines.extend(["", "## Commodity and network observations", "",
                   "Current observations only; source history is not certified PIT. Network activity is not an adoption or expected-return score.",
                   "", "| Subject | Metric | Value | Unit | Observation | Admission |", "|---|---|---:|---|---|---|"])
