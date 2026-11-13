@@ -264,12 +264,14 @@ class ModelTests(unittest.TestCase):
              patch("tools.run_multi_asset_leadership.verified_source_hashes",return_value={"synthetic":"a"*64}), \
              patch.object(a5,"build_model_proposal",side_effect=build):
             self.test_complete_original_graph_with_v2_reaches_native_a5()
-        self.assertEqual(len(observed),1)
-        value=observed[0]
-        self.assertEqual(value["allocation_horizon"],"63_NYSE_SESSIONS")
-        self.assertTrue(value["proposed_weights"])
-        self.assertTrue(all("expected_return_63s" in row and "expected_return_12m" not in row
-                            for row in value["changes"]))
+        self.assertEqual(len(observed),2)  # direct public call and hosted cycle
+        for value in observed:
+            self.assertEqual(value["allocation_horizon"],"63_NYSE_SESSIONS")
+            self.assertTrue(value["proposed_weights"])
+            self.assertFalse(value["orders_generated"])
+            self.assertFalse(value["accepted_target_written"])
+            self.assertTrue(all("expected_return_63s" in row and "expected_return_12m" not in row
+                                for row in value["changes"]))
 
     def test_complete_original_graph_with_v2_reaches_native_a5(self):
         # Real incumbent A3/Registry, A0/A6 graph, native A4 and A5 code over
