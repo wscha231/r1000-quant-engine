@@ -364,12 +364,39 @@ def forecast_release(report, trial, policy, expected_policy_sha256, *, created_a
         check(len(schedule)>=2 and schedule.index[0].date()==decision and
               schedule.market_close.iloc[0].to_pydatetime()<=free.utc(created_at)<schedule.market_close.iloc[1].to_pydatetime(),
               "A4_PREDICTION_ENTRY_WINDOW")
+    # This is a target-specific view of the same reviewed releases, not a new
+    # fit, weighted forecast, probability calibration or smaller testing family.
+    benchmark_outlook=[]
+    for target,name in (("SPY","S&P 500 ETF proxy"),("QQQ","Nasdaq-100 ETF proxy")):
+        for horizon in analysis.HORIZONS:
+            matched=[p for p in predictions if p["target"]==target and p["horizon_sessions"]==horizon and p["outcome"]=="return"]
+            evidence=[]
+            for prediction in matched:
+                source=[r for r in trial["results"] if r["target"]==target and r["horizon_sessions"]==horizon
+                        and r["outcome"]=="return" and r["feature"]==prediction["feature"]]
+                check(len(source)==1,"A4_BENCHMARK_AMBIGUOUS_TRIAL_ROW")
+                row=source[0]
+                accuracy,baseline=row.get("oos_direction_accuracy"),row.get("baseline_direction_accuracy")
+                evidence.append(dict(prediction,
+                    oos_direction_accuracy=accuracy,baseline_direction_accuracy=baseline,
+                    direction_accuracy_improvement=(accuracy-baseline if accuracy is not None and baseline is not None else None),
+                    oos_mse_improvement=row.get("oos_mse_improvement"),family_q_value=row.get("family_q_value"),
+                    oos_rows=row.get("oos_rows"),nonoverlap_windows=row.get("nonoverlap_windows"),fold_count=len(row["folds"])))
+            signs={np.sign(p["estimate"]) for p in matched}
+            contribution_signs={np.sign(p["contribution_vs_training_mean"]) for p in matched}
+            benchmark_outlook.append(dict(target=target,benchmark=name,horizon_sessions=horizon,
+                direction="INSUFFICIENT_EVIDENCE" if not matched else "UP" if signs=={1} else "DOWN" if signs=={-1} else "FLAT" if signs=={0} else "MIXED",
+                macro_contribution_direction="INSUFFICIENT_EVIDENCE" if not matched else "TAILWIND" if contribution_signs=={1} else "HEADWIND" if contribution_signs=={-1} else "NEUTRAL" if contribution_signs=={0} else "MIXED",
+                up_probability=None,evidence=evidence,independent_vote_count=None,
+                forecast_aggregation="SIGN_AGREEMENT_ONLY_NO_WEIGHTED_RETURN",
+                blockers=[] if matched else ["NO_REVIEWED_TARGET_SPECIFIC_CURRENT_EVIDENCE"]))
     for horizon in report["horizon_outlook"]:
         matched=[p for p in predictions if p["target"]=="SPY" and p["horizon_sessions"]==horizon["horizon_sessions"] and p["outcome"]=="return"]
         signs={np.sign(p["contribution_vs_training_mean"]) for p in matched}
         horizon.update(direction="INSUFFICIENT_EVIDENCE" if not matched else "TAILWIND" if signs=={1} else "HEADWIND" if signs=={-1} else "MIXED",
             evidence=matched,contrary_evidence=[p for p in matched if p["contribution_vs_training_mean"]<0],
             blockers=[] if matched else ["NO_REVIEWED_CURRENT_INDEPENDENT_EVIDENCE"],independent_vote_count=None)
+    report["benchmark_outlook"]=benchmark_outlook
     report["historical_evidence"]=dict(status="REVIEWED_RELATIONSHIP_RESEARCH",trial_sha256=trial["trial_sha256"],
         predictions=predictions,causal_effect_identified=False)
     report["learning_provenance"]=dict(status="EXTERNALLY_REVIEWED_FIXED_RELEASE",policy_sha256=expected_policy_sha256,

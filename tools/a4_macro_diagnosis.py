@@ -58,6 +58,37 @@ def group(name, measures, *, caveat):
         independent_risk_vote=False, causal_equity_effect_established=False)
 
 
+def qe_assessment(report):
+    """Observed policy drivers are not a model of a future QE announcement."""
+    panel={**report.get('liquidity',{}).get('series',{}),
+           **report.get('funding',{}).get('series',{}),**report.get('macro_direction_inputs',{})}
+    drivers=[measurement(panel,key,period,orientation,report['cutoff']) for key,period,orientation in (
+        ('fed_assets',4,-1),('reserves_week_average',4,-1),('tga_week_average',4,1),
+        ('iorb',5,1),('unemployment',1,1),('core_cpi',1,1))]
+    for driver in drivers:
+        driver.pop('condition',None)
+        driver['value_unit']=panel.get(driver['series'],{}).get('unit') if driver['value'] is not None else None
+        delta=driver['change']
+        driver['observed_change_direction']=('UNKNOWN' if delta is None else
+            'INCREASE' if delta>0 else 'DECREASE' if delta<0 else 'UNCHANGED')
+    return dict(schema='a4-qe-research-context-v1',status='INSUFFICIENT_EVIDENCE',
+        policy_state='OFFICIAL_POLICY_NOT_VERIFIED',qe_start_probability=None,
+        horizons_sessions=[r['horizon_sessions'] for r in report.get('horizon_outlook',[])],
+        observed_drivers=drivers,driver_signs_are_qe_probabilities=False,
+        confirmed_qe_from_balance_growth=False,qe_event_history_verified=False,
+        independent_sample_unit='POLICY_EPISODE_NOT_DAILY_OR_WEEKLY_REPEAT',
+        alternative_explanations=['TGA_REDISTRIBUTION','RESERVE_MANAGEMENT_PURCHASES',
+                                  'REPO_OR_EMERGENCY_LENDING','QT_SLOWDOWN_OR_END','REINVESTMENT'],
+        required_evidence=['Dated official FOMC announcement and implementation directive with actual availability',
+            'Asset-purchase purpose, instrument, net-purchase versus reinvestment and program scope',
+            'Reviewed QE episode labels, rights/PIT inputs and independent out-of-sample event calibration'],
+        definition_references=[
+            'https://www.federalreserve.gov/newsevents/pressreleases/monetary20191011a.htm',
+            'https://www.federalreserve.gov/newsevents/pressreleases/monetary20200315a.htm'],
+        reference_pages_are_training_originals=False,model_fit_performed=False,
+        equity_direction_inferred=False,portfolio_effect_allowed=False)
+
+
 def funding(report, period):
     measures=[]
     for key, row in sorted(report.get('funding', {}).get('spreads', {}).items()):
@@ -143,6 +174,7 @@ def diagnose(report):
         completion_blockers=blockers,diagnosis_only=True,
         return_forecast_calibrated=False,portfolio_effect_allowed=False,
         causal_effect_identified=False,independent_risk_votes=0)
+    report['qe_assessment']=qe_assessment(report)
     for horizon in report.get('horizon_outlook',[]):
         window='SHORT' if horizon['horizon_sessions']<=10 else 'MEDIUM' if horizon['horizon_sessions']<=63 else 'LONG'
         horizon['current_conditions_window']=window

@@ -132,6 +132,7 @@ def describe_weekly_history(rows,feed,cutoff):
 def learning_readiness(root,policy_sha,cutoff):
     result=dict(status='BLOCKED',blockers=['REVIEWED_LEARNING_REQUEST_POLICY_AND_ORIGINALS_REQUIRED'],
         target_prices={},missing_targets=list(learning.analysis.TARGETS),model_fit_performed=False,
+        benchmark_research_status='BLOCKED',benchmark_targets=['SPY','QQQ'],missing_benchmark_targets=['SPY','QQQ'],
         execution_route='tools/run_a4_research_cycle.py; existing restored-state and monthly challenger gates',
         financing_recipe='INDEPENDENT_FEATURE_RECIPE_REVIEW_REQUIRED')
     if root is None or policy_sha is None:return result
@@ -139,18 +140,23 @@ def learning_readiness(root,policy_sha,cutoff):
         payload,policy,resolve=cycle.load_learning(Path(root),policy_sha)
         p.check(type(payload) is dict and type(policy) is dict,'DATA_CENTER_LEARNING_SCHEMA')
         p.check(p.clock(payload['cutoff'])<=p.clock(cutoff),'DATA_CENTER_FUTURE_LEARNING_INPUT')
-        sessions=learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
+        p.check(p.clock(policy['available_at'])<=p.clock(cutoff)<p.clock(policy['expires_at']),
+            'DATA_CENTER_LEARNING_POLICY_NOT_CURRENT')
+        learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
         prices={}
         for target,records in sorted(payload['prices'].items()):
             p.check(records,'DATA_CENTER_EMPTY_PRICE_TARGET')
-            learning.price_series(records,sessions,payload['cutoff'])
-            prices[target]=dict(observations=len(records),first_session=min((r['session'] for r in records),default=None),
+            series=learning.price_series(records,payload['sessions'],payload['cutoff'])
+            prices[target]=dict(observations=len(records),valid_prices=int(series.notna().sum()),first_session=min((r['session'] for r in records),default=None),
                 last_session=max((r['session'] for r in records),default=None))
         p.check(prices and payload['observations'],'DATA_CENTER_EMPTY_LEARNING_INPUTS')
-        missing=sorted(set(learning.analysis.TARGETS)-set(prices))
+        usable={target for target,item in prices.items() if item['valid_prices']>0}
+        missing=sorted(set(learning.analysis.TARGETS)-usable)
+        missing_benchmarks=sorted({'SPY','QQQ'}-usable)
         result.update(status='PARTIAL_VALIDATED_INPUTS' if missing else 'VALIDATED_RESEARCH_INPUTS_NOT_EXECUTED',
             blockers=['DECLARED_TARGET_COVERAGE_INCOMPLETE'] if missing else [],target_prices=prices,
-            missing_targets=sorted(set(learning.analysis.TARGETS)-set(prices)),
+            missing_targets=missing,missing_benchmark_targets=missing_benchmarks,
+            benchmark_research_status='BLOCKED' if missing_benchmarks else 'VALIDATED_BENCHMARK_INPUTS_NOT_EXECUTED',
             input_sha256=digest(encoded(payload)),external_policy_sha256=policy_sha,
             input_cutoff=payload['cutoff'])
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
@@ -265,6 +271,8 @@ def render_catalog(catalog):
         'Legacy Lake: '+catalog['legacy_lake']['status']+'; original packs/execution require their existing Reader.',
         'Price/financial route: '+catalog['price_and_financial_route']['status'],
         'Missing learning targets: '+', '.join(catalog['learning']['missing_targets']),
+        'SPY/QQQ input readiness: '+catalog['learning']['benchmark_research_status']+' (not a fit or completed backtest)',
+        'Missing benchmark targets: '+', '.join(catalog['learning']['missing_benchmark_targets']),
         'Learning blockers: '+', '.join(catalog['learning']['blockers']),
         'Rights-blocked sources: '+', '.join(catalog['rights_blocked_sources']),'']
     lines+=['## Past balance-change descriptions','',
@@ -455,6 +463,7 @@ def build(captures,*,cutoff,output_dir,transport=None,source_transport=None,prob
             enhanced_readiness=report.get('enhanced_readiness',{}),blockers=report.get('market_assessment',{}).get('blockers',[])),
         historical_evaluation=dict(status='INPUTS_VERIFIED_EXECUTION_REQUIRED' if learn['status']=='VALIDATED_RESEARCH_INPUTS_NOT_EXECUTED'
             else 'BLOCKED',executed=False,horizons=list(learning.analysis.HORIZONS),outcomes=list(learning.OUTCOMES),
+            benchmark_input_status=learn['benchmark_research_status'],
             blockers=learn['blockers'],current_revised_histories_are_historical_pit=False),
         future_view=dict(status='SCENARIO_CONTEXT_ONLY',forecasts_calibrated=False,
             horizons=report.get('horizon_outlook',[]),conditions=report.get('financing_conditions',{}).get('conditional_scenarios',{}),

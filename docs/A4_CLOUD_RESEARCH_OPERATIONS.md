@@ -172,6 +172,19 @@ and cash plus owner routes. It is not the first completed portfolio.
 
 ## Deployment status
 
+For the initial SPY/QQQ research focus, inspect the separate benchmark input
+readiness and `benchmark_outlook` described in
+[the direction/condition contract](A4_MACRO_CONDITION_DIAGNOSIS_V1.md).
+Other targets may remain insufficient in the unchanged fourteen-target test
+family. This focus does not waive the original rights, session/price basis,
+historical availability, maturity, do-not-repeat or fixed-release checks.
+The input policy must still be valid at actual execution, as well as at the
+payload's fixed historical cutoff; a current NYSE session does not renew an
+expired policy. An auxiliary reviewed release now has `learning_context.md`
+beside its original JSON for inspection. Both remain separate from the native
+A4 report consumed by the original A3/A6/A5 graph. QE event likelihood remains
+unfitted without its independently verified dated policy episodes.
+
 Code and synthetic validation are separate from activation, actual source
 readiness, a scheduled run, Drive readback and the first qualified A5 proposal.
 Those are individually evidenced milestones. Missing current A3/ER, A4 or A6

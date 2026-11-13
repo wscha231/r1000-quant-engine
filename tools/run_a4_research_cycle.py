@@ -139,6 +139,8 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
                 weeks.append(value["week"])
         plan["weekly_score_due"]=plan["week"] not in weeks
         payload,policy,resolve=load_learning(learn_root,learning_policy_sha256)
+        market.need(market.clock.stamp(policy['available_at'])<=market.clock.stamp(cutoff)<market.clock.stamp(policy['expires_at']),
+                    'A4_LEARNING_POLICY_NOT_CURRENT_AT_EXECUTION')
         market.need(market.clock.stamp(payload["cutoff"])<=market.clock.stamp(cutoff) and
                     payload["sessions"][-1]["session"]==market.current_session(cutoff),"A4_LEARNING_NOT_CURRENT_SESSION")
         learning.validate_inputs(payload,policy,digest(encoded(policy)),resolve)
@@ -195,6 +197,7 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     exclusive(out/"market_analysis.md",market.render_report(report).encode("utf-8"))
     if learning_context is not None:
         exclusive(out/"learning_context.json",encoded(learning_context))
+        exclusive(out/"learning_context.md",market.render_report(learning_context).encode("utf-8"))
     cycle=dict(schema="a4-cloud-research-cycle-v1",cutoff=cutoff,decision_cutoff=report["cutoff"],market_session=report["session"],
         market_status=report["status"],learning_status=status,learning_blockers=blockers,
         scope=scope,completion_scope="A4_CYCLE" if scope=="A4_ONLY" else "A4_A5_CYCLE",

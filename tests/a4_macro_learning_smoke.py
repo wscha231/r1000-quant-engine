@@ -49,7 +49,84 @@ def fixture(n=20):
     return payload,policy,lambda expected:original
 
 
+def synthetic_direction_release():
+    """Mock a reviewed release shape; not real learned or supplier evidence."""
+    from tests.a4_liquidity_analysis_smoke import analyze,raw
+    p,policy,resolve=fixture()
+    trial=l.fit_trial(p,policy,digest(encoded(policy)),resolve)
+    for row in trial['results']:
+        if row['outcome']!='return' or row['horizon_sessions']!=1 or row['feature']!='funding:sofr_minus_iorb' or row['target'] not in ('SPY','QQQ'):continue
+        row.update(status='SHADOW_CANDIDATE',oos_direction_accuracy=.65,baseline_direction_accuracy=.60,
+            oos_mse_improvement=.001,family_q_value=.01,oos_rows=800,nonoverlap_windows=400,folds=[{}, {}, {}],
+            frozen_model=dict(mean=0.,sd=1.,intercept=.03 if row['target']=='SPY' else -.03,
+                              coefficient=-.0001 if row['target']=='SPY' else .0001))
+    trial['trial_sha256']=digest(encoded({k:v for k,v in trial.items() if k!='trial_sha256'}))
+    report=analyze([('fred:'+sid,raw(sid,[('2026-11-06',value)]))
+                    for sid,value in [('SOFR',4.2),('IORB',4.),('TGCR',3.9)]])
+    release=dict(available_at='2026-11-06T23:00:00Z',expires_at='2026-11-09T00:00:00Z',
+                 reviewed_trial_pins=[trial['trial_sha256']])
+    return report,trial,release
+
+
 class LearningTests(unittest.TestCase):
+    def test_benchmark_absolute_return_sign_is_separate_from_macro_headwind(self):
+        report,trial,policy=synthetic_direction_release()
+        l.forecast_release(report,trial,policy,digest(encoded(policy)))
+        self.assertEqual(len(report['benchmark_outlook']),14)
+        focus={(r['target'],r['horizon_sessions']):r for r in report['benchmark_outlook']}
+        self.assertEqual((focus['SPY',1]['direction'],focus['SPY',1]['macro_contribution_direction']),('UP','HEADWIND'))
+        self.assertEqual((focus['QQQ',1]['direction'],focus['QQQ',1]['macro_contribution_direction']),('DOWN','TAILWIND'))
+        self.assertEqual(report['horizon_outlook'][0]['direction'],'HEADWIND')
+        evidence=focus['SPY',1]['evidence'][0]
+        self.assertAlmostEqual(evidence['direction_accuracy_improvement'],.05)
+        self.assertEqual(evidence['baseline_direction_accuracy'],.60)
+        self.assertEqual(evidence['fold_count'],3)
+        self.assertIsNone(focus['SPY',1]['up_probability'])
+        self.assertIsNone(focus['SPY',1]['independent_vote_count'])
+        self.assertEqual(focus['QQQ',5]['direction'],'INSUFFICIENT_EVIDENCE')
+        from tools.chameleon_market_context_v2 import digest as report_digest
+        self.assertEqual(report['content_sha256'],report_digest({k:v for k,v in report.items() if k!='content_sha256'}))
+
+    def test_benchmark_disagreement_keeps_all_evidence_and_original_family(self):
+        report,trial,policy=synthetic_direction_release()
+        declared=trial['tests_declared']
+        row=next(r for r in trial['results'] if r['target']=='SPY' and r['horizon_sessions']==1 and r['outcome']=='return' and r['feature']=='funding:sofr_minus_tgcr')
+        source=next(r for r in trial['results'] if r['target']=='SPY' and r['horizon_sessions']==1 and r['outcome']=='return' and r['feature']=='funding:sofr_minus_iorb')
+        feature=row['feature'];row.update(copy.deepcopy(source));row['feature']=feature
+        row['frozen_model'].update(intercept=-.01,coefficient=0.)
+        trial['trial_sha256']=digest(encoded({k:v for k,v in trial.items() if k!='trial_sha256'}))
+        policy['reviewed_trial_pins']=[trial['trial_sha256']]
+        l.forecast_release(report,trial,policy,digest(encoded(policy)))
+        item=next(r for r in report['benchmark_outlook'] if r['target']=='SPY' and r['horizon_sessions']==1)
+        self.assertEqual(item['direction'],'MIXED');self.assertEqual(len(item['evidence']),2)
+        self.assertEqual(trial['tests_declared'],declared)
+        self.assertEqual(set(r['target'] for r in trial['results']),set(a.TARGETS))
+        self.assertEqual(item['forecast_aggregation'],'SIGN_AGREEMENT_ONLY_NO_WEIGHTED_RETURN')
+
+    def test_one_benchmark_or_unreviewed_trial_cannot_supply_other_forecast(self):
+        report,trial,policy=synthetic_direction_release()
+        before=copy.deepcopy(report)
+        with self.assertRaisesRegex(ValueError,'RELEASE_NOT_REVIEWED'):
+            l.forecast_release(report,trial,policy,'0'*64)
+        self.assertEqual(report,before)
+        for row in trial['results']:
+            if row['target']=='QQQ':row['status']='INSUFFICIENT_EVIDENCE'
+        trial['trial_sha256']=digest(encoded({k:v for k,v in trial.items() if k!='trial_sha256'}))
+        policy['reviewed_trial_pins']=[trial['trial_sha256']]
+        l.forecast_release(report,trial,policy,digest(encoded(policy)))
+        self.assertTrue(all(r['direction']=='INSUFFICIENT_EVIDENCE' for r in report['benchmark_outlook'] if r['target']=='QQQ'))
+
+    def test_ambiguous_benchmark_trial_rows_refuse_before_report_mutation(self):
+        report,trial,policy=synthetic_direction_release()
+        row=next(r for r in trial['results'] if r['status']=='SHADOW_CANDIDATE')
+        trial['results'].append(copy.deepcopy(row))
+        trial['trial_sha256']=digest(encoded({k:v for k,v in trial.items() if k!='trial_sha256'}))
+        policy['reviewed_trial_pins']=[trial['trial_sha256']]
+        before=copy.deepcopy(report)
+        with self.assertRaisesRegex(ValueError,'AMBIGUOUS_TRIAL_ROW'):
+            l.forecast_release(report,trial,policy,digest(encoded(policy)))
+        self.assertEqual(report,before)
+
     def test_all_declared_targets_horizons_outcomes_remain_present_when_insufficient(self):
         p,policy,resolve=fixture()
         result=l.fit_trial(p,policy,digest(encoded(policy)),resolve)

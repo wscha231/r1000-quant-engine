@@ -69,6 +69,8 @@
   },
   "learning_release": "Exact trial plus externally pinned policy; immutable request replay and fixed code/math/recipe binding; maximum32MiB within the existing64MiB total",
   "macro_condition_diagnosis": "docs/A4_MACRO_CONDITION_DIAGNOSIS_V1.md; descriptive family pressures and completion blockers; no calibrated equity-return direction or native-risk override",
+  "benchmark_direction_research": "SPY S&P500 and QQQ Nasdaq100 ETF proxies; seven separate horizons, absolute released-return sign versus relative macro contribution, per-feature OOS hit rate/baseline/BY evidence; no weighted return or calibrated up probability; original14-target family retained",
+  "qe_research_context": "Official dated policy/implementation evidence and independent policy episodes required; reserve or asset growth, TGA changes, rate cuts and QT cessation alone do not certify QE; no fitted QE likelihood from current balance context",
   "source_register": "tools/a4_liquidity_analysis.py:SERIES",
   "fred_current_json": "Exact a4-macro-normalization-v1 binding required; recompute CSV from original bytes",
   "nyfed_json": "Original refRates with exact type/effectiveDate and rate/volume/percentile fields; availability is collection unless original publication is separately verified",
