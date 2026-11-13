@@ -25,6 +25,10 @@
   price packet. Pass the actual payload sessions and report two-benchmark input
   readiness separately from full fourteen-target coverage. All-null price arrays
   remain missing evidence; schema/rights/PIT/basis checks still precede readiness.
+- A policy valid at a historical payload cutoff may already have expired at
+  actual execution, including a same-session grace/weekend replay. Check actual
+  policy validity before fitting or opening focus readiness. Keep the reviewed
+  auxiliary forecast Markdown separate from the native A4/A3/A6 graph.
 
 ### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
 

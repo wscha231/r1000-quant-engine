@@ -160,6 +160,17 @@ class DataCenterTests(unittest.TestCase):
         self.assertEqual(out['status'],'BLOCKED')
         self.assertEqual(out['benchmark_research_status'],'BLOCKED')
 
+    def test_policy_expiry_at_execution_blocks_old_benchmark_inputs(self):
+        from tests.a4_macro_learning_smoke import fixture
+        payload,policy,resolve=fixture()
+        policy['expires_at']=(p.clock(payload['cutoff'])+timedelta(minutes=10)).isoformat()
+        cutoff=(p.clock(payload['cutoff'])+timedelta(minutes=20)).isoformat()
+        with patch.object(d.cycle,'load_learning',return_value=(payload,policy,resolve)):
+            out=d.learning_readiness('/synthetic',d.digest(d.encoded(policy)),cutoff)
+        self.assertEqual(out['status'],'BLOCKED')
+        self.assertEqual(out['benchmark_research_status'],'BLOCKED')
+        self.assertEqual(out['target_prices'],{})
+
     def test_duplicate_wrong_pin_existing_output_and_overlapping_root_refuse(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);spec=capture(root/'capture')
