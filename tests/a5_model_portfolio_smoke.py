@@ -364,6 +364,8 @@ class ModelTests(unittest.TestCase):
             ctx=nav_context(data,anchor_nav=100000)
             report=nav.calculate_frame(frame(data),ctx,valuation_binding=nav_binding(data))
             report.update(execution_status="completed",trade_count=1,cost_bps_per_side=cost,
+                          target_fill_coverage=dict(execution_clock_contract="explicit_cutoff_exact_next_close_v1",
+                                                    coverage_complete=True,chronology_safe=True),
                           **{k:v for k,v in export["replay_requirements"].items()
                              if k!="model_cost_bps_per_side"})
             reports[arm]=report
@@ -431,8 +433,29 @@ class ModelTests(unittest.TestCase):
             bindings[arm]["metrics_sha256"]=digest(reports[arm])
         self.assertTrue(self.pair(export,reports,bindings,cost=50)["paired_measurement_ready"])
 
+    def test_matched_E2_rejects_lag_tolerant_or_incomplete_next_close_even_when_repinned(self):
+        export,original_reports,original_bindings=self.replay_measurement_pair()
+        for kind in ("missing","legacy","gap","chronology"):
+            reports=copy.deepcopy(original_reports);bindings=copy.deepcopy(original_bindings)
+            report=reports["COST_AWARE_LONG_ONLY"]
+            if kind=="missing":report.pop("target_fill_coverage")
+            elif kind=="legacy":report["target_fill_coverage"].pop("execution_clock_contract")
+            elif kind=="gap":report["target_fill_coverage"]["coverage_complete"]=False
+            else:report["target_fill_coverage"]["chronology_safe"]=False
+            bindings["COST_AWARE_LONG_ONLY"]["metrics_sha256"]=digest(report)
+            with self.subTest(kind=kind):
+                result=self.pair(export,reports,bindings)
+                self.assertEqual(result["status"],"BLOCKED")
+                self.assertIsNone(result["metrics"]);self.assertIsNone(result["deltas"])
+
 
     def test_export_to_existing_E2_replay_keeps_cash_exit_and_cost_once(self):
+        self.existing_E2_cash_replay((25,50,100))
+
+    def test_exact_clock_pair_accepts_actual_broker_E2_proof(self):
+        self.existing_E2_cash_replay((25,))
+
+    def existing_E2_cash_replay(self,costs):
         import pandas as pd
         import pandas_market_calendars as mcal
         from tools import run_broker_ledger_replay as broker,nav_metrics_v2 as nav
@@ -452,7 +475,7 @@ class ModelTests(unittest.TestCase):
             paths={}
             for arm in a5.REPLAY_ARMS:
                 paths[arm]=root/(arm+".csv");pd.DataFrame(export["arms"][arm]).to_csv(paths[arm],index=False)
-            for cost in (25,50,100):
+            for cost in costs:
                 base=root/("base"+str(cost))
                 def replay(arm,out,ctx=None):
                     return broker.replay(target_book=paths[arm],price_cache=cache,output_dir=out,
@@ -487,7 +510,7 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(result["paired_measurement_ready"],result)
                 self.assertEqual(result["deltas"]["total_return"],0)
                 ending.append(result["metrics"]["CONTROL"]["ending_capital_usd"])
-        self.assertGreater(ending[0],ending[1]);self.assertGreater(ending[1],ending[2])
+        for first,second in zip(ending,ending[1:]):self.assertGreater(first,second)
 
 
 if __name__=="__main__":unittest.main()

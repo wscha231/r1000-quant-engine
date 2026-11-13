@@ -301,6 +301,10 @@ def compare_model_replay_reports(export, reports, bindings, *, expected_export_s
                         "cash_carry_haircut_bps","cash_carry_day_count"):
                 require(report.get(key)==req[key],"A5_PAIR_EXECUTION_POLICY_CHANGED")
             require(report.get("cost_bps_per_side")==cost_bps_per_side,"A5_PAIR_COST_CHANGED")
+            coverage=report.get("target_fill_coverage")
+            require(type(coverage) is dict and coverage.get("execution_clock_contract")==
+                    "explicit_cutoff_exact_next_close_v1" and coverage.get("coverage_complete") is True
+                    and coverage.get("chronology_safe") is True,"A5_PAIR_EXACT_NEXT_CLOSE_NOT_VERIFIED")
             cost_config=report.get("execution_cost_config")
             require(report.get("execution_cost_mode",EXECUTION_COST_MODE_FIXED)==EXECUTION_COST_MODE_FIXED
                     and (cost_config is None or (type(cost_config) is dict
