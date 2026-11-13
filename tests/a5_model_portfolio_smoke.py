@@ -285,4 +285,209 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(loaded['proposal_sha256'],result['proposal_sha256'])
 
 
+    def replay_original(self, session="2026-01-02", *, intent="REVIEW_REBALANCE", weights=None):
+        import pandas_market_calendars as mcal
+        from datetime import timedelta
+        date=stamp(session+"T00:00:00Z").date()
+        grid=mcal.get_calendar("NYSE").schedule(start_date=date,end_date=date+timedelta(days=10))
+        weights=weights or {"CONTROL":{"US:FTI":.2},"COST_AWARE_LONG_ONLY":{"US:FTI":.3}}
+        value=dict(schema=a5.SCHEMA,status="RESEARCH_PROPOSAL",as_of=session+"T22:00:00Z",session=session,
+            proposed_weights=weights["COST_AWARE_LONG_ONLY"],cash=1-sum(weights["COST_AWARE_LONG_ONLY"].values()),
+            intent=intent,reviewed_max_gross=.9,reviewed_max_security_weight=.4,
+            full_roster_asset_ids=["US:FTI","US:UNKNOWN"],a3_reference_coverage={"scope":"SYNTHETIC"},
+            comparisons={arm:dict(weights=w,objective=-.01,incremental_cost_fraction=.001)
+                         for arm,w in weights.items()},
+            decision_clock=dict(decision_session=session,decision_at=session+"T22:00:00Z",
+                                fill_mode="NEXT_NYSE_CLOSE",earliest_fill_at=grid["market_close"].iloc[1].isoformat()),
+            replay_requirements=dict(fill_mode="next_close",integer_shares=True,model_cost_bps_per_side=25,
+                cash_carry_mode="risk_free_rate",cash_rate_source="DGS3MO",cash_rate_lag_days=1,
+                cash_carry_haircut_bps=0,cash_carry_day_count=365),**a5.SAFETY)
+        for key in ("native_result_sha256","feature_sha256","policy_sha256","comparison_inputs_sha256",
+                    "a4_report_content_sha256","a4_request_sha256"):
+            value[key]=digest({"synthetic":key,"session":session})
+        return a5.seal(value)
+
+    def replay_export(self, originals=None):
+        originals=originals or [self.replay_original()]
+        return a5.prepare_model_replay_targets(originals,self.r,
+            expected_proposal_hashes=[digest(p) for p in originals],expected_registry_sha256=digest(self.r))
+
+    def test_replay_export_preserves_all_cash_dates_holds_and_originals(self):
+        import json
+        originals=[self.replay_original(),self.replay_original("2026-01-05",intent="HOLD_UNTIL_SCHEDULED_REVIEW"),
+                   self.replay_original("2026-01-06",intent="NO_ENTRY_HOLD_CASH",
+                                        weights={a:{} for a in a5.REPLAY_ARMS})]
+        before=copy.deepcopy(originals);export=self.replay_export(originals)
+        self.assertEqual(originals,before)
+        self.assertFalse(export["decisions"][1]["rebalance_exported"])
+        self.assertIn("US:UNKNOWN",export["decisions"][0]["full_roster_asset_ids"])
+        for arm in a5.REPLAY_ARMS:
+            rows=export["arms"][arm]
+            self.assertEqual({r["rebalance_date"] for r in rows},{"2026-01-02","2026-01-06"})
+            cash=[r for r in rows if r["rebalance_date"]=="2026-01-06"]
+            self.assertEqual(cash,[dict(rebalance_date="2026-01-06",ticker="CASH",weight=1.0)])
+        self.assertEqual(export["decisions"][0]["original_sha256"],digest(originals[0]))
+        self.assertIn("NOT_CLOSED_LOOP",export["comparison_scope"])
+        self.assertFalse(export["replay_executed"]);self.assertFalse(export["Source_admitted"])
+        json.dumps(export,allow_nan=False)
+
+    def test_replay_export_refuses_nan_pins_identity_duplicate_and_initial_hold(self):
+        import math
+        for kind in ("nan","pin","identity","duplicate","hold","same_close","weight","unknown"):
+            p=self.replay_original();registry=copy.deepcopy(self.r);originals=[p]
+            if kind=="nan":p["comparisons"]["CONTROL"]["weights"]["US:FTI"]=math.nan
+            elif kind=="pin":p["native_result_sha256"]="bad"
+            elif kind=="identity":
+                next(r for r in registry["assets"] if r["asset_id"]=="US:FTI")["identity_verified"]=False
+            elif kind=="duplicate":originals.append(copy.deepcopy(p))
+            elif kind=="hold":p["intent"]="HOLD_UNTIL_SCHEDULED_REVIEW"
+            elif kind=="same_close":p["decision_clock"]["earliest_fill_at"]="2026-01-02T21:00:00Z"
+            elif kind=="weight":p["comparisons"]["CONTROL"]["weights"]["US:FTI"]=.5
+            else:p["comparisons"]["CONTROL"]["weights"]={"US:UNKNOWN":.1}
+            p.pop("proposal_sha256",None)
+            if kind!="nan":a5.seal(p)
+            with self.subTest(kind=kind),self.assertRaises(ValueError):
+                a5.prepare_model_replay_targets(originals,registry,
+                    expected_proposal_hashes=[digest(x) for x in originals],expected_registry_sha256=digest(registry))
+        original=self.replay_original()
+        with self.assertRaisesRegex(ValueError,"ORIGINAL_PIN"):
+            a5.prepare_model_replay_targets([original],self.r,
+                expected_proposal_hashes=["0"*64],expected_registry_sha256=digest(self.r))
+
+    def replay_measurement_pair(self, export=None, *, cost=25, changed_nav=False):
+        from tests.nav_metrics_v2_smoke import rows,context as nav_context,binding as nav_binding,frame
+        from tools import nav_metrics_v2 as nav
+        export=export or self.replay_export()
+        reports={};bindings={}
+        for i,arm in enumerate(a5.REPLAY_ARMS):
+            data=rows((99950.0,100050.0 if changed_nav and i else 99950.0,100050.0 if changed_nav and i else 99950.0))
+            ctx=nav_context(data,anchor_nav=100000)
+            report=nav.calculate_frame(frame(data),ctx,valuation_binding=nav_binding(data))
+            report.update(execution_status="completed",trade_count=1,cost_bps_per_side=cost,
+                          **{k:v for k,v in export["replay_requirements"].items()
+                             if k!="model_cost_bps_per_side"})
+            reports[arm]=report
+            binding=dict(schema="a5-fixed-target-replay-binding-v1",arm=arm,export_sha256=digest(export),
+                target_rows_sha256=export["target_rows_sha256_by_arm"][arm],metrics_sha256=digest(report),
+                measurement_context_sha256=report["measurement_context_sha256"],
+                valuation_binding_sha256=report["valuation_binding_provenance"]["sha256"])
+            for key in ("price_input_sha256","identity_sha256","source_pit_binding_sha256","cash_policy_sha256",
+                        "execution_policy_sha256","session_grid_sha256"):
+                binding[key]=digest({"synthetic":key})
+            bindings[arm]=binding
+        return export,reports,bindings
+
+    def pair(self,export,reports,bindings,*,cost=25):
+        return a5.compare_model_replay_reports(export,reports,bindings,expected_export_sha256=digest(export),
+            expected_report_sha256_by_arm={a:digest(r) for a,r in reports.items()},
+            expected_binding_sha256_by_arm={a:digest(r) for a,r in bindings.items()},cost_bps_per_side=cost)
+
+    def test_matched_E2_keeps_total_return_CAGR_and_per_arm_NAV_distinct(self):
+        export,reports,bindings=self.replay_measurement_pair(changed_nav=True)
+        result=self.pair(export,reports,bindings)
+        self.assertTrue(result["paired_measurement_ready"],result)
+        self.assertNotEqual(result["metrics"]["CONTROL"]["total_return"],result["metrics"]["CONTROL"]["cagr"])
+        self.assertGreater(result["deltas"]["ending_capital_usd"],0)
+        self.assertEqual(result["metrics"]["CONTROL"]["max_dd"],reports["CONTROL"]["max_dd"])
+        self.assertIsNone(result["metrics"]["CONTROL"]["total_fees_usd"])
+        self.assertFalse(result["economically_validated"]);self.assertFalse(result["closed_loop_policy_tested"])
+
+    def test_matched_E2_refuses_one_failed_arm_and_shared_policy_drift_atomically(self):
+        from tools import nav_metrics_v2 as nav
+        for kind in ("blocked","legacy","RF","cash","price","cost","variable_cost","window","binding","authority"):
+            export,reports,bindings=self.replay_measurement_pair()
+            r=reports["COST_AWARE_LONG_ONLY"];b=bindings["COST_AWARE_LONG_ONLY"]
+            if kind=="blocked":r.update(nav.blocked("ORIGINAL_MISSING"))
+            elif kind=="legacy":r["status"]="completed"
+            elif kind=="RF":r["status"]=nav.PARTIAL_RAW_ONLY;r["metric_admission_complete"]=False
+            elif kind=="cash":r["cash_carry_haircut_bps"]=50
+            elif kind=="price":b["price_input_sha256"]="f"*64
+            elif kind=="cost":r["cost_bps_per_side"]=50
+            elif kind=="variable_cost":
+                r.update(execution_cost_mode="spread_adv_impact",
+                         execution_cost_config=dict(mode="spread_adv_impact",enabled=True))
+            elif kind=="window":r["start_date"]="2026-01-06"
+            elif kind=="binding":b["target_rows_sha256"]="f"*64
+            else:r["valid_for_production"]=True
+            b["metrics_sha256"]=digest(r)
+            with self.subTest(kind=kind):
+                result=self.pair(export,reports,bindings)
+                self.assertEqual(result["status"],"BLOCKED",result)
+                self.assertIsNone(result["metrics"]);self.assertIsNone(result["deltas"])
+                self.assertFalse(result["paired_measurement_ready"])
+
+    def test_fixed_target_cost_stress_is_not_reoptimization_and_never_recharges_NAV(self):
+        export,reports,bindings=self.replay_measurement_pair(cost=50)
+        out=self.pair(export,reports,bindings,cost=50)
+        self.assertTrue(out["paired_measurement_ready"],out)
+        self.assertEqual(out["cost_relation"],"FIXED_TARGET_COST_STRESS_NO_REOPTIMIZATION")
+        self.assertEqual(out["metrics"]["CONTROL"]["ending_capital_usd"],99950)
+        self.assertEqual(out["deltas"]["total_return"],0)
+        self.assertIn("NOT_CHARGED_AGAIN",out["fee_application"])
+        from tools.execution_cost_model import EXECUTION_COST_MODE_FIXED
+        for arm in a5.REPLAY_ARMS:
+            reports[arm].update(execution_cost_mode=EXECUTION_COST_MODE_FIXED,
+                execution_cost_config=dict(mode=EXECUTION_COST_MODE_FIXED,enabled=False))
+            bindings[arm]["metrics_sha256"]=digest(reports[arm])
+        self.assertTrue(self.pair(export,reports,bindings,cost=50)["paired_measurement_ready"])
+
+
+    def test_export_to_existing_E2_replay_keeps_cash_exit_and_cost_once(self):
+        import pandas as pd
+        import pandas_market_calendars as mcal
+        from tools import run_broker_ledger_replay as broker,nav_metrics_v2 as nav
+        from tests.broker_cash_carry_smoke import _write_px
+        from tests.nav_metrics_v2_smoke import context as nav_context,binding as nav_binding
+        from datetime import timedelta
+        originals=[self.replay_original(weights={a:{"US:FTI":.2} for a in a5.REPLAY_ARMS}),
+                   self.replay_original("2026-01-05",intent="NO_ENTRY_HOLD_CASH",
+                                        weights={a:{} for a in a5.REPLAY_ARMS})]
+        export=self.replay_export(originals);ending=[]
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);cache=root/"prices";cache.mkdir()
+            for ticker in ("FTI","SPY"):_write_px(cache,ticker,[100.0]*4)
+            rates=root/"rates.csv";rates.write_text("DATE,DGS3MO\n2025-12-31,0\n",encoding="utf8")
+            cash=broker.CashCarryConfig(mode=broker.CASH_CARRY_MODE_RISK_FREE,rate_source="DGS3MO",
+                rate_lag_days=1,haircut_bps=0,day_count=365,rate_path=rates)
+            paths={}
+            for arm in a5.REPLAY_ARMS:
+                paths[arm]=root/(arm+".csv");pd.DataFrame(export["arms"][arm]).to_csv(paths[arm],index=False)
+            for cost in (25,50,100):
+                base=root/("base"+str(cost))
+                def replay(arm,out,ctx=None):
+                    return broker.replay(target_book=paths[arm],price_cache=cache,output_dir=out,
+                        portfolio_kind="main",starting_capital=100000,fill_mode="next_close",
+                        cost_bps=cost,integer_shares=True,disable_concentrated_champion_filter=True,
+                        evidence_end_date="2026-01-07",cash_carry_config=cash,reserve_mode="DGS3MO_CARRY",
+                        measurement_context=ctx)
+                before=replay("CONTROL",base)
+                self.assertEqual(before["status"],"completed",before)
+                curve=pd.read_csv(base/"equity_curve.csv")
+                schedule=mcal.get_calendar("NYSE").schedule(start_date=curve["date"].iloc[0],end_date=curve["date"].iloc[-1])
+                data=[dict(session=str(r["date"])[:10],timestamp=schedule.loc[pd.Timestamp(r["date"]),"market_close"].isoformat(),
+                           nav=float(r["equity_usd"])) for r in curve.to_dict("records")]
+                first=pd.Timestamp(data[0]["session"]).date()
+                previous=mcal.get_calendar("NYSE").schedule(start_date=first-timedelta(days=10),end_date=first-timedelta(days=1))
+                ctx=nav_context(data,anchor_nav=100000,anchor_time=previous["market_close"].iloc[-1].isoformat())
+                package={"full":ctx,"valuation_binding":nav_binding(data)}
+                _,_,bindings=self.replay_measurement_pair(export,cost=cost)
+                reports={}
+                for arm in a5.REPLAY_ARMS:
+                    out=root/(arm+str(cost));reports[arm]=replay(arm,out,package)
+                    r=reports[arm];self.assertEqual(r["status"],nav.COMPLETE,r)
+                    bindings[arm].update(metrics_sha256=digest(r),measurement_context_sha256=r["measurement_context_sha256"],
+                        valuation_binding_sha256=r["valuation_binding_provenance"]["sha256"])
+                    trades=pd.read_csv(out/nav.NAMESPACE/nav.artifact_name("trades.csv"))
+                    self.assertEqual(list(trades["side"]),["BUY","SELL"])
+                    self.assertEqual(list(trades["date"]),["2026-01-05","2026-01-06"])
+                    self.assertAlmostEqual(trades["fee_usd"].sum(),40000*cost/10000)
+                    self.assertAlmostEqual(r["ending_capital_usd"],100000-trades["fee_usd"].sum())
+                    self.assertAlmostEqual(r["max_dd"],r["total_return"])
+                result=self.pair(export,reports,bindings,cost=cost)
+                self.assertTrue(result["paired_measurement_ready"],result)
+                self.assertEqual(result["deltas"]["total_return"],0)
+                ending.append(result["metrics"]["CONTROL"]["ending_capital_usd"])
+        self.assertGreater(ending[0],ending[1]);self.assertGreater(ending[1],ending[2])
+
+
 if __name__=="__main__":unittest.main()
