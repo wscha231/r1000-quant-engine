@@ -24,6 +24,7 @@ from tools.macro_history_sources import digest,encoded,exclusive
 
 MAX_STATE_FILES=5000
 MAX_CHECKPOINT_BYTES=8*1024**2
+SCOPES=("A4_ONLY", "A4_A5")
 
 
 def store_checkpoint(path, value):
@@ -86,7 +87,9 @@ def load_learning(root, expected_policy_sha256):
 
 
 def run_cycle(*, input_root, state_root, output_dir, cutoff,
-              learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None,learning_input_root=None):
+              learning_policy_sha256=None,a5_policy_sha256=None,code_sha=None,learning_input_root=None,
+              scope="A4_A5"):
+    market.need(scope in SCOPES,"A4_RESEARCH_SCOPE")
     root,state,out=Path(input_root),Path(state_root),Path(output_dir)
     learn_root=Path(learning_input_root) if learning_input_root is not None else root
     market.need(not any(p.is_symlink() for path in (root,state,out,learn_root) for p in (path,*path.parents)),"A4_ROOT_SYMLINK")
@@ -100,13 +103,15 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     try:
         raw_pin=market.bounded(root/"request.sha256",128).decode("ascii").strip()
     except (OSError,ValueError,UnicodeError):raw_pin=None
-    from tools import a5_model_portfolio as a5
+    a5=None
     a5_request=None;replay_cutoff=cutoff
-    try:
-        a5_request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
-        replay_cutoff=a5.decision_cutoff(root,a5_request,expected_policy_sha256=a5_policy_sha256,execution_at=cutoff)
-    except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
-        a5_request=None
+    if scope=="A4_A5":
+        from tools import a5_model_portfolio as a5
+        try:
+            a5_request=market.clock.decode(market.bounded(root/"a5_request.json",256*1024))
+            replay_cutoff=a5.decision_cutoff(root,a5_request,expected_policy_sha256=a5_policy_sha256,execution_at=cutoff)
+        except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+            a5_request=None
     try:
         # Replay at the fixed decision while checking freshness and expiry at
         # actual execution time. Never refresh a past graph's timestamp/hash.
@@ -173,30 +178,39 @@ def run_cycle(*, input_root, state_root, output_dir, cutoff,
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         blockers.append("LEARNING_INPUT_POLICY_STATE_OR_ORIGINALS_NOT_VERIFIED")
         plan=learning.cadence(cutoff)
-    portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
-    try:
-        market.need(a5_request is not None,"A5_FIXED_DECISION_NOT_VERIFIED")
-        portfolio=a5.load_and_build(root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
-                                    execution_at=cutoff)
-    except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
-        pass
-    exclusive(out/"model_portfolio.json",encoded(portfolio))
-    exclusive(out/"model_portfolio.md",a5.render(portfolio).encode("utf-8"))
-    if portfolio["status"]=="RESEARCH_PROPOSAL":
-        exclusive(state/"model_proposals"/(portfolio["proposal_sha256"]+".json"),encoded(portfolio))
+    portfolio=None
+    if a5 is not None:
+        portfolio=a5.blocked(cutoff,["CURRENT_A5_MODEL_REQUEST_AND_REVIEWED_INPUTS_REQUIRED"])
+        try:
+            market.need(a5_request is not None,"A5_FIXED_DECISION_NOT_VERIFIED")
+            portfolio=a5.load_and_build(root,a5_request,report,expected_policy_sha256=a5_policy_sha256,code_sha=code_sha,
+                                        execution_at=cutoff)
+        except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
+            pass
+        exclusive(out/"model_portfolio.json",encoded(portfolio))
+        exclusive(out/"model_portfolio.md",a5.render(portfolio).encode("utf-8"))
+        if portfolio["status"]=="RESEARCH_PROPOSAL":
+            exclusive(state/"model_proposals"/(portfolio["proposal_sha256"]+".json"),encoded(portfolio))
     exclusive(out/"market_analysis.json",encoded(report))
     exclusive(out/"market_analysis.md",market.render_report(report).encode("utf-8"))
     if learning_context is not None:
         exclusive(out/"learning_context.json",encoded(learning_context))
     cycle=dict(schema="a4-cloud-research-cycle-v1",cutoff=cutoff,decision_cutoff=report["cutoff"],market_session=report["session"],
         market_status=report["status"],learning_status=status,learning_blockers=blockers,
-        a5_status=portfolio["status"],a5_blockers=portfolio.get("reasons",[]),
+        scope=scope,completion_scope="A4_CYCLE" if scope=="A4_ONLY" else "A4_A5_CYCLE",
+        a5_status=portfolio["status"] if portfolio is not None else "NOT_REQUESTED",
+        a5_blockers=portfolio.get("reasons",[]) if portfolio is not None else [],
+        a5_executed=a5 is not None,fixed_forecast_count=len(predictions),
+        quantitative_outlook_status=("BLOCKED" if blockers else
+                                     "REVIEWED_FIXED_RELEASE" if predictions else "INSUFFICIENT_EVIDENCE"),
         cadence=plan,events=events,source_collection_requests=0,
         process_host_dependency="GITHUB_HOSTED_RUNNER_ONLY",durable_remote_verified=False,
         accepted_model_changed=False,accepted_portfolio_changed=False,orders_generated=False)
-    complete=(report.get("schema")=="market-analysis-report-v2" and report["status"]=="READY_RESEARCH_ONLY"
-              and all(report.get("enhanced_readiness",{}).values()) and not blockers
-              and portfolio["status"]=="RESEARCH_PROPOSAL")
+    a4_cycle_complete=(report.get("schema")=="market-analysis-report-v2" and report["status"]=="READY_RESEARCH_ONLY"
+                 and bool(report.get("enhanced_readiness"))
+                 and all(report["enhanced_readiness"].values()) and not blockers)
+    cycle["a4_cycle_status"]="COMPLETE_RESEARCH_ONLY" if a4_cycle_complete else "PARTIAL_RESEARCH"
+    complete=a4_cycle_complete and (scope=="A4_ONLY" or portfolio["status"]=="RESEARCH_PROPOSAL")
     cycle["status"]="COMPLETE_RESEARCH_ONLY" if complete else "PARTIAL_RESEARCH"
     exclusive(out/"cycle.json",encoded(cycle))
     return cycle
@@ -209,14 +223,16 @@ def main():
     parser.add_argument("--state-root",required=True)
     parser.add_argument("--output-dir",required=True)
     parser.add_argument("--cutoff",default=None)
+    parser.add_argument("--scope",choices=SCOPES,default="A4_A5")
     args=parser.parse_args()
     cutoff=args.cutoff or datetime.now(timezone.utc).isoformat()
     try:
         result=run_cycle(input_root=args.input_root,state_root=args.state_root,output_dir=args.output_dir,
                          cutoff=cutoff,learning_policy_sha256=os.environ.get("A4_LEARNING_POLICY_SHA256"),
-                         a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256"),code_sha=os.environ.get("GITHUB_SHA"),
-                         learning_input_root=args.learning_input_root)
-        print(json.dumps({k:result[k] for k in ("status","market_status","learning_status","learning_blockers")}))
+                         a5_policy_sha256=os.environ.get("A5_MODEL_POLICY_SHA256") if args.scope=="A4_A5" else None,
+                         code_sha=os.environ.get("GITHUB_SHA"),learning_input_root=args.learning_input_root,scope=args.scope)
+        print(json.dumps({k:result[k] for k in ("status","scope","a4_cycle_status","market_status",
+                                              "learning_status","learning_blockers","quantitative_outlook_status")}))
         return 0 if result["status"]=="COMPLETE_RESEARCH_ONLY" else 2
     except (ValueError,OSError,KeyError,TypeError,OverflowError,RecursionError):
         print('{"status":"BLOCKED","blocker":"A4_RESEARCH_ATTEMPT_INVALID"}')

@@ -21,6 +21,80 @@ NOW="2026-11-07T10:00:00Z"
 
 
 class CloudTests(unittest.TestCase):
+    def test_a4_only_never_reads_a5_packet_or_writes_portfolio_history(self):
+        from tools import a5_model_portfolio as a5
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);inputs=root/'inputs';inputs.mkdir();state=root/'state'
+            # A restored A5 packet must not select a different A4 replay clock.
+            (inputs/'a5_request.json').write_bytes(b'poisoned optional A5 packet')
+            history=state/'model_proposals'/'old.json';history.parent.mkdir(parents=True)
+            history.write_bytes(b'previous independent model proposal')
+            bounded=cycle.market.bounded
+            def read(path,limit):
+                self.assertNotEqual(path.name,'a5_request.json')
+                return bounded(path,limit)
+            with patch.object(cycle.market,'bounded',side_effect=read), \
+                 patch.object(a5,'decision_cutoff',side_effect=AssertionError('A5 clock called')), \
+                 patch.object(a5,'load_and_build',side_effect=AssertionError('A5 allocator called')):
+                result=cycle.run_cycle(input_root=inputs,state_root=state,output_dir=root/'attempt',
+                                       cutoff=NOW,scope='A4_ONLY')
+            self.assertEqual(result['decision_cutoff'],NOW)
+            self.assertEqual(result['a5_status'],'NOT_REQUESTED')
+            self.assertFalse(result['a5_executed'])
+            self.assertEqual(result['a5_blockers'],[])
+            self.assertEqual(result['a4_cycle_status'],'PARTIAL_RESEARCH')
+            self.assertEqual(result['market_status'],'DATA_BLOCKED')
+            self.assertEqual(result['quantitative_outlook_status'],'BLOCKED')
+            self.assertFalse(list((root/'attempt').glob('model_portfolio.*')))
+            self.assertEqual(history.read_bytes(),b'previous independent model proposal')
+            self.assertEqual(list(state.rglob('*.json')),[history])
+
+    def test_a4_and_combined_completion_have_separate_scope(self):
+        p,policy,resolve=fixture()
+        cutoff=(learning.free.utc(p['cutoff'])+timedelta(minutes=20)).isoformat()
+        # Isolate orchestration from Source/rights admission. This synthetic
+        # gate result is never actual input, learning or forecast evidence.
+        ready=dict(schema='market-analysis-report-v2',status='READY_RESEARCH_ONLY',
+                   cutoff=cutoff,session=p['sessions'][-1]['session'],
+                   enhanced_readiness=dict(funding=True,liquidity=True,bank_credit=True,macro=True))
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);inputs=root/'inputs';inputs.mkdir()
+            (inputs/'request.json').write_bytes(b'synthetic orchestration only')
+            (inputs/'request.sha256').write_text('a'*64)
+            with patch.object(cycle.market,'verify_request'), \
+                 patch.object(cycle.market,'load_report',return_value=ready), \
+                 patch.object(cycle.market,'render_report',return_value='synthetic orchestration only'), \
+                 patch.object(cycle,'load_learning',return_value=(p,policy,resolve)):
+                for scope in cycle.SCOPES:
+                    result=cycle.run_cycle(input_root=inputs,state_root=root/(scope+'-state'),
+                        output_dir=root/scope,cutoff=cutoff,scope=scope)
+                    self.assertEqual(result['a4_cycle_status'],'COMPLETE_RESEARCH_ONLY')
+                    self.assertEqual(result['quantitative_outlook_status'],'INSUFFICIENT_EVIDENCE')
+                    self.assertEqual(result['fixed_forecast_count'],0)
+                    self.assertFalse(result['accepted_model_changed'])
+                    self.assertFalse(result['durable_remote_verified'])
+                    if scope=='A4_ONLY':
+                        self.assertEqual(result['status'],'COMPLETE_RESEARCH_ONLY')
+                        self.assertEqual(result['completion_scope'],'A4_CYCLE')
+                    else:
+                        self.assertEqual(result['status'],'PARTIAL_RESEARCH')
+                        self.assertEqual(result['completion_scope'],'A4_A5_CYCLE')
+                        self.assertEqual(result['a5_status'],'BLOCKED')
+                        self.assertTrue((root/scope/'model_portfolio.json').is_file())
+                ready['enhanced_readiness']['macro']=False
+                result=cycle.run_cycle(input_root=inputs,state_root=root/'partial-state',
+                    output_dir=root/'partial',cutoff=cutoff,scope='A4_ONLY')
+                self.assertEqual(result['status'],'PARTIAL_RESEARCH')
+                self.assertEqual(result['a4_cycle_status'],'PARTIAL_RESEARCH')
+
+    def test_invalid_scope_refuses_before_attempt_or_state_creation(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            with self.assertRaisesRegex(ValueError,'A4_RESEARCH_SCOPE'):
+                cycle.run_cycle(input_root=root/'inputs',state_root=root/'state',
+                    output_dir=root/'attempt',cutoff=NOW,scope='a4_only')
+            self.assertEqual(list(root.iterdir()),[])
+
     def test_primary_market_root_preserves_separate_reviewed_learning_bundle(self):
         p,policy,resolve=fixture();cutoff=(learning.free.utc(p['cutoff'])+timedelta(minutes=20)).isoformat()
         with tempfile.TemporaryDirectory() as d:
@@ -108,6 +182,8 @@ class CloudTests(unittest.TestCase):
         steps=job["steps"]
         run=next(s for s in steps if s.get("id")=="a4_cycle")
         self.assertIn("run_a4_research_cycle.py",run["run"])
+        self.assertIn('--scope "$A4_RESEARCH_SCOPE"',run['run'])
+        self.assertEqual(run['env']['A4_RESEARCH_SCOPE'],"${{ vars.A4_RESEARCH_SCOPE || 'A4_ONLY' }}")
         persist=next(s for s in steps if s.get("id")=="a4_persist")
         self.assertIn("--immutable",persist["run"])
         self.assertIn("rclone check",persist["run"])

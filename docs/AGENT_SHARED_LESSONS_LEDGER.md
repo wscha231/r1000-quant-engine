@@ -1,5 +1,28 @@
 # Agent Shared Lessons Ledger
 
+### 2026-11-13 KST — Finish A4 independently of the optional A5 proposal
+
+- The combined cloud cycle required an A5 proposal for overall completion and
+  read its replay clock even during A4-only work. Preserve that compatible
+  combined path, but make the hosted scope default explicitly A4_ONLY. Skip
+  the A5 packet/allocator and all portfolio files in that scope; retain previous
+  proposal history. Scope selection does not enable learning or relax A4 gates.
+- Report cycle scope separately from quantitative forecast availability. A
+  computation containing insufficient/negative trials is not a qualified model
+  or a completed fourteen-target backtest. Synthetic orchestration tests cannot
+  supply real source, rights, PIT or durable-readback evidence.
+- Latest Legacy history run43248966833 committed generation33 but was cancelled
+  during its consumer/study phase. Diagnostic artifact13968236529 contains only
+  quality.json (PARTIAL), not a completed study/execution. Its ZIP SHA256 is
+  7b6dca742512f6f3e1740f72385e3d3b6c087efca537c6aa6386d24f9073dc4b.
+  Do not reuse generation32's receipt. Legacy finalize_existing would recompute
+  the retained FRED study, so it was not dispatched while that use is blocked.
+- Rechecked the actual accepted request8d31ef17d17e1d5c at the real2026-11-12
+  execution clock. Its session2026-11-11 was refused as REQUEST_SESSION_NOT_CURRENT
+  for completed session2026-11-12. The new A4-only diagnostic kept DATA_BLOCKED,
+  learning BLOCKED and A5 NOT_REQUESTED with zero portfolio files/provider calls
+  or remote writes; it did not replay all original pairs or certify a new fit.
+
 ### 2026-11-12 KST — Native A4 handoff needs qualified current originals
 
 - The mounted legacy consumer cache contains SPY/QQQ for two of the fourteen
